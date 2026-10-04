@@ -1,26 +1,14 @@
-use once_cell::sync::Lazy;
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::Arc;
 
 use crate::common::{AsciiString, LegacyModuleData, ObjectID, UpgradeMaskType};
-use crate::modules::UpgradeModuleInterface;
-use crate::object::INVALID_ID;
+use crate::object::Object;
 use crate::object::body::body_module::ArmorSetType;
 use crate::object::draw::draw_module::TerrainDecalType;
 use crate::object::drawable::DrawableArcExt;
-use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::upgrade::upgrade_module::{
-    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade,
-};
+use crate::object::upgrade::upgrade_module::{UpgradeMuxData, mux_can_upgrade, mux_reset_upgrade};
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
-
-/// Wave 319: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
 
 /// Module data describing the armor upgrade to apply.
 #[derive(Debug, Clone)]
@@ -66,231 +54,64 @@ impl Snapshotable for ArmorUpgradeModuleData {
     }
 }
 
-/// Upgrade module that sets armor flags on the owning object.
+/// Installed execution state; authored rules are shared and immutable.
 pub struct ArmorUpgrade {
-    inner: ArmorUpgradeInner,
     module_name_key: NameKeyType,
     data: Arc<ArmorUpgradeModuleData>,
-    object_id: ObjectID,
     applied: bool,
-}
-
-#[derive(Debug)]
-struct ArmorUpgradeInner {
-    #[allow(dead_code)]
-    module_name_key: NameKeyType,
-    data: Arc<ArmorUpgradeModuleData>,
-    object_id: ObjectID,
-}
-
-type ArmorUpgradeRegistry = HashMap<ObjectID, Vec<ArmorUpgradeEntry>>;
-
-static ARMOR_UPGRADE_REGISTRY: Lazy<RwLock<ArmorUpgradeRegistry>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
-
-#[derive(Debug)]
-struct ArmorUpgradeEntry {
-    data: Weak<ArmorUpgradeModuleData>,
-    applied: bool,
-    upgrade_mask: Option<UpgradeMaskType>,
-}
-
-impl ArmorUpgradeEntry {
-    fn new(data: &Arc<ArmorUpgradeModuleData>) -> Self {
-        Self {
-            data: Arc::downgrade(data),
-            applied: false,
-            upgrade_mask: None,
-        }
-    }
-
-    #[allow(dead_code)]
-    fn upgrade(&self) -> Option<Arc<ArmorUpgradeModuleData>> {
-        self.data.upgrade()
-    }
-
-    #[allow(dead_code)]
-    fn applied(&self) -> bool {
-        self.applied
-    }
-
-    fn set_applied(&mut self, mask: UpgradeMaskType) {
-        self.applied = true;
-        self.upgrade_mask = Some(mask);
-    }
-
-    fn matches_data(&self, data: &Arc<ArmorUpgradeModuleData>) -> bool {
-        if let Some(existing) = self.data.upgrade() {
-            Arc::ptr_eq(&existing, data)
-        } else {
-            false
-        }
-    }
-
-    fn is_active(&self, active_mask: UpgradeMaskType) -> bool {
-        match self.upgrade_mask {
-            Some(mask) => active_mask.contains(mask),
-            None => true,
-        }
-    }
-
-    fn clear_applied(&mut self) {
-        self.applied = false;
-        self.upgrade_mask = None;
-    }
-}
-
-fn register_armor_upgrade(object_id: ObjectID, data: &Arc<ArmorUpgradeModuleData>) {
-    if object_id == INVALID_ID {
-        return;
-    }
-    let mut registry = ARMOR_UPGRADE_REGISTRY
-        .write()
-        .expect("armor upgrade registry poisoned");
-    registry
-        .entry(object_id)
-        .or_default()
-        .push(ArmorUpgradeEntry::new(data));
-}
-
-fn unregister_armor_upgrade(object_id: ObjectID, data: &Arc<ArmorUpgradeModuleData>) {
-    if object_id == INVALID_ID {
-        return;
-    }
-    let mut registry = ARMOR_UPGRADE_REGISTRY
-        .write()
-        .expect("armor upgrade registry poisoned");
-    if let Some(entries) = registry.get_mut(&object_id) {
-        entries.retain(|entry| !entry.matches_data(data));
-
-        if entries.is_empty() {
-            registry.remove(&object_id);
-        }
-    }
-}
-
-fn mark_armor_applied(
-    object_id: ObjectID,
-    data: &Arc<ArmorUpgradeModuleData>,
-    upgrade_mask: UpgradeMaskType,
-) {
-    if object_id == INVALID_ID {
-        return;
-    }
-    let mut registry = ARMOR_UPGRADE_REGISTRY
-        .write()
-        .expect("armor upgrade registry poisoned");
-    if let Some(entries) = registry.get_mut(&object_id) {
-        for entry in entries.iter_mut() {
-            if entry.matches_data(data) {
-                entry.set_applied(upgrade_mask);
-                break;
-            }
-        }
-    }
-}
-
-fn mark_armor_removed(
-    object_id: ObjectID,
-    data: &Arc<ArmorUpgradeModuleData>,
-    upgrade_mask: UpgradeMaskType,
-) {
-    if object_id == INVALID_ID {
-        return;
-    }
-    let mut registry = ARMOR_UPGRADE_REGISTRY
-        .write()
-        .expect("armor upgrade registry poisoned");
-    if let Some(entries) = registry.get_mut(&object_id) {
-        for entry in entries.iter_mut() {
-            if entry.matches_data(data) {
-                if let Some(mask) = entry.upgrade_mask {
-                    if mask == upgrade_mask {
-                        entry.clear_applied();
-                        break;
-                    }
-                }
-            }
-        }
-    }
-}
-
-impl ArmorUpgradeInner {
-    fn new(
-        module_name_key: NameKeyType,
-        data: Arc<ArmorUpgradeModuleData>,
-        object_id: ObjectID,
-    ) -> Self {
-        register_armor_upgrade(object_id, &data);
-        Self {
-            module_name_key,
-            data,
-            object_id,
-        }
-    }
-
-    /// Apply armor upgrade to object
-    /// Matches C++ ArmorUpgrade::upgradeImplementation from ArmorUpgrade.cpp lines 63-81
-    fn apply_armor(&self, _upgrade_mask: UpgradeMaskType) -> Result<(), String> {
-        // Wave 319: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
-        let apply_chem = self
-            .data
-            .upgrade_mux_data
-            .is_triggered_by("Upgrade_AmericaChemicalSuits");
-        match OBJECT_REGISTRY.with_object_mut(self.object_id, |object| -> Result<(), String> {
-            mux_give_self_upgrade(&self.data.upgrade_mux_data, object);
-            // C++ ArmorUpgrade::upgradeImplementation (ArmorUpgrade.cpp:63-81)
-            if let Some(body) = &object.get_body_module() {
-                let mut body_guard = body
-                    .lock()
-                    .map_err(|_| "ArmorUpgrade failed to lock body".to_string())?;
-
-                body_guard
-                    .set_armor_set_flag(ArmorSetType::PlayerUpgrade)
-                    .map_err(|e| format!("ArmorUpgrade failed to set armor: {:?}", e))?;
-            }
-
-            if apply_chem {
-                if let Some(drawable) = object.get_drawable() {
-                    drawable.set_terrain_decal(TerrainDecalType::ChemSuit);
-                }
-            }
-            Ok(())
-        }) {
-            None => Ok(()),
-            Some(Ok(())) => Ok(()),
-            Some(Err(e)) => Err(e),
-        }
-    }
-
-    fn remove_armor(&self) -> Result<(), String> {
-        Ok(())
-    }
 }
 
 impl ArmorUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
         data: Arc<ArmorUpgradeModuleData>,
-        object_id: ObjectID,
+        _object_id: ObjectID,
     ) -> Self {
-        let data_clone = Arc::clone(&data);
-        let inner = ArmorUpgradeInner::new(module_name_key, data, object_id);
         Self {
-            inner,
             module_name_key,
-            data: data_clone,
-            object_id,
+            data,
             applied: false,
         }
     }
 
-    fn with_inner<R>(&mut self, f: impl FnOnce(&mut ArmorUpgradeInner) -> R) -> R {
-        f(&mut self.inner)
+    pub(crate) fn can_upgrade(&self, mask: UpgradeMaskType) -> bool {
+        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, mask)
+    }
+
+    pub(crate) fn prepare_upgrade(
+        &self,
+        mask: UpgradeMaskType,
+    ) -> Option<Arc<ArmorUpgradeModuleData>> {
+        self.can_upgrade(mask).then(|| Arc::clone(&self.data))
+    }
+
+    pub(crate) fn remove_upgrade(&mut self, mask: UpgradeMaskType) {
+        // C++ resetUpgrade clears execution; armor and decal are not undone.
+        mux_reset_upgrade(&self.data.upgrade_mux_data, &mut self.applied, mask);
+    }
+
+    pub(crate) fn finish_upgrade(&mut self) {
+        self.applied = true;
+    }
+}
+
+impl ArmorUpgradeModuleData {
+    /// C++ ArmorUpgrade::upgradeImplementation, after FX and removals.
+    /// Called with the actual owner and no installed upgrade module guard.
+    pub(crate) fn apply_to_object(&self, owner: &mut Object) {
+        if let Some(body) = owner.get_body_module() {
+            let mut body = body.lock().expect("ArmorUpgrade body poisoned");
+            body.set_armor_set_flag(ArmorSetType::PlayerUpgrade)
+                .expect("ArmorUpgrade body armor setter failed");
+        }
+        if self
+            .upgrade_mux_data
+            .is_triggered_by("Upgrade_AmericaChemicalSuits")
+        {
+            if let Some(drawable) = owner.get_drawable() {
+                drawable.set_terrain_decal_for_object(TerrainDecalType::ChemSuit, owner);
+            }
+        }
     }
 }
 
@@ -318,21 +139,15 @@ impl Module for ArmorUpgrade {
 
 impl Snapshotable for ArmorUpgrade {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let current_version: u8 = 1;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)
-            .map_err(|e| e.to_string())?;
-        crate::object::upgrade::upgrade_module::crc_upgrade_module_state(xfer, self.applied)?;
-        Ok(())
+        crate::object::upgrade::upgrade_module::crc_upgrade_module_state(xfer, self.applied)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let current_version: u8 = 1;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)
-            .map_err(|e| e.to_string())?;
-        crate::object::upgrade::upgrade_module::xfer_upgrade_module_state(xfer, &mut self.applied)?;
-        Ok(())
+        crate::object::upgrade::upgrade_module::xfer_upgrade_module_with_version(
+            xfer,
+            &mut self.applied,
+            "ArmorUpgrade",
+        )
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
@@ -340,149 +155,5 @@ impl Snapshotable for ArmorUpgrade {
     }
 }
 
-impl UpgradeModuleInterface for ArmorUpgrade {
-    /// Check if upgrade can be applied
-    /// Matches C++ UpgradeMux::wouldUpgrade logic from UpgradeModule.cpp lines 105-137
-    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
-        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
-    }
-
-    fn apply_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
-        let applied = self.with_inner(|inner| {
-            if inner.apply_armor(upgrade_mask).is_ok() {
-                mark_armor_applied(inner.object_id, &inner.data, upgrade_mask);
-                true
-            } else {
-                false
-            }
-        });
-        if applied {
-            self.applied = true;
-        }
-        applied
-    }
-
-    fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
-        // C++ resetUpgrade does not undo armor; only clear executed.
-        let _ = crate::object::upgrade::upgrade_module::mux_reset_upgrade(
-            &self.data.upgrade_mux_data,
-            &mut self.applied,
-            upgrade_mask,
-        );
-    }
-}
-
-impl Drop for ArmorUpgrade {
-    fn drop(&mut self) {
-        unregister_armor_upgrade(self.object_id, &self.data);
-    }
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::common::UpgradeMaskType;
-    use crate::object::Object;
-    use crate::object::registry::OBJECT_REGISTRY;
-    use crate::upgrade::UpgradeTemplate;
-    use game_engine::common::thing::module::NameKeyType;
-    use once_cell::sync::Lazy;
-    use std::sync::Mutex;
-    use std::sync::{Arc, RwLock};
-
-    static TEST_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
-
-    fn clear_registry_for_test() {
-        ARMOR_UPGRADE_REGISTRY
-            .write()
-            .expect("armor upgrade registry poisoned")
-            .clear();
-    }
-
-    #[test]
-    fn armor_upgrade_applies_to_body() {
-        let _guard = TEST_LOCK.lock().expect("armor upgrade test lock poisoned");
-        clear_registry_for_test();
-
-        let object_id: ObjectID = 1000;
-        let object_handle = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
-        OBJECT_REGISTRY.register_object(object_id, &object_handle);
-
-        let data_arc = Arc::new(ArmorUpgradeModuleData::default());
-
-        let upgrade = UpgradeTemplate::new(AsciiString::from("TestArmorUpgrade"));
-        let upgrade_mask = UpgradeMaskType::from_bits_retain(upgrade.mask().to_bits());
-
-        let mut module = ArmorUpgrade::new(NameKeyType::default(), data_arc, object_id);
-        assert!(module.apply_upgrade(upgrade_mask));
-
-        {
-            let object = object_handle.read().expect("lock object");
-            if let Some(body) = object.get_body() {
-                let body_guard = body.lock().expect("lock body");
-                assert!(body_guard.test_armor_set_flag(ArmorSetType::PlayerUpgrade));
-            } else {
-                panic!("Object should have a body");
-            }
-        }
-
-        OBJECT_REGISTRY.unregister_object(object_id);
-        clear_registry_for_test();
-    }
-
-    #[test]
-    fn armor_upgrade_removes_correctly() {
-        let _guard = TEST_LOCK.lock().expect("armor upgrade test lock poisoned");
-        clear_registry_for_test();
-
-        let object_id: ObjectID = 1001;
-        let object_handle = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
-        OBJECT_REGISTRY.register_object(object_id, &object_handle);
-
-        let data_arc = Arc::new(ArmorUpgradeModuleData::default());
-
-        let upgrade = UpgradeTemplate::new(AsciiString::from("TestArmorRemove"));
-        let upgrade_mask = UpgradeMaskType::from_bits_retain(upgrade.mask().to_bits());
-
-        let mut module = ArmorUpgrade::new(NameKeyType::default(), data_arc, object_id);
-        assert!(module.apply_upgrade(upgrade_mask));
-
-        module.remove_upgrade(upgrade_mask);
-
-        {
-            let object = object_handle.read().expect("lock object");
-            if let Some(body) = object.get_body() {
-                let body_guard = body.lock().expect("lock body");
-                // C++ ArmorUpgrade has no remove implementation; flag remains set.
-                assert!(body_guard.test_armor_set_flag(ArmorSetType::PlayerUpgrade));
-            }
-        }
-
-        OBJECT_REGISTRY.unregister_object(object_id);
-        clear_registry_for_test();
-    }
-
-    #[test]
-    fn chem_suit_decal_uses_module_triggered_by() {
-        let mut chem = ArmorUpgradeModuleData::default();
-        chem.upgrade_mux_data
-            .activation_upgrade_names
-            .push(AsciiString::from("Upgrade_AmericaChemicalSuits"));
-        assert!(
-            chem.upgrade_mux_data
-                .is_triggered_by("Upgrade_AmericaChemicalSuits")
-        );
-
-        let other = ArmorUpgradeModuleData::default();
-        assert!(
-            !other
-                .upgrade_mux_data
-                .is_triggered_by("Upgrade_AmericaChemicalSuits")
-        );
-        assert!(!mux_can_upgrade(
-            &other.upgrade_mux_data,
-            false,
-            UpgradeMaskType::from_bits_retain(1)
-        ));
-    }
-}
+mod tests;

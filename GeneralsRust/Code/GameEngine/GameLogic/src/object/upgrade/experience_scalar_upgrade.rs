@@ -1,10 +1,7 @@
 use std::sync::Arc;
 
 use crate::common::{LegacyModuleData, ObjectID, Real, UpgradeMaskType};
-use crate::modules::UpgradeModuleInterface;
-use crate::object::upgrade::upgrade_module::{
-    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
-};
+use crate::object::upgrade::upgrade_module::{UpgradeMuxData, mux_can_upgrade, mux_reset_upgrade};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
@@ -66,7 +63,6 @@ impl Snapshotable for ExperienceScalarUpgradeModuleData {
 pub struct ExperienceScalarUpgrade {
     module_name_key: NameKeyType,
     data: Arc<ExperienceScalarUpgradeModuleData>,
-    object_id: ObjectID,
     applied: bool,
 }
 
@@ -74,12 +70,11 @@ impl ExperienceScalarUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
         data: Arc<ExperienceScalarUpgradeModuleData>,
-        object_id: ObjectID,
+        _object_id: ObjectID,
     ) -> Self {
         Self {
             module_name_key,
             data,
-            object_id,
             applied: false,
         }
     }
@@ -109,9 +104,7 @@ impl Module for ExperienceScalarUpgrade {
 
 impl Snapshotable for ExperienceScalarUpgrade {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|err| format!("{:?} crc version: {err:?}", std::any::type_name::<Self>()))?;
+        // C++ derived CRC delegates to the base; only UpgradeMux contributes bytes.
         crate::object::upgrade::upgrade_module::crc_upgrade_module_state(xfer, self.applied)
     }
 
@@ -128,50 +121,36 @@ impl Snapshotable for ExperienceScalarUpgrade {
     }
 }
 
-impl UpgradeModuleInterface for ExperienceScalarUpgrade {
-    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
-        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
+impl ExperienceScalarUpgrade {
+    pub(crate) fn can_upgrade(&self, mask: UpgradeMaskType) -> bool {
+        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, mask)
     }
 
-    fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
-        if self.applied {
-            return false;
-        }
+    /// Release the installed module before synchronous FX, removals, and owner effects.
+    pub(crate) fn prepare_upgrade(
+        &self,
+        mask: UpgradeMaskType,
+    ) -> Option<Arc<ExperienceScalarUpgradeModuleData>> {
+        self.can_upgrade(mask).then(|| Arc::clone(&self.data))
+    }
 
-        if self.applied {
-            return false;
-        }
-        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
-        use crate::object::registry::OBJECT_REGISTRY;
+    pub(crate) fn remove_upgrade(&mut self, mask: UpgradeMaskType) {
+        // C++ resetUpgrade only clears execution; it does not undo the added scalar.
+        mux_reset_upgrade(&self.data.upgrade_mux_data, &mut self.applied, mask);
+    }
 
-        let add = self.data.add_xp_scalar();
-        let Some(found) = OBJECT_REGISTRY.with_object_mut(self.object_id, |object_guard| {
-            object_guard
-                .with_experience_tracker_mut(|tracker_guard| {
-                    let current_scalar = tracker_guard.get_experience_scalar();
-                    tracker_guard.set_experience_scalar(current_scalar + add);
-                })
-                .is_some()
-        }) else {
-            log::warn!(
-                "ExperienceScalarUpgrade: Object {} not found",
-                self.object_id
-            );
-            return false;
-        };
-        let _ = found;
-
+    pub(crate) fn finish_upgrade(&mut self) {
+        // C++ commits after upgradeImplementation even when no tracker exists.
         self.applied = true;
-        true
     }
+}
 
-    fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
-        // C++ does not remove the added XP scalar; resetUpgrade only clears executed.
-        let _ = crate::object::upgrade::upgrade_module::mux_reset_upgrade(
-            &self.data.upgrade_mux_data,
-            &mut self.applied,
-            upgrade_mask,
-        );
+impl ExperienceScalarUpgradeModuleData {
+    pub(crate) fn apply_to_object(&self, owner: &mut crate::object::Object) {
+        // ExperienceScalarUpgrade.cpp:59–66 adds to this owner's existing scalar.
+        let _ = owner.with_experience_tracker_mut(|tracker| {
+            tracker.set_experience_scalar(tracker.get_experience_scalar() + self.add_xp_scalar);
+        });
     }
 }
 
@@ -196,3 +175,7 @@ const EXPERIENCE_SCALAR_UPGRADE_FIELDS: &[FieldParse<ExperienceScalarUpgradeModu
         token: "AddXPScalar",
         parse: parse_add_xp_scalar_field,
     },);
+
+#[cfg(test)]
+#[path = "experience_scalar_upgrade/tests.rs"]
+mod ownership_tests;

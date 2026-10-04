@@ -300,11 +300,6 @@ pub use crate::game_logic::host_live_collision_system_dual_world_empty_gate_resi
     honesty_live_collision_system_dual_world_empty_gate_nav_commands_residual_wave313,
     simulate_live_collision_system_dual_world_empty_gate_honesty,
 };
-pub use crate::game_logic::host_live_max_health_upgrade_dual_world_empty_gate_residual_wave314::{
-    honesty_live_max_health_upgrade_dual_world_empty_gate_method_names_residual_wave314,
-    honesty_live_max_health_upgrade_dual_world_empty_gate_nav_commands_residual_wave314,
-    simulate_live_max_health_upgrade_dual_world_empty_gate_honesty,
-};
 pub use crate::game_logic::host_live_structure_topple_dual_world_empty_gate_residual_wave315::{
     honesty_live_structure_topple_dual_world_empty_gate_method_names_residual_wave315,
     honesty_live_structure_topple_dual_world_empty_gate_nav_commands_residual_wave315,
@@ -324,11 +319,6 @@ pub use crate::game_logic::host_live_bridge_tower_dual_world_empty_gate_residual
     honesty_live_bridge_tower_dual_world_empty_gate_method_names_residual_wave318,
     honesty_live_bridge_tower_dual_world_empty_gate_nav_commands_residual_wave318,
     simulate_live_bridge_tower_dual_world_empty_gate_honesty,
-};
-pub use crate::game_logic::host_live_armor_upgrade_dual_world_empty_gate_residual_wave319::{
-    honesty_live_armor_upgrade_dual_world_empty_gate_method_names_residual_wave319,
-    honesty_live_armor_upgrade_dual_world_empty_gate_nav_commands_residual_wave319,
-    simulate_live_armor_upgrade_dual_world_empty_gate_honesty,
 };
 pub use crate::game_logic::host_live_paradrop_power_dual_world_empty_gate_residual_wave320::{
     honesty_live_paradrop_power_dual_world_empty_gate_method_names_residual_wave320,

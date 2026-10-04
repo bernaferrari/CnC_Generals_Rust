@@ -5,6 +5,8 @@
 
 #[path = "drawable_core.rs"]
 mod drawable_core;
+#[path = "drawable_deletion.rs"]
+mod drawable_deletion;
 #[path = "drawable_extensions.rs"]
 mod drawable_extensions;
 #[path = "drawable_physics_visual.rs"]
@@ -20,6 +22,7 @@ mod drawable_transform;
 #[path = "drawable_update.rs"]
 mod drawable_update;
 
+pub(crate) use drawable_deletion::clear_drawable_modules;
 pub(crate) use drawable_extensions::DrawableThingHandle;
 pub use drawable_extensions::{DrawableArcExt, DrawableExt, ProjectileLaunchOffset};
 
@@ -34,7 +37,8 @@ use crate::helpers::{
 };
 use crate::object::body::body_module::BodyDamageType;
 use crate::object::draw::draw_module::{
-    DebrisDrawInterface, DrawModule, ObjectDrawInterface, RGBColor, ShadowType,
+    DebrisDrawInterface, DrawModule, DrawModuleBindingContext, ModelDrawContext,
+    ObjectDrawInterface, RGBColor, ShadowType,
 };
 use crate::object::draw::{
     TerrainDecalType, W3DDebrisDraw, W3DDebrisDrawModuleData, object_should_animate,

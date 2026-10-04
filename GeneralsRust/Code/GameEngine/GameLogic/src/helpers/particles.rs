@@ -274,6 +274,12 @@ fn get_animation_metadata_hook() -> Option<&'static AnimationMetadataHook> {
 }
 
 impl TheParticleSystemManager {
+    /// Capture the already-installed bridge for one synchronous owner operation.
+    /// This is a borrow only; it creates no manager, allocation, or publication.
+    pub(crate) fn borrowed_manager(&self) -> Option<&dyn ParticleSystemManagerInterface> {
+        get_particle_system_manager().map(Arc::as_ref)
+    }
+
     pub fn get() -> Option<&'static Self> {
         static MGR: OnceLock<TheParticleSystemManager> = OnceLock::new();
         Some(MGR.get_or_init(|| TheParticleSystemManager))

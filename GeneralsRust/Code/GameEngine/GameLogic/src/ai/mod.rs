@@ -3227,11 +3227,20 @@ impl Pathfinder {
     /// object. Destruction calls this while holding that object's write guard,
     /// so it must not resolve the ObjectID through OBJECT_REGISTRY again.
     pub(crate) fn remove_object_from_map_at_positions(&mut self, positions: &[Coord3D]) {
-        // Match the ID-based entry point's host-only empty-registry behavior.
-        if dual_world_registry_unavailable() {
-            return;
-        }
+        // The driving caller already resolved its exact Object footprint.
+        // C++ AIPathfind.h:889-897 needs no object-registry availability test.
         self.clear_object_from_map_positions(positions);
+    }
+
+    /// Insert the footprint already borrowed from the driving Object, without
+    /// rediscovering a possibly different same-ID owner or taking its lock.
+    /// Matches the existing add entry point's cell/refresh operation; full
+    /// C++ obstacle/rubble/fence classification remains a separate contract.
+    pub(crate) fn add_object_to_map_at_positions(&mut self, positions: &[Coord3D]) {
+        for pos in positions {
+            self.inner.set_cell_type(pos, PathfindCellType::Obstacle);
+        }
+        self.inner.refresh_pinched_for_positions(positions);
     }
 
     fn clear_object_from_map_positions(&mut self, positions: &[Coord3D]) {

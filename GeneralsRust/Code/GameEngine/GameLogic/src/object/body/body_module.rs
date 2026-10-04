@@ -116,6 +116,23 @@ pub enum BodyError {
     OperationNotSupported,
 }
 
+/// Transient result of one canonical internalChangeHealth call. No state is
+/// retained here; Object consumes the reaction before the next health change.
+#[doc(hidden)]
+pub struct OwnerHealthTransition {
+    pub damage_state: BodyDamageType,
+    pub changed_state: bool,
+    pub effectively_dead: bool,
+}
+
+/// Private-in-practice synchronous owner operation tag. Inert bodies perform
+/// no assignment or cap check, matching C++ InactiveBody's empty setter.
+#[doc(hidden)]
+pub enum OwnerMaxHealthChange {
+    Inert,
+    Active { first_delta: Option<f32> },
+}
+
 /// Interface for body module operations
 pub trait BodyModuleInterface: Send + Sync {
     /// Try to damage this object
@@ -245,6 +262,41 @@ pub trait BodyModuleInterface: Send + Sync {
         max_health: f32,
         change_type: MaxHealthChangeType,
     ) -> BodyResult<()>;
+
+    /// Synchronous Object-owned max-health orchestration only. Assign max and
+    /// initial health, returning the first internalChangeHealth delta. The
+    /// driving Object consumes each transition before checking the final cap.
+    /// Inactive bodies return Inert, matching their empty max-health setter.
+    #[doc(hidden)]
+    fn begin_owner_max_health_change(
+        &mut self,
+        _max: f32,
+        _kind: MaxHealthChangeType,
+    ) -> BodyResult<OwnerMaxHealthChange> {
+        Ok(OwnerMaxHealthChange::Inert)
+    }
+
+    /// Pure owned-state half of internalChangeHealth. The actual borrowed
+    /// Object supplies its structure classification; no owner discovery.
+    #[doc(hidden)]
+    fn change_health_for_borrowed_owner(
+        &mut self,
+        _delta: f32,
+        _is_structure: bool,
+    ) -> BodyResult<OwnerHealthTransition> {
+        Err(BodyError::OperationNotSupported)
+    }
+
+    /// The actual body's particle-list head. Object runs the external destroy
+    /// callback with no body guard, then removes that exact head synchronously.
+    #[doc(hidden)]
+    fn owner_particle_head(&self) -> Option<u32> {
+        None
+    }
+    #[doc(hidden)]
+    fn remove_owner_particle_head(&mut self) {}
+    #[doc(hidden)]
+    fn record_owner_particle(&mut self, _id: u32) {}
 
     /// Set front crushed state
     fn set_front_crushed(&mut self, crushed: bool) -> BodyResult<()>;

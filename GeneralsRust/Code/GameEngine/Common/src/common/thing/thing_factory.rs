@@ -280,6 +280,9 @@ fn consume_ini_properties(ini: &mut INI) -> HashMap<String, String> {
                 );
                 block_depth = 1;
                 module_body_lines.clear();
+                // This is the opening declaration, not one of its fields.
+                // Match the assignment and raw-text opening branches above.
+                continue;
             }
         }
 
@@ -403,7 +406,21 @@ fn is_module_override_field(field: &str) -> bool {
 
 fn insert_object_property(properties: &mut HashMap<String, String>, key: &str, value: &str) {
     if object_field_is_repeatable_property(key) {
-        insert_repeated_property(properties, canonical_object_field(key), value.to_string());
+        let canonical = canonical_object_field(key);
+        // INI.cpp:1465-1505 parses fields in source order; Body and Behavior
+        // append to the same ModuleInfo (ThingTemplate.cpp:486-594).
+        let declaration_order = properties.len();
+        insert_repeated_property(properties, canonical.clone(), value.to_string());
+        if matches!(
+            canonical.as_str(),
+            "Behavior" | "Body" | "Draw" | "ClientUpdate"
+        ) {
+            let header = current_repeatable_key(properties, &canonical);
+            properties.insert(
+                format!("{header}.__declaration_order"),
+                declaration_order.to_string(),
+            );
+        }
     } else {
         properties.insert(key.to_string(), value.to_string());
     }
@@ -1539,10 +1556,9 @@ fn read_vfs_object_ini_bodies() -> Vec<String> {
         if !is_object {
             continue;
         }
-        let Some(mut file) = guard.open_file(
-            virtual_name,
-            FileAccess::READ.combine(FileAccess::BINARY),
-        ) else {
+        let Some(mut file) =
+            guard.open_file(virtual_name, FileAccess::READ.combine(FileAccess::BINARY))
+        else {
             continue;
         };
         let Ok(bytes) = file.read_entire_and_close() else {
@@ -1886,7 +1902,9 @@ mod tests {
     #[test]
     fn retail_america_crusader_block_stops_before_dozer() {
         let Some(source) = read_retail_object_ini("AmericaVehicle.ini") else {
-            eprintln!("SKIP retail_america_crusader_block_stops_before_dozer: retail INI data absent");
+            eprintln!(
+                "SKIP retail_america_crusader_block_stops_before_dozer: retail INI data absent"
+            );
             return;
         };
         let lines: Vec<&str> = source.lines().collect();

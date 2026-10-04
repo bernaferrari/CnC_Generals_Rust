@@ -177,6 +177,10 @@ fn is_module_body_property(key: &str) -> bool {
         .map(|(header, _)| {
             let base = property_base_key(header);
             is_module_object_field(base)
+                || matches!(
+                    base,
+                    "AddModule" | "ReplaceModule" | "InheritableModule" | "OverrideableByLikeKind"
+                )
         })
         .unwrap_or(false)
 }
@@ -251,7 +255,7 @@ fn collect_module_body(
             raw_body = value.clone();
             continue;
         }
-        if rest == "<raw>" || rest.starts_with("<raw>#") {
+        if rest == "__declaration_order" || rest == "<raw>" || rest.starts_with("<raw>#") {
             continue;
         }
         fields.insert(rest.to_string(), value.clone());
@@ -299,8 +303,14 @@ fn parse_override_module_body(lines: &[&str]) -> HashMap<String, String> {
                 let key = key.trim();
                 let value = value.trim();
                 if is_module_object_field(key) {
+                    let declaration_order = properties.len();
                     insert_repeated_local(&mut properties, key.to_string(), value.to_string());
-                    prefix = Some(current_repeatable_local(&properties, key));
+                    let header = current_repeatable_local(&properties, key);
+                    properties.insert(
+                        format!("{header}.__declaration_order"),
+                        declaration_order.to_string(),
+                    );
+                    prefix = Some(header);
                     depth = 1;
                     body_lines.clear();
                 }
@@ -2568,8 +2578,15 @@ impl ThingTemplate {
             })
             .collect::<Vec<_>>();
 
-        fields.sort_by_key(|(field_order, repeat_index, field_name, _, _)| {
-            (*field_order, *repeat_index, (*field_name).to_string())
+        fields.sort_by_key(|(field_order, repeat_index, field_name, property_key, _)| {
+            let source_order = properties
+                .get(&format!("{property_key}.__declaration_order"))
+                .and_then(|value| value.parse::<usize>().ok());
+            match source_order {
+                Some(order) => (0, order, 0, String::new()),
+                // Manually supplied property maps have no source sequence.
+                None => (1, *field_order, *repeat_index, (*field_name).to_string()),
+            }
         });
 
         for (_, _, field_name, property_key, value) in fields {
@@ -2649,8 +2666,15 @@ impl ThingTemplate {
                 ))
             })
             .collect::<Vec<_>>();
-        fields.sort_by_key(|(field_order, repeat_index, field_name, _, _)| {
-            (*field_order, *repeat_index, (*field_name).to_string())
+        fields.sort_by_key(|(field_order, repeat_index, field_name, property_key, _)| {
+            let source_order = properties
+                .get(&format!("{property_key}.__declaration_order"))
+                .and_then(|value| value.parse::<usize>().ok());
+            match source_order {
+                Some(order) => (0, order, 0, String::new()),
+                // Manually supplied property maps have no source sequence.
+                None => (1, *field_order, *repeat_index, (*field_name).to_string()),
+            }
         });
         for (_, _, field_name, property_key, value) in fields {
             self.add_module_from_property(field_name, property_key, value.trim(), properties)?;
@@ -3879,3 +3903,6 @@ impl Overridable for ThingTemplate {
         ThingTemplate::delete_overrides(self)
     }
 }
+#[cfg(test)]
+#[path = "module_declaration_order_tests.rs"]
+mod module_declaration_order_tests;

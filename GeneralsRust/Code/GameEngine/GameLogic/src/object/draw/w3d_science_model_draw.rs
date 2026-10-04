@@ -147,6 +147,17 @@ impl Module for W3DScienceModelDraw {
     }
 }
 impl DrawModule for W3DScienceModelDraw {
+    fn on_drawable_bound_to_object_with_context(
+        &mut self,
+        binding: &DrawModuleBindingContext,
+        drawable: &ModelDrawContext,
+    ) -> bool {
+        let handled = self
+            .base
+            .on_drawable_bound_to_object_with_context(binding, drawable);
+        handled
+    }
+
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
         if leftover_science_model_should_hide(self.data.required_science) {
             DrawModule::set_hidden(self, true);

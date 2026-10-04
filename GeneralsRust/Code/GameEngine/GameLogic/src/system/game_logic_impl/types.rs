@@ -82,9 +82,8 @@ pub(crate) fn send_object_created_borrowed(object: &mut Object, object_arc: &Arc
     let Some(drawable) = client.get_drawable_arc(draw_id) else {
         return;
     };
-    if let Ok(mut draw) = drawable.write() {
-        draw.friend_bind_to_object_with_id(object_id, object_arc);
-    }
+    let binding = crate::object::draw::draw_module::DrawModuleBindingContext::from_owner(object);
+    crate::object::drawable::Drawable::bind_to_object_with_context(&drawable, object_arc, &binding);
     object.set_drawable(Some(drawable));
 }
 
@@ -104,9 +103,11 @@ pub fn bind_object_and_drawable(object_id: ObjectID, drawable_id: ObjectID) {
     }) else {
         return;
     };
-    if let Ok(mut draw) = drawable.write() {
-        draw.friend_bind_to_object(&object);
-    }
+    let binding = {
+        let owner = object.read().expect("bound Object poisoned");
+        crate::object::draw::draw_module::DrawModuleBindingContext::from_owner(&owner)
+    };
+    crate::object::drawable::Drawable::bind_to_object_with_context(&drawable, &object, &binding);
     {
         let mut obj = object.write().ok();
         if let Some(obj) = obj.as_mut() {

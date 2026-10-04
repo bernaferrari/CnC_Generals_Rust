@@ -550,9 +550,7 @@ impl Object {
         self.body = None;
         self.modules_ready = false;
         if let Some(drawable) = self.drawable.take() {
-            if let Ok(mut drawable) = drawable.write() {
-                drawable.clear_modules();
-            }
+            super::drawable::clear_drawable_modules(&drawable);
         }
 
         let object_id = self.id;

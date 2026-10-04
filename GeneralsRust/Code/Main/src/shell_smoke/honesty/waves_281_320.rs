@@ -98,9 +98,6 @@ pub(super) struct Waves281320 {
     pub live_collision_system_dual_world_empty_gate_method_names_wave313_ok: bool,
     pub live_collision_system_dual_world_empty_gate_nav_commands_wave313_ok: bool,
     pub live_collision_system_dual_world_empty_gate_live_wave313_ok: bool,
-    pub live_max_health_upgrade_dual_world_empty_gate_method_names_wave314_ok: bool,
-    pub live_max_health_upgrade_dual_world_empty_gate_nav_commands_wave314_ok: bool,
-    pub live_max_health_upgrade_dual_world_empty_gate_live_wave314_ok: bool,
     pub live_structure_topple_dual_world_empty_gate_method_names_wave315_ok: bool,
     pub live_structure_topple_dual_world_empty_gate_nav_commands_wave315_ok: bool,
     pub live_structure_topple_dual_world_empty_gate_live_wave315_ok: bool,
@@ -113,9 +110,6 @@ pub(super) struct Waves281320 {
     pub live_bridge_tower_dual_world_empty_gate_method_names_wave318_ok: bool,
     pub live_bridge_tower_dual_world_empty_gate_nav_commands_wave318_ok: bool,
     pub live_bridge_tower_dual_world_empty_gate_live_wave318_ok: bool,
-    pub live_armor_upgrade_dual_world_empty_gate_method_names_wave319_ok: bool,
-    pub live_armor_upgrade_dual_world_empty_gate_nav_commands_wave319_ok: bool,
-    pub live_armor_upgrade_dual_world_empty_gate_live_wave319_ok: bool,
     pub live_paradrop_power_dual_world_empty_gate_method_names_wave320_ok: bool,
     pub live_paradrop_power_dual_world_empty_gate_nav_commands_wave320_ok: bool,
     pub live_paradrop_power_dual_world_empty_gate_live_wave320_ok: bool,
@@ -307,12 +301,6 @@ pub(super) fn evaluate(
             honesty_live_collision_system_dual_world_empty_gate_nav_commands_residual_wave313(),
         live_collision_system_dual_world_empty_gate_live_wave313_ok:
             simulate_live_collision_system_dual_world_empty_gate_honesty(),
-        live_max_health_upgrade_dual_world_empty_gate_method_names_wave314_ok:
-            honesty_live_max_health_upgrade_dual_world_empty_gate_method_names_residual_wave314(),
-        live_max_health_upgrade_dual_world_empty_gate_nav_commands_wave314_ok:
-            honesty_live_max_health_upgrade_dual_world_empty_gate_nav_commands_residual_wave314(),
-        live_max_health_upgrade_dual_world_empty_gate_live_wave314_ok:
-            simulate_live_max_health_upgrade_dual_world_empty_gate_honesty(),
         live_structure_topple_dual_world_empty_gate_method_names_wave315_ok:
             honesty_live_structure_topple_dual_world_empty_gate_method_names_residual_wave315(),
         live_structure_topple_dual_world_empty_gate_nav_commands_wave315_ok:
@@ -337,12 +325,6 @@ pub(super) fn evaluate(
             honesty_live_bridge_tower_dual_world_empty_gate_nav_commands_residual_wave318(),
         live_bridge_tower_dual_world_empty_gate_live_wave318_ok:
             simulate_live_bridge_tower_dual_world_empty_gate_honesty(),
-        live_armor_upgrade_dual_world_empty_gate_method_names_wave319_ok:
-            honesty_live_armor_upgrade_dual_world_empty_gate_method_names_residual_wave319(),
-        live_armor_upgrade_dual_world_empty_gate_nav_commands_wave319_ok:
-            honesty_live_armor_upgrade_dual_world_empty_gate_nav_commands_residual_wave319(),
-        live_armor_upgrade_dual_world_empty_gate_live_wave319_ok:
-            simulate_live_armor_upgrade_dual_world_empty_gate_honesty(),
         live_paradrop_power_dual_world_empty_gate_method_names_wave320_ok:
             honesty_live_paradrop_power_dual_world_empty_gate_method_names_residual_wave320(),
         live_paradrop_power_dual_world_empty_gate_nav_commands_wave320_ok:

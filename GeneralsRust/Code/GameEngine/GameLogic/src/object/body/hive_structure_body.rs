@@ -269,7 +269,9 @@ impl HiveStructureBody {
                 let mut closest_dist_sq = f32::INFINITY;
 
                 for rider_id in contained_ids {
-                    if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) {
+                    if let Some(rider) =
+                        crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
+                    {
                         if let Ok(rider_guard) = rider.read() {
                             let rider_pos = *rider_guard.get_position();
                             let dx = rider_pos.x - shooter_pos.x;
@@ -456,6 +458,31 @@ impl BodyModuleInterface for HiveStructureBody {
         self.structure_body.set_initial_health(initial_percent)
     }
 
+    fn begin_owner_max_health_change(
+        &mut self,
+        max: f32,
+        kind: MaxHealthChangeType,
+    ) -> BodyResult<super::body_module::OwnerMaxHealthChange> {
+        self.structure_body.begin_owner_max_health_change(max, kind)
+    }
+    fn change_health_for_borrowed_owner(
+        &mut self,
+        delta: f32,
+        is_structure: bool,
+    ) -> BodyResult<super::body_module::OwnerHealthTransition> {
+        self.structure_body
+            .change_health_for_borrowed_owner(delta, is_structure)
+    }
+    fn owner_particle_head(&self) -> Option<u32> {
+        self.structure_body.owner_particle_head()
+    }
+    fn remove_owner_particle_head(&mut self) {
+        self.structure_body.remove_owner_particle_head();
+    }
+    fn record_owner_particle(&mut self, id: u32) {
+        self.structure_body.record_owner_particle(id);
+    }
+
     fn set_max_health(
         &mut self,
         max_health: f32,
@@ -498,6 +525,10 @@ impl BodyModuleInterface for HiveStructureBody {
 
     fn update_body_particle_systems(&mut self) -> BodyResult<()> {
         self.structure_body.update_body_particle_systems()
+    }
+
+    fn snapshot_xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
     }
 }
 

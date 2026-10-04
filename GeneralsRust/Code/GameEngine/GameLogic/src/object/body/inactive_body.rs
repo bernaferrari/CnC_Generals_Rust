@@ -29,12 +29,6 @@ impl InactiveBody {
     pub fn new_with_owner(module_data: BodyModuleData, owner_id: ObjectId) -> Self {
         let base = BodyModule::new(module_data);
 
-        if owner_id != INVALID_ID {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
-                owner_guard.set_effectively_dead(true);
-                });
-        }
-
         Self {
             base,
             die_called: false,
@@ -297,6 +291,10 @@ impl BodyModuleInterface for InactiveBody {
         // Inactive bodies don't have particle systems - no-op
         Ok(())
     }
+
+    fn snapshot_xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
+    }
 }
 
 #[cfg(test)]
@@ -368,7 +366,13 @@ mod tests {
         let owner = RegisteredOwner(Arc::new(RwLock::new(Object::new_test(9100, 100.0))));
         OBJECT_REGISTRY.register_object(9100, &owner.0);
         let mut body = InactiveBody::new_with_owner(BodyModuleData::default(), 9100);
-        assert!(owner.0.read().unwrap().is_effectively_dead());
+        assert!(
+            !owner.0.read().unwrap().is_effectively_dead(),
+            "standalone body construction must not mutate a published Object"
+        );
+        // Exact Object installation owns the C++ constructor effect. This
+        // existing legacy damage fixture explicitly begins after that effect.
+        owner.0.write().unwrap().set_effectively_dead(true);
 
         let mut damage_info = make_damage_info(DamageType::Unresistable, 100.0);
 

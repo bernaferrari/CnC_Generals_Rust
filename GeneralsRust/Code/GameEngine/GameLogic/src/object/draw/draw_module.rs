@@ -39,6 +39,37 @@ pub trait DrawModuleData: ModuleData + Debug {
     fn as_any(&self) -> &dyn Any;
 }
 
+/// Values borrowed from the driving Drawable for one synchronous callback.
+/// They are never retained by a draw module and do not mirror its runtime.
+#[derive(Debug, Clone, Copy)]
+pub struct ModelDrawContext {
+    pub(crate) instance_scale: Real,
+    pub(crate) state_particles: bool,
+}
+
+/// Exact owner facts needed by W3D binding; no Object ID rediscovery.
+#[derive(Debug, Clone, Copy)]
+pub struct DrawModuleBindingContext {
+    pub(crate) owner_id: ObjectID,
+    pub(crate) indicator_color: Color,
+}
+
+impl DrawModuleBindingContext {
+    pub(crate) fn from_owner(owner: &crate::object::Object) -> Self {
+        let night = crate::helpers::TheGlobalData::get()
+            .map(|data| data.get_time_of_day() == crate::common::audio::TimeOfDay::Night)
+            .unwrap_or(false);
+        Self {
+            owner_id: owner.get_id(),
+            indicator_color: if night {
+                owner.get_night_indicator_color()
+            } else {
+                owner.get_indicator_color()
+            },
+        }
+    }
+}
+
 /// Base trait for all Draw Modules
 ///
 /// Draw modules handle the visual representation of game objects.
@@ -46,6 +77,16 @@ pub trait DrawModuleData: ModuleData + Debug {
 ///
 /// Reference: DrawModule in /GeneralsMD/Code/GameEngine/Include/Common/DrawModule.h
 pub trait DrawModule: Module {
+    /// Handle exact-owner binding without reacquiring Object or Drawable.
+    /// False keeps the existing non-model binding and Module callback path.
+    fn on_drawable_bound_to_object_with_context(
+        &mut self,
+        _binding: &DrawModuleBindingContext,
+        _drawable: &ModelDrawContext,
+    ) -> bool {
+        false
+    }
+
     /// Render the module with the given transform
     ///
     /// # Arguments
@@ -347,8 +388,21 @@ pub trait ObjectDrawInterface {
     /// * `condition` - New model condition flags
     fn replace_model_condition_state(&mut self, condition: &ModelConditionFlags);
 
+    /// Use the exact borrowed Drawable facts during synchronous propagation.
+    fn replace_model_condition_state_with_context(
+        &mut self,
+        condition: &ModelConditionFlags,
+        _drawable: &ModelDrawContext,
+    ) {
+        self.replace_model_condition_state(condition);
+    }
+
     /// C++ `ObjectDrawInterface::replaceIndicatorColor`.
     fn replace_indicator_color(&mut self, _color: i32) {}
+
+    fn replace_indicator_color_with_context(&mut self, color: i32, _drawable: &ModelDrawContext) {
+        self.replace_indicator_color(color);
+    }
 
     /// Handle weapon fire FX
     ///

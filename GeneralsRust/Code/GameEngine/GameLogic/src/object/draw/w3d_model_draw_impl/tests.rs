@@ -868,3 +868,20 @@ mod tests {
         register_pristine_bone_lookup_hook(None);
     }
 }
+
+// Actual canonical runtime inspection/production callback, test build only.
+#[cfg(test)]
+impl W3DModelDraw {
+    pub(crate) fn owner_context_probe(&self) -> (String, bool) {
+        (
+            self.current_state()
+                .map(|state| state.model_name.as_str().to_owned())
+                .unwrap_or_default(),
+            self.need_recalc_bone_particle_systems,
+        )
+    }
+
+    pub(crate) fn finish_owner_context_particle_recalc(&mut self) {
+        self.recalc_bones_for_client_particle_systems();
+    }
+}

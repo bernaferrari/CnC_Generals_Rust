@@ -499,13 +499,6 @@ pub use super::host_live_map_load_residual_wave170::{
     honesty_live_map_load_residual_pack_wave170, simulate_live_map_load_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_max_health_upgrade_dual_world_empty_gate_residual_wave314::{
-    honesty_live_max_health_upgrade_dual_world_empty_gate_method_names_residual_wave314,
-    honesty_live_max_health_upgrade_dual_world_empty_gate_nav_commands_residual_wave314,
-    honesty_live_max_health_upgrade_dual_world_empty_gate_residual_pack_wave314,
-    simulate_live_max_health_upgrade_dual_world_empty_gate_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_meta_event_dual_world_empty_gate_residual_wave345::{
     honesty_live_meta_event_dual_world_empty_gate_method_names_residual_wave345,
     honesty_live_meta_event_dual_world_empty_gate_nav_commands_residual_wave345,

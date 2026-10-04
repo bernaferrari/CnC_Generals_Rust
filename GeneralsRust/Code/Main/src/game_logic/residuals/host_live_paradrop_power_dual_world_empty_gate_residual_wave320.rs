@@ -3,7 +3,6 @@
 //! drop/spawn helpers fail-closed without dual-world factory walks.
 //! Never flips shell `playable_claim`. Network deferred.
 //!
-//! Orthogonal to Wave 319 ArmorUpgrade dual-world empty-gate residual.
 //!
 //! Sources:
 //! - `GameLogic/src/special_power_module/paradrop_power.rs` dual_world_registry_unavailable

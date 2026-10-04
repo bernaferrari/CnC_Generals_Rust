@@ -89,17 +89,6 @@ pub(super) fn owner_weak(owner_id: ObjectID) -> Weak<RwLock<crate::object::Objec
         .unwrap_or_else(Weak::new)
 }
 
-pub(super) fn attach_body_to_object(
-    object_id: ObjectID,
-    body: Arc<Mutex<dyn BodyModuleInterface>>,
-) {
-    if let Some(object) = TheGameLogic::find_object_by_id(object_id) {
-        if let Ok(mut guard) = object.write() {
-            guard.set_body_module(Some(body));
-        }
-    }
-}
-
 #[derive(Debug)]
 pub(crate) struct ActiveBehaviorModule<T: BehaviorModuleInterface + Snapshotable + 'static> {
     module_name_key: NameKeyType,

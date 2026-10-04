@@ -118,6 +118,10 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
         &self.name
     }
 
+    fn structure_rubble_height(&self) -> Option<u8> {
+        self.inner.structure_rubble_height()
+    }
+
     fn get_template_geometry_info(&self) -> crate::common::GeometryInfo {
         self.geometry.clone()
     }
@@ -352,6 +356,13 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
         &self,
     ) -> &[game_engine::common::thing::thing_template::WeaponTemplateSet] {
         self.inner.weapon_template_sets()
+    }
+
+    fn find_armor_template_set(
+        &self,
+        flags: &game_engine::common::bit_flags::ArmorSetBitFlags,
+    ) -> Option<&game_engine::common::thing::thing_template::ArmorTemplateSet> {
+        self.inner.find_armor_template_set(flags)
     }
 
     fn get_build_cost(&self) -> crate::common::Int {

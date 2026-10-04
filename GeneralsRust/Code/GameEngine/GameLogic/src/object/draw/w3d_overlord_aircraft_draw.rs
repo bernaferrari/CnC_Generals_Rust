@@ -99,6 +99,18 @@ impl Module for W3DOverlordAircraftDraw {
     }
 }
 impl DrawModule for W3DOverlordAircraftDraw {
+    fn on_drawable_bound_to_object_with_context(
+        &mut self,
+        binding: &DrawModuleBindingContext,
+        drawable: &ModelDrawContext,
+    ) -> bool {
+        self.owner_id = Some(binding.owner_id);
+        let handled = self
+            .base
+            .on_drawable_bound_to_object_with_context(binding, drawable);
+        handled
+    }
+
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
         self.base.do_draw_module(transform_mtx);
         if let Some(owner_id) = self.owner_id() {

@@ -14,3 +14,5 @@ pub mod structure_body;
 pub mod undead_body;
 
 pub use body_module::*;
+
+mod owner_health;

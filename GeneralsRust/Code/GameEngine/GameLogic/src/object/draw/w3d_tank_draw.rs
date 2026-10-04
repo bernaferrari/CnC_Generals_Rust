@@ -650,6 +650,19 @@ impl Module for W3DTankDraw {
 }
 
 impl DrawModule for W3DTankDraw {
+    fn on_drawable_bound_to_object_with_context(
+        &mut self,
+        binding: &DrawModuleBindingContext,
+        drawable: &ModelDrawContext,
+    ) -> bool {
+        let handled = self
+            .base
+            .on_drawable_bound_to_object_with_context(binding, drawable);
+        self.create_emitters();
+        self.update_tread_objects();
+        handled
+    }
+
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
         // C++ W3DTankDraw.cpp:288-291 — frozen tactical view or script time skips the whole draw.
         let camera_frozen = crate::helpers::get_camera_view_bridge()

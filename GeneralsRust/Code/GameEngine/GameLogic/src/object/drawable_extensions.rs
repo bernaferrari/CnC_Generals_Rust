@@ -43,7 +43,7 @@ impl ModuleThing for DrawableThingHandle {
     }
 }
 
-/// Extension trait for Arc<rhai::Locked<Drawable>> to provide helper methods
+/// Operations on a shared Drawable handle with short, explicit borrows.
 pub trait DrawableArcExt {
     fn get_id(&self) -> DrawableID;
     fn get_object_id(&self) -> ObjectID;
@@ -53,6 +53,8 @@ pub trait DrawableArcExt {
     fn set_instance_matrix(&self, matrix: Option<&Matrix3D>);
     fn set_shadows_enabled(&self, enabled: bool);
     fn set_terrain_decal(&self, decal_type: TerrainDecalType);
+    /// Synchronous borrowed-owner path; visual callbacks run outside Drawable/module guards.
+    fn set_terrain_decal_for_object(&self, decal_type: TerrainDecalType, owner: &Object);
     fn set_terrain_decal_size(&self, x: Real, y: Real);
     fn set_terrain_decal_fade_target(&self, target: Real, rate: Real);
     fn init_rope_draw_params(
@@ -163,6 +165,91 @@ impl DrawableArcExt for Arc<RwLock<Drawable>> {
     fn set_terrain_decal(&self, decal_type: TerrainDecalType) {
         if let Ok(mut guard) = self.write() {
             guard.set_terrain_decal(decal_type);
+        }
+    }
+
+    fn set_terrain_decal_for_object(&self, decal_type: TerrainDecalType, owner: &Object) {
+        let first = {
+            let mut drawable = self.write().expect("terrain-decal Drawable poisoned");
+            assert_eq!(
+                drawable.object_id,
+                owner.get_id(),
+                "terrain-decal owner mismatch"
+            );
+            if drawable.terrain_decal == decal_type {
+                return;
+            }
+            drawable.terrain_decal = decal_type;
+            drawable
+                .get_draw_modules_with_interface(ModuleInterfaceType::DRAW)
+                .first()
+                .cloned()
+        };
+        let Some(first) = first else {
+            return;
+        };
+        let is_model = first.with_module(|module| {
+            let mut is_model = false;
+            let _ = with_draw_module_kind(module, |draw| match draw {
+                DrawModuleKindMut::Model(model) => {
+                    model.set_terrain_decal_type_for_object(decal_type, owner);
+                    is_model = true;
+                }
+                other => other.set_terrain_decal(decal_type),
+            });
+            is_model
+        });
+        if !is_model {
+            return;
+        }
+        // Existing temporary global visual bridge, captured once for this operation.
+        // This does not establish per-game-instance client ownership.
+        let Some(client) = crate::object::draw::terrain_decal_client() else {
+            return;
+        };
+        // CPP releases the old decal BEFORE reading template/pose and allocating.
+        // A client may inspect or change the actual Drawable/module synchronously.
+        client.release(owner.get_id());
+        if decal_type == TerrainDecalType::None {
+            return;
+        }
+        let transform = self
+            .read()
+            .expect("terrain-decal Drawable poisoned")
+            .get_transform_matrix();
+        // Query sibling pristine bones only after releasing this draw entry.
+        // C++ CACHE_ATTACH_BONE preserves the existing first-query cache.
+        let attachment = first.with_module(|module| {
+            let mut query = None;
+            let _ = with_draw_module_kind(module, |draw| {
+                if let DrawModuleKindMut::Model(model) = draw {
+                    query = model.terrain_decal_attachment_query();
+                }
+            });
+            query
+        });
+        let offset = attachment.map(|name| {
+            self.read()
+                .expect("terrain-decal Drawable poisoned")
+                .get_pristine_bone_positions(name.as_str(), 0, 1)
+                .into_iter()
+                .next()
+                .unwrap_or(Coord3D::origin())
+        });
+        let command = first.with_module(|module| {
+            let mut command = None;
+            let _ = with_draw_module_kind(module, |draw| match draw {
+                DrawModuleKindMut::Model(model) => {
+                    command = model
+                        .prepare_terrain_decal_for_object(decal_type, owner, &transform, offset);
+                }
+                _ => unreachable!("first terrain-decal draw module changed kind"),
+            });
+            command
+        });
+        // Neither the Drawable nor its first module is borrowed by the client callback.
+        if let Some(desc) = command {
+            client.set_decal(&desc);
         }
     }
 

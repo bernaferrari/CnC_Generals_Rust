@@ -1,19 +1,10 @@
 use std::sync::Arc;
 
 use crate::common::{LegacyModuleData, ObjectID, UpgradeMaskType, WeaponBonusConditionType};
-use crate::modules::UpgradeModuleInterface;
-use crate::object::upgrade::upgrade_module::{
-    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
-};
+use crate::object::upgrade::upgrade_module::{UpgradeMuxData, mux_can_upgrade, mux_reset_upgrade};
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
-
-/// Wave 448: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
 
 /// Module data describing the weapon bonus upgrade.
 #[derive(Debug, Clone)]
@@ -63,7 +54,6 @@ impl Snapshotable for WeaponBonusUpgradeModuleData {
 pub struct WeaponBonusUpgrade {
     module_name_key: NameKeyType,
     data: Arc<WeaponBonusUpgradeModuleData>,
-    object_id: ObjectID,
     applied: bool,
 }
 
@@ -71,12 +61,11 @@ impl WeaponBonusUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
         data: Arc<WeaponBonusUpgradeModuleData>,
-        object_id: ObjectID,
+        _object_id: ObjectID,
     ) -> Self {
         Self {
             module_name_key,
             data,
-            object_id,
             applied: false,
         }
     }
@@ -106,9 +95,6 @@ impl Module for WeaponBonusUpgrade {
 
 impl Snapshotable for WeaponBonusUpgrade {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|err| format!("{:?} crc version: {err:?}", std::any::type_name::<Self>()))?;
         crate::object::upgrade::upgrade_module::crc_upgrade_module_state(xfer, self.applied)
     }
 
@@ -125,43 +111,38 @@ impl Snapshotable for WeaponBonusUpgrade {
     }
 }
 
-impl UpgradeModuleInterface for WeaponBonusUpgrade {
-    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
-        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
+impl WeaponBonusUpgrade {
+    pub(crate) fn can_upgrade(&self, mask: UpgradeMaskType) -> bool {
+        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, mask)
     }
 
-    fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
-        // Wave 448: empty dual-world → false.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
+    /// Retain immutable rules while releasing the installed module before callbacks.
+    pub(crate) fn prepare_upgrade(
+        &self,
+        mask: UpgradeMaskType,
+    ) -> Option<Arc<WeaponBonusUpgradeModuleData>> {
+        self.can_upgrade(mask).then(|| Arc::clone(&self.data))
+    }
 
-        if self.applied {
-            return false;
-        }
-        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
-        // Apply weapon damage bonus to object
-        // Matches C++ WeaponBonusUpgrade::upgradeImplementation from WeaponBonusUpgrade.cpp lines 62-69
-        use crate::object::registry::OBJECT_REGISTRY;
+    pub(crate) fn remove_upgrade(&mut self, mask: UpgradeMaskType) {
+        // C++ resetUpgrade clears execution without undoing the owner bonus flag.
+        mux_reset_upgrade(&self.data.upgrade_mux_data, &mut self.applied, mask);
+    }
 
-        let Some(()) = OBJECT_REGISTRY.with_object_mut(self.object_id, |object_guard| {
-            // C++ code: obj->setWeaponBonusCondition(WEAPONBONUSCONDITION_PLAYER_UPGRADE);
-            object_guard.set_weapon_bonus_condition(WeaponBonusConditionType::PlayerUpgrade);
-        }) else {
-            log::warn!("WeaponBonusUpgrade: Object {} not found", self.object_id);
-            return false;
-        };
-
+    pub(crate) fn finish_upgrade(&mut self) {
+        // UpgradeMux commits only after FX, removals, and upgradeImplementation.
         self.applied = true;
-        true
-    }
-
-    fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
-        // C++ does not clear the weapon bonus; resetUpgrade only clears executed.
-        let _ = crate::object::upgrade::upgrade_module::mux_reset_upgrade(
-            &self.data.upgrade_mux_data,
-            &mut self.applied,
-            upgrade_mask,
-        );
     }
 }
+
+impl WeaponBonusUpgradeModuleData {
+    pub(crate) fn apply_to_object(&self, owner: &mut crate::object::Object) {
+        // WeaponBonusUpgrade.cpp:62–69 acts on its exact Object. The setter
+        // preserves Object.cpp:4650–4659's change-only weapon notifications.
+        owner.set_weapon_bonus_condition(WeaponBonusConditionType::PlayerUpgrade);
+    }
+}
+
+#[cfg(test)]
+#[path = "weapon_bonus_upgrade/tests.rs"]
+mod ownership_tests;

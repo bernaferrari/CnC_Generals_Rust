@@ -5,13 +5,12 @@
 //!
 //! Orthogonal to Wave 447 FireSpreadUpdate dual-world empty-gate residual.
 //!
-//! Sources (remaining 9-family batch):
+//! Sources (remaining 8-family batch; owned WeaponBonus excluded):
 //! - `object/upgrade/stealth_upgrade.rs`
 //! - `object/upgrade/active_shroud_upgrade.rs`
 //! - `object/upgrade/grant_science_upgrade.rs`
 //! - `object/upgrade/cost_modifier_upgrade.rs`
 //! - `object/upgrade/model_condition_upgrade.rs`
-//! - `object/upgrade/weapon_bonus_upgrade.rs`
 //! - `object/upgrade/radar_upgrade.rs`
 //! - `object/upgrade/weapon_set_upgrade.rs`
 //! - `object/upgrade/unpause_special_power_upgrade.rs`
@@ -154,8 +153,6 @@ pub fn honesty_object_upgrade_batch_dual_world_empty_gate_source() -> bool {
     let model = include_str!(
         "../../../../GameEngine/GameLogic/src/object/upgrade/model_condition_upgrade.rs"
     );
-    let wbonus =
-        include_str!("../../../../GameEngine/GameLogic/src/object/upgrade/weapon_bonus_upgrade.rs");
     let radar =
         include_str!("../../../../GameEngine/GameLogic/src/object/upgrade/radar_upgrade.rs");
     let wset =
@@ -169,7 +166,6 @@ pub fn honesty_object_upgrade_batch_dual_world_empty_gate_source() -> bool {
         && honesty_one(science, "apply_upgrade", "return false;")
         && honesty_one(cost, "apply_upgrade", "return false;")
         && honesty_one(model, "apply_upgrade", "return false;")
-        && honesty_one(wbonus, "apply_upgrade", "return false;")
         && honesty_one(radar, "apply_radar_upgrade", "return Ok(())")
         && honesty_one(wset, "apply_upgrade", "return false;")
         && honesty_one(unpause, "apply_upgrade", "return false;")

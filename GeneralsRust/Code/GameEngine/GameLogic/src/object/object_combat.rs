@@ -7,34 +7,7 @@
 use super::object_impl_imports::*;
 use super::*;
 
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-struct ParticleSpawn {
-    object_id: ObjectID,
-    bone_base: String,
-    template_id: u32,
-    max_systems: i32,
-}
-
-static PARTICLE_MANAGER: once_cell::sync::Lazy<parking_lot::Mutex<Vec<ParticleSpawn>>> =
-    once_cell::sync::Lazy::new(|| parking_lot::Mutex::new(Vec::new()));
-
 impl Object {
-    /// Queue body particle system spawn requests for the runtime particle bridge.
-    pub fn spawn_body_particle_systems(
-        &mut self,
-        _bone_base_name: &str,
-        _system_template_id: u32,
-        _max_systems: i32,
-    ) {
-        PARTICLE_MANAGER.lock().push(ParticleSpawn {
-            object_id: self.id,
-            bone_base: _bone_base_name.to_string(),
-            template_id: _system_template_id,
-            max_systems: _max_systems,
-        });
-    }
-
     /// C++ ActiveBody::setCorrectDamageState rubble effects. Used when the
     /// body cannot `try_write` this object because the caller already holds it.
     pub fn apply_structure_rubble_pose(&mut self) {
@@ -62,13 +35,16 @@ impl Object {
                 .unwrap_or(1.0)
         };
         self.set_geometry_info_z(rubble_height);
-        let object_id = self.get_id();
+        // ActiveBody.cpp:199-208 changes geometry before reclassifying this
+        // exact Object. The caller owns it; numeric-ID lookup would reenter
+        // that loan or select a foreign same-ID object during construction.
+        let footprint = crate::ai::object_footprint_positions(self).unwrap_or_default();
         let ai_store = crate::ai::the_ai();
         if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(mut pf_guard) = pathfinder.write() {
-                    pf_guard.remove_object_from_map(object_id, &[]);
-                    pf_guard.add_object_to_map(object_id, &[], false);
+                    pf_guard.remove_object_from_map_at_positions(&footprint);
+                    pf_guard.add_object_to_map_at_positions(&footprint);
                 }
             }
         }
@@ -92,10 +68,6 @@ impl Object {
                 crate::object::body::active_body::retaliate_nearby_friends(self, damager);
             });
         }
-    }
-
-    pub fn remove_body_particle_systems(&mut self) {
-        PARTICLE_MANAGER.lock().retain(|p| p.object_id != self.id);
     }
 
     // Health and damage

@@ -1,12 +1,21 @@
 impl W3DModelDraw {
     /// Set current model state
     fn set_model_state(&mut self, state_index: usize) {
+        self.set_model_state_for_drawable(state_index, None);
+    }
+
+    fn set_model_state_for_drawable(
+        &mut self,
+        state_index: usize,
+        drawable: Option<&ModelDrawContext>,
+    ) {
         if state_index >= self.data.condition_states.len() {
             return;
         }
         let extra_public_bones = self.data.extra_public_bones.clone();
-        let scale = self
-            .with_owner_drawable(|drawable| drawable.get_instance_scale())
+        let scale = drawable
+            .map(|facts| facts.instance_scale)
+            .or_else(|| self.with_owner_drawable(|drawable| drawable.get_instance_scale()))
             .filter(|s| s.is_finite() && *s > 0.0)
             .unwrap_or(1.0);
         self.data.condition_states[state_index]
@@ -55,15 +64,22 @@ impl W3DModelDraw {
             state.validate_runtime_caches_scaled(&extra_public_bones, scale);
         }
 
-
         let prev_state = self.cur_state;
         let prev_anim_fraction = self.get_current_anim_fraction();
 
-        self.need_recalc_bone_particle_systems = self
-            .with_owner_drawable(|drawable| {
-                !drawable.test_drawable_status(DRAWABLE_STATUS_NO_STATE_PARTICLES)
-            })
-            .unwrap_or(true);
+        let state_particles = drawable
+            .map(|facts| facts.state_particles)
+            .unwrap_or_else(|| {
+                self.with_owner_drawable(|drawable| {
+                    !drawable.test_drawable_status(DRAWABLE_STATUS_NO_STATE_PARTICLES)
+                })
+                .unwrap_or(true)
+            });
+        // C++ W3DModelDraw.cpp:2978-2979 only raises this latch. Disabling
+        // state particles does not erase an already pending recalculation.
+        if state_particles {
+            self.need_recalc_bone_particle_systems = true;
+        }
         self.stop_client_particle_systems();
         // C++ calls `hideAllMuzzleFlashes(newState)` once, after the transition
         // decision and before the render-object swap. The second call below
@@ -83,9 +99,7 @@ impl W3DModelDraw {
                 let model_changed = prev_info.map(|state| state.model_name.as_str())
                     != next_info.map(|state| state.model_name.as_str());
                 let turrets_differ = match (prev_info, next_info) {
-                    (Some(a), Some(b))
-                        if a.turrets_are_valid() && b.turrets_are_valid() =>
-                    {
+                    (Some(a), Some(b)) if a.turrets_are_valid() && b.turrets_are_valid() => {
                         let key = |state: &ModelConditionInfo, index: usize| {
                             state.turrets.get(index).map(|turret| {
                                 (turret.turret_angle_name_key, turret.turret_pitch_name_key)
@@ -261,22 +275,23 @@ impl W3DModelDraw {
             let mut turret_angle = 0.0;
             let mut turret_pitch = 0.0;
             if let Some(owner_id) = self.owner_id {
-                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |obj_guard| {
-                    if let Some(ai) = obj_guard.get_ai_update_interface() {
-                        if let Ok(ai_guard) = ai.lock() {
-                            let turret_type = if index == 0 {
-                                TurretType::Primary
-                            } else {
-                                TurretType::Secondary
-                            };
-                            if let Some((angle, pitch)) =
-                                ai_guard.get_turret_rot_and_pitch(turret_type)
-                            {
-                                turret_angle = angle;
-                                turret_pitch = pitch;
+                let _ =
+                    crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |obj_guard| {
+                        if let Some(ai) = obj_guard.get_ai_update_interface() {
+                            if let Ok(ai_guard) = ai.lock() {
+                                let turret_type = if index == 0 {
+                                    TurretType::Primary
+                                } else {
+                                    TurretType::Secondary
+                                };
+                                if let Some((angle, pitch)) =
+                                    ai_guard.get_turret_rot_and_pitch(turret_type)
+                                {
+                                    turret_angle = angle;
+                                    turret_pitch = pitch;
+                                }
                             }
                         }
-                    }
                     });
             }
 
@@ -632,10 +647,12 @@ impl W3DModelDraw {
         // only. `Drawable::draw` does not scale, and a second multiply here
         // would scale the translation as well.
         let world_transform = *transform_mtx;
-        let render_object_scale = self.with_owner_drawable(|drawable| {
-            let scale = drawable.get_instance_scale();
-            (scale != 1.0).then_some(scale)
-        }).flatten();
+        let render_object_scale = self
+            .with_owner_drawable(|drawable| {
+                let scale = drawable.get_instance_scale();
+                (scale != 1.0).then_some(scale)
+            })
+            .flatten();
         let render_object_color = (!model_name.is_empty()).then_some(self.hex_color as u32);
 
         // Phase 6: Build the model draw state with all collected data.
@@ -677,7 +694,6 @@ impl W3DModelDraw {
         Vec::new()
     }
 
-
     fn collect_bone_overrides(&self) -> Vec<BoneOverrideState> {
         let mut overrides = Vec::new();
         let Some(state) = self.current_state() else {
@@ -685,44 +701,46 @@ impl W3DModelDraw {
         };
 
         if state.turrets_are_valid() {
-        for (index, turret) in state.turrets.iter().enumerate() {
-            let (turret_angle, turret_pitch) = self.get_turret_angles(index);
+            for (index, turret) in state.turrets.iter().enumerate() {
+                let (turret_angle, turret_pitch) = self.get_turret_angles(index);
 
-            if turret.turret_angle_bone != 0 {
-                let angle = turret_angle + turret.turret_art_angle;
-                overrides.push(BoneOverrideState {
-                    bone_index: turret.turret_angle_bone,
-                    transform: Matrix3D::from_rotation_z(angle),
-                });
-            }
-
-            if turret.turret_pitch_bone != 0 {
-                let pitch = turret_pitch + turret.turret_art_pitch;
-                overrides.push(BoneOverrideState {
-                    bone_index: turret.turret_pitch_bone,
-                    transform: Matrix3D::from_rotation_y(-pitch),
-                });
-            }
-        }
-        }
-
-        if state.barrels_are_valid() {
-        for wslot in 0..WEAPONSLOT_COUNT {
-            let barrels = &state.weapon_barrels[wslot];
-            let Some(recoils) = self.weapon_recoil_info.get(wslot) else {
-                continue;
-            };
-            let count = barrels.len().min(recoils.len());
-            for i in 0..count {
-                let shift = recoils[i].shift;
-                if barrels[i].recoil_bone != 0 {
+                if turret.turret_angle_bone != 0 {
+                    let angle = turret_angle + turret.turret_art_angle;
                     overrides.push(BoneOverrideState {
-                        bone_index: barrels[i].recoil_bone,
-                        transform: Matrix3D::from_translation(glam::Vec3::new(-shift, 0.0, 0.0)),
+                        bone_index: turret.turret_angle_bone,
+                        transform: Matrix3D::from_rotation_z(angle),
+                    });
+                }
+
+                if turret.turret_pitch_bone != 0 {
+                    let pitch = turret_pitch + turret.turret_art_pitch;
+                    overrides.push(BoneOverrideState {
+                        bone_index: turret.turret_pitch_bone,
+                        transform: Matrix3D::from_rotation_y(-pitch),
                     });
                 }
             }
         }
+
+        if state.barrels_are_valid() {
+            for wslot in 0..WEAPONSLOT_COUNT {
+                let barrels = &state.weapon_barrels[wslot];
+                let Some(recoils) = self.weapon_recoil_info.get(wslot) else {
+                    continue;
+                };
+                let count = barrels.len().min(recoils.len());
+                for i in 0..count {
+                    let shift = recoils[i].shift;
+                    if barrels[i].recoil_bone != 0 {
+                        overrides.push(BoneOverrideState {
+                            bone_index: barrels[i].recoil_bone,
+                            transform: Matrix3D::from_translation(glam::Vec3::new(
+                                -shift, 0.0, 0.0,
+                            )),
+                        });
+                    }
+                }
+            }
         }
 
         overrides

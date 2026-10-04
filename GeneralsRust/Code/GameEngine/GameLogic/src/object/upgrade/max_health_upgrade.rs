@@ -1,24 +1,12 @@
-use once_cell::sync::Lazy;
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::Arc;
 
 use crate::common::{AsciiString, LegacyModuleData, ObjectID, Real, UpgradeMaskType};
-use crate::modules::UpgradeModuleInterface;
-use crate::object::INVALID_ID;
+use crate::object::Object;
 use crate::object::body::body_module::MaxHealthChangeType;
-use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::upgrade::upgrade_module::{
-    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
-};
+use crate::object::upgrade::upgrade_module::{UpgradeMuxData, mux_can_upgrade, mux_reset_upgrade};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
-
-/// Wave 314: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
 
 /// Module data describing the max health increase to apply.
 #[derive(Debug, Clone)]
@@ -62,6 +50,7 @@ impl MaxHealthUpgradeModuleData {
             "SAME_CURRENTHEALTH" => MaxHealthChangeType::SameCurrentHealth,
             "PRESERVE_RATIO" => MaxHealthChangeType::PreserveRatio,
             "ADD_CURRENT_HEALTH_TOO" => MaxHealthChangeType::AddCurrentHealthToo,
+            "FULLY_HEAL" => MaxHealthChangeType::FullyHeal,
             _ => return Err(format!("Unknown change type: {}", type_str)),
         };
         Ok(())
@@ -90,259 +79,19 @@ impl Snapshotable for MaxHealthUpgradeModuleData {
     }
 }
 
-/// Upgrade module that increases max health on the owning object.
+/// Installed mutable state belongs only to this module; definitions remain immutable.
 pub struct MaxHealthUpgrade {
-    inner: MaxHealthUpgradeInner,
     module_name_key: NameKeyType,
     data: Arc<MaxHealthUpgradeModuleData>,
-    object_id: ObjectID,
     applied: bool,
 }
 
-#[derive(Debug)]
-struct MaxHealthUpgradeInner {
-    #[allow(dead_code)]
-    module_name_key: NameKeyType,
-    data: Arc<MaxHealthUpgradeModuleData>,
-    object_id: ObjectID,
-    original_max_health: Option<Real>,
-}
-
-type MaxHealthUpgradeRegistry = HashMap<ObjectID, Vec<MaxHealthUpgradeEntry>>;
-
-static MAX_HEALTH_UPGRADE_REGISTRY: Lazy<RwLock<MaxHealthUpgradeRegistry>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
-
-#[derive(Debug)]
-struct MaxHealthUpgradeEntry {
-    data: Weak<MaxHealthUpgradeModuleData>,
-    applied: bool,
-    upgrade_mask: Option<UpgradeMaskType>,
-}
-
-impl MaxHealthUpgradeEntry {
-    fn new(data: &Arc<MaxHealthUpgradeModuleData>) -> Self {
-        Self {
-            data: Arc::downgrade(data),
-            applied: false,
-            upgrade_mask: None,
-        }
-    }
-
-    #[allow(dead_code)]
-    fn upgrade(&self) -> Option<Arc<MaxHealthUpgradeModuleData>> {
-        self.data.upgrade()
-    }
-
-    #[allow(dead_code)]
-    fn applied(&self) -> bool {
-        self.applied
-    }
-
-    fn set_applied(&mut self, mask: UpgradeMaskType) {
-        self.applied = true;
-        self.upgrade_mask = Some(mask);
-    }
-
-    fn matches_data(&self, data: &Arc<MaxHealthUpgradeModuleData>) -> bool {
-        if let Some(existing) = self.data.upgrade() {
-            Arc::ptr_eq(&existing, data)
-        } else {
-            false
-        }
-    }
-
-    fn clear_applied(&mut self) {
-        self.applied = false;
-        self.upgrade_mask = None;
-    }
-}
-
-fn register_max_health_upgrade(object_id: ObjectID, data: &Arc<MaxHealthUpgradeModuleData>) {
-    if object_id == INVALID_ID {
-        return;
-    }
-    let mut registry = MAX_HEALTH_UPGRADE_REGISTRY
-        .write()
-        .expect("max health upgrade registry poisoned");
-    registry
-        .entry(object_id)
-        .or_default()
-        .push(MaxHealthUpgradeEntry::new(data));
-}
-
-fn unregister_max_health_upgrade(object_id: ObjectID, data: &Arc<MaxHealthUpgradeModuleData>) {
-    if object_id == INVALID_ID {
-        return;
-    }
-    let mut registry = MAX_HEALTH_UPGRADE_REGISTRY
-        .write()
-        .expect("max health upgrade registry poisoned");
-    if let Some(entries) = registry.get_mut(&object_id) {
-        entries.retain(|entry| !entry.matches_data(data));
-
-        if entries.is_empty() {
-            registry.remove(&object_id);
-        }
-    }
-}
-
-fn mark_max_health_applied(
-    object_id: ObjectID,
-    data: &Arc<MaxHealthUpgradeModuleData>,
-    upgrade_mask: UpgradeMaskType,
-) {
-    if object_id == INVALID_ID {
-        return;
-    }
-    let mut registry = MAX_HEALTH_UPGRADE_REGISTRY
-        .write()
-        .expect("max health upgrade registry poisoned");
-    if let Some(entries) = registry.get_mut(&object_id) {
-        for entry in entries.iter_mut() {
-            if entry.matches_data(data) {
-                entry.set_applied(upgrade_mask);
-                break;
-            }
-        }
-    }
-}
-
-#[allow(dead_code)]
-fn mark_max_health_removed(
-    object_id: ObjectID,
-    data: &Arc<MaxHealthUpgradeModuleData>,
-    upgrade_mask: UpgradeMaskType,
-) {
-    if object_id == INVALID_ID {
-        return;
-    }
-    let mut registry = MAX_HEALTH_UPGRADE_REGISTRY
-        .write()
-        .expect("max health upgrade registry poisoned");
-    if let Some(entries) = registry.get_mut(&object_id) {
-        for entry in entries.iter_mut() {
-            if entry.matches_data(data) {
-                if let Some(mask) = entry.upgrade_mask {
-                    if mask == upgrade_mask {
-                        entry.clear_applied();
-                        break;
-                    }
-                }
-            }
-        }
-    }
-}
-
-impl MaxHealthUpgradeInner {
-    fn new(
-        module_name_key: NameKeyType,
-        data: Arc<MaxHealthUpgradeModuleData>,
-        object_id: ObjectID,
-    ) -> Self {
-        register_max_health_upgrade(object_id, &data);
-        Self {
-            module_name_key,
-            data,
-            object_id,
-            original_max_health: None,
-        }
-    }
-
-    /// Apply max health upgrade to object
-    /// Matches C++ MaxHealthUpgrade::upgradeImplementation from MaxHealthUpgrade.cpp lines 56-68
-    fn apply_max_health(&mut self) -> Result<(), String> {
-        // Wave 314: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
-        let add = self.data.add_max_health();
-        let change_type = self.data.change_type();
-        let mut original = self.original_max_health;
-        let result =
-            OBJECT_REGISTRY.with_object_mut(self.object_id, |object| -> Result<(), String> {
-                if let Some(body) = &object.get_body() {
-                    let mut body_guard = body
-                        .lock()
-                        .map_err(|_| "MaxHealthUpgrade failed to lock body".to_string())?;
-
-                    if original.is_none() {
-                        original = Some(body_guard.get_max_health());
-                    }
-
-                    let current_max = body_guard.get_max_health();
-                    let new_max = current_max + add;
-
-                    body_guard
-                        .set_max_health(new_max, change_type)
-                        .map_err(|e| {
-                            format!("MaxHealthUpgrade failed to set max health: {:?}", e)
-                        })?;
-                }
-                Ok(())
-            });
-        match result {
-            None => Ok(()),
-            Some(Ok(())) => {
-                self.original_max_health = original;
-                Ok(())
-            }
-            Some(Err(e)) => Err(e),
-        }
-    }
-
-    #[allow(dead_code)]
-    fn remove_max_health(&mut self) -> Result<(), String> {
-        // Wave 314: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
-        let add = self.data.add_max_health();
-        let change_type = self.data.change_type();
-        let mut original = self.original_max_health.take();
-        let object_id = self.object_id;
-        let result =
-            OBJECT_REGISTRY.with_object_mut(self.object_id, |object| -> Result<(), String> {
-                if let Some(body) = &object.get_body() {
-                    let mut body_guard = body
-                        .lock()
-                        .map_err(|_| "MaxHealthUpgrade failed to lock body".to_string())?;
-
-                    if let Some(orig) = original.take() {
-                        body_guard.set_max_health(orig, change_type).map_err(|e| {
-                            format!("MaxHealthUpgrade failed to restore max health: {:?}", e)
-                        })?;
-                    } else {
-                        let current_max = body_guard.get_max_health();
-                        let new_max = current_max - add;
-                        body_guard
-                            .set_max_health(new_max, change_type)
-                            .map_err(|e| {
-                                format!("MaxHealthUpgrade failed to reduce max health: {:?}", e)
-                            })?;
-                    }
-                }
-                Ok(())
-            });
-        match result {
-            None => {
-                self.original_max_health = original;
-                Err(format!(
-                    "MaxHealthUpgrade could not find object {} in registry",
-                    object_id
-                ))
-            }
-            Some(Ok(())) => {
-                self.original_max_health = original;
-                Ok(())
-            }
-            Some(Err(e)) => {
-                self.original_max_health = original;
-                Err(e)
-            }
-        }
+impl MaxHealthUpgradeModuleData {
+    /// C++ MaxHealthUpgrade.cpp:56-68. The caller already borrows the actual owner.
+    pub(crate) fn apply_to_object(&self, owner: &mut Object) {
+        owner
+            .add_body_max_health_with_owner(self.add_max_health, self.change_type)
+            .expect("max health upgrade could not update body");
     }
 }
 
@@ -350,21 +99,30 @@ impl MaxHealthUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
         data: Arc<MaxHealthUpgradeModuleData>,
-        object_id: ObjectID,
+        _object_id: ObjectID,
     ) -> Self {
-        let data_clone = Arc::clone(&data);
-        let inner = MaxHealthUpgradeInner::new(module_name_key, data, object_id);
         Self {
-            inner,
             module_name_key,
-            data: data_clone,
-            object_id,
+            data,
             applied: false,
         }
     }
-
-    fn with_inner<R>(&mut self, f: impl FnOnce(&mut MaxHealthUpgradeInner) -> R) -> R {
-        f(&mut self.inner)
+    pub(crate) fn can_upgrade(&self, mask: UpgradeMaskType) -> bool {
+        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, mask)
+    }
+    pub(crate) fn prepare_upgrade(
+        &self,
+        mask: UpgradeMaskType,
+    ) -> Option<Arc<MaxHealthUpgradeModuleData>> {
+        self.can_upgrade(mask).then(|| Arc::clone(&self.data))
+    }
+    pub(crate) fn remove_upgrade(&mut self, mask: UpgradeMaskType) {
+        // C++ resetUpgrade only resets execution; the health addition is not undone.
+        mux_reset_upgrade(&self.data.upgrade_mux_data, &mut self.applied, mask);
+    }
+    pub(crate) fn finish_upgrade(&mut self) {
+        // C++ commits execution even when the object has no BodyModule.
+        self.applied = true;
     }
 }
 
@@ -372,19 +130,15 @@ impl Module for MaxHealthUpgrade {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
     }
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
-
     fn get_module_tag_name_key(&self) -> NameKeyType {
         LegacyModuleData::get_module_tag_name_key(self.data.as_ref())
     }
-
     fn get_module_data(&self) -> &dyn ModuleData {
         self.data.as_ref()
     }
@@ -392,95 +146,18 @@ impl Module for MaxHealthUpgrade {
 
 impl Snapshotable for MaxHealthUpgrade {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let current_version: u8 = 2;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)
-            .map_err(|e| e.to_string())?;
-        crate::object::upgrade::upgrade_module::crc_upgrade_module_state(xfer, self.applied)?;
-        if version >= 2 {
-            let mut has_original: bool = false;
-            let mut original_val: f32 = 0.0;
-            if let Some(val) = self.inner.original_max_health {
-                has_original = true;
-                original_val = val;
-            }
-            xfer.xfer_bool(&mut has_original)
-                .map_err(|e| e.to_string())?;
-            xfer.xfer_real(&mut original_val)
-                .map_err(|e| e.to_string())?;
-        }
-        Ok(())
+        crate::object::upgrade::upgrade_module::crc_upgrade_module_state(xfer, self.applied)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let current_version: u8 = 2;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)
-            .map_err(|e| e.to_string())?;
-        crate::object::upgrade::upgrade_module::xfer_upgrade_module_state(xfer, &mut self.applied)?;
-        if version >= 2 {
-            let mut has_original: bool = false;
-            let mut original_val: f32 = 0.0;
-            if let Some(val) = self.inner.original_max_health {
-                has_original = true;
-                original_val = val;
-            }
-            xfer.xfer_bool(&mut has_original)
-                .map_err(|e| e.to_string())?;
-            xfer.xfer_real(&mut original_val)
-                .map_err(|e| e.to_string())?;
-            if xfer.is_reading() {
-                self.inner.original_max_health = if has_original {
-                    Some(original_val)
-                } else {
-                    None
-                };
-            }
-        }
-        Ok(())
+        crate::object::upgrade::upgrade_module::xfer_upgrade_module_with_version(
+            xfer,
+            &mut self.applied,
+            "MaxHealthUpgrade",
+        )
     }
-
     fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())
-    }
-}
-
-impl UpgradeModuleInterface for MaxHealthUpgrade {
-    /// Check if upgrade can be applied
-    /// Matches C++ UpgradeMux::wouldUpgrade logic from UpgradeModule.cpp lines 105-137
-    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
-        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
-    }
-
-    fn apply_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
-        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
-        let applied = self.with_inner(|inner| {
-            if inner.apply_max_health().is_ok() {
-                mark_max_health_applied(inner.object_id, &inner.data, upgrade_mask);
-                true
-            } else {
-                false
-            }
-        });
-        if applied {
-            self.applied = true;
-        }
-        applied
-    }
-
-    fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
-        // C++ does not remove max health bonuses; resetUpgrade only clears executed.
-        let _ = crate::object::upgrade::upgrade_module::mux_reset_upgrade(
-            &self.data.upgrade_mux_data,
-            &mut self.applied,
-            upgrade_mask,
-        );
-    }
-}
-
-impl Drop for MaxHealthUpgrade {
-    fn drop(&mut self) {
-        unregister_max_health_upgrade(self.object_id, &self.data);
     }
 }
 
@@ -524,124 +201,4 @@ const MAX_HEALTH_UPGRADE_FIELDS: &[FieldParse<MaxHealthUpgradeModuleData>] = cra
 );
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::common::UpgradeMaskType;
-    use crate::object::Object;
-    use crate::object::registry::OBJECT_REGISTRY;
-    use crate::upgrade::UpgradeTemplate;
-    use game_engine::common::thing::module::NameKeyType;
-    use once_cell::sync::Lazy;
-    use std::sync::Mutex;
-    use std::sync::{Arc, RwLock};
-
-    static TEST_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
-
-    fn clear_registry_for_test() {
-        MAX_HEALTH_UPGRADE_REGISTRY
-            .write()
-            .expect("max health upgrade registry poisoned")
-            .clear();
-    }
-
-    #[test]
-    fn max_health_owned_state_is_isolated_and_survives_xfer() {
-        use game_engine::common::system::xfer_load::XferLoad;
-        use game_engine::common::system::xfer_save::XferSave;
-        use std::io::Cursor;
-
-        let _guard = TEST_LOCK.lock().unwrap();
-        // The registry is a separate boundary; zero ID suppresses registration.
-        let mut first = MaxHealthUpgrade::new(
-            NameKeyType::default(), Arc::new(MaxHealthUpgradeModuleData::default()), INVALID_ID,
-        );
-        let mut second = MaxHealthUpgrade::new(
-            NameKeyType::default(), Arc::new(MaxHealthUpgradeModuleData::default()), INVALID_ID,
-        );
-        first.applied = true;
-        first.inner.original_max_health = Some(125.0);
-        second.inner.original_max_health = Some(75.0);
-        let mut saved = Vec::new();
-        first.xfer(&mut XferSave::new(Cursor::new(&mut saved), 1)).unwrap();
-        assert!(!second.applied);
-        assert_eq!(second.inner.original_max_health, Some(75.0));
-        second.xfer(&mut XferLoad::new(Cursor::new(saved), 1)).unwrap();
-        assert!(second.applied);
-        assert_eq!(second.inner.original_max_health, Some(125.0));
-        second.inner.original_max_health = None;
-        assert_eq!(first.inner.original_max_health, Some(125.0));
-    }
-
-    #[test]
-    fn max_health_upgrade_adds_health() {
-        let _guard = TEST_LOCK
-            .lock()
-            .expect("max health upgrade test lock poisoned");
-        clear_registry_for_test();
-
-        let object_id: ObjectID = 2000;
-        let object_handle = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
-        OBJECT_REGISTRY.register_object(object_id, &object_handle);
-
-        let mut data = MaxHealthUpgradeModuleData::default();
-        data.add_max_health = 50.0;
-        data.change_type = MaxHealthChangeType::SameCurrentHealth;
-        let data_arc = Arc::new(data);
-
-        let upgrade = UpgradeTemplate::new(AsciiString::from("TestMaxHealthUpgrade"));
-        let upgrade_mask = UpgradeMaskType::from_bits_retain(upgrade.mask().to_bits());
-
-        let mut module = MaxHealthUpgrade::new(NameKeyType::default(), data_arc, object_id);
-        assert!(module.apply_upgrade(upgrade_mask));
-
-        {
-            let object = object_handle.read().expect("lock object");
-            if let Some(body) = object.get_body() {
-                let body_guard = body.lock().expect("lock body");
-                assert_eq!(body_guard.get_max_health(), 150.0);
-            } else {
-                panic!("Object should have a body");
-            }
-        }
-
-        OBJECT_REGISTRY.unregister_object(object_id);
-        clear_registry_for_test();
-    }
-
-    #[test]
-    fn max_health_upgrade_removes_correctly() {
-        let _guard = TEST_LOCK
-            .lock()
-            .expect("max health upgrade test lock poisoned");
-        clear_registry_for_test();
-
-        let object_id: ObjectID = 2001;
-        let object_handle = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
-        OBJECT_REGISTRY.register_object(object_id, &object_handle);
-
-        let mut data = MaxHealthUpgradeModuleData::default();
-        data.add_max_health = 75.0;
-        data.change_type = MaxHealthChangeType::PreserveRatio;
-        let data_arc = Arc::new(data);
-
-        let upgrade = UpgradeTemplate::new(AsciiString::from("TestMaxHealthRemove"));
-        let upgrade_mask = UpgradeMaskType::from_bits_retain(upgrade.mask().to_bits());
-
-        let mut module = MaxHealthUpgrade::new(NameKeyType::default(), data_arc, object_id);
-        assert!(module.apply_upgrade(upgrade_mask));
-
-        module.remove_upgrade(upgrade_mask);
-
-        {
-            let object = object_handle.read().expect("lock object");
-            if let Some(body) = object.get_body() {
-                let body_guard = body.lock().expect("lock body");
-                // C++ MaxHealthUpgrade only applies on gain and does not roll back.
-                assert_eq!(body_guard.get_max_health(), 175.0);
-            }
-        }
-
-        OBJECT_REGISTRY.unregister_object(object_id);
-        clear_registry_for_test();
-    }
-}
+mod installed_tests;

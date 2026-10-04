@@ -174,6 +174,26 @@ impl W3DModelDraw {
         self.apply_receives_dynamic_lights();
     }
 
+    fn on_bound_with_context(
+        &mut self,
+        binding: &DrawModuleBindingContext,
+        drawable: &ModelDrawContext,
+    ) {
+        self.owner_id = Some(binding.owner_id);
+        self.hex_color = packed_indicator_hex(binding.indicator_color);
+        self.apply_receives_dynamic_lights();
+        // Preserve the existing bind-owner then bound-callback sequencing.
+        // Both stores use the same driving owner, with no ID lookup.
+        self.hex_color = packed_indicator_hex(binding.indicator_color);
+        self.apply_receives_dynamic_lights();
+        if self.data.default_state >= 0 {
+            self.set_model_state_for_drawable(self.data.default_state as usize, Some(drawable));
+        } else if let Some(state_index) = self.find_best_state_index(&ModelConditionFlags::empty())
+        {
+            self.set_model_state_for_drawable(state_index, Some(drawable));
+        }
+    }
+
     pub fn owner_id(&self) -> Option<ObjectID> {
         self.owner_id
     }
@@ -211,6 +231,14 @@ impl W3DModelDraw {
 
     /// C++ `W3DModelDraw::replaceIndicatorColor`.
     pub fn replace_indicator_color(&mut self, color: i32) {
+        self.replace_indicator_color_for_drawable(color, None);
+    }
+
+    fn replace_indicator_color_for_drawable(
+        &mut self,
+        color: i32,
+        drawable: Option<&ModelDrawContext>,
+    ) {
         if !self.data.ok_to_change_model_color {
             return;
         }
@@ -235,7 +263,9 @@ impl W3DModelDraw {
         self.next_state = None;
         self.next_state_anim_loop_duration = NO_NEXT_DURATION;
         match cur {
-            ActiveModelState::Condition(index) => self.set_model_state(index),
+            ActiveModelState::Condition(index) => {
+                self.set_model_state_for_drawable(index, drawable)
+            }
             ActiveModelState::Transition(index) => {
                 if let Some(state) = self.data.transition_states.get(index) {
                     if let Some(dest) =
@@ -243,11 +273,25 @@ impl W3DModelDraw {
                             candidate.transition_key == state.transition_to_key
                         })
                     {
-                        self.set_model_state(dest);
+                        self.set_model_state_for_drawable(dest, drawable);
                     }
                 }
             }
         }
+    }
+
+    fn replace_model_conditions_for_drawable(
+        &mut self,
+        condition: &ModelConditionFlags,
+        drawable: Option<&ModelDrawContext>,
+    ) {
+        let condition = self.apply_pending_carrying(*condition);
+        self.last_model_conditions = condition;
+        self.hide_headlights = !condition.contains(ModelConditionFlags::NIGHT);
+        if let Some(state_index) = self.find_best_state_index(&condition) {
+            self.set_model_state_for_drawable(state_index, drawable);
+        }
+        self.hide_all_headlights();
     }
 
     pub fn hex_color(&self) -> i32 {
@@ -460,6 +504,23 @@ impl W3DModelDraw {
         };
         drop(obj_guard);
         Some((owner_id, object, drawable))
+    }
+
+    /// Staged deletion uses the same installed model while callbacks run without
+    /// its entry guard. Each phase is sampled after the previous callback.
+    pub(crate) fn take_particle_systems_for_deletion(&mut self) -> Vec<UnsignedInt> {
+        self.particle_systems
+            .drain(..)
+            .map(|tracker| tracker.id)
+            .collect()
+    }
+
+    pub(crate) fn take_terrain_track_for_deletion(&mut self) -> Option<u32> {
+        self.track_handle.take()
+    }
+
+    pub(crate) fn finish_template_shadow_deletion(&mut self) {
+        self.shadow_allocated = false;
     }
 
     fn stop_client_particle_systems(&mut self) {
@@ -998,6 +1059,93 @@ impl W3DModelDraw {
                 client.unbind_track(handle);
             }
         }
+    }
+
+    /// Preserve requested draw state even when there is no visual client/resource.
+    pub(crate) fn set_terrain_decal_type_for_object(
+        &mut self,
+        decal_type: TerrainDecalType,
+        owner: &crate::object::Object,
+    ) {
+        if let Some(id) = self.owner_id {
+            assert_eq!(id, owner.get_id(), "terrain-decal model owner mismatch");
+        }
+        self.terrain_decal = decal_type;
+    }
+
+    /// Missing attach-cache query needed by the driving Drawable, outside this entry guard.
+    pub(crate) fn terrain_decal_attachment_query(&self) -> Option<AsciiString> {
+        if self.data.attach_to_drawable_bone.is_empty()
+            || self
+                .attach_offset_cache
+                .lock()
+                .expect("attach-offset cache poisoned")
+                .is_some()
+        {
+            return None;
+        }
+        Some(self.data.attach_to_drawable_bone.clone())
+    }
+
+    /// C++ setTerrainDecal/adjustTransformMtx using the actual borrowed owner.
+    /// Does not discover or lock the owner/Drawable and does not invoke the visual client.
+    pub(crate) fn prepare_terrain_decal_for_object(
+        &mut self,
+        decal_type: TerrainDecalType,
+        owner: &crate::object::Object,
+        drawable_transform: &Matrix3D,
+        queried_offset: Option<Coord3D>,
+    ) -> Option<TerrainDecalDesc> {
+        self.set_terrain_decal_type_for_object(decal_type, owner);
+        if decal_type == TerrainDecalType::None {
+            return None;
+        }
+        let mut transform = *drawable_transform;
+        if !self.data.attach_to_drawable_bone.is_empty() {
+            let mut cache = self
+                .attach_offset_cache
+                .lock()
+                .expect("attach-offset cache poisoned");
+            if cache.is_none() {
+                *cache = queried_offset;
+            }
+            let offset = cache.unwrap_or(self.data.attach_to_drawable_bone_offset);
+            Self::apply_attach_to_drawable_bone_offset(&mut transform, offset);
+        }
+        let adjust_height = self
+            .current_state()
+            .map(|state| test_flag_bit(state.flags, ACBIT_ADJUST_HEIGHT_BY_CONSTRUCTION_PERCENT))
+            .unwrap_or(false);
+        if adjust_height {
+            if let Some(dz) = Self::construction_percent_z_delta(
+                owner.get_construction_percent() as Real,
+                owner.get_geometry_info().get_max_height_above_position(),
+            ) {
+                Self::translate_z(&mut transform, dz);
+            }
+        }
+        let template = owner.get_template();
+        let texture = if decal_type == TerrainDecalType::ShadowTexture {
+            template.get_shadow_texture_name().to_owned()
+        } else {
+            terrain_decal_texture_name(decal_type).to_owned()
+        };
+        Some(TerrainDecalDesc {
+            object_id: owner.get_id(),
+            texture_name: texture,
+            size_x: template.get_shadow_size_x(),
+            size_y: template.get_shadow_size_y(),
+            offset_x: template.get_shadow_offset_x(),
+            offset_y: template.get_shadow_offset_y(),
+            opacity: 1.0,
+            position: Coord3D::new(transform.w_axis.x, transform.w_axis.y, transform.w_axis.z),
+            angle: Self::matrix_z_rotation(&transform),
+            hidden: self.hidden,
+            shrouded: self.fully_obscured_by_shroud,
+            shadow_enabled: self.shadow_enabled,
+            is_unit_blob: false,
+            shadow_type: crate::common::types::SHADOW_ALPHA_DECAL,
+        })
     }
 
     fn apply_terrain_decal(&mut self, decal_type: TerrainDecalType) {

@@ -294,13 +294,6 @@ pub use super::host_live_ai_update_interface_dual_world_empty_gate_residual_wave
     simulate_live_ai_update_interface_dual_world_empty_gate_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_armor_upgrade_dual_world_empty_gate_residual_wave319::{
-    honesty_live_armor_upgrade_dual_world_empty_gate_method_names_residual_wave319,
-    honesty_live_armor_upgrade_dual_world_empty_gate_nav_commands_residual_wave319,
-    honesty_live_armor_upgrade_dual_world_empty_gate_residual_pack_wave319,
-    simulate_live_armor_upgrade_dual_world_empty_gate_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_artillery_barrage_power_dual_world_empty_gate_residual_wave399::{
     honesty_live_artillery_barrage_power_dual_world_empty_gate_method_names_residual_wave399,
     honesty_live_artillery_barrage_power_dual_world_empty_gate_nav_commands_residual_wave399,

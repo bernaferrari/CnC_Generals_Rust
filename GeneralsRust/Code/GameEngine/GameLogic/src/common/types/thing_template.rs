@@ -60,6 +60,11 @@ pub trait ThingTemplate: Any + AsAny + Send + Sync + std::fmt::Debug {
     fn weapon_template_sets(&self) -> &[EngineWeaponTemplateSet] {
         &[]
     }
+    /// C++ ThingTemplate::findArmorTemplateSet on this immutable definition.
+    /// Adapters return the authored set directly; do not copy a second catalog.
+    fn find_armor_template_set(&self, _flags: &ArmorSetBitFlags) -> Option<&ArmorTemplateSet> {
+        None
+    }
     fn get_build_cost(&self) -> Int {
         0
     }

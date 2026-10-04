@@ -3,7 +3,6 @@
 //! phase/FX/crush helpers fail-closed without dual-world factory walks.
 //! Never flips shell `playable_claim`. Network deferred.
 //!
-//! Orthogonal to Wave 314 MaxHealthUpgrade dual-world empty-gate residual.
 //!
 //! Sources:
 //! - `GameLogic/src/object/behavior/structure_topple_update.rs` dual_world_registry_unavailable

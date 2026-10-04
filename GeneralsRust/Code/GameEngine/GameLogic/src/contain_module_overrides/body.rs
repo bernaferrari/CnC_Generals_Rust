@@ -10,10 +10,8 @@ where
     B: BodyModuleInterface + Snapshotable + 'static,
 {
     module_name_key: NameKeyType,
-    owner_id: ObjectID,
     data: Arc<T>,
-    create_body: fn(T, ObjectID) -> Arc<Mutex<B>>,
-    body: Option<Arc<Mutex<B>>>,
+    body: Arc<Mutex<B>>,
 }
 
 impl<T, B> BodyBindingModule<T, B>
@@ -29,17 +27,13 @@ where
     ) -> Self {
         Self {
             module_name_key: NameKeyGenerator::name_to_key(module_name),
-            owner_id,
+            body: create_body((*data).clone(), owner_id),
             data,
-            create_body,
-            body: None,
         }
     }
 
     fn snapshot_body(&self) -> Result<std::sync::MutexGuard<'_, B>, String> {
         self.body
-            .as_ref()
-            .ok_or_else(|| "body snapshot requested before onObjectCreated".to_string())?
             .lock()
             .map_err(|_| "body lock poisoned during snapshot".to_string())
     }
@@ -61,16 +55,58 @@ where
     fn get_module_data(&self) -> &dyn ModuleData {
         self.data.as_ref()
     }
+}
 
-    fn on_object_created(&mut self) {
-        // The interface attached to Object and the module written by Xfer must
-        // refer to the same body, as C++ m_body aliases its behavior module.
-        let body = self
-            .body
-            .get_or_insert_with(|| (self.create_body)((*self.data).clone(), self.owner_id))
-            .clone();
-        attach_body_to_object(self.owner_id, body);
+/// C++ Object.cpp:396-403 caches the body from the actual new module before
+/// onObjectCreated. Borrow the driving owner; never rediscover it by numeric ID.
+/// The same concrete body remains behind both Object's cache and module Xfer.
+pub(crate) fn install_body_for_module(
+    module: &dyn Module,
+    owner: &mut crate::object::Object,
+) -> Result<bool, String> {
+    macro_rules! install_body {
+        ($data:ty, $body:ty $(, $active:ident)*) => {
+            if let Some(binding) = module
+                .as_any()
+                .downcast_ref::<BodyBindingModule<$data, $body>>()
+            {
+                {
+                    let mut runtime = binding.snapshot_body()?;
+                    let active: &mut ActiveBody = (&mut *runtime)$(.$active())*;
+                    active
+                        .bind_object_template(owner.get_template().clone())
+                        .map_err(|err| err.to_string())?;
+                }
+                let body: Arc<Mutex<dyn BodyModuleInterface>> = binding.body.clone();
+                owner.set_body_module(Some(body));
+                owner.apply_structure_rubble_pose();
+                return Ok(true);
+            }
+        };
     }
+    if let Some(binding) = module
+        .as_any()
+        .downcast_ref::<BodyBindingModule<BodyModuleData, InactiveBody>>()
+    {
+        // InactiveBody.cpp:22-26 modifies its exact construction owner. The
+        // standalone constructor is inert; installation performs this effect.
+        owner.set_effectively_dead(true);
+        let body: Arc<Mutex<dyn BodyModuleInterface>> = binding.body.clone();
+        owner.set_body_module(Some(body));
+        return Ok(true);
+    }
+    install_body!(ActiveBodyModuleData, ActiveBody);
+    install_body!(StructureBodyModuleData, StructureBody, active_body_mut);
+    install_body!(ActiveBodyModuleData, HighlanderBody, active_body_mut);
+    install_body!(ActiveBodyModuleData, ImmortalBody, active_body_mut);
+    install_body!(
+        HiveStructureBodyModuleData,
+        HiveStructureBody,
+        structure_body_mut,
+        active_body_mut
+    );
+    install_body!(UndeadBodyModuleData, UndeadBody, active_body_mut);
+    Ok(false)
 }
 
 impl<T, B> Snapshotable for BodyBindingModule<T, B>
@@ -282,3 +318,8 @@ body_factories!(
     undead_body_instance,
     Some(parse_undead_body_data)
 );
+
+#[cfg(test)]
+mod armor_binding_probe;
+#[cfg(test)]
+pub(crate) use armor_binding_probe::with_active;

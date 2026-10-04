@@ -164,6 +164,31 @@ impl BodyModuleInterface for ImmortalBody {
         self.active_body.set_initial_health(initial_percent)
     }
 
+    fn begin_owner_max_health_change(
+        &mut self,
+        max: f32,
+        kind: MaxHealthChangeType,
+    ) -> BodyResult<super::body_module::OwnerMaxHealthChange> {
+        self.active_body.begin_owner_max_health_change(max, kind)
+    }
+    fn change_health_for_borrowed_owner(
+        &mut self,
+        delta: f32,
+        is_structure: bool,
+    ) -> BodyResult<super::body_module::OwnerHealthTransition> {
+        self.active_body
+            .change_health_for_borrowed_owner(delta, is_structure)
+    }
+    fn owner_particle_head(&self) -> Option<u32> {
+        self.active_body.owner_particle_head()
+    }
+    fn remove_owner_particle_head(&mut self) {
+        self.active_body.remove_owner_particle_head();
+    }
+    fn record_owner_particle(&mut self, id: u32) {
+        self.active_body.record_owner_particle(id);
+    }
+
     fn set_max_health(
         &mut self,
         max_health: f32,
@@ -220,6 +245,10 @@ impl BodyModuleInterface for ImmortalBody {
 
     fn update_body_particle_systems(&mut self) -> BodyResult<()> {
         self.active_body.update_body_particle_systems()
+    }
+
+    fn snapshot_xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
     }
 }
 

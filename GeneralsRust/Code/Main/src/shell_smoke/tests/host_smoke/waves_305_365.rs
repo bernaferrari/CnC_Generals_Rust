@@ -124,21 +124,6 @@ pub(super) fn assert_waves_305_365(r: &ShellSmokeResult) {
         r.detail
     );
     assert!(
-        r.live_max_health_upgrade_dual_world_empty_gate_method_names_wave314_ok,
-        "live max health upgrade dual-world empty gate method names residual pack wave314: {}",
-        r.detail
-    );
-    assert!(
-        r.live_max_health_upgrade_dual_world_empty_gate_nav_commands_wave314_ok,
-        "live max health upgrade dual-world empty gate nav commands residual pack wave314: {}",
-        r.detail
-    );
-    assert!(
-        r.live_max_health_upgrade_dual_world_empty_gate_live_wave314_ok,
-        "live max health upgrade dual-world empty gate live residual wave314: {}",
-        r.detail
-    );
-    assert!(
         r.live_structure_topple_dual_world_empty_gate_method_names_wave315_ok,
         "live structure topple dual-world empty gate method names residual pack wave315: {}",
         r.detail
@@ -196,21 +181,6 @@ pub(super) fn assert_waves_305_365(r: &ShellSmokeResult) {
     assert!(
         r.live_bridge_tower_dual_world_empty_gate_live_wave318_ok,
         "live bridge tower dual-world empty gate live residual wave318: {}",
-        r.detail
-    );
-    assert!(
-        r.live_armor_upgrade_dual_world_empty_gate_method_names_wave319_ok,
-        "live armor upgrade dual-world empty gate method names residual pack wave319: {}",
-        r.detail
-    );
-    assert!(
-        r.live_armor_upgrade_dual_world_empty_gate_nav_commands_wave319_ok,
-        "live armor upgrade dual-world empty gate nav commands residual pack wave319: {}",
-        r.detail
-    );
-    assert!(
-        r.live_armor_upgrade_dual_world_empty_gate_live_wave319_ok,
-        "live armor upgrade dual-world empty gate live residual wave319: {}",
         r.detail
     );
     assert!(

@@ -662,11 +662,17 @@ impl ModuleFactory {
             return Err("Module name cannot be empty".to_string());
         }
 
-        let template = self
-            .find_module_template(name, module_type)
-            .ok_or_else(|| format!("Module template '{}' not found", name))?;
-
-        let mut module_data = template.create_module_data(ini);
+        let mut module_data = if let Some(template) = self.find_module_template(name, module_type) {
+            template.create_module_data(ini)
+        } else if let Some(constructors) = self.module_overrides[module_type as usize].get(name) {
+            // Authored module data is parsed before its descriptor is recorded.
+            // Draw/ClientUpdate have no builtin descriptor seed. Use the actual
+            // constructors already owned by this factory, without adding a
+            // template/descriptor or changing their registration order.
+            (constructors.create_data_proc)(ini)
+        } else {
+            return Err(format!("Module template '{}' not found", name));
+        };
 
         // Set the module tag name key
         let module_tag_key = self.string_to_name_key(module_tag);
@@ -683,6 +689,7 @@ impl ModuleFactory {
         self.find_module_template(name, module_type)
             .and_then(|template| template.create_data_proc)
             .is_some()
+            || self.module_overrides[module_type as usize].contains_key(name)
     }
 
     /// Fail-closed module-data create: `None` when the template or data_proc is missing.

@@ -13,6 +13,15 @@ mod contain_installation_tests;
 #[cfg(test)]
 mod physics_installation_tests;
 
+#[cfg(test)]
+mod body_installation_tests;
+
+#[cfg(test)]
+mod body_rubble_tests;
+
+#[cfg(test)]
+mod authored_armor_tests;
+
 impl Object {
     // Module access
     pub fn get_body_module(&self) -> Option<Arc<Mutex<dyn BodyModuleInterface>>> {
@@ -829,7 +838,7 @@ impl Object {
         let module_handle: Arc<dyn ModuleThing> = thing_handle.clone();
         let mut modules_to_install: Vec<Arc<ModuleEntry>> = Vec::new();
 
-        let mut install_behavior_modules = |factory: &ModuleFactory| {
+        let mut install_behavior_modules = |factory: &ModuleFactory| -> Result<(), String> {
             for entry in thing_template.get_behavior_module_info().iter() {
                 let module_name = entry.name.clone();
                 let module_data = Arc::clone(&entry.data);
@@ -843,6 +852,18 @@ impl Object {
                     ModuleType::Behavior,
                 ) {
                     Ok(module) => {
+                        // Object.cpp:388-403 caches the newly created body
+                        // before the next authored module is constructed. Inactive
+                        // construction effects also reach this exact owner here.
+                        if (interface_mask.0 & ModuleInterfaceType::BODY.0) != 0 {
+                            let mut owner = object
+                                .write()
+                                .map_err(|_| "object lock poisoned during body installation")?;
+                            crate::contain_module_overrides::install_body_for_module(
+                                module.as_ref(),
+                                &mut owner,
+                            )?;
+                        }
                         // C++ Object.cpp:458-462 — onObjectCreated runs only after
                         // every helper + template module is installed.
                         modules_to_install.push(Arc::new(ModuleEntry::new(
@@ -866,13 +887,14 @@ impl Object {
                     }
                 }
             }
+            Ok(())
         };
 
         let mut installed = false;
         match get_module_factory() {
             Ok(factory_guard) => {
                 if let Some(factory) = factory_guard.as_ref() {
-                    install_behavior_modules(factory);
+                    install_behavior_modules(factory)?;
                     installed = true;
                 }
             }
@@ -884,7 +906,7 @@ impl Object {
                 match get_module_factory() {
                     Ok(factory_guard) => {
                         if let Some(factory) = factory_guard.as_ref() {
-                            install_behavior_modules(factory);
+                            install_behavior_modules(factory)?;
                         } else {
                             warn!(
                                 "ModuleFactory still not initialised after retry while creating modules"

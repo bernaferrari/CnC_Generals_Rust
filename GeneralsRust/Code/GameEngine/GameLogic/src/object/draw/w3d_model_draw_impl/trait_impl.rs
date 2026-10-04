@@ -45,6 +45,15 @@ impl Module for W3DModelDraw {
 }
 
 impl DrawModule for W3DModelDraw {
+    fn on_drawable_bound_to_object_with_context(
+        &mut self,
+        binding: &DrawModuleBindingContext,
+        drawable: &ModelDrawContext,
+    ) -> bool {
+        self.on_bound_with_context(binding, drawable);
+        true
+    }
+
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
         // C++: setPauseAnimation(!getDrawable()->getShouldAnimate(m_animationsRequirePower))
         self.set_pause_animation(!self.owner_should_animate());
@@ -570,13 +579,19 @@ impl ObjectDrawInterface for W3DModelDraw {
     }
 
     fn replace_model_condition_state(&mut self, condition: &ModelConditionFlags) {
-        let condition = self.apply_pending_carrying(*condition);
-        self.last_model_conditions = condition;
-        self.hide_headlights = !condition.contains(ModelConditionFlags::NIGHT);
-        if let Some(state_index) = self.find_best_state_index(&condition) {
-            self.set_model_state(state_index);
-        }
-        self.hide_all_headlights();
+        self.replace_model_conditions_for_drawable(condition, None);
+    }
+
+    fn replace_model_condition_state_with_context(
+        &mut self,
+        condition: &ModelConditionFlags,
+        drawable: &ModelDrawContext,
+    ) {
+        self.replace_model_conditions_for_drawable(condition, Some(drawable));
+    }
+
+    fn replace_indicator_color_with_context(&mut self, color: i32, drawable: &ModelDrawContext) {
+        self.replace_indicator_color_for_drawable(color, Some(drawable));
     }
 
     fn handle_weapon_fire_fx(

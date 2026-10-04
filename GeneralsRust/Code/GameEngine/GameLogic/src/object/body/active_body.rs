@@ -691,8 +691,8 @@ pub struct ActiveBody {
     armor: Armor,
     /// Name of the currently applied armor template (if any)
     armor_template_name: Option<AsciiString>,
-    /// Engine thing template backing this body (for armor lookups)
-    engine_template: Option<Arc<DefaultThingTemplate>>,
+    /// The exact owner's immutable definition, bound during module installation.
+    engine_template: Option<Arc<dyn ThingTemplate>>,
     /// Owning object ID (legacy handle lookup)
     owner_id: ObjectId,
     /// Whether to treat damage-state thresholds as structure semantics.
@@ -763,6 +763,19 @@ impl ActiveBody {
         }
     }
 
+    /// C++ ActiveBody.cpp:158-163 resolves the constructing Object's authored
+    /// ArmorSet before the next module constructor or onObjectCreated callback.
+    /// Installation lends the exact definition; no numeric owner lookup occurs.
+    pub(crate) fn bind_object_template(
+        &mut self,
+        template: Arc<dyn ThingTemplate>,
+    ) -> BodyResult<()> {
+        self.engine_template = Some(template);
+        self.state.armor_flags_dirty = true;
+        self.validate_armor_and_damage_fx()?;
+        self.set_correct_damage_state()
+    }
+
     /// Clear the cached engine template handle (used during deletion).
     pub fn clear_engine_template(&mut self) {
         self.engine_template = None;
@@ -809,10 +822,8 @@ impl ActiveBody {
         damaged_thresh: f32,
         really_damaged_thresh: f32,
     ) -> BodyDamageType {
-        if max_health <= 0.0 {
-            return BodyDamageType::Pristine;
-        }
-
+        // C++ tests the IEEE ratio directly, including zero maximum health.
+        // In particular, 0/0 produces NaN and falls through to RUBBLE.
         let ratio = health / max_health;
 
         if ratio > damaged_thresh {
@@ -907,7 +918,7 @@ impl ActiveBody {
 
     /// Armor name and damage-FX name C++ `validateArmorAndDamageFX` would install.
     fn resolve_armor_choice(
-        engine_template: Option<&Arc<DefaultThingTemplate>>,
+        engine_template: Option<&Arc<dyn ThingTemplate>>,
         flags: &ArmorSetBitFlags,
         default_name: Option<&AsciiString>,
     ) -> (Option<AsciiString>, Option<AsciiString>) {
@@ -2244,52 +2255,62 @@ impl BodyModuleInterface for ActiveBody {
         self.internal_change_health(new_health - current_health)
     }
 
-    fn set_max_health(
+    fn begin_owner_max_health_change(
         &mut self,
         max_health: f32,
         change_type: MaxHealthChangeType,
-    ) -> BodyResult<()> {
-        // C++ ActiveBody::setMaxHealth (ActiveBody.cpp:873-922):
-        // update m_maxHealth / m_initialHealth, then route current-health
-        // changes through virtual internalChangeHealth so ImmortalBody's
-        // 1-HP floor and UndeadBody second-life visuals (evaluateVisualCondition)
-        // run. Direct current_health writes skip that path.
+    ) -> BodyResult<super::body_module::OwnerMaxHealthChange> {
         let prev_max_health = self.get_max_health();
         let current_health = self.get_health();
-
-        {
-            let state = &mut self.state;
-            state.max_health = max_health;
-            state.initial_health = max_health;
-        }
-
-        match change_type {
+        self.state.max_health = max_health;
+        self.state.initial_health = max_health;
+        let first_delta = match change_type {
             MaxHealthChangeType::PreserveRatio => {
                 let ratio = if prev_max_health > 0.0 {
                     current_health / prev_max_health
                 } else {
                     1.0
                 };
-                let new_health = max_health * ratio;
-                self.internal_change_health(new_health - current_health)?;
+                Some(max_health * ratio - current_health)
             }
-            MaxHealthChangeType::AddCurrentHealthToo => {
-                self.internal_change_health(max_health - prev_max_health)?;
-            }
-            MaxHealthChangeType::SameCurrentHealth => {}
-            MaxHealthChangeType::FullyHeal => {
-                self.internal_change_health(max_health - current_health)?;
-            }
-        }
+            MaxHealthChangeType::AddCurrentHealthToo => Some(max_health - prev_max_health),
+            MaxHealthChangeType::SameCurrentHealth => None,
+            MaxHealthChangeType::FullyHeal => Some(max_health - current_health),
+        };
+        Ok(super::body_module::OwnerMaxHealthChange::Active { first_delta })
+    }
 
-        // C++: when max is clipped down, current above the new cap goes
-        // through internalChangeHealth (not a raw store).
+    fn set_max_health(
+        &mut self,
+        max_health: f32,
+        change_type: MaxHealthChangeType,
+    ) -> BodyResult<()> {
+        if let super::body_module::OwnerMaxHealthChange::Active {
+            first_delta: Some(delta),
+        } = self.begin_owner_max_health_change(max_health, change_type)?
+        {
+            self.internal_change_health(delta)?;
+        }
         let now = self.get_health();
         if now > max_health {
             self.internal_change_health(max_health - now)?;
         }
-
         Ok(())
+    }
+
+    fn owner_particle_head(&self) -> Option<u32> {
+        self.state
+            .particle_systems
+            .as_ref()
+            .map(|node| node.particle_system_id)
+    }
+    fn remove_owner_particle_head(&mut self) {
+        if let Some(node) = self.state.particle_systems.take() {
+            self.state.particle_systems = node.next;
+        }
+    }
+    fn record_owner_particle(&mut self, id: u32) {
+        record_body_particle_system(&mut self.state, id);
     }
 
     fn set_front_crushed(&mut self, crushed: bool) -> BodyResult<()> {
@@ -2316,10 +2337,13 @@ impl BodyModuleInterface for ActiveBody {
         BodyModuleInterface::get_damage_scalar(&self.base)
     }
 
-    fn internal_change_health(&mut self, delta: f32) -> BodyResult<()> {
+    fn change_health_for_borrowed_owner(
+        &mut self,
+        delta: f32,
+        is_structure: bool,
+    ) -> BodyResult<super::body_module::OwnerHealthTransition> {
         let mut changed_state = false;
         let mut effectively_dead = false;
-        let is_structure = self.is_structure_for_damage_state();
         let floor = self.min_health_floor;
         // C++ ImmortalBody.cpp:34 — clamp delta before ActiveBody so we
         // never die and then un-die. attempt_damage calls this method
@@ -2366,7 +2390,17 @@ impl BodyModuleInterface for ActiveBody {
             effectively_dead = state.current_health <= 0.0;
         }
 
-        if changed_state {
+        Ok(super::body_module::OwnerHealthTransition {
+            damage_state: self.get_damage_state(),
+            changed_state,
+            effectively_dead,
+        })
+    }
+
+    fn internal_change_health(&mut self, delta: f32) -> BodyResult<()> {
+        let is_structure = self.is_structure_for_damage_state();
+        let transition = self.change_health_for_borrowed_owner(delta, is_structure)?;
+        if transition.changed_state {
             // C++ ActiveBody.cpp:1219 — skip damaged-art while building.
             let under_construction = match self.get_owner() {
                 // try_read, matching attempt_damage/evaluate_visual_condition:
@@ -2388,7 +2422,7 @@ impl BodyModuleInterface for ActiveBody {
         // Only clear the bit here. Setting it before handle_death makes that
         // function return and skip on_die. try_write fails when the caller
         // already holds the object; those paths sync after death handling.
-        if !effectively_dead {
+        if !transition.effectively_dead {
             if let Some(owner) = self.get_owner() {
                 if let Ok(mut owner_guard) = owner.try_write() {
                     if owner_guard.is_effectively_dead() {
@@ -2449,94 +2483,8 @@ impl BodyModuleInterface for ActiveBody {
         } else {
             false
         };
-        let count_modifier = if aflame { 2i32 } else { 1i32 };
-
-        let global = match global_data::read_safe() {
-            Ok(data) => data,
-            Err(_) => return Ok(()),
-        };
-
-        let fire_small_system = if aflame {
-            global.auto_fire_particle_medium_system.clone()
-        } else {
-            global.auto_fire_particle_small_system.clone()
-        };
-        let fire_medium_system = if aflame {
-            global.auto_fire_particle_large_system.clone()
-        } else {
-            global.auto_fire_particle_medium_system.clone()
-        };
-        let fire_large_system = global.auto_fire_particle_large_system.clone();
-        let smoke_small_system = if aflame {
-            global.auto_fire_particle_small_system.clone()
-        } else {
-            global.auto_smoke_particle_small_system.clone()
-        };
-        let smoke_medium_system = if aflame {
-            global.auto_fire_particle_small_system.clone()
-        } else {
-            global.auto_smoke_particle_medium_system.clone()
-        };
-        let smoke_large_system = if aflame {
-            global.auto_fire_particle_small_system.clone()
-        } else {
-            global.auto_smoke_particle_large_system.clone()
-        };
-
-        let fire_small_prefix = global.auto_fire_particle_small_prefix.clone();
-        let fire_medium_prefix = global.auto_fire_particle_medium_prefix.clone();
-        let fire_large_prefix = global.auto_fire_particle_large_prefix.clone();
-        let smoke_small_prefix = global.auto_smoke_particle_small_prefix.clone();
-        let smoke_medium_prefix = global.auto_smoke_particle_medium_prefix.clone();
-        let smoke_large_prefix = global.auto_smoke_particle_large_prefix.clone();
-        let aflame_prefix = global.auto_aflame_particle_prefix.clone();
-        let aflame_system = global.auto_aflame_particle_system.clone();
-        let fire_small_max = global.auto_fire_particle_small_max;
-        let fire_medium_max = global.auto_fire_particle_medium_max;
-        let fire_large_max = global.auto_fire_particle_large_max;
-        let smoke_small_max = global.auto_smoke_particle_small_max;
-        let smoke_medium_max = global.auto_smoke_particle_medium_max;
-        let smoke_large_max = global.auto_smoke_particle_large_max;
-        let aflame_max = global.auto_aflame_particle_max;
-        drop(global);
-
-        self.create_particle_systems(
-            fire_small_prefix.as_str(),
-            fire_small_system.as_str(),
-            fire_small_max.saturating_mul(count_modifier),
-        )?;
-        self.create_particle_systems(
-            fire_medium_prefix.as_str(),
-            fire_medium_system.as_str(),
-            fire_medium_max.saturating_mul(count_modifier),
-        )?;
-        self.create_particle_systems(
-            fire_large_prefix.as_str(),
-            fire_large_system.as_str(),
-            fire_large_max.saturating_mul(count_modifier),
-        )?;
-        self.create_particle_systems(
-            smoke_small_prefix.as_str(),
-            smoke_small_system.as_str(),
-            smoke_small_max.saturating_mul(count_modifier),
-        )?;
-        self.create_particle_systems(
-            smoke_medium_prefix.as_str(),
-            smoke_medium_system.as_str(),
-            smoke_medium_max.saturating_mul(count_modifier),
-        )?;
-        self.create_particle_systems(
-            smoke_large_prefix.as_str(),
-            smoke_large_system.as_str(),
-            smoke_large_max.saturating_mul(count_modifier),
-        )?;
-
-        if aflame {
-            self.create_particle_systems(
-                aflame_prefix.as_str(),
-                aflame_system.as_str(),
-                aflame_max.saturating_mul(count_modifier),
-            )?;
+        for group in super::owner_health::body_particle_groups(aflame) {
+            self.create_particle_systems(&group.prefix, &group.system, group.count)?;
         }
 
         Ok(())
@@ -3338,5 +3286,45 @@ mod death_flooded_tests {
         assert_eq!(body.get_health(), 25.0);
         assert_eq!(body.get_previous_health(), 10.0);
         assert_eq!(body.get_damage_state(), BodyDamageType::Pristine);
+    }
+}
+
+#[cfg(test)]
+mod damage_state_edge_tests {
+    use super::{ActiveBody, BodyDamageType};
+
+    #[test]
+    fn nonpositive_maximum_uses_original_ieee_ratio_branches() {
+        // ActiveBody.cpp:83-112 has no nonpositive-maximum special case.
+        for (health, maximum, expected) in [
+            (0.0, 0.0, BodyDamageType::Rubble),
+            (1.0, 0.0, BodyDamageType::Pristine),
+            (-1.0, 0.0, BodyDamageType::Rubble),
+            (1.0, -1.0, BodyDamageType::Rubble),
+            (-0.25, -1.0, BodyDamageType::Damaged),
+            (-0.05, -1.0, BodyDamageType::ReallyDamaged),
+            (f32::NAN, 100.0, BodyDamageType::Rubble),
+        ] {
+            assert_eq!(
+                ActiveBody::calc_damage_state(health, maximum, false, 0.5, 0.1),
+                expected,
+                "health={health}, maximum={maximum}"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+impl ActiveBody {
+    pub(crate) fn is_bound_to_template_for_test(&self, template: &Arc<dyn ThingTemplate>) -> bool {
+        self.engine_template
+            .as_ref()
+            .map(|bound| {
+                std::ptr::eq(
+                    Arc::as_ptr(bound) as *const (),
+                    Arc::as_ptr(template) as *const (),
+                )
+            })
+            .unwrap_or(false)
     }
 }

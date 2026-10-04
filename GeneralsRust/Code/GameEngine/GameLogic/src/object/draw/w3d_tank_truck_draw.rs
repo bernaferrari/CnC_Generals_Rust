@@ -444,6 +444,19 @@ impl Module for W3DTankTruckDraw {
 }
 
 impl DrawModule for W3DTankTruckDraw {
+    fn on_drawable_bound_to_object_with_context(
+        &mut self,
+        binding: &DrawModuleBindingContext,
+        drawable: &ModelDrawContext,
+    ) -> bool {
+        let handled = self
+            .base
+            .on_drawable_bound_to_object_with_context(binding, drawable);
+        self.create_tread_emitters();
+        self.update_tread_objects();
+        handled
+    }
+
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
         self.base.do_draw_module(transform_mtx);
         self.update_tread_objects();

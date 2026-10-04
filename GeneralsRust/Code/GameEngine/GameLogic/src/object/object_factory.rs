@@ -1158,9 +1158,11 @@ impl ObjectFactory {
 
         // Match C++ bindObjectAndDrawable ordering: draw modules are created
         // first, then receive their Object association and bound callback.
-        if let Ok(mut guard) = drawable.write() {
-            guard.friend_bind_to_object(base_object);
-        }
+        let binding = {
+            let owner = base_object.read().expect("drawable owner poisoned");
+            crate::object::draw::draw_module::DrawModuleBindingContext::from_owner(&owner)
+        };
+        Drawable::bind_to_object_with_context(&drawable, base_object, &binding);
 
         // Associate drawable with object
         if let Ok(mut obj_guard) = base_object.write() {

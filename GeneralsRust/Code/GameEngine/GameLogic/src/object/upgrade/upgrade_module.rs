@@ -162,14 +162,17 @@ pub(crate) fn xfer_upgrade_module_state(
     Ok(())
 }
 
-// C++ UpgradeModule::crc calls BehaviorModule::crc then UpgradeMux::upgradeMuxCRC,
-// which delegates to upgradeMuxXfer — identical code path to xfer.
+// C++ UpgradeModule::crc calls empty Behavior/Object/Module CRCs, then
+// UpgradeMux::upgradeMuxCRC writes only its version and executed flag.
 pub(crate) fn crc_upgrade_module_state(
     xfer: &mut dyn Xfer,
     upgrade_executed: bool,
 ) -> Result<(), String> {
+    let mut version = 1u8;
+    xfer.xfer_version(&mut version, 1)
+        .map_err(|err| err.to_string())?;
     let mut executed = upgrade_executed;
-    xfer_upgrade_module_state(xfer, &mut executed)
+    xfer.xfer_bool(&mut executed).map_err(|err| err.to_string())
 }
 
 pub(crate) fn xfer_upgrade_module_with_version(
@@ -225,3 +228,7 @@ mod tests {
         assert!(!mux_reset_upgrade(&data, &mut applied, mask));
     }
 }
+
+#[cfg(test)]
+#[path = "upgrade_module/crc_tests.rs"]
+mod crc_contract_tests;

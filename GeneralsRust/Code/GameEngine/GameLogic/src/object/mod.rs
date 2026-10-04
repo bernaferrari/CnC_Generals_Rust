@@ -1070,6 +1070,10 @@ impl<'a> UpgradeModuleKindMut<'a> {
             Self::SubObjects(module) => module.can_upgrade(mask),
             Self::PassengersFire(module) => module.can_upgrade(mask),
             Self::StatusBits(module) => module.can_upgrade(mask),
+            Self::Armor(module) => module.can_upgrade(mask),
+            Self::MaxHealth(module) => module.can_upgrade(mask),
+            Self::ExperienceScalar(module) => module.can_upgrade(mask),
+            Self::WeaponBonus(module) => module.can_upgrade(mask),
             other => other
                 .into_interface()
                 .is_some_and(|module| module.can_upgrade(mask)),
@@ -1081,6 +1085,10 @@ impl<'a> UpgradeModuleKindMut<'a> {
             Self::SubObjects(module) => module.remove_upgrade(mask),
             Self::PassengersFire(module) => module.remove_upgrade(mask),
             Self::StatusBits(module) => module.remove_upgrade(mask),
+            Self::Armor(module) => module.remove_upgrade(mask),
+            Self::MaxHealth(module) => module.remove_upgrade(mask),
+            Self::ExperienceScalar(module) => module.remove_upgrade(mask),
+            Self::WeaponBonus(module) => module.remove_upgrade(mask),
             other => {
                 if let Some(module) = other.into_interface() {
                     module.remove_upgrade(mask);
@@ -1093,20 +1101,22 @@ impl<'a> UpgradeModuleKindMut<'a> {
     // They cannot implement the ambient, ownerless compatibility interface.
     fn into_interface(self) -> Option<&'a mut dyn UpgradeModuleInterface> {
         Some(match self {
-            Self::StatusBits(_) | Self::PassengersFire(_) | Self::SubObjects(_) => return None,
+            Self::StatusBits(_)
+            | Self::PassengersFire(_)
+            | Self::SubObjects(_)
+            | Self::Armor(_)
+            | Self::MaxHealth(_)
+            | Self::ExperienceScalar(_)
+            | Self::WeaponBonus(_) => return None,
             Self::GrantScience(module) => module,
             Self::CommandSet(module) => module,
             Self::WeaponSet(module) => module,
             Self::Radar(module) => module,
             Self::PowerPlant(module) => module,
-            Self::WeaponBonus(module) => module,
             Self::Stealth(module) => module,
             Self::ModelCondition(module) => module,
-            Self::Armor(module) => module,
             Self::CostModifier(module) => module,
             Self::LocomotorSet(module) => module,
-            Self::ExperienceScalar(module) => module,
-            Self::MaxHealth(module) => module,
             Self::ActiveShroud(module) => module,
             Self::ReplaceObject(module) => module,
             Self::UnpauseSpecialPower(module) => module,
@@ -2693,3 +2703,6 @@ mod scheduled_proxy_fixture;
 
 #[cfg(test)]
 mod update_phase_metadata_tests;
+
+#[cfg(test)]
+mod object_upgrade_admission_tests;

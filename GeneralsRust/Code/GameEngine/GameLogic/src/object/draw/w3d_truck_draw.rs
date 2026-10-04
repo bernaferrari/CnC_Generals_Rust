@@ -789,6 +789,18 @@ impl Module for W3DTruckDraw {
 }
 
 impl DrawModule for W3DTruckDraw {
+    fn on_drawable_bound_to_object_with_context(
+        &mut self,
+        binding: &DrawModuleBindingContext,
+        drawable: &ModelDrawContext,
+    ) -> bool {
+        let handled = self
+            .base
+            .on_drawable_bound_to_object_with_context(binding, drawable);
+        self.create_emitters();
+        handled
+    }
+
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
         let Some(owner_id) = self.base.owner_id() else {
             self.base.do_draw_module(transform_mtx);

@@ -149,12 +149,34 @@ impl Drawable {
         }
     }
 
+    pub(super) fn model_draw_context(&self) -> ModelDrawContext {
+        ModelDrawContext {
+            instance_scale: self.get_instance_scale(),
+            state_particles: !self.test_drawable_status(
+                crate::object::draw::w3d_model_draw::DRAWABLE_STATUS_NO_STATE_PARTICLES,
+            ),
+        }
+    }
+
     pub(super) fn propagate_model_condition_state_to_draw_modules(&mut self) {
         let conditions = self.model_conditions;
-        for module_handle in self.get_draw_modules_with_interface(ModuleInterfaceType::DRAW) {
+        let facts = self.model_draw_context();
+        Self::dispatch_model_condition_state(
+            self.get_draw_modules_with_interface(ModuleInterfaceType::DRAW),
+            conditions,
+            &facts,
+        );
+    }
+
+    pub(super) fn dispatch_model_condition_state(
+        modules: Vec<DrawableModuleHandle>,
+        conditions: ModelConditionFlags,
+        facts: &ModelDrawContext,
+    ) {
+        for module_handle in modules {
             module_handle.with_module(|module| {
                 with_object_draw_interface_mut(module, |draw| {
-                    draw.replace_model_condition_state(&conditions);
+                    draw.replace_model_condition_state_with_context(&conditions, facts);
                 });
             });
         }
@@ -243,6 +265,15 @@ impl Drawable {
         new_object_id: u32,
         object: &Arc<RwLock<crate::object::Object>>,
     ) {
+        self.install_object_association(new_object_id, object);
+        self.notify_draw_modules_bound_to_current_object();
+    }
+
+    fn install_object_association(
+        &mut self,
+        new_object_id: u32,
+        object: &Arc<RwLock<crate::object::Object>>,
+    ) {
         let previous_object_id = self.object_id;
         if let Some(client) = TheGameClient::get() {
             // A replacement Drawable for the *same* object must also retire
@@ -255,8 +286,45 @@ impl Drawable {
         }
         self.object_id = new_object_id;
         self.bind_object_ref(object);
+    }
 
-        self.notify_draw_modules_bound_to_current_object();
+    /// Install the actual association before callbacks, then release Drawable.
+    /// The caller supplies facts from its exact Object borrow; no ID lookup.
+    pub(crate) fn bind_to_object_with_context(
+        drawable: &Arc<RwLock<Self>>,
+        object: &Arc<RwLock<crate::object::Object>>,
+        binding: &DrawModuleBindingContext,
+    ) {
+        let (modules, facts) = {
+            let mut draw = drawable.write().expect("bound Drawable poisoned");
+            draw.install_object_association(binding.owner_id, object);
+            (
+                draw.get_draw_modules_with_interface(ModuleInterfaceType::DRAW),
+                draw.model_draw_context(),
+            )
+        };
+        Self::dispatch_bound_draw_modules(modules, binding, &facts);
+    }
+
+    fn dispatch_bound_draw_modules(
+        modules: Vec<DrawableModuleHandle>,
+        binding: &DrawModuleBindingContext,
+        facts: &ModelDrawContext,
+    ) {
+        for module_handle in modules {
+            module_handle.with_module(|module| {
+                let mut handled = false;
+                with_draw_module_mut(module, |draw| {
+                    handled = draw.on_drawable_bound_to_object_with_context(binding, facts);
+                });
+                if !handled {
+                    let _ = with_draw_module_kind(module, |draw| {
+                        draw.bind_owner_id(binding.owner_id);
+                    });
+                    module.on_drawable_bound_to_object();
+                }
+            });
+        }
     }
 
     /// Notify draw modules only after this Drawable has a resolved gameplay

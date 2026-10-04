@@ -1011,10 +1011,6 @@ fn main() {
         && r.live_collision_system_dual_world_empty_gate_method_names_wave313_ok
         && r.live_collision_system_dual_world_empty_gate_nav_commands_wave313_ok
         && r.live_collision_system_dual_world_empty_gate_live_wave313_ok
-        // Wave 314 residual honesty (max health upgrade dual-world empty gates).
-        && r.live_max_health_upgrade_dual_world_empty_gate_method_names_wave314_ok
-        && r.live_max_health_upgrade_dual_world_empty_gate_nav_commands_wave314_ok
-        && r.live_max_health_upgrade_dual_world_empty_gate_live_wave314_ok
         // Wave 315 residual honesty (structure topple dual-world empty gates).
         && r.live_structure_topple_dual_world_empty_gate_method_names_wave315_ok
         && r.live_structure_topple_dual_world_empty_gate_nav_commands_wave315_ok
@@ -1031,10 +1027,6 @@ fn main() {
         && r.live_bridge_tower_dual_world_empty_gate_method_names_wave318_ok
         && r.live_bridge_tower_dual_world_empty_gate_nav_commands_wave318_ok
         && r.live_bridge_tower_dual_world_empty_gate_live_wave318_ok
-        // Wave 319 residual honesty (armor upgrade dual-world empty gates).
-        && r.live_armor_upgrade_dual_world_empty_gate_method_names_wave319_ok
-        && r.live_armor_upgrade_dual_world_empty_gate_nav_commands_wave319_ok
-        && r.live_armor_upgrade_dual_world_empty_gate_live_wave319_ok
         // Wave 320 residual honesty (paradrop power dual-world empty gates).
         && r.live_paradrop_power_dual_world_empty_gate_method_names_wave320_ok
         && r.live_paradrop_power_dual_world_empty_gate_nav_commands_wave320_ok

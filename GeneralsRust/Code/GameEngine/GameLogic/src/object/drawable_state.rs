@@ -542,6 +542,29 @@ impl Drawable {
         }
     }
 
+    pub(crate) fn react_to_body_damage_state_change_on_drawable(
+        drawable: &Arc<RwLock<Self>>,
+        new_state: BodyDamageType,
+        owner: &crate::object::Object,
+    ) {
+        let (modules, conditions, facts) = {
+            let mut draw = drawable.write().expect("health Drawable poisoned");
+            draw.update_body_damage_model_conditions(new_state);
+            (
+                draw.get_draw_modules_with_interface(ModuleInterfaceType::DRAW),
+                draw.model_conditions,
+                draw.model_draw_context(),
+            )
+        };
+        Self::dispatch_model_condition_state(modules, conditions, &facts);
+        if !TheGameLogic::is_loading_map() {
+            drawable
+                .write()
+                .expect("ambient Drawable poisoned")
+                .restart_ambient_sound_for_damage(owner, new_state);
+        }
+    }
+
     fn restart_ambient_sound_for_damage(
         &mut self,
         owner: &crate::object::Object,
@@ -554,6 +577,11 @@ impl Drawable {
     }
 
     fn set_body_damage_model_conditions(&mut self, new_state: BodyDamageType) {
+        self.update_body_damage_model_conditions(new_state);
+        self.propagate_model_condition_state_to_draw_modules();
+    }
+
+    fn update_body_damage_model_conditions(&mut self, new_state: BodyDamageType) {
         // C++ TheDamageMap[BODYDAMAGETYPE_COUNT]: INVALID, DAMAGED, REALLY_DAMAGED, RUBBLE
         let clear = ModelConditionFlags::DAMAGED
             | ModelConditionFlags::REALLYDAMAGED
@@ -564,6 +592,7 @@ impl Drawable {
             BodyDamageType::ReallyDamaged => ModelConditionFlags::REALLYDAMAGED,
             BodyDamageType::Rubble => ModelConditionFlags::RUBBLE,
         };
-        self.clear_and_set_model_condition_state(clear, set);
+        self.model_conditions = (self.model_conditions & !clear) | set;
+        self.update_conditional_model();
     }
 }

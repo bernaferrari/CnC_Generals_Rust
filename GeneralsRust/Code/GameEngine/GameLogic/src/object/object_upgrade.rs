@@ -15,6 +15,12 @@ enum PreparedUpgrade {
         Arc<crate::object::upgrade::passengers_fire_upgrade::PassengersFireUpgradeModuleData>,
     ),
     StatusBits(Arc<crate::object::upgrade::status_bits_upgrade::StatusBitsUpgradeModuleData>),
+    Armor(Arc<crate::object::upgrade::armor_upgrade::ArmorUpgradeModuleData>),
+    MaxHealth(Arc<crate::object::upgrade::max_health_upgrade::MaxHealthUpgradeModuleData>),
+    ExperienceScalar(
+        Arc<crate::object::upgrade::experience_scalar_upgrade::ExperienceScalarUpgradeModuleData>,
+    ),
+    WeaponBonus(Arc<crate::object::upgrade::weapon_bonus_upgrade::WeaponBonusUpgradeModuleData>),
 }
 
 impl PreparedUpgrade {
@@ -23,6 +29,10 @@ impl PreparedUpgrade {
             Self::SubObjects(data) => &data.upgrade_mux_data,
             Self::PassengersFire(data) => &data.upgrade_mux_data,
             Self::StatusBits(data) => &data.upgrade_mux_data,
+            Self::Armor(data) => &data.upgrade_mux_data,
+            Self::MaxHealth(data) => &data.upgrade_mux_data,
+            Self::ExperienceScalar(data) => &data.upgrade_mux_data,
+            Self::WeaponBonus(data) => &data.upgrade_mux_data,
         }
     }
 }
@@ -492,25 +502,24 @@ impl Object {
 
     pub fn give_upgrade(&mut self, upgrade_template: &UpgradeTemplate) {
         let mask = upgrade_template.mask();
-        if mask.is_empty() {
-            return;
-        }
-
         // Convert UpgradeMask to UpgradeMaskType
         let mask_bits = UpgradeMaskType::from_bits_retain(mask.bits());
 
-        if !upgrade_template.is_stackable() && self.object_upgrades_completed.contains(mask_bits) {
-            return;
-        }
-
+        // Object.cpp:4474–4484 always rechecks after setting the granted bits,
+        // including repeated non-stackable grants and non-null zero-mask input.
         self.object_upgrades_completed.insert(mask_bits);
-        self.apply_upgrade_modules(mask_bits);
+        self.update_upgrade_modules_from_player();
     }
 
-    /// Apply any active player upgrades that should affect this object.
-    /// Mirrors C++ Object::updateUpgradeModules() after construction finishes.
+    /// Recheck installed modules against completed player and object upgrades.
+    /// C++ samples guards and the complete key once before the authored-order
+    /// loop; synchronous removals do not change the key seen by later modules.
     pub fn update_upgrade_modules_from_player(&mut self) {
-        if self.is_under_construction() {
+        // CPP guards the status bit, not the independent construction percent.
+        if self
+            .get_status_bits()
+            .contains(ObjectStatusMaskType::UNDER_CONSTRUCTION)
+        {
             return;
         }
         if self.is_destroyed() {
@@ -522,16 +531,12 @@ impl Object {
         let Ok(player_guard) = player.read() else {
             return;
         };
-        let Some(manager) = player_guard.get_upgrade_manager() else {
-            return;
-        };
-        let active_mask = manager.get_active_upgrades();
+        let player_mask = player_guard.get_completed_upgrade_mask();
         drop(player_guard);
-        let active_bits = UpgradeMaskType::from_bits_retain(active_mask.bits());
         // C++ Object.cpp:2421-2436 — `maskToCheck = player | object` is only
         // the argument to `attemptUpgrade`. Never write player bits into
         // `m_objectUpgradesCompleted`.
-        let combined_bits = active_bits | self.object_upgrades_completed;
+        let combined_bits = player_mask | self.object_upgrades_completed;
         self.apply_upgrade_modules(combined_bits);
     }
 
@@ -578,6 +583,18 @@ impl Object {
                     UpgradeModuleKindMut::StatusBits(upgrade) => upgrade
                         .prepare_upgrade(mask)
                         .map(PreparedUpgrade::StatusBits),
+                    UpgradeModuleKindMut::Armor(upgrade) => {
+                        upgrade.prepare_upgrade(mask).map(PreparedUpgrade::Armor)
+                    }
+                    UpgradeModuleKindMut::MaxHealth(upgrade) => upgrade
+                        .prepare_upgrade(mask)
+                        .map(PreparedUpgrade::MaxHealth),
+                    UpgradeModuleKindMut::ExperienceScalar(upgrade) => upgrade
+                        .prepare_upgrade(mask)
+                        .map(PreparedUpgrade::ExperienceScalar),
+                    UpgradeModuleKindMut::WeaponBonus(upgrade) => upgrade
+                        .prepare_upgrade(mask)
+                        .map(PreparedUpgrade::WeaponBonus),
                     other => {
                         if let Some(upgrade) = other.into_interface() {
                             if upgrade.can_upgrade(mask) {
@@ -591,15 +608,44 @@ impl Object {
             if let Some(prepared) = prepared {
                 prepared.mux().perform_upgrade_fx(self);
                 prepared.mux().process_upgrade_removal(self);
-                if let PreparedUpgrade::StatusBits(data) = &prepared {
-                    data.apply_to_object(self);
+                match &prepared {
+                    PreparedUpgrade::StatusBits(data) => data.apply_to_object(self),
+                    PreparedUpgrade::Armor(data) => data.apply_to_object(self),
+                    PreparedUpgrade::MaxHealth(data) => data.apply_to_object(self),
+                    PreparedUpgrade::ExperienceScalar(data) => data.apply_to_object(self),
+                    PreparedUpgrade::WeaponBonus(data) => data.apply_to_object(self),
+                    PreparedUpgrade::SubObjects(_) | PreparedUpgrade::PassengersFire(_) => {}
                 }
-                entry.with_module(|module| match module_upgrade_kind(module) {
-                    Some(UpgradeModuleKindMut::SubObjects(upgrade)) => upgrade.finish_upgrade(self),
-                    Some(UpgradeModuleKindMut::PassengersFire(upgrade)) => {
-                        upgrade.finish_upgrade(self)
+                // Commit to the same entry that supplied this plan. Matching
+                // both kinds rejects an unexpected replacement during effects.
+                entry.with_module(|module| match (&prepared, module_upgrade_kind(module)) {
+                    (
+                        PreparedUpgrade::SubObjects(_),
+                        Some(UpgradeModuleKindMut::SubObjects(upgrade)),
+                    ) => upgrade.finish_upgrade(self),
+                    (
+                        PreparedUpgrade::PassengersFire(_),
+                        Some(UpgradeModuleKindMut::PassengersFire(upgrade)),
+                    ) => upgrade.finish_upgrade(self),
+                    (
+                        PreparedUpgrade::StatusBits(_),
+                        Some(UpgradeModuleKindMut::StatusBits(upgrade)),
+                    ) => upgrade.finish_upgrade(),
+                    (PreparedUpgrade::Armor(_), Some(UpgradeModuleKindMut::Armor(upgrade))) => {
+                        upgrade.finish_upgrade()
                     }
-                    Some(UpgradeModuleKindMut::StatusBits(upgrade)) => upgrade.finish_upgrade(),
+                    (
+                        PreparedUpgrade::MaxHealth(_),
+                        Some(UpgradeModuleKindMut::MaxHealth(upgrade)),
+                    ) => upgrade.finish_upgrade(),
+                    (
+                        PreparedUpgrade::ExperienceScalar(_),
+                        Some(UpgradeModuleKindMut::ExperienceScalar(upgrade)),
+                    ) => upgrade.finish_upgrade(),
+                    (
+                        PreparedUpgrade::WeaponBonus(_),
+                        Some(UpgradeModuleKindMut::WeaponBonus(upgrade)),
+                    ) => upgrade.finish_upgrade(),
                     _ => unreachable!("prepared upgrade changed module kind"),
                 });
             }

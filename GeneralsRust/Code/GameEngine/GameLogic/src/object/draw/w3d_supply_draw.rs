@@ -146,6 +146,17 @@ impl Module for W3DSupplyDraw {
     }
 }
 impl DrawModule for W3DSupplyDraw {
+    fn on_drawable_bound_to_object_with_context(
+        &mut self,
+        binding: &DrawModuleBindingContext,
+        drawable: &ModelDrawContext,
+    ) -> bool {
+        let handled = self
+            .base
+            .on_drawable_bound_to_object_with_context(binding, drawable);
+        handled
+    }
+
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
         self.base.do_draw_module(transform_mtx);
     }
@@ -307,6 +318,18 @@ impl ObjectDrawInterface for W3DSupplyDraw {
     }
     fn replace_model_condition_state(&mut self, condition: &ModelConditionFlags) {
         self.base.replace_model_condition_state(condition);
+    }
+    fn replace_model_condition_state_with_context(
+        &mut self,
+        condition: &ModelConditionFlags,
+        drawable: &ModelDrawContext,
+    ) {
+        self.base
+            .replace_model_condition_state_with_context(condition, drawable);
+    }
+    fn replace_indicator_color_with_context(&mut self, color: i32, drawable: &ModelDrawContext) {
+        self.base
+            .replace_indicator_color_with_context(color, drawable);
     }
     fn replace_indicator_color(&mut self, color: i32) {
         self.base.replace_indicator_color(color);

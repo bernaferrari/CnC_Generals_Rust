@@ -154,6 +154,17 @@ impl Module for W3DPoliceCarDraw {
     }
 }
 impl DrawModule for W3DPoliceCarDraw {
+    fn on_drawable_bound_to_object_with_context(
+        &mut self,
+        binding: &DrawModuleBindingContext,
+        drawable: &ModelDrawContext,
+    ) -> bool {
+        let handled = self
+            .base
+            .on_drawable_bound_to_object_with_context(binding, drawable);
+        handled
+    }
+
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
         // C++ returns before the light and the truck draw when the render object is null.
         if !self.base.has_render_model() {
@@ -173,11 +184,14 @@ impl DrawModule for W3DPoliceCarDraw {
         if let Some(light_id) = self.light_id {
             let mut pos = Coord3D::origin();
             if let Some(owner_id) = self.base.owner_id() {
-                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
-                    pos = owner_guard
-                        .get_drawable()
-                        .and_then(|drawable| drawable.read().ok().map(|guard| guard.get_position()))
-                        .unwrap_or_else(|| *owner_guard.get_position());
+                let _ =
+                    crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+                        pos = owner_guard
+                            .get_drawable()
+                            .and_then(|drawable| {
+                                drawable.read().ok().map(|guard| guard.get_position())
+                            })
+                            .unwrap_or_else(|| *owner_guard.get_position());
                     });
             }
             update_scene_point_light(
@@ -243,7 +257,6 @@ impl Snapshotable for W3DPoliceCarDraw {
         self.base.load_post_process()
     }
 }
-
 
 fn police_light_color(cur_frame: Real) -> (Real, Real, Real) {
     let mut red = 0.0;

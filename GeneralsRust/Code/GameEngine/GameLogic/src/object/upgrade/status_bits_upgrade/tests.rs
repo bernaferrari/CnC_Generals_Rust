@@ -30,7 +30,20 @@ impl Installed {
         Self::new_with_id(name, modules, ID)
     }
 
+    fn new_without_player(name: &str, modules: &[(&str, &str)]) -> Self {
+        Self::new_with_player(name, modules, ID, false)
+    }
+
     fn new_with_id(name: &str, modules: &[(&str, &str)], id: ObjectID) -> Self {
+        Self::new_with_player(name, modules, id, true)
+    }
+
+    fn new_with_player(
+        name: &str,
+        modules: &[(&str, &str)],
+        id: ObjectID,
+        controlling_player: bool,
+    ) -> Self {
         if get_thing_factory().unwrap().is_none() {
             init_thing_factory().unwrap();
         }
@@ -81,6 +94,29 @@ impl Installed {
                 })
                 .collect()
         };
+        if controlling_player {
+            // Actual giveUpgrade runs Object::updateUpgradeModules, whose CPP
+            // teardown guard requires a controlling player. Each bounded child
+            // owns this fixture roster; unrelated worlds are never reset.
+            let has_player = crate::player::player_list()
+                .read()
+                .unwrap()
+                .get_player(0)
+                .is_some();
+            if !has_player {
+                crate::player::player_list()
+                    .write()
+                    .unwrap()
+                    .add_player(Arc::new(RwLock::new(crate::player::Player::new(0))));
+            }
+            let team = Arc::new(RwLock::new(crate::team::Team::new(
+                format!("{name}Team").into(),
+                id + 5,
+            )));
+            team.write().unwrap().set_controlling_player_id(Some(0));
+            object.write().unwrap().set_team(Some(team)).unwrap();
+            assert!(object.read().unwrap().get_controlling_player().is_some());
+        }
         Self { object, entries }
     }
 
@@ -452,7 +488,9 @@ fn player_completion_rechecks_the_existing_authored_module_immediately() {
 
     // CPP Player.cpp:3034–3039,3054–3081 completes the player bit, then
     // immediately asks existing owned objects to check their actual modules.
-    let fixture = Installed::new(
+    // This test supplies and admits its own actual player below, and keeps
+    // the existing constructor/roster-empty assertions intact.
+    let fixture = Installed::new_without_player(
         "OwnedStatusPlayerFanout",
         &[("PlayerStatus", "StatusToSet = MASKED")],
     );

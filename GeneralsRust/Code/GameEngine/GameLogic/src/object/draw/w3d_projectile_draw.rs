@@ -239,6 +239,17 @@ impl Module for W3DProjectileDraw {
 }
 
 impl DrawModule for W3DProjectileDraw {
+    fn on_drawable_bound_to_object_with_context(
+        &mut self,
+        binding: &DrawModuleBindingContext,
+        drawable: &ModelDrawContext,
+    ) -> bool {
+        let handled = self
+            .base
+            .on_drawable_bound_to_object_with_context(binding, drawable);
+        handled
+    }
+
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
         let mut adjusted_transform = *transform_mtx;
 

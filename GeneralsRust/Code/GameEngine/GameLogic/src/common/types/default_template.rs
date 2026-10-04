@@ -516,6 +516,10 @@ impl ThingTemplate for DefaultThingTemplate {
         &[]
     }
 
+    fn find_armor_template_set(&self, flags: &ArmorSetBitFlags) -> Option<&ArmorTemplateSet> {
+        DefaultThingTemplate::find_armor_template_set(self, flags)
+    }
+
     fn get_build_cost(&self) -> Int {
         self.build_cost
     }
