@@ -50894,6 +50894,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/ai_locomotor_queries.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/armor.rs"
             },
             {
@@ -52153,8 +52158,18 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_tank_draw/owned_locomotor_speed_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_tank_truck_draw.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_tank_truck_draw/owned_locomotor_speed_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -52745,6 +52760,11 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/owned_locomotor_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/owned_tread_speed_fixture.rs"
             },
             {
               "cargo_reachable": true,
@@ -188787,7 +188807,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "94a2e271ff244e110f39d52702300382ff0a4f3f7977f5848253fbea3f54f700",
+  "provenance_input_digest": "828b35a6729c23b461c65b2ee62149d3484f16972708ba027e7be886b61a3982",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

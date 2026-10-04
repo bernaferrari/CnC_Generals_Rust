@@ -25655,6 +25655,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/ai_locomotor_queries.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/armor.rs"
           },
           {
@@ -27416,10 +27423,24 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_tank_draw/owned_locomotor_speed_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_tank_truck_draw.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_tank_truck_draw/owned_locomotor_speed_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -28246,6 +28267,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/owned_locomotor_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/owned_tread_speed_fixture.rs"
           },
           {
             "cargo_reachable": true,
@@ -57803,6 +57831,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/ai_locomotor_queries.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/armor.rs"
           },
           {
@@ -59564,10 +59599,24 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_tank_draw/owned_locomotor_speed_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_tank_truck_draw.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_tank_truck_draw/owned_locomotor_speed_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -60394,6 +60443,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/owned_locomotor_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/owned_tread_speed_fixture.rs"
           },
           {
             "cargo_reachable": true,
@@ -156858,7 +156914,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "94a2e271ff244e110f39d52702300382ff0a4f3f7977f5848253fbea3f54f700",
+  "input_digest": "828b35a6729c23b461c65b2ee62149d3484f16972708ba027e7be886b61a3982",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -160906,11 +160962,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 772,
+        "end_line": 774,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/rts/player_template.rs",
-      "sha256": "ec8002f975a5c6e7418b279c02fc0c7d85920ca2e879e6615d30e6e1bbf124e6",
+      "sha256": "3e57286716414c3f40784f6d002635d1623b6d62b2b57e7728db37bc805c441b",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -196810,6 +196866,18 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
+        "end_line": 32,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/ai_locomotor_queries.rs",
+      "sha256": "6dbbb12da44765f6b1700c17ac4b9b77c5ed5ce9e14f2cefd6efdc65ca47c64c",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
         "end_line": 480,
         "start_line": 1
       },
@@ -199844,13 +199912,13 @@
     },
     {
       "cargo_reachable": true,
-      "classification": "implementation",
+      "classification": "test",
       "file_range": {
-        "end_line": 943,
+        "end_line": 73,
         "start_line": 1
       },
-      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_tank_draw.rs",
-      "sha256": "263c7afc5e132127907e47dda5b726fdc89b8d10fd3f158733944c7522d6953a",
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_tank_draw/owned_locomotor_speed_tests.rs",
+      "sha256": "758e748cd65c316f6c89fd79a2aad44ed10fe86db24badb0c8ed83bed921ed41",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -199858,11 +199926,35 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 651,
+        "end_line": 946,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_tank_draw.rs",
+      "sha256": "a85a0e1d2c6cca2fa3117230a12898af1e2117367b91c0dce01db391d67eece1",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 77,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_tank_truck_draw/owned_locomotor_speed_tests.rs",
+      "sha256": "77add0960d744d4cc9a4731a8ce01519e97efae51b70a1d4bc2c8310cc6b5bb5",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 654,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_tank_truck_draw.rs",
-      "sha256": "bfa5bf0375cdbdd0f66e352abee48d5bc6bd2a2c83f48566ca08932f6abf746b",
+      "sha256": "3cb99fe9048b98e205806788aafadbeeec6724dec54f6206bf39f79d62cb8629",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200218,11 +200310,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2709,
+        "end_line": 2711,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/mod.rs",
-      "sha256": "f2766b7cf7459c95756595510fae8ff81ad6f5d5abb345cc42ec3dd934bccd0e",
+      "sha256": "975a7d5e03fb76a79e470af31429811de11c111dc99e4ee7ba9b226fcd0fb4aa",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -201214,11 +201306,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 47,
+        "end_line": 50,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/mod.rs",
-      "sha256": "764a786b6a603df616100cb35dac8bbb666235fba0d648d51331a6b6c4fe8575",
+      "sha256": "aeac36eb02a542d28f18935b943b40aa1e18594de5e7379901414dcc84a57cd8",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -201279,6 +201371,18 @@
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/owned_locomotor_tests.rs",
       "sha256": "e6ef8b5881e6d52b660f51a016f3965e38835d29f2345aae29c31aff0a45a7a8",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 213,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/owned_tread_speed_fixture.rs",
+      "sha256": "d4524b36947e93d6d0e492a55fac5278292be6f876f98b1bb31a7585ebf4502c",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
