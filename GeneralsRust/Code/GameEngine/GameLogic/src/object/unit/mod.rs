@@ -41,3 +41,6 @@ mod rappel_command_tests;
 
 #[cfg(test)]
 mod owned_locomotor_tests;
+
+#[cfg(test)]
+mod owned_ai_state_tests;

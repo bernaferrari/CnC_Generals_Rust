@@ -10,8 +10,11 @@ use super::types::*;
 
 /// Basic AI update interface that bridges AI commands to unit orders.
 pub struct UnitAIUpdate {
-    /// Owning unit id; resolve via UNIT_REGISTRY for the duration of an op.
+    /// Owning Object ID. Legacy order/pose paths still use UNIT_REGISTRY;
+    /// locomotors, current victim and mood timer belong to this runtime.
     pub(super) unit_id: ObjectID,
+    /// C++ AIUpdateInterface::m_currentVictimID; owned by this AI runtime.
+    pub(super) current_victim_id: ObjectID,
     pub(super) crate_created: ObjectID,
     pub(super) supply_truck_ai: Option<SupplyTruckAIUpdate>,
     pub(super) chinook_ai: Option<ChinookAIUpdate>,
@@ -31,6 +34,7 @@ pub struct UnitAIUpdate {
     pub(super) ai_state_machine: Option<Arc<Mutex<AIStateMachine>>>,
     pub(super) can_path_through_units: bool,
     pub(super) randomly_offset_mood_check: bool,
+    pub(super) next_mood_check_time: UnsignedInt,
     pub(super) allow_chase: bool,
     pub(super) attitude: AIAttitudeType,
     pub(super) last_command_source: CommandSourceType,
@@ -156,6 +160,7 @@ impl UnitAIUpdate {
 
         Self {
             unit_id,
+            current_victim_id: INVALID_ID,
             crate_created: crate::common::INVALID_ID,
             supply_truck_ai,
             chinook_ai,
@@ -175,6 +180,7 @@ impl UnitAIUpdate {
             ai_state_machine,
             can_path_through_units: false,
             randomly_offset_mood_check: false,
+            next_mood_check_time: 0,
             allow_chase: false,
             attitude: AIAttitudeType::Normal,
             last_command_source: CommandSourceType::FromAi,

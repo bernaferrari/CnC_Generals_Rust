@@ -30,11 +30,13 @@ mod wait_busy;
 mod wander_panic;
 mod waypoint;
 
-
 pub(crate) use attack_machine::seed_team_target_if_attack_common;
 #[cfg(test)]
 #[path = "tests.rs"]
 mod ai_state_machine_parity_tests;
+
+#[cfg(test)]
+mod machine_snapshot_tests;
 
 pub use attack::{
     AIAttackAreaState, AIAttackFollowWaypointPathAsIndividualsState,

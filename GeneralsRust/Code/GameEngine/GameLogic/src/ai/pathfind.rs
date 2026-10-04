@@ -1,8 +1,7 @@
-use crate::ai::the_ai;
 use crate::ai::path_optimization::PathOptimizer;
 use crate::ai::pathfind_astar::{PATHFIND_CELL_SIZE_F, PathfindLayerEnum as OptLayer};
+use crate::ai::the_ai;
 use crate::common::coord::*;
-use crate::common::vector_ext::Vector3Ext;
 use crate::common::xfer::XferExt;
 use crate::common::*;
 use crate::helpers::TheGameLogic;
@@ -195,12 +194,27 @@ impl PathNode {
 /// Information about the closest point on a path
 #[derive(Copy, Clone, Debug)]
 pub struct ClosestPointOnPathInfo {
-    /// Distance along the path
+    /// Remaining XY path length, extended to the forward goal's displacement
+    /// when the remaining length exceeds PATHFIND_CLOSE_ENOUGH.
     pub dist_along_path: f32,
-    /// Position on the path
+    /// Forward movement goal on the optimized path.
     pub pos_on_path: Coord3D,
     /// Layer of this section
     pub layer: PathfindLayerEnum,
+}
+
+/// Synchronous services used by C++ `Path::computePointOnPath`.
+///
+/// Bind these operations to the driving object, its locomotor set's valid
+/// surfaces, and its pathfinder. `is_line_passable` uses the original fixed
+/// `blocked = false, allowPinched = true` options. Operations run in C++ order
+/// and must not retain an Object guard across a pathfinder callback.
+/// No owner or world is discovered
+/// by `Path`. The actual locomotor execution adapter is not wired yet.
+pub trait PathMovementContext {
+    fn object_layer(&mut self) -> PathfindLayerEnum;
+    fn is_line_passable(&mut self, layer: PathfindLayerEnum, from: &Coord3D, to: &Coord3D) -> bool;
+    fn set_debug_path_position(&mut self, position: &Coord3D);
 }
 
 /// Path class encapsulates a path returned by the pathfinder.
@@ -537,93 +551,183 @@ impl Path {
             && (a.z - b.z).abs() <= close_enough
     }
 
-    pub fn compute_point_on_path(&mut self, pos: &Coord3D) -> ClosestPointOnPathInfo {
+    /// C++ Path::computePointOnPath (AIPathfind.cpp 732-1013).
+    ///
+    /// The caller supplies the driving object's pathfinding context. This is a
+    /// movement goal, not the nearest projection; distance is remaining XY path
+    /// length, extended to the goal displacement when more than one unit remains.
+    pub fn compute_point_on_path(
+        &mut self,
+        pos: &Coord3D,
+        context: &mut impl PathMovementContext,
+    ) -> ClosestPointOnPathInfo {
+        let mut out = ClosestPointOnPathInfo {
+            dist_along_path: 0.0,
+            pos_on_path: Coord3D::ZERO,
+            layer: PathfindLayerEnum::Ground,
+        };
+        let Some(head) = self.head else {
+            self.cpop_valid = false;
+            return out;
+        };
+        out.layer = self.nodes[head].layer;
         if self.cpop_valid && self.cpop_countdown > 0 && Self::is_really_close(pos, &self.cpop_in) {
             self.cpop_countdown -= 1;
-            return ClosestPointOnPathInfo {
-                dist_along_path: self.cpop_out.dist_along_path,
-                pos_on_path: self.cpop_out.pos_on_path,
-                layer: self.cpop_out.layer,
-            };
+            return self.cpop_out;
         }
-
-        if self.head.is_none() {
-            self.cpop_valid = false;
-            return ClosestPointOnPathInfo {
-                dist_along_path: 0.0,
-                pos_on_path: Coord3D::ZERO,
-                layer: PathfindLayerEnum::Ground,
-            };
-        }
-
-        let mut best_dist_sqr = f32::MAX;
-        let mut best_point = *pos;
-        let mut best_layer = self
-            .head
-            .and_then(|key| self.nodes.get(key))
-            .map(|node| node.get_layer())
-            .unwrap_or(PathfindLayerEnum::Ground);
-        let mut dist_along_path = 0.0;
-
-        let keys = self.ordered_keys();
-        let mut path_distance = 0.0;
-        for (i, &key) in keys.iter().enumerate() {
-            let node = match self.nodes.get(key) {
-                Some(n) => n,
-                None => continue,
-            };
-
-            let next_key = node.next_opti.or(keys.get(i + 1).copied());
-            let next_node = match next_key.and_then(|k| self.nodes.get(k)) {
-                Some(n) => n,
-                None => break,
-            };
-
-            let (closest_point, t) =
-                Self::closest_point_on_segment(node.get_position(), next_node.get_position(), pos);
-
-            let dist_sqr = Vector3Ext::length_sqr(&(*pos - closest_point));
-            if dist_sqr < best_dist_sqr {
-                best_dist_sqr = dist_sqr;
-                best_point = closest_point;
-                best_layer = node.get_layer();
-                dist_along_path =
-                    path_distance + t * (*next_node.get_position() - *node.get_position()).length();
-            }
-
-            path_distance += (*next_node.get_position() - *node.get_position()).length();
-
-            if next_key != keys.get(i + 1).copied() {
-                break;
-            }
-        }
-
-        self.cpop_valid = true;
         self.cpop_countdown = Self::MAX_CPOP;
-        self.cpop_in = *pos;
-        self.cpop_out = ClosestPointOnPathInfo {
-            dist_along_path,
-            pos_on_path: best_point,
-            layer: best_layer,
-        };
+        out.pos_on_path = self.nodes[self.tail.expect("nonempty path has a tail")].pos;
 
-        self.cpop_out
-    }
-
-    /// Find closest point on line segment
-    fn closest_point_on_segment(start: &Coord3D, end: &Coord3D, point: &Coord3D) -> (Coord3D, f32) {
-        let segment = *end - *start;
-        let to_point = *point - *start;
-
-        let segment_length_sqr = Vector3Ext::length_sqr(&segment);
-        if segment_length_sqr == 0.0 {
-            return (*start, 0.0);
+        let mut closest = None;
+        let mut closest_distance_squared = 99999999.9_f32;
+        let mut total_length = 0.0;
+        let mut length_to_position = 0.0;
+        let mut previous_key = head;
+        while let Some(next_key) = self.nodes[previous_key].next_opti {
+            let previous = &self.nodes[previous_key];
+            let next = &self.nodes[next_key];
+            let direction = previous.next_opti_dir_norm_2d;
+            let length = previous.next_opti_dist_2d;
+            let dx = pos.x - previous.pos.x;
+            let dy = pos.y - previous.pos.y;
+            let mut along = direction.x * dx + direction.y * dy;
+            let point;
+            if along < 0.0 {
+                along = 0.0;
+                point = previous.pos;
+            } else if along > length {
+                if next.next_opti.is_some() {
+                    total_length += length;
+                    previous_key = next_key;
+                    continue;
+                }
+                along = length;
+                point = next.pos;
+            } else {
+                point = Coord3D::new(
+                    previous.pos.x + along * direction.x,
+                    previous.pos.y + along * direction.y,
+                    0.0,
+                );
+            }
+            let offset_x = pos.x - point.x;
+            let offset_y = pos.y - point.y;
+            let distance_squared = offset_x * offset_x + offset_y * offset_y;
+            if distance_squared < closest_distance_squared {
+                closest_distance_squared = distance_squared;
+                closest = Some(previous_key);
+                out.pos_on_path = point;
+                length_to_position = total_length + along;
+            }
+            total_length += length;
+            previous_key = next_key;
         }
 
-        let t = (to_point.dot(segment) / segment_length_sqr).clamp(0.0, 1.0);
-        let closest = *start + segment * t;
-
-        (closest, t)
+        if let Some(close_key) = closest {
+            let close = &self.nodes[close_key];
+            let next = &self.nodes[close.next_opti.expect("closest segment has a successor")];
+            let direction = close.next_opti_dir_norm_2d;
+            let length = close.next_opti_dist_2d;
+            if close
+                .prev
+                .is_some_and(|key| self.nodes[key].layer as u32 > PathfindLayerEnum::Ground as u32)
+            {
+                out.layer = close.layer;
+            }
+            if close.layer as u32 > PathfindLayerEnum::Ground as u32 {
+                out.layer = close.layer;
+            }
+            if next.layer as u32 > PathfindLayerEnum::Ground as u32 {
+                out.layer = next.layer;
+            }
+            let dx = pos.x - close.pos.x;
+            let dy = pos.y - close.pos.y;
+            let mut along = direction.x * dx + direction.y * dy;
+            if along < 0.0 {
+                along = 0.0;
+            }
+            let offset_squared = dx * dx + dy * dy - along * along;
+            let offset = if offset_squared <= 0.0 {
+                0.0
+            } else {
+                offset_squared.sqrt()
+            };
+            let mut k = offset * (1.0 / (3.0 * PATHFIND_CELL_SIZE_F));
+            if k > 1.0 {
+                k = 1.0;
+            }
+            let mut got_position = false;
+            if context.is_line_passable(out.layer, pos, &next.pos) {
+                out.pos_on_path = next.pos;
+                got_position = true;
+                let mut try_ahead = along > length * 0.5;
+                if !next.can_optimize || close.layer != next.layer {
+                    try_ahead = false;
+                }
+                if context.object_layer() != PathfindLayerEnum::Ground {
+                    try_ahead = false;
+                }
+                let very_close = length - along < 1.0;
+                if very_close {
+                    try_ahead = true;
+                }
+                if try_ahead {
+                    if let Some(ahead_key) = next.next_opti {
+                        let ahead = &self.nodes[ahead_key];
+                        let candidate = Coord3D::new(
+                            (next.pos.x + ahead.pos.x) * 0.5,
+                            (next.pos.y + ahead.pos.y) * 0.5,
+                            next.pos.z,
+                        );
+                        if very_close || context.is_line_passable(next.layer, pos, &candidate) {
+                            out.pos_on_path = candidate;
+                        }
+                    }
+                }
+            } else if k > 0.5 {
+                let try_distance = along + 0.5 * (length - along);
+                out.pos_on_path = Coord3D::new(
+                    close.pos.x + try_distance * direction.x,
+                    close.pos.y + try_distance * direction.y,
+                    close.pos.z,
+                );
+                if context.is_line_passable(out.layer, pos, &out.pos_on_path) {
+                    k = 0.5;
+                    got_position = true;
+                }
+            }
+            along += (1.0 - k) * (length - along);
+            if !got_position {
+                if along > length {
+                    out.pos_on_path = next.pos;
+                } else {
+                    out.pos_on_path = Coord3D::new(
+                        close.pos.x + along * direction.x,
+                        close.pos.y + along * direction.y,
+                        close.pos.z,
+                    );
+                    if (pos.x - out.pos_on_path.x).abs() < 1.0
+                        && (pos.y - out.pos_on_path.y).abs() < 1.0
+                    {
+                        if let Some(ahead_key) = next.next_opti {
+                            out.pos_on_path = self.nodes[ahead_key].pos;
+                        }
+                    }
+                }
+            }
+        }
+        context.set_debug_path_position(&out.pos_on_path);
+        out.dist_along_path = total_length - length_to_position;
+        let dx = out.pos_on_path.x - pos.x;
+        let dy = out.pos_on_path.y - pos.y;
+        let displacement = (dx * dx + dy * dy).sqrt();
+        if displacement > out.dist_along_path && out.dist_along_path > PATHFIND_CLOSE_ENOUGH {
+            out.dist_along_path = displacement;
+        }
+        self.cpop_in = *pos;
+        self.cpop_out = out;
+        self.cpop_valid = true;
+        out
     }
 
     /// Peek at cached point on path
@@ -1357,7 +1461,8 @@ impl Pathfinder {
             return false;
         }
 
-        let ai_store = the_ai();let attack_uses_los = ai_store
+        let ai_store = the_ai();
+        let attack_uses_los = ai_store
             .read()
             .ok()
             .map(|ai| ai.get_ai_data().attack_uses_line_of_sight)
@@ -1752,7 +1857,8 @@ pub fn update_goal_for_object(
         }
     };
     drop(obj_guard);
-    let ai_store = the_ai(); if let Ok(ai) = ai_store.read() {
+    let ai_store = the_ai();
+    if let Ok(ai) = ai_store.read() {
         if let Some(pf) = ai.pathfinder() {
             if let Ok(mut pf) = pf.write() {
                 pf.update_goal_cells(
@@ -1780,7 +1886,8 @@ pub fn update_goal_for_object(
 /// internal goal map and returns the grid-cell-center position.  In this port
 /// we compute it directly from the world→grid→world round-trip.
 pub fn goal_position(pos: &Coord3D) -> Option<Coord3D> {
-    let ai_store = the_ai();let ai = ai_store.read().ok()?;
+    let ai_store = the_ai();
+    let ai = ai_store.read().ok()?;
     let pf_arc = ai.pathfinder()?;
     let pf = pf_arc.read().ok()?;
 
@@ -1816,7 +1923,8 @@ pub fn find_path(start: Coord3D, end: Coord3D, obj: Option<ObjectID>) -> Option<
     }
 
     // Try full A* pathfinder first, fall back to straight-line if unavailable.
-    let ai_store = the_ai(); if let Some(pathfinder) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) {
+    let ai_store = the_ai();
+    if let Some(pathfinder) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) {
         if let Ok(mut pf_guard) = pathfinder.write() {
             if let Some(waypoints) =
                 pf_guard.find_path(&start, &end, crate::path::SURFACE_GROUND, false)
@@ -1854,6 +1962,10 @@ pub fn find_path(start: Coord3D, end: Coord3D, obj: Option<ObjectID>) -> Option<
 
     Some(path)
 }
+
+#[cfg(test)]
+#[path = "pathfind_point_tests.rs"]
+mod point_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1894,9 +2006,17 @@ mod tests {
         path.append_node(&Coord3D::new(10.0, 0.0, 0.0), PathfindLayerEnum::Ground);
         path.append_node(&Coord3D::new(20.0, 0.0, 0.0), PathfindLayerEnum::Ground);
 
-        let closest = path.compute_point_on_path(&Coord3D::new(15.0, 5.0, 0.0));
-        assert!((closest.pos_on_path.x - 15.0).abs() < 0.001);
+        let keys = path.ordered_keys();
+        for pair in keys.windows(2) {
+            path.set_opti_link(pair[0], Some(pair[1]));
+        }
+        let closest = path.compute_point_on_path(
+            &Coord3D::new(15.0, 5.0, 0.0),
+            &mut point_tests::UnobstructedGround,
+        );
+        assert!((closest.pos_on_path.x - 20.0).abs() < 0.001);
         assert!(closest.pos_on_path.y.abs() < 0.001);
+        assert!((closest.dist_along_path - 50.0_f32.sqrt()).abs() < 0.001);
     }
 
     #[test]

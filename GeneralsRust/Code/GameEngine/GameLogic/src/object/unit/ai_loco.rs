@@ -1770,12 +1770,8 @@ impl UnitAIUpdate {
 
         let new_target = TheGameLogic::find_object_by_id(to_id);
 
-        if let Some(unit) = get_unit_arc(self.unit_id) {
-            if let Ok(mut guard) = unit.write() {
-                if guard.attack_target == Some(from_id) {
-                    guard.attack_target = Some(to_id);
-                }
-            }
+        if self.current_victim_id == from_id {
+            self.current_victim_id = to_id;
         }
 
         let goal_id = self.get_goal_object_id();
@@ -1892,42 +1888,28 @@ impl UnitAIUpdate {
         self.crate_created
     }
     pub(super) fn get_current_victim(&self) -> Option<ObjectID> {
-        let unit = get_unit_arc(self.unit_id)?;
-        let guard = unit.read().ok()?;
-        guard.attack_target
+        (self.current_victim_id != INVALID_ID).then_some(self.current_victim_id)
     }
     pub(super) fn set_current_victim(&mut self, victim: Option<ObjectID>) {
-        let unit = match get_unit_arc(self.unit_id) {
-            Some(u) => u,
-            None => return,
-        };
-        let mut guard = match unit.write() {
-            Ok(g) => g,
-            Err(_) => return,
-        };
-
-        if victim.is_none()
-            && guard
-                .attack_target
-                .is_some_and(|id| id != crate::common::INVALID_ID)
-        {
-            let old_id = guard.attack_target.unwrap();
-            let self_id = guard
-                .base_arc()
-                .read()
-                .ok()
-                .map(|obj| obj.get_id())
-                .unwrap_or(crate::common::INVALID_ID);
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(old_id, |old_guard| {
-                if let Some(ai) = old_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.add_targeter(self_id, false);
-                    }
+        // AIUpdate.cpp:4173–4190 notifies the old target synchronously before
+        // clearing the victim. A self-target uses this exact runtime instead
+        // of trying to lock its cached interface while we are executing it.
+        if victim.is_none() && self.current_victim_id != INVALID_ID {
+            let old_id = self.current_victim_id;
+            if old_id == self.unit_id {
+                self.add_targeter(self.unit_id, false);
+            } else if let Some(ai) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(old_id, |old_guard| old_guard.get_ai_update_interface())
+                .flatten()
+            {
+                if let Ok(mut ai_guard) = ai.lock() {
+                    ai_guard.add_targeter(self.unit_id, false);
                 }
-            });
+            }
         }
 
-        guard.attack_target = victim;
+        // A non-null assignment deliberately does not add a targeter yet.
+        self.current_victim_id = victim.unwrap_or(INVALID_ID);
     }
     pub(super) fn check_for_crate_to_pickup_id(&mut self) -> ObjectID {
         if self.crate_created == crate::common::INVALID_ID {
@@ -1961,7 +1943,7 @@ impl UnitAIUpdate {
 
         let max_range = guard.engagement_range;
         if use_existing_target {
-            if let Some(existing_id) = guard.attack_target {
+            if let Some(existing_id) = self.get_current_victim() {
                 if let Some(existing_arc) =
                     crate::object::registry::OBJECT_REGISTRY.get_object(existing_id)
                 {
@@ -2010,35 +1992,33 @@ impl UnitAIUpdate {
             .unwrap_or(INVALID_ID)
     }
     pub(super) fn get_next_mood_check_time(&self) -> u32 {
-        let unit = get_unit_arc(self.unit_id);
-        let Some(unit) = unit else {
-            return TheGameLogic::get_frame();
-        };
-        let Ok(guard) = unit.read() else {
-            return TheGameLogic::get_frame();
-        };
-        let interval = guard.mood_attack_check_rate_frames.max(1);
-        guard.last_target_scan_frame.saturating_add(interval)
+        self.next_mood_check_time
     }
     pub(super) fn reset_next_mood_check_time(&mut self) {
         let Some(unit) = get_unit_arc(self.unit_id) else {
             return;
         };
+        // This legacy adapter still needs a registered Unit. Do not discover
+        // an ambient frame for ordinary factory runtimes: their driving
+        // frame/rules execution boundary is tracked separately in hq-6tx39.
+        let now = TheGameLogic::get_frame();
+        let ai = the_ai();
+        let Ok(ai_rules) = ai.read() else {
+            return;
+        };
+        let force_idle_frames = ai_rules.get_ai_data().force_idle_frames_count;
+        drop(ai_rules);
         let Ok(mut guard) = unit.write() else {
             return;
         };
-        guard.last_target_scan_frame = TheGameLogic::get_frame();
+        // Preserve the independent legacy scan kernel until its ownership
+        // migration. This is a last-scan stamp, not the AI's next-mood timer.
+        guard.last_target_scan_frame = now;
+        self.next_mood_check_time = now.wrapping_add(force_idle_frames);
         self.randomly_offset_mood_check = true;
     }
     pub(super) fn set_next_mood_check_time(&mut self, frame: u32) {
-        let Some(unit) = get_unit_arc(self.unit_id) else {
-            return;
-        };
-        let Ok(mut guard) = unit.write() else {
-            return;
-        };
-        let interval = guard.mood_attack_check_rate_frames.max(1);
-        guard.last_target_scan_frame = frame.saturating_sub(interval);
+        self.next_mood_check_time = frame;
         self.randomly_offset_mood_check = false;
     }
     pub(super) fn can_auto_acquire(&self) -> bool {
@@ -2196,11 +2176,6 @@ impl UnitAIUpdate {
         if let Some(machine) = self.ai_state_machine.as_ref() {
             if let Ok(mut guard) = machine.lock() {
                 guard.set_goal_object(victim);
-            }
-        }
-        if let Some(unit) = get_unit_arc(self.unit_id) {
-            if let Ok(mut unit_guard) = unit.write() {
-                unit_guard.attack_target = Some(victim);
             }
         }
     }

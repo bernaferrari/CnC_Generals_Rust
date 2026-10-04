@@ -135,12 +135,10 @@ impl UnitAIUpdate {
         xfer.xfer_unsigned_int(&mut self.next_enemy_scan_time)
             .map_err(|e| e.to_string())?;
 
-        let mut current_victim_id = self.get_current_victim().unwrap_or(INVALID_ID);
-        xfer.xfer_object_id(&mut current_victim_id)
+        // AIUpdate.cpp:5012 transfers the owned field directly; loading must
+        // not run targeter notifications from the public command setter.
+        xfer.xfer_object_id(&mut self.current_victim_id)
             .map_err(|e| e.to_string())?;
-        if is_loading {
-            self.set_current_victim((current_victim_id != INVALID_ID).then_some(current_victim_id));
-        }
 
         xfer.xfer_real(&mut self.desired_speed)
             .map_err(|e| e.to_string())?;
@@ -309,12 +307,10 @@ impl UnitAIUpdate {
         xfer.xfer_unsigned_int(&mut attitude)
             .map_err(|e| e.to_string())?;
 
-        let mut next_mood_check_time = self.get_next_mood_check_time();
-        xfer.xfer_unsigned_int(&mut next_mood_check_time)
+        // Preserve the jitter flag already transferred above. The public
+        // setter clears it; the original raw Xfer at AIUpdate.cpp:5160 does not.
+        xfer.xfer_unsigned_int(&mut self.next_mood_check_time)
             .map_err(|e| e.to_string())?;
-        if is_loading {
-            self.set_next_mood_check_time(next_mood_check_time);
-        }
 
         let mut crate_created = self.crate_created;
         xfer.xfer_object_id(&mut crate_created)

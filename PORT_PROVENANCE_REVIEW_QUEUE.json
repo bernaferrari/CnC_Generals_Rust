@@ -52649,6 +52649,16 @@
             {
               "cargo_reachable": true,
               "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/owned_ai_reset_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/owned_ai_state_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/owned_locomotor_tests.rs"
             },
             {
@@ -188612,7 +188622,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "31a19ce3001907fd4b670abb58d5eb0aeaf771f8e968e03e7adc2c869e29a894",
+  "provenance_input_digest": "1a758ef80af0f75fae284bce400b6264a4c0b1c3613cdc530f0c64ca2b143d4e",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

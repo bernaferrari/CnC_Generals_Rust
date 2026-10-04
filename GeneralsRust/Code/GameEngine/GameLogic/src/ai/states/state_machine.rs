@@ -31,9 +31,9 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers,
+    search_qualifiers, the_ai,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
@@ -75,13 +75,8 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 pub struct AIStateMachine {
     /// Base state machine
     pub(crate) base: StateMachine,
-    /// Goal path to follow
+    /// C++ `m_goalPath`: authored goal coordinates, separate from a computed `Path`.
     pub(crate) goal_path: Vec<Coord3D>,
-    /// Parallel to `goal_path`. C++ `PathNode` layer, can-optimize, next-optimized id.
-    pub(crate) goal_path_node: Vec<(i32, bool, i32)>,
-    /// C++ `Path::m_isOptimized` / `m_blockedByAlly`, after the node list.
-    pub(crate) goal_path_optimized: bool,
-    pub(crate) goal_path_blocked_by_ally: bool,
     /// Goal waypoint
     pub(crate) goal_waypoint: Option<Arc<Waypoint>>,
     /// Goal squad to attack
@@ -114,9 +109,6 @@ impl AIStateMachine {
         let mut machine = Self {
             base: StateMachine::new(Some(owner), name),
             goal_path: Vec::new(),
-            goal_path_node: Vec::new(),
-            goal_path_optimized: false,
-            goal_path_blocked_by_ally: false,
             goal_waypoint: None,
             goal_squad: None,
             goal_polygon: None,
@@ -598,9 +590,6 @@ impl AIStateMachine {
         // C++ AIStateMachine::clear() calls StateMachine::clear(), not reset().
         self.base.clear();
         self.goal_path.clear();
-        self.goal_path_node.clear();
-        self.goal_path_optimized = false;
-        self.goal_path_blocked_by_ally = false;
         self.goal_waypoint = None;
         self.goal_squad = None;
         self.goal_polygon = None;
@@ -697,12 +686,6 @@ impl AIStateMachine {
     /// Set goal path
     pub fn set_goal_path(&mut self, path: &[Coord3D]) {
         self.goal_path = path.to_vec();
-        self.goal_path_node = path
-            .iter()
-            .map(|_| (crate::path::PathfindLayerEnum::Ground as i32, true, -1))
-            .collect();
-        self.goal_path_optimized = false;
-        self.goal_path_blocked_by_ally = false;
     }
     /// Stamp a path onto FollowExitProduction before its onEnter.
     /// C++ reads friend_getGoalPathPosition; Rust onEnter reads self.path.
@@ -721,8 +704,6 @@ impl AIStateMachine {
     pub fn add_to_goal_path(&mut self, path_point: &Coord3D) {
         if self.goal_path.is_empty() {
             self.goal_path.push(*path_point);
-            self.goal_path_node
-                .push((crate::path::PathfindLayerEnum::Ground as i32, true, -1));
             return;
         }
 
@@ -736,8 +717,6 @@ impl AIStateMachine {
         }
 
         self.goal_path.push(*path_point);
-        self.goal_path_node
-            .push((crate::path::PathfindLayerEnum::Ground as i32, true, -1));
     }
 
     /// Get goal path position at index
@@ -880,10 +859,7 @@ impl AIStateMachine {
     }
 
     /// Update state machine
-    pub fn update_state_machine(
-        &mut self,
-        ai: &mut dyn AIUpdateInterface,
-    ) -> StateReturnType {
+    pub fn update_state_machine(&mut self, ai: &mut dyn AIUpdateInterface) -> StateReturnType {
         if let Some(temp_state_id) = self.temporary_state_id {
             let goal_id = self.base.get_goal_object_id();
             let goal_pos = self.base.get_goal_position();
@@ -1108,8 +1084,9 @@ impl Snapshotable for AIStateMachine {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 2;
-        xfer.xfer_version(&mut version, 2)
+        // AIStates.cpp:733-765 transfers the Coord3D vector, not Path nodes.
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer AIStateMachine version: {:?}", e))?;
 
         self.base
@@ -1121,7 +1098,6 @@ impl Snapshotable for AIStateMachine {
             .map_err(|e| format!("Failed to xfer AIStateMachine goal path size: {:?}", e))?;
         if xfer.is_loading() {
             self.goal_path.clear();
-            self.goal_path_node.clear();
         }
 
         for i in 0..count.max(0) {
@@ -1133,44 +1109,15 @@ impl Snapshotable for AIStateMachine {
                     .copied()
                     .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0))
             };
-            if version >= 2 {
-                let mut node_id = count - i;
-                xfer.xfer_int(&mut node_id)
-                    .map_err(|e| format!("Failed to xfer goal_path[{i}] id: {:?}", e))?;
-            }
             xfer.xfer_real(&mut pos.x)
                 .map_err(|e| format!("Failed to xfer goal_path[{i}].x: {:?}", e))?;
             xfer.xfer_real(&mut pos.y)
                 .map_err(|e| format!("Failed to xfer goal_path[{i}].y: {:?}", e))?;
             xfer.xfer_real(&mut pos.z)
                 .map_err(|e| format!("Failed to xfer goal_path[{i}].z: {:?}", e))?;
-            let mut layer = self.goal_path_node.get(i as usize).map(|n| n.0).unwrap_or(crate::path::PathfindLayerEnum::Ground as i32);
-            let mut can_opt = self.goal_path_node.get(i as usize).map(|n| n.1).unwrap_or(false);
-            let mut next_opt = self.goal_path_node.get(i as usize).map(|n| n.2).unwrap_or(-1);
-            if version >= 2 {
-                xfer.xfer_int(&mut layer)
-                    .map_err(|e| format!("Failed to xfer goal_path[{i}] layer: {:?}", e))?;
-                xfer.xfer_bool(&mut can_opt)
-                    .map_err(|e| format!("Failed to xfer goal_path[{i}] canOptimize: {:?}", e))?;
-                xfer.xfer_int(&mut next_opt)
-                    .map_err(|e| format!("Failed to xfer goal_path[{i}] nextOptimized: {:?}", e))?;
-            }
             if xfer.is_loading() {
                 self.goal_path.push(pos);
-                self.goal_path_node.push((layer, can_opt, next_opt));
             }
-        }
-        if version >= 2 {
-            xfer.xfer_bool(&mut self.goal_path_optimized)
-                .map_err(|e| format!("Failed to xfer goal path optimized: {:?}", e))?;
-            let mut obsolete1 = 0i32;
-            let mut obsolete2 = 0u32;
-            xfer.xfer_int(&mut obsolete1)
-                .map_err(|e| format!("Failed to xfer obsolete path int: {:?}", e))?;
-            xfer.xfer_unsigned_int(&mut obsolete2)
-                .map_err(|e| format!("Failed to xfer obsolete path uint: {:?}", e))?;
-            xfer.xfer_bool(&mut self.goal_path_blocked_by_ally)
-                .map_err(|e| format!("Failed to xfer goal path blocked by ally: {:?}", e))?;
         }
 
         let mut waypoint_name = self
