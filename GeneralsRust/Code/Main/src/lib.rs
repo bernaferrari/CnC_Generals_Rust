@@ -37,7 +37,10 @@ extern crate ww3d_renderer_3d as ww3d_renderer_3d;
 
 pub mod assets;
 pub mod cnc_game_engine;
-pub mod env_compat;
+// Only the legacy test/residual cohorts still mutate process configuration.
+// Ordinary game builds and internal native probes must use owned launch settings.
+#[cfg(any(test, feature = "host-residuals"))]
+pub(crate) mod env_compat;
 pub mod fow_rendering;
 pub mod game_engine;
 pub mod game_logic;

@@ -2815,38 +2815,13 @@ mod replay_fast_forward_probe {
         BuildingData, BuildingType, GameLogic, KindOf, ObjectId, ProductionItem, ProductionKind,
         Resources, Team, ThingTemplate,
     };
-    #[cfg(test)]
-    use crate::gameworld_shadow::authority_env_lock;
     use crate::gameworld_shadow::{
         GameWorldShadow, ShadowCoupleGuard, gameworld_production_sole_tick_enabled,
-        refresh_gameworld_authority_env_caches,
+        gameworld_shadow_enabled,
     };
     use glam::Vec3;
     use std::sync::Arc;
     use winit::{event_loop::EventLoop, window::WindowAttributes};
-
-    struct EnvRestore {
-        key: &'static str,
-        previous: Option<std::ffi::OsString>,
-    }
-
-    impl EnvRestore {
-        fn set(key: &'static str, value: &str) -> Self {
-            let previous = std::env::var_os(key);
-            crate::env_compat::set_var(key, value);
-            Self { key, previous }
-        }
-    }
-
-    impl Drop for EnvRestore {
-        fn drop(&mut self) {
-            match self.previous.take() {
-                Some(value) => crate::env_compat::set_var(self.key, value),
-                None => crate::env_compat::remove_var(self.key),
-            }
-            refresh_gameworld_authority_env_caches();
-        }
-    }
 
     fn replay_fixture_engine() -> anyhow::Result<(EventLoop<()>, CnCGameEngine)> {
         let event_loop = EventLoop::new()?;
@@ -2954,10 +2929,13 @@ mod replay_fast_forward_probe {
     }
 
     pub(super) fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
-        #[cfg(test)]
-        let _env_guard = authority_env_lock();
-        let _shadow_env = EnvRestore::set("GENERALS_GAMEWORLD_SHADOW", "1");
-        refresh_gameworld_authority_env_caches();
+        // The launcher owns the child environment. Never change process env
+        // after Tokio, windowing, or native asset/driver workers may exist.
+        // Missing configuration retains the existing shadow default (enabled).
+        anyhow::ensure!(
+            gameworld_shadow_enabled(),
+            "replay probe requires shadow enabled at process launch; use the replay_fast_forward_probe binary",
+        );
         let _coupled = ShadowCoupleGuard::enter();
 
         let (_event_loop, mut engine) = replay_fixture_engine()?;
