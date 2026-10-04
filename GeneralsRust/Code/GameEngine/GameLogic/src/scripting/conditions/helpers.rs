@@ -2423,6 +2423,10 @@ mod host_skirmish_discovered_prereq_tests {
 
     #[test]
     fn host_skirmish_prereq_false_without_leftover_template() {
+        // Retail names may already exist in the loaded catalog. This case
+        // exercises ObjectTypes::canBuildAny's genuinely missing-template path.
+        const MISSING_TEMPLATE: &str = "NeverAuthoredPrerequisiteFixture";
+        assert!(crate::helpers::TheThingFactory::find_template(MISSING_TEMPLATE).is_none());
         clear_host_script_query_snapshot();
         let mut snap = HostScriptQuerySnapshot::default();
         let mut census = HostScriptPlayerCensus::default();
@@ -2432,7 +2436,7 @@ mod host_skirmish_discovered_prereq_tests {
         snap.player_census.insert("plyramerica".into(), census);
         set_host_script_query_snapshot(snap);
         assert_eq!(
-            host_eval_skirmish_player_has_prerequisite_to_build("PlyrAmerica", "AmericaWarFactory"),
+            host_eval_skirmish_player_has_prerequisite_to_build("PlyrAmerica", MISSING_TEMPLATE),
             Some(false)
         );
         clear_host_script_query_snapshot();

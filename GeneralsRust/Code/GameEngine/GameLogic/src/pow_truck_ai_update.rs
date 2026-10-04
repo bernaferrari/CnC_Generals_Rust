@@ -204,8 +204,13 @@ mod tests {
     #[test]
     fn find_best_target_requires_quick_path() {
         let src = include_str!("pow_truck_ai_update.rs");
-        let start = src.find("fn find_best_target(").expect("find_best_target");
-        let body = &src[start..start + 2200];
+        // Physical method boundaries avoid matching this test's literals.
+        let (_, tail) = src
+            .split_once("\n    fn find_best_target(\n")
+            .expect("actual find_best_target method");
+        let (body, _) = tail
+            .split_once("\n    fn issue_move_to_object(")
+            .expect("end of target-selection method");
         assert!(
             body.contains("is_quick_path_available"),
             "C++ isQuickPathAvailable gate missing: {body}"
@@ -218,6 +223,16 @@ mod tests {
             !body.contains("if true {"),
             "placeholder path gate must not remain"
         );
+        // C++ POWTruckAIUpdate.cpp:647-675 checks the cheap UI path first,
+        // then distance, and runs the second path query only for an improvement.
+        let validate = body.find(".validate_target(").unwrap();
+        let quick = body.find("is_quick_path_available").unwrap();
+        let distance = body.find("get_distance_squared").unwrap();
+        let improving = body
+            .find("if closest_target.is_none() || dist_sq < closest_dist_sq")
+            .unwrap();
+        let full = body.find("client_safe_quick_does_path_exist").unwrap();
+        assert!(validate < quick && quick < distance && distance < improving && improving < full);
     }
 
     #[test]

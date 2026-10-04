@@ -1390,6 +1390,21 @@ async fn named_attack_team_leaves_group_and_dispatches_attack_team() {
 
 #[tokio::test]
 async fn create_explosion_dispatches_fx_at_position() {
+    // This fixture observes the action's FX dispatch, not explosion damage.
+    // The one-shot manager registration needs a fresh process lifetime.
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let name = concat!(
+            module_path!(),
+            "::create_explosion_dispatches_fx_at_position"
+        );
+        let name = name.split_once("::").unwrap().1;
+        if let crate::test_process::TestProcess::ParentVerified =
+            crate::test_process::run_bounded(name, "GENERALS_SCRIPT_EXPLOSION_RECORDER_CHILD")
+        {
+            return;
+        }
+    }
     use crate::common::types::FXListManagerInterface;
     use crate::helpers::register_fx_list_manager;
     use game_engine::common::name_key_generator::NameKeyGenerator;

@@ -251,10 +251,25 @@ mod tests {
 
     #[test]
     fn fx_list_object_id_dispatch_preserves_source_orientation() {
+        // The production bridge installs one manager for its process lifetime.
+        // Give this recorder its own lifetime without replacing that bridge.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let name = concat!(
+                module_path!(),
+                "::fx_list_object_id_dispatch_preserves_source_orientation"
+            );
+            let name = name.split_once("::").unwrap().1;
+            if let crate::test_process::TestProcess::ParentVerified =
+                crate::test_process::run_bounded(name, "GENERALS_FX_ORIENTATION_RECORDER_CHILD")
+            {
+                return;
+            }
+        }
         let calls = Arc::new(Mutex::new(Vec::new()));
-        let _ = register_fx_list_manager(Arc::new(RecordingFxManager {
+        assert!(register_fx_list_manager(Arc::new(RecordingFxManager {
             object_calls: Arc::clone(&calls),
-        }));
+        })));
         let fx = TheFXListStore::ensure_fx_list("FX_TestDeath");
 
         fx.do_fx_obj_ids(42, Some(77), None).unwrap();
