@@ -4,6 +4,9 @@
 
 mod ingame_money;
 
+#[cfg(test)]
+mod font_library_tests;
+
 use std::collections::{HashMap, VecDeque};
 use std::convert::TryFrom;
 use std::io;
@@ -1949,6 +1952,7 @@ impl SubsystemInterface for InGameUISubsystem {
     fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         with_window_video_manager(|manager| manager.reset());
         self.clear_runtime_state();
+        self.clear_tooltips_disabled();
         Ok(())
     }
 
@@ -3203,6 +3207,23 @@ mod tests {
         assert!(!ui.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click);
         assert!(ui.pending_special_power.is_none());
         assert!(ui.pending_command.is_none());
+    }
+
+    #[test]
+    fn in_game_ui_reset_keeps_another_instances_tooltip_deadline() {
+        let mut first = InGameUISubsystem::default();
+        let mut second = InGameUISubsystem::default();
+        first.disable_tooltips_until(99);
+        second.disable_tooltips_until(177);
+
+        first.reset().unwrap();
+        assert_eq!(first.tooltips_disabled_until, 0);
+        assert_eq!(second.tooltips_disabled_until, 177);
+
+        first.disable_tooltips_until(231);
+        second.reset().unwrap();
+        assert_eq!(first.tooltips_disabled_until, 231);
+        assert_eq!(second.tooltips_disabled_until, 0);
     }
 
     #[test]

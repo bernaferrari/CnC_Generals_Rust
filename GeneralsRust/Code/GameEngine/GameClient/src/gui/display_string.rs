@@ -79,16 +79,20 @@ impl DisplayFontSource for Arc<GameFont> {
         self
     }
     fn same_as_installed(&self, current: &GameFont) -> bool {
-        current.desc == self.desc
+        std::ptr::eq(current, self.as_ref())
     }
 }
+
+#[cfg(test)]
+#[path = "display_string/font_identity_tests.rs"]
+mod font_identity_tests;
 
 impl DisplayFontSource for &Arc<GameFont> {
     fn to_display_font(self) -> Arc<GameFont> {
         self.clone()
     }
     fn same_as_installed(&self, current: &GameFont) -> bool {
-        current.desc == self.desc
+        std::ptr::eq(current, self.as_ref())
     }
 }
 
@@ -211,6 +215,13 @@ impl DisplayString {
         self.dirty = true;
     }
 
+    // Shared by the real renderer path and the CPU registration regression.
+    pub(super) fn refresh_registered_font(&mut self, font: Option<Arc<GameFont>>) {
+        if let Some(font) = font {
+            self.set_font(font);
+        }
+    }
+
     pub fn get_font(&self) -> Option<&Arc<GameFont>> {
         self.font.as_ref()
     }
@@ -321,6 +332,15 @@ impl DisplayString {
         x_drop: i32,
         y_drop: i32,
     ) {
+        let registered_font = match self.font.as_ref() {
+            Some(font) => renderer.registered_font(&font.desc),
+            None => renderer.registered_font(&FontDesc::new(
+                DEFAULT_FONT_NAME,
+                DEFAULT_FONT_SIZE,
+                DEFAULT_FONT_BOLD,
+            )),
+        };
+        self.refresh_registered_font(registered_font);
         self.update_layout_cache();
         // Layout, per-line widths, centered x offsets, and hotkey placement
         // are all cached; an unchanged string redraws with no measurement

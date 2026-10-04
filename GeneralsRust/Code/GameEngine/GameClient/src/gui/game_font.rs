@@ -64,7 +64,7 @@ pub fn first_font() -> Option<Arc<GameFont>> {
 
 /// C++ parity: `FontLibrary::nextFont(font)` — returns the font after `desc`.
 /// In C++ this followed the `next` pointer on the linked list.
-/// In Rust we look up the next entry in insertion order.
+/// Rust follows the same newest-first traversal through the owned order list.
 pub fn next_font(desc: &FontDesc) -> Option<Arc<GameFont>> {
     get_font_library().next_font(desc)
 }

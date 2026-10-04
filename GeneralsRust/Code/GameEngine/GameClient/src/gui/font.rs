@@ -22,7 +22,6 @@
 //! ```
 
 use crate::system::SubsystemInterface;
-use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 use thiserror::Error;
@@ -272,12 +271,16 @@ pub trait FontData: Send + Sync {
 pub struct DefaultFontData {
     metrics: FontMetrics,
     desc: FontDesc,
-    font: Option<fontdue::Font>,
+    font: Option<Arc<fontdue::Font>>,
 }
 
 impl DefaultFontData {
     pub fn new(desc: FontDesc) -> Self {
-        let font = load_fontdue_font(&desc);
+        let font = load_fontdue_font(&desc).map(Arc::new);
+        Self::with_font(desc, font)
+    }
+
+    fn with_font(desc: FontDesc, font: Option<Arc<fontdue::Font>>) -> Self {
         // C++ GDI renders point sizes at MulDiv(point, 96, 72) pixel em
         // (render2dsentence.cpp:1492); every metric below is a pixel metric
         // of that em, matching GetTextExtentPoint32/tmHeight behavior.
@@ -321,7 +324,7 @@ impl FontData for DefaultFontData {
     }
 
     fn measure_text(&self, text: &str) -> i32 {
-        if let Some(font) = self.font.as_ref() {
+        if let Some(font) = self.font.as_deref() {
             let px = font_pixel_size(self.desc.size) as f32;
             let alternate = alternate_unicode_font();
             let width = text
@@ -351,7 +354,7 @@ impl FontData for DefaultFontData {
     }
 
     fn supports_char(&self, ch: char) -> bool {
-        if let Some(font) = self.font.as_ref() {
+        if let Some(font) = self.font.as_deref() {
             return font.lookup_glyph_index(ch) != 0
                 || alternate_unicode_font().is_some_and(|alt| alt.lookup_glyph_index(ch) != 0);
         }
@@ -399,6 +402,10 @@ pub struct GameFont {
 impl GameFont {
     /// Create a new GameFont with the specified description
     pub fn new(desc: FontDesc) -> Result<Self, FontError> {
+        Self::with_font(desc, None)
+    }
+
+    fn with_font(desc: FontDesc, face: Option<Arc<fontdue::Font>>) -> Result<Self, FontError> {
         // C++ W3DFontLibrary::loadFontData sanity cap — "anything over 100
         // is probably wrong" (W3DGameFont.cpp:50).
         if !(1..=100).contains(&desc.size) {
@@ -407,7 +414,10 @@ impl GameFont {
                 desc.size
             )));
         }
-        let font_data = Box::new(DefaultFontData::new(desc.clone()));
+        let font_data = Box::new(match face {
+            Some(face) => DefaultFontData::with_font(desc.clone(), Some(face)),
+            None => DefaultFontData::new(desc.clone()),
+        });
         // C++: `font->height = fontChar->Get_Char_Height()` (W3DGameFont.cpp:71)
         // — the pixel cell height, not the point size.
         let height = font_data.get_metrics().height;
@@ -444,30 +454,30 @@ impl GameFont {
 ///
 /// This provides a centralized system for loading, caching, and accessing fonts.
 /// Fonts are cached and reference-counted to avoid duplicate loading.
-// THREAD: main thread only — the library is reached solely through the
-// thread-local `FONT_LIBRARY` cell below, so its interior state uses `RefCell`
-// instead of nested locks.
+// Mutable cache, traversal and statistics belong to this library. Every
+// mutation requires &mut self; the legacy global accessor retains its outer
+// lock, but an independently owned FontLibrary needs no interior mutability.
 pub struct FontLibrary {
     /// Cache of loaded fonts, keyed by FontDesc
-    font_cache: RefCell<HashMap<FontDesc, Weak<GameFont>>>,
+    font_cache: HashMap<FontDesc, Weak<GameFont>>,
     /// Insertion-ordered list of loaded fonts
-    font_order: RefCell<Vec<FontDesc>>,
+    font_order: Vec<FontDesc>,
     /// Whether the library has been initialized
     initialized: bool,
     /// Statistics for debugging and monitoring
-    cache_hits: Cell<u64>,
-    cache_misses: Cell<u64>,
+    cache_hits: u64,
+    cache_misses: u64,
 }
 
 impl FontLibrary {
     /// Create a new font library
     pub fn new() -> Self {
         Self {
-            font_cache: RefCell::new(HashMap::new()),
-            font_order: RefCell::new(Vec::new()),
+            font_cache: HashMap::new(),
+            font_order: Vec::new(),
             initialized: false,
-            cache_hits: Cell::new(0),
-            cache_misses: Cell::new(0),
+            cache_hits: 0,
+            cache_misses: 0,
         }
     }
 
@@ -483,6 +493,24 @@ impl FontLibrary {
     /// * `Ok(Arc<GameFont>)` - Shared reference to the font
     /// * `Err(FontError)` - If the font cannot be loaded
     pub fn get_font(&mut self, desc: &FontDesc) -> Result<Arc<GameFont>, FontError> {
+        self.get_font_from_source(desc, None)
+    }
+
+    /// The caller owns the selected immutable face and its invalidation.
+    /// The renderer clears this instance's cache when registration changes.
+    pub(super) fn get_font_with_face(
+        &mut self,
+        desc: &FontDesc,
+        face: &Arc<fontdue::Font>,
+    ) -> Result<Arc<GameFont>, FontError> {
+        self.get_font_from_source(desc, Some(face))
+    }
+
+    fn get_font_from_source(
+        &mut self,
+        desc: &FontDesc,
+        face: Option<&Arc<fontdue::Font>>,
+    ) -> Result<Arc<GameFont>, FontError> {
         if !self.initialized {
             return Err(FontError::NotInitialized);
         }
@@ -495,13 +523,13 @@ impl FontLibrary {
             )));
         }
 
-        let mut cache = self.font_cache.borrow_mut();
-        let mut order = self.font_order.borrow_mut();
+        let cache = &mut self.font_cache;
+        let order = &mut self.font_order;
 
         // Check if font is already cached
         if let Some(weak_font) = cache.get(desc) {
             if let Some(font) = weak_font.upgrade() {
-                self.cache_hits.set(self.cache_hits.get() + 1);
+                self.cache_hits += 1;
                 return Ok(font);
             } else {
                 // Weak reference is dead, remove it
@@ -511,10 +539,10 @@ impl FontLibrary {
         }
 
         // Font not in cache or weak reference is dead, load it
-        self.cache_misses.set(self.cache_misses.get() + 1);
+        self.cache_misses += 1;
 
-        let game_font =
-            GameFont::new(desc.clone()).map_err(|e| FontError::LoadError(e.to_string()))?;
+        let game_font = GameFont::with_font(desc.clone(), face.cloned())
+            .map_err(|e| FontError::LoadError(e.to_string()))?;
 
         let font_arc = Arc::new(game_font);
         cache.insert(desc.clone(), Arc::downgrade(&font_arc));
@@ -527,27 +555,27 @@ impl FontLibrary {
 
     /// Get the first loaded font description.
     pub fn first_font_desc(&self) -> Option<FontDesc> {
-        let cache = self.font_cache.borrow();
+        let cache = &self.font_cache;
         cache.keys().next().cloned()
     }
 
     /// Get all font descriptions currently loaded
     pub fn get_loaded_fonts(&self) -> Vec<FontDesc> {
-        let cache = self.font_cache.borrow();
+        let cache = &self.font_cache;
         cache.keys().cloned().collect()
     }
 
     /// Get the number of fonts currently cached
     pub fn get_count(&self) -> usize {
-        let order = self.font_order.borrow_mut();
+        let order = &self.font_order;
         order.len()
     }
 
     /// Clean up dead weak references from the cache
     pub fn cleanup_cache(&mut self) {
-        let mut cache = self.font_cache.borrow_mut();
+        let cache = &mut self.font_cache;
         cache.retain(|_, weak_ref| weak_ref.strong_count() > 0);
-        let mut order = self.font_order.borrow_mut();
+        let order = &mut self.font_order;
         order.retain(|desc| {
             cache
                 .get(desc)
@@ -558,16 +586,16 @@ impl FontLibrary {
 
     /// Get cache statistics
     pub fn get_cache_stats(&self) -> (u64, u64) {
-        let hits = self.cache_hits.get();
-        let misses = self.cache_misses.get();
+        let hits = self.cache_hits;
+        let misses = self.cache_misses;
         (hits, misses)
     }
 
     /// Clear all fonts from the cache
     pub fn clear_cache(&mut self) {
-        let mut cache = self.font_cache.borrow_mut();
+        let cache = &mut self.font_cache;
         cache.clear();
-        let mut order = self.font_order.borrow_mut();
+        let order = &mut self.font_order;
         order.clear();
     }
 
@@ -582,22 +610,20 @@ impl FontLibrary {
         self.get_font(&desc)
     }
 
-    /// Return the first font in insertion order.
+    /// C++ FontLibrary::linkFont prepends new allocations to the list head.
     pub fn first_font(&mut self) -> Option<Arc<GameFont>> {
         self.cleanup_cache();
-        let order = self.font_order.borrow_mut();
-        let desc = order.first()?.clone();
-        drop(order);
+        let order = &self.font_order;
+        let desc = order.last()?.clone();
         self.get_font(&desc).ok()
     }
 
     /// Return the next font after the provided font description.
     pub fn next_font(&mut self, current: &FontDesc) -> Option<Arc<GameFont>> {
         self.cleanup_cache();
-        let order = self.font_order.borrow_mut();
+        let order = &self.font_order;
         let index = order.iter().position(|desc| desc == current)?;
-        let next = order.get(index + 1)?.clone();
-        drop(order);
+        let next = order.get(index.checked_sub(1)?)?.clone();
         self.get_font(&next).ok()
     }
 }
@@ -610,34 +636,15 @@ impl Default for FontLibrary {
 
 impl SubsystemInterface for FontLibrary {
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        log::info!("Initializing font library");
-        log::info!("Font library initialized successfully");
-        Ok(())
+        self.init_mut()
     }
 
     fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        log::info!("Resetting font library");
-
-        // Clear cache using interior mutability
-        {
-            let mut cache = self.font_cache.borrow_mut();
-            cache.clear();
-        }
-
-        self.cache_hits.set(0);
-        self.cache_misses.set(0);
-
-        log::info!("Font library reset successfully");
-        Ok(())
+        self.reset_mut()
     }
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Periodic cleanup of dead weak references using interior mutability
-        {
-            let mut cache = self.font_cache.borrow_mut();
-            cache.retain(|_, weak_ref| weak_ref.strong_count() > 0);
-        }
-        Ok(())
+        self.update_mut()
     }
 }
 
@@ -659,8 +666,8 @@ impl FontLibrary {
         log::info!("Resetting font library");
 
         self.clear_cache();
-        self.cache_hits.set(0);
-        self.cache_misses.set(0);
+        self.cache_hits = 0;
+        self.cache_misses = 0;
 
         log::info!("Font library reset successfully");
         Ok(())
@@ -696,8 +703,8 @@ impl FontLibrary {
 ///
 /// THREAD: kept as a process-wide lock because the guard-returning
 /// `get_font_library()` API is consumed across GameClient and the device crate;
-/// the library's interior state below is plain `RefCell`/`Cell` since callers
-/// hold the outer guard while touching it.
+/// callers receive exclusive access through the outer guard. Independently
+/// owned libraries expose the same &mut self operations without a lock.
 static FONT_LIBRARY: std::sync::LazyLock<std::sync::Mutex<FontLibrary>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(FontLibrary::new()));
 
@@ -744,12 +751,15 @@ mod tests {
         assert_eq!(resolved_font_family("Courier New"), "Courier New");
         let bold = candidate_font_paths("Generals", true);
         let regular = candidate_font_paths("Generals", false);
-        assert!(bold
-            .iter()
-            .any(|path| path == std::path::Path::new("C:/Windows/Fonts/arialbd.ttf")));
-        assert!(regular
-            .iter()
-            .any(|path| path == std::path::Path::new("C:/Windows/Fonts/arial.ttf")));
+        assert!(
+            bold.iter()
+                .any(|path| path == std::path::Path::new("C:/Windows/Fonts/arialbd.ttf"))
+        );
+        assert!(
+            regular
+                .iter()
+                .any(|path| path == std::path::Path::new("C:/Windows/Fonts/arial.ttf"))
+        );
         let generals = GameFont::new(FontDesc::new("Generals", 15, false)).unwrap();
         let arial = GameFont::new(FontDesc::new("Arial", 15, false)).unwrap();
         assert_eq!(
@@ -908,3 +918,10 @@ mod tests {
         assert_eq!(font.desc.name, "Arial");
     }
 }
+
+#[cfg(test)]
+#[path = "font/owned_library_api_tests.rs"]
+mod owned_library_api_tests;
+
+#[cfg(test)]
+mod cpp_head_traversal_tests;

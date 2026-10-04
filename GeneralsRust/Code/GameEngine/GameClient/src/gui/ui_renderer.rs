@@ -428,7 +428,6 @@ pub struct UIRenderer {
     // so UIRenderer can live in `Arc<RwLock<UIRenderer>>` without a lying
     // `unsafe impl Sync`.
     font_runtime: Mutex<FontRuntime>,
-    font_cache: HashMap<String, Font>,
     /// C++ DisplayString retains rasterized glyphs. Re-shaping every label
     /// every frame created a wgpu texture per button and froze Menu.
     /// Value carries the placed quad — the atlas canvas may exceed the
@@ -469,6 +468,14 @@ unsafe impl Send for UIRenderer {}
 // `!Sync` cosmic-text state is uncontended by construction.
 unsafe impl Sync for UIRenderer {}
 
+// The actual constructor's CPU buffer boundary, before GPU allocation.
+// Keep the original metrics; draw_text_with_font supplies actual text later.
+fn initialize_font_text_buffer() -> TextBuffer {
+    // C++ sentence/font allocation does not shape text before a face and
+    // sentence are supplied (render2dsentence.cpp:25-48, 70-75, 1136-1146).
+    TextBuffer::new_empty(Metrics::new(14.0, 16.0))
+}
+
 /// cosmic_text layout state. `FontSystem` / `SwashCache` / `TextBuffer` are
 /// `Send + !Sync` (interior `RefCell`). UIRenderer serializes them with
 /// `Mutex<FontRuntime>` instead of an `unsafe impl Sync`.
@@ -476,6 +483,204 @@ struct FontRuntime {
     font_system: FontSystem,
     swash_cache: SwashCache,
     text_buffer: TextBuffer,
+    registered_fonts: HashMap<String, RegisteredFontSource>,
+    registration_epoch: u64,
+    registered_font_faces: HashMap<cosmic_text::fontdb::ID, Arc<Font>>,
+    measurement_fonts: super::font::FontLibrary,
+}
+
+struct RegisteredFontSource {
+    // Distinct per-instance family identity gives explicitly loaded bytes
+    // priority over an installed system face with the same authored name.
+    family: String,
+    face_ids: Vec<cosmic_text::fontdb::ID>,
+}
+
+struct RasterizedText {
+    pixels: Vec<(i32, i32, [u8; 4])>,
+    ink_bounds: [i32; 4],
+    logical_size: (i32, i32),
+}
+
+impl FontRuntime {
+    fn new(font_system: FontSystem, text_buffer: TextBuffer) -> Self {
+        let mut measurement_fonts = super::font::FontLibrary::new();
+        measurement_fonts
+            .init_mut()
+            .expect("font measurement library initialization");
+        Self {
+            font_system,
+            swash_cache: SwashCache::new(),
+            text_buffer,
+            registered_fonts: HashMap::new(),
+            registration_epoch: 0,
+            registered_font_faces: HashMap::new(),
+            measurement_fonts,
+        }
+    }
+
+    fn registered_key(name: &str) -> String {
+        super::font::resolved_font_family(name).to_lowercase()
+    }
+
+    // The public renderer and CPU regressions use this same registration.
+    fn load_font(&mut self, name: &str, font_data: &[u8]) -> Result<()> {
+        // Validate both parsers before publishing bytes, aliases or caches.
+        let font = Arc::new(
+            Font::from_bytes(font_data, FontSettings::default())
+                .map_err(|e| UIRendererError::FontError(format!("Failed to load font: {}", e)))?,
+        );
+        let epoch = self.registration_epoch.checked_add(1).ok_or_else(|| {
+            UIRendererError::FontError("Font registration identity exhausted".to_string())
+        })?;
+        let key = Self::registered_key(name);
+        let family = format!("__generals_memory_font_{epoch}");
+        let mut database = self.font_system.db().clone();
+        let bytes: Arc<dyn AsRef<[u8]> + Send + Sync> = Arc::new(font_data.to_vec());
+        let loaded = database.load_font_source(cosmic_text::fontdb::Source::Binary(bytes));
+        if loaded.is_empty() {
+            return Err(UIRendererError::FontError(
+                "Memory font has no supported render faces".to_string(),
+            ));
+        }
+        let mut face_ids = Vec::with_capacity(loaded.len());
+        let mut added_faces = Vec::with_capacity(loaded.len());
+        for id in loaded {
+            let mut info = database
+                .face(id)
+                .expect("just parsed memory font face")
+                .clone();
+            let parsed = if info.index == 0 {
+                Arc::clone(&font)
+            } else {
+                Arc::new(
+                    Font::from_bytes(
+                        font_data,
+                        FontSettings {
+                            collection_index: info.index,
+                            ..FontSettings::default()
+                        },
+                    )
+                    .map_err(|e| {
+                        UIRendererError::FontError(format!("Failed to load font: {}", e))
+                    })?,
+                )
+            };
+            let language = info.families[0].1;
+            info.families.insert(0, (family.clone(), language));
+            database.remove_face(id);
+            let registered_id = database.push_face_info(info);
+            face_ids.push(registered_id);
+            added_faces.push((registered_id, parsed));
+        }
+        if let Some(previous) = self.registered_fonts.get(&key) {
+            for id in &previous.face_ids {
+                database.remove_face(*id);
+            }
+        }
+        // Recreate all font/match/shape caches and fallback indices over the
+        // existing database plus owned Binary bytes. This does not enumerate
+        // system fonts or change the constructor's native source policy.
+        let font_system =
+            FontSystem::new_with_locale_and_db(self.font_system.locale().to_string(), database);
+        let text_buffer = TextBuffer::new_empty(self.text_buffer.metrics());
+        let swash_cache = SwashCache::new();
+
+        // Both parsers and all replacement runtime objects are ready.
+        // Only the new face batch was prepared; existing maps stay owned.
+        if let Some(previous) = self.registered_fonts.remove(&key) {
+            for id in previous.face_ids {
+                self.registered_font_faces.remove(&id);
+            }
+        }
+        self.registered_fonts
+            .insert(key, RegisteredFontSource { family, face_ids });
+        self.registered_font_faces.extend(added_faces);
+        self.font_system = font_system;
+        self.text_buffer = text_buffer;
+        self.swash_cache = swash_cache;
+        self.registration_epoch = epoch;
+        self.measurement_fonts.clear_cache();
+        Ok(())
+    }
+
+    fn registered_font(
+        &mut self,
+        desc: &super::font::FontDesc,
+    ) -> Option<Arc<super::font::GameFont>> {
+        if self.registered_fonts.is_empty() {
+            return None;
+        }
+        let registered = self
+            .registered_fonts
+            .get(&Self::registered_key(&desc.name))?;
+        let families = [cosmic_text::fontdb::Family::Name(&registered.family)];
+        let id = self.font_system.db().query(&cosmic_text::fontdb::Query {
+            families: &families,
+            weight: if desc.bold {
+                Weight::BOLD
+            } else {
+                Weight::NORMAL
+            },
+            stretch: Stretch::Normal,
+            style: Style::Normal,
+        })?;
+        let face = self.registered_font_faces.get(&id)?;
+        self.measurement_fonts.get_font_with_face(desc, face).ok()
+    }
+
+    // The actual CPU block used by draw_text_with_font, without GPU upload.
+    fn raster_text(
+        &mut self,
+        text: &str,
+        attrs: &Attrs<'_>,
+        metrics: Metrics,
+        canvas_size: (u32, u32),
+        wrap_mode: Wrap,
+        text_color: TextColor,
+    ) -> RasterizedText {
+        let mut pixels = Vec::<(i32, i32, [u8; 4])>::new();
+        let mut min_x = i32::MAX;
+        let mut min_y = i32::MAX;
+        let mut max_x = i32::MIN;
+        let mut max_y = i32::MIN;
+        let mut logical_width = 0;
+        let mut logical_height = 0;
+        let attrs = match attrs.family {
+            Family::Name(name) => self
+                .registered_fonts
+                .get(&Self::registered_key(name))
+                .map(|source| attrs.clone().family(Family::Name(&source.family)))
+                .unwrap_or_else(|| attrs.clone()),
+            _ => attrs.clone(),
+        };
+        let mut text_buffer = self.text_buffer.borrow_with(&mut self.font_system);
+        text_buffer.set_metrics(metrics);
+        text_buffer.set_size(Some(canvas_size.0 as f32), Some(canvas_size.1 as f32));
+        text_buffer.set_wrap(wrap_mode);
+        text_buffer.set_text(text, &attrs, Shaping::Advanced, None);
+        text_buffer.shape_until_scroll(true);
+        for run in text_buffer.layout_runs() {
+            logical_width = logical_width.max(run.line_w.ceil() as i32);
+            logical_height = logical_height.max((run.line_top + run.line_height).ceil() as i32);
+        }
+        text_buffer.draw(&mut self.swash_cache, text_color, |x, y, _w, _h, color| {
+            let rgba = color.as_rgba();
+            if rgba[3] == 0 {
+                return;
+            }
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+            pixels.push((x, y, rgba));
+        });
+        RasterizedText {
+            pixels,
+            ink_bounds: [min_x, min_y, max_x, max_y],
+            logical_size: (logical_width, logical_height),
+        }
+    }
 }
 
 /// Rendering performance statistics
@@ -507,7 +712,7 @@ impl UIRenderer {
                     .load_font_source(cosmic_text::fontdb::Source::Binary(source));
             }
         }
-        let text_buffer = TextBuffer::new(&mut font_system, Metrics::new(14.0, 16.0));
+        let text_buffer = initialize_font_text_buffer();
 
         // Create shader modules
         let ui_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -904,12 +1109,7 @@ impl UIRenderer {
             text_shader,
             uniform_bind_group_layout,
             texture_bind_group_layout,
-            font_runtime: Mutex::new(FontRuntime {
-                font_system,
-                swash_cache: SwashCache::new(),
-                text_buffer,
-            }),
-            font_cache: HashMap::new(),
+            font_runtime: Mutex::new(FontRuntime::new(font_system, text_buffer)),
             text_texture_cache: HashMap::new(),
             texture_bind_groups: HashMap::new(),
             vertex_buffer,
@@ -1551,45 +1751,21 @@ impl UIRenderer {
             (layout.color[3].clamp(0.0, 1.0) * 255.0) as u8,
         );
 
-        let mut pixels = Vec::<(i32, i32, [u8; 4])>::new();
-        let mut min_x = i32::MAX;
-        let mut min_y = i32::MAX;
-        let mut max_x = i32::MIN;
-        let mut max_y = i32::MIN;
-        let mut logical_width = 0;
-        let mut logical_height = 0;
-
-        {
-            let runtime = &mut *self
-                .font_runtime
-                .lock()
-                .expect("UIRenderer font runtime poisoned");
-            let mut text_buffer = runtime.text_buffer.borrow_with(&mut runtime.font_system);
-            text_buffer.set_metrics(metrics);
-            text_buffer.set_size(Some(canvas_width as f32), Some(canvas_height as f32));
-            text_buffer.set_wrap(wrap_mode);
-            text_buffer.set_text(&text, &attrs, Shaping::Advanced, None);
-            text_buffer.shape_until_scroll(true);
-            for run in text_buffer.layout_runs() {
-                logical_width = logical_width.max(run.line_w.ceil() as i32);
-                logical_height = logical_height.max((run.line_top + run.line_height).ceil() as i32);
-            }
-            text_buffer.draw(
-                &mut runtime.swash_cache,
+        let raster = self
+            .font_runtime
+            .get_mut()
+            .expect("UIRenderer font runtime poisoned")
+            .raster_text(
+                &text,
+                &attrs,
+                metrics,
+                (canvas_width, canvas_height),
+                wrap_mode,
                 text_color,
-                |x, y, _w, _h, color| {
-                    let rgba = color.as_rgba();
-                    if rgba[3] == 0 {
-                        return;
-                    }
-                    min_x = min_x.min(x);
-                    min_y = min_y.min(y);
-                    max_x = max_x.max(x);
-                    max_y = max_y.max(y);
-                    pixels.push((x, y, rgba));
-                },
             );
-        }
+        let pixels = raster.pixels;
+        let [min_x, min_y, max_x, max_y] = raster.ink_bounds;
+        let (logical_width, logical_height) = raster.logical_size;
 
         if pixels.is_empty() {
             return Ok(());
@@ -1865,11 +2041,24 @@ impl UIRenderer {
 
     /// Load a font from file
     pub fn load_font(&mut self, name: &str, font_data: &[u8]) -> Result<()> {
-        let font = Font::from_bytes(font_data, FontSettings::default())
-            .map_err(|e| UIRendererError::FontError(format!("Failed to load font: {}", e)))?;
-
-        self.font_cache.insert(name.to_string(), font);
+        self.font_runtime
+            .get_mut()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .load_font(name, font_data)?;
+        // A cached label may have the same authored name/size but new bytes.
+        self.text_texture_cache.clear();
         Ok(())
+    }
+
+    /// Resolve an explicitly registered face through this renderer's owner.
+    pub(super) fn registered_font(
+        &mut self,
+        desc: &super::font::FontDesc,
+    ) -> Option<Arc<super::font::GameFont>> {
+        self.font_runtime
+            .get_mut()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .registered_font(desc)
     }
 
     /// Get rendering statistics from the last frame
@@ -2369,3 +2558,11 @@ mod tests {
         assert!(buffers.instance_data.is_empty());
     }
 }
+
+#[cfg(test)]
+#[path = "ui_renderer/memory_font_registration_tests.rs"]
+mod memory_font_registration_tests;
+
+#[cfg(test)]
+#[path = "ui_renderer/constructor_font_buffer_tests.rs"]
+mod constructor_font_buffer_tests;
