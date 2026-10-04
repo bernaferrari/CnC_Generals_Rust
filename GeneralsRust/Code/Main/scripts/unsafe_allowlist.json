@@ -801,7 +801,11 @@
       "undocumented": 0
     },
     "Code/Main/src/save_load/save_file.rs": {
-      "constructs": 9,
+      "constructs": 7,
+      "undocumented": 0
+    },
+    "Code/Main/src/save_load/save_file/tests.rs": {
+      "constructs": 2,
       "undocumented": 0
     },
     "Code/Main/src/single_instance.rs": {

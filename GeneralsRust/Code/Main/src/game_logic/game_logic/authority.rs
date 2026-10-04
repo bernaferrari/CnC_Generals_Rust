@@ -472,7 +472,6 @@ pub enum ReadyLogDrainOp {
     Identity,
     GroundHeight,
     Economy,
-    Upgrade,
     StoredSupplies,
 }
 

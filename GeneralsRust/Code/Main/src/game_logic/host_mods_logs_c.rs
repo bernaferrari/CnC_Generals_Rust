@@ -128,9 +128,6 @@ pub mod host_turret_log;
 #[path = "host_turret_ready_log.rs"]
 pub mod host_turret_ready_log;
 
-#[path = "host_upgrade_ready_log.rs"]
-pub mod host_upgrade_ready_log;
-
 #[path = "host_veterancy_log.rs"]
 pub mod host_veterancy_log;
 

@@ -121,10 +121,22 @@ fn anthrax_gamma_residual_toxin_stream_and_field() {
             .host_upgrades()
             .honesty_queue_ok(HostUpgradeKind::AnthraxGamma)
     );
-    // C++ research advances on the producer's Upgrade.ini BuildTime
-    // (ProductionUpdate.cpp:686-704); tick past the 60s AnthraxGamma window.
-    game_logic.update();
-    game_logic.update_with_dt(61.0);
+    // C++ ProductionUpdate.cpp:687-704 advances once per real logic frame.
+    // Live update_with_dt caps each call at one frame; a 61s delta cannot
+    // substitute for the producer's full 60s research window (hq-85nu7).
+    let research_frames = HostUpgradeKind::AnthraxGamma.retail_research_frames();
+    let research_start = game_logic.getFrame();
+    for _ in 0..research_frames - 1 {
+        game_logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
+    }
+    assert_eq!(game_logic.getFrame(), research_start + research_frames - 1);
+    assert!(
+        !game_logic
+            .host_upgrades()
+            .honesty_complete_ok(HostUpgradeKind::AnthraxGamma),
+        "AnthraxGamma must remain pending before the final authored research frame"
+    );
+    game_logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
     assert!(
         game_logic
             .host_upgrades()
@@ -348,9 +360,22 @@ fn camo_netting_upgrade_stealths_gla_structures() {
             .host_upgrades()
             .honesty_queue_ok(HostUpgradeKind::CamoNetting)
     );
-    // C++ research advances on the producer's Upgrade.ini BuildTime
-    // (ProductionUpdate.cpp:686-704); tick past the 5s CamoNetting window.
-    game_logic.update_with_dt(6.0);
+    // C++ ProductionUpdate.cpp:687-704 advances once per real logic frame.
+    // Drive all 150 producer frames; a single 6s live delta runs one frame
+    // and discards the backlog (the same fixture issue tracked by hq-85nu7).
+    let research_frames = HostUpgradeKind::CamoNetting.retail_research_frames();
+    let research_start = game_logic.getFrame();
+    for _ in 0..research_frames - 1 {
+        game_logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
+    }
+    assert_eq!(game_logic.getFrame(), research_start + research_frames - 1);
+    assert!(
+        !game_logic
+            .host_upgrades()
+            .honesty_complete_ok(HostUpgradeKind::CamoNetting),
+        "CamoNetting must remain pending before the final authored research frame"
+    );
+    game_logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
     assert!(
         game_logic
             .host_upgrades()

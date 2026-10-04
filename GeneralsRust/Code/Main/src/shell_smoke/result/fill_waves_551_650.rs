@@ -223,9 +223,6 @@ fn fill_waves_551_650(
     out.host_body_damage_ready_log_helper_method_names_wave623_ok = waves.host_body_damage_ready_log_helper_method_names_wave623_ok;
     out.host_body_damage_ready_log_helper_nav_commands_wave623_ok = waves.host_body_damage_ready_log_helper_nav_commands_wave623_ok;
     out.host_body_damage_ready_log_helper_live_wave623_ok = waves.host_body_damage_ready_log_helper_live_wave623_ok;
-    out.host_upgrade_ready_log_helper_method_names_wave624_ok = waves.host_upgrade_ready_log_helper_method_names_wave624_ok;
-    out.host_upgrade_ready_log_helper_nav_commands_wave624_ok = waves.host_upgrade_ready_log_helper_nav_commands_wave624_ok;
-    out.host_upgrade_ready_log_helper_live_wave624_ok = waves.host_upgrade_ready_log_helper_live_wave624_ok;
     out.host_radar_extend_ready_log_helper_method_names_wave625_ok = waves.host_radar_extend_ready_log_helper_method_names_wave625_ok;
     out.host_radar_extend_ready_log_helper_nav_commands_wave625_ok = waves.host_radar_extend_ready_log_helper_nav_commands_wave625_ok;
     out.host_radar_extend_ready_log_helper_live_wave625_ok = waves.host_radar_extend_ready_log_helper_live_wave625_ok;

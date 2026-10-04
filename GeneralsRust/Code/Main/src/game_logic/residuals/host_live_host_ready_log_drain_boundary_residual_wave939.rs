@@ -94,7 +94,6 @@ pub fn honesty_host_ready_log_drain_boundary_residual_pack_wave939() -> bool {
     let session_code = non_comment_code(session);
     let ok = gl.contains("enum ReadyLogDrainOp")
         && api.contains("host_apply_contain_ready_completions")
-        && api.contains("host_apply_upgrade_ready_completions")
         && api.contains("ReadyLogDrainOp::")
         && session_code.contains("apply_ready_log_drain_op")
         && session_code.contains("ReadyLogDrainOp::")

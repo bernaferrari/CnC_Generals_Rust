@@ -229,21 +229,6 @@ pub(super) fn assert_waves_609_669(r: &ShellSmokeResult) {
         r.detail
     );
     assert!(
-        r.host_upgrade_ready_log_helper_method_names_wave624_ok,
-        "host upgrade ready log helper method names residual pack wave624: {}",
-        r.detail
-    );
-    assert!(
-        r.host_upgrade_ready_log_helper_nav_commands_wave624_ok,
-        "host upgrade ready log helper nav commands residual pack wave624: {}",
-        r.detail
-    );
-    assert!(
-        r.host_upgrade_ready_log_helper_live_wave624_ok,
-        "host upgrade ready log helper live residual wave624: {}",
-        r.detail
-    );
-    assert!(
         r.host_radar_extend_ready_log_helper_method_names_wave625_ok,
         "host radar extend ready log helper method names residual pack wave625: {}",
         r.detail

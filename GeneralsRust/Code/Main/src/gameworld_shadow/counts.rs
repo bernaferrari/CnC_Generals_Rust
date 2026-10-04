@@ -249,11 +249,4 @@ impl GameWorldShadow {
             .sum()
     }
 
-    pub fn completed_upgrade_count(&self) -> usize {
-        self.world
-            .world()
-            .active_players()
-            .map(|(_, p)| p.completed_upgrades.len())
-            .sum()
-    }
 }

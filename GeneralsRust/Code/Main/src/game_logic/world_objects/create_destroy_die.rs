@@ -3094,16 +3094,41 @@ impl GameLogic {
         self.mark_object_for_destruction_with_mode(id, killer, false);
     }
 
-    /// Direct `destroy_object()` entry (no killer / damage source).
-    ///
-    /// C++ `GameLogic::destroyObject` → `Object::kill` → DestroyDie /
-    /// InstantDeath removes the object in the same destruction pass. A
-    /// scripted or engine-authority destroy must never peel into
-    /// StructureTopple/Collapse / SlowDeath / KeepObjectDeath deferral,
-    /// because only the world combat tick drives those animations and a
-    /// host-only caller would leave a live husk behind.
+    /// Explicit final-deletion entry. C++ GameLogic::destroyObject queues
+    /// destruction independently of the object's earlier onDie callbacks.
+    /// The existing alive-object compatibility adapter remains below until
+    /// its complete onDestroy/creation-effects contract is migrated.
     pub fn destroy_object(&mut self, id: ObjectId) {
-        self.mark_object_for_destruction_with_mode(id, None, true);
+        if self
+            .objects
+            .get(&id)
+            .is_some_and(|object| object.status.on_die_started)
+        {
+            // C++ destroyObject is independent of Object::onDie. An explicit
+            // final deletion must not replay die callbacks or restart a timer.
+            self.enqueue_object_destruction(id, None);
+        } else {
+            // Preserve the existing alive-direct callback adapter in this
+            // bounded migration; complete onDestroy parity is separate work.
+            self.mark_object_for_destruction_with_mode(id, None, true);
+        }
+    }
+
+    fn enqueue_object_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
+        // Timed kernels may already stamp destroyed before reporting final
+        // completion. Queue identity, not that bit, proves admission here.
+        if !self.objects.contains_key(&id)
+            || self.objects_to_destroy.iter().any(|event| event.id == id)
+        {
+            return;
+        }
+        self.apply_pending_create_object_die(id);
+        self.objects_to_destroy
+            .push_back(DestructionEvent { id, killer });
+        if let Some(object) = self.objects.get_mut(&id) {
+            object.status.destroyed = true;
+        }
+        let _ = crate::gameworld_shadow::eager_mark_host_destroy_if_coupled(id);
     }
 
     fn mark_object_for_destruction_with_mode(
@@ -3253,13 +3278,7 @@ impl GameLogic {
                 return;
             }
         }
-        self.apply_pending_create_object_die(id);
-        self.objects_to_destroy
-            .push_back(DestructionEvent { id, killer });
-        if let Some(obj) = self.objects.get_mut(&id) {
-            obj.status.destroyed = true;
-        }
-        let _ = crate::gameworld_shadow::eager_mark_host_destroy_if_coupled(id);
+        self.enqueue_object_destruction(id, killer);
     }
 
     /// C++ InstantDeathBehavior::onDie residual.

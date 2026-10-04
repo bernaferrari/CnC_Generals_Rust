@@ -1464,22 +1464,16 @@ impl GameWorldShadow {
             }
         }
         for id in a10_head_off_destroy {
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id,
-                team: None,
-            });
+            // CPP DeliverPayload CleanUpState::onEnter explicitly destroys.
+            logic.destroy_object(id);
         }
         for id in carpet_head_off_destroy {
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id,
-                team: None,
-            });
+            // CPP DeliverPayload CleanUpState::onEnter explicitly destroys.
+            logic.destroy_object(id);
         }
         for id in anthrax_head_off_destroy {
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id,
-                team: None,
-            });
+            // CPP DeliverPayload CleanUpState::onEnter explicitly destroys.
+            logic.destroy_object(id);
         }
         for oid in ready {
             crate::game_logic::host_combat_status_ready_log::record(oid);

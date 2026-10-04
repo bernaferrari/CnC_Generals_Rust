@@ -287,7 +287,6 @@ fn primary_entity_id(mutation: &WorldMutation) -> Option<EntityId> {
         WorldMutation::Spawn { .. }
         | WorldMutation::SetSupplies { .. }
         | WorldMutation::SetPower { .. }
-        | WorldMutation::CompleteUpgrade { .. }
         | WorldMutation::SetProjectileFlight { .. }
         | WorldMutation::PushAiDecision { .. }
         | WorldMutation::SetPlayerRadar { .. }

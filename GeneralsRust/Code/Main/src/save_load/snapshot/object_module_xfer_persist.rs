@@ -10,8 +10,11 @@
 //! fields, so a stunned tumble, bus second-life, death collapse, or radar
 //! dish snapped back to idle on load.
 //!
-//! Append a tagged suffix after the historical v9 contain/producer payload
-//! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
+//! Append a Rust-only tagged suffix after the contain/producer payload.
+//! OXFR v2 also preserves the functional host death-start reentry latch for
+//! every admitted object. C++ Object::xfer deliberately omits its debug-only
+//! m_hasDiedAlready; this adds no original C++ wire field. OXFR v1 is rejected
+//! on restore. The current WorldSnapshot body/version remains unchanged.
 
 use crate::game_logic::host_battle_bus::HostBattleBusBodyData;
 use crate::game_logic::host_helicopter_slow_death::HostHelicopterSlowDeathData;
@@ -22,7 +25,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const OXFR_MAGIC: &[u8; 4] = b"OXFR";
-const OXFR_VERSION: u32 = 1;
+const OXFR_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectModuleXferPersistPayload {
@@ -30,6 +33,14 @@ struct ObjectModuleXferPersistPayload {
     battle_bus: Vec<BattleBusPersist>,
     slow_death: Vec<SlowDeathPersist>,
     radar: Vec<RadarPersist>,
+    death_start: Vec<DeathStartPersist>,
+}
+
+/// Rust's functional onDie reentry latch, independent of health/death modules.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DeathStartPersist {
+    object_id: u32,
+    on_die_started: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,6 +85,7 @@ impl ObjectModuleXferPersistPayload {
             && self.battle_bus.is_empty()
             && self.slow_death.is_empty()
             && self.radar.is_empty()
+            && self.death_start.is_empty()
     }
 }
 
@@ -122,11 +134,18 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
     let mut battle_bus = Vec::new();
     let mut slow_death = Vec::new();
     let mut radar = Vec::new();
+    let mut death_start = Vec::with_capacity(ids.len());
 
     for id in ids {
         let Some(object) = game_logic.host_object(id) else {
             continue;
         };
+        // Exact state for every admitted object, including false and KeepObject
+        // husks. A death phase or dead HP is not evidence that onDie ran.
+        death_start.push(DeathStartPersist {
+            object_id: id.0,
+            on_die_started: object.status.on_die_started,
+        });
 
         if object.shock_stun_frames > 0
             || object.shock_yaw_rate != 0.0
@@ -187,6 +206,7 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
         battle_bus,
         slow_death,
         radar,
+        death_start,
     }
 }
 
@@ -224,6 +244,11 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectModuleXferPersistPay
             object.radar_extend_complete = entry.radar_extend_complete;
             object.radar_active = entry.radar_active;
             apply_radar_bits(object);
+        }
+    }
+    for entry in payload.death_start {
+        if let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) {
+            object.status.on_die_started = entry.on_die_started;
         }
     }
 }
@@ -443,3 +468,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod death_start_latch_tests;

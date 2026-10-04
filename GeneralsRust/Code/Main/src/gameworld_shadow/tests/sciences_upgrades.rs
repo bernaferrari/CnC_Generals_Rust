@@ -425,42 +425,8 @@ fn sync_players_copies_unlocked_sciences() {
     );
     let src = GAMEWORLD_SHADOW_SRC;
     assert!(
-        src.contains("host_player_science_and_upgrades") && src.contains("unlocked_sciences"),
+        src.contains("host_player_sciences") && src.contains("unlocked_sciences"),
         "sync_players must refresh unlocked_sciences residual"
-    );
-}
-
-#[test]
-fn host_upgrade_complete_applies_to_shadow_player() {
-    let mut logic = GameLogic::new();
-    let cfg = golden_skirmish_config("UpgradeShadow");
-    apply_skirmish_config(&mut logic, &cfg).expect("cfg");
-    let pid = logic.get_players().keys().copied().min().expect("player");
-    // Record a completed upgrade on the host registry.
-    let frame = logic.get_frame();
-    logic.host_upgrades_mut().record_complete(
-        "Upgrade_AmericaRangerFlashBangGrenade",
-        pid,
-        frame,
-        1,
-    );
-    let events = logic.host_upgrades().completed_this_frame_snapshot();
-    assert!(!events.is_empty(), "host must expose completed_this_frame");
-    let mut shadow = GameWorldShadow::new(64);
-    shadow.sync_from_host(&logic);
-    let n = shadow.apply_host_upgrade_events(&events);
-    assert!(n >= 1, "upgrade events applied {n}");
-    assert!(
-        shadow.completed_upgrade_count() >= 1,
-        "shadow player must retain completed upgrade"
-    );
-    // Source honesty: session must drain upgrade snapshot.
-    let src = GAMEWORLD_SHADOW_SRC;
-    let window = rust_fn_body(src, "shadow_session_after_host_tick").expect("session");
-    assert!(
-        window.contains("completed_this_frame_snapshot")
-            && window.contains("apply_host_upgrade_events"),
-        "session must apply host upgrade completes"
     );
 }
 

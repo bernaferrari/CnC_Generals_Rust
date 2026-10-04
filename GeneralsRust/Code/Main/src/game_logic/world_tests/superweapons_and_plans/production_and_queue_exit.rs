@@ -410,7 +410,7 @@ fn cancel_production_requires_player_money_state_for_refund() {
 }
 
 #[test]
-fn destroying_producer_refunds_queued_production_to_owner() {
+fn explicit_final_destroy_preserves_producer_queue_refund_to_owner() {
     let mut game_logic = GameLogic::new();
     ensure_test_player_for_team(&mut game_logic, Team::USA);
     ensure_test_player_for_team(&mut game_logic, Team::GLA);
@@ -449,18 +449,46 @@ fn destroying_producer_refunds_queued_production_to_owner() {
         100_000,
         "killer should not receive the destroyed producer's queue refund"
     );
-    // StructureTopple/Collapse may defer remove across frames.
-    let mut removed = false;
-    for _ in 0..600 {
-        game_logic.update();
-        if game_logic.host_object(barracks_id).is_none() {
-            removed = true;
-            break;
-        }
-    }
+    // This hand-authored test template has no CPP Die module selecting final
+    // removal. Verify explicit destroyObject independently of death-start refund.
     assert!(
-        removed,
-        "destroyed producer should be removed after topple/collapse residual"
+        game_logic
+            .host_object(barracks_id)
+            .unwrap()
+            .status
+            .on_die_started
+    );
+    game_logic.destroy_object(barracks_id);
+    game_logic.destroy_object(barracks_id);
+    assert_eq!(
+        game_logic
+            .objects_to_destroy
+            .iter()
+            .filter(|event| event.id == barracks_id)
+            .count(),
+        1,
+        "explicit final deletion is admitted once while the animation is active"
+    );
+    assert_eq!(
+        game_logic.get_player(0).unwrap().effective_supplies(),
+        100_000
+    );
+    assert_eq!(
+        game_logic.get_player(2).unwrap().effective_supplies(),
+        100_000
+    );
+    game_logic.update();
+    assert!(
+        game_logic.host_object(barracks_id).is_none(),
+        "explicitly destroyed producer is removed on the next ordinary frame"
+    );
+    assert_eq!(
+        game_logic.get_player(0).unwrap().effective_supplies(),
+        100_000
+    );
+    assert_eq!(
+        game_logic.get_player(2).unwrap().effective_supplies(),
+        100_000
     );
 }
 
@@ -590,3 +618,7 @@ fn scud_storm_door_open_queues_idle_loop() {
         game_logic.queued_audio_events
     );
 }
+
+#[cfg(test)]
+#[path = "deferred_death_lifecycle_tests.rs"]
+mod deferred_death_lifecycle_tests;

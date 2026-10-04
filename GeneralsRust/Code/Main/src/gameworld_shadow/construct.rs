@@ -2637,30 +2637,15 @@ impl GameWorldShadow {
         pd.name = p.name.clone();
     }
 
-    pub(super) fn host_player_science_and_upgrades(
-        logic: &GameLogic,
-        host_pid: u32,
-    ) -> (Vec<String>, Vec<String>) {
-        use crate::game_logic::host_upgrades::HostUpgradePhase;
-        let mut sciences = logic
+    pub(super) fn host_player_sciences(logic: &GameLogic, host_pid: u32) -> Vec<String> {
+        logic
             .get_player(host_pid)
             .map(|p| {
-                let mut v: Vec<String> = p.unlocked_sciences.iter().cloned().collect();
-                v.sort();
-                v
+                let mut sciences: Vec<String> = p.unlocked_sciences.iter().cloned().collect();
+                sciences.sort();
+                sciences
             })
-            .unwrap_or_default();
-        let mut upgrades: Vec<String> = logic
-            .host_upgrades()
-            .entries_snapshot()
-            .into_iter()
-            .filter(|e| e.player_id == host_pid && e.phase == HostUpgradePhase::Completed)
-            .map(|e| e.name)
-            .collect();
-        upgrades.sort();
-        upgrades.dedup();
-        let _ = &mut sciences;
-        (sciences, upgrades)
+            .unwrap_or_default()
     }
 
     pub(super) fn sync_players(&mut self, logic: &GameLogic) {
@@ -2716,10 +2701,7 @@ impl GameWorldShadow {
                         if let Some(p) = logic.get_player(*pid) {
                             if let Some(pd) = self.world.player_mut(gw) {
                                 Self::copy_host_player_residual(pd, p);
-                                let (sci, ups) =
-                                    Self::host_player_science_and_upgrades(logic, *pid);
-                                pd.unlocked_sciences = sci;
-                                pd.completed_upgrades = ups;
+                                pd.unlocked_sciences = Self::host_player_sciences(logic, *pid);
                             }
                         }
                     } else if let Some(p) = logic.get_player(*pid) {
@@ -2742,31 +2724,22 @@ impl GameWorldShadow {
                 }
             }
         } else {
-            // Economy + science/upgrade absolute refresh.
+            // Economy + science absolute refresh.
             for (hid, gw) in self.host_player_to_gw.clone() {
                 if let Some(p) = logic.get_player(hid) {
                     if let Some(pd) = self.world.player_mut(gw) {
                         Self::copy_host_player_residual(pd, p);
-                        let (sci, ups) = Self::host_player_science_and_upgrades(logic, hid);
-                        pd.unlocked_sciences = sci;
-                        pd.completed_upgrades = ups;
+                        pd.unlocked_sciences = Self::host_player_sciences(logic, hid);
                     }
                 }
             }
         }
-        // Always refresh science/upgrade/power-bar residual for mapped players.
+        // Always refresh science/power-bar residual for mapped players.
         for (hid, gw) in self.host_player_to_gw.clone() {
             if let Some(p) = logic.get_player(hid) {
                 if let Some(pd) = self.world.player_mut(gw) {
                     Self::copy_host_player_residual(pd, p);
-                    let (sci, ups) = Self::host_player_science_and_upgrades(logic, hid);
-                    pd.unlocked_sciences = sci;
-                    // Merge event-channel completes with absolute host registry snapshot.
-                    let mut merged = pd.completed_upgrades.clone();
-                    merged.extend(ups);
-                    merged.sort();
-                    merged.dedup();
-                    pd.completed_upgrades = merged;
+                    pd.unlocked_sciences = Self::host_player_sciences(logic, hid);
                 }
             }
         }

@@ -77,9 +77,6 @@ pub(super) struct Waves601640 {
     pub host_body_damage_ready_log_helper_method_names_wave623_ok: bool,
     pub host_body_damage_ready_log_helper_nav_commands_wave623_ok: bool,
     pub host_body_damage_ready_log_helper_live_wave623_ok: bool,
-    pub host_upgrade_ready_log_helper_method_names_wave624_ok: bool,
-    pub host_upgrade_ready_log_helper_nav_commands_wave624_ok: bool,
-    pub host_upgrade_ready_log_helper_live_wave624_ok: bool,
     pub host_radar_extend_ready_log_helper_method_names_wave625_ok: bool,
     pub host_radar_extend_ready_log_helper_nav_commands_wave625_ok: bool,
     pub host_radar_extend_ready_log_helper_live_wave625_ok: bool,
@@ -268,12 +265,6 @@ pub(super) fn evaluate() -> Waves601640 {
             honesty_host_body_damage_ready_log_helper_nav_commands_residual_wave623(),
         host_body_damage_ready_log_helper_live_wave623_ok:
             simulate_live_host_body_damage_ready_log_helper_honesty(),
-        host_upgrade_ready_log_helper_method_names_wave624_ok:
-            honesty_host_upgrade_ready_log_helper_method_names_residual_wave624(),
-        host_upgrade_ready_log_helper_nav_commands_wave624_ok:
-            honesty_host_upgrade_ready_log_helper_nav_commands_residual_wave624(),
-        host_upgrade_ready_log_helper_live_wave624_ok:
-            simulate_live_host_upgrade_ready_log_helper_honesty(),
         host_radar_extend_ready_log_helper_method_names_wave625_ok:
             honesty_host_radar_extend_ready_log_helper_method_names_residual_wave625(),
         host_radar_extend_ready_log_helper_nav_commands_wave625_ok:

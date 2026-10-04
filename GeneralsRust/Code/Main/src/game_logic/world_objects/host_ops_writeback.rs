@@ -511,7 +511,6 @@ impl GameLogic {
             ReadyLogDrainOp::Identity => self.host_apply_identity_ready_completions(),
             ReadyLogDrainOp::GroundHeight => self.host_apply_ground_height_ready_completions(),
             ReadyLogDrainOp::Economy => self.host_apply_economy_ready_completions(),
-            ReadyLogDrainOp::Upgrade => self.host_apply_upgrade_ready_completions(),
             ReadyLogDrainOp::StoredSupplies => self.host_apply_stored_supplies_ready_completions(),
         }
     }

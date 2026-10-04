@@ -7,33 +7,6 @@ use gamelogic::world::{GameWorld, PlayerId, WorldMutation, WorldSnapshot};
 use std::collections::{HashMap, HashSet};
 
 impl GameWorldShadow {
-    /// Host upgrade-complete residual: record completed research names on shadow players.
-    /// Fail-closed: not full PlayerUpgradeManager effect matrix / science tree.
-    pub fn apply_host_upgrade_events(
-        &mut self,
-        events: &[crate::game_logic::host_upgrades::HostUpgradeResearch],
-    ) -> usize {
-        use crate::game_logic::host_upgrades::HostUpgradePhase;
-        let mut queued = 0usize;
-        for ev in events {
-            if ev.phase != HostUpgradePhase::Completed {
-                continue;
-            }
-            let Some(&gw) = self.host_player_to_gw.get(&ev.player_id) else {
-                continue;
-            };
-            self.world.queue_mutation(WorldMutation::CompleteUpgrade {
-                player: gw,
-                name: ev.name.clone(),
-            });
-            queued += 1;
-        }
-        if queued > 0 {
-            let _ = self.apply_pending();
-        }
-        queued
-    }
-
     /// Apply drained host economy events as SetSupplies/SetPower mutations.
     pub fn apply_host_economy_events(
         &mut self,

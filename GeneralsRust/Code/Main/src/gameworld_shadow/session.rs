@@ -466,7 +466,6 @@ pub fn shadow_session_after_host_tick(
             Some((ev, applied)) => (ev, applied),
             None => (crate::game_logic::host_player_cooldown_log::drain(), false),
         };
-    let upgrade_events = logic.host_upgrades().completed_this_frame_snapshot();
     let auth = gameworld_damage_authority_enabled();
     // Keep pre-tick shadow HP when we will re-apply damage/heal events as mutations.
     let write_health = !(auth && (!events.is_empty() || !heal_events.is_empty()));
@@ -592,7 +591,6 @@ pub fn shadow_session_after_host_tick(
     if gameworld_special_power_sole_tick_enabled() {
         let _ = shadow.writeback_shared_special_power_cooldowns_to_host(logic);
     }
-    let _upgrades_applied = shadow.apply_host_upgrade_events(&upgrade_events);
     // Wave 711: skip GW re-apply when post-logic eager path already ran.
     let (dest_q, _dest_a) = if early_destroy_applied {
         (0usize, 0usize)
@@ -1228,9 +1226,11 @@ pub fn shadow_session_after_host_tick(
                     id,
                     death_type: None,
                     refresh_model_condition: true,
-                    mark_destroy: true,
+                    mark_destroy: false,
                 },
             );
+            // The original final phase calls destroyObject, not kill/onDie.
+            logic.destroy_object(id);
         }
         // Wave 773: HelicopterSlowDeathBehavior done → host destroy (no dual timer).
         for id in crate::game_logic::host_heli_slow_death_kill_log::drain() {
@@ -1276,9 +1276,11 @@ pub fn shadow_session_after_host_tick(
                     id,
                     death_type: None,
                     refresh_model_condition: true,
-                    mark_destroy: true,
+                    mark_destroy: false,
                 },
             );
+            // The original final phase calls destroyObject, not kill/onDie.
+            logic.destroy_object(id);
         }
         // Wave 774: SlowDeathBehavior done → host destroy (no dual timer).
         for id in crate::game_logic::host_slow_death_kill_log::drain() {
@@ -1288,9 +1290,11 @@ pub fn shadow_session_after_host_tick(
                     id,
                     death_type: None,
                     refresh_model_condition: false,
-                    mark_destroy: true,
+                    mark_destroy: false,
                 },
             );
+            // The original final phase calls destroyObject, not kill/onDie.
+            logic.destroy_object(id);
         }
         // Wave 775: StructureCollapseUpdate done → host destroy (no dual timer).
         for id in crate::game_logic::host_structure_collapse_kill_log::drain() {
@@ -2581,10 +2585,6 @@ pub fn shadow_session_after_host_tick(
         // Wave 631: drain economy ready log after GW writeback.
         let _econ_ready =
             logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Economy);
-        let _upg_wb = shadow.writeback_completed_upgrades_to_host(logic);
-        // Wave 624: drain upgrade-ready log after GW completed-upgrade writeback.
-        let _upg_ready =
-            logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Upgrade);
         let _ss_wb = shadow.writeback_stored_supplies_to_host(logic);
         // Wave 641: drain stored-supplies ready log after GW writeback.
         let _ss_ready =

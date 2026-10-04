@@ -1,6 +1,6 @@
 //! Wave 760: under coupled tick, player/projectile GW→host writebacks skip
-//! when host frame-local logs or upgrade frame events are pending (economy,
-//! shared special-power cooldowns, projectiles, completed upgrades).
+//! when host frame-local logs are pending (economy,
+//! shared special-power cooldowns, projectiles).
 //! Host mid-frame log is authority until apply. `playable_claim` stays false.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -14,7 +14,6 @@ pub const LIVE_HOST_WRITEBACK_SKIP_PENDING_PLAYER_PROJECTILE_LOGS_METHOD_NAMES_W
     "writeback_economy_to_host",
     "writeback_shared_special_power_cooldowns_to_host",
     "writeback_projectiles_to_host",
-    "writeback_completed_upgrades_to_host",
     "Wave 760",
     "playable_claim = false",
 ];
@@ -24,7 +23,6 @@ pub const LIVE_HOST_WRITEBACK_SKIP_PENDING_PLAYER_PROJECTILE_LOGS_NAV_STEPS_WAVE
     "REQUIRE_ECONOMY_GATE",
     "REQUIRE_COOLDOWN_GATE",
     "REQUIRE_PROJECTILE_GATE",
-    "REQUIRE_UPGRADE_GATE",
     "LIVE_HOST_WRITEBACK_SKIP_PENDING_PLAYER_PROJECTILE_LOGS",
     "LIVE_PLAYABLE_CLAIM_FALSE",
 ];
@@ -36,7 +34,6 @@ pub const RUNTIME_HOST_LIVE_HOST_WRITEBACK_SKIP_PENDING_PLAYER_PROJECTILE_LOGS_C
     "economy_gate",
     "cooldown_gate",
     "projectile_gate",
-    "upgrade_gate",
 ];
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,7 +81,6 @@ pub fn honesty_host_writeback_skip_pending_player_projectile_logs_method_names_r
         && residual_name_index(names, "writeback_economy_to_host").is_some()
         && residual_name_index(names, "writeback_shared_special_power_cooldowns_to_host").is_some()
         && residual_name_index(names, "writeback_projectiles_to_host").is_some()
-        && residual_name_index(names, "writeback_completed_upgrades_to_host").is_some()
         && residual_name_index(names, "Wave 760").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
     residual_action_store(ResidualHostWritebackSkipPendingPlayerProjectileLogsAction::MethodNames);
@@ -100,7 +96,6 @@ pub fn honesty_host_writeback_skip_pending_player_projectile_logs_source_markers
         "writeback_economy_to_host",
         "writeback_shared_special_power_cooldowns_to_host",
         "writeback_projectiles_to_host",
-        "writeback_completed_upgrades_to_host",
     ];
     let wbs_ok = wbs.iter().all(|w| {
         let Some(j) = sh.find(&format!("fn {w}")) else {
@@ -123,7 +118,6 @@ pub fn honesty_host_writeback_skip_pending_player_projectile_logs_nav_commands_r
         && residual_name_index(steps, "REQUIRE_ECONOMY_GATE").is_some()
         && residual_name_index(steps, "REQUIRE_COOLDOWN_GATE").is_some()
         && residual_name_index(steps, "REQUIRE_PROJECTILE_GATE").is_some()
-        && residual_name_index(steps, "REQUIRE_UPGRADE_GATE").is_some()
         && residual_name_index(
             steps,
             "LIVE_HOST_WRITEBACK_SKIP_PENDING_PLAYER_PROJECTILE_LOGS",
@@ -144,11 +138,10 @@ pub fn simulate_host_writeback_skip_pending_player_projectile_logs_collect_sourc
     ok
 }
 pub fn simulate_host_writeback_skip_pending_player_projectile_logs_dispatch_source() -> bool {
-    let ok = sh_source().matches("Wave 760").count() >= 5
+    let ok = sh_source().matches("Wave 760").count() >= 4
         && sh_source().contains("writeback_economy_to_host")
         && sh_source().contains("writeback_projectiles_to_host")
-        && sh_source().contains("writeback_completed_upgrades_to_host")
-        && sh_source().contains("completed_this_frame_snapshot");
+        && sh_source().contains("writeback_shared_special_power_cooldowns_to_host");
     residual_action_store(
         ResidualHostWritebackSkipPendingPlayerProjectileLogsAction::DispatchSource,
     );

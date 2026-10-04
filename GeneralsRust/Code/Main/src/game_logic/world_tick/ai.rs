@@ -30,6 +30,7 @@ impl GameLogic {
         for &object_id in object_ids {
             // Expire DISABLED_HACKED / DISABLED_EMP / Frenzy residual timers.
             let mut topple_kill = false;
+            let mut final_death_destroy = false;
             let mut lifetime_kill = false;
             let mut poison_kill = false;
             let mut pending_stump: Option<(String, glam::Vec3, f32, bool)> = None;
@@ -238,9 +239,7 @@ impl GameLogic {
                 }
                 // Wave 772: under coupled shadow, JetSlowDeathBehavior is owned by
                 // GW tick_status_timer_expirations + host_jet_slow_death_kill_log drain.
-                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-                    && crate::gameworld_shadow::shadow_coupled_tick_active())
-                {
+                if !crate::gameworld_shadow::gameworld_movement_authority_live() {
                     // C++ JetSlowDeathBehavior residual.
                     if !topple_kill
                         && obj
@@ -250,13 +249,12 @@ impl GameLogic {
                             .unwrap_or(false)
                     {
                         topple_kill = obj.tick_jet_slow_death(self.frame, 0.0);
+                        final_death_destroy = topple_kill;
                     }
                 }
                 // Wave 773: under coupled shadow, HelicopterSlowDeathBehavior is owned by
                 // GW tick_status_timer_expirations + host_heli_slow_death_kill_log drain.
-                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-                    && crate::gameworld_shadow::shadow_coupled_tick_active())
-                {
+                if !crate::gameworld_shadow::gameworld_movement_authority_live() {
                     // C++ HelicopterSlowDeathBehavior residual.
                     if !topple_kill
                         && obj
@@ -266,13 +264,12 @@ impl GameLogic {
                             .unwrap_or(false)
                     {
                         topple_kill = obj.tick_helicopter_slow_death(self.frame, 0.0);
+                        final_death_destroy = topple_kill;
                     }
                 }
                 // Wave 774: under coupled shadow, SlowDeathBehavior is owned by
                 // GW tick_status_timer_expirations + host_slow_death_kill_log drain.
-                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-                    && crate::gameworld_shadow::shadow_coupled_tick_active())
-                {
+                if !crate::gameworld_shadow::gameworld_movement_authority_live() {
                     if !topple_kill
                         && obj
                             .slow_death
@@ -281,6 +278,7 @@ impl GameLogic {
                             .unwrap_or(false)
                     {
                         topple_kill = obj.tick_slow_death(self.frame);
+                        final_death_destroy = topple_kill;
                     }
                 }
                 // Wave 775: under coupled shadow, StructureCollapseUpdate is owned by
@@ -605,8 +603,15 @@ impl GameLogic {
                 continue;
             }
             if topple_kill {
-                // Completed topple: queue destroy (structure Done bypasses re-topple).
-                self.mark_object_for_destruction(object_id, None);
+                if final_death_destroy {
+                    // CPP SlowDeath/JetSlowDeath/HelicopterSlowDeath finish with
+                    // destroyObject; they must not re-enter the onDie latch.
+                    self.destroy_object(object_id);
+                } else {
+                    // Topple and HeightDie trigger damage/kill. Preserve the
+                    // existing structure completion policy separately.
+                    self.mark_object_for_destruction(object_id, None);
+                }
                 continue;
             }
             // OCL_EjectPilotViaParachute residual sink (elevated pilot → ground).

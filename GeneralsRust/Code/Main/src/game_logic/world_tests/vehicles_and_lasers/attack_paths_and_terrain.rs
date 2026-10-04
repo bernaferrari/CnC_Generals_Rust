@@ -24,108 +24,191 @@ fn support_states_path_approach_cpp_surface() {
     );
 }
 
+// Both LOS fixtures require a real current ground locomotor: CPP
+// AIUpdate.cpp:2353–2356 returns false when there is no current locomotor.
+// The actual Common catalog remains process-owned, so scope its authored
+// fixture to the existing exact-test child rather than replace global rules.
+fn authored_ground_los_locomotor() -> &'static str {
+    const NAME: &str = "LosGroundFixtureLocomotor";
+    assert_eq!(
+        game_engine::common::ini::ini_locomotor::load_locomotors_from_str(
+            r#"
+Locomotor LosGroundFixtureLocomotor
+  Surfaces = GROUND
+  Speed = 20
+  SpeedDamaged = 20
+  TurnRate = 180
+  Acceleration = 100
+  AccelerationDamaged = 100
+  Braking = 100
+  Appearance = TWO_LEGS
+End
+"#
+        )
+        .expect("authored LOS ground locomotor"),
+        1,
+    );
+    NAME
+}
+
+fn authored_los_attacker(name: &str, health: f32, locomotor: &str) -> ThingTemplate {
+    let mut parser = crate::assets::IniParser::new();
+    let ini = format!(
+        "Object {name}\n  KindOf = INFANTRY ATTACKABLE ATTACK_NEEDS_LINE_OF_SIGHT\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = {health}\n  End\n  Behavior = AIUpdate ModuleTag_AI\n  End\n  Locomotor = SET_NORMAL {locomotor}\nEnd\n"
+    );
+    assert_eq!(
+        parser
+            .parse_ini_content(&ini, "los_ground_fixture.ini")
+            .unwrap(),
+        1
+    );
+    let definition = parser.get_definition(name).expect("authored LOS attacker");
+    assert!(
+        definition
+            .behavior_modules
+            .iter()
+            .any(|m| m.class_name == "AIUpdate")
+    );
+    let template = GameLogic::build_template_from_object_definition(name, definition, None);
+    assert!(template.is_kind_of(KindOf::Infantry));
+    template
+}
+
 #[test]
 fn host_attack_los_gates_fire_through_building() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
-    let mut logic = GameLogic::new();
-    for (name, kinds) in [
-        (
-            "LosAtk",
-            vec![
-                KindOf::Infantry,
-                KindOf::Attackable,
-                KindOf::AttackNeedsLineOfSight,
-            ],
-        ),
-        ("LosTgt", vec![KindOf::Infantry, KindOf::Attackable]),
-        ("LosWall", vec![KindOf::Structure]),
-    ] {
-        if !logic.templates.contains_key(name) {
-            let mut tmpl = ThingTemplate::new(name);
-            tmpl.set_health(200.0);
-            for k in kinds {
-                tmpl.add_kind_of(k);
+    crate::game_logic::game_logic::world_tick::heli_motion_tests::isolated_at(
+        module_path!(),
+        "host_attack_los_gates_fire_through_building",
+        || {
+            use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+            let locomotor = authored_ground_los_locomotor();
+            let mut logic = GameLogic::new();
+            for (name, kinds) in [
+                (
+                    "LosAtk",
+                    vec![
+                        KindOf::Infantry,
+                        KindOf::Attackable,
+                        KindOf::AttackNeedsLineOfSight,
+                    ],
+                ),
+                ("LosTgt", vec![KindOf::Infantry, KindOf::Attackable]),
+                ("LosWall", vec![KindOf::Structure]),
+            ] {
+                if !logic.templates.contains_key(name) {
+                    let mut tmpl = if name == "LosAtk" {
+                        authored_los_attacker(name, 200.0, locomotor)
+                    } else {
+                        ThingTemplate::new(name)
+                    };
+                    tmpl.set_health(200.0);
+                    if name == "LosAtk" {
+                        tmpl.set_locomotor_name(locomotor);
+                        tmpl.set_locomotor_set_names(&[locomotor.to_string()]);
+                    }
+                    for k in kinds {
+                        tmpl.add_kind_of(k);
+                    }
+                    logic.templates.insert(name.into(), tmpl);
+                }
             }
-            logic.templates.insert(name.into(), tmpl);
-        }
-    }
-    let atk = logic
-        .create_object("LosAtk", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
-        .expect("atk");
-    let wall = logic
-        .create_object("LosWall", Team::Neutral, glam::Vec3::new(40.0, 0.0, 0.0))
-        .expect("wall");
-    let tgt = logic
-        .create_object("LosTgt", Team::GLA, glam::Vec3::new(80.0, 0.0, 0.0))
-        .expect("tgt");
-    // Block every cell on the Bresenham line between attacker and target.
-    let from = glam::Vec3::new(0.0, 0.0, 0.0);
-    let to = glam::Vec3::new(80.0, 0.0, 0.0);
-    let start = logic.pathfinding_system.grid.world_to_grid(from);
-    let goal = logic.pathfinding_system.grid.world_to_grid(to);
-    let mut x0 = start.x;
-    let mut y0 = start.y;
-    let x1 = goal.x;
-    let y1 = goal.y;
-    let dx = (x1 - x0).abs();
-    let sx = if x0 < x1 { 1 } else { -1 };
-    let dy = -(y1 - y0).abs();
-    let sy = if y0 < y1 { 1 } else { -1 };
-    let mut err = dx + dy;
-    // Skip start; block intermediate cells only.
-    loop {
-        let e2 = 2 * err;
-        if e2 >= dy {
-            if x0 == x1 {
-                break;
+            let atk = logic
+                .create_object("LosAtk", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+                .expect("atk");
+            let wall = logic
+                .create_object("LosWall", Team::Neutral, glam::Vec3::new(40.0, 0.0, 0.0))
+                .expect("wall");
+            let tgt = logic
+                .create_object("LosTgt", Team::GLA, glam::Vec3::new(80.0, 0.0, 0.0))
+                .expect("tgt");
+            // Block every cell on the Bresenham line between attacker and target.
+            let from = glam::Vec3::new(0.0, 0.0, 0.0);
+            let to = glam::Vec3::new(80.0, 0.0, 0.0);
+            let start = logic.pathfinding_system.grid.world_to_grid(from);
+            let goal = logic.pathfinding_system.grid.world_to_grid(to);
+            let mut x0 = start.x;
+            let mut y0 = start.y;
+            let x1 = goal.x;
+            let y1 = goal.y;
+            let dx = (x1 - x0).abs();
+            let sx = if x0 < x1 { 1 } else { -1 };
+            let dy = -(y1 - y0).abs();
+            let sy = if y0 < y1 { 1 } else { -1 };
+            let mut err = dx + dy;
+            // Skip start; block intermediate cells only.
+            loop {
+                let e2 = 2 * err;
+                if e2 >= dy {
+                    if x0 == x1 {
+                        break;
+                    }
+                    err += dy;
+                    x0 += sx;
+                }
+                if e2 <= dx {
+                    if y0 == y1 {
+                        break;
+                    }
+                    err += dx;
+                    y0 += sy;
+                }
+                if x0 == x1 && y0 == y1 {
+                    break;
+                }
+                logic.set_pathfinding_static_block(x0, y0, true);
             }
-            err += dy;
-            x0 += sx;
-        }
-        if e2 <= dx {
-            if y0 == y1 {
-                break;
+            assert!(
+                logic.pathfinding_system.is_attack_view_blocked(from, to),
+                "static wall must block attack view start={start:?} goal={goal:?}"
+            );
+            if let Some(o) = logic.objects.get_mut(&atk) {
+                o.weapon = Some(Weapon {
+                    damage: 25.0,
+                    range: 200.0,
+                    reload_time: 0.0,
+                    last_fire_time: -100.0,
+                    ..Weapon::default()
+                });
+                o.target = Some(tgt);
+                o.set_ai_state(AIState::Attacking);
+                o.set_status_attacking(true);
             }
-            err += dx;
-            y0 += sy;
-        }
-        if x0 == x1 && y0 == y1 {
-            break;
-        }
-        logic.set_pathfinding_static_block(x0, y0, true);
-    }
-    assert!(
-        logic.pathfinding_system.is_attack_view_blocked(from, to),
-        "static wall must block attack view start={start:?} goal={goal:?}"
+            let attacker = logic
+                .host_object(atk)
+                .expect("actual admitted LOS attacker");
+            assert_eq!(attacker.cur_locomotor_name.as_deref(), Some(locomotor));
+            assert!(
+                crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(attacker),
+                "the actual AI ground predicate must reach the LOS check"
+            );
+            assert!(
+                !logic
+                    .host_object(tgt)
+                    .unwrap()
+                    .is_significantly_above_terrain()
+            );
+            assert!(
+                logic.out_of_weapon_range_object(atk, tgt),
+                "the current weapon attack-state predicate must reject the blocked line"
+            );
+            let hp_before = logic
+                .objects
+                .get(&tgt)
+                .map(|o| o.health.current)
+                .unwrap_or(0.0);
+            logic.update_combat(&[atk, tgt, wall], 1.0 / 30.0);
+            let hp_after = logic
+                .objects
+                .get(&tgt)
+                .map(|o| o.health.current)
+                .unwrap_or(0.0);
+            assert!(
+                (hp_after - hp_before).abs() < 0.01,
+                "LOS-blocked attacker must not damage target through static obstacle (hp {hp_before} -> {hp_after})"
+            );
+            let _ = wall;
+        },
     );
-    if let Some(o) = logic.objects.get_mut(&atk) {
-        o.weapon = Some(Weapon {
-            damage: 25.0,
-            range: 200.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            ..Weapon::default()
-        });
-        o.target = Some(tgt);
-        o.set_ai_state(AIState::Attacking);
-        o.set_status_attacking(true);
-    }
-    let hp_before = logic
-        .objects
-        .get(&tgt)
-        .map(|o| o.health.current)
-        .unwrap_or(0.0);
-    logic.update_combat(&[atk, tgt, wall], 1.0 / 30.0);
-    let hp_after = logic
-        .objects
-        .get(&tgt)
-        .map(|o| o.health.current)
-        .unwrap_or(0.0);
-    assert!(
-        (hp_after - hp_before).abs() < 0.01,
-        "LOS-blocked attacker must not damage target through static obstacle (hp {hp_before} -> {hp_after})"
-    );
-    let _ = wall;
 }
 
 #[test]
@@ -360,74 +443,107 @@ fn find_attack_path_picks_los_cell_not_target_footprint() {
 
 #[test]
 fn structure_footprint_blocks_attack_los() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
-    let mut logic = GameLogic::new();
-    for (name, kinds) in [
-        (
-            "SfAtk",
-            vec![
-                KindOf::Infantry,
-                KindOf::Attackable,
-                KindOf::AttackNeedsLineOfSight,
-            ],
-        ),
-        ("SfTgt", vec![KindOf::Infantry, KindOf::Attackable]),
-        ("SfWall", vec![KindOf::Structure]),
-    ] {
-        if !logic.templates.contains_key(name) {
-            let mut tmpl = ThingTemplate::new(name);
-            tmpl.set_health(500.0);
-            for k in kinds {
-                tmpl.add_kind_of(k);
+    crate::game_logic::game_logic::world_tick::heli_motion_tests::isolated_at(
+        module_path!(),
+        "structure_footprint_blocks_attack_los",
+        || {
+            use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+            let locomotor = authored_ground_los_locomotor();
+            let mut logic = GameLogic::new();
+            for (name, kinds) in [
+                (
+                    "SfAtk",
+                    vec![
+                        KindOf::Infantry,
+                        KindOf::Attackable,
+                        KindOf::AttackNeedsLineOfSight,
+                    ],
+                ),
+                ("SfTgt", vec![KindOf::Infantry, KindOf::Attackable]),
+                ("SfWall", vec![KindOf::Structure]),
+            ] {
+                if !logic.templates.contains_key(name) {
+                    let mut tmpl = if name == "SfAtk" {
+                        authored_los_attacker(name, 500.0, locomotor)
+                    } else {
+                        ThingTemplate::new(name)
+                    };
+                    tmpl.set_health(500.0);
+                    if name == "SfAtk" {
+                        tmpl.set_locomotor_name(locomotor);
+                        tmpl.set_locomotor_set_names(&[locomotor.to_string()]);
+                    }
+                    for k in kinds {
+                        tmpl.add_kind_of(k);
+                    }
+                    logic.templates.insert(name.into(), tmpl);
+                }
             }
-            logic.templates.insert(name.into(), tmpl);
-        }
-    }
-    let atk = logic
-        .create_object("SfAtk", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
-        .expect("atk");
-    let wall = logic
-        .create_object("SfWall", Team::Neutral, glam::Vec3::new(40.0, 0.0, 0.0))
-        .expect("wall");
-    if let Some(o) = logic.objects.get_mut(&wall) {
-        o.selection_radius = 18.0;
-    }
-    // Re-block with larger footprint after radius bump.
-    logic.sync_structure_path_blocks();
-    let tgt = logic
-        .create_object("SfTgt", Team::GLA, glam::Vec3::new(80.0, 0.0, 0.0))
-        .expect("tgt");
-    // Structure create must have static-blocked its footprint.
-    assert!(
-        logic.attack_view_blocked(atk, Some(tgt), glam::Vec3::new(80.0, 0.0, 0.0)),
-        "structure between attacker and target must block attack LOS"
-    );
-    if let Some(o) = logic.objects.get_mut(&atk) {
-        o.weapon = Some(Weapon {
-            damage: 25.0,
-            range: 200.0,
-            reload_time: 0.0,
-            last_fire_time: -100.0,
-            ..Weapon::default()
-        });
-        o.target = Some(tgt);
-        o.set_ai_state(AIState::Attacking);
-        o.set_status_attacking(true);
-    }
-    let hp_before = logic
-        .objects
-        .get(&tgt)
-        .map(|o| o.health.current)
-        .unwrap_or(0.0);
-    logic.update_combat(&[atk, tgt, wall], 1.0 / 30.0);
-    let hp_after = logic
-        .objects
-        .get(&tgt)
-        .map(|o| o.health.current)
-        .unwrap_or(0.0);
-    assert!(
-        (hp_after - hp_before).abs() < 0.01,
-        "must not fire through live structure footprint (hp {hp_before}->{hp_after})"
+            let atk = logic
+                .create_object("SfAtk", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+                .expect("atk");
+            let wall = logic
+                .create_object("SfWall", Team::Neutral, glam::Vec3::new(40.0, 0.0, 0.0))
+                .expect("wall");
+            if let Some(o) = logic.objects.get_mut(&wall) {
+                o.selection_radius = 18.0;
+            }
+            // Re-block with larger footprint after radius bump.
+            logic.sync_structure_path_blocks();
+            let tgt = logic
+                .create_object("SfTgt", Team::GLA, glam::Vec3::new(80.0, 0.0, 0.0))
+                .expect("tgt");
+            // Structure create must have static-blocked its footprint.
+            assert!(
+                logic.attack_view_blocked(atk, Some(tgt), glam::Vec3::new(80.0, 0.0, 0.0)),
+                "structure between attacker and target must block attack LOS"
+            );
+            if let Some(o) = logic.objects.get_mut(&atk) {
+                o.weapon = Some(Weapon {
+                    damage: 25.0,
+                    range: 200.0,
+                    reload_time: 0.0,
+                    last_fire_time: -100.0,
+                    ..Weapon::default()
+                });
+                o.target = Some(tgt);
+                o.set_ai_state(AIState::Attacking);
+                o.set_status_attacking(true);
+            }
+            let attacker = logic
+                .host_object(atk)
+                .expect("actual admitted LOS attacker");
+            assert_eq!(attacker.cur_locomotor_name.as_deref(), Some(locomotor));
+            assert!(
+                crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(attacker),
+                "the actual AI ground predicate must reach the LOS check"
+            );
+            assert!(
+                !logic
+                    .host_object(tgt)
+                    .unwrap()
+                    .is_significantly_above_terrain()
+            );
+            assert!(
+                logic.out_of_weapon_range_object(atk, tgt),
+                "the current weapon attack-state predicate must reject the blocked line"
+            );
+            let hp_before = logic
+                .objects
+                .get(&tgt)
+                .map(|o| o.health.current)
+                .unwrap_or(0.0);
+            logic.update_combat(&[atk, tgt, wall], 1.0 / 30.0);
+            let hp_after = logic
+                .objects
+                .get(&tgt)
+                .map(|o| o.health.current)
+                .unwrap_or(0.0);
+            assert!(
+                (hp_after - hp_before).abs() < 0.01,
+                "must not fire through live structure footprint (hp {hp_before}->{hp_after})"
+            );
+        },
     );
 }
 

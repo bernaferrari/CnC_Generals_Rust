@@ -279,9 +279,7 @@ fn test_compression_chunked() {
 #[test]
 fn test_save_file_manager_basic() {
     let temp_dir = TempDir::new().unwrap();
-    std::env::set_var("GENERALS_SAVE_DIR", temp_dir.path());
-
-    let mut manager = SaveFileManager::new();
+    let mut manager = SaveFileManager::with_save_directory(temp_dir.path().to_path_buf());
     manager.init().unwrap();
 
     // Test save path generation
@@ -316,28 +314,50 @@ fn test_world_snapshot_serialization() {
 
 #[test]
 fn test_object_snapshot_serialization() {
-    let snapshot = ObjectSnapshot {
-        id: ObjectId(123),
-        template_name: "TestUnit".to_string(),
-        team: Team::USA,
-        player_id: 1,
-        geometry: GeometryInfo::default(),
-        status: ObjectStatusSnapshot::default(),
-        health: Health::new(100.0),
-        movement: Movement::default(),
-        experience: Experience::default(),
-        weapons: Vec::new(),
-        contained_objects: Vec::new(),
-        container_object: None,
-        modules: std::collections::HashMap::new(),
-        object_type: ObjectTypeSnapshot::Unit(UnitSnapshot {
-            unit_type: "Infantry".to_string(),
-            formation_position: None,
-            formation_id: None,
-            group_id: None,
-            waypoints: Vec::new(),
-        }),
-    };
+    // Capture the current record through its owner; adding runtime fields must
+    // not require this encoding test to duplicate the snapshot constructor.
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(1, Team::USA, "Snapshot owner", true));
+    logic.add_player(Player::new(7, Team::USA, "Same faction owner", false));
+    let mut template = ThingTemplate::new("TestUnit");
+    template.set_health(100.0).add_kind_of(KindOf::Infantry);
+    logic.templates.insert("TestUnit".to_string(), template);
+    let id = logic
+        .create_object_for_player("TestUnit", 1, glam::Vec3::ZERO)
+        .unwrap();
+    assert_eq!(logic.host_object(id).unwrap().owner_player_id, Some(1));
+    let second_id = logic
+        .create_object_for_player("TestUnit", 7, glam::Vec3::ZERO)
+        .unwrap();
+    let unowned_id = logic
+        .create_object("TestUnit", Team::USA, glam::Vec3::ZERO)
+        .unwrap();
+    assert_eq!(logic.host_object(unowned_id).unwrap().owner_player_id, None);
+    let mut world = SnapshotBuilder::new()
+        .create_world_snapshot(&logic)
+        .unwrap();
+    assert_eq!(world.objects[&id].player_id, 1);
+    assert_eq!(world.objects[&second_id].player_id, 7);
+    assert_eq!(
+        world.objects[&second_id]
+            .collector_runtime
+            .as_ref()
+            .unwrap()
+            .owner_player_id,
+        Some(7)
+    );
+    assert_eq!(world.objects[&unowned_id].player_id, 0);
+    assert_eq!(
+        world.objects[&unowned_id]
+            .collector_runtime
+            .as_ref()
+            .unwrap()
+            .owner_player_id,
+        None
+    );
+    let mut snapshot = world.objects.remove(&id).unwrap();
+    // This is a scalar encoding control, not an ObjectId allocation test.
+    snapshot.id = ObjectId(123);
 
     // Serialize
     let serialized = bincode_legacy::serialize(&snapshot).unwrap();

@@ -365,11 +365,6 @@ pub use crate::game_logic::host_live_host_body_damage_ready_log_helper_residual_
     honesty_host_body_damage_ready_log_helper_nav_commands_residual_wave623,
     simulate_live_host_body_damage_ready_log_helper_honesty,
 };
-pub use crate::game_logic::host_live_host_upgrade_ready_log_helper_residual_wave624::{
-    honesty_host_upgrade_ready_log_helper_method_names_residual_wave624,
-    honesty_host_upgrade_ready_log_helper_nav_commands_residual_wave624,
-    simulate_live_host_upgrade_ready_log_helper_honesty,
-};
 pub use crate::game_logic::host_live_host_radar_extend_ready_log_helper_residual_wave625::{
     honesty_host_radar_extend_ready_log_helper_method_names_residual_wave625,
     honesty_host_radar_extend_ready_log_helper_nav_commands_residual_wave625,
