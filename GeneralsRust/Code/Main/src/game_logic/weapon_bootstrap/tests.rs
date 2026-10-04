@@ -615,11 +615,67 @@ fn damage_dealt_at_self_position_reads_store_not_name_seed() {
 
 #[test]
 fn projectile_stream_name_seeds() {
+    // Seed fallback identity is independent of live authored WeaponStore data.
     assert_eq!(
-        host_projectile_stream_name_for_weapon_name("DragonTankFlameWeapon"),
+        super::damage_kinds::seed_projectile_stream_name_for("DragonTankFlameWeapon"),
         "DragonTankFlameStream"
     );
-    assert!(host_projectile_stream_name_for_weapon_name("AmericaTankCrusaderGun").is_empty());
+    assert!(
+        super::damage_kinds::seed_projectile_stream_name_for("AmericaTankCrusaderGun").is_empty()
+    );
+}
+
+#[test]
+fn projectile_stream_name_prefers_actual_parsed_field_over_dragon_seed() {
+    let _serial = crate::game_logic::combat::tests::combat_test_guard();
+    struct RestoreStore(Option<gamelogic::weapon::WeaponStore>);
+    impl Drop for RestoreStore {
+        fn drop(&mut self) {
+            if let Some(previous) = self.0.take() {
+                gamelogic::weapon::with_weapon_store_mut(|store| *store = previous).unwrap();
+            } else {
+                gamelogic::weapon::shutdown_weapon_store().unwrap();
+            }
+        }
+    }
+    let _restore = RestoreStore(gamelogic::weapon::with_weapon_store_mut(std::mem::take).ok());
+    gamelogic::weapon::initialize_weapon_store().expect("actual native store");
+    ensure_host_weapon_store();
+    const NAME: &str = "AuthoredDragonFlameStreamContract";
+    assert_eq!(
+        crate::assets::ini_template_loader::register_weapons_from_ini_text(
+            r#"
+Weapon AuthoredDragonFlameStreamContract
+  PrimaryDamage = 7
+  AttackRange = 100
+  ProjectileStreamName = FlamethrowerProjectileStream
+End
+"#
+        ),
+        1
+    );
+    gamelogic::weapon::with_weapon_store(|store| {
+        assert_eq!(
+            store
+                .find_weapon_template(NAME)
+                .unwrap()
+                .projectile_stream_name,
+            "FlamethrowerProjectileStream"
+        );
+    })
+    .unwrap();
+    assert_eq!(
+        super::damage_kinds::seed_projectile_stream_name_for(NAME),
+        "DragonTankFlameStream"
+    );
+    assert_eq!(
+        host_projectile_stream_name_for_weapon_name(NAME),
+        "FlamethrowerProjectileStream"
+    );
+    assert_eq!(
+        host_projectile_stream_name_for_slots(Some(NAME), None, None, None),
+        "FlamethrowerProjectileStream"
+    );
 }
 
 #[test]

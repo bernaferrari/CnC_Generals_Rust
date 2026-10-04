@@ -183,7 +183,7 @@ impl Object {
 
     /// Compute template extras for this concrete firing slot without changing selection.
     pub(crate) fn weapon_bonus_fields_for_slot(&self, slot: u8) -> (f32, f32, f32, f32, f32) {
-        self.weapon_bonus_fields_with_name(None, self.weapon_name_for_slot(slot))
+        self.weapon_bonus_fields_with_name(None, self.authored_weapon_name_for_slot(slot))
     }
 
     fn weapon_bonus_fields_with_name(

@@ -879,6 +879,7 @@ mod tests {
         jet_t.add_kind_of(KindOf::Vehicle);
         jet_t.add_kind_of(KindOf::Aircraft);
         jet_t.add_kind_of(KindOf::Attackable);
+        game_logic.templates.insert("Raptor".into(), jet_t);
 
         let aa = game_logic
             .create_object("QuadCannon", Team::USA, Vec3::ZERO)
@@ -897,6 +898,7 @@ mod tests {
             .create_object("Raptor", Team::GLA, Vec3::new(25.0, 20.0, 0.0))
             .expect("jet");
         if let Some(o) = game_logic.host_object_mut(jet) {
+            assert!(o.is_kind_of(KindOf::Vehicle) && o.is_kind_of(KindOf::Aircraft));
             o.status.airborne_target = true;
         }
 

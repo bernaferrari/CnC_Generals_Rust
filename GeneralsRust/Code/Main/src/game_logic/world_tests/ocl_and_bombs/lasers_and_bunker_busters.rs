@@ -1074,7 +1074,14 @@ fn neutron_shell_residual_upgrade_and_blast() {
     // BuildTime (NeutronShells = 60.0s → 1800 frames); one 1/30s frame must
     // not instant-complete it. Same pattern as capture_and_containment.
     game_logic.update();
-    game_logic.update_with_dt(60.0);
+    assert!(
+        !game_logic
+            .host_upgrades()
+            .honesty_complete_ok(HostUpgradeKind::NeutronShells),
+        "one frame cannot complete authored60-second research"
+    );
+    // Explicit headless catch-up: the live update_with_dt intentionally caps at one frame.
+    game_logic.update_with_dt_budget(60.0, 1800);
 
     assert!(
         game_logic

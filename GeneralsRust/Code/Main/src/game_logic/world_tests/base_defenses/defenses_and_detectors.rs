@@ -329,7 +329,12 @@ fn toxin_tractor_residual_stream_spray_and_death_field() {
         assert!(is_toxin_tractor_template(&t.template_name));
         let prim = t.weapon.as_ref().expect("stream");
         assert!((prim.damage - TOXIN_STREAM_DAMAGE).abs() < 0.01);
-        assert!((prim.range - 97.5).abs() < 1.0);
+        assert!(
+            (prim.range - 100.0).abs() < 1.0,
+            "toxin primary retains authored range100"
+        );
+        assert!(t.is_within_attack_range_at_distance(0, 97.5));
+        assert!(!t.is_within_attack_range_at_distance(0, 97.51));
         assert!(t.secondary_weapon.is_some(), "spray secondary residual");
     }
 
@@ -1105,16 +1110,14 @@ fn pathfinder_residual_detect_stealth_and_sniper() {
             "sniper dmg 100, got {}",
             w.damage
         );
-        // C++ WeaponTemplate::getAttackRange (Weapon.cpp:437-451,
-        // RATIONALIZE_ATTACK_RANGE) binds retail USAPathfinderSniperRifle
-        // AttackRange 300 (Weapon.ini:129674+) as 297.5.
+        // C++ Weapon.cpp437-451 deducts once at runtime from authored300.
         assert!(
-            (w.range - (300.0 - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
-                .abs()
-                < 0.1,
-            "sniper bound range 297.5, got {}",
+            (w.range - 300.0).abs() < 0.1,
+            "sniper authored range300, got {}",
             w.range
         );
+        assert!(p.is_within_attack_range_at_distance(0, 297.5));
+        assert!(!p.is_within_attack_range_at_distance(0, 297.51));
     }
 
     // Detect stealthed enemy within 200.

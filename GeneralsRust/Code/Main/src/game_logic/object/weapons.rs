@@ -59,22 +59,18 @@ impl Object {
         // several legacy readiness paths, but that fallback is not a second
         // C++ WeaponSet declaration and must not make a hand-authored
         // secondary inherit PRIMARY's AntiMask.
-        let authored_weapon_name = |slot| match slot {
-            0 => self.primary_weapon_name(),
-            1 => self.thing.template.secondary_weapon_name.as_deref(),
-            2 => self.thing.template.tertiary_weapon_name.as_deref(),
-            _ => None,
-        };
-
-        if let Some(template_mask) = slot.and_then(authored_weapon_name).and_then(|name| {
-            with_weapon_store(|store| {
-                store
-                    .find_weapon_template(name)
-                    .map(|template| template.get_anti_mask())
+        if let Some(template_mask) = slot
+            .and_then(|slot| self.authored_weapon_name_for_slot(slot))
+            .and_then(|name| {
+                with_weapon_store(|store| {
+                    store
+                        .find_weapon_template(name)
+                        .map(|template| template.get_anti_mask())
+                })
+                .ok()
+                .flatten()
             })
-            .ok()
-            .flatten()
-        }) {
+        {
             if (template_mask & target_anti_mask) != 0 {
                 return true;
             }
@@ -123,6 +119,16 @@ impl Object {
             0 => self.primary_weapon_name(),
             1 => self.secondary_weapon_name(),
             2 => self.tertiary_weapon_name(),
+            _ => None,
+        }
+    }
+
+    /// Exact WeaponSet identity; missing secondary entries do not inherit PRIMARY.
+    pub(in crate::game_logic) fn authored_weapon_name_for_slot(&self, slot: u8) -> Option<&str> {
+        match slot {
+            0 => self.primary_weapon_name(),
+            1 => self.thing.template.secondary_weapon_name.as_deref(),
+            2 => self.thing.template.tertiary_weapon_name.as_deref(),
             _ => None,
         }
     }

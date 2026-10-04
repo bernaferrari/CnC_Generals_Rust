@@ -727,28 +727,21 @@ fn rocket_buggy_residual_long_range_splash() {
         let b = game_logic.host_object(buggy_id).expect("buggy");
         assert!(is_rocket_buggy_template(&b.template_name));
         let w = b.weapon.as_ref().expect("buggy primary residual");
-        // C++ WeaponTemplate::getAttackRange / getMinimumAttackRange
-        // (Weapon.cpp:437-466, RATIONALIZE_ATTACK_RANGE) undersize retail
-        // BuggyRocketWeapon 300/50 (Weapon.ini:130856+) by 1/4 pathfind
-        // cell: 297.5 / 47.5 bound.
+        // Raw authored300/50; C++ runtime boundaries remain297.5/47.5.
         assert!(
-            (w.range
-                - (BUGGY_ATTACK_RANGE
-                    - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
-                .abs()
-                < 1.0,
-            "buggy range residual 297.5, got {}",
+            (w.range - BUGGY_ATTACK_RANGE).abs() < 1.0,
+            "buggy authored range300, got {}",
             w.range
         );
         assert!(
-            (w.min_range
-                - (BUGGY_MIN_RANGE
-                    - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
-                .abs()
-                < 1.0,
-            "buggy min range residual 47.5, got {}",
+            (w.min_range - BUGGY_MIN_RANGE).abs() < 1.0,
+            "buggy authored minimum50, got {}",
             w.min_range
         );
+        assert!(!b.is_within_attack_range_at_distance(0, 47.49));
+        assert!(b.is_within_attack_range_at_distance(0, 47.5));
+        assert!(b.is_within_attack_range_at_distance(0, 297.5));
+        assert!(!b.is_within_attack_range_at_distance(0, 297.51));
         assert!(
             (w.damage - BUGGY_PRIMARY_DAMAGE).abs() < 0.01,
             "buggy primary damage residual 20, got {}",
@@ -904,16 +897,13 @@ fn quad_cannon_residual_anti_air_and_multi_barrel() {
         assert!(is_quad_cannon_template(&q.template_name));
         let prim = q.weapon.as_ref().expect("ground gun");
         assert!((prim.damage - QUAD_GROUND_DAMAGE).abs() < 0.01);
-        // C++ WeaponTemplate::getAttackRange (Weapon.cpp:437-451,
-        // RATIONALIZE_ATTACK_RANGE) binds retail AttackRange 150
-        // (Weapon.ini:131396+) as 147.5.
         assert!(
-            (prim.range
-                - (QUAD_GROUND_RANGE
-                    - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
-                .abs()
-                < 1.0
+            (prim.range - QUAD_GROUND_RANGE).abs() < 1.0,
+            "quad ground authored range"
         );
+        let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+        assert!(q.is_within_attack_range_at_distance(0, QUAD_GROUND_RANGE - under));
+        assert!(!q.is_within_attack_range_at_distance(0, QUAD_GROUND_RANGE - under + 0.01));
         assert!(prim.can_target_ground);
         assert!(
             !prim.can_target_air,
@@ -922,12 +912,11 @@ fn quad_cannon_residual_anti_air_and_multi_barrel() {
         let sec = q.secondary_weapon.as_ref().expect("aa gun");
         assert!((sec.damage - QUAD_AIR_DAMAGE).abs() < 0.01);
         assert!(
-            (sec.range
-                - (QUAD_AIR_RANGE
-                    - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
-                .abs()
-                < 1.0
+            (sec.range - QUAD_AIR_RANGE).abs() < 1.0,
+            "quad air authored range"
         );
+        assert!(q.is_within_attack_range_at_distance(1, QUAD_AIR_RANGE - under));
+        assert!(!q.is_within_attack_range_at_distance(1, QUAD_AIR_RANGE - under + 0.01));
         assert!(sec.can_target_air, "aa gun residual must target air");
         assert!(
             !sec.can_target_ground,
@@ -1099,24 +1088,19 @@ fn scud_launcher_residual_area_and_toxin() {
         let s = game_logic.host_object(scud_id).expect("scud");
         assert!(is_scud_launcher_template(&s.template_name));
         let prim = s.weapon.as_ref().expect("explosive primary");
-        // C++ WeaponTemplate::getAttackRange / getMinimumAttackRange
-        // (Weapon.cpp:437-466, RATIONALIZE_ATTACK_RANGE) undersize retail
-        // SCUDLauncherGunExplosive 350/200 (Weapon.ini:132603+) by 1/4
-        // pathfind cell: 347.5 / 197.5 bound.
+        // Raw authored350/200; C++ runtime boundaries remain347.5/197.5.
         assert!(
-            (prim.range
-                - (SCUD_ATTACK_RANGE
-                    - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
-                .abs()
-                < 1.0
+            (prim.range - SCUD_ATTACK_RANGE).abs() < 1.0,
+            "SCUD authored max350"
         );
         assert!(
-            (prim.min_range
-                - (SCUD_MIN_RANGE
-                    - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
-                .abs()
-                < 1.0
+            (prim.min_range - SCUD_MIN_RANGE).abs() < 1.0,
+            "SCUD authored minimum200"
         );
+        assert!(!s.is_within_attack_range_at_distance(0, 197.49));
+        assert!(s.is_within_attack_range_at_distance(0, 197.5));
+        assert!(s.is_within_attack_range_at_distance(0, 347.5));
+        assert!(!s.is_within_attack_range_at_distance(0, 347.51));
         assert!((prim.damage - SCUD_EXP_PRIMARY_DAMAGE).abs() < 0.01);
         assert!(s.secondary_weapon.is_some(), "toxin secondary residual");
     }

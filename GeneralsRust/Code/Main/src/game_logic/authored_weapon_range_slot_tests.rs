@@ -187,7 +187,8 @@ fn unnamed_secondary_range_has_no_primary_extra_but_legacy_fallback_is_kept() {
     object.weapon_bonus_player_upgrade = true;
     object.set_active_weapon_slot(1);
     assert!(object.weapon_slot(1).is_some());
-    assert_eq!(object.weapon_name_for_slot(1), None);
+    assert_eq!(object.authored_weapon_name_for_slot(1), None);
+    assert_eq!(object.weapon_name_for_slot(1), Some("AuthoredSlotRangeA"));
     assert_eq!(
         object.weapon_bonus_fields().1,
         0.5,
