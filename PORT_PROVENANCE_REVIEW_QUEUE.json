@@ -42035,6 +42035,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/auto_heal_behavior.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/auto_heal_query_owner_tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameLogic/Object/Behavior/AutoHealBehavior.cpp",
@@ -51000,6 +51005,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/auto_heal_query_owner_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/base_regenerate_update.rs"
             },
@@ -52092,6 +52102,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_model_draw_impl/anim_playback.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_model_draw_impl/cache_transfer_contract_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -188874,7 +188889,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "0b98868401462391b7b1ed8a8e15312643a47f8d77eb3128701c4925f1214783",
+  "provenance_input_digest": "8334a8cfcb0e0eef1a0f5478089853aeddb75a1a4ecd031b8755dfbb1b5501c7",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

@@ -4,6 +4,33 @@
 
 Preserve C++ **behavior**. Do not preserve C++ **pointer ownership**.
 
+## Owned query state and driving visibility (2026-10-04)
+
+The Pathfinder directly owns its ObjectId request ring. Admission requires its
+mutable borrow; UnitAI releases the existing outer Pathfinder guard before
+clearing the due timer. Queue slots, FIFO admission, deduplication, capacity,
+reset, CRC and version-only Xfer are preserved. The older callback head-advance
+ordering difference remains separately tracked under hq-pjy2v (hq-a7lv9).
+
+AutoHeal directly owns its lazy upgrade-mask cache. Eligibility queries receive
+the same mutable module borrow used for application. Resolution still occurs on
+first query, then retains the pair. An interrupted resolver retains the old
+caught-unwind zero-mask outcome without another lock. Execution, wake, particle,
+CRC and Xfer state are unchanged; shared definitions and catalog lookup remain
+at their existing boundaries (hq-kuvjt).
+
+Live ghost visibility reads the driving GameLogic partition grid through explicit
+borrows. It no longer acquires the global partition manager or tries to rediscover
+an already-held GameLogic. Query-time seen history and visibility equations are
+retained. Orphan routing, player relationships, renderer capture, cache invalidation
+and the history atomics still need their own ownership work (hq-urpaf, hq-px0a8).
+
+W3D definition-cache CRC borrows fields rather than cloning the whole definition.
+Transfer call boundaries and cache order are retained; owned Save/Load remains
+unchanged. The sorted-key allocation remains, and the unsafe shared factory Xfer
+boundary is still unresolved. CPU codec controls do not establish shared runtime
+cache restoration or a frame-rate gain (hq-14d7v, hq-x1j4u.1.47).
+
 ## Definition and runtime snapshot boundary (2026-10-04)
 
 `BaseModuleData` and `ActiveBodyModuleData` contain authored definitions. Their
