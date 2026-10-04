@@ -9361,34 +9361,7 @@
           "blockers": [
             "unreviewed_mapping",
             "unreviewed_symbol_ownership",
-            "unreviewed_source_range_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_ai_data.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_animation.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_audio_event_info.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_command_button.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_command_set.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_control_bar_scheme.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_crate.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_damage_fx.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_draw_group_info.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_map_cache.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_map_data.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_mapped_image.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_misc_audio.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_model.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_multiplayer.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_object.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_particle_sys.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_special_power.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain_bridge.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain_road.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_upgrade.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_video.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_water.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_weapon.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_webpage_url.rs"
+            "unreviewed_source_range_ownership"
           ],
           "candidate_destinations": [
             {
@@ -9399,247 +9372,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_ai_data.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_animation.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_audio_event_info.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_audio_settings.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_campaign.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_challenge_generals.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_command_button.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_command_map.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_command_set.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_control_bar_scheme.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_crate.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_credits.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_damage_fx.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_draw_group_info.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_eva_event.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_fx_list.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_lod.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_header_template.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_in_game_ui.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_language.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_locomotor.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_map_cache.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_map_data.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_mapped_image.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_misc_audio.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_model.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_mouse.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_multiplayer.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_object.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_online_chat_colors.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_particle_sys.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_player_template.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_rank.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_road.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_science.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_script.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_special_power.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain_bridge.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain_road.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_upgrade.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_video.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_water.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_weapon.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_weather.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_webpage_url.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_window_transition.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/mod.rs"
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini/field_parsing.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/INI/INI.cpp",
@@ -9983,8 +9716,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_ai_data.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10010,8 +9742,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_animation.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10037,8 +9768,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_audio_event_info.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10084,8 +9814,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_command_button.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10115,8 +9844,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_command_set.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10142,8 +9870,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_control_bar_scheme.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10169,8 +9896,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_crate.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10196,8 +9922,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_damage_fx.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10223,8 +9948,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_draw_group_info.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10258,8 +9982,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10285,8 +10008,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_map_cache.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10353,8 +10075,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_map_data.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10380,8 +10101,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_mapped_image.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10407,8 +10127,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_misc_audio.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10479,8 +10198,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_model.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10501,8 +10219,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_multiplayer.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10544,8 +10261,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_object.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10575,8 +10291,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_particle_sys.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10602,8 +10317,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_special_power.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10629,8 +10343,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10656,8 +10369,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain_bridge.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10683,8 +10395,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain_road.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10710,8 +10421,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_upgrade.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10737,8 +10447,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_video.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10764,8 +10473,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_water.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10795,8 +10503,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_weapon.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -10822,8 +10529,7 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_webpage_url.rs"
+            "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
@@ -188901,7 +188607,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "5229e9296a80d3ec3c607f1411deac7f5f61aa0e0d20d9d3331ebb906518d896",
+  "provenance_input_digest": "db204b24806fc2ec83bc3ba75fdb75879f1b0eee8484ba8a8469d578984ba4c5",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

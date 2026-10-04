@@ -2527,343 +2527,7 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_ai_data.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_animation.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_audio_event_info.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_audio_settings.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_campaign.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_challenge_generals.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_command_button.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_command_map.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_command_set.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_control_bar_scheme.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_crate.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_credits.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_damage_fx.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_draw_group_info.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_eva_event.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_fx_list.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_lod.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_header_template.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_in_game_ui.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_language.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_locomotor.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_map_cache.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_map_data.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_mapped_image.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_misc_audio.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_model.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_mouse.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_multiplayer.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_object.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_online_chat_colors.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_particle_sys.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_player_template.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_rank.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_road.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_science.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_script.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_special_power.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain_bridge.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain_road.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_video.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_water.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_weapon.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_weather.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_webpage_url.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_window_transition.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/mod.rs"
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini/field_parsing.rs"
           }
         ],
         "mode": "split_inferred",
@@ -34811,34 +34475,7 @@
       "blockers": [
         "unreviewed_mapping",
         "unreviewed_symbol_ownership",
-        "unreviewed_source_range_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_ai_data.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_animation.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_audio_event_info.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_command_button.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_command_set.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_control_bar_scheme.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_crate.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_damage_fx.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_draw_group_info.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_map_cache.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_map_data.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_mapped_image.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_misc_audio.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_model.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_multiplayer.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_object.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_particle_sys.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_special_power.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain_bridge.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain_road.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_upgrade.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_video.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_water.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_weapon.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_webpage_url.rs"
+        "unreviewed_source_range_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INI.cpp",
       "inventory_class": "required_runtime",
@@ -34857,343 +34494,7 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_ai_data.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_animation.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_audio_event_info.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_audio_settings.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_campaign.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_challenge_generals.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_command_button.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_command_map.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_command_set.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_control_bar_scheme.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_crate.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_credits.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_damage_fx.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_draw_group_info.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_eva_event.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_fx_list.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_lod.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_header_template.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_in_game_ui.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_language.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_locomotor.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_map_cache.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_map_data.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_mapped_image.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_misc_audio.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_model.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_mouse.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_multiplayer.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_object.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_online_chat_colors.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_particle_sys.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_player_template.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_rank.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_road.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_science.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_script.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_special_power.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain_bridge.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain_road.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_video.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_water.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_weapon.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_weather.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_webpage_url.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_window_transition.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/mod.rs"
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini/field_parsing.rs"
           }
         ],
         "mode": "split_inferred",
@@ -35229,8 +34530,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_ai_data.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INIAiData.cpp",
       "inventory_class": "required_runtime",
@@ -35278,8 +34578,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_animation.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INIAnimation.cpp",
       "inventory_class": "required_runtime",
@@ -35327,8 +34626,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_audio_event_info.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INIAudioEventInfo.cpp",
       "inventory_class": "required_runtime",
@@ -35376,8 +34674,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_command_button.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INICommandButton.cpp",
       "inventory_class": "required_runtime",
@@ -35425,8 +34722,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_command_set.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INICommandSet.cpp",
       "inventory_class": "required_runtime",
@@ -35474,8 +34770,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_control_bar_scheme.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INIControlBarScheme.cpp",
       "inventory_class": "required_runtime",
@@ -35523,8 +34818,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_crate.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INICrate.cpp",
       "inventory_class": "required_runtime",
@@ -35572,8 +34866,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_damage_fx.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INIDamageFX.cpp",
       "inventory_class": "required_runtime",
@@ -35621,8 +34914,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_draw_group_info.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INIDrawGroupInfo.cpp",
       "inventory_class": "required_runtime",
@@ -35670,8 +34962,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INIGameData.cpp",
       "inventory_class": "required_runtime",
@@ -35719,8 +35010,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_map_cache.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INIMapCache.cpp",
       "inventory_class": "required_runtime",
@@ -35768,8 +35058,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_map_data.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INIMapData.cpp",
       "inventory_class": "required_runtime",
@@ -35817,8 +35106,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_mapped_image.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INIMappedImage.cpp",
       "inventory_class": "required_runtime",
@@ -35866,8 +35154,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_misc_audio.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INIMiscAudio.cpp",
       "inventory_class": "required_runtime",
@@ -35915,8 +35202,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_model.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INIModel.cpp",
       "inventory_class": "required_runtime",
@@ -35964,8 +35250,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_multiplayer.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INIMultiplayer.cpp",
       "inventory_class": "required_runtime",
@@ -36013,8 +35298,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_object.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INIObject.cpp",
       "inventory_class": "required_runtime",
@@ -36062,8 +35346,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_particle_sys.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INIParticleSys.cpp",
       "inventory_class": "required_runtime",
@@ -36111,8 +35394,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_special_power.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INISpecialPower.cpp",
       "inventory_class": "required_runtime",
@@ -36160,8 +35442,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INITerrain.cpp",
       "inventory_class": "required_runtime",
@@ -36209,8 +35490,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain_bridge.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INITerrainBridge.cpp",
       "inventory_class": "required_runtime",
@@ -36258,8 +35538,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain_road.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INITerrainRoad.cpp",
       "inventory_class": "required_runtime",
@@ -36307,8 +35586,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_upgrade.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INIUpgrade.cpp",
       "inventory_class": "required_runtime",
@@ -36356,8 +35634,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_video.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INIVideo.cpp",
       "inventory_class": "required_runtime",
@@ -36405,8 +35682,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_water.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INIWater.cpp",
       "inventory_class": "required_runtime",
@@ -36454,8 +35730,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_weapon.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INIWeapon.cpp",
       "inventory_class": "required_runtime",
@@ -36503,8 +35778,7 @@
       },
       "blockers": [
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_webpage_url.rs"
+        "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INIWebpageURL.cpp",
       "inventory_class": "required_runtime",
@@ -157024,7 +156298,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "5229e9296a80d3ec3c607f1411deac7f5f61aa0e0d20d9d3331ebb906518d896",
+  "input_digest": "db204b24806fc2ec83bc3ba75fdb75879f1b0eee8484ba8a8469d578984ba4c5",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -160388,11 +159662,23 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2634,
+        "end_line": 120,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini/field_parsing.rs",
+      "sha256": "27648a4c1cd3e06ef2f3c2f63b8a15c3fb8bfebfa15b41f315d9402cdb821c11",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 2522,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini.rs",
-      "sha256": "3b48fe84857592ef0a39884e835b4052560d03536042d884da750d6b33375f9a",
+      "sha256": "a24319a4de76396a2d20d387c0cadd5ff50cb56680e3e75409aec3e4c4e533f6",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -160436,59 +159722,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 963,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_audio_settings.rs",
-      "sha256": "32fbfbfa8aa5c3f666e28a43ee7a61eaae8f316d08a6edee9fef9e8c5f44cf75",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 714,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_campaign.rs",
-      "sha256": "a1d155134ed78bfbe015b634022d5274e1a0b11520075c6470a6276103f219cd",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 1377,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_challenge_generals.rs",
-      "sha256": "4a9c1b3a7bbea098e34551945e3245a8f2c959463222600245b1a47691fadabf",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
         "end_line": 1046,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_command_button.rs",
       "sha256": "193222e17b10af6f108ec387cc237fa8e4cfe951b80af9b4d7e585d838058a57",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 748,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_command_map.rs",
-      "sha256": "7c8d907d3e4257639eb6ef6f8fe26ae268968b00f3c8ef88b6f9f7788870ff68",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -160532,18 +159770,6 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 713,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_credits.rs",
-      "sha256": "a0a3f19c120cfd50e35aa8170cc5857ae6da687805516574147a8fd0cd40fa5d",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
         "end_line": 1089,
         "start_line": 1
       },
@@ -160568,95 +159794,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 834,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_eva_event.rs",
-      "sha256": "7fc15ff9bafa478e678ab3b1450c26e7d55724e673bbf39627dc7a92e864cd1f",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 278,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_fx_list.rs",
-      "sha256": "cb4d7811cde5224f0cf9f8e5fd4de8133da2fc3d618fffa4b29967762b2cd726",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
         "end_line": 2549,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data.rs",
       "sha256": "a0c21061d9a4758eae1c64506a7ce153c44dbb1bd7fa31f2db4028a8b2defe24",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 1552,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_lod.rs",
-      "sha256": "5e687f996d452c53358f2cd84ce85c1095b10b6e1406e5fcc41ffb5a216276e4",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 281,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_header_template.rs",
-      "sha256": "e2e91255a09e01987f09a5815fb90f44103238922c8e3d20914df2ffaf293daf",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 892,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_in_game_ui.rs",
-      "sha256": "53ab1ee0cd4e5ff7e75f8eeeedfc27a6184e398b80a8e17bf774dbf09faf12b8",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 764,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_language.rs",
-      "sha256": "37c8f54952acdebf68fee40e3a906c473d2a61206ab3f20dbeda25de03b08691",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 1116,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_locomotor.rs",
-      "sha256": "8daf9d3bc4b90dc2ae7f54727c3739197cf87c2876d14eeb7b86dbdb503c1571",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -160724,18 +159866,6 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1121,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_mouse.rs",
-      "sha256": "00a3eba2f6f664c7a0fa353d2f8f38ce5cd326868d5aa56182a9498418f22bfd",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
         "end_line": 613,
         "start_line": 1
       },
@@ -160760,83 +159890,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 472,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_online_chat_colors.rs",
-      "sha256": "c26f30c4c75993d152511ce0f402aac68c3862a12ecd00cbc1ffba473b211f5d",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
         "end_line": 941,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_particle_sys.rs",
       "sha256": "77bb159504595af29bba51a3dd9ededda8349bee18af0fbfee5959e75c3d1f01",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 783,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_player_template.rs",
-      "sha256": "e11898f07e40be9ec54709aab536c0cda613b10d18610220e1591bf2137a18cc",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 644,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_rank.rs",
-      "sha256": "40585540ae7d039c1553de1b6c4cdce691fa30ce6a42fa627dbadb20199cc730",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 1050,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_road.rs",
-      "sha256": "2897dfb4b2c556cc3860bb576bb511347545787322674f37d4be60ec0fc05ce4",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 590,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_science.rs",
-      "sha256": "350f709e4ceba2e142d0c5c69400dcaca87e3c864519de380635295147105516",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 278,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_script.rs",
-      "sha256": "8b8610578f3289952987883a4bab9ef16e40606ec64e48d896bbac0eb52542da",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -160940,47 +159998,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 633,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_weather.rs",
-      "sha256": "86932b952ec0bd967e54ab30814c7490d24bf0428087cdf11d7d8f7785e15683",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
         "end_line": 889,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_webpage_url.rs",
       "sha256": "d919e97e47acc1639536a5193a620720f6ea28b93470ea0ee63031a3f9b2970f",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 506,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_window_transition.rs",
-      "sha256": "359eebb925ce071fadffe79841e306e5368fc26afe13ba4ad135661dce1a5f65",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 497,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/mod.rs",
-      "sha256": "2c29c9e4d88e744f1ab39336e83b4c6353a898c70ab8956ea21f4ff23365f3ce",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -217402,7 +216424,7 @@
     },
     "behavior_verified": 1,
     "blockers_by_kind": {
-      "duplicate_implementation_destination": 736,
+      "duplicate_implementation_destination": 682,
       "missing_mapping": 21,
       "no_reachable_implementation": 684,
       "ownership_symbol": 6,
@@ -217468,13 +216490,13 @@
       }
     },
     "deferred_network_translation_units": 47,
-    "duplicate_implementation_destinations": 338,
+    "duplicate_implementation_destinations": 311,
     "orphan_ownership_records": 0,
     "reachable_implementation_candidates": 705,
     "required_translation_units": 1389,
     "reviewed_path_implementations": 8,
     "source_range_ownership_reviewed": 3,
-    "strict_blockers": 4257,
+    "strict_blockers": 4203,
     "symbol_ownership_reviewed": 1,
     "translation_units": 1436
   }
