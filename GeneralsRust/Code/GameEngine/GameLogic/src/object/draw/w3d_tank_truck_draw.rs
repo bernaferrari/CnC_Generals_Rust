@@ -479,7 +479,7 @@ impl DrawModule for W3DTankTruckDraw {
                 }
                 if let Some(ai) = owner_guard.get_ai_update_interface() {
                     if let Ok(ai_guard) = ai.lock() {
-                        let locomotor_speed = ai_guard.get_cur_locomotor_speed();
+                        let locomotor_speed = owner_guard.cur_locomotor_speed_with_ai(&*ai_guard);
                         if locomotor_speed > 0.0 {
                             self.max_velocity = locomotor_speed;
                         }
@@ -648,3 +648,6 @@ mod tests {
         assert_eq!(draw.owner_id(), Some(144));
     }
 }
+
+#[cfg(test)]
+mod owned_locomotor_speed_tests;

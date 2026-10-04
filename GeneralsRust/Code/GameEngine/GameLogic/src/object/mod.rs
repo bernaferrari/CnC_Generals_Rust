@@ -4,6 +4,8 @@
 //! Author: Michael S. Booth, October 2000 (C++ version)
 //! Rust conversion: 2025
 
+mod ai_locomotor_queries;
+
 pub mod armor;
 pub mod behavior;
 pub mod body;
