@@ -2,8 +2,11 @@
 //!
 //! Matches C++ DefaultProductionExitUpdate.cpp/.h.
 
+#[cfg(test)]
+#[path = "default_production_exit_tests.rs"]
+mod exit_contract_tests;
+
 use crate::ai::the_ai;
-use crate::object::ProductionBehaviorRallyKindMut;
 use crate::common::*;
 use crate::helpers::TheTerrainLogic;
 use crate::modules::{
@@ -12,6 +15,7 @@ use crate::modules::{
     UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::Object;
+use crate::object::ProductionBehaviorRallyKindMut;
 use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::path::PATHFIND_CELL_SIZE_F;
 use game_engine::common::ini::{FieldParse, INI, INIError};
@@ -160,7 +164,8 @@ impl DefaultProductionExitBehavior {
             guard.set_layer(layer);
         }
 
-        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+        let ai_store = the_ai();
+        if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(mut pf) = pathfinder.write() {
                     pf.add_object_to_map(
@@ -176,24 +181,28 @@ impl DefaultProductionExitBehavior {
         let natural_rally = self.get_natural_rally_point(&transform, true);
         exit_path.push(natural_rally);
 
-        if let Ok(guard) = new_obj.read() {
-            if let Some(ai) = guard.get_ai_update_interface() {
-                if self.rally_point_exists {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        if ai_guard.is_doing_ground_movement() {
-                            let mut rally = self.rally_point;
-                            if ai_guard.adjust_destination(&mut rally) {
-                                exit_path.push(rally);
-                            }
+        // C++ invokes these callbacks synchronously. Retain the installed AI
+        // handle, but release the passenger Object before they can write it.
+        let ai = new_obj
+            .read()
+            .ok()
+            .and_then(|guard| guard.get_ai_update_interface());
+        if let Some(ai) = ai {
+            if self.rally_point_exists {
+                if let Ok(mut ai_guard) = ai.lock() {
+                    if ai_guard.is_doing_ground_movement() {
+                        let mut rally = self.rally_point;
+                        if ai_guard.adjust_destination(&mut rally) {
+                            exit_path.push(rally);
                         }
                     }
                 }
-                ai.ai_follow_exit_production_path(
-                    &exit_path,
-                    Some(self.owner_id),
-                    CommandSourceType::FromAi,
-                );
             }
+            ai.ai_follow_exit_production_path(
+                &exit_path,
+                Some(self.owner_id),
+                CommandSourceType::FromAi,
+            );
         }
 
         Ok(())
@@ -353,14 +362,10 @@ impl Module for DefaultProductionExitBehaviorModule {
 
 fn parse_coord3d(tokens: &[&str]) -> Result<Coord3D, INIError> {
     let values: Vec<&str> = tokens.iter().copied().filter(|t| *t != "=").collect();
-    if values.len() < 3 {
-        return Err(INIError::InvalidData);
-    }
-    let mut coords = [0.0f32; 3];
-    for (idx, token) in values.iter().take(3).enumerate() {
-        coords[idx] = INI::parse_real(token)?;
-    }
-    Ok(Coord3D::new(coords[0], coords[1], coords[2]))
+    // C++ field table delegates to INI::parseCoord3D, not three scanReal
+    // calls: authored values have X:/Y:/Z: labels.
+    let (x, y, z) = INI::parse_coord_3d(&values)?;
+    Ok(Coord3D::new(x, y, z))
 }
 
 fn parse_unit_create_point(
