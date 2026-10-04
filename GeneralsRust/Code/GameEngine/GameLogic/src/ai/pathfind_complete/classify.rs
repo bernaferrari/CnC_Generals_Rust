@@ -522,24 +522,15 @@ impl PathfindingSystem {
         let _ = xfer.xfer_object_id(&mut ignore);
 
         // m_queuedPathfindRequests full ring + head/tail
-        if let Ok(oq) = self.object_path_queue.lock() {
-            for slot in oq.slots.iter() {
-                let mut id = *slot;
-                let _ = xfer.xfer_object_id(&mut id);
-            }
-            let mut head = oq.head as i32;
-            let mut tail = oq.tail as i32;
-            let _ = xfer.xfer_int(&mut head);
-            let _ = xfer.xfer_int(&mut tail);
-        } else {
-            for _ in 0..PATHFIND_QUEUE_LEN {
-                let mut id = INVALID_ID;
-                let _ = xfer.xfer_object_id(&mut id);
-            }
-            let mut z = 0i32;
-            let _ = xfer.xfer_int(&mut z);
-            let _ = xfer.xfer_int(&mut z);
+        let queue = &self.object_path_queue;
+        for slot in &queue.slots {
+            let mut id = *slot;
+            let _ = xfer.xfer_object_id(&mut id);
         }
+        let mut head = queue.head as i32;
+        let mut tail = queue.tail as i32;
+        let _ = xfer.xfer_int(&mut head);
+        let _ = xfer.xfer_int(&mut tail);
 
         let mut num_wall = self.wall_pieces.len() as i32;
         let _ = xfer.xfer_int(&mut num_wall);

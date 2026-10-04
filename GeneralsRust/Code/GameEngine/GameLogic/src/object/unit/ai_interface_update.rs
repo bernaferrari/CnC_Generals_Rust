@@ -982,7 +982,7 @@ impl UnitAIUpdate {
         if self.queue_for_path_frame != 0 && now >= self.queue_for_path_frame {
             if let Ok(ai) = the_ai().read() {
                 if let Some(pathfinder) = ai.pathfinder() {
-                    if let Ok(pf) = pathfinder.read() {
+                    if let Ok(mut pf) = pathfinder.write() {
                         let _ = pf.queue_for_path(self.unit_id);
                     }
                 }

@@ -994,7 +994,7 @@ fn segment_intersects_no_building_false() {
 
 #[test]
 fn queue_for_path_dedupes_like_cpp() {
-    let system = PathfindingSystem::new(16, 16);
+    let mut system = PathfindingSystem::new(16, 16);
     assert!(system.queue_for_path(7));
     assert!(system.queue_for_path(7)); // already queued → true
     assert!(system.queue_for_path(8));
@@ -3806,7 +3806,7 @@ fn process_queue_skips_snapshot_after_do_pathfind() {
         "snapshotted PathRequest must not run a second search"
     );
     assert!(system.request_queue.is_empty());
-    assert!(system.object_path_queue.lock().unwrap().is_empty());
+    assert!(system.object_path_queue.is_empty());
 
     // Exercise the last-handle path at a controlled point: unregister drops
     // the registry's Arc and runs Object::drop while another registered object

@@ -55,7 +55,7 @@ impl PathfindingSystem {
             optimizer: PathOptimizer::new(),
             bridges: Vec::new(),
             request_queue: VecDeque::new(),
-            object_path_queue: Mutex::new(ObjectPathQueue::new()),
+            object_path_queue: ObjectPathQueue::new(),
             goal_cells: vec![vec![GoalCell::new(); height]; width],
             path_cache: HashMap::new(),
             zones: ZoneManager::new(width, height),
@@ -94,8 +94,7 @@ impl PathfindingSystem {
     /// Also enqueues `object_id` into the C++ ObjectID ring when non-invalid.
     pub fn queue_path_request(&mut self, request: PathRequest) -> Result<(), String> {
         if request.object_id != INVALID_ID {
-            let mut oq = self.object_path_queue.lock().unwrap();
-            if !oq.queue(request.object_id) {
+            if !self.object_path_queue.queue(request.object_id) {
                 return Err("Pathfind queue full".to_string());
             }
         }
@@ -111,11 +110,8 @@ impl PathfindingSystem {
     }
 
     /// C++ `Pathfinder::queueForPath(ObjectID)` — ring buffer of object ids.
-    pub fn queue_for_path(&self, object_id: ObjectID) -> bool {
-        let Ok(mut oq) = self.object_path_queue.lock() else {
-            return false;
-        };
-        oq.queue(object_id)
+    pub fn queue_for_path(&mut self, object_id: ObjectID) -> bool {
+        self.object_path_queue.queue(object_id)
     }
 
     /// C++ `Pathfinder::processPathfindQueue` (AIPathfind.cpp:5857-5938).
@@ -196,15 +192,10 @@ impl PathfindingSystem {
         // Drain ObjectID ring (C++ primary path → ai->doPathfind).
         // End each queue borrow before calling into the driving pathfinder.
         loop {
-            let next = {
-                let Ok(mut queue) = self.object_path_queue.lock() else {
-                    break;
-                };
-                if self.cumulative_cells_allocated() as usize >= cell_budget {
-                    None
-                } else {
-                    queue.pop_front()
-                }
+            let next = if self.cumulative_cells_allocated() as usize >= cell_budget {
+                None
+            } else {
+                self.object_path_queue.pop_front()
             };
             let Some(id) = next else {
                 break;

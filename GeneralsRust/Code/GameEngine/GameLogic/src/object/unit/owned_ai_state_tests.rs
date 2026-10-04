@@ -292,3 +292,58 @@ fn cached_factory_ai_self_victim_clear_does_not_relock_own_interface() {
     ai.set_current_victim(None);
     assert_eq!(ai.get_current_victim(), None);
 }
+
+#[test]
+fn cached_factory_update_admits_due_path_queue_and_consumes_timer() {
+    if !child(concat!(
+        module_path!(),
+        "::cached_factory_update_admits_due_path_queue_and_consumes_timer"
+    )) {
+        return;
+    }
+    // AIUpdate.cpp:1047-1053 queues at the due frame and immediately clears
+    // m_queueForPathFrame. Exercise that actual cached AI.update boundary,
+    // rather than manually admitting an ID or installing a fake Unit handle.
+    let _serial = crate::test_sync::lock();
+    let stores = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
+    crate::system::engine_stores::with_active_stores(&stores, || {
+        let _restore_frame = RestoreAmbientFrame::set(17);
+        definitions();
+        let runtime = FactoryRuntime::new();
+        assert_ne!(runtime.id, crate::common::INVALID_ID);
+        let pathfinder = stores.ai().read().unwrap().pathfinder().unwrap();
+        let crc = || {
+            let mut bytes = Vec::new();
+            pathfinder
+                .read()
+                .unwrap()
+                .crc_pathfinder(&mut XferSave::new(Cursor::new(&mut bytes), 1));
+            bytes
+        };
+        let before = crc();
+        runtime.ai.lock().unwrap().set_queue_for_path_time(1);
+        runtime.ai.lock().unwrap().update().unwrap();
+        assert_eq!(crc(), before, "future timer must not admit the actor");
+        crate::system::game_logic::get_game_logic()
+            .lock()
+            .unwrap()
+            .set_current_frame(18);
+        runtime.ai.lock().unwrap().update().unwrap();
+        let admitted = crc();
+        let ring_offset = 4 * 4 + 2 + 4 + 4;
+        let ring_end = ring_offset + crate::ai::pathfind_complete::PATHFIND_QUEUE_LEN * 4;
+        assert_eq!(
+            &admitted[ring_offset..ring_offset + 4],
+            &runtime.id.to_le_bytes(),
+            "actual due cached runtime must enqueue its exact admitted owner ID"
+        );
+        assert_eq!(&admitted[ring_end..ring_end + 8], &[0, 0, 0, 0, 1, 0, 0, 0]);
+        // Obtaining the same Pathfinder write after update also proves the
+        // admission borrow has ended. Reset only this owned queue, then update
+        // at the same frame: a consumed timer cannot re-admit the actor.
+        pathfinder.write().unwrap().reset();
+        let reset = crc();
+        runtime.ai.lock().unwrap().update().unwrap();
+        assert_eq!(crc(), reset, "due timer must clear after admission");
+    });
+}

@@ -17,9 +17,9 @@ pub struct PathfindingSystem {
     /// Matches C++ m_queuedPathfindRequests at AIPathfind.h:842
     pub(crate) request_queue: VecDeque<PathRequest>,
     /// C++ m_queuedPathfindRequests ObjectID ring + head/tail.
-    /// Shared-borrow callback admission still needs interior mutability; this
-    /// private queue has no independent shared owner or worker.
-    pub(crate) object_path_queue: Mutex<ObjectPathQueue>,
+    /// Directly owned by this Pathfinder; admission requires its mutable borrow.
+    /// The outer Pathfinder handle remains the actual shared access boundary.
+    pub(crate) object_path_queue: ObjectPathQueue,
     /// Goal cell tracking (ground/top + aircraft goals).
     pub(crate) goal_cells: Vec<Vec<GoalCell>>,
 

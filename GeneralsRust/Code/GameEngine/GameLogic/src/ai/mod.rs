@@ -2188,7 +2188,7 @@ impl Pathfinder {
     }
 
     /// C++ `Pathfinder::queueForPath(ObjectID)`.
-    pub fn queue_for_path(&self, object_id: ObjectID) -> bool {
+    pub fn queue_for_path(&mut self, object_id: ObjectID) -> bool {
         self.inner.queue_for_path(object_id)
     }
 

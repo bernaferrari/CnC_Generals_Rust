@@ -52,7 +52,7 @@ fn request_queues_belong_to_the_driving_pathfinder_and_reset_independently() {
     assert_eq!(first.inner.request_queue.len(), 2);
     first.reset();
     assert!(first.inner.request_queue.is_empty());
-    assert!(first.inner.object_path_queue.lock().unwrap().is_empty());
+    assert!(first.inner.object_path_queue.is_empty());
     assert_eq!(second.inner.request_queue[0].to.x, 50.0);
     assert_eq!(crc_bytes(&second), second_crc);
 }
@@ -70,7 +70,7 @@ fn queued_request_dedup_keeps_first_snapshot_and_fifo_ring_order() {
     assert_eq!(owner.inner.request_queue.len(), 2);
     assert_eq!(owner.inner.request_queue[0].to.x, 20.0);
     assert_eq!(owner.inner.request_queue[1].to.x, 30.0);
-    let mut ring = owner.inner.object_path_queue.lock().unwrap();
+    let ring = &mut owner.inner.object_path_queue;
     assert_eq!(ring.pop_front(), Some(77));
     assert_eq!(ring.pop_front(), Some(78));
     assert!(ring.is_empty());
@@ -137,8 +137,52 @@ fn invalid_id_residual_deduplicates_without_admitting_a_ring_entry() {
         .unwrap();
     assert_eq!(owner.inner.request_queue.len(), 1);
     assert_eq!(owner.inner.request_queue[0].to.x, 25.0);
-    assert!(owner.inner.object_path_queue.lock().unwrap().is_empty());
+    assert!(owner.inner.object_path_queue.is_empty());
     assert_eq!(crc_bytes(&owner), before);
     assert_eq!(owner.inner.process_queue(PATHFIND_CELLS_PER_FRAME), 0);
     assert_eq!(owner.inner.request_queue.len(), 1);
+}
+
+#[test]
+fn direct_object_admission_keeps_owner_identity_and_cpp_crc_ring_layout() {
+    // AIPathfind.cpp:5641-5663 admits only the object ID, dedupes before tail
+    // insertion, and leaves one ring slot empty. CRC at 11062-11066 writes
+    // all 512 slots followed by the signed head and tail, without a version.
+    let mut first = crate::ai::Pathfinder::new();
+    let mut second = crate::ai::Pathfinder::new();
+    assert!(first.queue_for_path(77));
+    assert!(first.queue_for_path(78));
+    assert!(second.queue_for_path(77));
+    let before_duplicate = crc_bytes(&first);
+    assert!(first.queue_for_path(77));
+    assert_eq!(crc_bytes(&first), before_duplicate);
+    assert!(first.inner.request_queue.is_empty());
+    assert!(second.inner.request_queue.is_empty());
+
+    // Four signed extent coordinates, two bools, obsolete int, ignore ID.
+    let ring_offset = 4 * 4 + 2 + 4 + 4;
+    let ring_end = ring_offset + PATHFIND_QUEUE_LEN * 4;
+    let mut expected = Vec::with_capacity(PATHFIND_QUEUE_LEN * 4 + 8);
+    for slot in 0..PATHFIND_QUEUE_LEN {
+        let id: ObjectID = match slot {
+            0 => 77,
+            1 => 78,
+            _ => INVALID_ID,
+        };
+        expected.extend_from_slice(&id.to_le_bytes());
+    }
+    expected.extend_from_slice(&0i32.to_le_bytes());
+    expected.extend_from_slice(&2i32.to_le_bytes());
+    assert_eq!(&before_duplicate[ring_offset..ring_end + 8], expected);
+    let second_crc = crc_bytes(&second);
+    assert_eq!(
+        &second_crc[ring_offset..ring_offset + 4],
+        &77u32.to_le_bytes()
+    );
+    assert_eq!(
+        &second_crc[ring_end..ring_end + 8],
+        &[0, 0, 0, 0, 1, 0, 0, 0]
+    );
+    first.reset();
+    assert_eq!(crc_bytes(&second), second_crc);
 }
