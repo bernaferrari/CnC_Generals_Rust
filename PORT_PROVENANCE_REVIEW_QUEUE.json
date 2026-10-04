@@ -18608,6 +18608,11 @@
           "candidate_destinations": [
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/builtin_module_mask_query_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory.rs"
             },
@@ -18615,6 +18620,11 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory_ownership_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_mask_validation_tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/Thing/ModuleFactory.cpp",
@@ -18683,11 +18693,22 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/draw_module.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/module.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/object_ini_fields.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_factory.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template_snapshot.rs"
           ],
           "candidate_destinations": [
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/builtin_module_mask_lookup_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/builtin_module_mask_query_tests.rs"
+            },
             {
               "cargo_reachable": true,
               "classification": "implementation",
@@ -18721,7 +18742,17 @@
             {
               "cargo_reachable": true,
               "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_mask_validation_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_operation_order_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/object_ini_fields.rs"
             },
             {
               "cargo_reachable": true,
@@ -18959,10 +18990,16 @@
             "unreviewed_mapping",
             "unreviewed_symbol_ownership",
             "unreviewed_source_range_ownership",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/object_ini_fields.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template_snapshot.rs"
           ],
           "candidate_destinations": [
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/builtin_module_mask_lookup_tests.rs"
+            },
             {
               "cargo_reachable": true,
               "classification": "test",
@@ -18972,6 +19009,11 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_operation_order_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/object_ini_fields.rs"
             },
             {
               "cargo_reachable": true,
@@ -188822,7 +188864,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "e0e813efa1fab75dd4a7b16ea9c95fda68cae09f310e786d1f8b3ae333183abb",
+  "provenance_input_digest": "c12791ee20a21a77266004e3c7e083f17ed59eadd5f2880e6338d994cbdd5aaf",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,
