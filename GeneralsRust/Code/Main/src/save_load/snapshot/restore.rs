@@ -1249,9 +1249,7 @@ impl SnapshotBuilder {
         snapshot: &WorldSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V11_TAIL_VERSION {
-            return Ok(());
-        }
+
         let mut seen = HashSet::new();
         for entry in &snapshot.object_instance_guards {
             if !seen.insert(entry.object_id) {

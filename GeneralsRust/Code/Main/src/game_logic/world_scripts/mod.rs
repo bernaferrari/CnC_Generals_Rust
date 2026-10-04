@@ -18,3 +18,6 @@ mod special_power_strikes;
 mod stealth_mines;
 mod ui_production;
 mod unit_commands;
+
+#[cfg(test)]
+mod authored_refund_tests;

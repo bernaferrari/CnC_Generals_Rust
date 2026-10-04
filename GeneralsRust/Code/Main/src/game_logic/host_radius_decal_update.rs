@@ -51,10 +51,6 @@ fn host_draw_icon_ui() -> bool {
     gamelogic::helpers::TheGameLogic::get_draw_icon_ui()
 }
 
-fn host_logic_frame(fallback: u32) -> u32 {
-    let now = gamelogic::helpers::TheGameLogic::get_frame();
-    if now == 0 { fallback } else { now }
-}
 pub const RADIUS_DECAL_LOGIC_FPS: f32 = 30.0;
 
 /// Retail SCUD storm OCL delivery decal radius.
@@ -257,7 +253,7 @@ impl HostRadiusDecal {
         }
     }
 
-    /// C++ RadiusDecal::update — sine of global frame, gated by getDrawIconUI.
+    /// C++ RadiusDecal::update — sine of the driving frame, gated by getDrawIconUI.
     pub fn update(&mut self, frame: u32) {
         if self.is_empty() {
             return;
@@ -265,7 +261,7 @@ impl HostRadiusDecal {
         let Some(tmpl) = self.template.as_ref() else {
             return;
         };
-        let now = host_logic_frame(frame);
+        let now = frame;
         let period = tmpl.throb_frames.max(1);
         let theta = 2.0 * std::f32::consts::PI * ((now % period) as f32) / (period as f32);
         let percent = 0.5 * (theta.sin() + 1.0);

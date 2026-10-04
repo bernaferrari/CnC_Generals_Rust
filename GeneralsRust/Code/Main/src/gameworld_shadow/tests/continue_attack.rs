@@ -639,9 +639,17 @@ fn transfer_attack_decision_authority() {
 fn update_combat_defers_engagement_under_decision_authority() {
     // Source honesty: combat aim/pitch/pre-attack sets host engagement immediately
     // and still logs under AI decision authority for GameWorld last-write.
-    let src = GAME_LOGIC_HOST_SRC;
-    let i = src.find("fn update_combat").expect("update_combat");
-    let w = &src[i..i + 120_000.min(src.len() - i)];
+    let pass = super::harness::rust_fn_body(
+        include_str!("../../game_logic/world_tick/combat.rs"),
+        "update_combat",
+    )
+    .expect("actual combat coordinator");
+    assert!(pass.contains("update_object_target_combat"));
+    let w = super::harness::rust_fn_body(
+        include_str!("../../game_logic/world_tick/combat/object_target.rs"),
+        "update_object_target_combat",
+    )
+    .expect("actual object-target combat owner");
     assert!(
         w.contains("gameworld_ai_decision_authority") && w.contains("turn_toward_position"),
         "update_combat aim residual must reference decision authority"

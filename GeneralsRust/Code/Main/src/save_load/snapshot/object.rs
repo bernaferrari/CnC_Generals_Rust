@@ -548,15 +548,11 @@ pub struct ResourceSnapshot {
 }
 
 impl ObjectSnapshot {
-    /// Transfer the positional object record for a known outer world-schema
-    /// version.  Marker labels are deliberately no-ops in Common Xfer, so an
-    /// appended field cannot discover an older stream at the object tail.
-    /// The enclosing `WorldSnapshot` reads its version before its object map
-    /// and supplies the only safe compatibility boundary here.
-    pub(super) fn xfer_for_world_version(
+    /// Transfer the current Rust object record. The enclosing world validates
+    /// its schema before any positional object body is consumed.
+    pub(super) fn xfer_current_fields(
         &mut self,
         xfer: &mut dyn Xfer,
-        world_version: u32,
     ) -> SaveLoadResult<()> {
         xfer.xfer_marker_label("ObjectSnapshot")?;
 
@@ -613,90 +609,55 @@ impl ObjectSnapshot {
         xfer.xfer_marker_label("ObjectType")?;
         self.object_type.xfer(xfer)?;
 
-        if world_version >= WORLD_SNAPSHOT_DIRECT_XFER_HDB_VERSION {
-            xfer.xfer_marker_label("HackerDisableChannel")?;
-            xfer_option(
-                xfer,
-                &mut self.hacker_disable_channel,
-                HackerDisableChannelState::new(
-                    ObjectId(0),
-                    HackerDisableChannelPhase::Unpacking,
-                    0,
-                ),
-            )?;
-        } else if xfer.get_mode() == XferMode::Load {
-            // v1/v2 direct-Xfer records ended at ObjectType.  Do not let a
-            // pre-seeded default accidentally manufacture a live channel.
-            self.hacker_disable_channel = None;
-        }
+        xfer.xfer_marker_label("HackerDisableChannel")?;
+        xfer_option(
+            xfer,
+            &mut self.hacker_disable_channel,
+            HackerDisableChannelState::new(
+                ObjectId(0),
+                HackerDisableChannelPhase::Unpacking,
+                0,
+            ),
+        )?;
 
-        if world_version >= WORLD_SNAPSHOT_DIRECT_XFER_V4_TAIL_VERSION {
-            xfer.xfer_marker_label("WeaponBarrelStates")?;
-            for state in &mut self.weapon_barrel_states {
-                state.xfer(xfer)?;
-            }
-            xfer.xfer_marker_label("LastWeaponDischargeSequence")?;
-            xfer.xfer_u64(&mut self.last_weapon_discharge_sequence)?;
-            xfer.xfer_marker_label("LastWeaponDischargeSlot")?;
-            xfer.xfer_u8(&mut self.last_weapon_discharge_slot)?;
-            xfer.xfer_marker_label("LastWeaponDischargeBarrel")?;
-            xfer.xfer_u8(&mut self.last_weapon_discharge_barrel)?;
-            xfer.xfer_marker_label("LastWeaponDischargeFrame")?;
-            xfer.xfer_u32(&mut self.last_weapon_discharge_frame)?;
-        } else if xfer.get_mode() == XferMode::Load {
-            // v1-v3 direct-Xfer records predate the logical barrel/discharge
-            // tail. Do not allow a pre-seeded current snapshot to manufacture
-            // a post-load visual baseline.
-            self.weapon_barrel_states = default_weapon_barrel_state_snapshots();
-            self.last_weapon_discharge_sequence = 0;
-            self.last_weapon_discharge_slot = 0;
-            self.last_weapon_discharge_barrel = 0;
-            self.last_weapon_discharge_frame = 0;
+        xfer.xfer_marker_label("WeaponBarrelStates")?;
+        for state in &mut self.weapon_barrel_states {
+            state.xfer(xfer)?;
         }
+        xfer.xfer_marker_label("LastWeaponDischargeSequence")?;
+        xfer.xfer_u64(&mut self.last_weapon_discharge_sequence)?;
+        xfer.xfer_marker_label("LastWeaponDischargeSlot")?;
+        xfer.xfer_u8(&mut self.last_weapon_discharge_slot)?;
+        xfer.xfer_marker_label("LastWeaponDischargeBarrel")?;
+        xfer.xfer_u8(&mut self.last_weapon_discharge_barrel)?;
+        xfer.xfer_marker_label("LastWeaponDischargeFrame")?;
+        xfer.xfer_u32(&mut self.last_weapon_discharge_frame)?;
 
-        if world_version >= WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION {
-            xfer.xfer_marker_label("CollectorRuntime")?;
-            xfer_option(
-                xfer,
-                &mut self.collector_runtime,
-                CollectorRuntimeSnapshot::default(),
-            )?;
-        } else if xfer.get_mode() == XferMode::Load {
-            self.collector_runtime = None;
-        }
+        xfer.xfer_marker_label("CollectorRuntime")?;
+        xfer_option(
+            xfer,
+            &mut self.collector_runtime,
+            CollectorRuntimeSnapshot::default(),
+        )?;
 
-        if world_version >= WORLD_SNAPSHOT_DIRECT_XFER_V7_TAIL_VERSION {
-            xfer.xfer_marker_label("WeaponSuspendFxFrames")?;
-            xfer.xfer_vec_u32(&mut self.weapon_suspend_fx_frames)?;
-        } else if xfer.get_mode() == XferMode::Load {
-            self.weapon_suspend_fx_frames.clear();
-        }
+        xfer.xfer_marker_label("WeaponSuspendFxFrames")?;
+        xfer.xfer_vec_u32(&mut self.weapon_suspend_fx_frames)?;
 
-        if world_version >= WORLD_SNAPSHOT_DIRECT_XFER_V8_TAIL_VERSION {
-            xfer.xfer_marker_label("TemporaryWeaponRuntime")?;
-            xfer_option(
-                xfer,
-                &mut self.temporary_weapon_runtime,
-                crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponRuntimeBundle::default(),
-            )?;
-        } else if xfer.get_mode() == XferMode::Load {
-            self.temporary_weapon_runtime = None;
-        }
+        xfer.xfer_marker_label("TemporaryWeaponRuntime")?;
+        xfer_option(
+            xfer,
+            &mut self.temporary_weapon_runtime,
+            crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponRuntimeBundle::default(),
+        )?;
 
         // v12 writer appended the Frenzy helper residual. Keep the gate on
         // V12 so a v13 world tail does not skip those object scalars.
-        if world_version >= WORLD_SNAPSHOT_DIRECT_XFER_V12_TAIL_VERSION {
-            xfer.xfer_marker_label("WeaponBonusFrenzy")?;
-            xfer.xfer_bool(&mut self.weapon_bonus_frenzy)?;
-            xfer.xfer_marker_label("WeaponBonusFrenzyLevel")?;
-            xfer.xfer_u8(&mut self.weapon_bonus_frenzy_level)?;
-            xfer.xfer_marker_label("WeaponBonusFrenzyUntilFrame")?;
-            xfer.xfer_u32(&mut self.weapon_bonus_frenzy_until_frame)?;
-        } else if xfer.get_mode() == XferMode::Load {
-            self.weapon_bonus_frenzy = false;
-            self.weapon_bonus_frenzy_level = 0;
-            self.weapon_bonus_frenzy_until_frame = 0;
-        }
+        xfer.xfer_marker_label("WeaponBonusFrenzy")?;
+        xfer.xfer_bool(&mut self.weapon_bonus_frenzy)?;
+        xfer.xfer_marker_label("WeaponBonusFrenzyLevel")?;
+        xfer.xfer_u8(&mut self.weapon_bonus_frenzy_level)?;
+        xfer.xfer_marker_label("WeaponBonusFrenzyUntilFrame")?;
+        xfer.xfer_u32(&mut self.weapon_bonus_frenzy_until_frame)?;
 
         // v21 appended the per-weapon clip/splash/reload residual. The
         // historical direct-Xfer `Weapon` record (xfer_helpers
@@ -705,20 +666,18 @@ impl ObjectSnapshot {
         // RELOADING_CLIP + `m_ammoInClip`, Weapon.cpp:3364-3367) reset to
         // `Weapon::default()` on load while the serde path kept the values.
         // Append after the v12 gate so older streams keep their layout.
-        if world_version >= WORLD_SNAPSHOT_DIRECT_XFER_V21_TAIL_VERSION {
-            xfer.xfer_marker_label("WeaponClipResidual")?;
-            for weapon in &mut self.weapons {
-                xfer.xfer_marker_label("ClipSize")?;
-                xfer.xfer_u32(&mut weapon.clip_size)?;
-                xfer.xfer_marker_label("ClipReloadTime")?;
-                xfer.xfer_f32(&mut weapon.clip_reload_time)?;
-                xfer.xfer_marker_label("SplashRadius")?;
-                xfer.xfer_f32(&mut weapon.splash_radius)?;
-                xfer.xfer_marker_label("ReloadingClip")?;
-                xfer.xfer_bool(&mut weapon.reloading_clip)?;
-                xfer.xfer_marker_label("LastBonusRof")?;
-                xfer.xfer_f32(&mut weapon.last_bonus_rof)?;
-            }
+        xfer.xfer_marker_label("WeaponClipResidual")?;
+        for weapon in &mut self.weapons {
+            xfer.xfer_marker_label("ClipSize")?;
+            xfer.xfer_u32(&mut weapon.clip_size)?;
+            xfer.xfer_marker_label("ClipReloadTime")?;
+            xfer.xfer_f32(&mut weapon.clip_reload_time)?;
+            xfer.xfer_marker_label("SplashRadius")?;
+            xfer.xfer_f32(&mut weapon.splash_radius)?;
+            xfer.xfer_marker_label("ReloadingClip")?;
+            xfer.xfer_bool(&mut weapon.reloading_clip)?;
+            xfer.xfer_marker_label("LastBonusRof")?;
+            xfer.xfer_f32(&mut weapon.last_bonus_rof)?;
         }
 
         Ok(())
@@ -781,11 +740,10 @@ impl XferData for CollectorRuntimeSnapshot {
 }
 
 // Implement XferData for callers that serialize a standalone current object
-// record.  WorldSnapshot uses the version-aware method above for historical
-// direct-Xfer streams.
+// record, also used by the current-schema WorldSnapshot.
 impl XferData for ObjectSnapshot {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
-        self.xfer_for_world_version(xfer, WORLD_SNAPSHOT_DIRECT_XFER_VERSION)
+        self.xfer_current_fields(xfer)
     }
 }
 

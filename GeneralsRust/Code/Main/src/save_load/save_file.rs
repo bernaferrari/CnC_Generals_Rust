@@ -7,27 +7,11 @@ use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
 use game_engine::common::system::xfer_save::XferSave as CommonXferSave;
 use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
-use std::io::{BufReader, BufWriter, Cursor, Read, Seek, Write};
+use std::io::{BufWriter, Cursor, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Save file format header
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SaveFileHeader {
-    pub magic: [u8; 4],         // "GZHS" (Generals Zero Hour Save)
-    pub version: u32,           // Save format version
-    pub flags: u32,             // Compression, encryption, etc.
-    pub timestamp: u64,         // Unix timestamp
-    pub checksum: u32,          // CRC32 of save data
-    pub uncompressed_size: u64, // Original data size
-    pub compressed_size: u64,   // Compressed data size
-    pub game_version: [u8; 16], // Game version string
-    pub reserved: [u8; 32],     // Reserved for future use
-}
-
-const SAVE_MAGIC: [u8; 4] = *b"GZHS";
-const SAVE_HEADER_SIZE: usize = std::mem::size_of::<SaveFileHeader>();
 /// Same tokens as C++ `GameState::xferSaveData` (`GameState.cpp:1313-1458`)
 /// and System `TheGameState` (`SAVELOAD_BLOCK_NAMES`).
 ///
@@ -756,47 +740,6 @@ fn parse_chunk_game_state(payload: &[u8]) -> SaveLoadResult<SaveGameInfo> {
     }
 }
 
-impl SaveFileHeader {
-    pub fn new() -> Self {
-        Self {
-            magic: SAVE_MAGIC,
-            version: SAVE_FILE_VERSION,
-            flags: 0,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
-            checksum: 0,
-            uncompressed_size: 0,
-            compressed_size: 0,
-            game_version: [0; 16],
-            reserved: [0; 32],
-        }
-    }
-
-    pub fn is_valid(&self) -> bool {
-        self.magic == SAVE_MAGIC && self.version <= SAVE_FILE_VERSION
-    }
-
-    pub fn is_compressed(&self) -> bool {
-        (self.flags & 0x01) != 0
-    }
-
-    pub fn set_compressed(&mut self, compressed: bool) {
-        if compressed {
-            self.flags |= 0x01;
-        } else {
-            self.flags &= !0x01;
-        }
-    }
-}
-
-impl Default for SaveFileHeader {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// Save file section types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SaveFileSection {
@@ -999,16 +942,9 @@ impl SaveFileManager {
         &self,
         filename: &str,
     ) -> SaveLoadResult<(WorldSnapshot, SaveGameInfo)> {
-        let mut save_path = self.get_save_path(filename);
-
+        let save_path = self.get_save_path(filename);
         if !save_path.exists() {
-            let mut legacy = self.save_directory.clone();
-            legacy.push(format!("{}.{}", filename, LEGACY_SAVE_EXTENSION));
-            if legacy.exists() {
-                save_path = legacy;
-            } else {
-                return Err(SaveLoadError::FileNotFound(filename.to_string()));
-            }
+            return Err(SaveLoadError::FileNotFound(filename.to_string()));
         }
 
         self.load_from_file(&save_path)
@@ -1105,13 +1041,6 @@ impl SaveFileManager {
     /// Get save file info without loading the entire file
     pub fn get_save_info(&self, filename: &str) -> SaveLoadResult<SaveGameInfo> {
         let save_path = self.get_save_path(filename);
-        if !save_path.exists() {
-            let mut legacy = self.save_directory.clone();
-            legacy.push(format!("{}.{}", filename, LEGACY_SAVE_EXTENSION));
-            if legacy.exists() {
-                return self.get_save_info_from_path(&legacy);
-            }
-        }
         self.get_save_info_from_path(&save_path)
     }
 
@@ -1122,12 +1051,7 @@ impl SaveFileManager {
         if Self::looks_like_common_sav_chunks(&all) {
             return Self::read_named_chunk_save_info(&all);
         }
-        let mut reader = Cursor::new(all);
-        let header = self.read_header(&mut reader)?;
-        if !header.is_valid() {
-            return Err(SaveLoadError::InvalidFormat);
-        }
-        self.read_save_info(&mut reader, &header)
+        Err(SaveLoadError::InvalidFormat)
     }
 
     /// List all available save files
@@ -1141,7 +1065,7 @@ impl SaveFileManager {
             let path = entry.path();
 
             if let Some(extension) = path.extension() {
-                if extension == SAVE_EXTENSION || extension == LEGACY_SAVE_EXTENSION {
+                if extension == SAVE_EXTENSION {
                     if let Some(filename) = path.file_stem().and_then(|s| s.to_str()) {
                         match self.get_save_info(filename) {
                             Ok(save_info) => {
@@ -1193,7 +1117,7 @@ impl SaveFileManager {
         Ok(())
     }
 
-    /// Load data from file. Prefers Common `.sav` chunks; falls back to GZHS `.gen`.
+    /// Load the current named-chunk `.sav` container.
     fn load_from_file(&self, path: &Path) -> SaveLoadResult<(WorldSnapshot, SaveGameInfo)> {
         // C++ GameState::loadGame (GameState.cpp:648) clears scratch-pad maps
         // before opening the save. Leftover GameStateMap already matches
@@ -1214,63 +1138,7 @@ impl SaveFileManager {
             return Self::read_common_sav_chunks(&all, &self.save_directory);
         }
 
-        let mut reader = Cursor::new(all);
-        let header = self.read_header(&mut reader)?;
-        if !header.is_valid() {
-            return Err(SaveLoadError::InvalidFormat);
-        }
-
-        if header.version > SAVE_FILE_VERSION {
-            return Err(SaveLoadError::VersionMismatch {
-                expected: SAVE_FILE_VERSION,
-                actual: header.version,
-            });
-        }
-
-        let save_info = self.read_save_info(&mut reader, &header)?;
-        let mut world_data = Vec::with_capacity(header.compressed_size as usize);
-        reader.read_to_end(&mut world_data)?;
-
-        let actual_checksum = crc32fast::hash(&world_data);
-        if actual_checksum != header.checksum {
-            return Err(SaveLoadError::Corrupted(format!(
-                "Checksum mismatch: expected {}, got {}",
-                header.checksum, actual_checksum
-            )));
-        }
-
-        let decompressed = if header.is_compressed() {
-            compression::decompress(&world_data)?
-        } else {
-            world_data
-        };
-
-        let world_snapshot = match Self::decode_common_game_state(&decompressed) {
-            Ok(common_state) => match Self::decode_world_snapshot_payload(&common_state.data) {
-                Ok(snapshot) => snapshot,
-                Err(common_payload_err) => {
-                    // Raw legacy `.gen` bincode can happen to satisfy enough
-                    // CommonXfer framing to produce an empty/invalid
-                    // GameState.  Only commit to the wrapper route after its
-                    // nested WorldSnapshot has decoded; otherwise retry the
-                    // original raw payload.
-                    log::warn!(
-                        "GZHS Common SaveGame payload did not contain a valid WorldSnapshot ({}); falling back to raw legacy snapshot payload",
-                        common_payload_err
-                    );
-                    Self::decode_world_snapshot_payload(&decompressed)?
-                }
-            },
-            Err(common_err) => {
-                log::warn!(
-                    "Common SaveGame payload decode failed ({}), falling back to legacy snapshot payload",
-                    common_err
-                );
-                Self::decode_world_snapshot_payload(&decompressed)?
-            }
-        };
-
-        Ok((world_snapshot, save_info))
+        Err(SaveLoadError::InvalidFormat)
     }
 
     fn looks_like_common_sav_chunks(data: &[u8]) -> bool {
@@ -1297,6 +1165,7 @@ impl SaveFileManager {
         save_info: &SaveGameInfo,
         client_xfer_bytes: &[u8],
     ) -> SaveLoadResult<Vec<u8>> {
+        validate_direct_world_snapshot_version(world_snapshot.version)?;
         let logic_payload = bincode_legacy::serialize(world_snapshot)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
         Self::write_common_sav_chunks_with_payload_and_client(
@@ -1475,14 +1344,7 @@ impl SaveFileManager {
         filename: &str,
     ) -> SaveLoadResult<game_engine::System::CampaignManagerXferState> {
         let save_path = self.get_save_path(filename);
-        let path = if save_path.exists() {
-            save_path
-        } else {
-            let mut legacy = self.save_directory.clone();
-            legacy.push(format!("{}.{}", filename, LEGACY_SAVE_EXTENSION));
-            legacy
-        };
-        let data = std::fs::read(&path)?;
+        let data = std::fs::read(&save_path)?;
         let blocks = walk_named_chunks(&data)?;
         for (token, payload) in blocks {
             if token.eq_ignore_ascii_case(CHUNK_CAMPAIGN) {
@@ -1630,91 +1492,11 @@ impl SaveFileManager {
     /// (`GameLogic.cpp:4666`) is a different stream: refuse to report success
     /// when those objects were not actually restored.
     fn decode_chunk_game_logic_for_host(payload: &[u8]) -> SaveLoadResult<WorldSnapshot> {
-        match Self::decode_world_snapshot_payload(payload) {
-            Ok(snapshot) => Ok(snapshot),
-            Err(host_err) => {
-                let mut wrapped = CommonGameState::default();
-                let mut xfer = CommonXferLoad::new(Cursor::new(payload), SAVE_FILE_VERSION);
-                if wrapped.xfer(&mut xfer).is_ok() && !wrapped.data.is_empty() {
-                    if let Ok(snapshot) = Self::decode_world_snapshot_payload(&wrapped.data) {
-                        return Ok(snapshot);
-                    }
-                }
-                Err(SaveLoadError::Corrupted(format!(
-                    "CHUNK_GameLogic is not a host WorldSnapshot; C++ GameLogic::xfer (GameLogic.cpp:4666) was not restored ({host_err})"
-                )))
-            }
-        }
-    }
-
-    /// Decode the positional bincode payload shared by Common `.sav` chunks,
-    /// GZHS-wrapped Common state, and the original raw `.gen` fallback.
-    ///
-    /// Production snapshot fields were appended inside nested records, so this
-    /// must go through the exact v1 mirror instead of relying on serde defaults
-    /// at each outer container call site.
-    fn decode_world_snapshot_payload(payload: &[u8]) -> SaveLoadResult<WorldSnapshot> {
-        let (snapshot, path) = decode_bincode_world_snapshot(payload)?;
-        match path {
-            BincodeWorldSnapshotDecodePath::Current => {}
-            BincodeWorldSnapshotDecodePath::LegacyPreV22V21
-            | BincodeWorldSnapshotDecodePath::LegacyPreV20V19
-            | BincodeWorldSnapshotDecodePath::LegacyPreV19V18
-            | BincodeWorldSnapshotDecodePath::LegacyPreV18V17
-            | BincodeWorldSnapshotDecodePath::LegacyPreV17V16
-            | BincodeWorldSnapshotDecodePath::LegacyPreV16V15
-            | BincodeWorldSnapshotDecodePath::LegacyPreV15V14
-            | BincodeWorldSnapshotDecodePath::LegacyPreV14V13
-            | BincodeWorldSnapshotDecodePath::LegacyPreV13V12
-            | BincodeWorldSnapshotDecodePath::LegacyPreV12V11
-            | BincodeWorldSnapshotDecodePath::LegacyPreV11V10
-            | BincodeWorldSnapshotDecodePath::LegacyPreV10V9
-            | BincodeWorldSnapshotDecodePath::LegacyPreV9V8
-            | BincodeWorldSnapshotDecodePath::LegacyPreV8V7
-            | BincodeWorldSnapshotDecodePath::LegacyPreV7V6
-            | BincodeWorldSnapshotDecodePath::LegacyProductionV1
-            | BincodeWorldSnapshotDecodePath::LegacyPreHackerDisableV2
-            | BincodeWorldSnapshotDecodePath::LegacyPreV4V3
-            | BincodeWorldSnapshotDecodePath::LegacyPreV5V4
-            | BincodeWorldSnapshotDecodePath::LegacyPreV6V5 => {
-                log::info!(
-                    "Migrated legacy bincode WorldSnapshot ({path:?}) into schema v{}",
-                    WORLD_SNAPSHOT_BINCODE_VERSION
-                );
-            }
-        }
-        Ok(snapshot)
-    }
-
-    fn common_state_from_save_info(
-        save_info: &SaveGameInfo,
-        world_snapshot: &WorldSnapshot,
-    ) -> CommonGameState {
-        let mut state = CommonGameState::new(SAVE_FILE_VERSION);
-        state.timestamp = save_info
-            .save_date
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        state.map_name = save_info.map_name.clone();
-        state.game_mode = format!("{:?}", save_info.save_type);
-        state.player_count = world_snapshot.players.len() as u32;
-        state.current_frame = u32::try_from(world_snapshot.frame_number).unwrap_or(u32::MAX);
-        state.elapsed_time = save_info.play_time.as_secs_f32();
-        state.set_metadata("display_name".to_string(), save_info.display_name.clone());
-        state.set_metadata("description".to_string(), save_info.description.clone());
-        state.set_metadata("game_version".to_string(), save_info.game_version.clone());
-        state.set_metadata(
-            "difficulty".to_string(),
-            format!("{:?}", save_info.difficulty),
-        );
-        if let Some(side) = &save_info.campaign_side {
-            state.set_metadata("campaign_side".to_string(), side.clone());
-        }
-        if let Some(mission_number) = save_info.mission_number {
-            state.set_metadata("mission_number".to_string(), mission_number.to_string());
-        }
-        state
+        decode_bincode_world_snapshot(payload).map_err(|host_err| {
+            SaveLoadError::Corrupted(format!(
+                "CHUNK_GameLogic is not a current host WorldSnapshot; C++ GameLogic::xfer (GameLogic.cpp:4666) was not restored ({host_err})"
+            ))
+        })
     }
 
     fn save_info_from_common_state(
@@ -1760,98 +1542,6 @@ impl SaveFileManager {
             difficulty,
             save_type,
         }
-    }
-
-    fn encode_common_game_state(
-        world_snapshot: &WorldSnapshot,
-        save_info: &SaveGameInfo,
-    ) -> SaveLoadResult<Vec<u8>> {
-        let logic_payload = bincode_legacy::serialize(world_snapshot)
-            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-        Self::encode_common_game_state_with_payload(world_snapshot, save_info, logic_payload)
-    }
-
-    /// Encode the older GZHS wrapper's Common GameState body around an already
-    /// serialized WorldSnapshot payload.
-    fn encode_common_game_state_with_payload(
-        world_snapshot: &WorldSnapshot,
-        save_info: &SaveGameInfo,
-        logic_payload: Vec<u8>,
-    ) -> SaveLoadResult<Vec<u8>> {
-        let mut state = CommonGameState::new(SAVE_FILE_VERSION);
-        state.timestamp = save_info
-            .save_date
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        state.map_name = save_info.map_name.clone();
-        state.game_mode = format!("{:?}", save_info.save_type);
-        state.player_count = world_snapshot.players.len() as u32;
-        state.current_frame = u32::try_from(world_snapshot.frame_number).unwrap_or(u32::MAX);
-        state.elapsed_time = save_info.play_time.as_secs_f32();
-        state.set_metadata("display_name".to_string(), save_info.display_name.clone());
-        state.set_metadata("description".to_string(), save_info.description.clone());
-        state.set_metadata("game_version".to_string(), save_info.game_version.clone());
-        state.set_metadata(
-            "difficulty".to_string(),
-            format!("{:?}", save_info.difficulty),
-        );
-        if let Some(side) = &save_info.campaign_side {
-            state.set_metadata("campaign_side".to_string(), side.clone());
-        }
-        if let Some(mission_number) = save_info.mission_number {
-            state.set_metadata("mission_number".to_string(), mission_number.to_string());
-        }
-
-        state.data = logic_payload;
-
-        let mut cursor = Cursor::new(Vec::<u8>::new());
-        {
-            let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
-            state
-                .xfer(&mut xfer)
-                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-        }
-        Ok(cursor.into_inner())
-    }
-
-    fn decode_common_game_state(data: &[u8]) -> SaveLoadResult<CommonGameState> {
-        let mut state = CommonGameState::default();
-        let mut xfer = CommonXferLoad::new(Cursor::new(data), SAVE_FILE_VERSION);
-        state
-            .xfer(&mut xfer)
-            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-        Ok(state)
-    }
-
-    /// Read file header
-    fn read_header<R: Read>(&self, reader: &mut R) -> SaveLoadResult<SaveFileHeader> {
-        let mut header_bytes = vec![0u8; SAVE_HEADER_SIZE];
-        reader.read_exact(&mut header_bytes)?;
-
-        let header: SaveFileHeader = bincode_legacy::deserialize(&header_bytes)
-            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-
-        Ok(header)
-    }
-
-    /// Read save info section
-    fn read_save_info<R: Read>(
-        &self,
-        reader: &mut R,
-        _header: &SaveFileHeader,
-    ) -> SaveLoadResult<SaveGameInfo> {
-        let mut size_bytes = [0u8; 4];
-        reader.read_exact(&mut size_bytes)?;
-        let size = u32::from_le_bytes(size_bytes) as usize;
-
-        let mut info_bytes = vec![0u8; size];
-        reader.read_exact(&mut info_bytes)?;
-
-        let save_info: SaveGameInfo = bincode_legacy::deserialize(&info_bytes)
-            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-
-        Ok(save_info)
     }
 
     /// Get full path for save file
@@ -1956,6 +1646,7 @@ pub fn init_save_file_system() -> SaveLoadResult<()> {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use crate::game_logic::{
         HackerDisableChannelPhase, HackerDisableChannelState, KindOf, ObjectId, Player,
@@ -1964,67 +1655,6 @@ mod tests {
     use crate::save_load::snapshot::CollectorRuntimeSnapshot;
     use glam::Vec3;
     use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn legacy_production_payload_fixture() -> (
-        Vec<u8>,
-        ObjectId,
-        std::collections::HashMap<String, ThingTemplate>,
-    ) {
-        let mut source = GameLogic::new();
-        source.add_player(Player::new(1, Team::USA, "Legacy Player", true));
-
-        let mut barracks = ThingTemplate::new("LegacyBarracks");
-        barracks
-            .add_kind_of(KindOf::Structure)
-            .add_kind_of(KindOf::Selectable);
-        source
-            .templates
-            .insert("LegacyBarracks".to_string(), barracks);
-
-        let mut ranger = ThingTemplate::new("LegacyRanger");
-        ranger
-            .add_kind_of(KindOf::Infantry)
-            .add_kind_of(KindOf::Selectable)
-            .set_cost(225, 0);
-        ranger.build_time = 12.0;
-        source.templates.insert("LegacyRanger".to_string(), ranger);
-
-        let barracks_id = source
-            .create_object("LegacyBarracks", Team::USA, Vec3::new(10.0, 0.0, 10.0))
-            .expect("legacy fixture barracks");
-        assert!(source.enqueue_production(barracks_id, "LegacyRanger".to_string()));
-        {
-            let building = source
-                .host_object_mut(barracks_id)
-                .expect("legacy fixture barracks must remain live");
-            let building_data = building
-                .building_data
-                .as_mut()
-                .expect("legacy fixture needs production data");
-            // These post-v1 values make an accidental current bincode decode
-            // observably wrong while the historical serializer below omits
-            // them exactly as an old saved game did.
-            building_data.production_queue[0].progress = 4.5;
-            building_data.production_queue[0].construction_frames = 135;
-            building_data.production_queue[0].quantity_total = 2;
-            building_data.production_queue[0].quantity_produced = 1;
-            building_data.exit_delay_remaining = 0.3;
-            building_data.exit_delay_remaining_frames = 9;
-            building_data.exit_burst_remaining = 1;
-            building_data.queue_exit_state_initialized = true;
-        }
-
-        let snapshot = SnapshotBuilder::new()
-            .create_world_snapshot(&source)
-            .expect("legacy fixture snapshot");
-        let templates = source.templates.clone();
-        (
-            serialize_legacy_production_v1_fixture(snapshot)
-                .expect("serialize exact v1 production fixture"),
-            barracks_id,
-            templates,
-        )
-    }
 
     fn fixture_save_info() -> SaveGameInfo {
         SaveGameInfo {
@@ -2042,109 +1672,6 @@ mod tests {
         }
     }
 
-    fn assert_legacy_production_migrated(snapshot: &WorldSnapshot, barracks_id: ObjectId) {
-        assert_eq!(snapshot.version, WORLD_SNAPSHOT_BINCODE_VERSION);
-        assert_eq!(
-            snapshot.next_weapon_discharge_sequence,
-            default_next_weapon_discharge_sequence(),
-            "v1/v2 records predate the v4 world tail"
-        );
-        assert!(snapshot.client_drawables.drawables.is_empty());
-        let object = snapshot
-            .objects
-            .get(&barracks_id)
-            .expect("migrated snapshot must retain its producer");
-        let ModuleSnapshot::Production(production) = object
-            .modules
-            .get("Production")
-            .expect("migrated snapshot must retain production module")
-        else {
-            panic!("migrated producer must use Production module");
-        };
-        let entry = production
-            .production_queue
-            .first()
-            .expect("migrated producer must retain queue entry");
-        assert_eq!(entry.template_name, "LegacyRanger");
-        assert!((entry.progress - 4.5).abs() < f32::EPSILON);
-        assert_eq!(entry.cost, 225);
-        // These values never existed in the historical bincode record.  The
-        // first live production tick reconstructs the integer frame counter
-        // from `progress`; batch/exit state receives C++ legacy defaults.
-        assert_eq!(entry.construction_frames, 0);
-        assert_eq!(entry.quantity_total, 1);
-        assert_eq!(entry.quantity_produced, 0);
-        assert!(!entry.is_upgrade);
-        assert_eq!(production.exit_delay_remaining, 0.0);
-        assert_eq!(production.exit_delay_remaining_frames, 0);
-        assert_eq!(production.exit_burst_remaining, 0);
-        assert!(!production.queue_exit_state_initialized);
-        assert!(object.hacker_disable_channel.is_none());
-        assert_eq!(
-            object.weapon_barrel_states,
-            default_weapon_barrel_state_snapshots()
-        );
-        assert_eq!(object.last_weapon_discharge_sequence, 0);
-        assert_eq!(object.last_weapon_discharge_slot, 0);
-        assert_eq!(object.last_weapon_discharge_barrel, 0);
-        assert_eq!(object.last_weapon_discharge_frame, 0);
-    }
-
-    fn assert_pre_v4_v3_migrated(snapshot: &WorldSnapshot, barracks_id: ObjectId) {
-        assert_eq!(snapshot.version, WORLD_SNAPSHOT_BINCODE_VERSION);
-        assert_eq!(
-            snapshot.next_weapon_discharge_sequence,
-            default_next_weapon_discharge_sequence(),
-            "v3 ended before the v4 world tail"
-        );
-        assert!(
-            snapshot.client_drawables.drawables.is_empty(),
-            "v3 must default the renderer companion rather than replay stale visuals"
-        );
-        let object = snapshot
-            .objects
-            .get(&barracks_id)
-            .expect("v3 migration must retain its producer");
-        assert_eq!(
-            object.hacker_disable_channel,
-            Some(HackerDisableChannelState::new(
-                ObjectId(77),
-                HackerDisableChannelPhase::Preparing,
-                1_500,
-            )),
-            "v3 must retain its final HDB object tail"
-        );
-        assert_eq!(
-            object.weapon_barrel_states,
-            default_weapon_barrel_state_snapshots(),
-            "v3 must not reinterpret pre-v4 bytes as barrel cursors"
-        );
-        assert_eq!(object.last_weapon_discharge_sequence, 0);
-        assert_eq!(object.last_weapon_discharge_slot, 0);
-        assert_eq!(object.last_weapon_discharge_barrel, 0);
-        assert_eq!(object.last_weapon_discharge_frame, 0);
-    }
-
-    fn gzhs_fixture_bytes(save_info: &SaveGameInfo, decompressed_payload: &[u8]) -> Vec<u8> {
-        let mut header = SaveFileHeader::new();
-        header.set_compressed(false);
-        header.checksum = crc32fast::hash(decompressed_payload);
-        header.uncompressed_size = decompressed_payload.len() as u64;
-        header.compressed_size = decompressed_payload.len() as u64;
-
-        let mut bytes = bincode_legacy::serialize(&header).expect("serialize GZHS header");
-        assert!(bytes.len() <= SAVE_HEADER_SIZE);
-        // `read_header` reserves the native header footprint before bincode
-        // consumes its compact fields; mirror the legacy writer's padding.
-        bytes.resize(SAVE_HEADER_SIZE, 0);
-
-        let save_info = bincode_legacy::serialize(save_info).expect("serialize GZHS save info");
-        bytes.extend_from_slice(&(save_info.len() as u32).to_le_bytes());
-        bytes.extend_from_slice(&save_info);
-        bytes.extend_from_slice(decompressed_payload);
-        bytes
-    }
-
     fn unique_fixture_directory() -> std::path::PathBuf {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -2154,24 +1681,6 @@ mod tests {
             "generalsrust-legacy-production-{}-{nonce}",
             std::process::id()
         ))
-    }
-
-    #[test]
-    fn test_save_header_serialization() {
-        let mut header = SaveFileHeader::new();
-        header.set_compressed(true);
-        header.uncompressed_size = 12345;
-        header.compressed_size = 6789;
-
-        let serialized = bincode_legacy::serialize(&header).unwrap();
-        let deserialized: SaveFileHeader = bincode_legacy::deserialize(&serialized).unwrap();
-
-        assert_eq!(header.magic, deserialized.magic);
-        assert_eq!(header.version, deserialized.version);
-        assert_eq!(header.uncompressed_size, deserialized.uncompressed_size);
-        assert_eq!(header.compressed_size, deserialized.compressed_size);
-        assert!(deserialized.is_compressed());
-        assert!(deserialized.is_valid());
     }
 
     #[test]
@@ -2200,312 +1709,6 @@ mod tests {
         assert_eq!(host.file_name().and_then(|s| s.to_str()), Some("Save"));
         let manager = SaveFileManager::new();
         assert_eq!(manager.save_directory(), host.as_path());
-    }
-
-    #[test]
-    fn legacy_bincode_production_payload_migrates_through_every_save_container() {
-        let (legacy_payload, barracks_id, templates) = legacy_production_payload_fixture();
-
-        // This is the regression: bincode's positional reader cannot use the
-        // current nested serde defaults to safely consume an actual v1 record.
-        assert!(
-            bincode_legacy::deserialize::<WorldSnapshot>(&legacy_payload).is_err(),
-            "the current positional record must not be trusted for a v1 production payload"
-        );
-
-        let (mut migrated, path) = decode_bincode_world_snapshot(&legacy_payload)
-            .expect("exact legacy production payload should migrate");
-        assert_eq!(path, BincodeWorldSnapshotDecodePath::LegacyProductionV1);
-        assert_legacy_production_migrated(&migrated, barracks_id);
-
-        // Schema v2 already had production frames and Queue exit state, but
-        // its ObjectSnapshot predates the appended Hacker Disable channel.
-        // Decode it via its exact mirror instead of allowing the current v4
-        // object decoder to consume the following world fields as an Option.
-        let (v2_source, v2_source_path) =
-            decode_bincode_world_snapshot(&legacy_payload).expect("rebuild source for v2 fixture");
-        assert_eq!(
-            v2_source_path,
-            BincodeWorldSnapshotDecodePath::LegacyProductionV1
-        );
-        let v2_payload = serialize_pre_hacker_disable_v2_fixture(v2_source)
-            .expect("serialize exact pre-HDB v2 fixture");
-        assert!(
-            bincode_legacy::deserialize::<WorldSnapshot>(&v2_payload).is_err(),
-            "the current v3 object record must not consume a pre-HDB v2 payload"
-        );
-        let (v2_migrated, v2_path) = decode_bincode_world_snapshot(&v2_payload)
-            .expect("pre-HDB v2 payload should migrate through its exact mirror");
-        assert_eq!(
-            v2_path,
-            BincodeWorldSnapshotDecodePath::LegacyPreHackerDisableV2
-        );
-        assert_legacy_production_migrated(&v2_migrated, barracks_id);
-
-        // Version 3 was current before the v4 logical barrel/discharge and
-        // renderer companion tails. It did include HDB, so this genuine
-        // historical-shape fixture proves we choose its exact outer/Object
-        // mirrors rather than trusting positional serde defaults.
-        let mut v3_source = v2_migrated;
-        let v3_object = v3_source
-            .objects
-            .get_mut(&barracks_id)
-            .expect("v3 fixture producer");
-        v3_object.hacker_disable_channel = Some(HackerDisableChannelState::new(
-            ObjectId(77),
-            HackerDisableChannelPhase::Preparing,
-            1_500,
-        ));
-        v3_object.weapon_barrel_states[1] = WeaponBarrelStateSnapshot {
-            current_barrel: 2,
-            shots_left_on_barrel: 7,
-        };
-        v3_object.last_weapon_discharge_sequence = 91;
-        v3_object.last_weapon_discharge_slot = 1;
-        v3_object.last_weapon_discharge_barrel = 2;
-        v3_object.last_weapon_discharge_frame = 4_200;
-        v3_source.next_weapon_discharge_sequence = 92;
-        let v3_payload =
-            serialize_pre_v4_v3_fixture(v3_source).expect("serialize exact predecessor v3 fixture");
-        assert!(
-            bincode_legacy::deserialize::<WorldSnapshot>(&v3_payload).is_err(),
-            "the current v4 record must not consume a v3 positional payload"
-        );
-        let (v3_migrated, v3_path) = decode_bincode_world_snapshot(&v3_payload)
-            .expect("pre-v4 v3 payload should migrate through its exact mirror");
-        assert_eq!(v3_path, BincodeWorldSnapshotDecodePath::LegacyPreV4V3);
-        assert_pre_v4_v3_migrated(&v3_migrated, barracks_id);
-
-        // The old float is converted at the first real production update,
-        // where the restored template and live power factor are available.
-        let mut restored = GameLogic::new();
-        restored.templates = templates;
-        SnapshotBuilder::new()
-            .restore_from_snapshot(&migrated, &mut restored)
-            .expect("restore migrated production snapshot");
-        let restored_production = restored
-            .host_object_mut(barracks_id)
-            .expect("restored legacy producer")
-            .building_data
-            .as_mut()
-            .expect("restored legacy production data");
-        restored_production.production_queue[0].progress = 4.5;
-        // 12 seconds at 30 FPS: floor(4.5 / 12 * 360) = 135, then this
-        // update advances exactly one C++ logic frame.
-        restored_production.production_queue[0].construction_frames = 0;
-        restored_production.advance_production_progress(1.0, 1.0);
-        assert_eq!(
-            restored_production.production_queue[0].construction_frames,
-            136
-        );
-
-        // A re-save is tagged v5 and uses the current record directly. Its
-        // HDB channel must survive independently of older production layouts.
-        migrated
-            .objects
-            .get_mut(&barracks_id)
-            .expect("migrated producer for current HDB channel")
-            .hacker_disable_channel = Some(HackerDisableChannelState::new(
-            ObjectId(77),
-            HackerDisableChannelPhase::Preparing,
-            1_500,
-        ));
-        let current_object = migrated
-            .objects
-            .get_mut(&barracks_id)
-            .expect("migrated producer for current v4 tails");
-        current_object.weapon_barrel_states[0] = WeaponBarrelStateSnapshot {
-            current_barrel: 2,
-            shots_left_on_barrel: 3,
-        };
-        current_object.last_weapon_discharge_sequence = 88;
-        current_object.last_weapon_discharge_slot = 0;
-        current_object.last_weapon_discharge_barrel = 2;
-        current_object.last_weapon_discharge_frame = 7_777;
-        // A v5-only collector tail must be deliberately omitted from the
-        // predecessor fixture. The decoder must still consume every v4 object
-        // and world field without treating the next byte as an Option tag.
-        current_object.collector_runtime = Some(CollectorRuntimeSnapshot {
-            owner_player_id: Some(1),
-            producer_id: Some(ObjectId(91)),
-            preferred_dock_id: Some(ObjectId(92)),
-            target: Some(ObjectId(93)),
-            supply_center_spawn_behavior_fired: true,
-            supply_truck_state: SupplyTruckState::DockingCenter,
-            supply_truck_force_pending: true,
-            supply_truck_next_dock_action_frame: 7_800,
-            stored_supply_boxes: 4,
-        });
-        migrated.next_weapon_discharge_sequence = 89;
-        migrated
-            .client_drawables
-            .drawables
-            .push(ClientDrawableStateSnapshot {
-                object_id: barracks_id.0,
-                draw_module_index: 1,
-                source_template_name: "LegacyBarracks".to_string(),
-                model_key: "UVLegacyBarracks".to_string(),
-                selected_condition_state_index: 2,
-                animation: None,
-                last_seen_weapon_discharge_sequence: 88,
-                recoil_slots: std::array::from_fn(|_| Vec::new()),
-            });
-        let v4_payload =
-            serialize_pre_v5_v4_fixture(migrated).expect("serialize exact predecessor v4 fixture");
-        assert!(
-            bincode_legacy::deserialize::<WorldSnapshot>(&v4_payload).is_err(),
-            "the current v5 record must not consume a v4 positional payload"
-        );
-        let (mut migrated, v4_path) = decode_bincode_world_snapshot(&v4_payload)
-            .expect("pre-v5 v4 payload should migrate through its exact mirror");
-        assert_eq!(v4_path, BincodeWorldSnapshotDecodePath::LegacyPreV5V4);
-        assert!(migrated.player_template_bindings.is_empty());
-        assert!(
-            migrated
-                .objects
-                .get(&barracks_id)
-                .and_then(|object| object.collector_runtime.as_ref())
-                .is_none(),
-            "v4 predecessor records must default the v5 collector tail"
-        );
-        let current_payload =
-            bincode_legacy::serialize(&migrated).expect("serialize current snapshot");
-        let (current_round_trip, current_path) = decode_bincode_world_snapshot(&current_payload)
-            .expect("current production snapshot should remain readable");
-        assert_eq!(current_path, BincodeWorldSnapshotDecodePath::Current);
-        assert_eq!(current_round_trip.version, WORLD_SNAPSHOT_BINCODE_VERSION);
-        assert_eq!(
-            current_round_trip
-                .objects
-                .get(&barracks_id)
-                .and_then(|object| object.hacker_disable_channel),
-            Some(HackerDisableChannelState::new(
-                ObjectId(77),
-                HackerDisableChannelPhase::Preparing,
-                1_500,
-            ))
-        );
-        let current_object = current_round_trip
-            .objects
-            .get(&barracks_id)
-            .expect("current object tails");
-        assert_eq!(
-            current_object.weapon_barrel_states[0],
-            WeaponBarrelStateSnapshot {
-                current_barrel: 2,
-                shots_left_on_barrel: 3,
-            }
-        );
-        assert_eq!(current_object.last_weapon_discharge_sequence, 88);
-        assert_eq!(current_object.last_weapon_discharge_slot, 0);
-        assert_eq!(current_object.last_weapon_discharge_barrel, 2);
-        assert_eq!(current_object.last_weapon_discharge_frame, 7_777);
-        assert_eq!(current_round_trip.next_weapon_discharge_sequence, 89);
-        assert_eq!(current_round_trip.client_drawables.drawables.len(), 1);
-        assert_eq!(
-            current_round_trip.client_drawables.drawables[0].last_seen_weapon_discharge_sequence,
-            88
-        );
-
-        let mut future_payload = current_payload.clone();
-        future_payload[..std::mem::size_of::<u32>()]
-            .copy_from_slice(&(WORLD_SNAPSHOT_BINCODE_VERSION + 1).to_le_bytes());
-        assert!(matches!(
-            decode_bincode_world_snapshot(&future_payload),
-            Err(SaveLoadError::VersionMismatch {
-                expected: WORLD_SNAPSHOT_BINCODE_VERSION,
-                actual
-            }) if actual == WORLD_SNAPSHOT_BINCODE_VERSION + 1
-        ));
-
-        let save_info = fixture_save_info();
-
-        // Native Common `.sav` CHUNK_GameLogic route.
-        let common_chunks = SaveFileManager::write_common_sav_chunks_with_payload(
-            &migrated,
-            &save_info,
-            legacy_payload.clone(),
-        )
-        .expect("encode Common fixture");
-        let (common_snapshot, _) =
-            SaveFileManager::read_common_sav_chunks(&common_chunks, Path::new(""))
-                .expect("Common fixture should migrate legacy payload");
-        assert_legacy_production_migrated(&common_snapshot, barracks_id);
-
-        // V3 must choose the same exact migration path through the native
-        // Common container, not only when decoding a raw test payload.
-        let v3_common_chunks = SaveFileManager::write_common_sav_chunks_with_payload(
-            &migrated,
-            &save_info,
-            v3_payload.clone(),
-        )
-        .expect("encode Common v3 fixture");
-        let (v3_common_snapshot, _) =
-            SaveFileManager::read_common_sav_chunks(&v3_common_chunks, Path::new(""))
-                .expect("Common fixture should migrate v3 payload");
-        assert_pre_v4_v3_migrated(&v3_common_snapshot, barracks_id);
-
-        // The GZHS wrapper can contain a Common GameState body or the original
-        // raw WorldSnapshot body; both call the same migration seam.
-        let wrapped_common = SaveFileManager::encode_common_game_state_with_payload(
-            &migrated,
-            &save_info,
-            legacy_payload.clone(),
-        )
-        .expect("encode GZHS Common payload");
-        let fixture_directory = unique_fixture_directory();
-        std::fs::create_dir_all(&fixture_directory).expect("create fixture directory");
-        let manager = SaveFileManager::with_save_directory(&fixture_directory);
-
-        let wrapped_path = fixture_directory.join("legacy_common.gen");
-        std::fs::write(
-            &wrapped_path,
-            gzhs_fixture_bytes(&save_info, &wrapped_common),
-        )
-        .expect("write GZHS Common fixture");
-        let (wrapped_snapshot, _) = manager
-            .load_from_file(&wrapped_path)
-            .expect("GZHS Common fixture should migrate legacy payload");
-        assert_legacy_production_migrated(&wrapped_snapshot, barracks_id);
-
-        let raw_path = fixture_directory.join("legacy_raw.gen");
-        std::fs::write(&raw_path, gzhs_fixture_bytes(&save_info, &legacy_payload))
-            .expect("write raw GZHS fixture");
-        let (raw_snapshot, _) = manager
-            .load_from_file(&raw_path)
-            .expect("raw GZHS fixture should migrate legacy payload");
-        assert_legacy_production_migrated(&raw_snapshot, barracks_id);
-
-        let v3_wrapped_common = SaveFileManager::encode_common_game_state_with_payload(
-            &migrated,
-            &save_info,
-            v3_payload.clone(),
-        )
-        .expect("encode GZHS Common v3 payload");
-        let v3_wrapped_path = fixture_directory.join("v3_common.gen");
-        std::fs::write(
-            &v3_wrapped_path,
-            gzhs_fixture_bytes(&save_info, &v3_wrapped_common),
-        )
-        .expect("write GZHS Common v3 fixture");
-        let (v3_wrapped_snapshot, _) = manager
-            .load_from_file(&v3_wrapped_path)
-            .expect("GZHS Common fixture should migrate v3 payload");
-        assert_pre_v4_v3_migrated(&v3_wrapped_snapshot, barracks_id);
-
-        let v3_raw_path = fixture_directory.join("v3_raw.gen");
-        std::fs::write(&v3_raw_path, gzhs_fixture_bytes(&save_info, &v3_payload))
-            .expect("write raw GZHS v3 fixture");
-        let (v3_raw_snapshot, _) = manager
-            .load_from_file(&v3_raw_path)
-            .expect("raw GZHS fixture should migrate v3 payload");
-        assert_pre_v4_v3_migrated(&v3_raw_snapshot, barracks_id);
-
-        let _ = std::fs::remove_file(wrapped_path);
-        let _ = std::fs::remove_file(raw_path);
-        let _ = std::fs::remove_file(v3_wrapped_path);
-        let _ = std::fs::remove_file(v3_raw_path);
-        let _ = std::fs::remove_dir(fixture_directory);
     }
 
     #[test]

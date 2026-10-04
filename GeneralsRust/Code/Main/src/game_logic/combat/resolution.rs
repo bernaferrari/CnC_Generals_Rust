@@ -779,7 +779,7 @@ impl CombatSystem {
             }
         }
 
-        self.apply_damage_events(&damage_events, objects, players, team_factory);
+        self.apply_damage_events(&damage_events, objects, players, team_factory, frame);
 
         // Remove expired/hit projectiles.  Under coupled GameWorld flight
         // authority, publish an explicit inactive residual here: a later
@@ -802,6 +802,7 @@ impl CombatSystem {
         objects: &mut HashMap<ObjectId, Object>,
         players: Option<&HashMap<u32, crate::game_logic::Player>>,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
+        frame: u32,
     ) {
         for hit in damage_events {
             match hit {
@@ -820,11 +821,12 @@ impl CombatSystem {
                     );
                     if let Some(target) = objects.get_mut(target_id) {
                         let before = target.health.current;
-                        let destroyed = target.take_damage_from_typed_death(
+                        let destroyed = target.take_damage_from_typed_death_at_frame(
                             *damage,
                             Some(*shooter_id),
                             *damage_type,
                             *death_type,
+                            frame,
                         );
                         let hp_lost = (before - target.health.current).max(0.0);
                         self.note_kill_for_on_die(
@@ -968,11 +970,12 @@ impl CombatSystem {
                                     splash_fx_source.clone(),
                                 );
                                 let before = obj.health.current;
-                                let destroyed = obj.take_damage_from_typed_death(
+                                let destroyed = obj.take_damage_from_typed_death_at_frame(
                                     area_damage,
                                     Some(*shooter_id),
                                     *damage_type,
                                     *death_type,
+                                    frame,
                                 );
                                 let hp_lost = (before - obj.health.current).max(0.0);
                                 self.note_kill_for_on_die(
@@ -1089,7 +1092,7 @@ impl CombatSystem {
                 source_velocity: Vec3::ZERO,
             });
         }
-        self.apply_damage_events(&events, objects, players, None);
+        self.apply_damage_events(&events, objects, players, None, frame);
     }
 
     /// Check if projectile collides with something
@@ -1304,8 +1307,7 @@ fn leftover_radius_damage_angle(weapon_name: &str) -> f32 {
     if weapon_name.is_empty() {
         return std::f32::consts::PI;
     }
-    let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
-    gamelogic::weapon::with_weapon_store(|store| {
+    crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
         store
             .find_weapon_template(weapon_name)
             .map(|wt| wt.radius_damage_angle)

@@ -11,6 +11,7 @@
 mod prelude;
 pub(self) use prelude::*;
 
+mod ambient_sound_retries;
 mod authority;
 mod construct;
 mod crate_tick;
@@ -19,6 +20,7 @@ mod host;
 mod player;
 mod script_camera;
 
+pub(self) use ambient_sound_retries::AmbientSoundRetries;
 pub(self) use authority::DestructionEvent;
 pub(crate) use authority::{AcceptedGatherCommand, SupplyDropoffEvent};
 pub use authority::{
@@ -211,3 +213,6 @@ pub const GAME_LOGIC_FACADE_SRC: &str = concat!(
 
 #[cfg(test)]
 mod accepted_projectile_owner_tests;
+
+#[cfg(test)]
+mod radius_decal_clock_owner_tests;

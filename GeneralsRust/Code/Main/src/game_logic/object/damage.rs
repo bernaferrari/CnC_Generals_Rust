@@ -190,6 +190,44 @@ impl Object {
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         fx_override: Option<crate::game_logic::combat::DamageType>,
     ) -> bool {
+        self.take_damage_from_typed_death_fx_at_frame(
+            damage,
+            source,
+            damage_type,
+            death_type,
+            fx_override,
+            crate::game_logic::host_historic_bonus::logic_frame(),
+        )
+    }
+
+    /// Apply this impact at the driving world's logic frame, without publishing a clock.
+    pub(in crate::game_logic) fn take_damage_from_typed_death_at_frame(
+        &mut self,
+        damage: f32,
+        source: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        frame: u32,
+    ) -> bool {
+        self.take_damage_from_typed_death_fx_at_frame(
+            damage,
+            source,
+            damage_type,
+            death_type,
+            None,
+            frame,
+        )
+    }
+
+    fn take_damage_from_typed_death_fx_at_frame(
+        &mut self,
+        damage: f32,
+        source: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        fx_override: Option<crate::game_logic::combat::DamageType>,
+        frame: u32,
+    ) -> bool {
         let _ctx = PendingDamageContextGuard;
         // C++ InactiveBody::attemptDamage (InactiveBody.cpp:53-86): no HP except
         // DAMAGE_UNRESISTABLE (onDie once, never DamageFX).
@@ -199,7 +237,7 @@ impl Object {
         // C++ HiveStructureBody::attemptDamage (HiveStructureBody.cpp:45-112):
         // propagate SMALL_ARMS/SNIPER/POISON/RADIATION/SURRENDER/MICROWAVE to
         // closest slave; swallow SNIPER/POISON/SURRENDER when none remain.
-        if self.try_hive_structure_body_damage(damage, source, damage_type) {
+        if self.try_hive_structure_body_damage(damage, source, damage_type, frame) {
             return false;
         }
         // C++ ActiveBody::attemptDamage (ActiveBody.cpp:329-330) bails before
@@ -241,7 +279,7 @@ impl Object {
             self.status.pending_kill_garrisoned =
                 self.status.pending_kill_garrisoned.saturating_add(kills);
             if damage > 0.0 {
-                self.stamp_last_damage_cpp(source, false, damage_type);
+                self.stamp_last_damage_cpp(source, false, damage_type, frame);
             }
             let fx_type = fx_override.unwrap_or(damage_type);
             let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
@@ -284,7 +322,7 @@ impl Object {
             );
             self.heal(amount.max(0.0));
             if amount > 0.0 {
-                let now = crate::game_logic::host_historic_bonus::logic_frame();
+                let now = frame;
                 self.last_healing_timestamp = Some(now);
                 self.last_damage_timestamp = Some(now);
                 self.last_damage_source = source;
@@ -349,7 +387,7 @@ impl Object {
                             true,
                             damage_type.to_store() as u32,
                         );
-                        self.stamp_last_damage_cpp(source, false, damage_type);
+                        self.stamp_last_damage_cpp(source, false, damage_type, frame);
                         let _ =
                             crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
                                 self,
@@ -365,7 +403,7 @@ impl Object {
                     self.rider_change_scuttled_on_frame =
                         self.rider_change_scuttled_on_frame.max(1);
                     if damage > 0.0 {
-                        self.stamp_last_damage_cpp(source, false, damage_type);
+                        self.stamp_last_damage_cpp(source, false, damage_type, frame);
                     }
                     let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
                         self,
@@ -387,7 +425,7 @@ impl Object {
                 }
             }
             if damage > 0.0 {
-                self.stamp_last_damage_cpp(source, false, damage_type);
+                self.stamp_last_damage_cpp(source, false, damage_type, frame);
             }
             let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
                 self,
@@ -397,8 +435,6 @@ impl Object {
             let _ = (source, death_type);
             return false;
         }
-
-
 
         // C++ DAMAGE_MICROWAVE (Damage.h:63) is ordinary HP through armor.
         // IsSubdualDamage is false (Damage.h:95-107). Do not peel EMP/Microwave
@@ -413,7 +449,7 @@ impl Object {
             );
             self.apply_subdual_damage(typed);
             if typed > 0.0 {
-                self.stamp_last_damage_cpp(source, false, damage_type);
+                self.stamp_last_damage_cpp(source, false, damage_type, frame);
             }
             let fx_type = fx_override.unwrap_or(damage_type);
             let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
@@ -432,7 +468,6 @@ impl Object {
                 damage,
             );
             let frames = ((amount.max(0.0) * 30.0) / 1000.0).ceil() as u32;
-            let frame = crate::game_logic::host_historic_bonus::logic_frame();
             if frames > 0 {
                 // C++ ActiveBody.cpp:460-464 doStatusDamage(m_damageStatusType).
                 // Default OBJECT_STATUS_NONE: no paint. Avenger authors FAERIE_FIRE.
@@ -443,7 +478,7 @@ impl Object {
                 }
             }
             if amount > 0.0 {
-                self.stamp_last_damage_cpp(source, false, damage_type);
+                self.stamp_last_damage_cpp(source, false, damage_type, frame);
             }
             let fx_type = fx_override.unwrap_or(damage_type);
             let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
@@ -455,13 +490,14 @@ impl Object {
             return false;
         }
 
-        self.take_damage_from_typed_death_with_host_hp(
+        self.take_damage_from_typed_death_with_host_hp_at_frame(
             damage,
             source,
             damage_type,
             death_type,
             false,
             fx_override,
+            frame,
         )
     }
 
@@ -473,6 +509,27 @@ impl Object {
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         force_host_hp: bool,
         fx_override: Option<crate::game_logic::combat::DamageType>,
+    ) -> bool {
+        self.take_damage_from_typed_death_with_host_hp_at_frame(
+            damage,
+            source,
+            damage_type,
+            death_type,
+            force_host_hp,
+            fx_override,
+            crate::game_logic::host_historic_bonus::logic_frame(),
+        )
+    }
+
+    fn take_damage_from_typed_death_with_host_hp_at_frame(
+        &mut self,
+        damage: f32,
+        source: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        force_host_hp: bool,
+        fx_override: Option<crate::game_logic::combat::DamageType>,
+        frame: u32,
     ) -> bool {
         let _ctx = PendingDamageContextGuard;
         if self.status.destroyed {
@@ -490,7 +547,7 @@ impl Object {
         if self.status.eject_invulnerable {
             return false;
         }
-        if self.try_hive_structure_body_damage(damage, source, damage_type) {
+        if self.try_hive_structure_body_damage(damage, source, damage_type, frame) {
             return false;
         }
         let prev_health = self.health.current;
@@ -554,7 +611,7 @@ impl Object {
         // subclass raw clamp, bail before armor / lastDamage / FX.
         if self.indestructible {
             if battle_bus_start_second {
-                self.start_battle_bus_second_life();
+                self.start_battle_bus_second_life_at_frame(frame);
             }
             return false;
         }
@@ -641,7 +698,7 @@ impl Object {
         // after armor+scalar. Same-or-next-frame prefers VEHICLE/INFANTRY/faction
         // structure over projectiles; 0-amount crush FX does not stamp.
         if actual_damage > 0.0 || destroyed {
-            self.stamp_last_damage_cpp(source, destroyed, damage_type);
+            self.stamp_last_damage_cpp(source, destroyed, damage_type, frame);
         }
         crate::game_logic::host_damage_log::record_typed(
             self.id,
@@ -667,12 +724,11 @@ impl Object {
 
         // C++ UndeadBody::startSecondLife after ActiveBody::attemptDamage residual.
         if battle_bus_start_second {
-            self.start_battle_bus_second_life();
+            self.start_battle_bus_second_life_at_frame(frame);
         }
 
         // C++ PoisonedBehavior::onDamage residual.
         if actual_damage > 0.0 {
-            let frame = crate::game_logic::host_historic_bonus::logic_frame();
             self.notify_poisoned_on_damage(frame, damage_type, actual_damage, death_type);
         }
         // C++ FlammableUpdate.cpp:78-100 onDamage FLAME / PARTICLE_BEAM → tryToIgnite.
@@ -684,7 +740,6 @@ impl Object {
             )
         {
             if let Some(fs) = self.fire_spread.as_mut() {
-                let frame = crate::game_logic::host_historic_bonus::logic_frame();
                 if fs.apply_flame_damage(actual_damage, frame) {
                     self.apply_flammable_ignite_visuals();
                 }
@@ -697,7 +752,7 @@ impl Object {
             if !(crate::gameworld_shadow::gameworld_damage_authority_live() && !force_host_hp) {
                 self.ensure_fire_weapon_when_damaged();
                 if let Some(fw) = self.fire_weapon_when_damaged.as_mut() {
-                    // Frame 0: debounce via serial on data; GameLogic may also call with real frame.
+                    // Keep the impact frame through debounce; GameLogic may process the emitted weapon later.
                     if let Some(w) = fw.on_damage(
                         actual_damage,
                         self.health.current,
@@ -706,7 +761,7 @@ impl Object {
                         } else {
                             self.max_health.max(1.0)
                         },
-                        crate::game_logic::host_historic_bonus::logic_frame(),
+                        frame,
                         damage_type.to_store() as u32,
                     ) {
                         self.pending_fire_when_damaged_weapon = Some(w);
@@ -854,6 +909,7 @@ impl Object {
         damage: f32,
         source: Option<ObjectId>,
         damage_type: crate::game_logic::combat::DamageType,
+        frame: u32,
     ) -> bool {
         use crate::game_logic::host_base_defense::{
             HostHiveDamageClass, hive_damage_class_for_type, is_stinger_site_structure,
@@ -884,7 +940,6 @@ impl Object {
         self.hive_slave_hp = hp;
         self.record_host_hive();
         if result.slaves_killed > 0 {
-            let frame = crate::game_logic::host_historic_bonus::logic_frame();
             self.hive_slave_respawn_frame =
                 crate::game_logic::host_base_defense::next_stinger_slave_respawn_frame(
                     frame,
@@ -923,9 +978,9 @@ impl Object {
         source: Option<ObjectId>,
         preferred: bool,
         damage_type: crate::game_logic::combat::DamageType,
+        frame: u32,
     ) {
         self.last_damage_info_type = Some(damage_type);
-        let frame = crate::game_logic::host_historic_bonus::logic_frame();
         let same_or_next = self.last_damage_timestamp == Some(frame)
             || self.last_damage_timestamp == Some(frame.saturating_sub(1));
         if !same_or_next {

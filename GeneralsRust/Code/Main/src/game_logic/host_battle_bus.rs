@@ -679,11 +679,15 @@ mod tests {
             battle_bus_hit_ground_fx_name("GLAVehicleBattleBus"),
             BATTLE_BUS_FX_HIT_GROUND
         );
-        let orders = include_str!("object/orders.rs");
+        let orders = include_str!("object/orders/battle_bus.rs");
         let start = orders
-            .find("pub fn start_battle_bus_second_life")
-            .expect("start_battle_bus_second_life");
-        let start_win = &orders[start..start + 2200];
+            .find("pub(in crate::game_logic) fn start_battle_bus_second_life_at_frame")
+            .expect("start_battle_bus_second_life_at_frame");
+        let start_end = orders[start..]
+            .find("pub fn tick_battle_bus_slow_death")
+            .unwrap()
+            + start;
+        let start_win = &orders[start..start_end];
         assert!(
             start_win.contains("battle_bus_start_undeath_fx_name"),
             "StartUndeath FX name missing: {start_win}"
@@ -695,7 +699,11 @@ mod tests {
         let land = orders
             .find("pub fn tick_battle_bus_slow_death")
             .expect("tick_battle_bus_slow_death");
-        let land_win = &orders[land..land + 2800];
+        let land_end = orders[land..]
+            .find("pub fn battle_bus_should_intercept_lethal")
+            .unwrap()
+            + land;
+        let land_win = &orders[land..land_end];
         assert!(
             land_win.contains("battle_bus_hit_ground_fx_name"),
             "HitGround FX name missing: {land_win}"

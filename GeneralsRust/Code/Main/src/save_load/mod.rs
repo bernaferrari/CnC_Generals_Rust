@@ -65,8 +65,6 @@ pub const MAX_SAVE_SLOTS: usize = 10;
 /// Save file extensions
 /// Popup and host both write Common CHUNK_*.sav (C++ TheGameState container).
 pub const SAVE_EXTENSION: &str = "sav";
-/// Legacy host GZHS wrapper. Load still accepts it.
-pub const LEGACY_SAVE_EXTENSION: &str = "gen";
 pub const REPLAY_EXTENSION: &str = "rep";
 pub const CAMPAIGN_EXTENSION: &str = "cam";
 

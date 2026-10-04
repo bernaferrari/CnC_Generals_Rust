@@ -145,9 +145,8 @@ mod legacy_and_timer_snapshots;
 /// Direct Xfer must reject a future envelope before it consumes timestamp or
 /// any body byte. Marker labels are no-ops, so this is the actual boundary.
 
-/// The outer direct-Xfer validator accepts every explicitly supported legacy
-/// version. This is intentionally an envelope check; historical full-body
-/// compatibility remains covered by exact tail fixtures above.
+/// The Rust outer envelope accepts only the current schema; original CPP
+/// module version contracts remain independently tested.
 
 /// C++ `Player::xfer` (`Player.cpp:4268-4275`) persists `m_rankLevel`,
 /// `m_skillPoints`, and `m_sciencePurchasePoints`. Host restore previously

@@ -41,8 +41,7 @@ pub fn compute_shock_wave_force(
 }
 
 pub fn host_shock_wave_amount_for_weapon_name(name: &str) -> f32 {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let from_store = with_weapon_store(|store| {
         store
             .find_weapon_template(name)
@@ -60,8 +59,7 @@ pub fn host_shock_wave_amount_for_weapon_name(name: &str) -> f32 {
 
 /// C++ Weapon.ini ShockWaveRadius residual (Regular).
 pub fn host_shock_wave_radius_for_weapon_name(name: &str) -> f32 {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let from_store = with_weapon_store(|store| {
         store
             .find_weapon_template(name)
@@ -79,8 +77,7 @@ pub fn host_shock_wave_radius_for_weapon_name(name: &str) -> f32 {
 
 /// C++ Weapon.ini ShockWaveTaperOff residual (Regular).
 pub fn host_shock_wave_taper_for_weapon_name(name: &str) -> f32 {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let from_store = with_weapon_store(|store| {
         store
             .find_weapon_template(name)
@@ -169,8 +166,7 @@ pub(super) fn seed_shock_wave_taper_for(name: &str) -> f32 {
 /// Fail-closed: name peel / store lookup only — applied as outer splash ring
 /// on projectile impact (not full Affects mask / shockwave matrix).
 pub fn host_secondary_damage_for_weapon_name(name: &str) -> f32 {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let from_store = with_weapon_store(|store| {
         store
             .find_weapon_template(name)
@@ -189,8 +185,7 @@ pub fn host_secondary_damage_for_weapon_name(name: &str) -> f32 {
 /// C++ Weapon.ini SecondaryDamageRadius residual (Regular).
 /// C++ Weapon.ini PrimaryDamageRadius residual.
 pub fn host_primary_damage_radius_for_weapon_name(name: &str) -> f32 {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let from_store = with_weapon_store(|store| {
         store
             .find_weapon_template(name)
@@ -221,8 +216,7 @@ pub(super) fn seed_primary_damage_radius_for(name: &str) -> f32 {
 }
 
 pub fn host_secondary_damage_radius_for_weapon_name(name: &str) -> f32 {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let from_store = with_weapon_store(|store| {
         store
             .find_weapon_template(name)

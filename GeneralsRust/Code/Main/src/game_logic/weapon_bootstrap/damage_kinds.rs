@@ -8,8 +8,7 @@ pub fn host_shows_ammo_pips_for_weapon_name(name: &str) -> bool {
     if name.is_empty() {
         return false;
     }
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     with_weapon_store(|store| {
         store
             .find_weapon_template(name)
@@ -28,8 +27,7 @@ pub fn host_capable_of_following_waypoint_for_weapon_name(name: &str) -> bool {
     if name.is_empty() {
         return false;
     }
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     with_weapon_store(|store| {
         store
             .find_weapon_template(name)
@@ -40,48 +38,29 @@ pub fn host_capable_of_following_waypoint_for_weapon_name(name: &str) -> bool {
     .unwrap_or(false)
 }
 
-/// C++ Weapon.ini ProjectileStreamName residual.
-///
-/// Prefer the live WeaponStore field (this template's stream). Seed is only
-/// a fallback when the store has no authored name.
-pub fn host_projectile_stream_name_for_weapon_name(name: &str) -> String {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
-    let from_store = with_weapon_store(|store| {
-        store.find_weapon_template(name).and_then(|wt| {
-            let authored = wt.projectile_stream_name.trim();
-            if authored.is_empty() {
-                None
-            } else {
-                Some(authored.to_string())
-            }
-        })
-    })
-    .ok()
-    .flatten();
-    if let Some(authored) = from_store {
-        return authored;
-    }
-    seed_projectile_stream_name_for(name)
+/// A real definition may intentionally contain no stream. Absence of the
+/// definition is a separate bootstrap condition, never inferred from its value.
+enum ProjectileStreamDefinition {
+    Defined(String),
+    Missing,
 }
 
-/// Resolve ProjectileStreamName from the firing slot, then any other slot.
-pub fn host_projectile_stream_name_for_slots(
-    preferred: Option<&str>,
-    primary: Option<&str>,
-    secondary: Option<&str>,
-    tertiary: Option<&str>,
-) -> String {
-    for name in [preferred, primary, secondary, tertiary]
-        .into_iter()
-        .flatten()
-    {
-        let authored = host_projectile_stream_name_for_weapon_name(name);
-        if !authored.is_empty() {
-            return authored;
-        }
+/// C++ Weapon::newProjectileFired uses this exact WeaponTemplate's field.
+/// An empty defined stream is authoritative; only genuinely missing host rules
+/// may use the existing bootstrap seed. Store errors remain fail closed.
+pub fn host_projectile_stream_name_for_weapon_name(name: &str) -> String {
+    match with_host_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|definition| {
+                ProjectileStreamDefinition::Defined(definition.projectile_stream_name.clone())
+            })
+            .unwrap_or(ProjectileStreamDefinition::Missing)
+    }) {
+        Ok(ProjectileStreamDefinition::Defined(stream)) => stream,
+        Ok(ProjectileStreamDefinition::Missing) => seed_projectile_stream_name_for(name),
+        Err(_) => String::new(),
     }
-    String::new()
 }
 
 pub(super) fn seed_projectile_stream_name_for(name: &str) -> String {
@@ -107,8 +86,7 @@ pub(super) fn seed_projectile_stream_name_for(name: &str) -> String {
 /// Leftover store is source of truth. Default false when the template is
 /// missing — do not invent the flag from weapon-name substrings.
 pub fn host_die_on_detonate_for_weapon_name(name: &str) -> bool {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     with_weapon_store(|store| {
         store
             .find_weapon_template(name)
@@ -127,8 +105,7 @@ pub fn host_damage_dealt_at_self_position_for_weapon_name(name: &str) -> bool {
     if name.is_empty() {
         return false;
     }
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     with_weapon_store(|store| {
         store
             .find_weapon_template(name)
@@ -203,8 +180,7 @@ pub fn host_weapon_is_kill_garrisoned_damage(name: &str) -> bool {
     if name.is_empty() {
         return false;
     }
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     with_weapon_store(|store| {
         store
             .find_weapon_template(name)
@@ -233,8 +209,7 @@ pub fn host_weapon_is_water_damage(name: &str) -> bool {
 
 /// C++ Weapon.ini DamageStatusType residual name (OBJECT_STATUS bit name).
 pub fn host_damage_status_type_for_weapon_name(name: &str) -> Option<&'static str> {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let from_store = with_weapon_store(|store| {
         store
             .find_weapon_template(name)

@@ -2018,7 +2018,14 @@ impl GameLogic {
                     UPGRADE_AMERICA_FLASHBANG, has_flashbang_equipped, ranger_flashbang_weapon,
                     ranger_rifle_weapon,
                 };
-                object.weapon = Some(ranger_rifle_weapon());
+                // C++ WeaponSet::updateWeaponSet uses the authored primary.
+                // Only supply the retail seed when this template has no rule.
+                if object.thing.template.primary_weapon_name.is_none()
+                    && object.thing.template.primary_weapon.is_none()
+                    && !object.thing.template.primary_weapon_explicitly_none
+                {
+                    object.weapon = Some(ranger_rifle_weapon());
+                }
                 let has_flashbang = has_flashbang_equipped(false, &object.applied_upgrades)
                     || self.players.values().any(|p| {
                         p.team == team && p.has_unlocked_upgrade(UPGRADE_AMERICA_FLASHBANG)

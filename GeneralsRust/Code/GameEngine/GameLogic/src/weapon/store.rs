@@ -33,6 +33,15 @@ use super::template::WeaponTemplate;
 use super::weapon_instance::Weapon;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 
+/// Host-only admission memo. It follows this exact catalog through replacement;
+/// it is not gameplay state and has no C++ Snapshot/Xfer field.
+#[derive(Debug, Default, PartialEq, Eq)]
+enum HostBootstrapAdmission {
+    #[default]
+    Pending,
+    Complete,
+}
+
 /// Weapon store managing all weapon templates
 #[derive(Debug)]
 pub struct WeaponStore {
@@ -40,6 +49,7 @@ pub struct WeaponStore {
     pub(crate) weapon_templates_by_key: HashMap<u32, Arc<WeaponTemplate>>,
     pub(crate) delayed_damage_info: Vec<WeaponDelayedDamageInfo>,
     last_imported_common_count: usize,
+    host_bootstrap_admission: HostBootstrapAdmission,
 }
 
 /// Delayed damage information
@@ -113,6 +123,7 @@ impl WeaponStore {
             weapon_templates_by_key: HashMap::new(),
             delayed_damage_info: Vec::new(),
             last_imported_common_count: 0,
+            host_bootstrap_admission: HostBootstrapAdmission::Pending,
         }
     }
 
@@ -301,7 +312,20 @@ impl WeaponStore {
         self.weapon_templates_by_key.clear();
         self.delayed_damage_info.clear();
         self.last_imported_common_count = 0;
+        self.host_bootstrap_admission = HostBootstrapAdmission::Pending;
         Ok(())
+    }
+
+    /// Whether Main completed fallback admission into this exact store.
+    /// Query together with the requested definition under the existing borrow.
+    pub fn host_bootstrap_is_complete(&self) -> bool {
+        self.host_bootstrap_admission == HostBootstrapAdmission::Complete
+    }
+
+    /// Record completion only after Main releases all parser/seed callbacks.
+    /// Constructing or resetting a store leaves admission pending.
+    pub fn mark_host_bootstrap_complete(&mut self) {
+        self.host_bootstrap_admission = HostBootstrapAdmission::Complete;
     }
 
     /// Pull hits that are due. Callers must fire them after releasing the store lock.

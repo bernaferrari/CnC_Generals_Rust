@@ -22,8 +22,7 @@ pub const PROJECTILE_COLLIDE_DEFAULT: u32 =
 /// Fail-closed: gates intervening-structure intercept only — not full shrubbery /
 /// projectile-vs-projectile collide matrix.
 pub fn host_projectile_collides_for_weapon_name(name: &str) -> u32 {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let from_store = with_weapon_store(|store| {
         store.find_weapon_template(name).map(|wt| {
             // collide_mask bits are public u32 storage on WeaponCollideMask.
@@ -120,8 +119,7 @@ pub const WEAPON_AFFECTS_DEFAULT: u32 =
 /// Live fire reads the leftover WeaponStore (Weapon.cpp:1275 getAffectsMask).
 /// Missing template → C++ constructor default ALLIES|ENEMIES|NEUTRALS.
 pub fn host_radius_damage_affects_for_weapon_name(name: &str) -> u32 {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let from_store = with_weapon_store(|store| {
         store
             .find_weapon_template(name)

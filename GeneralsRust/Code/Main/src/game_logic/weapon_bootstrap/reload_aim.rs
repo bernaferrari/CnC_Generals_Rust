@@ -8,8 +8,8 @@ pub enum HostReloadType {
 }
 
 pub fn host_reload_type_for_weapon_name(name: &str) -> HostReloadType {
-    use gamelogic::weapon::{WeaponReloadType as GlReload, with_weapon_store};
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
+    use gamelogic::weapon::WeaponReloadType as GlReload;
     let from_store = with_weapon_store(|store| {
         store
             .find_weapon_template(name)
@@ -67,8 +67,8 @@ impl HostPrefireType {
 
 /// Resolve PreAttackType for a weapon name.
 pub fn host_prefire_type_for_weapon_name(name: &str) -> HostPrefireType {
-    use gamelogic::weapon::{WeaponPrefireType, with_weapon_store};
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
+    use gamelogic::weapon::WeaponPrefireType;
     let from_store = with_weapon_store(|store| {
         store
             .find_weapon_template(name)
@@ -128,8 +128,8 @@ pub fn host_delay_between_shots_secs_rolled(name: &str) -> Option<f32> {
 }
 
 fn leftover_delay_between_shots_secs(name: &str, rof: f32, roll: bool) -> Option<f32> {
-    use gamelogic::weapon::{WeaponBonus, WeaponBonusField, with_weapon_store};
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
+    use gamelogic::weapon::{WeaponBonus, WeaponBonusField};
     with_weapon_store(|store| {
         store.find_weapon_template(name).and_then(|wt| {
             let mut bonus = WeaponBonus::new();
@@ -151,8 +151,7 @@ fn leftover_delay_between_shots_secs(name: &str, rof: f32, roll: bool) -> Option
 
 /// C++ Weapon.ini PrimaryDamage residual amount (Regular).
 pub fn host_primary_damage_for_weapon_name(name: &str) -> Option<f32> {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     with_weapon_store(|store| {
         store
             .find_weapon_template(name)
@@ -213,8 +212,7 @@ pub fn normalize_aim_delta_radians(raw: f32) -> f32 {
 
 /// Resolve AcceptableAimDelta for a weapon name (radians, REL_THRESH floor).
 pub fn host_aim_delta_for_weapon_name(name: &str) -> f32 {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let from_store =
         with_weapon_store(|store| store.find_weapon_template(name).map(|wt| wt.aim_delta))
             .ok()

@@ -186,6 +186,7 @@ impl SnapshotBuilder {
             logic_rng_seed_words: game_logic.logic_random.seed_words(),
             // C++ GameStateMap::xfer moves the exact counter early in load.
             next_object_id: game_logic.next_object_id_for_snapshot().0,
+            pending_combat: game_logic.combat_system.pending_combat_snapshot(),
         };
 
         super::player_team_persist::stamp_from_live(game_logic);
@@ -222,6 +223,7 @@ impl SnapshotBuilder {
         snapshot: &WorldSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
+        validate_direct_world_snapshot_version(snapshot.version)?;
         log::info!(
             "Restoring world from snapshot: {} objects, {} players",
             snapshot.objects.len(),
@@ -459,9 +461,7 @@ impl SnapshotBuilder {
 
         self.sync_all_garrisoned_units_from_occupants(game_logic);
         self.restore_game_logic_persist_tail(snapshot, game_logic);
-        if snapshot.version >= WORLD_SNAPSHOT_DIRECT_XFER_V18_TAIL_VERSION {
-            super::persist_v18::restore_persist_v18(&snapshot.persist_v18, game_logic);
-        }
+        super::persist_v18::restore_persist_v18(&snapshot.persist_v18, game_logic);
         super::hotkey_squad_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,
@@ -474,6 +474,8 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
+
+        game_logic.combat_system.restore_pending_combat(&snapshot.pending_combat);
 
         log::info!("World restoration complete");
         Ok(())
@@ -990,9 +992,7 @@ impl SnapshotBuilder {
         snapshot: &WorldSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V12_TAIL_VERSION {
-            return Ok(());
-        }
+
         let mut seen = HashSet::new();
         for entry in &snapshot.overcharge_active {
             if !seen.insert(entry.object_id) {
@@ -1168,9 +1168,7 @@ impl SnapshotBuilder {
     }
 
     fn restore_object_triggers(&self, snapshot: &WorldSnapshot, game_logic: &mut GameLogic) {
-        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V16_TAIL_VERSION {
-            return;
-        }
+
         let entries: Vec<gamelogic::scripting::HostObjectTriggerPersist> = snapshot
             .object_triggers
             .iter()
@@ -1204,9 +1202,7 @@ impl SnapshotBuilder {
         snapshot: &WorldSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V14_TAIL_VERSION {
-            return Ok(());
-        }
+
 
         let mut seen = HashSet::new();
         let mut contain_frames = Vec::new();
@@ -1291,11 +1287,7 @@ impl SnapshotBuilder {
         snapshot: &WorldSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V18_TAIL_VERSION
-            && snapshot.object_experience_trackers.is_empty()
-        {
-            return Ok(());
-        }
+
         let mut seen = HashSet::new();
         for entry in &snapshot.object_experience_trackers {
             if !seen.insert(entry.object_id) {
@@ -1348,11 +1340,7 @@ impl SnapshotBuilder {
         snapshot: &WorldSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V19_TAIL_VERSION
-            && snapshot.object_command_sets.is_empty()
-        {
-            return Ok(());
-        }
+
         let mut seen = HashSet::new();
         for entry in &snapshot.object_command_sets {
             if !seen.insert(entry.object_id) {
@@ -1418,11 +1406,7 @@ impl SnapshotBuilder {
         snapshot: &WorldSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V20_TAIL_VERSION
-            && snapshot.object_disguises.is_empty()
-        {
-            return Ok(());
-        }
+
         let mut seen = HashSet::new();
         for entry in &snapshot.object_disguises {
             if !seen.insert(entry.object_id) {
@@ -1508,9 +1492,7 @@ impl SnapshotBuilder {
         snapshot: &WorldSnapshot,
         game_logic: &mut GameLogic,
     ) {
-        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V14_TAIL_VERSION {
-            return;
-        }
+
         for entry in &snapshot.client_drawable_visuals {
             let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) else {
                 continue;
@@ -1532,9 +1514,7 @@ impl SnapshotBuilder {
         snapshot: &WorldSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V13_TAIL_VERSION {
-            return Ok(());
-        }
+
 
         let mut seen_vision = HashSet::new();
         for entry in &snapshot.vision_spied {
@@ -1590,9 +1570,7 @@ impl SnapshotBuilder {
         snapshot: &WorldSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V10_TAIL_VERSION {
-            return Ok(());
-        }
+
         let mut seen_players = HashSet::new();
         for rank in &snapshot.player_ranks {
             if !seen_players.insert(rank.player_id) {
@@ -1619,9 +1597,7 @@ impl SnapshotBuilder {
         snapshot: &WorldSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V15_TAIL_VERSION {
-            return Ok(());
-        }
+
         let mut seen_players = HashSet::new();
         for energy in &snapshot.player_energy {
             if !seen_players.insert(energy.player_id) {
@@ -1697,9 +1673,7 @@ impl SnapshotBuilder {
         snapshot: &WorldSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION {
-            return Ok(());
-        }
+
 
         let mut identities = Vec::with_capacity(snapshot.player_template_bindings.len());
         let mut seen_players = HashSet::new();

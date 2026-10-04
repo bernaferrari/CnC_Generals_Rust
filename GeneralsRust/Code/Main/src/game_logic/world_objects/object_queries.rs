@@ -1306,6 +1306,8 @@ impl GameLogic {
         }
         self.visual_world_epoch = self.visual_world_epoch.wrapping_add(1).max(1);
         self.objects.clear();
+        // Playback/retry deadlines are transient; restored IDs start fresh.
+        self.ambient_sound_retries.clear();
         self.host_move_attack_machines.clear();
         self.host_view_dirty.clear();
         self.next_object_id = ObjectId(1);

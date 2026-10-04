@@ -2,8 +2,7 @@ use super::*;
 
 /// C++ Weapon.ini ProjectileObject residual name for a store weapon template.
 pub fn host_projectile_name_for_weapon_name(name: &str) -> String {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let from_store = with_weapon_store(|store| {
         store.find_weapon_template(name).map(|wt| {
             let n = wt.projectile_name.trim();
@@ -97,8 +96,7 @@ pub(super) fn seed_projectile_name_for(name: &str) -> String {
 }
 
 pub fn host_fire_sound_for_weapon_name(name: &str) -> String {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let from_store = with_weapon_store(|store| {
         store.find_weapon_template(name).and_then(|wt| {
             let n = wt.fire_sound.name().trim();
@@ -124,8 +122,7 @@ pub fn host_fire_sound_for_weapon_name(name: &str) -> String {
 /// (`Weapon.h:679` getFireSoundLoopTime). Missing template or authored 0
 /// → one-shot fire sound (no looping handle).
 pub fn host_fire_sound_loop_frames_for_weapon_name(name: &str) -> u32 {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     with_weapon_store(|store| {
         store
             .find_weapon_template(name)
@@ -142,9 +139,8 @@ pub fn host_fire_sound_loop_frames_for_weapon_name(name: &str) -> u32 {
 /// FireFX (C++ Weapon::fireWeaponTemplate handleWeaponFireFX gate). Mines always
 /// play FX. When true, FX plays even while stealthed.
 pub fn host_play_fx_when_stealthed_for_weapon_name(name: &str) -> bool {
-    use gamelogic::weapon::with_weapon_store;
+    use super::with_host_weapon_store as with_weapon_store;
 
-    let _ = ensure_host_weapon_store();
     with_weapon_store(|store| {
         store
             .find_weapon_template(name)
@@ -165,8 +161,7 @@ pub fn host_allow_attack_garrisoned_for_weapon_name(name: &str) -> bool {
     if name.is_empty() {
         return false;
     }
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     with_weapon_store(|store| {
         store
             .find_weapon_template(name)

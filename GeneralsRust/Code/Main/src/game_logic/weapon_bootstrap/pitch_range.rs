@@ -61,8 +61,7 @@ pub fn is_contact_effective_range(effective_range: f32) -> bool {
 
 /// Leftover `WeaponTemplate::is_contact_weapon` from the live WeaponStore.
 pub fn host_is_contact_weapon_name(name: &str) -> bool {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let leftover = with_weapon_store(|store| {
         store
             .find_weapon_template(name)
@@ -231,8 +230,7 @@ pub fn is_goal_pos_within_attack_range(
 }
 
 pub fn host_continue_attack_range_for_weapon_name(name: &str) -> f32 {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let from_store = with_weapon_store(|store| {
         store
             .find_weapon_template(name)
@@ -264,8 +262,7 @@ pub fn seed_continue_attack_range_for(name: &str) -> f32 {
 }
 
 pub fn host_target_pitch_limits_for_weapon_name(name: &str) -> HostTargetPitchLimits {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let from_store = with_weapon_store(|store| {
         store
             .find_weapon_template(name)

@@ -5,35 +5,11 @@ use crate::game_logic::host_move_ambient_audio::{
     TemplateMoveAmbientSlot, drain_ambient_restarts, drain_move_loop_stops, move_uses_damaged,
     resolve_ambient_event, resolve_for_object,
 };
-use std::collections::HashMap;
 
-/// C++ `Drawable::update` re-adds a culled permanent SoundAmbient, but retail
-/// `AudioSettings.ini` `TimeBetweenDrawableSounds`
-/// (`AudioSettings::drawable_ambient_frames`) throttles drawable sound
-/// retries. Fallback when the setting is absent/zero: 30 logic frames = 1 s
-/// at the 30 Hz logic rate.
+/// Existing Main policy for failed permanent-loop restart attempts. C++
+/// `Drawable::update` retries every update; the Rust backoff is retained here
+/// as parity debt hq-rei1p. AudioSettings supplies its configured interval.
 const DEFAULT_DRAWABLE_AMBIENT_RETRY_FRAMES: u32 = 30;
-
-/// Per-object ambient restart pacing (host session lifetime). `was_playing`
-/// keeps C++ `Drawable::update` semantics — a loop that was playing and got
-/// culled restarts immediately; a restart attempt that never produced sound
-/// (mute game) backs off instead of re-queueing every frame. The logic tick
-/// is single-threaded; `thread_local!` matches the ambient restart log in
-/// `host_move_ambient_audio` and keeps parallel test sessions isolated.
-#[derive(Debug, Default, Clone)]
-struct AmbientRestartPacing {
-    /// Ambient event name this pacing state was recorded for (damage-state
-    /// switches change the name; a different sound starts with fresh
-    /// pacing).
-    name: String,
-    last_attempt_frame: Option<u32>,
-    was_playing: bool,
-}
-
-thread_local! {
-    static AMBIENT_RESTART_PACING: std::cell::RefCell<HashMap<u32, AmbientRestartPacing>> =
-        std::cell::RefCell::new(HashMap::new());
-}
 
 /// Live `drawable_ambient_frames` from THE_AUDIO AudioSettings (retail
 /// `TimeBetweenDrawableSounds`), defaulting to 30 frames.
@@ -48,11 +24,6 @@ fn drawable_ambient_retry_frames() -> u32 {
         })
         .filter(|frames| *frames > 0)
         .unwrap_or(DEFAULT_DRAWABLE_AMBIENT_RETRY_FRAMES)
-}
-
-#[cfg(test)]
-fn reset_ambient_restart_pacing_for_tests() {
-    AMBIENT_RESTART_PACING.with(|pacing| pacing.borrow_mut().clear());
 }
 
 fn leftover_ambient_is_playing(object_id: ObjectId, name: &str) -> bool {
@@ -114,14 +85,10 @@ impl GameLogic {
                 Some((*id, name.clone(), unit.get_position()))
             })
             .collect();
-        AMBIENT_RESTART_PACING.with(|pacing| {
-            // Session pacing tracks live candidates only; destroyed objects
-            // drop out of the map.
-            pacing
-                .borrow_mut()
-                .retain(|id, _| candidates.iter().any(|(candidate, _, _)| candidate.0 == *id));
-        });
-        let now = crate::game_logic::host_historic_bonus::logic_frame();
+        // Only this owner's live ambient candidates retain retry deadlines.
+        self.ambient_sound_retries
+            .retain_objects(|id| candidates.iter().any(|(candidate, _, _)| *candidate == id));
+        let now = self.frame;
         let retry_frames = drawable_ambient_retry_frames();
         for (id, name, pos) in candidates {
             if self.queued_audio_events.iter().any(|event| {
@@ -132,43 +99,14 @@ impl GameLogic {
             }) {
                 continue;
             }
-            // The RefMut cannot escape `thread_local!::with`, so the pacing
-            // decision runs inside and only the verdict comes out.
-            let should_restart = AMBIENT_RESTART_PACING.with(|p| {
-                let mut pacing = p.borrow_mut();
-                let state = pacing.entry(id.0).or_default();
-                if state.name != name {
-                    // Damage-state / script switch to a different ambient
-                    // event: fresh pacing (was_playing and backoff belong to
-                    // the old sound).
-                    *state = AmbientRestartPacing {
-                        name: name.clone(),
-                        ..Default::default()
-                    };
-                }
-                if leftover_ambient_is_playing(id, &name) {
-                    state.was_playing = true;
-                    return false;
-                }
-                if !leftover_ambient_is_permanent(&name) {
-                    return false;
-                }
-                // C++ `Drawable::update` restarts a previously-playing
-                // culled loop immediately; a restart attempt that never
-                // produced sound backs off to the drawable-ambient cadence
-                // (`TimeBetweenDrawableSounds`) instead of re-queueing every
-                // frame while the play fails.
-                let backoff_elapsed = match state.last_attempt_frame {
-                    Some(last) => now.saturating_sub(last) >= retry_frames,
-                    None => true,
-                };
-                if !(state.was_playing || backoff_elapsed) {
-                    return false;
-                }
-                state.was_playing = false;
-                state.last_attempt_frame = Some(now);
-                true
-            });
+            let should_restart = self.ambient_sound_retries.should_restart(
+                id,
+                &name,
+                now,
+                retry_frames,
+                || leftover_ambient_is_playing(id, &name),
+                || leftover_ambient_is_permanent(&name),
+            );
             if should_restart {
                 self.queue_audio_event(
                     AudioEventRequest::new(&name)
@@ -700,7 +638,6 @@ mod tests {
         // C++ Drawable::update restarts loop-forever SoundAmbient when
         // Miles processPlayingList drops the out-of-range 3D loop.
         register_ambient_event("WarFactoryAmbientLoop", true);
-        super::reset_ambient_restart_pacing_for_tests();
         let mut logic = GameLogic::new();
         let mut tmpl = ThingTemplate::new("AmericaWarFactory");
         tmpl.add_kind_of(KindOf::Structure);
@@ -749,7 +686,6 @@ mod tests {
         // frames), so a failing loop costs one queue per second, not one
         // per frame.
         register_ambient_event("WarFactoryAmbientLoop", true);
-        super::reset_ambient_restart_pacing_for_tests();
         let mut logic = GameLogic::new();
         let mut tmpl = ThingTemplate::new("AmericaWarFactory");
         tmpl.add_kind_of(KindOf::Structure);
@@ -762,7 +698,6 @@ mod tests {
             .expect("factory");
         logic.queued_audio_events.clear();
 
-        let set_frame = crate::game_logic::host_historic_bonus::set_logic_frame;
         fn restarts_queued(logic: &GameLogic, id: ObjectId) -> bool {
             logic.queued_audio_events.iter().any(|e| {
                 e.event_type == "WarFactoryAmbientLoop"
@@ -772,7 +707,7 @@ mod tests {
             })
         }
 
-        set_frame(100);
+        logic.set_current_frame(100);
         logic.drain_pending_move_ambient_audio();
         assert!(
             restarts_queued(&logic, id),
@@ -784,7 +719,7 @@ mod tests {
         // (never observed playing) must not re-queue.
         for frame in 101..=129 {
             logic.queued_audio_events.clear();
-            set_frame(frame);
+            logic.set_current_frame(frame);
             logic.drain_pending_move_ambient_audio();
             assert!(
                 !restarts_queued(&logic, id),
@@ -792,7 +727,7 @@ mod tests {
             );
         }
 
-        set_frame(130);
+        logic.set_current_frame(130);
         logic.drain_pending_move_ambient_audio();
         assert!(
             restarts_queued(&logic, id),
@@ -806,7 +741,6 @@ mod tests {
         // culled right away — the backoff only paces retries of restarts
         // that never produced sound.
         register_ambient_event("WarFactoryAmbientLoop", true);
-        super::reset_ambient_restart_pacing_for_tests();
         let mut logic = GameLogic::new();
         let mut tmpl = ThingTemplate::new("AmericaWarFactory");
         tmpl.add_kind_of(KindOf::Structure);
@@ -819,8 +753,7 @@ mod tests {
             .expect("factory");
         logic.queued_audio_events.clear();
 
-        let set_frame = crate::game_logic::host_historic_bonus::set_logic_frame;
-        set_frame(200);
+        logic.set_current_frame(200);
         logic.drain_pending_move_ambient_audio(); // initial attempt at 200
         logic.queued_audio_events.clear();
 
@@ -840,7 +773,7 @@ mod tests {
                 .expect("THE_AUDIO lock")
                 .remove_audio_event(1001);
         }
-        set_frame(201); // inside the 30-frame backoff window
+        logic.set_current_frame(201); // inside the 30-frame backoff window
         logic.drain_pending_move_ambient_audio();
         assert!(
             logic.queued_audio_events.iter().any(|e| {
@@ -886,3 +819,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod ambient_retry_owner_tests;

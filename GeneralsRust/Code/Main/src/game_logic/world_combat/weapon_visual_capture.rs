@@ -112,10 +112,9 @@ fn selected_fx_name_for_weapon(
 }
 
 fn host_weapon_recoil_amount(weapon_name: Option<&str>) -> f32 {
-    use gamelogic::weapon::with_weapon_store;
+    use crate::game_logic::weapon_bootstrap::with_host_weapon_store as with_weapon_store;
     weapon_name
         .and_then(|name| {
-            let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
             with_weapon_store(|store| {
                 store
                     .find_weapon_template(name)
@@ -128,10 +127,9 @@ fn host_weapon_recoil_amount(weapon_name: Option<&str>) -> f32 {
 }
 
 fn host_weapon_is_contact(weapon_name: Option<&str>, fallback_range: f32) -> bool {
-    use gamelogic::weapon::with_weapon_store;
+    use crate::game_logic::weapon_bootstrap::with_host_weapon_store as with_weapon_store;
     let range = weapon_name
         .and_then(|name| {
-            let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
             with_weapon_store(|store| {
                 store
                     .find_weapon_template(name)

@@ -4,6 +4,7 @@
 //! leftover `WeaponTemplate.extra_bonus`. Live compute must append that set
 //! after the global GameData bonuses.
 
+use super::with_host_weapon_store as with_weapon_store;
 use super::*;
 use gamelogic::weapon::{
     WeaponBonus, WeaponBonusConditionFlags, WeaponBonusConditionType, WeaponBonusField,
@@ -16,7 +17,6 @@ pub fn append_extra_weapon_bonus(
     flags: WeaponBonusConditionFlags,
     bonus: &mut WeaponBonus,
 ) {
-    let _ = ensure_host_weapon_store();
     let _ = with_weapon_store(|store| {
         if let Some(extra) = store
             .find_weapon_template(name)

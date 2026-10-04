@@ -65,14 +65,14 @@ impl Snapshot for WorldSnapshot {
                 let mut id = ObjectId(0);
                 id.xfer(xfer)?;
                 let mut obj = default_object_snapshot();
-                obj.xfer_for_world_version(xfer, self.version)?;
+                obj.xfer(xfer)?;
                 self.objects.insert(id, obj);
             }
         } else {
             for (id, obj) in &mut self.objects {
                 let mut id_copy = *id;
                 id_copy.xfer(xfer)?;
-                obj.xfer_for_world_version(xfer, self.version)?;
+                obj.xfer(xfer)?;
             }
         }
 
@@ -146,277 +146,204 @@ impl Snapshot for WorldSnapshot {
         xfer.xfer_marker_label("HostUpgrades")?;
         self.host_upgrades.xfer(xfer)?;
 
-        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V4_TAIL_VERSION {
-            xfer.xfer_marker_label("NextWeaponDischargeSequence")?;
-            xfer.xfer_u64(&mut self.next_weapon_discharge_sequence)?;
-            if xfer.get_mode() == XferMode::Load {
-                // Sequence zero is reserved only for an Object's unseen
-                // discharge marker; the world counter always denotes the next
-                // usable sequence.
-                self.next_weapon_discharge_sequence = self
-                    .next_weapon_discharge_sequence
-                    .max(default_next_weapon_discharge_sequence());
-            }
-            xfer.xfer_marker_label("ClientDrawables")?;
-            self.client_drawables.xfer(xfer)?;
-        } else if xfer.get_mode() == XferMode::Load {
-            self.next_weapon_discharge_sequence = default_next_weapon_discharge_sequence();
-            self.client_drawables = ClientDrawableWorldSnapshot::default();
+        xfer.xfer_marker_label("NextWeaponDischargeSequence")?;
+        xfer.xfer_u64(&mut self.next_weapon_discharge_sequence)?;
+        if xfer.get_mode() == XferMode::Load {
+            // Sequence zero is reserved only for an Object's unseen
+            // discharge marker; the world counter always denotes the next
+            // usable sequence.
+            self.next_weapon_discharge_sequence = self
+                .next_weapon_discharge_sequence
+                .max(default_next_weapon_discharge_sequence());
         }
+        xfer.xfer_marker_label("ClientDrawables")?;
+        self.client_drawables.xfer(xfer)?;
 
-        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION {
-            xfer.xfer_marker_label("PlayerTemplateBindings")?;
-            xfer_vec_default(
-                xfer,
-                &mut self.player_template_bindings,
-                PlayerTemplateBindingSnapshot {
-                    player_id: 0,
-                    template_name: String::new(),
-                    template_index: 0,
-                },
-            )?;
-        } else if xfer.get_mode() == XferMode::Load {
-            self.player_template_bindings.clear();
-        }
+        xfer.xfer_marker_label("PlayerTemplateBindings")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.player_template_bindings,
+            PlayerTemplateBindingSnapshot {
+                player_id: 0,
+                template_name: String::new(),
+                template_index: 0,
+            },
+        )?;
 
-        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V6_TAIL_VERSION {
-            xfer.xfer_marker_label("Shroud")?;
-            self.shroud.xfer(xfer)?;
-        } else if xfer.get_mode() == XferMode::Load {
-            self.shroud = ShroudSnapshot::default();
-        }
+        xfer.xfer_marker_label("Shroud")?;
+        self.shroud.xfer(xfer)?;
 
-        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V9_TAIL_VERSION {
-            xfer.xfer_marker_label("LifecycleTail")?;
-            super::xfer_helpers::xfer_vec_u8(xfer, &mut self.lifecycle_tail)?;
-        } else if xfer.get_mode() == XferMode::Load {
-            self.lifecycle_tail.clear();
-        }
+        xfer.xfer_marker_label("LifecycleTail")?;
+        super::xfer_helpers::xfer_vec_u8(xfer, &mut self.lifecycle_tail)?;
 
-        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V10_TAIL_VERSION {
-            xfer.xfer_marker_label("PlayerRanks")?;
-            xfer_vec_default(
-                xfer,
-                &mut self.player_ranks,
-                PlayerRankSnapshot {
-                    player_id: 0,
-                    rank_level: 1,
-                    skill_points: 0,
-                    science_purchase_points: 0,
-                },
-            )?;
-        } else if xfer.get_mode() == XferMode::Load {
-            self.player_ranks.clear();
-        }
+        xfer.xfer_marker_label("PlayerRanks")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.player_ranks,
+            PlayerRankSnapshot {
+                player_id: 0,
+                rank_level: 1,
+                skill_points: 0,
+                science_purchase_points: 0,
+            },
+        )?;
 
-        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V11_TAIL_VERSION {
-            xfer.xfer_marker_label("ObjectInstanceGuards")?;
-            xfer_vec_default(
-                xfer,
-                &mut self.object_instance_guards,
-                ObjectInstanceGuardSnapshot {
-                    object_id: ObjectId(0),
-                    instance_name: String::new(),
-                    guard_position: None,
-                    guard_target: None,
-                    guard_radius: 0.0,
-                    guard_mode: GuardMode::Normal,
-                },
-            )?;
-        } else if xfer.get_mode() == XferMode::Load {
-            self.object_instance_guards.clear();
-        }
+        xfer.xfer_marker_label("ObjectInstanceGuards")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.object_instance_guards,
+            ObjectInstanceGuardSnapshot {
+                object_id: ObjectId(0),
+                instance_name: String::new(),
+                guard_position: None,
+                guard_target: None,
+                guard_radius: 0.0,
+                guard_mode: GuardMode::Normal,
+            },
+        )?;
 
-        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V12_TAIL_VERSION {
-            xfer.xfer_marker_label("OverchargeActive")?;
-            xfer_vec_default(
-                xfer,
-                &mut self.overcharge_active,
-                ObjectOverchargeSnapshot {
-                    object_id: ObjectId(0),
-                    overcharge_enabled: false,
-                },
-            )?;
-        } else if xfer.get_mode() == XferMode::Load {
-            self.overcharge_active.clear();
-        }
+        xfer.xfer_marker_label("OverchargeActive")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.overcharge_active,
+            ObjectOverchargeSnapshot {
+                object_id: ObjectId(0),
+                overcharge_enabled: false,
+            },
+        )?;
 
-        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V13_TAIL_VERSION {
-            xfer.xfer_marker_label("CiaIntelligence")?;
-            self.cia_intelligence.xfer(xfer)?;
-            xfer.xfer_marker_label("VisionSpied")?;
-            xfer_vec_default(
-                xfer,
-                &mut self.vision_spied,
-                ObjectVisionSpiedSnapshot {
-                    object_id: ObjectId(0),
-                    vision_spied_mask: 0,
-                },
-            )?;
-            xfer.xfer_marker_label("BuilderTasks")?;
-            xfer_vec_default(
-                xfer,
-                &mut self.builder_tasks,
-                ObjectBuilderTaskSnapshot {
-                    object_id: ObjectId(0),
-                    builder_id: None,
-                    dozer_task_build_target: None,
-                    dozer_task_build_order_frame: 0,
-                },
-            )?;
-            xfer.xfer_marker_label("SellList")?;
-            xfer_vec_default(
-                xfer,
-                &mut self.sell_list,
-                SellListEntrySnapshot {
-                    object_id: ObjectId(0),
-                    sell_frame: 0,
-                },
-            )?;
-        } else if xfer.get_mode() == XferMode::Load {
-            self.cia_intelligence =
-                crate::game_logic::host_cia_intelligence::HostCiaIntelligenceRegistry::new();
-            self.vision_spied.clear();
-            self.builder_tasks.clear();
-            self.sell_list.clear();
-        }
+        xfer.xfer_marker_label("CiaIntelligence")?;
+        self.cia_intelligence.xfer(xfer)?;
+        xfer.xfer_marker_label("VisionSpied")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.vision_spied,
+            ObjectVisionSpiedSnapshot {
+                object_id: ObjectId(0),
+                vision_spied_mask: 0,
+            },
+        )?;
+        xfer.xfer_marker_label("BuilderTasks")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.builder_tasks,
+            ObjectBuilderTaskSnapshot {
+                object_id: ObjectId(0),
+                builder_id: None,
+                dozer_task_build_target: None,
+                dozer_task_build_order_frame: 0,
+            },
+        )?;
+        xfer.xfer_marker_label("SellList")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.sell_list,
+            SellListEntrySnapshot {
+                object_id: ObjectId(0),
+                sell_frame: 0,
+            },
+        )?;
 
-        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V14_TAIL_VERSION {
-            xfer.xfer_marker_label("ObjectPersist")?;
-            xfer_vec_default(
-                xfer,
-                &mut self.object_persist,
-                ObjectPersistTailSnapshot {
-                    object_id: ObjectId(0),
-                    sole_healing_benefactor: None,
-                    sole_healing_benefactor_expiration_frame: 0,
-                    contained_by_frame: None,
-                    original_team: None,
-                    formation_id: 0,
-                    formation_offset: [0.0, 0.0],
-                    stealth_opacity: 1.0,
-                    terrain_decal_type: 8,
-                    terrain_decal_size: 0.0,
-                },
-            )?;
-            xfer.xfer_marker_label("ClientDrawableVisuals")?;
-            xfer_vec_default(
-                xfer,
-                &mut self.client_drawable_visuals,
-                ClientDrawableVisualSnapshot {
-                    object_id: 0,
-                    draw_module_index: 0,
-                    hidden: false,
-                    hidden_by_stealth: false,
-                    stealth_opacity: 1.0,
-                    effective_opacity: 1.0,
-                    loco_pitch: 0.0,
-                    loco_roll: 0.0,
-                    expiration_date: 0,
-                    terrain_decal: 8,
-                },
-            )?;
-        } else if xfer.get_mode() == XferMode::Load {
-            self.object_persist.clear();
-            self.client_drawable_visuals.clear();
-        }
+        xfer.xfer_marker_label("ObjectPersist")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.object_persist,
+            ObjectPersistTailSnapshot {
+                object_id: ObjectId(0),
+                sole_healing_benefactor: None,
+                sole_healing_benefactor_expiration_frame: 0,
+                contained_by_frame: None,
+                original_team: None,
+                formation_id: 0,
+                formation_offset: [0.0, 0.0],
+                stealth_opacity: 1.0,
+                terrain_decal_type: 8,
+                terrain_decal_size: 0.0,
+            },
+        )?;
+        xfer.xfer_marker_label("ClientDrawableVisuals")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.client_drawable_visuals,
+            ClientDrawableVisualSnapshot {
+                object_id: 0,
+                draw_module_index: 0,
+                hidden: false,
+                hidden_by_stealth: false,
+                stealth_opacity: 1.0,
+                effective_opacity: 1.0,
+                loco_pitch: 0.0,
+                loco_roll: 0.0,
+                expiration_date: 0,
+                terrain_decal: 8,
+            },
+        )?;
 
-        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V15_TAIL_VERSION {
-            xfer.xfer_marker_label("PlayerEnergy")?;
-            xfer_vec_default(
-                xfer,
-                &mut self.player_energy,
-                PlayerEnergySnapshot {
-                    player_id: 0,
-                    power_sabotaged_till_frame: 0,
-                },
-            )?;
-        } else if xfer.get_mode() == XferMode::Load {
-            self.player_energy.clear();
-        }
+        xfer.xfer_marker_label("PlayerEnergy")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.player_energy,
+            PlayerEnergySnapshot {
+                player_id: 0,
+                power_sabotaged_till_frame: 0,
+            },
+        )?;
 
-        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V16_TAIL_VERSION {
-            xfer.xfer_marker_label("ObjectTriggers")?;
-            xfer_vec_default(
-                xfer,
-                &mut self.object_triggers,
-                ObjectTriggerPersistSnapshot {
-                    object_id: ObjectId(0),
-                    i_x: 0,
-                    i_y: 0,
-                    entered_or_exited_frame: 0,
-                    slots: Vec::new(),
-                },
-            )?;
-        } else if xfer.get_mode() == XferMode::Load {
-            self.object_triggers.clear();
-        }
+        xfer.xfer_marker_label("ObjectTriggers")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.object_triggers,
+            ObjectTriggerPersistSnapshot {
+                object_id: ObjectId(0),
+                i_x: 0,
+                i_y: 0,
+                entered_or_exited_frame: 0,
+                slots: Vec::new(),
+            },
+        )?;
 
-        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V17_TAIL_VERSION {
-            xfer.xfer_marker_label("ScoringEnabled")?;
-            xfer.xfer_bool(&mut self.is_scoring_enabled)?;
-            xfer.xfer_marker_label("LimitSuperweapons")?;
-            xfer.xfer_bool(&mut self.limit_superweapons)?;
-            xfer.xfer_marker_label("CaveSystem")?;
-            xfer_serde_blob(xfer, &mut self.cave_system)?;
-            xfer.xfer_marker_label("TunnelNetwork")?;
-            xfer_serde_blob(xfer, &mut self.tunnel_network)?;
-            xfer.xfer_marker_label("AirfieldParking")?;
-            xfer_serde_blob(xfer, &mut self.airfield_parking)?;
-        } else if xfer.get_mode() == XferMode::Load {
-            self.is_scoring_enabled = true;
-            self.limit_superweapons = false;
-            self.cave_system = crate::game_logic::HostCaveSystem::new();
-            self.tunnel_network = crate::game_logic::HostTunnelNetworkRegistry::new();
-            self.airfield_parking = AirfieldParkingWorldSnapshot::default();
-        }
+        xfer.xfer_marker_label("ScoringEnabled")?;
+        xfer.xfer_bool(&mut self.is_scoring_enabled)?;
+        xfer.xfer_marker_label("LimitSuperweapons")?;
+        xfer.xfer_bool(&mut self.limit_superweapons)?;
+        xfer.xfer_marker_label("CaveSystem")?;
+        xfer_serde_blob(xfer, &mut self.cave_system)?;
+        xfer.xfer_marker_label("TunnelNetwork")?;
+        xfer_serde_blob(xfer, &mut self.tunnel_network)?;
+        xfer.xfer_marker_label("AirfieldParking")?;
+        xfer_serde_blob(xfer, &mut self.airfield_parking)?;
 
-        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V18_TAIL_VERSION {
-            xfer.xfer_marker_label("PersistV18")?;
-            xfer_serde_blob(xfer, &mut self.persist_v18)?;
-            xfer.xfer_marker_label("ObjectExperienceTrackers")?;
-            xfer_serde_blob(xfer, &mut self.object_experience_trackers)?;
-        } else if xfer.get_mode() == XferMode::Load {
-            self.persist_v18 = super::persist_v18::WorldPersistV18::default();
-            self.object_experience_trackers.clear();
-        }
+        xfer.xfer_marker_label("PersistV18")?;
+        xfer_serde_blob(xfer, &mut self.persist_v18)?;
+        xfer.xfer_marker_label("ObjectExperienceTrackers")?;
+        xfer_serde_blob(xfer, &mut self.object_experience_trackers)?;
 
-        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V19_TAIL_VERSION {
-            xfer.xfer_marker_label("ObjectCommandSets")?;
-            xfer_vec_default(
-                xfer,
-                &mut self.object_command_sets,
-                ObjectCommandSetSnapshot::default(),
-            )?;
-        } else if xfer.get_mode() == XferMode::Load {
-            self.object_command_sets.clear();
-        }
+        xfer.xfer_marker_label("ObjectCommandSets")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.object_command_sets,
+            ObjectCommandSetSnapshot::default(),
+        )?;
 
-        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V20_TAIL_VERSION {
-            xfer.xfer_marker_label("ObjectDisguises")?;
-            xfer_vec_default(
-                xfer,
-                &mut self.object_disguises,
-                ObjectDisguiseSnapshot::default(),
-            )?;
-        } else if xfer.get_mode() == XferMode::Load {
-            self.object_disguises.clear();
-        }
+        xfer.xfer_marker_label("ObjectDisguises")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.object_disguises,
+            ObjectDisguiseSnapshot::default(),
+        )?;
 
-        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V22_TAIL_VERSION {
-            // v22 tail: the driving instance's ADC words plus the exact
-            // next-object-ID counter. Positional record: six raw u32 words
-            // then the counter, matching the bincode field order.
-            xfer.xfer_marker_label("LogicRngSeedWords")?;
-            for word in &mut self.logic_rng_seed_words {
-                xfer.xfer_u32(word)?;
-            }
-            xfer.xfer_marker_label("NextObjectID")?;
-            xfer.xfer_u32(&mut self.next_object_id)?;
-        } else if xfer.get_mode() == XferMode::Load {
-            self.logic_rng_seed_words = [0; 6];
-            self.next_object_id = 0;
+        // v22 tail: the driving instance's ADC words plus the exact
+        // next-object-ID counter. Positional record: six raw u32 words
+        // then the counter, matching the bincode field order.
+        xfer.xfer_marker_label("LogicRngSeedWords")?;
+        for word in &mut self.logic_rng_seed_words {
+            xfer.xfer_u32(word)?;
         }
+        xfer.xfer_marker_label("NextObjectID")?;
+        xfer.xfer_u32(&mut self.next_object_id)?;
+
+        xfer.xfer_marker_label("PendingCombat")?;
+        super::world_codec::xfer_pending_combat(xfer, &mut self.pending_combat)?;
 
         Ok(())
     }

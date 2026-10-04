@@ -4,35 +4,53 @@ use crate::game_logic::host_mines::{
     DOZER_MINE_CLEAR_RANGE, WORKER_MINE_CLEAR_DELAY_FRAMES, WORKER_MINE_CLEAR_PRE_ATTACK_FRAMES,
 };
 
-pub(super) static BOOTSTRAP_ATTEMPTED: AtomicBool = AtomicBool::new(false);
-pub(super) static SEED_COMPLETE: AtomicBool = AtomicBool::new(false);
+/// Populate the actual catalog once per store. Never retain a store guard
+/// across disk parsing or registration: both paths borrow the catalog again.
 pub fn ensure_host_weapon_store() -> usize {
-    // create_object resolves weapons per placement. After start_new_game the
-    // store is already filled; do not walk seed tables or Weapon.ini again.
-    if SEED_COMPLETE.load(Ordering::Relaxed) {
+    if matches!(
+        with_weapon_store(|store| store.host_bootstrap_is_complete()),
+        Ok(true)
+    ) {
         return 0;
     }
     if let Err(e) = gamelogic::initialize_weapon_store() {
-        log::warn!("WeaponStore init failed during host bootstrap: {e}");
+        log::warn!("Host WeaponStore: failed to initialize: {e}");
         return 0;
     }
-
     let mut added = 0usize;
-
-    // Prefer real INI data when extracted game data is on disk (once / until ranger present).
-    if !store_has(RANGER_PRIMARY_WEAPON)
-        && (!BOOTSTRAP_ATTEMPTED.swap(true, Ordering::Relaxed) || !store_has(RANGER_PRIMARY_WEAPON))
-    {
+    if !store_has(RANGER_PRIMARY_WEAPON) {
         added += try_load_weapon_ini_from_disk();
     }
-    BOOTSTRAP_ATTEMPTED.store(true, Ordering::Relaxed);
-
-    // Always fill gaps for known host weapons (units + base-defense residual).
-    // seed_known_host_weapons skips names already present in the store.
     added += seed_known_host_weapons();
-    SEED_COMPLETE.store(true, Ordering::Relaxed);
+    if let Err(e) = with_weapon_store_mut(|store| store.mark_host_bootstrap_complete()) {
+        log::warn!("Host WeaponStore: failed to record admission: {e}");
+    }
     added
 }
+
+/// Read readiness and the requested rules in the same catalog borrow.
+/// The first incomplete/absent-store path drops that borrow before admission.
+/// Existing ambient WeaponStore access remains a compatibility boundary.
+pub(in crate::game_logic) fn with_host_weapon_store<F, R>(query: F) -> gamelogic::GameLogicResult<R>
+where
+    F: FnOnce(&gamelogic::weapon::WeaponStore) -> R,
+{
+    let mut query = Some(query);
+    match with_weapon_store(|store| {
+        if store.host_bootstrap_is_complete() {
+            Some(query.take().expect("query runs once")(store))
+        } else {
+            None
+        }
+    }) {
+        Ok(Some(result)) => return Ok(result),
+        Ok(None) | Err(gamelogic::GameLogicError::SystemNotInitialized(_)) => {}
+        Err(error) => return Err(error),
+    }
+    ensure_host_weapon_store();
+    with_weapon_store(query.take().expect("pending query remains unexecuted"))
+}
+
 pub(super) fn store_has(name: &str) -> bool {
     with_weapon_store(|store| store.find_weapon_template(name).is_some()).unwrap_or(false)
 }
@@ -1082,6 +1100,9 @@ pub(super) fn seed_known_host_weapons() -> usize {
             continue;
         }
         let mut t = WeaponTemplate::new(seed.name.to_string());
+        // This is the explicit host-only definition constructor. Preserve its
+        // existing fallback stream here, without overriding parsed empty data.
+        t.projectile_stream_name = seed_projectile_stream_name_for(seed.name);
         t.primary_damage = seed.primary_damage;
         t.attack_range = seed.attack_range;
         t.min_delay_between_shots = seed.delay_frames;
@@ -1357,11 +1378,4 @@ pub(super) struct SeedWeapon {
     pub(super) delay_frames: i32,
     pub(super) clip_size: i32,
     pub(super) weapon_speed: f32,
-}
-
-/// Test helper: force re-bootstrap attempt (does not clear existing templates).
-#[cfg(test)]
-pub fn reset_bootstrap_attempt_flag_for_tests() {
-    BOOTSTRAP_ATTEMPTED.store(false, Ordering::Relaxed);
-    SEED_COMPLETE.store(false, Ordering::Relaxed);
 }

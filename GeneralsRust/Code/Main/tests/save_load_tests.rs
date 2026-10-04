@@ -287,7 +287,7 @@ fn test_save_file_manager_basic() {
     // Test save path generation
     let save_path = manager.get_save_path("test_save");
     assert!(save_path.to_string_lossy().contains("test_save"));
-    assert!(save_path.to_string_lossy().ends_with(".gen"));
+    assert!(save_path.to_string_lossy().ends_with(".sav"));
 
     // Initially no saves should exist
     assert!(!manager.save_exists("test_save"));
@@ -295,28 +295,6 @@ fn test_save_file_manager_basic() {
     // List saves should return empty
     let saves = manager.list_saves().unwrap();
     assert_eq!(saves.len(), 0);
-}
-
-#[test]
-fn test_save_file_header() {
-    let mut header = SaveFileHeader::new();
-    header.set_compressed(true);
-    header.uncompressed_size = 12345;
-    header.compressed_size = 6789;
-
-    // Test header validation
-    assert!(header.is_valid());
-    assert!(header.is_compressed());
-
-    // Test serialization
-    let serialized = bincode_legacy::serialize(&header).unwrap();
-    let deserialized: SaveFileHeader = bincode_legacy::deserialize(&serialized).unwrap();
-
-    assert_eq!(header.magic, deserialized.magic);
-    assert_eq!(header.version, deserialized.version);
-    assert_eq!(header.uncompressed_size, deserialized.uncompressed_size);
-    assert_eq!(header.compressed_size, deserialized.compressed_size);
-    assert_eq!(header.is_compressed(), deserialized.is_compressed());
 }
 
 #[test]

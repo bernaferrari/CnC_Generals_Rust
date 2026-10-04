@@ -2213,8 +2213,7 @@ pub fn is_patriot_free_to_assist(
 /// Live Patriot assist must read the leftover store. Missing template → 0
 /// (C++ default `m_requestAssistRange`).
 pub fn leftover_request_assist_range(weapon_name: &str) -> f32 {
-    let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
-    gamelogic::weapon::with_weapon_store(|store| {
+    crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
         store
             .find_weapon_template(weapon_name)
             .map(|wt| wt.get_request_assist_range().max(0.0))
@@ -2487,14 +2486,8 @@ mod tests {
     fn gattling_building_demotion_resets_consecutive() {
         // FAST with consecutive < Two (5) demotes straight to base and
         // restarts the count (C++ coolDown, FiringTracker.cpp:319-321).
-        let (lvl, c, _) = gattling_building_on_shot_fired(
-            GattlingFireLevel::Fast,
-            0,
-            Some(1),
-            Some(1),
-            10,
-            100,
-        );
+        let (lvl, c, _) =
+            gattling_building_on_shot_fired(GattlingFireLevel::Fast, 0, Some(1), Some(1), 10, 100);
         assert_eq!(lvl, GattlingFireLevel::Base);
         assert_eq!(c, 0);
     }

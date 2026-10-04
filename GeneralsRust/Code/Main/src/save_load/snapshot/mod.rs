@@ -71,7 +71,7 @@ mod dozer_repair_persist;
 mod game_client_save;
 mod game_state;
 mod hotkey_squad_persist;
-mod legacy_bincode;
+mod world_codec;
 mod lifecycle_tail;
 mod load_post_process;
 mod object;
@@ -149,7 +149,7 @@ pub use gamelogic::system::shroud_manager::{
 pub use hotkey_squad_persist::{
     peek_pending_control_groups, set_pending_control_groups, take_pending_control_groups,
 };
-pub(crate) use legacy_bincode::*;
+pub(crate) use world_codec::decode_bincode_world_snapshot;
 pub use lifecycle_tail::{
     apply_lifecycle_tail_to_host, capture_lifecycle_tail, contain_fixups_from_tail,
     decode_lifecycle_tail, encode_lifecycle_tail, producer_fixups_from_tail, ContainLink,
@@ -181,72 +181,3 @@ pub use w3d_ghost_save::{
     save_lock_live_w3d_ghosts, stash_loaded_w3d_ghost_xfer, take_loaded_w3d_ghost_xfer,
     CHUNK_GHOST_OBJECT,
 };
-
-/// Concatenated live snapshot sources for residual `include_str` scans.
-pub const SNAPSHOT_SRC: &str = concat!(
-    include_str!("mod.rs"),
-    include_str!("ai.rs"),
-    include_str!("battle_plan_persist.rs"),
-    include_str!("builder.rs"),
-    include_str!("client_drawable.rs"),
-    include_str!("client_drawable_xfer.rs"),
-    include_str!("game_state.rs"),
-    include_str!("game_client_save.rs"),
-    include_str!("lifecycle_tail.rs"),
-    include_str!("load_post_process.rs"),
-    include_str!("object.rs"),
-    include_str!("persist_v18.rs"),
-    include_str!("player.rs"),
-    include_str!("restore.rs"),
-    include_str!("shroud.rs"),
-    include_str!("special_powers.rs"),
-    include_str!("special_power_cooldown_persist.rs"),
-    include_str!("subdual_persist.rs"),
-    include_str!("hotkey_squad_persist.rs"),
-    include_str!("booby_trap_persist.rs"),
-    include_str!("carpet_bomb_persist.rs"),
-    include_str!("production_door_persist.rs"),
-    include_str!("dozer_repair_persist.rs"),
-    include_str!("rebuild_hole_persist.rs"),
-    include_str!("weapon_set_persist.rs"),
-    include_str!("ability_hijack_persist.rs"),
-    include_str!("ai_team_persist.rs"),
-    include_str!("dock_queue_persist.rs"),
-    include_str!("module_runtime_persist.rs"),
-    include_str!("deliver_payload_persist.rs"),
-    include_str!("object_module_xfer_persist.rs"),
-    include_str!("auto_deposit_persist.rs"),
-    include_str!("supply_drop_persist.rs"),
-    include_str!("jet_ai_persist.rs"),
-    include_str!("chinook_ai_persist.rs"),
-    include_str!("hacker_income_persist.rs"),
-    include_str!("warehouse_crippling_persist.rs"),
-    include_str!("helix_napalm_persist.rs"),
-    include_str!("money_crate_persist.rs"),
-    include_str!("gps_scrambler_persist.rs"),
-    include_str!("dynamic_shroud_persist.rs"),
-    include_str!("angry_mob_persist.rs"),
-    include_str!("power_plant_rods_persist.rs"),
-    include_str!("cleanup_hazard_persist.rs"),
-    include_str!("point_defense_persist.rs"),
-    include_str!("projectile_stream_persist.rs"),
-    include_str!("transport_exit_persist.rs"),
-    include_str!("bridge_behavior_persist.rs"),
-    include_str!("object_xfer_persist.rs"),
-    include_str!("ai_player_queue_persist.rs"),
-    include_str!("inferno_fire_persist.rs"),
-    include_str!("firewall_persist.rs"),
-    include_str!("neutron_slow_death_persist.rs"),
-    include_str!("turret_aim_persist.rs"),
-    include_str!("stealth_grant_persist.rs"),
-    include_str!("weapon_leech_persist.rs"),
-    include_str!("score_keeper_persist.rs"),
-    include_str!("garrison_firepoint_persist.rs"),
-    include_str!("stealth_detector_persist.rs"),
-    include_str!("particle_system_save.rs"),
-    include_str!("terrain_visual_save.rs"),
-    include_str!("player_team_persist.rs"),
-    include_str!("terrain.rs"),
-    include_str!("types.rs"),
-    include_str!("xfer_helpers.rs"),
-);

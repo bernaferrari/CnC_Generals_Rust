@@ -1124,6 +1124,8 @@ pub struct GameLogic {
     /// Audio events queued this frame (mirrors C++ TheAudio pattern)
     /// In production, these would be sent to the audio engine
     pub queued_audio_events: Vec<AudioEventRequest>,
+    /// Presentation retry deadlines belong to this world, not ObjectId alone.
+    pub(super) ambient_sound_retries: AmbientSoundRetries,
 
     /// Command queue for UI-generated commands
     pub command_queue: VecDeque<crate::command_system::GameCommand>,

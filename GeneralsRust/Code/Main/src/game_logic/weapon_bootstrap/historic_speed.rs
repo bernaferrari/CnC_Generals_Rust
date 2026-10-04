@@ -39,8 +39,7 @@ impl HostHistoricBonusPeel {
 /// `historic_bonus_weapon_name` → store lookup. Live must not substitute
 /// hardcoded firestorm seeds when the Weak is dead (INI order).
 pub fn host_historic_bonus_for_weapon_name(name: &str) -> HostHistoricBonusPeel {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let from_store = with_weapon_store(|store| {
         store
             .find_weapon_template(name)
@@ -123,8 +122,7 @@ pub(super) fn seed_historic_bonus_for(name: &str) -> HostHistoricBonusPeel {
 /// Once a leech weapon has entered pre-attack / fired once at proper range,
 /// max-range is waived for the remainder of the attack cycle (AI chase residual).
 pub fn host_leech_range_weapon_for_weapon_name(name: &str) -> bool {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let from_store = with_weapon_store(|store| {
         store
             .find_weapon_template(name)
@@ -180,8 +178,7 @@ impl Default for HostWeaponSpeedPeel {
 
 /// Resolve WeaponSpeed / MinWeaponSpeed / ScaleWeaponSpeed / ranges from store.
 pub fn host_weapon_speed_peel_for_weapon_name(name: &str) -> HostWeaponSpeedPeel {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let from_store = with_weapon_store(|store| {
         store.find_weapon_template(name).map(|wt| {
             let weapon_speed = if wt.weapon_speed >= 999_999.0 {

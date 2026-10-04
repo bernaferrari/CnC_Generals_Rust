@@ -36,9 +36,22 @@ testing the allowed recloak deadline; production stealth timing is unchanged
 The coupled shadow fire log, native WeaponStore mirror, lifecycle rules catalog
 and bootstrap remain ambient dependencies. Rust still extracts due shots before
 callbacks, while C++ invokes a damage callback before erasing its current entry
-(hq-lzrdp). Main save/load does not capture these bridge queues, and the existing
-in-place restore does not clear them (hq-nkg0x). These ownership and CPU timing
-controls establish neither full match isolation nor retail playability,
+(hq-lzrdp). Current Rust world schema 23 captures both bridge queues as a required
+`PendingCombatSnapshot`. Capture is observational; restore replaces both queues,
+including empty state, after roster and lifecycle fixups. Frozen launch facts,
+FIFO order and absolute deadlines survive source retirement and restore. This
+is Rust bridge persistence, not an invented C++ WeaponStore Snapshot chunk
+(hq-wg88t); other pending-shot lifetime and effect-state gaps remain hq-nkg0x.
+
+The current decoder validates the version before reading the positional body
+and checks the actual bincode 2 legacy decoder's consumed byte count. Direct
+Xfer frames the typed queue payload and commits it only after successful exact
+decoding. Historical Rust layouts 1–22 and the private GZHS/header/raw fallback
+family are retired. C++ named chunks and module Xfer versions remain; original
+save interoperability is a separate contract. This is not universal hostile-save
+validation or transactional in-place restoration of every subsystem.
+
+These controls establish neither full match isolation nor retail playability,
 original-executable differential agreement or a frame-rate gain.
 
 Accepted Object firing now receives its driving unsigned logic frame separately
@@ -48,7 +61,26 @@ acquisitions per reached firing path. Both ordinary GameLogic producers pass
 their own frame and combat owner. Actual same-ID worlds at frames 100 and 300
 exercise normal firing after foreign and own drains, with exact ammo, discharge,
 damage and timestamp controls. The compatibility clock and its remaining native
-consumers are still open under hq-vrkh8 (hq-9crla).
+consumers are still open under hq-vrkh8 (hq-9crla). Materialized direct and area
+impacts also pass the driving frame through damage, healing, status, ignition,
+hive respawn and Battle Bus transitions. Compatibility wrappers still obtain
+an ambient frame for callers that have not migrated (hq-xciln).
+
+Host weapon bootstrap readiness is private metadata on the exact native
+`WeaponStore`, cleared on its actual construction/reset. Two process AtomicBool
+memos are removed. Steady host queries inspect readiness and the requested rule
+in the same existing catalog borrow; cold admission drops that borrow before
+parser/registration callbacks. The native/Common catalogs themselves remain
+ambient (hq-hr1dt, hq-mw2kh). Stream selection uses the accepted weapon's exact
+rule: a defined empty value does not inherit another slot or a guessed stream.
+Per-Weapon stream lifetime and creation order remain separate (hq-ht3rj,
+hq-9q13s).
+
+The combat pass is a synchronous coordinator over private admission, object
+and ground targeting, hit effects and discharge modules. Its input contains
+only the original stack facts, and a typed shot result preserves the original
+acceptance point and commit ordering. No second scheduler, world or saved state
+is introduced (hq-py43j).
 
 The vision update, visibility snapshot and radar refresh borrow their existing
 shroud handles rather than cloning three temporary Arcs. Manager identity,
@@ -75,9 +107,9 @@ not inherit primary template extras. Existing active-slot wrapper behavior remai
 separate. Parsed A/B rules and normal defense dispatch retain the selected slot
 while checking native range boundaries. Existing AI distance multipliers and the
 host range-snap movement shortcut remain fidelity work (hq-ojec2).
-The public snapshot field layout is unchanged, but older Rust snapshots with
-pre-reduced named values do not establish the new field semantics or original
-C++ save interoperability.
+The range fix retains its field representation. Current world schema 23 rejects
+older Rust snapshots whose pre-reduced named values do not establish these new
+semantics; original C++ save interoperability remains a separate contract.
 
 Common LocomotorStore resolves the exact case-sensitive admission name to one
 canonical definition. Captured numeric keys preserve existing traversal order;

@@ -62,7 +62,7 @@ pub struct ProjectileImpactFx {
 /// Unit of the pending speed and `min_weapon_speed` pair. Weapon.ini stores
 /// these in distance per 30 Hz logic frame; low-level CombatSystem callers
 /// often already supply distance per second.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProjectileSpeedUnit {
     DistancePerLogicFrame,
     DistancePerSecond,
@@ -138,7 +138,7 @@ fn host_vec_to_leftover_coord(pos: Vec3) -> gamelogic::common::Coord3D {
 /// Leftover `WeaponStore::m_weaponDDI` is the C++ queue; this applies HP on
 /// live objects because leftover `dealDamageInternal` looks up leftover
 /// GameObjects that the player path does not own.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct LiveProjectilelessDelayedDamage {
     when: u32,
     pending: PendingProjectile,
@@ -146,13 +146,11 @@ struct LiveProjectilelessDelayedDamage {
     damage_id: Option<ObjectId>,
 }
 
-
 fn leftover_weapon_is_laser(weapon_name: &str) -> bool {
     let name = weapon_name.trim();
     if name.is_empty() {
         return false;
     }
-    let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
     if !crate::game_logic::weapon_bootstrap::host_laser_name_for_weapon_name(name).is_empty() {
         return true;
     }
@@ -296,7 +294,7 @@ pub fn apply_ready_projectileless_delayed_damage(
 /// The host queues projectile creation for the combat phase, so retain the
 /// source transform/team at acceptance time instead of sampling a potentially
 /// deleted or re-owned object while draining that queue.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ProjectileLaunchContext {
     pub source_team: crate::game_logic::Team,
     /// Controlling player frozen at fire acceptance (C++ Object::getRelationship).
@@ -307,7 +305,7 @@ pub struct ProjectileLaunchContext {
 }
 
 /// Data needed to spawn a projectile (enqueued by Object::fire_at).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PendingProjectile {
     pub shooter_id: ObjectId,
     pub shooter_pos: Vec3,
@@ -457,8 +455,10 @@ pub fn last_pending_projectile_secondary_damage_for_test(combat: &CombatSystem) 
 /// Test helper: leftover WeaponStore delayed-damage queue length.
 #[cfg(test)]
 pub fn leftover_delayed_damage_count_for_test() -> usize {
-    let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
-    gamelogic::weapon::with_weapon_store(|store| store.get_delayed_damage_count()).unwrap_or(0)
+    crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
+        store.get_delayed_damage_count()
+    })
+    .unwrap_or(0)
 }
 
 /// Test helper: live projectileless delayed-damage queue length.

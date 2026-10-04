@@ -16,105 +16,22 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::SystemTime;
 
-/// Positional bincode schema used by host `.sav` / legacy `.gen` snapshots.
-///
-/// Version 1 persisted only float production progress.  Version 2 adds the
-/// nested production frame/quantity/exit fields, which cannot be represented
-/// by serde defaults under bincode's positional encoding.  Version 3 appends
-/// the Hacker Disable Building channel to every object snapshot.  Version 4
-/// appends logical weapon-discharge/barrel state and the renderer-owned client
-/// Drawable companion. Version 5 appends exact offline `PlayerTemplate`
-/// bindings as a world tail, retaining v1-v4 nested PlayerSnapshot alignment.
-/// Version 6 appends exact persistent shroud/FOW counters and pending reveal
-/// expiry state as a final world tail. Version 7 appends each object's
-/// parallel `Weapon::m_suspendFXFrame` tail without changing historical
-/// nested Weapon records. Version 8 appends the source-keyed temporary
-/// behavior runtime tail to each object. Version 9 appends the entity
-/// lifecycle envelope. Version 10 appends C++ `Player::xfer` rank/skill/
-/// science-purchase-point residuals as a world tail so nested
-/// `PlayerSnapshot` records stay aligned with v1-v9 streams. Version 11
-/// appends C++ `Object::m_name` plus `AIUpdateInterface` guard anchors
-/// (`m_locationToGuard` / `m_objectToGuard` / `m_guardMode` and the host
-/// guard radius) as a world tail so nested `ObjectSnapshot` records stay
-/// aligned with v1-v10 streams. Version 12 appends OverchargeBehavior
-/// per-object `vision_spied_mask`, exclusive `builder_id` / dozer BUILD
-/// task, and BuildAssistant `sell_list` so mid-spy / mid-build / mid-sell
-/// loads keep those residuals alive. Version 14 appends C++ `Object::xfer`
-/// sole-heal benefactor, `m_containedByFrame`, garrison `m_originalTeamName`,
-/// formation id/offset, and Drawable hidden/stealth-opacity/loco/expiration
-/// /decal companions as a world tail so nested object and client-drawable
-/// records stay aligned with v1-v13 streams. Version 15 appends C++
-/// `Energy::xfer` v3 `m_powerSabotagedTillFrame` as a world tail so nested
-/// `PlayerSnapshot` records stay aligned with v1-v14 streams. Version 16
-/// `ObjectSnapshot` / `object_persist` records stay aligned with v1-v15 streams.
-/// `ObjectSnapshot` / `object_persist` records stay aligned with v1-v15 streams.
-/// Version 17 appends C++ `GameLogic::xfer` scoring + superweapon restriction,
-/// `CaveSystem` / player `TunnelTracker` communal pools, and airfield /
-/// FlightDeck stall occupancy as a world tail so nested records stay aligned
-/// with v1-v16 streams. Version 18 appends InGameUI timers/SW display,
-/// TacticalView camera, ScriptEngine counters/flags/actives, GameLogic v5-v9
-/// globals, TerrainLogic water updates, Radar hidden/force-on/event ring,
-/// and remaining Drawable::xfer residuals as a world tail. Version 19 appends
-/// C++ `Object::xfer` `m_commandSetStringOverride` as a world tail so nested
-/// `ObjectSnapshot` records stay aligned with v1-v18 streams. Version 20
-/// appends C++ `StealthUpdate::xfer` disguise identity / transition
-/// (`StealthUpdate.cpp:1141-1177`) as a world tail so nested object records
-/// stay aligned with v1-v20 streams. Version 21 appends the per-weapon
-/// clip/splash/reload residual (clip_size, clip_reload_time, splash_radius,
-/// reloading_clip, last_bonus_rof) that the serde payload always carried but
-/// the historical direct-Xfer `Weapon` record dropped — C++ `Weapon::xfer` v3
-/// (Weapon.cpp:3364-3367) persists `m_status` RELOADING_CLIP + `m_ammoInClip`
-/// so a mid-clip-reload slot resumes after load. Version 22 appends the
-/// driving logic instance's 6-word ADC stream state plus the exact next
-/// object-ID counter: C++ keeps RandomValue process-static and never
-/// reseeds it on load (GameState.cpp:628-741), and `GameStateMap::xfer`
-/// moves the ID counter verbatim and early (GameStateMap.cpp:372-383), so
-/// a load must continue both rather than re-derive the stream from the
-/// game-start base seed or the counter from max live id + 1.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 22;
+/// Current positional Rust world schema. Earlier Rust layouts are unsupported.
+/// Schema 23 freezes both host combat queues as typed records, outside the
+/// opaque module lifecycle bytes. Original C++ module Xfer versions remain
+/// independently defined by their module implementations.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 23;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 23;
 
-/// Direct Common Xfer keeps an independent positional envelope from bincode.
-///
-/// Its raw `u32` world version is the only safe boundary before the timestamp
-/// and object records.  Do not derive object-tail gates from the bincode
-/// version: a historical direct v3 stream still contains HDB even once the
-/// bincode writer has advanced to v4.
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 22;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_HDB_VERSION: u32 = 3;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_V4_TAIL_VERSION: u32 = 4;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION: u32 = 5;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_V6_TAIL_VERSION: u32 = 6;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_V7_TAIL_VERSION: u32 = 7;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_V8_TAIL_VERSION: u32 = 8;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_V9_TAIL_VERSION: u32 = 9;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_V10_TAIL_VERSION: u32 = 10;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_V11_TAIL_VERSION: u32 = 11;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_V12_TAIL_VERSION: u32 = 12;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_V13_TAIL_VERSION: u32 = 13;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_V14_TAIL_VERSION: u32 = 14;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_V15_TAIL_VERSION: u32 = 15;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_V16_TAIL_VERSION: u32 = 16;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_V17_TAIL_VERSION: u32 = 17;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_V18_TAIL_VERSION: u32 = 18;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_V19_TAIL_VERSION: u32 = 19;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_V20_TAIL_VERSION: u32 = 20;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_V21_TAIL_VERSION: u32 = 21;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_V22_TAIL_VERSION: u32 = 22;
-
-/// Reject unknown direct-Xfer outer layouts before consuming any body bytes.
-/// Known historical writers are accepted so focused fixtures can verify their
-/// positional tails independently of current bincode schema evolution.
+/// Validate the Rust outer envelope before consuming or restoring its body.
 pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadResult<()> {
-    match version {
-        // Keep these arms deliberately explicit. Advancing the current writer
-        // must not accidentally make a future positional body acceptable
-        // before its object/world gates and exact predecessor fixtures exist.
-        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19
-        | 20 | 21 | 22 => Ok(()),
-        actual => Err(crate::save_load::SaveLoadError::VersionMismatch {
+    if version == WORLD_SNAPSHOT_DIRECT_XFER_VERSION {
+        Ok(())
+    } else {
+        Err(crate::save_load::SaveLoadError::VersionMismatch {
             expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
-            actual,
-        }),
+            actual: version,
+        })
     }
 }
 
@@ -298,18 +215,20 @@ pub struct WorldSnapshot {
     /// Driving logic instance's raw 6-word ADC stream state at save time
     /// (C++ RandomValue seed array, RandomValue.cpp:150-174). C++ keeps the
     /// stream process-static and no load path reseeds it, so the post-load
-    /// stream continues from these words. `[0; 6]` marks a pre-v22 save:
-    /// keep the legacy game-start re-derivation.
+    /// stream continues from these words.
     #[serde(default)]
     pub logic_rng_seed_words: [u32; 6],
 
     /// C++ `GameLogic::getObjectIDCounter` xferred verbatim and early by
     /// `GameStateMap::xfer` (GameStateMap.cpp:372-383). The exact counter,
     /// not max live id + 1, so IDs allocated after load never alias lingering
-    /// references to objects destroyed before the save. `0` marks a pre-v22
-    /// save: fall back to the historical max-id-plus-one derivation.
+    /// references to objects destroyed before the save.
     #[serde(default)]
     pub next_object_id: u32,
+
+    /// Exact accepted shots and absolute delayed-damage deadlines of this world.
+    /// Required by schema 23; a missing payload must never default to an empty queue.
+    pub pending_combat: crate::game_logic::combat::PendingCombatSnapshot,
 }
 
 /// C++ `ExperienceTracker::xfer` `m_experienceSink` + `m_experienceScalar`.
@@ -586,6 +505,7 @@ impl Default for WorldSnapshot {
             object_disguises: Vec::new(),
             logic_rng_seed_words: [0; 6],
             next_object_id: 0,
+            pending_combat: Default::default(),
         }
     }
 }

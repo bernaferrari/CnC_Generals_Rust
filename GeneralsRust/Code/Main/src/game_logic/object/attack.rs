@@ -364,8 +364,9 @@ impl Object {
         // Prefer Weapon.ini DamageType via store name; shape residual if the
         // source name has no usable host store entry.
         let weapon_dtype = if let Some(weapon_name) = name {
-            let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
-            if crate::game_logic::thing::ThingTemplate::weapon_from_store(weapon_name).is_some() {
+            if crate::game_logic::thing::ThingTemplate::weapon_from_host_store(weapon_name)
+                .is_some()
+            {
                 crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
                     weapon_name,
                 )
@@ -851,12 +852,11 @@ impl Object {
         let Some(name) = weapon_name.filter(|n| !n.trim().is_empty()) else {
             return;
         };
-        let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
-        let Some(template) =
-            gamelogic::weapon::with_weapon_store(|store| store.find_weapon_template(name).cloned())
-                .ok()
-                .flatten()
-        else {
+        let Some(template) = crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
+            store.find_weapon_template(name).cloned()
+        })
+        .ok()
+        .flatten() else {
             return;
         };
         let source = leftover_coord_from_host(self.get_position());

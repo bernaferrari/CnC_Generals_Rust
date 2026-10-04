@@ -20,8 +20,7 @@ pub(super) struct TemporaryWeaponStoreFields {
 }
 
 pub(super) fn store_fields_for_weapon_name(name: &str) -> Option<TemporaryWeaponStoreFields> {
-    let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
-    gamelogic::weapon::with_weapon_store(|store| {
+    crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
         store.find_weapon_template(name).map(|template| {
             let auto_reloads_clip = template.get_auto_reloads_clip();
             TemporaryWeaponStoreFields {

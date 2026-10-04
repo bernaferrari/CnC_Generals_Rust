@@ -2,26 +2,30 @@
 use super::*;
 
 #[test]
-fn direct_xfer_accepts_known_outer_versions() {
-    use crate::save_load::{XferLoad, XferSave};
+fn direct_xfer_rejects_old_rust_outer_versions() {
+    use crate::save_load::{SaveLoadError, Xfer, XferLoad, XferSave};
     use std::io::Cursor;
-
-    for version in 1..=WORLD_SNAPSHOT_DIRECT_XFER_VERSION {
+    for version in 1..WORLD_SNAPSHOT_DIRECT_XFER_VERSION {
         let mut source = WorldSnapshot::default();
         source.version = version;
+        let mut output = Cursor::new(Vec::new());
+        let mut writer = XferSave::new(&mut output);
+        assert!(matches!(source.xfer(&mut writer), Err(SaveLoadError::VersionMismatch { actual, .. }) if actual == version));
+        drop(writer);
+        assert!(output.into_inner().is_empty());
         let mut bytes = Cursor::new(Vec::new());
-        {
-            let mut writer = XferSave::new(&mut bytes);
-            source
-                .xfer(&mut writer)
-                .expect("known direct-Xfer version writes");
-        }
-        let mut restored = WorldSnapshot::default();
+        let mut writer = XferSave::new(&mut bytes);
+        let mut old_version = version;
+        writer.xfer_u32(&mut old_version).unwrap();
+        let mut sentinel = 0x71AF_91C0u32;
+        writer.xfer_u32(&mut sentinel).unwrap();
+        drop(writer);
         let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
-        restored
-            .xfer(&mut reader)
-            .expect("known direct-Xfer version reads");
-        assert_eq!(restored.version, version);
+        let mut destination = WorldSnapshot::default();
+        assert!(matches!(destination.xfer(&mut reader), Err(SaveLoadError::VersionMismatch { actual, .. }) if actual == version));
+        let mut following = 0;
+        reader.xfer_u32(&mut following).unwrap();
+        assert_eq!(following, sentinel);
     }
 }
 
@@ -271,85 +275,12 @@ fn snapshot_round_trips_power_sabotaged_till_frame() {
 }
 
 #[test]
-fn snapshot_pre_v15_defaults_power_sabotage_frame() {
-    let mut source = GameLogic::new();
-    source.add_player(Player::new(1, Team::USA, "Clean", true));
-    let builder = SnapshotBuilder::new();
-    let mut snapshot = builder.create_world_snapshot(&source).expect("snapshot");
-    snapshot.version = 14;
-    snapshot.player_energy.clear();
-    let mut restored = GameLogic::new();
-    builder
-        .restore_from_snapshot(&snapshot, &mut restored)
-        .expect("restore");
-    assert_eq!(
-        restored
-            .get_player(1)
-            .expect("player")
-            .power_sabotaged_till_frame,
-        0
-    );
-}
-
-#[test]
-fn snapshot_pre_v10_defaults_rank_skill_and_science_purchase_points() {
-    let mut legacy = WorldSnapshot::default();
-    legacy.version = WORLD_SNAPSHOT_DIRECT_XFER_V9_TAIL_VERSION;
-    legacy.players.push(PlayerSnapshot {
-        id: 3,
-        name: "LegacyRank".to_string(),
-        team: Team::China,
-        is_human: true,
-        is_active: true,
-        resources: Resources::default(),
-        population: PopulationInfo {
-            current: 0,
-            maximum: 0,
-        },
-        tech_tree: TechTreeSnapshot {
-            unlocked_units: Vec::new(),
-            unlocked_buildings: Vec::new(),
-            unlocked_upgrades: Vec::new(),
-            research_progress: Default::default(),
-        },
-        upgrades: Vec::new(),
-        build_queue: Vec::new(),
-        research_queue: Vec::new(),
-        statistics: PlayerStatisticsSnapshot {
-            units_built: 0,
-            units_lost: 0,
-            buildings_built: 0,
-            buildings_lost: 0,
-            damage_dealt: 0.0,
-            damage_received: 0.0,
-            resources_gathered: 0,
-            experience_gained: 0.0,
-        },
-    });
-    legacy.player_ranks.push(PlayerRankSnapshot {
-        player_id: 3,
-        rank_level: 5,
-        skill_points: 9_999,
-        science_purchase_points: 12,
-    });
-
-    let mut restored = GameLogic::new();
-    SnapshotBuilder::new()
-        .restore_from_snapshot(&legacy, &mut restored)
-        .expect("v9 predecessor defaults rank tail");
-    let loaded = restored.get_player(3).expect("legacy player");
-    assert_eq!(loaded.rank_level, 1);
-    assert_eq!(loaded.skill_points, 0);
-    assert_eq!(loaded.science_purchase_points, 0);
-}
-
-#[test]
-fn direct_xfer_v10_round_trips_player_rank_tail() {
+fn direct_xfer_current_round_trips_player_rank_tail() {
     use crate::save_load::{Xfer, XferLoad, XferSave};
     use std::io::Cursor;
 
     let mut world = WorldSnapshot::default();
-    world.version = WORLD_SNAPSHOT_DIRECT_XFER_V10_TAIL_VERSION;
+    world.version = WORLD_SNAPSHOT_DIRECT_XFER_VERSION;
     world.player_ranks.push(PlayerRankSnapshot {
         player_id: 11,
         rank_level: 3,
@@ -383,25 +314,6 @@ fn direct_xfer_v10_round_trips_player_rank_tail() {
         }]
     );
     assert_eq!(sentinel, 0xC0DE_F00D);
-}
-
-#[test]
-fn bincode_v9_migrates_without_player_rank_tail() {
-    let mut source = WorldSnapshot::default();
-    source.version = 9;
-    source.player_ranks.push(PlayerRankSnapshot {
-        player_id: 1,
-        rank_level: 5,
-        skill_points: 2_000,
-        science_purchase_points: 4,
-    });
-
-    let payload = serialize_pre_v10_v9_fixture(source).expect("serialize exact v9 fixture");
-    let (restored, path) = decode_bincode_world_snapshot(&payload).expect("migrate v9 fixture");
-
-    assert_eq!(path, BincodeWorldSnapshotDecodePath::LegacyPreV10V9);
-    assert_eq!(restored.version, WORLD_SNAPSHOT_BINCODE_VERSION);
-    assert!(restored.player_ranks.is_empty());
 }
 
 #[test]
@@ -522,47 +434,12 @@ fn snapshot_round_trips_guard_anchors() {
 }
 
 #[test]
-fn snapshot_pre_v11_defaults_instance_name_and_guard_anchors() {
-    let mut source = GameLogic::new();
-    source
-        .templates
-        .insert("USA_Ranger".to_string(), ThingTemplate::new("USA_Ranger"));
-    let id = source
-        .create_object("USA_Ranger", Team::USA, Vec3::new(8.0, 0.0, 4.0))
-        .expect("create");
-    {
-        let object = source.host_object_mut(id).expect("object");
-        object.name = "WouldBeLost".to_string();
-        object.guard_position = Some(Vec3::new(1.0, 0.0, 1.0));
-        object.guard_radius = 90.0;
-        object.guard_mode = GuardMode::FlyingUnitsOnly;
-    }
-
-    let builder = SnapshotBuilder::new();
-    let mut snapshot = builder.create_world_snapshot(&source).expect("snapshot");
-    snapshot.version = WORLD_SNAPSHOT_DIRECT_XFER_V10_TAIL_VERSION;
-    snapshot.object_instance_guards.clear();
-
-    let mut restored = GameLogic::new();
-    restored.templates = source.templates.clone();
-    builder
-        .restore_from_snapshot(&snapshot, &mut restored)
-        .expect("v10 predecessor defaults name/guard tail");
-    let loaded = restored.host_object(id).expect("legacy object");
-    assert!(loaded.name.is_empty());
-    assert_eq!(loaded.guard_position, None);
-    assert_eq!(loaded.guard_target, None);
-    assert_eq!(loaded.guard_radius, 0.0);
-    assert_eq!(loaded.guard_mode, GuardMode::Normal);
-}
-
-#[test]
-fn direct_xfer_v11_round_trips_instance_name_and_guard_tail() {
+fn direct_xfer_current_round_trips_instance_name_and_guard_tail() {
     use crate::save_load::{Xfer, XferLoad, XferSave};
     use std::io::Cursor;
 
     let mut world = WorldSnapshot::default();
-    world.version = WORLD_SNAPSHOT_DIRECT_XFER_V11_TAIL_VERSION;
+    world.version = WORLD_SNAPSHOT_DIRECT_XFER_VERSION;
     world
         .object_instance_guards
         .push(ObjectInstanceGuardSnapshot {
@@ -602,29 +479,6 @@ fn direct_xfer_v11_round_trips_instance_name_and_guard_tail() {
         }]
     );
     assert_eq!(sentinel, 0xC0DE_F00D);
-}
-
-#[test]
-fn bincode_v10_migrates_without_instance_name_and_guard_tail() {
-    let mut source = WorldSnapshot::default();
-    source.version = 10;
-    source
-        .object_instance_guards
-        .push(ObjectInstanceGuardSnapshot {
-            object_id: ObjectId(1),
-            instance_name: "ShouldDrop".to_string(),
-            guard_position: Some(Vec3::ZERO),
-            guard_target: None,
-            guard_radius: 50.0,
-            guard_mode: GuardMode::WithoutPursuit,
-        });
-
-    let payload = serialize_pre_v11_v10_fixture(source).expect("serialize exact v10 fixture");
-    let (restored, path) = decode_bincode_world_snapshot(&payload).expect("migrate v10 fixture");
-
-    assert_eq!(path, BincodeWorldSnapshotDecodePath::LegacyPreV11V10);
-    assert_eq!(restored.version, WORLD_SNAPSHOT_BINCODE_VERSION);
-    assert!(restored.object_instance_guards.is_empty());
 }
 
 #[test]
@@ -782,12 +636,12 @@ fn snapshot_round_trips_sell_list_mid_sell() {
 }
 
 #[test]
-fn direct_xfer_v13_round_trips_cia_builder_sell_tail() {
+fn direct_xfer_current_round_trips_cia_builder_sell_tail() {
     use crate::save_load::{Xfer, XferLoad, XferSave};
     use std::io::Cursor;
 
     let mut world = WorldSnapshot::default();
-    world.version = WORLD_SNAPSHOT_DIRECT_XFER_V13_TAIL_VERSION;
+    world.version = WORLD_SNAPSHOT_DIRECT_XFER_VERSION;
     world.vision_spied.push(ObjectVisionSpiedSnapshot {
         object_id: ObjectId(7),
         vision_spied_mask: 1,
@@ -843,36 +697,6 @@ fn direct_xfer_v13_round_trips_cia_builder_sell_tail() {
         }]
     );
     assert_eq!(sentinel, 0xC0DE_F00D);
-}
-
-#[test]
-fn bincode_v12_migrates_without_cia_builder_sell_tail() {
-    let mut source = WorldSnapshot::default();
-    source.version = 12;
-    source.vision_spied.push(ObjectVisionSpiedSnapshot {
-        object_id: ObjectId(1),
-        vision_spied_mask: 4,
-    });
-    source.builder_tasks.push(ObjectBuilderTaskSnapshot {
-        object_id: ObjectId(2),
-        builder_id: Some(ObjectId(3)),
-        dozer_task_build_target: None,
-        dozer_task_build_order_frame: 0,
-    });
-    source.sell_list.push(SellListEntrySnapshot {
-        object_id: ObjectId(4),
-        sell_frame: 9,
-    });
-
-    let payload = serialize_pre_v13_v12_fixture(source).expect("serialize exact v12 fixture");
-    let (restored, path) = decode_bincode_world_snapshot(&payload).expect("migrate v12 fixture");
-
-    assert_eq!(path, BincodeWorldSnapshotDecodePath::LegacyPreV13V12);
-    assert_eq!(restored.version, WORLD_SNAPSHOT_BINCODE_VERSION);
-    assert!(restored.vision_spied.is_empty());
-    assert!(restored.builder_tasks.is_empty());
-    assert!(restored.sell_list.is_empty());
-    assert_eq!(restored.cia_intelligence.active_count(), 0);
 }
 
 #[test]
@@ -991,29 +815,6 @@ fn snapshot_round_trips_experience_sink_and_scalar() {
 }
 
 #[test]
-fn bincode_v13_migrates_without_object_persist_tail() {
-    let mut source = WorldSnapshot::default();
-    source.version = 13;
-    source.object_persist.push(ObjectPersistTailSnapshot {
-        object_id: ObjectId(1),
-        sole_healing_benefactor: Some(ObjectId(2)),
-        sole_healing_benefactor_expiration_frame: 9,
-        contained_by_frame: Some(3),
-        original_team: Some(Team::USA),
-        formation_id: 4,
-        formation_offset: [1.0, 2.0],
-        stealth_opacity: 0.5,
-        terrain_decal_type: 1,
-        terrain_decal_size: 3.5,
-    });
-    let payload = serialize_pre_v14_v13_fixture(source).expect("serialize v13");
-    let (restored, path) = decode_bincode_world_snapshot(&payload).expect("migrate v13");
-    assert_eq!(path, BincodeWorldSnapshotDecodePath::LegacyPreV14V13);
-    assert!(restored.object_persist.is_empty());
-    assert!(restored.client_drawable_visuals.is_empty());
-}
-
-#[test]
 fn snapshot_round_trips_scoring_restriction_cave_tunnel_airfield() {
     gamelogic::helpers::TheGameLogic::set_scoring_enabled(false);
     let mut source = GameLogic::new();
@@ -1065,34 +866,6 @@ fn snapshot_round_trips_scoring_restriction_cave_tunnel_airfield() {
         Some(ObjectId(60))
     );
     gamelogic::helpers::TheGameLogic::set_scoring_enabled(true);
-}
-
-#[test]
-fn snapshot_pre_v17_defaults_scoring_and_empty_pools() {
-    let mut snapshot = WorldSnapshot::default();
-    snapshot.version = WORLD_SNAPSHOT_DIRECT_XFER_V16_TAIL_VERSION;
-    snapshot.is_scoring_enabled = false;
-    snapshot.limit_superweapons = true;
-    snapshot
-        .cave_system
-        .register_cave(ObjectId(1), 0, Team::USA);
-    let builder = SnapshotBuilder::new();
-    // Direct restore of a v16-shaped in-memory record still carries the
-    // live fields; bincode v16 migration is the empty-default path.
-    let mut v16 = snapshot;
-    v16.is_scoring_enabled = true;
-    v16.limit_superweapons = false;
-    v16.cave_system = crate::game_logic::HostCaveSystem::new();
-    v16.tunnel_network = crate::game_logic::HostTunnelNetworkRegistry::new();
-    v16.airfield_parking = AirfieldParkingWorldSnapshot::default();
-    let mut restored = GameLogic::new();
-    restored.set_limit_superweapons(true);
-    builder
-        .restore_from_snapshot(&v16, &mut restored)
-        .expect("restore");
-    assert!(gamelogic::helpers::TheGameLogic::is_scoring_enabled());
-    assert!(!restored.skirmish_rules().limit_superweapons);
-    assert_eq!(restored.cave_system_residual().contain_count(0), 0);
 }
 
 #[test]
@@ -1193,21 +966,6 @@ fn snapshot_round_trips_v18_ui_script_radar_water_drawable() {
     gamelogic::helpers::TheGameLogic::set_draw_icon_ui(true);
     gamelogic::helpers::TheGameLogic::set_hulk_max_lifetime_override(-1);
     gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(0);
-}
-
-#[test]
-fn snapshot_pre_v18_defaults_persist_tail() {
-    let mut snapshot = WorldSnapshot::default();
-    snapshot.version = WORLD_SNAPSHOT_DIRECT_XFER_V17_TAIL_VERSION;
-    snapshot.persist_v18.draw_icon_ui = false;
-    snapshot.persist_v18.named_timer_display_shown = false;
-    let builder = SnapshotBuilder::new();
-    let mut restored = GameLogic::new();
-    builder
-        .restore_from_snapshot(&snapshot, &mut restored)
-        .expect("restore");
-    assert!(gamelogic::helpers::TheGameLogic::get_draw_icon_ui());
-    assert!(restored.peek_script_named_timer_display_shown());
 }
 
 #[test]

@@ -672,10 +672,6 @@ End
         host_projectile_stream_name_for_weapon_name(NAME),
         "FlamethrowerProjectileStream"
     );
-    assert_eq!(
-        host_projectile_stream_name_for_slots(Some(NAME), None, None, None),
-        "FlamethrowerProjectileStream"
-    );
 }
 
 #[test]
@@ -689,10 +685,6 @@ fn projectile_stream_name_reads_store_not_just_seed() {
     });
     assert_eq!(
         host_projectile_stream_name_for_weapon_name(NAME),
-        "AuroraBombStream"
-    );
-    assert_eq!(
-        host_projectile_stream_name_for_slots(Some(NAME), None, None, None),
         "AuroraBombStream"
     );
 }
@@ -1625,3 +1617,6 @@ fn nearer_bridge_end_is_not_span_center() {
     assert!(aim.x < center.x, "nearer end {aim:?} vs center {center:?}");
     assert!((aim.x - 60.0).abs() < 1.0);
 }
+
+#[path = "bootstrap_owner_tests.rs"]
+mod bootstrap_owner_tests;

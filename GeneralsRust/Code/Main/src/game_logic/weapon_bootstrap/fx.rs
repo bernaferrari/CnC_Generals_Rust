@@ -22,8 +22,7 @@ pub fn host_fire_fx_for_weapon_name_at_veterancy(
     name: &str,
     level: crate::game_logic::VeterancyLevel,
 ) -> String {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let level = game_logic_veterancy(level);
     with_weapon_store(|store| {
         store.find_weapon_template(name).and_then(|wt| {
@@ -48,8 +47,7 @@ pub fn host_detonation_fx_for_weapon_name_at_veterancy(
     name: &str,
     level: crate::game_logic::VeterancyLevel,
 ) -> String {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let level = game_logic_veterancy(level);
     with_weapon_store(|store| {
         store.find_weapon_template(name).and_then(|wt| {
@@ -71,8 +69,7 @@ pub fn host_detonation_fx_for_weapon_name(name: &str) -> String {
 ///
 /// Fail-closed: name residual only; not full drawable bone matrix lookup.
 pub fn host_laser_bone_name_for_weapon_name(name: &str) -> String {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let from_store = with_weapon_store(|store| {
         store.find_weapon_template(name).and_then(|wt| {
             let n = wt.laser_bone_name.trim();
@@ -160,8 +157,7 @@ pub(super) fn seed_laser_bone_name_for(name: &str) -> String {
 /// Fail-closed: name + host residual beam spawn only; not full ThingFactory
 /// laser object / LaserUpdate bone attach matrix.
 pub fn host_laser_name_for_weapon_name(name: &str) -> String {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let from_store = with_weapon_store(|store| {
         store.find_weapon_template(name).and_then(|wt| {
             let n = wt.laser_name.trim();
@@ -251,8 +247,7 @@ pub fn host_projectile_exhaust_for_weapon_name_at_veterancy(
     name: &str,
     level: crate::game_logic::VeterancyLevel,
 ) -> String {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let level = game_logic_veterancy(level);
     with_weapon_store(|store| {
         store.find_weapon_template(name).and_then(|wt| {
@@ -319,8 +314,7 @@ pub fn host_fire_ocl_for_weapon_name_at_veterancy(
     name: &str,
     level: crate::game_logic::VeterancyLevel,
 ) -> String {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let level = game_logic_veterancy(level);
     with_weapon_store(|store| {
         store.find_weapon_template(name).and_then(|wt| {
@@ -346,8 +340,7 @@ pub fn host_detonation_ocl_for_weapon_name_at_veterancy(
     name: &str,
     level: crate::game_logic::VeterancyLevel,
 ) -> String {
-    use gamelogic::weapon::with_weapon_store;
-    let _ = ensure_host_weapon_store();
+    use super::with_host_weapon_store as with_weapon_store;
     let level = game_logic_veterancy(level);
     with_weapon_store(|store| {
         store.find_weapon_template(name).and_then(|wt| {

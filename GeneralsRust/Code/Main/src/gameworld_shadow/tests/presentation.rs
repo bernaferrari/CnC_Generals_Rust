@@ -973,14 +973,15 @@ fn residual_acquire_query_source() {
         );
     }
     // Harvest supply + ground-attack impact residual.
-    for name in [
-        "find_nearest_harvestable_supply",
-        "find_ground_attack_victim",
+    for (source, name) in [
+        (src, "find_nearest_harvestable_supply"),
+        (
+            include_str!("../../game_logic/world_tick/combat/ground_target.rs"),
+            "find_ground_attack_victim",
+        ),
     ] {
-        let i = src
-            .find(&format!("fn {name}"))
-            .unwrap_or_else(|| panic!("missing {name}"));
-        let body = &src[i..src.len().min(i + 4000)];
+        let body = super::harness::rust_fn_body(source, name)
+            .unwrap_or_else(|| panic!("missing actual owner of {name}"));
         assert!(
             body.contains("pick_nearest_residual_target")
                 && body.contains("ResidualAcquireCandidate"),

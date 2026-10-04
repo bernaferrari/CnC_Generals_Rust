@@ -35,7 +35,6 @@ pub(in crate::game_logic::weapon_bootstrap) use gamelogic::weapon::{
 };
 use glam::Vec3;
 pub(in crate::game_logic::weapon_bootstrap) use std::path::{Path, PathBuf};
-pub(in crate::game_logic::weapon_bootstrap) use std::sync::atomic::{AtomicBool, Ordering};
 
 mod names;
 pub use names::*;

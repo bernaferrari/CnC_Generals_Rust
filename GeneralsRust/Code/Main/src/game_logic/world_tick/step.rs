@@ -1250,22 +1250,14 @@ impl GameLogic {
                     let firing_name = if !p.historic_weapon_key.is_empty() {
                         Some(p.historic_weapon_key.as_str())
                     } else {
-                        shooter.and_then(|o| o.weapon_name_for_slot(o.last_fire_slot))
+                        shooter.and_then(|o| o.authored_weapon_name_for_slot(o.last_fire_slot))
                     };
-                    let sname = shooter
-                        .map(|o| {
-                            crate::game_logic::weapon_bootstrap::host_projectile_stream_name_for_slots(
-                                firing_name,
-                                o.weapon_name_for_slot(0),
-                                o.weapon_name_for_slot(1),
-                                o.weapon_name_for_slot(2),
-                            )
-                        })
-                        .unwrap_or_else(|| {
-                            firing_name
-                                .map(crate::game_logic::weapon_bootstrap::host_projectile_stream_name_for_weapon_name)
-                                .unwrap_or_default()
-                        });
+                    // C++ Weapon::newProjectileFired never searches another
+                    // WeaponSet slot. Accepted shots retain their own name even
+                    // after the shooter's current selection changes or it dies.
+                    let sname = firing_name
+                        .map(crate::game_logic::weapon_bootstrap::host_projectile_stream_name_for_weapon_name)
+                        .unwrap_or_default();
                     if sname.is_empty() {
                         return None;
                     }

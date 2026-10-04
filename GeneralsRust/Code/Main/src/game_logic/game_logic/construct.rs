@@ -546,6 +546,7 @@ impl GameLogic {
             scripts_loaded: false,
             mission_script_counter: 0,
             queued_audio_events: Vec::new(),
+            ambient_sound_retries: AmbientSoundRetries::default(),
             command_queue: VecDeque::new(),
             accepted_gather_commands: VecDeque::new(),
             supply_dropoff_events: VecDeque::new(),
@@ -768,6 +769,7 @@ impl GameLogic {
         }
         self.drawable_tint_envelopes.clear();
         self.objects.clear();
+        self.ambient_sound_retries.clear();
         // C++ WeaponStore::resetWeaponTemplates clears same-template history.
         self.combat_system.reset_historic_bonus();
         // C++ WeaponStore::reset also drops pending delayed damage.

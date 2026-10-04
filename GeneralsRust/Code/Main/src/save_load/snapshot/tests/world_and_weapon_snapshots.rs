@@ -289,7 +289,7 @@ fn snapshot_v5_restores_exact_human_and_ai_skirmish_template_bindings() {
 }
 
 #[test]
-fn snapshot_v4_defaults_to_no_template_bindings_and_v5_rejects_stale_pair() {
+fn snapshot_current_rejects_stale_template_pair() {
     let mut legacy = WorldSnapshot::default();
     legacy.version = 4;
     legacy.players.push(PlayerSnapshot {
@@ -324,12 +324,6 @@ fn snapshot_v4_defaults_to_no_template_bindings_and_v5_rejects_stale_pair() {
         },
     });
     let builder = SnapshotBuilder::new();
-    let mut restored = GameLogic::new();
-    builder
-        .restore_from_snapshot(&legacy, &mut restored)
-        .expect("v4 predecessor defaults binding tail");
-    assert!(restored.player_template_identity(0).is_none());
-
     let mut stale = legacy;
     stale.version = WORLD_SNAPSHOT_BINCODE_VERSION;
     stale
@@ -2242,87 +2236,7 @@ fn companion_aware_save_preserves_client_drawable_snapshot() {
 }
 
 #[test]
-fn direct_xfer_v2_object_snapshot_omits_hacker_disable_tail_and_keeps_alignment() {
-    use super::xfer_helpers::{default_object_snapshot, default_player_snapshot};
-    use crate::game_logic::{HackerDisableChannelPhase, HackerDisableChannelState};
-    use crate::save_load::{Xfer, XferLoad, XferSave};
-    use std::io::Cursor;
-
-    let object_id = ObjectId(91);
-    let mut pre_hdb_world = WorldSnapshot::default();
-    pre_hdb_world.version = 2;
-    pre_hdb_world.frame_number = 4_321;
-    pre_hdb_world.random_seed = 0x1BAD_B002;
-
-    let mut object = default_object_snapshot();
-    object.id = object_id;
-    object.template_name = "PreHdbDirectXferObject".to_string();
-    object.hacker_disable_channel = Some(HackerDisableChannelState::new(
-        ObjectId(92),
-        HackerDisableChannelPhase::Preparing,
-        1_500,
-    ));
-    pre_hdb_world.objects.insert(object_id, object);
-
-    // A non-empty record after the object map ensures the loader has to stay
-    // aligned through subsequent world fields, not merely reach EOF.
-    let mut player = default_player_snapshot();
-    player.id = 17;
-    player.name = "PostObjectAlignment".to_string();
-    pre_hdb_world.players.push(player);
-
-    let mut bytes = Cursor::new(Vec::new());
-    {
-        let mut writer = XferSave::new(&mut bytes);
-        pre_hdb_world
-            .xfer(&mut writer)
-            .expect("write exact pre-HDB direct-Xfer world");
-        let mut trailing_sentinel = 0xC0DE_CAFEu32;
-        writer
-            .xfer_u32(&mut trailing_sentinel)
-            .expect("write trailing sentinel");
-    }
-
-    let mut restored = WorldSnapshot::default();
-    let mut trailing_sentinel = 0u32;
-    {
-        let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
-        restored
-            .xfer(&mut reader)
-            .expect("read exact pre-HDB direct-Xfer world");
-        reader
-            .xfer_u32(&mut trailing_sentinel)
-            .expect("read aligned trailing sentinel");
-    }
-
-    assert_eq!(restored.version, 2);
-    assert_eq!(restored.frame_number, 4_321);
-    assert_eq!(restored.random_seed, 0x1BAD_B002);
-    assert_eq!(restored.players[0].name, "PostObjectAlignment");
-    assert!(restored
-        .objects
-        .get(&object_id)
-        .expect("restored v2 object")
-        .hacker_disable_channel
-        .is_none());
-    assert_eq!(
-        restored
-            .objects
-            .get(&object_id)
-            .expect("restored v2 object")
-            .weapon_barrel_states,
-        default_weapon_barrel_state_snapshots()
-    );
-    assert_eq!(
-        restored.next_weapon_discharge_sequence,
-        default_next_weapon_discharge_sequence()
-    );
-    assert!(restored.client_drawables.drawables.is_empty());
-    assert_eq!(trailing_sentinel, 0xC0DE_CAFE);
-}
-
-#[test]
-fn direct_xfer_v3_preserves_hacker_disable_tail_and_keeps_alignment_after_bincode_v4() {
+fn direct_xfer_current_preserves_hacker_disable_tail_and_following_record() {
     use super::xfer_helpers::{default_object_snapshot, default_player_snapshot};
     use crate::game_logic::{HackerDisableChannelPhase, HackerDisableChannelState};
     use crate::save_load::{Xfer, XferLoad, XferSave};
@@ -2330,7 +2244,7 @@ fn direct_xfer_v3_preserves_hacker_disable_tail_and_keeps_alignment_after_bincod
 
     let object_id = ObjectId(93);
     let mut world = WorldSnapshot::default();
-    world.version = 3;
+    world.version = WORLD_SNAPSHOT_DIRECT_XFER_VERSION;
     let mut object = default_object_snapshot();
     object.id = object_id;
     object.template_name = "V3HdbDirectXferObject".to_string();
@@ -2361,7 +2275,7 @@ fn direct_xfer_v3_preserves_hacker_disable_tail_and_keeps_alignment_after_bincod
         reader.xfer_u32(&mut sentinel).expect("read sentinel");
     }
 
-    assert_eq!(restored.version, 3);
+    assert_eq!(restored.version, WORLD_SNAPSHOT_DIRECT_XFER_VERSION);
     assert_eq!(restored.players[0].name, "V3PostObjectAlignment");
     assert_eq!(
         restored
@@ -2389,14 +2303,14 @@ fn direct_xfer_v3_preserves_hacker_disable_tail_and_keeps_alignment_after_bincod
 }
 
 #[test]
-fn direct_xfer_v4_round_trips_logical_and_client_drawable_tails() {
+fn direct_xfer_current_round_trips_logical_and_client_drawable_tails() {
     use super::xfer_helpers::{default_object_snapshot, default_player_snapshot};
     use crate::save_load::{Xfer, XferLoad, XferSave};
     use std::io::Cursor;
 
     let object_id = ObjectId(95);
     let mut world = WorldSnapshot::default();
-    world.version = WORLD_SNAPSHOT_DIRECT_XFER_V4_TAIL_VERSION;
+    world.version = WORLD_SNAPSHOT_DIRECT_XFER_VERSION;
     world.next_weapon_discharge_sequence = 43;
     let mut object = default_object_snapshot();
     object.id = object_id;
@@ -2505,14 +2419,14 @@ fn direct_xfer_v4_round_trips_logical_and_client_drawable_tails() {
 }
 
 #[test]
-fn direct_xfer_v5_round_trips_exact_player_template_binding_tail() {
+fn direct_xfer_current_round_trips_exact_player_template_binding_tail() {
     use super::xfer_helpers::default_object_snapshot;
     use crate::game_logic::SupplyTruckState;
     use crate::save_load::{Xfer, XferLoad, XferSave};
     use std::io::Cursor;
 
     let mut world = WorldSnapshot::default();
-    world.version = WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION;
+    world.version = WORLD_SNAPSHOT_DIRECT_XFER_VERSION;
     world
         .player_template_bindings
         .push(PlayerTemplateBindingSnapshot {
@@ -2581,7 +2495,7 @@ fn direct_xfer_v5_round_trips_exact_player_template_binding_tail() {
 }
 
 #[test]
-fn direct_xfer_v6_round_trips_exact_shroud_tail() {
+fn direct_xfer_current_round_trips_exact_shroud_tail() {
     use crate::save_load::{Xfer, XferLoad, XferSave};
     use gamelogic::system::shroud_manager::{
         ShroudCellSnapshot, ShroudGridSnapshot, ShroudPendingUndoRevealSnapshot, ShroudSnapshot,
@@ -2646,14 +2560,14 @@ fn direct_xfer_v6_round_trips_exact_shroud_tail() {
 }
 
 #[test]
-fn direct_xfer_v7_round_trips_weapon_suspend_fx_tail_and_keeps_alignment() {
+fn direct_xfer_current_round_trips_weapon_suspend_fx_tail_and_keeps_alignment() {
     use super::xfer_helpers::default_player_snapshot;
     use crate::save_load::{Xfer, XferLoad, XferSave};
     use std::io::Cursor;
 
     let object_id = ObjectId(96);
     let mut world = WorldSnapshot::default();
-    world.version = WORLD_SNAPSHOT_DIRECT_XFER_V7_TAIL_VERSION;
+    world.version = WORLD_SNAPSHOT_DIRECT_XFER_VERSION;
     let mut object = ObjectSnapshot {
         id: object_id,
         ..super::xfer_helpers::default_object_snapshot()
@@ -2696,7 +2610,7 @@ fn direct_xfer_v7_round_trips_weapon_suspend_fx_tail_and_keeps_alignment() {
 }
 
 #[test]
-fn direct_xfer_v8_round_trips_temporary_weapon_tail_and_keeps_alignment() {
+fn direct_xfer_current_round_trips_temporary_weapon_tail_and_keeps_alignment() {
     use super::xfer_helpers::{default_object_snapshot, default_player_snapshot};
     use crate::game_logic::host_temporary_weapon_behavior::{
         FireWeaponWhenDamagedRuntimeState, FireWeaponWhenDamagedWeaponRole,
@@ -2754,7 +2668,7 @@ fn direct_xfer_v8_round_trips_temporary_weapon_tail_and_keeps_alignment() {
     };
 
     let mut world = WorldSnapshot::default();
-    world.version = WORLD_SNAPSHOT_DIRECT_XFER_V8_TAIL_VERSION;
+    world.version = WORLD_SNAPSHOT_DIRECT_XFER_VERSION;
     let mut object = default_object_snapshot();
     object.id = object_id;
     object.temporary_weapon_runtime = Some(runtime.clone());
@@ -2790,69 +2704,6 @@ fn direct_xfer_v8_round_trips_temporary_weapon_tail_and_keeps_alignment() {
     );
     assert_eq!(restored.players[0].name, "V8PostTemporaryWeaponAlignment");
     assert_eq!(sentinel, 0xABCD_0123);
-}
-
-#[test]
-fn direct_xfer_v6_omits_weapon_suspend_fx_tail_and_keeps_alignment() {
-    use super::xfer_helpers::default_object_snapshot;
-    use crate::save_load::{Xfer, XferLoad, XferSave};
-    use std::io::Cursor;
-
-    let object_id = ObjectId(97);
-    let mut world = WorldSnapshot::default();
-    world.version = WORLD_SNAPSHOT_DIRECT_XFER_V6_TAIL_VERSION;
-    let mut object = default_object_snapshot();
-    object.id = object_id;
-    object.weapon_suspend_fx_frames = vec![9_999];
-    world.objects.insert(object_id, object);
-
-    let mut bytes = Cursor::new(Vec::new());
-    {
-        let mut writer = XferSave::new(&mut bytes);
-        world.xfer(&mut writer).expect("write direct v6 world");
-        let mut sentinel = 0xFA0B_1C2Du32;
-        writer.xfer_u32(&mut sentinel).expect("write sentinel");
-    }
-
-    let mut restored = WorldSnapshot::default();
-    let mut sentinel = 0u32;
-    {
-        let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
-        restored.xfer(&mut reader).expect("read direct v6 world");
-        reader.xfer_u32(&mut sentinel).expect("read sentinel");
-    }
-
-    assert!(restored
-        .objects
-        .get(&object_id)
-        .expect("restored v6 object")
-        .weapon_suspend_fx_frames
-        .is_empty());
-    assert_eq!(sentinel, 0xFA0B_1C2D);
-}
-
-#[test]
-fn bincode_v6_migrates_without_weapon_suspend_fx_tail() {
-    let object_id = ObjectId(98);
-    let mut source = WorldSnapshot::default();
-    source.version = 6;
-    let mut object = super::xfer_helpers::default_object_snapshot();
-    object.id = object_id;
-    object.weapons = vec![Weapon::default()];
-    object.weapon_suspend_fx_frames = vec![7_777];
-    source.objects.insert(object_id, object);
-
-    let payload = serialize_pre_v7_v6_fixture(source).expect("serialize exact v6 fixture");
-    let (restored, path) = decode_bincode_world_snapshot(&payload).expect("migrate v6 fixture");
-
-    assert_eq!(path, BincodeWorldSnapshotDecodePath::LegacyPreV7V6);
-    assert_eq!(restored.version, WORLD_SNAPSHOT_BINCODE_VERSION);
-    let restored_object = restored
-        .objects
-        .get(&object_id)
-        .expect("migrated v6 object");
-    assert_eq!(restored_object.weapons.len(), 1);
-    assert!(restored_object.weapon_suspend_fx_frames.is_empty());
 }
 
 #[test]
@@ -2923,7 +2774,7 @@ fn direct_xfer_rejects_future_writer_before_emitting_any_record_bytes() {
 }
 
 #[test]
-fn direct_xfer_v21_appends_weapon_clip_residual_and_keeps_alignment() {
+fn direct_xfer_current_appends_weapon_clip_residual_and_keeps_alignment() {
     use super::xfer_helpers::{default_object_snapshot, default_player_snapshot};
     use crate::game_logic::Weapon;
     use crate::save_load::{Xfer, XferLoad, XferSave};
@@ -2965,7 +2816,7 @@ fn direct_xfer_v21_appends_weapon_clip_residual_and_keeps_alignment() {
     let mut bytes = Cursor::new(Vec::new());
     {
         let mut writer = XferSave::new(&mut bytes);
-        build_world(WORLD_SNAPSHOT_DIRECT_XFER_V21_TAIL_VERSION)
+        build_world(WORLD_SNAPSHOT_DIRECT_XFER_VERSION)
             .xfer(&mut writer)
             .expect("write v21 world");
         let mut sentinel = 0xC0DE_CAFEu32;
@@ -2991,31 +2842,4 @@ fn direct_xfer_v21_appends_weapon_clip_residual_and_keeps_alignment() {
     assert!(weapon.reloading_clip);
     assert!((weapon.last_bonus_rof - 1.5).abs() < 1e-4);
 
-    // v20 stream: pre-tail layout still loads and leaves Weapon::default()
-    // residual values (the historical behavior) without mis-consuming bytes.
-    let mut bytes = Cursor::new(Vec::new());
-    {
-        let mut writer = XferSave::new(&mut bytes);
-        build_world(WORLD_SNAPSHOT_DIRECT_XFER_V20_TAIL_VERSION)
-            .xfer(&mut writer)
-            .expect("write v20 world");
-        let mut sentinel = 0xFEED_F00Du32;
-        writer.xfer_u32(&mut sentinel).expect("write sentinel");
-    }
-    let mut restored = WorldSnapshot::default();
-    let mut sentinel = 0u32;
-    {
-        let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
-        restored.xfer(&mut reader).expect("read v20 world");
-        reader.xfer_u32(&mut sentinel).expect("read sentinel");
-    }
-    assert_eq!(restored.players[0].name, "PostWeaponAlignment");
-    assert_eq!(sentinel, 0xFEED_F00D);
-    let weapon = &restored
-        .objects
-        .get(&ObjectId(404))
-        .expect("restored v20 object")
-        .weapons[0];
-    assert_eq!(weapon.clip_size, 0);
-    assert!(!weapon.reloading_clip);
 }

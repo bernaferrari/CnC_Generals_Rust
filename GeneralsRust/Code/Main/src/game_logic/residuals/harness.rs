@@ -93,6 +93,7 @@ pub const GAME_LOGIC_HOST_SRC: &str = concat!(
     include_str!("../world_scripts/saboteur_car_bomb.rs"),
     include_str!("../world_scripts/helix_radar.rs"),
     include_str!("../world_scripts/production_eva.rs"),
+    include_str!("../world_scripts/production_refunds.rs"),
     include_str!("../world_scripts/rebuild_dozer.rs"),
     include_str!("../world_scripts/add_object_selection.rs"),
     include_str!("../world_scripts/special_power_strikes.rs"),

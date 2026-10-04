@@ -314,3 +314,11 @@ fn accepted_queue_fifo_repeated_shots_keep_frozen_source_after_retirement() {
 
 #[path = "accepted_fire_frame_owner_tests.rs"]
 mod accepted_fire_frame_owner_tests;
+
+#[path = "accepted_damage_frame_owner_tests.rs"]
+mod accepted_damage_frame_owner_tests;
+
+mod pending_combat_snapshot_tests;
+
+#[path = "authored_projectile_stream_tests.rs"]
+mod authored_projectile_stream_tests;

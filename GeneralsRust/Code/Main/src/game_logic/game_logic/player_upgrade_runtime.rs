@@ -2,6 +2,31 @@
 use super::*;
 
 impl Player {
+    /// Refund one paid production entry, publishing its final economy values.
+    /// C++ Money::deposit (Money.cpp:44-59, Money.h:49) requests Deposit for a
+    /// nonzero amount before crediting the controlling player's money.
+    /// Keep the host's existing charged-cost, saturation, delta, and statistics
+    /// policy; a refund does not pass through collected-supply accounting.
+    pub(crate) fn refund_production_cost(&mut self, refund: &Resources) {
+        if refund.supplies > 0 {
+            crate::game_logic::host_economy_log::record_money_audio(
+                self.id,
+                crate::game_logic::host_economy_log::HostMoneyAudio::Deposit,
+            );
+        }
+        if crate::gameworld_shadow::gameworld_economy_authority_live() {
+            self.pending_supply_delta += refund.supplies as i64;
+        } else {
+            self.resources.supplies = self.resources.supplies.saturating_add(refund.supplies);
+        }
+        self.power_available -= refund.power;
+        crate::game_logic::host_economy_log::record(
+            self.id,
+            self.effective_supplies(),
+            self.power_available,
+        );
+    }
+
     pub fn queue_upgrade(
         &mut self,
         upgrade_name: &str,
@@ -30,13 +55,7 @@ impl Player {
             return false;
         };
         self.queued_upgrades.remove(&queued_name);
-        self.apply_supply_gain(refund.supplies);
-        self.power_available -= refund.power;
-        crate::game_logic::host_economy_log::record(
-            self.id,
-            self.effective_supplies(),
-            self.power_available,
-        );
+        self.refund_production_cost(refund);
         true
     }
 
