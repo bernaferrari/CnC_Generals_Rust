@@ -414,6 +414,9 @@ mod update_modules;
 #[cfg(test)]
 mod registration_tests;
 
+#[cfg(test)]
+mod body_definition_snapshot_tests;
+
 pub(crate) use body::install_body_for_module;
 #[cfg(test)]
 pub(crate) use body::with_active as with_active_body_binding_for_test;

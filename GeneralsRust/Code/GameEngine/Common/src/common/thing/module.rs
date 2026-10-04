@@ -243,14 +243,11 @@ impl ModuleData for BaseModuleData {
 
 impl Snapshotable for BaseModuleData {
     fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        // C++ BaseModuleData::crc() is intentionally empty
+        // C++ Module.h:102-104: definition snapshots have no base payload.
         Ok(())
     }
 
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
         Ok(())
     }
 
@@ -1218,6 +1215,10 @@ impl UpgradeMuxData {
         &self.removal_upgrade_names
     }
 }
+
+#[cfg(test)]
+#[path = "definition_snapshot_tests.rs"]
+mod definition_snapshot_tests;
 
 #[cfg(test)]
 mod tests {

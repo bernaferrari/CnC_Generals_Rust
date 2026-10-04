@@ -35,6 +35,7 @@ use game_engine::common::ini::ini_damage_fx::{
 };
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
+use std::borrow::Cow;
 use std::sync::{Arc, RwLock};
 
 /// Wave 291: host-only path has no dual-world factory objects.
@@ -317,46 +318,18 @@ impl ActiveBodyModuleData {
 crate::impl_legacy_module_data_via_base!(ActiveBodyModuleData, base);
 
 impl Snapshotable for ActiveBodyModuleData {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.base.crc(xfer)
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ ActiveBodyModuleData inherits ModuleData's empty snapshot hooks.
+        // Runtime health and damage belong to ActiveBody::xfer below.
+        Ok(())
     }
 
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.base.xfer(xfer)?;
-        xfer.xfer_real(&mut self.max_health)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut self.initial_health)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut self.subdual_damage_cap)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_unsigned_int(&mut self.subdual_damage_heal_rate)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut self.subdual_damage_heal_amount)
-            .map_err(|e| e.to_string())?;
-
-        let mut has_default = self.default_armor_template.is_some();
-        xfer.xfer_bool(&mut has_default)
-            .map_err(|e| e.to_string())?;
-        let mut name = self
-            .default_armor_template
-            .clone()
-            .unwrap_or_else(AsciiString::new)
-            .to_string();
-        xfer.xfer_ascii_string(&mut name)
-            .map_err(|e| e.to_string())?;
-        if xfer.is_reading() {
-            self.default_armor_template = if has_default && !name.is_empty() {
-                Some(AsciiString::from(name.as_str()))
-            } else {
-                None
-            };
-        }
-
+    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
         Ok(())
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        self.base.load_post_process()
+        Ok(())
     }
 }
 
@@ -873,21 +846,15 @@ impl ActiveBody {
     /// `&mut self` because C++ `m_curArmor` is a plain member. `estimate_damage`
     /// is `&self` (trait / C++ const) and resolves a temporary armor instead.
     fn validate_armor_and_damage_fx(&mut self) -> BodyResult<()> {
-        let engine_template = self.engine_template.clone();
-
-        let (flags, dirty) = {
-            let state = &self.state;
-            (state.armor_set_flags.clone(), state.armor_flags_dirty)
-        };
-
-        let needs_template = self.armor.template().is_none();
-
-        if !dirty && !needs_template {
+        if !self.state.armor_flags_dirty && self.armor.template().is_some() {
             return Ok(());
         }
 
+        // Retain the exact selected flags for cache publication, but only on
+        // the dirty path that actually resolves a new armor choice.
+        let flags = self.state.armor_set_flags.clone();
         let (desired_armor_name, damage_fx_name) = Self::resolve_armor_choice(
-            engine_template.as_ref(),
+            self.engine_template.as_ref(),
             &flags,
             self.module_data.default_armor_template.as_ref(),
         );
@@ -944,28 +911,25 @@ impl ActiveBody {
         (desired_armor_name, damage_fx_name)
     }
 
-    /// Same armor `validate_armor_and_damage_fx` would store, without mutating
-    /// the cache. Used by the immutable `estimate_damage` path.
-    fn armor_resolved_for_read(&self) -> BodyResult<Armor> {
-        let (flags, dirty) = {
-            let state = &self.state;
-            (state.armor_set_flags.clone(), state.armor_flags_dirty)
-        };
-        if !dirty && self.armor.template().is_some() {
-            return Ok(self.armor.clone());
+    /// Borrow the current armor when valid, or resolve the same temporary armor
+    /// `validate_armor_and_damage_fx` would store without mutating the cache.
+    /// Used by the immutable `estimate_damage` path.
+    fn armor_resolved_for_read(&self) -> BodyResult<Cow<'_, Armor>> {
+        if !self.state.armor_flags_dirty && self.armor.template().is_some() {
+            return Ok(Cow::Borrowed(&self.armor));
         }
         let (name, _) = Self::resolve_armor_choice(
             self.engine_template.as_ref(),
-            &flags,
+            &self.state.armor_set_flags,
             self.module_data.default_armor_template.as_ref(),
         );
         match name {
             Some(armor_name) => {
                 let template = TheArmorStore::find_template(&armor_name)
                     .ok_or(BodyError::ArmorTemplateNotFound(armor_name))?;
-                Ok(Armor::from_template(template))
+                Ok(Cow::Owned(Armor::from_template(template)))
             }
-            None => Ok(Armor::default()),
+            None => Ok(Cow::Owned(Armor::default())),
         }
     }
 
