@@ -935,33 +935,33 @@ impl Object {
             guard.contain_module_handles.clear();
             guard.upgrade_module_handles.clear();
 
-            // Interface lists store indices into `modules`, populated in the
-            // same order as before (single walk over the module list). Masks
-            // are snapshotted first: borrows through the write guard's deref
-            // are not place-disjoint, so the walk and the handle pushes
-            // cannot interleave against the same guard.
-            let masks: Vec<ModuleInterfaceType> =
-                guard.modules.iter().map(|entry| entry.mask()).collect();
-            for (index, mask) in masks.into_iter().enumerate() {
-                if (mask.0 & ModuleInterfaceType::BODY.0) != 0 {
-                    guard.body_module_handles.push(index);
-                }
-                if (mask.0 & ModuleInterfaceType::DIE.0) != 0 {
-                    guard.die_module_handles.push(index);
-                }
-                if (mask.0 & ModuleInterfaceType::UPDATE.0) != 0
-                    && (mask.0 & ModuleInterfaceType::CONTAIN.0) == 0
-                {
-                    guard.update_module_handles.push(index);
-                }
-                if (mask.0 & ModuleInterfaceType::COLLIDE.0) != 0 {
-                    guard.collide_module_handles.push(index);
-                }
-                if (mask.0 & ModuleInterfaceType::CONTAIN.0) != 0 {
-                    guard.contain_module_handles.push(index);
-                }
-                if (mask.0 & ModuleInterfaceType::UPGRADE.0) != 0 {
-                    guard.upgrade_module_handles.push(index);
+            // Borrow the Object directly so its module list and interface
+            // lists are disjoint fields. Masks are immutable values; filling
+            // the lists needs no temporary snapshot allocation.
+            {
+                let owner: &mut Object = &mut guard;
+                for (index, entry) in owner.modules.iter().enumerate() {
+                    let mask = entry.mask();
+                    if (mask.0 & ModuleInterfaceType::BODY.0) != 0 {
+                        owner.body_module_handles.push(index);
+                    }
+                    if (mask.0 & ModuleInterfaceType::DIE.0) != 0 {
+                        owner.die_module_handles.push(index);
+                    }
+                    if (mask.0 & ModuleInterfaceType::UPDATE.0) != 0
+                        && (mask.0 & ModuleInterfaceType::CONTAIN.0) == 0
+                    {
+                        owner.update_module_handles.push(index);
+                    }
+                    if (mask.0 & ModuleInterfaceType::COLLIDE.0) != 0 {
+                        owner.collide_module_handles.push(index);
+                    }
+                    if (mask.0 & ModuleInterfaceType::CONTAIN.0) != 0 {
+                        owner.contain_module_handles.push(index);
+                    }
+                    if (mask.0 & ModuleInterfaceType::UPGRADE.0) != 0 {
+                        owner.upgrade_module_handles.push(index);
+                    }
                 }
             }
 
@@ -969,7 +969,8 @@ impl Object {
             // module instance before ANY onObjectCreated callback (458–462).
             // Preserve authored order even for malformed duplicate containers,
             // whose release-build C++ behavior selects the last interface.
-            for index in guard.contain_module_handles.clone() {
+            for position in 0..guard.contain_module_handles.len() {
+                let index = guard.contain_module_handles[position];
                 let handle = guard.modules[index].with_module(|module| {
                     crate::contain_module_overrides::contain_handle_for_module(module)
                 });
@@ -1081,7 +1082,7 @@ impl Object {
                     Arc::clone(entry),
                     object_id,
                 )));
-                entry.with_module(|module| {
+                let wake_frame = entry.with_module(|module| {
                     if let Some(slow_death) = (module as &mut dyn Any).downcast_mut::<
                         crate::object::behavior::slow_death_behavior::SlowDeathBehavior,
                     >() {
@@ -1103,8 +1104,8 @@ impl Object {
                     >() {
                         spy.behavior_mut().bind_update_proxy(proxy.clone());
                     }
+                    initial_update_wake_frame(module)
                 });
-                let wake_frame = initial_update_wake_frame(entry.as_ref());
                 if let Err(err) = crate::helpers::TheGameLogic::register_update_module(
                     object_id,
                     proxy.clone(),

@@ -1952,11 +1952,11 @@ impl ModuleUpdateProxy {
     }
 }
 
-fn initial_update_wake_frame(entry: &ModuleEntry) -> UnsignedInt {
+fn initial_update_wake_frame(module: &mut dyn Module) -> UnsignedInt {
     // Every branch of the former `as_any().downcast_ref` chain is now a
     // `Module::get_initial_wake_frame()` override (see the wrapper modules);
     // modules without a wake frame still report 0 here.
-    entry.with_module(|module| module.get_initial_wake_frame().unwrap_or(0))
+    module.get_initial_wake_frame().unwrap_or(0)
 }
 
 impl UpdateModuleInterface for ModuleUpdateProxy {

@@ -189,7 +189,10 @@ mod tests {
             Box::new(module),
         );
 
-        assert_eq!(initial_update_wake_frame(&entry), expected_wake_frame);
+        assert_eq!(
+            entry.with_module(|module| initial_update_wake_frame(module)),
+            expected_wake_frame
+        );
 
         let mut sleep = None;
         entry.with_module(|module| {
