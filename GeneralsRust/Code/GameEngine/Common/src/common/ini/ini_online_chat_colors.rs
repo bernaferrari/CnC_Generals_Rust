@@ -419,11 +419,13 @@ mod tests {
         let (r, g, b, a) = OnlineChatColors::extract_color(0xFFFFFFFF);
         assert_eq!((r, g, b, a), (255, 255, 255, 255));
 
+        // C++ Color.h:37-40 and Color.cpp:60-73 use packed ARGB.
         let (r, g, b, a) = OnlineChatColors::extract_color(0xFFFF0000);
-        assert_eq!((r, g, b, a), (0, 0, 255, 255));
+        assert_eq!((r, g, b, a), (255, 0, 0, 255));
 
         let (r, g, b, a) = OnlineChatColors::extract_color(0x80808040);
-        assert_eq!((r, g, b, a), (128, 128, 128, 64));
+        assert_eq!((r, g, b, a), (128, 128, 64, 128));
+        assert_eq!(OnlineChatColors::make_color(r, g, b, a), 0x80808040);
     }
 
     #[test]

@@ -166,9 +166,25 @@ fn get_extra_block_parser(token: &str) -> Option<INIBlockParse> {
         })
 }
 
+/// Prepared bytes belong to this INI operation. Only external files use the
+/// existing loose/archive authority; selected inline text reads from memory.
+enum IniInput {
+    File(BufReader<File>),
+    Inline(Cursor<Vec<u8>>),
+}
+
+impl Read for IniInput {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            Self::File(reader) => reader.read(buffer),
+            Self::Inline(reader) => reader.read(buffer),
+        }
+    }
+}
+
 /// INI Reader interface
 pub struct INI {
-    file: Option<BufReader<File>>,
+    file: Option<IniInput>,
     staged_temp_file: Option<PathBuf>,
     read_buffer: [u8; INI_READ_BUFFER],
     read_buffer_next: usize,
@@ -1319,35 +1335,37 @@ impl INI {
         result
     }
 
-    /// Temporarily parse an inline INI block by staging it in a temp file.
+    /// Parse selected text through an input owned by this INI operation.
+    /// External loose-file and archive policy does not apply to these bytes.
     pub fn with_inline_source<F, R>(&mut self, contents: &str, f: F) -> INIResult<R>
     where
         F: FnOnce(&mut INI) -> INIResult<R>,
     {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let filename = format!("codex_inline_{}_{}.ini", std::process::id(), nanos);
-        let path = std::env::temp_dir().join(filename);
-
-        fs::write(&path, contents).map_err(|_| INIError::CantOpenFile)?;
-        let prep_result = self.prep_file(&path, INILoadType::Overwrite);
-        if let Err(err) = prep_result {
-            let _ = fs::remove_file(&path);
-            return Err(err);
+        if self.file.is_some() {
+            return Err(INIError::FileAlreadyOpen);
         }
 
-        let result = f(self);
-        self.un_prep_file();
-        let _ = fs::remove_file(&path);
+        self.staged_temp_file = None;
+        self.file = Some(IniInput::Inline(Cursor::new(contents.as_bytes().to_vec())));
+        self.filename = "<inline>".to_string();
+        self.load_type = INILoadType::Overwrite;
+        self.read_buffer_next = 0;
+        self.read_buffer_used = 0;
 
-        result
+        // C++ INI::load catches, unPreps, then propagates an exception. Clean
+        // up this owned input before resuming an unwind; caller effects and the
+        // original panic payload are retained, not converted into an INI error.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self)));
+        self.un_prep_file();
+        match result {
+            Ok(result) => result,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
     }
 
     /// Parse the currently prepared INI source.
     ///
-    /// This is used by callers that stage an inline source via `with_inline_source`.
+    /// This is used by callers that prepare inline bytes via `with_inline_source`.
     pub fn parse_current_file(&mut self) -> INIResult<()> {
         self.parse_file()
     }
@@ -1375,7 +1393,7 @@ impl INI {
                 file
             }
         };
-        self.file = Some(BufReader::new(file));
+        self.file = Some(IniInput::File(BufReader::new(file)));
         self.filename = filename.as_ref().to_string_lossy().to_string();
         self.load_type = load_type;
         self.read_buffer_next = 0;
@@ -2519,3 +2537,7 @@ End
         });
     }
 }
+
+#[cfg(test)]
+#[path = "inline_source_owner_tests.rs"]
+mod inline_source_owner_boundary_tests;

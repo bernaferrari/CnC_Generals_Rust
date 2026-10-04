@@ -1865,17 +1865,18 @@ mod tests {
 
     #[test]
     fn test_parse_bool() {
-        assert_eq!(parse_bool("true"), Ok(true));
-        assert_eq!(parse_bool("TRUE"), Ok(true));
-        assert_eq!(parse_bool("yes"), Ok(true));
-        assert_eq!(parse_bool("1"), Ok(true));
-
-        assert_eq!(parse_bool("false"), Ok(false));
-        assert_eq!(parse_bool("FALSE"), Ok(false));
-        assert_eq!(parse_bool("no"), Ok(false));
-        assert_eq!(parse_bool("0"), Ok(false));
-
-        assert!(parse_bool("invalid").is_err());
+        // C++ INI.cpp:584-626 accepts only Yes/No, ignoring case.
+        for value in ["yes", "YES", "Yes"] {
+            assert_eq!(parse_bool(value), Ok(true));
+        }
+        for value in ["no", "NO", "No"] {
+            assert_eq!(parse_bool(value), Ok(false));
+        }
+        assert_eq!(parse_bool("Yes trailing text"), Ok(true));
+        assert_eq!(parse_bool("No trailing text"), Ok(false));
+        for invalid in ["true", "TRUE", "1", "false", "FALSE", "0", "invalid", ""] {
+            assert!(parse_bool(invalid).is_err());
+        }
     }
 
     #[test]

@@ -1039,11 +1039,20 @@ mod tests {
 
     #[test]
     fn test_validate_name() {
-        assert!(IniWater::validate_name(&AsciiString::from("Morning")));
-        assert!(IniWater::validate_name(&AsciiString::from("Noon")));
-        assert!(IniWater::validate_name(&AsciiString::from("Night")));
-        assert!(!IniWater::validate_name(&AsciiString::from("Invalid")));
-        assert!(!IniWater::validate_name(&AsciiString::from("")));
+        // C++ GameType.cpp:5-14 and INIWater.cpp:36-60 define the accepted names.
+        for valid in [
+            "NONE",
+            "Morning",
+            "AFTERNOON",
+            "Evening",
+            "Night",
+            "morning",
+        ] {
+            assert!(IniWater::validate_name(&AsciiString::from(valid)));
+        }
+        for invalid in ["Noon", "Invalid", ""] {
+            assert!(!IniWater::validate_name(&AsciiString::from(invalid)));
+        }
     }
 
     #[test]

@@ -975,7 +975,8 @@ mod tests {
         let mut props = HashMap::new();
         props.insert("BridgeModelName".to_string(), "bridge.w3d".to_string());
         props.insert("BridgeScale".to_string(), "1.5".to_string());
-        props.insert("RadarColor".to_string(), "255:128:64".to_string());
+        // C++ TerrainRoads.cpp:40 uses INI.cpp:953-972 named RGB subtokens.
+        props.insert("RadarColor".to_string(), "R:255 G:128 B:64".to_string());
 
         let result = parse_terrain_bridge_definition("TestBridge", &props);
         assert!(result.is_ok());
@@ -986,6 +987,17 @@ mod tests {
         assert_eq!(bridge.radar_color.r, 255);
         assert_eq!(bridge.radar_color.g, 128);
         assert_eq!(bridge.radar_color.b, 64);
+
+        // The C++ parser requires all three named components in 0..=255.
+        for invalid in [
+            "255:128:64",
+            "R:256 G:128 B:64",
+            "R:-1 G:128 B:64",
+            "R:255 G:128",
+        ] {
+            props.insert("RadarColor".to_string(), invalid.to_string());
+            assert!(parse_terrain_bridge_definition("TestBridge", &props).is_err());
+        }
     }
 
     #[test]

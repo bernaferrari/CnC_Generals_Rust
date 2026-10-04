@@ -367,7 +367,8 @@ mod tests {
         assert_eq!(parse_kind_of_mask("VEHICLE"), 1u128 << 9);
         assert_eq!(parse_kind_of_mask("STRUCTURE"), 1u128 << 7);
         assert_eq!(parse_kind_of_mask("DOZER"), 1u128 << 12);
-        assert_eq!(parse_kind_of_mask("CLEANUP_HAZARD"), 1u128 << 55);
+        // C++ KindOf.h:38-43,70-84: the retail layout omits ALLOW_SURRENDER.
+        assert_eq!(parse_kind_of_mask("CLEANUP_HAZARD"), 1u128 << 51);
         assert_eq!(parse_kind_of_mask("UNKNOWN_TYPE"), 0);
     }
 

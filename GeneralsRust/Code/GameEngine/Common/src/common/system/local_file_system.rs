@@ -431,8 +431,7 @@ impl FileSystemBackend for LocalFileSystem {
                 return Some(Self::metadata_to_file_info(&metadata));
             }
         }
-        if let Some(archive) =
-            crate::common::system::archive_file_system::get_archive_file_system()
+        if let Some(archive) = crate::common::system::archive_file_system::get_archive_file_system()
         {
             let mut archived = crate::common::system::archive_file::FileInfo {
                 size: 0,
@@ -720,8 +719,9 @@ mod tests {
     #[test]
     fn test_find_file_path_matches_case_insensitive_search_path_entries()
     -> Result<(), Box<dyn std::error::Error>> {
-        let test_root = PathBuf::from("test_case_insensitive_local_fs");
+        let test_root = tempfile::tempdir()?;
         let actual_path = test_root
+            .path()
             .join("Art")
             .join("Textures")
             .join("mainmenuruleruserinterface.tga");
@@ -729,15 +729,26 @@ mod tests {
         fs::write(&actual_path, b"test")?;
 
         let mut fs_backend = LocalFileSystem::new();
-        fs_backend.add_search_path(&test_root);
-
+        fs_backend.add_search_path(test_root.path());
+        let request = "art/textures/MainMenuRuleruserinterface.tga";
         let resolved = fs_backend
-            .find_file_path("art/textures/MainMenuRuleruserinterface.tga")
+            .find_file_path(request)
             .expect("case-insensitive local lookup should resolve");
 
-        assert_eq!(resolved, actual_path);
+        // Win32LocalFileSystem.cpp:21-54 opens the requested file through the
+        // OS. Its contract does not prescribe a resolved path's spelling.
+        // Existing Rust search roots are canonicalized; case-sensitive hosts
+        // must still resolve every differently cased component of this request.
+        assert_eq!(
+            fs::canonicalize(&resolved)?,
+            fs::canonicalize(&actual_path)?
+        );
+        let mut file = fs_backend
+            .open_file(request, FileAccess::READ.combine(FileAccess::BINARY))
+            .expect("actual LocalFileSystem backend opens the resolved fixture");
+        assert_eq!(file.read_entire_and_close()?, b"test");
 
-        fs::remove_dir_all(test_root)?;
+        // TempDir owns cleanup on success, returned errors, and unwinding.
         Ok(())
     }
 
