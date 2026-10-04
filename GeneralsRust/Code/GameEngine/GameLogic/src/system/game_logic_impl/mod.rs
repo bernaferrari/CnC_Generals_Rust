@@ -155,3 +155,6 @@ mod nested_snapshot_tests;
 include!("select_object_tests.rs");
 #[cfg(test)]
 include!("continuation_tests.rs");
+
+#[cfg(test)]
+mod live_ghost_grid_owner_tests;

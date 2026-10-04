@@ -59,6 +59,32 @@ impl PartitionData {
         )
     }
 
+    /// Live-parent query from the exact driving match. The compatibility
+    /// method above remains for callers that have not received their owner.
+    pub(crate) fn get_shrouded_status_with_partition(
+        &self,
+        player_index: i32,
+        object: &Object,
+        partition: &crate::system::game_logic::PartitionManager,
+    ) -> ObjectShroudStatus {
+        if player_index < 0 || player_index as usize >= MAX_PLAYER_COUNT {
+            return ObjectShroudStatus::Clear;
+        }
+        if !partition.updated_since_last_reset() {
+            return ObjectShroudStatus::Invalid;
+        }
+        let cells = geometry_cells_for_object(object);
+        let counts =
+            partition.count_shroud_cells(player_index, cells.iter().map(|cell| (cell.x, cell.y)));
+        self.status_from_counts(
+            player_index as usize,
+            counts,
+            object.is_kind_of(KindOf::Immobile),
+            object.is_kind_of(KindOf::Mine),
+            || viewer_relationship_to_object(player_index, object),
+        )
+    }
+
     fn status_from_counts(
         &self,
         idx: usize,

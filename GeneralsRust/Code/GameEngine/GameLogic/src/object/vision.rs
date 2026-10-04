@@ -118,6 +118,21 @@ impl Object {
         ObjectShroudStatus::Clear
     }
 
+    /// C++ live-parent PartitionData query using the driving match's cells.
+    pub(crate) fn get_shrouded_status_with_partition(
+        &self,
+        player_index: i32,
+        partition: &crate::system::game_logic::PartitionManager,
+    ) -> ObjectShroudStatus {
+        if self.is_kind_of(KindOf::AlwaysVisible) || self.get_container_id().is_some() {
+            return ObjectShroudStatus::Clear;
+        }
+        match &self.partition_data {
+            Some(data) => data.get_shrouded_status_with_partition(player_index, self, partition),
+            None => ObjectShroudStatus::Clear,
+        }
+    }
+
     /// C++ `TheAI->pathfinder()->addObjectToPathfindMap(this)`.
     pub(super) fn add_self_to_pathfind_map(&self) {
         let pos = *self.get_position();

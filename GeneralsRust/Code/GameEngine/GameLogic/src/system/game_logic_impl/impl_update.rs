@@ -1249,7 +1249,10 @@ impl GameLogic {
     ) -> crate::common::ObjectShroudStatus {
         if let Some(object) = self.objects.get(&object_id) {
             if let Ok(object) = object.read() {
-                return object.get_shrouded_status(player_index as i32);
+                return object.get_shrouded_status_with_partition(
+                    player_index as i32,
+                    &self.partition_manager,
+                );
             }
         }
         let Some(position) = self.partition_manager.ghost_frozen_position(object_id) else {

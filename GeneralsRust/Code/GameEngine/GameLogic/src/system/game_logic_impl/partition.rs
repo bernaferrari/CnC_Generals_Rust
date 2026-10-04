@@ -417,6 +417,16 @@ impl PartitionManager {
         self.shroud.cell_status(player_index, x, y)
     }
 
+    /// Count an object's COI footprint from this match's borrowed shroud grid.
+    /// No fallback to a process-wide partition representation is consulted.
+    pub(crate) fn count_shroud_cells(
+        &self,
+        player_index: i32,
+        cells: impl IntoIterator<Item = (i32, i32)>,
+    ) -> crate::object::collide::partition_shroud::PartitionCellShroudCounts {
+        self.shroud.count_cells(player_index, cells)
+    }
+
     /// C++ `getPropShroudStatusForPlayer`.
     pub fn get_prop_shroud_status_for_player(
         &self,
