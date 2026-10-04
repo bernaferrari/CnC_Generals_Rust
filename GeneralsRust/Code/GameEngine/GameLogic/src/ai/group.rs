@@ -55,8 +55,6 @@ pub struct AIGroup {
     speed: f32,
     /// "Dirty bit" - if true then group speed needs recomputation
     dirty: bool,
-    /// Group ground path
-    ground_path: Option<Arc<Mutex<Path>>>,
     /// Cached ID list for returning by reference
     last_requested_id_list: Vec<ObjectID>,
     /// Formation ID for this group (if in formation)
@@ -76,7 +74,6 @@ impl AIGroup {
             member_list_size: 0,
             speed: 0.0,
             dirty: false,
-            ground_path: None,
             last_requested_id_list: Vec::new(),
             formation_id: None,
             formation_type: FormationType::None,
@@ -98,7 +95,6 @@ impl AIGroup {
             member_list_size: 0,
             speed: 0.0,
             dirty: false,
-            ground_path: None,
             last_requested_id_list: Vec::new(),
             formation_id: None,
             formation_type: FormationType::None,

@@ -336,14 +336,6 @@
       "constructs": 7,
       "undocumented": 0
     },
-    "Code/GameEngine/GameLogic/src/path/path.rs": {
-      "constructs": 22,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/path/path_node.rs": {
-      "constructs": 5,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameLogic/src/path/pathfind_cell_info.rs": {
       "constructs": 7,
       "undocumented": 0

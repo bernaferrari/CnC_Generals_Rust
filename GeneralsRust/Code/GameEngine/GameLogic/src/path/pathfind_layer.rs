@@ -4,7 +4,7 @@
 //! This is effectively a sub-rectangle of the big pathfind map.
 #![allow(missing_docs, deprecated, unused_variables)]
 
-use super::{PATHFIND_CELL_SIZE_F, PathNode, PathfindCell, PathfindCellInfo, PathfindCellType};
+use super::{PATHFIND_CELL_SIZE_F, PathfindCell, PathfindCellInfo, PathfindCellType};
 use crate::common::{Coord3D, ICoord2D, IRegion2D, ObjectID};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::path::{PathfindLayerEnum, ZoneStorageType};

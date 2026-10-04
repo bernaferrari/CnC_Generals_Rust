@@ -46,6 +46,8 @@ mod types;
 #[cfg(test)]
 mod counter_tests;
 #[cfg(test)]
+mod path_retirement_tests;
+#[cfg(test)]
 mod queue_ownership_tests;
 #[cfg(test)]
 mod tests;

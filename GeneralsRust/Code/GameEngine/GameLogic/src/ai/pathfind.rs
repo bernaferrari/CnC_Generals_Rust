@@ -1968,6 +1968,10 @@ pub fn find_path(start: Coord3D, end: Coord3D, obj: Option<ObjectID>) -> Option<
 mod point_tests;
 
 #[cfg(test)]
+#[path = "pathfind_retirement_point_tests.rs"]
+mod retirement_point_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use game_engine::common::system::xfer_load::XferLoad;

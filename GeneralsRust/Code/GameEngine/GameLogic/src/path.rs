@@ -1,33 +1,23 @@
-//! Pathfinding system - complete implementation matching C++ AIPathfind
+//! Pathfinding cells, layers, terrain metadata and coordinate helpers.
 //!
-//! This module implements the full pathfinding system from the original C++ codebase,
-//! including A* pathfinding, hierarchical zones, path optimization, and collision detection.
+//! The current AI Pathfinder is `crate::ai::Pathfinder`. Canonical UnitAI path
+//! snapshots use the owned `crate::ai::pathfind::Path`.
 
 pub mod collision_map;
-pub mod environment;
 pub mod navigation_map;
-pub mod path;
-pub mod path_node;
-pub mod path_optimization;
 pub mod pathfind_cell;
 pub mod pathfind_cell_info;
 pub mod pathfind_layer;
 pub mod pathfind_layer_classify;
 
-pub mod pathfinder;
 pub mod zone_block;
 pub mod zone_manager;
 
 pub use collision_map::*;
-pub use environment::*;
 pub use navigation_map::*;
-pub use path::*;
-pub use path_node::*;
-pub use path_optimization::*;
 pub use pathfind_cell::*;
 pub use pathfind_cell_info::*;
 pub use pathfind_layer::*;
-pub use pathfinder::*;
 pub use zone_block::*;
 pub use zone_manager::*;
 
@@ -120,62 +110,6 @@ pub const SURFACE_WATER: LocomotorSurfaceTypeMask = 0x02;
 pub const SURFACE_CLIFF: LocomotorSurfaceTypeMask = 0x04;
 pub const SURFACE_RUBBLE: LocomotorSurfaceTypeMask = 0x10;
 
-/// Pathfinding services interface trait matching C++ PathfindServicesInterface
-pub trait PathfindServicesInterface {
-    /// Find a short, valid path between given locations
-    fn find_path(
-        &mut self,
-        obj: ObjectID,
-        locomotor_set: &LocomotorSet,
-        from: &Coord3D,
-        to: &Coord3D,
-    ) -> Option<PathHandle>;
-
-    /// Find a short, valid path to a location NEAR the destination
-    /// This succeeds when the destination is unreachable (like inside a building)
-    fn find_closest_path(
-        &mut self,
-        obj: ObjectID,
-        locomotor_set: &LocomotorSet,
-        from: &Coord3D,
-        to: &mut Coord3D,
-        blocked: bool,
-        path_cost_multiplier: f32,
-        move_allies: bool,
-    ) -> Option<PathHandle>;
-
-    /// Find a short, valid path to a location that obj can attack victim from
-    fn find_attack_path(
-        &mut self,
-        obj: ObjectID,
-        locomotor_set: &LocomotorSet,
-        from: &Coord3D,
-        victim: ObjectID,
-        victim_pos: &Coord3D,
-        weapon: Option<&WeaponHandle>,
-    ) -> Option<PathHandle>;
-
-    /// Patch to the existing path from the current position
-    fn patch_path(
-        &mut self,
-        obj: ObjectID,
-        locomotor_set: &LocomotorSet,
-        original_path: PathHandle,
-        blocked: bool,
-    ) -> Option<PathHandle>;
-
-    /// Find a short, valid path to a location that is away from the repulsors
-    fn find_safe_path(
-        &mut self,
-        obj: ObjectID,
-        locomotor_set: &LocomotorSet,
-        from: &Coord3D,
-        repulsor_pos1: &Coord3D,
-        repulsor_pos2: &Coord3D,
-        repulsor_radius: f32,
-    ) -> Option<PathHandle>;
-}
-
 /// Locomotor set representing movement capabilities
 #[derive(Debug, Clone)]
 pub struct LocomotorSet {
@@ -209,14 +143,6 @@ impl LocomotorSet {
         (self.valid_surfaces & surface) != 0
     }
 }
-
-/// Weapon handle for attack pathfinding
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct WeaponHandle(pub u32);
-
-/// Path handle for managing paths
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PathHandle(pub u32);
 
 /// Inline helper functions matching C++ implementation
 

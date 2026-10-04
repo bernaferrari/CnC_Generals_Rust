@@ -9,7 +9,6 @@
 
 use super::*;
 use crate::common::{Coord3D, ICoord2D, IRegion2D, ObjectID};
-use crate::path::LocomotorSurfaceTypeMask;
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -254,33 +253,6 @@ impl Cell {
     }
 }
 
-impl PassabilityQuery for CollisionMap {
-    fn is_line_passable(
-        &self,
-        _surfaces: LocomotorSurfaceTypeMask,
-        from: &Coord3D,
-        to: &Coord3D,
-        blocked: bool,
-    ) -> bool {
-        if blocked {
-            return false;
-        }
-        let radius = PATHFIND_CELL_SIZE_F * 0.5;
-        self.line_clear(from, to, radius, None)
-    }
-
-    fn is_ground_line_passable(
-        &self,
-        _crusher: bool,
-        diameter: i32,
-        from: &Coord3D,
-        to: &Coord3D,
-    ) -> bool {
-        let radius = (diameter as f32).max(PATHFIND_CELL_SIZE_F) * 0.5;
-        self.line_clear(from, to, radius, None)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,18 +278,6 @@ mod tests {
         assert!(
             !map.line_clear(&start, &end, PATHFIND_CELL_SIZE_F * 0.25, None),
             "Obstacle should block the segment"
-        );
-    }
-
-    #[test]
-    fn passability_query_respects_blocked_flag() {
-        let map = CollisionMap::new();
-        let from = Coord3D::new(0.0, 0.0, 0.0);
-        let to = Coord3D::new(10.0, 0.0, 0.0);
-
-        assert!(
-            !map.is_line_passable(SURFACE_GROUND, &from, &to, true),
-            "Blocked flag should force optimization to keep intermediate nodes"
         );
     }
 }
