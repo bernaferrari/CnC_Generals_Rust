@@ -267,9 +267,21 @@ mod tests {
         assert_eq!(loaded.construction_complete_clear_frame, 90);
 
         let mut factory = restored.host_object_mut(factory_id).expect("tick factory");
-        // Hold-open keeps WAITING_OPEN; the door must not snap idle.
+        // C++ ProductionUpdate.cpp:528 uses elapsed > DoorOpeningTime.
+        // Xfer preserves the opening marker; post-load does not advance it.
         assert!(!factory.tick_production_door(140));
+        assert_eq!(factory.production_door_phase, 1);
+        assert_eq!(factory.production_door_phases[0], 1);
+        assert_eq!(factory.production_door_phase_end_frame, 140);
+        assert_eq!(factory.production_door_phase_end_frames[0], 140);
+        assert!(!factory.tick_production_door(141));
         assert_eq!(factory.production_door_phase, 2);
         assert_eq!(factory.production_door_phases[0], 2);
+        // The saved hold keeps WAITING_OPEN after its wait duration expires.
+        assert!(!factory.tick_production_door(10_141));
+        assert_eq!(factory.production_door_phase, 2);
+        assert_eq!(factory.production_door_phases[0], 2);
+        assert!(factory.production_door_hold_open);
+        assert!(factory.production_door_hold_opens[0]);
     }
 }

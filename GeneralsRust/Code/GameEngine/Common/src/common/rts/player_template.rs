@@ -443,14 +443,16 @@ impl PlayerTemplateStore {
         self.templates.push(template);
     }
 
-    /// Find-or-create index used by `parse_player_template_definition`.
-    /// Matches C++ parse: locate by namekey (without old-map remapping, so INI
-    /// definitions such as `FactionAmericaAirForceGeneral` stay distinct).
+    /// Canonical exact-name index shared by INI parsing and Main selections.
+    /// Preserve case and first insertion position for authored definitions.
     pub fn find_template_index(&self, name: &str) -> Option<usize> {
-        let key = NameKeyGenerator::name_to_key(name);
+        // A string selection denotes the canonical authored identity. Numeric
+        // keys belong to the generator which parsed a record; a calling thread
+        // can allocate the same number for a different name. Preserve exact
+        // case and insertion order without accepting a foreign key collision.
         self.templates
             .iter()
-            .position(|template| template.name_key == key || template.name == name)
+            .position(|template| template.name == name)
     }
 
     /// C++ `getPlayerTemplateCount()`

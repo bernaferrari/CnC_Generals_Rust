@@ -1832,3 +1832,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "skirmish_config/template_identity_tests.rs"]
+mod template_identity_tests;

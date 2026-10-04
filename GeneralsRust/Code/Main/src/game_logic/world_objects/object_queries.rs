@@ -1023,7 +1023,7 @@ impl GameLogic {
         if target.get_template().always_visible || target.contained_by.is_some() {
             return false;
         }
-        let shroud_manager = std::sync::Arc::clone(self.engine_stores.shroud());
+        let shroud_manager = self.engine_stores.shroud();
         let Ok(shroud) = shroud_manager.lock() else {
             return false;
         };
@@ -2226,7 +2226,7 @@ impl GameLogic {
                     .get(&owner_id)
                     .is_some_and(|player| player.is_local)
                 {
-                    let shroud_manager = std::sync::Arc::clone(self.engine_stores.shroud());
+                    let shroud_manager = self.engine_stores.shroud();
                     let visible = shroud_manager
                         .lock()
                         .map(|shroud| shroud.can_see_object(owner_id, target_id.0))
@@ -2421,7 +2421,7 @@ impl GameLogic {
                     .get(&owner_id)
                     .is_some_and(|player| player.is_local)
                 {
-                    let shroud_manager = std::sync::Arc::clone(self.engine_stores.shroud());
+                    let shroud_manager = self.engine_stores.shroud();
                     let visible = shroud_manager
                         .lock()
                         .map(|shroud| shroud.can_see_object(owner_id, target_id.0))
