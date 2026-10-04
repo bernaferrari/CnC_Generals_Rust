@@ -29,10 +29,26 @@ impl ShadowDeathCompletions {
 }
 
 impl GameWorld {
+    /// Clear all entities (incremental shadow rebuild helper).
+    pub fn clear_entities(&mut self) {
+        self.inner.clear_entities();
+        self.pending_destroy.clear();
+        self.contain_roster.clear();
+        self.weapon_slots.clear();
+        self.entity_modules.clear();
+        self.clear_shadow_death_completions();
+    }
+
     /// Queue the mapped Main host ID after an ordinary final timer transition.
     /// No ambient world selection is involved; callers borrow the producer world.
-    pub fn record_shadow_death_completion(&mut self, kind: ShadowDeathCompletionKind, host_id: u32) {
-        self.shadow_death_completions.channel_mut(kind).push(host_id);
+    pub fn record_shadow_death_completion(
+        &mut self,
+        kind: ShadowDeathCompletionKind,
+        host_id: u32,
+    ) {
+        self.shadow_death_completions
+            .channel_mut(kind)
+            .push(host_id);
     }
 
     /// Transfer one channel to this world's post-host consumer, retaining order.

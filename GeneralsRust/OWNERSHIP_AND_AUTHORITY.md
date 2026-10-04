@@ -114,30 +114,62 @@ those timers into their existing shadow completion consumer. Local deadline
 execution and post-host shadow completion retain their existing observation
 boundaries (hq-zcrmm, hq-ownwz).
 
-OXFR runtime payload version 2 preserves the exact functional Rust death-start
-latch for all admitted objects, including false and KeepObject cases. Existing
-module vectors keep their order; world body schema 23 and original C++ Xfer
-remain unchanged. C++ intentionally omits its debug-only m_hasDiedAlready:
-this is required Rust runtime continuation state, not an original wire field.
-OXFR version 1 is rejected before that domain applies state; whole-world
-in-place restore may already have mutated other domains and is not transactional
-(hq-22x2v). Parsed lethal-death and mid-delay native continuation tests exercise
-the production APIs; they do not establish AssetManager/factory integration or
-original-save interoperability.
+Slow/Jet/Helicopter final-death completion vectors now belong to their driving
+GameWorld. A typed channel selects the existing Jet → Helicopter → Slow
+consumption order. Disabled timer/session work discards diagnostic deliveries;
+clear/reset/drop retire only that owner. Three TLS RefCell queues are removed.
+The exact clear-entities boundary lives beside the delivery owner and keeps its
+previous clearing order (hq-du7d8). Same-ID native timer/consumer tests exercise
+interleaving, constructors, resets and authority changes; these fixtures are
+not full lethal/onDie asset admission or original flight traces. Authority
+publication and the other completion channels remain separate dependencies.
+
+Lifetime and PoisonDoT retain one Object-owned runtime and execute on the
+ordinary host frame even when movement authority is enabled. Their duplicate
+shadow timer writers, timer writebacks, two TLS queues and obsolete PoisonDot
+adapter are removed. Shadow fields are observational copies. Lifetime consumes
+one wake, retaining its deadline, matching C++ UPDATE_SLEEP_FOREVER. Poison
+passes the driving frame into the existing typed damage kernel, avoiding that
+wrapper's compatibility-clock acquisition. CPP interval, dose replacement,
+reinfection deadline and initial kill/final destroy distinction stay explicit
+(hq-icnfg, hq-e2l4l). Two obsolete source-scanner packs and their four synthetic
+atomics retire with the duplicate paths; their twelve scanner tests are not
+relabeled gameplay passes. Arbitrary authored timer configuration, frame-zero
+poison anchors, post-lethal tint stopping and downstream DamageFX clock access
+still need independent evidence.
+
+OXFR runtime payload version 3 preserves exact retained-death status and the
+owned KeepObject state separately from the functional Rust death-start latch.
+The five earlier vectors keep their byte order; world body schema 23 and
+original C++ Xfer remain unchanged. C++ intentionally omits debug-only
+m_hasDiedAlready, and KeepObjectDie::xfer adds no custom retained fields: these
+are required Rust runtime continuation records. Object/private status and
+ActiveBody rubble Xfer provide the original behavior references. Versions 1/2
+are rejected before OXFR domain application; whole-world in-place restoration
+is not transactional (hq-22x2v, hq-btakc). Actual SaveFileManager disk and
+SnapshotBuilder controls exercise retained husks, healing rejection, bridge
+revival, live and zero-HP-without-onDie cases. Neither this nor the parsed lethal
+continuation controls establishes original-save interoperability or full asset
+factory integration. Structural OXFR framing remains separate (hq-c7md7).
 
 Object snapshot metadata now records the explicit controlling player when one
 exists, matching C++ ownership through an actual team instance rather than a
 faction ordinal. The optional collector owner was already preserved and remains
 authoritative; unowned records retain their existing scalar padding. This fixes
 the exported player ID without changing the current wire layout (hq-zmivr).
-Retained KeepObject flags and structural OXFR framing remain separate save gaps
-(hq-btakc, hq-c7md7).
 
 Alive direct destruction still uses the older callback adapter. Initial killer
 credit, structure deletion selectors, the remaining coupling-only timer peels,
-and TLS shadow completion log isolation need separate contracts. In particular,
-changing the three timer gates does not isolate default diagnostic emissions
-across matches or authority changes (hq-2ft52, hq-w772n, hq-ilhlj).
+and the remaining TLS completion channels need separate contracts. The bounded
+Slow/Jet/Heli delivery migration does not isolate the other diagnostic channels
+or prove full match isolation (hq-2ft52, hq-w772n, hq-ilhlj).
+
+Terrain decal opacity now advances once per ordinary host frame; its duplicate
+per-object update call is removed. CPP Drawable.cpp:1174–1204 is the reference.
+Bare/default-coupled and clamp/clear controls exercise the actual admitted host
+object; original client presentation cadence and retail crate spawning remain
+separate claims (hq-clgda). These ownership and cadence changes add no Arc,
+Mutex, RefCell, unsafe block or new ambient state. No FPS gain is asserted.
 
 ## Authored range and locomotor identity (2026-10-04)
 

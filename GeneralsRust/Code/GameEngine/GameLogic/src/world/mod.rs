@@ -3043,16 +3043,6 @@ impl GameWorld {
         }
     }
 
-    /// Clear all entities (incremental shadow rebuild helper).
-    pub fn clear_entities(&mut self) {
-        self.inner.clear_entities();
-        self.pending_destroy.clear();
-        self.contain_roster.clear();
-        self.weapon_slots.clear();
-        self.entity_modules.clear();
-        self.clear_shadow_death_completions();
-    }
-
     /// C++ GameLogic::destroyObject mark: status bit + queue, still findable by id.
     pub fn mark_entity_destroyed(&mut self, id: EntityId) -> bool {
         let frame = self.frame().min(u32::MAX as u64) as u32;

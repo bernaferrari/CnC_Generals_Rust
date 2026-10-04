@@ -27,8 +27,13 @@ fn admitted_decal() -> (GameLogic, ObjectId) {
     let mut logic = GameLogic::new();
     logic.set_gameworld_authority(|authority| *authority = GameWorldAuthority::DEFAULT_OFF);
     logic.templates.insert(NAME.into(), template);
-    let id = logic.create_object(NAME, Team::Neutral, Vec3::ZERO).unwrap();
-    logic.host_object_mut(id).unwrap().apply_crate_terrain_decal();
+    let id = logic
+        .create_object(NAME, Team::Neutral, Vec3::ZERO)
+        .unwrap();
+    logic
+        .host_object_mut(id)
+        .unwrap()
+        .apply_crate_terrain_decal();
     let owner = logic.host_object(id).unwrap();
     assert_eq!(owner.terrain_decal_type, TERRAIN_DECAL_CRATE);
     assert_eq!(owner.terrain_decal_opacity, 0.0);
@@ -91,7 +96,10 @@ fn terrain_decal_fade_clamps_then_clears_once_at_zero() {
     for frame in 1..=3 {
         logic.update();
         assert_opacity(&logic, id, 1.0 - frame as f32 * 0.25);
-        assert_eq!(logic.host_object(id).unwrap().terrain_decal_type, TERRAIN_DECAL_CRATE);
+        assert_eq!(
+            logic.host_object(id).unwrap().terrain_decal_type,
+            TERRAIN_DECAL_CRATE
+        );
     }
     logic.update();
     assert_opacity(&logic, id, 0.0);

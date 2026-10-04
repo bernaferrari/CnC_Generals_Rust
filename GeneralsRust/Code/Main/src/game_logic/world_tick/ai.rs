@@ -47,6 +47,7 @@ impl GameLogic {
                 self.height_die_terrain_at(pos, &name, ground)
             };
             if let Some(obj) = self.objects.get_mut(&object_id) {
+                // CPP Drawable.cpp:1174-1204 advances opacity once per frame.
                 obj.tick_terrain_decal_fade();
                 let stump_pos = obj.get_position();
                 let stump_ori = obj.get_orientation();
@@ -213,7 +214,6 @@ impl GameLogic {
                         }
                     }
                 }
-                obj.tick_terrain_decal_fade();
                 // C++ StructureToppleUpdate::update residual (buildings).
                 // C++ HeightDieUpdate residual (bombs/missiles).
                 // Wave 771: under coupled shadow, HeightDieUpdate is owned by

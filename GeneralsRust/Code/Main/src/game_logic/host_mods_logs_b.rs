@@ -188,16 +188,8 @@ pub mod host_hacker_income_log;
 #[path = "host_height_die_kill_log.rs"]
 pub mod host_height_die_kill_log;
 
-
 #[path = "host_inferno_shell_projectile_log.rs"]
 pub mod host_inferno_shell_projectile_log;
 
-
-#[path = "host_lifetime_expire_log.rs"]
-pub mod host_lifetime_expire_log;
-
 #[path = "host_player_radar_log.rs"]
 pub mod host_player_radar_log;
-
-#[path = "host_poison_dot_log.rs"]
-pub mod host_poison_dot_log;
