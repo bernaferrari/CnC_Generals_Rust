@@ -1,4 +1,5 @@
 #[cfg(test)]
+#[path = "."]
 mod tests {
     use super::*;
 
@@ -795,6 +796,7 @@ mod tests {
 
     #[test]
     fn validate_cached_bones_fills_from_hook() {
+        let _serial = crate::test_sync::lock();
         // C++ `ModelConditionInfo::validateCachedBones` (W3DModelDraw.cpp:566-689)
         // + `doSingleBoneName` for public bones.
         register_pristine_bone_lookup_hook(Some(std::sync::Arc::new(
@@ -822,6 +824,7 @@ mod tests {
 
     #[test]
     fn get_current_bone_positions_uses_w3d_hook_not_empty_skeleton() {
+        let _serial = crate::test_sync::lock();
         // C++ W3DModelDraw.cpp:3545-3621 queries the live HTree, not Drawable.skeleton.
         register_pristine_bone_lookup_hook(Some(std::sync::Arc::new(
             |model, _scale, _frame, bone| {
@@ -867,6 +870,9 @@ mod tests {
 
         register_pristine_bone_lookup_hook(None);
     }
+
+    #[path = "cache_transfer_contract_tests.rs"]
+    mod cache_transfer_contract_tests;
 }
 
 // Actual canonical runtime inspection/production callback, test build only.

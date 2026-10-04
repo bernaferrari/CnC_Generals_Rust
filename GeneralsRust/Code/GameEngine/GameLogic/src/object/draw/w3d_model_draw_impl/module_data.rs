@@ -442,10 +442,67 @@ impl DrawModuleData for W3DModelDrawModuleData {
     }
 }
 
+impl W3DModelDrawModuleData {
+    /// C++ W3DModelDraw.cpp:4253-4296: observe condition caches in Xfer order.
+    /// CRC only needs local transfer values; the definition remains borrowed.
+    fn xfer_cache_view(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| e.to_string())?;
+
+        for state in &self.condition_states {
+            let mut valid_stuff = model_condition_valid_stuff(state) as i8;
+            xfer.xfer_byte(&mut valid_stuff)
+                .map_err(|e| e.to_string())?;
+            if valid_stuff == 0 {
+                continue;
+            }
+
+            let mut pristine_keys: Vec<NameKeyType> =
+                state.pristine_bones.keys().copied().collect();
+            pristine_keys.sort_unstable();
+            for key in pristine_keys {
+                if let Some(bone) = state.pristine_bones.get(&key) {
+                    let mut bone_index = bone.bone_index;
+                    xfer.xfer_int(&mut bone_index).map_err(|e| e.to_string())?;
+                    let mut transform = bone.transform;
+                    xfer_matrix3d_values(xfer, &mut transform)?;
+                }
+            }
+
+            for turret_index in 0..MAX_TURRETS {
+                let mut turret_angle_bone = state
+                    .turrets
+                    .get(turret_index)
+                    .map(|turret| turret.turret_angle_bone)
+                    .unwrap_or(0);
+                let mut turret_pitch_bone = state
+                    .turrets
+                    .get(turret_index)
+                    .map(|turret| turret.turret_pitch_bone)
+                    .unwrap_or(0);
+                xfer.xfer_int(&mut turret_angle_bone)
+                    .map_err(|e| e.to_string())?;
+                xfer.xfer_int(&mut turret_pitch_bone)
+                    .map_err(|e| e.to_string())?;
+            }
+
+            for barrels in &state.weapon_barrels {
+                for barrel in barrels {
+                    let mut projectile_offset_mtx = barrel.projectile_offset_mtx;
+                    xfer_matrix3d_values(xfer, &mut projectile_offset_mtx)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
 impl Snapshotable for W3DModelDrawModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut clone = self.clone();
-        clone.xfer(xfer)
+        self.xfer_cache_view(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
