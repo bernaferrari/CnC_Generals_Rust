@@ -768,10 +768,6 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/Main/src/executable_smoke/tests.rs": {
-      "constructs": 4,
-      "undocumented": 0
-    },
     "Code/Main/src/game_logic/residuals/host_live_gameworld_economy_movement_residual_wave183.rs": {
       "constructs": 1,
       "undocumented": 0

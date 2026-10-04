@@ -20,6 +20,75 @@ mod tests {
     use super::EXECUTABLE_SMOKE_SRC;
     use super::*;
 
+    // Overrides are owned by Command and installed only in the fresh child.
+    // libtest and native libraries may have threads even with --test-threads=1;
+    // never mutate the parent process environment to configure these cases.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn isolated_environment_case(
+        test: &str,
+        scenario: &str,
+        key: &str,
+        value: &std::ffi::OsStr,
+        run: impl FnOnce(),
+    ) {
+        const CHILD_TEST: &str = "GENERALS_SMOKE_ENV_CHILD_TEST";
+        const CHILD_CASE: &str = "GENERALS_SMOKE_ENV_CHILD_CASE";
+        let module = module_path!()
+            .strip_prefix("generals_main::")
+            .unwrap_or(module_path!());
+        let exact = format!("{module}::{test}");
+        if std::env::var(CHILD_TEST).ok().as_deref() == Some(exact.as_str()) {
+            if std::env::var(CHILD_CASE).ok().as_deref() == Some(scenario) {
+                run();
+            }
+            return;
+        }
+
+        use std::io::Read;
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &exact, "--nocapture", "--test-threads=1"])
+            .env(CHILD_TEST, &exact)
+            .env(CHILD_CASE, scenario)
+            .env(key, value)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let pipes: [Box<dyn Read + Send>; 2] = [
+            Box::new(child.stdout.take().unwrap()),
+            Box::new(child.stderr.take().unwrap()),
+        ];
+        let readers = pipes.map(|mut pipe| {
+            std::thread::spawn(move || {
+                let mut bytes = Vec::new();
+                pipe.read_to_end(&mut bytes).unwrap();
+                bytes
+            })
+        });
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let (status, timed_out) = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break (status, false);
+            }
+            if Instant::now() >= deadline {
+                child.kill().unwrap();
+                break (child.wait().unwrap(), true);
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        let output =
+            readers.map(|reader| String::from_utf8_lossy(&reader.join().unwrap()).into_owned());
+        assert!(!timed_out, "environment child timed out: {output:?}");
+        assert!(
+            status.success(),
+            "environment child failed: {status}: {output:?}"
+        );
+        assert!(
+            output[0].contains("running 1 test") && output[0].contains("1 passed; 0 failed"),
+            "exact environment child must run one passing test: {output:?}"
+        );
+    }
+
     #[test]
     fn failed_smoke_keeps_bounded_child_error_and_shell_state() {
         let dir = tempfile::tempdir().unwrap();
@@ -223,19 +292,30 @@ mod tests {
     }
 
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn resolve_runtime_exe_honors_general_runtime_exe_override() {
         let dir = tempfile::tempdir().unwrap();
         let fake = dir.path().join("generals_override_bin");
         fs::write(&fake, b"ok").unwrap();
-        let prev = std::env::var_os("GENERALS_RUNTIME_EXE");
-        crate::env_compat::set_var("GENERALS_RUNTIME_EXE", &fake);
-        let got = resolve_runtime_exe();
-        match prev {
-            Some(v) => crate::env_compat::set_var("GENERALS_RUNTIME_EXE", v),
-            None => crate::env_compat::remove_var("GENERALS_RUNTIME_EXE"),
-        }
-        assert_eq!(got.as_deref(), Some(fake.as_path()));
+        let before = std::env::var_os("GENERALS_RUNTIME_EXE");
+        isolated_environment_case(
+            "resolve_runtime_exe_honors_general_runtime_exe_override",
+            "override",
+            "GENERALS_RUNTIME_EXE",
+            fake.as_os_str(),
+            || {
+                let expected = PathBuf::from(std::env::var_os("GENERALS_RUNTIME_EXE").unwrap());
+                assert!(expected.is_file());
+                let got = resolve_runtime_exe();
+                assert_eq!(got, Some(expected.canonicalize().unwrap()));
+            },
+        );
+        assert_eq!(
+            std::env::var_os("GENERALS_RUNTIME_EXE"),
+            before,
+            "the child override must not mutate the parent environment"
+        );
     }
 
     #[test]
@@ -865,37 +945,41 @@ mod tests {
         assert!(snap.presentation_frame_ok);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn host_ok_requires_shell_wnd_when_wnd_enabled() {
-        let _guard = std::env::var("GENERALS_RUNTIME_HOST_WND");
-        // Safety: process-local env for this test only.
-        // SAFETY: serialized by the repo --test-threads=1 convention plus
-        // env_compat module contract (GENERALS_* toggle read at defined
-        // boundaries); no other thread reads env mid-test.
-        unsafe {
-            crate::env_compat::set_var("GENERALS_RUNTIME_HOST_WND", "1");
-        }
-        assert!(
-            !executable_host_ok_from_residuals(true, false),
-            "WND path must not claim host_ok without shell_wnd residual"
+        let before = std::env::var_os("GENERALS_RUNTIME_HOST_WND");
+        isolated_environment_case(
+            "host_ok_requires_shell_wnd_when_wnd_enabled",
+            "wnd-on",
+            "GENERALS_RUNTIME_HOST_WND",
+            std::ffi::OsStr::new("1"),
+            || {
+                assert!(
+                    !executable_host_ok_from_residuals(true, false),
+                    "WND path must not claim host_ok without shell_wnd residual"
+                );
+                assert!(executable_host_ok_from_residuals(true, true));
+                assert!(!executable_host_ok_from_residuals(false, true));
+            },
         );
-        assert!(executable_host_ok_from_residuals(true, true));
-        assert!(!executable_host_ok_from_residuals(false, true));
-        // SAFETY: same serialized-env contract as above.
-        unsafe {
-            crate::env_compat::set_var("GENERALS_RUNTIME_HOST_WND", "0");
-        }
-        assert!(
-            executable_host_ok_from_residuals(true, false),
-            "WND-off path allows host_ok without shell residual"
+        isolated_environment_case(
+            "host_ok_requires_shell_wnd_when_wnd_enabled",
+            "wnd-off",
+            "GENERALS_RUNTIME_HOST_WND",
+            std::ffi::OsStr::new("0"),
+            || {
+                assert!(
+                    executable_host_ok_from_residuals(true, false),
+                    "WND-off path allows host_ok without shell residual"
+                );
+            },
         );
-        // restore
-        match _guard {
-            // SAFETY: restore path under the same serialization contract.
-            Ok(v) => unsafe { crate::env_compat::set_var("GENERALS_RUNTIME_HOST_WND", v) },
-            // SAFETY: removal path under the same serialization contract.
-            Err(_) => unsafe { crate::env_compat::remove_var("GENERALS_RUNTIME_HOST_WND") },
-        }
+        assert_eq!(
+            std::env::var_os("GENERALS_RUNTIME_HOST_WND"),
+            before,
+            "child WND choices must not mutate the parent environment"
+        );
     }
 
     #[test]
