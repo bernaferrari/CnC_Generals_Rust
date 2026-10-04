@@ -557,8 +557,7 @@ impl Player {
 
     /// Called when a new map is loaded
     pub fn new_map(&mut self) {
-        // Reset transient state for new map
-        self.radar_count = 0;
+        // C++ Player.cpp:729-733 newMap preserves radar counters and restriction.
         self.special_power_ready_timers.clear();
         self.attacked_by = [false; MAX_PLAYER_COUNT];
         self.attacked_frame = 0;
@@ -660,6 +659,10 @@ impl Player {
 
     /// Initialize from player template
     pub fn init(&mut self, player_template: Arc<PlayerTemplate>) {
+        // C++ Player.cpp:338-340: reset radar before initializing player energy.
+        self.radar_count = 0;
+        self.disable_proof_radar_count = 0;
+        self.radar_disabled = false;
         self.energy.reset();
         let mut template = (*player_template).clone();
         if template.production_cost_changes.is_empty()

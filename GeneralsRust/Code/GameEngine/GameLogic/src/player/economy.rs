@@ -377,9 +377,14 @@ impl Player {
     }
 
     pub fn remove_radar(&mut self, disable_proof: Bool) {
-        self.radar_count = (self.radar_count - 1).max(0);
+        // C++ Player.cpp:3159-3163: assert total, then decrement signed counts.
+        debug_assert!(
+            self.radar_count > 0,
+            "removeRadar: player radar count must be positive"
+        );
+        self.radar_count -= 1;
         if disable_proof {
-            self.disable_proof_radar_count = (self.disable_proof_radar_count - 1).max(0);
+            self.disable_proof_radar_count -= 1;
         }
     }
 
@@ -392,7 +397,11 @@ impl Player {
     }
 
     pub fn has_radar(&self) -> Bool {
-        self.radar_count > 0 && !self.radar_disabled
+        // C++ Player.cpp:3207-3213: disable-proof radar bypasses the restriction.
+        if self.radar_disabled && self.disable_proof_radar_count == 0 {
+            return false;
+        }
+        self.radar_count > 0
     }
 
     /// Player state checks

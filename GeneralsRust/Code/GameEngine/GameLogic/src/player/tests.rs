@@ -529,3 +529,5 @@ fn do_bounty_for_kill_obj_uses_calc_cost_to_build_and_score_keeper() {
     assert_eq!(player.get_score_keeper().get_total_money_earned(), 200);
     assert_eq!(player.get_money().count_money(), 200);
 }
+
+include!("radar_tests.rs");
