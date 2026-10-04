@@ -167,9 +167,6 @@ impl GameLogic {
         self.weapon_discharge_log.clear();
     }
 
-    /// Consume every accepted discharge accumulated since the previous
-    /// presentation build. This has `&self` deliberately: taking a snapshot
-    /// is a visual boundary, not an authority mutation.
     #[inline]
     fn play_dispatch_fire_fx(
         &mut self,
@@ -240,8 +237,10 @@ impl GameLogic {
             );
     }
 
+    /// Move one accepted-shot batch out of this driving world at publication.
+    /// Borrowed frame queries must not call this mutating transport boundary.
     pub fn take_weapon_discharges_for_presentation(
-        &self,
+        &mut self,
     ) -> Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent> {
         self.weapon_discharge_log.take_for_presentation()
     }
@@ -386,7 +385,8 @@ mod tests {
 
         // A presentation frame can trail multiple fixed logic steps. It must
         // receive both accepted events, rather than only the last drain batch.
-        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0);
+        let frame =
+            crate::presentation_frame::PresentationFrame::publish_for_engine(&mut logic, 0, None);
         let frozen: Vec<_> = frame
             .events
             .iter()
@@ -406,7 +406,7 @@ mod tests {
             .collect();
         assert_eq!(frozen, vec![(1, 0, 2, 77), (2, 0, 0, 77)]);
         assert!(
-            crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
+            crate::presentation_frame::PresentationFrame::publish_for_engine(&mut logic, 0, None)
                 .events
                 .iter()
                 .all(|event| !matches!(
@@ -461,3 +461,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "weapon_discharge_owner_tests.rs"]
+mod accepted_discharge_owner_boundary_tests;

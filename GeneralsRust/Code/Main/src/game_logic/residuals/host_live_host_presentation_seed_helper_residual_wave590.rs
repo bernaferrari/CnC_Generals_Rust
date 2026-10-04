@@ -142,7 +142,7 @@ pub fn honesty_host_presentation_seed_helper_source_markers_residual_wave590() -
             break;
         };
         if !body.contains("Wave 590")
-            || !(body.contains("build_for_engine")
+            || !(body.contains("publish_for_engine")
                 || body.contains("host_sync_shadow_and_build_presentation"))
         {
             defs_ok = false;

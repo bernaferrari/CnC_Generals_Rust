@@ -201,14 +201,13 @@ pub fn simulate_presentation_env_seed_gameworld_source() -> bool {
         .contains("Wave 466: prefer host+GameWorld shadow freeze when a shadow session exists")
         || body.contains("Wave 474: instance seed only")
         || body.contains("Wave 590"))
-        && (body.contains("build_for_engine")
-            || body.contains("seed_presentation_env_frame_from_host_and_shadow"))
+        && (body.contains("publish_for_engine"))
         && body.contains("self.gameworld_shadow.as_ref()")
-        && body.contains("&self.game_logic")
+        && body.contains("&mut self.game_logic")
         && body.contains("&mut self")
         && !body.contains("shadow: Option<&crate::gameworld_shadow::GameWorldShadow>")
         && src.contains("self.host_ensure_presentation_env_for_hints()")
-        && src.contains("seed_presentation_env_frame_from_host_and_shadow")
+        && src.contains("publish_for_engine_with_runtime_heightmap")
         && helper_ok;
     residual_action_store(ResidualPresentationEnvSeedGameworldAction::EnsureSource);
     ok

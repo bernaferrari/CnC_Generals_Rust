@@ -147,7 +147,7 @@ pub fn honesty_logic_frame_presentation_helper_source_markers_residual_wave560()
     // 2026-08-15: env seed peeled onto Wave 590/466 (camera_drain.rs).
     let env_ok = (env.contains("Wave 560") || env.contains("Wave 590") || env.contains("Wave 466"))
         && env.contains("self.current_player_id")
-        && env.contains("build_for_engine")
+        && env.contains("publish_for_engine")
         && !env.contains("get_frame() as u32");
     let raw = eng.matches("self.game_logic.get_frame()").count();
     let ok = helper_ok && status_ok && env_ok && raw == 0 && !eng.contains("playable_claim = true");

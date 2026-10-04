@@ -7,7 +7,6 @@
 //! world cannot leak raw ObjectIds into the next presentation frame.
 
 use crate::game_logic::ObjectId;
-use std::sync::Mutex;
 
 /// A successful live weapon discharge, normalized after the concrete weapon
 /// has consumed ammo and before its barrel cursor advances.
@@ -21,52 +20,32 @@ pub struct HostWeaponDischargeEvent {
     pub visual_plan: Option<crate::presentation_frame::FrozenWeaponVisualDispatchPlan>,
 }
 
-/// Renderer-facing event queue owned by a single host `GameLogic` instance.
+/// Accepted-discharge transport owned by one host `GameLogic` instance.
 ///
-/// `PresentationFrame::build_from_logic` intentionally has only `&GameLogic`.
-/// This narrow synchronized queue lets it consume each accepted discharge
-/// exactly once without making a visual frame build authoritative game
-/// simulation work, while preserving `GameLogic: Sync` for its existing
-/// `Arc<RwLock<_>>` hosts.
+/// The simulation appends through its mutable owner. A mutable publication
+/// boundary moves one completed batch into frozen presentation; borrowed
+/// queries never drain it. GPU passes read only the completed frame.
 #[derive(Debug, Default)]
 pub struct HostWeaponDischargeLog {
-    pending: Mutex<Vec<HostWeaponDischargeEvent>>,
+    pending: Vec<HostWeaponDischargeEvent>,
 }
 
 impl HostWeaponDischargeLog {
-    pub fn record(&self, event: HostWeaponDischargeEvent) {
-        self.pending
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .push(event);
+    pub fn record(&mut self, event: HostWeaponDischargeEvent) {
+        self.pending.push(event);
     }
 
-    /// Drain every event accumulated since the preceding presentation frame.
-    ///
-    /// Unlike older `take_last_drain` residual channels, multiple fixed logic
-    /// steps can legitimately occur before one GPU frame.  Dropping all but
-    /// the last batch would skip an accepted physical discharge.
-    pub fn take_for_presentation(&self) -> Vec<HostWeaponDischargeEvent> {
-        std::mem::take(
-            &mut *self
-                .pending
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()),
-        )
+    /// Move every accepted shot accumulated across fixed steps to publication.
+    pub fn take_for_presentation(&mut self) -> Vec<HostWeaponDischargeEvent> {
+        std::mem::take(&mut self.pending)
     }
 
-    pub fn clear(&self) {
-        self.pending
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clear();
+    pub fn clear(&mut self) {
+        self.pending.clear();
     }
 
     #[cfg(test)]
     pub fn len(&self) -> usize {
-        self.pending
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .len()
+        self.pending.len()
     }
 }

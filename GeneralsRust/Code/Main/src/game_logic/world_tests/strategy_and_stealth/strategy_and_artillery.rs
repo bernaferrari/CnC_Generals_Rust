@@ -2243,7 +2243,8 @@ fn weapon_discharge_world_tick_combat_preserves_preadvance_barrel_and_freezes_on
         "C++ retains the raw post-last-shot cursor until the next pre-fire topology guard"
     );
 
-    let frozen = crate::presentation_frame::PresentationFrame::build_from_logic(&game_logic, 0);
+    let frozen =
+        crate::presentation_frame::PresentationFrame::publish_for_engine(&mut game_logic, 0, None);
     assert!(frozen.events.iter().any(|event| matches!(
         event,
         crate::presentation_frame::PresentationEvent::WeaponDischarged {
@@ -2256,7 +2257,7 @@ fn weapon_discharge_world_tick_combat_preserves_preadvance_barrel_and_freezes_on
         } if *source == attacker_id
     )));
     assert!(
-        crate::presentation_frame::PresentationFrame::build_from_logic(&game_logic, 0)
+        crate::presentation_frame::PresentationFrame::publish_for_engine(&mut game_logic, 0, None)
             .events
             .iter()
             .all(|event| !matches!(

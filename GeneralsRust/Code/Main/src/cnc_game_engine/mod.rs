@@ -123,6 +123,10 @@ mod types;
 mod ui_commands;
 
 pub use run_loop::run_cnc_game;
+#[cfg(all(feature = "internal", not(target_arch = "wasm32")))]
+pub fn run_snow_anim2d_owner_probe() -> anyhow::Result<()> {
+    camera_drain::run_snow_anim2d_owner_probe()
+}
 #[cfg(feature = "internal")]
 pub fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
     camera_drain::run_replay_fast_forward_engine_probe()

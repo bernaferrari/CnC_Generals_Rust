@@ -2396,40 +2396,13 @@ impl PresentationFrame {
         local_player_id: u32,
         host: Option<&GameLogic>,
     ) -> Self {
-        let mut frame = if let Some(logic) = host {
-            Self::build_from_logic_with_tint_update(logic, local_player_id, None, false)
-        } else {
-            // Minimal shell — borrow-first empty presentation with local player id set.
-            let mut f = Self::build_from_logic(&GameLogic::new(), local_player_id);
-            f.objects.clear();
-            f.events.clear();
-            f
-        };
-        let host_n = frame.objects.len();
-        let gw_n = frame.rebuild_objects_from_gameworld(shadow);
-        if let Some(logic) = host {
-            frame.bind_draw_playback_handles_from_host(logic);
-        }
-        // Wave 838: keep host objects when shadow yields nothing.
-        if gw_n == 0 && host_n > 0 {
-            if let Some(logic) = host {
-                frame =
-                    Self::build_from_logic_with_tint_update(logic, local_player_id, None, false);
-                let _ = frame.overlay_gameworld_shadow(shadow);
-            }
-        }
-        // Wave 498: host FX residual survives GameWorld object rebuild.
-        if let Some(logic) = host {
-            let _ = frame.overlay_host_fx_residual(logic);
-        }
-        // Wave 500: object FX residual names → particle list after host FX stamp.
-        let _ = frame.append_object_residual_fx_particles();
-        // Local player residual already stamped by overlay inside rebuild.
-        match host {
-            Some(logic) => frame.freeze_drawable_status_tints_from_logic(logic, Some(shadow)),
-            None => frame.freeze_drawable_status_tints_from_shadow(shadow),
-        }
-        frame
+        Self::build_from_gameworld_with_runtime_heightmap_and_discharges(
+            shadow,
+            local_player_id,
+            host,
+            None,
+            Vec::new(),
+        )
     }
 
     /// Engine-only GameWorld roster build retaining the revision-frozen terrain
@@ -2440,12 +2413,29 @@ impl PresentationFrame {
         host: Option<&GameLogic>,
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
     ) -> Self {
+        Self::build_from_gameworld_with_runtime_heightmap_and_discharges(
+            shadow,
+            local_player_id,
+            host,
+            runtime_heightmap,
+            Vec::new(),
+        )
+    }
+
+    fn build_from_gameworld_with_runtime_heightmap_and_discharges(
+        shadow: &crate::gameworld_shadow::GameWorldShadow,
+        local_player_id: u32,
+        host: Option<&GameLogic>,
+        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
+        discharges: Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent>,
+    ) -> Self {
         let mut frame = if let Some(logic) = host {
             Self::build_from_logic_with_tint_update(
                 logic,
                 local_player_id,
-                runtime_heightmap.clone(),
+                runtime_heightmap,
                 false,
+                discharges,
             )
         } else {
             // A no-host shell frame cannot reuse a host terrain payload.
@@ -2454,27 +2444,21 @@ impl PresentationFrame {
                 local_player_id,
                 None,
                 false,
+                Vec::new(),
             );
             f.objects.clear();
             f.events.clear();
             f
         };
-        let host_n = frame.objects.len();
+        let host_objects = std::mem::take(&mut frame.objects);
         let gw_n = frame.rebuild_objects_from_gameworld(shadow);
         if let Some(logic) = host {
             frame.bind_draw_playback_handles_from_host(logic);
         }
         // Wave 838: keep host objects when shadow yields nothing.
-        if gw_n == 0 && host_n > 0 {
-            if let Some(logic) = host {
-                frame = Self::build_from_logic_with_tint_update(
-                    logic,
-                    local_player_id,
-                    runtime_heightmap,
-                    false,
-                );
-                let _ = frame.overlay_gameworld_shadow(shadow);
-            }
+        if gw_n == 0 && !host_objects.is_empty() {
+            frame.objects = host_objects;
+            let _ = frame.overlay_gameworld_shadow(shadow);
         }
         // Wave 498: host FX residual survives GameWorld object rebuild.
         if let Some(logic) = host {
@@ -2504,20 +2488,7 @@ impl PresentationFrame {
         local_player_id: u32,
         shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
     ) -> Self {
-        match shadow {
-            Some(shadow) if presentation_from_gameworld_enabled() => {
-                Self::build_from_gameworld(shadow, local_player_id, Some(logic))
-            }
-            Some(shadow) => {
-                let mut frame =
-                    Self::build_from_logic_with_tint_update(logic, local_player_id, None, false);
-                let _ = frame.overlay_gameworld_shadow(shadow);
-                let _ = frame.append_missing_from_gameworld(shadow);
-                frame.freeze_drawable_status_tints_from_logic(logic, Some(shadow));
-                frame
-            }
-            None => Self::build_from_logic(logic, local_player_id),
-        }
+        Self::build_for_engine_with_runtime_heightmap(logic, local_player_id, shadow, None)
     }
 
     /// Engine-only presentation build retaining one cached full terrain payload
@@ -2528,13 +2499,56 @@ impl PresentationFrame {
         shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
     ) -> Self {
+        Self::build_for_engine_with_runtime_heightmap_and_discharges(
+            logic,
+            local_player_id,
+            shadow,
+            runtime_heightmap,
+            Vec::new(),
+        )
+    }
+
+    /// Publish one completed accepted-shot batch from the driving game world.
+    /// The frame then owns the batch; borrowed query builders do not consume it.
+    pub fn publish_for_engine(
+        logic: &mut GameLogic,
+        local_player_id: u32,
+        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
+    ) -> Self {
+        Self::publish_for_engine_with_runtime_heightmap(logic, local_player_id, shadow, None)
+    }
+
+    pub(crate) fn publish_for_engine_with_runtime_heightmap(
+        logic: &mut GameLogic,
+        local_player_id: u32,
+        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
+        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
+    ) -> Self {
+        let discharges = logic.take_weapon_discharges_for_presentation();
+        Self::build_for_engine_with_runtime_heightmap_and_discharges(
+            logic,
+            local_player_id,
+            shadow,
+            runtime_heightmap,
+            discharges,
+        )
+    }
+
+    fn build_for_engine_with_runtime_heightmap_and_discharges(
+        logic: &GameLogic,
+        local_player_id: u32,
+        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
+        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
+        discharges: Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent>,
+    ) -> Self {
         match shadow {
             Some(shadow) if presentation_from_gameworld_enabled() => {
-                Self::build_from_gameworld_with_runtime_heightmap(
+                Self::build_from_gameworld_with_runtime_heightmap_and_discharges(
                     shadow,
                     local_player_id,
                     Some(logic),
                     runtime_heightmap,
+                    discharges,
                 )
             }
             Some(shadow) => {
@@ -2543,16 +2557,19 @@ impl PresentationFrame {
                     local_player_id,
                     runtime_heightmap,
                     false,
+                    discharges,
                 );
                 let _ = frame.overlay_gameworld_shadow(shadow);
                 let _ = frame.append_missing_from_gameworld(shadow);
                 frame.freeze_drawable_status_tints_from_logic(logic, Some(shadow));
                 frame
             }
-            None => Self::build_from_logic_with_runtime_heightmap(
+            None => Self::build_from_logic_with_tint_update(
                 logic,
                 local_player_id,
                 runtime_heightmap,
+                true,
+                discharges,
             ),
         }
     }
@@ -2566,36 +2583,12 @@ impl PresentationFrame {
         local_player_id: u32,
         shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
     ) -> Self {
-        let mut frame =
-            Self::build_with_victory_with_tint_update(logic, local_player_id, None, false);
-        match shadow {
-            Some(shadow) if presentation_from_gameworld_enabled() => {
-                let host_n = frame.objects.len();
-                let gw_n = frame.rebuild_objects_from_gameworld(shadow);
-                // Wave 838: empty GameWorld shadow must not erase a non-empty host
-                // roster (construct/train/map objects) or unit mesh collect stays 0.
-                if gw_n == 0 && host_n > 0 {
-                    frame = Self::build_with_victory_with_tint_update(
-                        logic,
-                        local_player_id,
-                        None,
-                        false,
-                    );
-                    let _ = frame.overlay_gameworld_shadow(shadow);
-                }
-                // Wave 498: host FX residual after GW object rebuild.
-                let _ = frame.overlay_host_fx_residual(logic);
-                // Wave 500: object FX residual names → particle list.
-                let _ = frame.append_object_residual_fx_particles();
-            }
-            Some(shadow) => {
-                let _ = frame.overlay_gameworld_shadow(shadow);
-                let _ = frame.append_missing_from_gameworld(shadow);
-            }
-            None => {}
-        }
-        frame.freeze_drawable_status_tints_from_logic(logic, shadow);
-        frame
+        Self::build_with_victory_for_engine_with_runtime_heightmap(
+            logic,
+            local_player_id,
+            shadow,
+            None,
+        )
     }
 
     /// Engine-only victory variant carrying the revision-frozen terrain payload.
@@ -2608,22 +2601,17 @@ impl PresentationFrame {
         let mut frame = Self::build_with_victory_with_tint_update(
             logic,
             local_player_id,
-            runtime_heightmap.clone(),
+            runtime_heightmap,
             false,
         );
         match shadow {
             Some(shadow) if presentation_from_gameworld_enabled() => {
-                let host_n = frame.objects.len();
+                let host_objects = std::mem::take(&mut frame.objects);
                 let gw_n = frame.rebuild_objects_from_gameworld(shadow);
                 // Wave 838: empty GameWorld shadow must not erase a non-empty host
                 // roster (construct/train/map objects) or unit mesh collect stays 0.
-                if gw_n == 0 && host_n > 0 {
-                    frame = Self::build_with_victory_with_tint_update(
-                        logic,
-                        local_player_id,
-                        runtime_heightmap,
-                        false,
-                    );
+                if gw_n == 0 && !host_objects.is_empty() {
+                    frame.objects = host_objects;
                     let _ = frame.overlay_gameworld_shadow(shadow);
                 }
                 // Wave 498: host FX residual after GW object rebuild.

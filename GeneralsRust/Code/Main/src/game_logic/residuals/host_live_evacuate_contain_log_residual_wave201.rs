@@ -149,7 +149,7 @@ pub fn honesty_engine_build_for_engine_only_source() -> bool {
     // build_from_logic under #[cfg(test)] and must not fail this production scan.
     let eng = production_source_window(crate::cnc_game_engine::ENGINE_SRC);
     // Production code: map-load and preload use build_for_engine.
-    eng.contains("build_for_engine")
+    eng.contains("publish_for_engine")
         && eng
             .lines()
             .filter(|l| !l.trim_start().starts_with("//"))

@@ -85,7 +85,7 @@ pub fn honesty_build_for_engine_api_source() -> bool {
     let src = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     src.contains("pub fn build_for_engine")
         && src.contains("pub fn build_with_victory_for_engine")
-        && src.contains("build_from_gameworld(shadow, local_player_id, Some(logic))")
+        && src.contains("Self::build_from_gameworld_with_runtime_heightmap_and_discharges(")
 }
 
 /// Source residual: engine seed/tick use helpers (not manual overlay chain).
@@ -93,7 +93,7 @@ pub fn honesty_engine_build_for_engine_call_sites_source() -> bool {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     let seed_hits = src.matches("build_for_engine(").count()
         + src
-            .matches("build_for_engine_with_runtime_heightmap(")
+            .matches("publish_for_engine_with_runtime_heightmap(")
             .count();
     let victory_hits = src.matches("build_with_victory_for_engine(").count()
         + src

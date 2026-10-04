@@ -1165,6 +1165,9 @@ pub struct CnCGameEngine {
     pub(crate) host_visual_logic_frame_applied: Option<u32>,
     /// Last logic frame applied to snow and Anim2D.
     pub(crate) host_snow_logic_frame_applied: Option<u32>,
+    /// Menu/boot client cadence belongs to this engine, survives match reset,
+    /// and has no snapshot representation (C++ SnowManager::reset keeps time).
+    pub(super) host_snow_client_only_last_tick: Option<Instant>,
     pub(crate) host_match_in_replay: Option<bool>,
     /// Wave 845: host-owned shell/team residuals for presentation_or_boot peels.
     pub(crate) host_match_in_shell: Option<bool>,

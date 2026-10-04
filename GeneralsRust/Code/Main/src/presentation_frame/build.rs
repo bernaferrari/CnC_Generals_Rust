@@ -368,18 +368,10 @@ impl PresentationFrame {
     /// pass can apply alpha / never-explored skip without mid-render shroud locks.
     /// Cell-grid FOW is also frozen into `fow_grid` for terrain overlay / minimap.
     /// Fail-closed claim: unit FOW + compact local grid; not full SAGE shroud parity.
+    /// Borrowed presentation query. Pending accepted-shot cues stay with the
+    /// world until an explicit mutable publication operation consumes them.
     pub fn build_from_logic(logic: &GameLogic, local_player_id: u32) -> Self {
-        Self::build_from_logic_with_runtime_heightmap(logic, local_player_id, None)
-    }
-
-    /// Engine-only variant which carries the map-lifetime full terrain payload
-    /// instead of cloning it again while freezing a presentation frame.
-    pub(crate) fn build_from_logic_with_runtime_heightmap(
-        logic: &GameLogic,
-        local_player_id: u32,
-        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
-    ) -> Self {
-        Self::build_from_logic_with_tint_update(logic, local_player_id, runtime_heightmap, true)
+        Self::build_from_logic_with_tint_update(logic, local_player_id, None, true, Vec::new())
     }
 
     pub(super) fn build_from_logic_with_tint_update(
@@ -387,6 +379,7 @@ impl PresentationFrame {
         local_player_id: u32,
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
         freeze_tints: bool,
+        discharges: Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent>,
     ) -> Self {
         // Shell maps render fully visible background scenes (C++ parity).
         let fow_shell_bypass = logic.isInShellGame();
@@ -1920,7 +1913,7 @@ impl PresentationFrame {
         // A presentation frame can follow several fixed logic steps. Freeze
         // every real accepted discharge in order; the renderer must never
         // infer recoil from the lossy AI fire-intent residual.
-        for ev in logic.take_weapon_discharges_for_presentation() {
+        for ev in discharges {
             events.push(PresentationEvent::WeaponDischarged {
                 source: ev.source,
                 weapon_slot: ev.weapon_slot,
@@ -2325,13 +2318,19 @@ impl PresentationFrame {
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
         freeze_tints: bool,
     ) -> Self {
+        // C++ GameLogic.cpp:3769 completes victory and killPlayer before the
+        // next GameClient consumes this logic frame. Freeze its final state
+        // and any accepted discharges produced by those callbacks together.
+        let victory = logic.evaluate_victory_condition();
+        let discharges = logic.take_weapon_discharges_for_presentation();
         let mut frame = Self::build_from_logic_with_tint_update(
             logic,
             local_player_id,
             runtime_heightmap,
             false,
+            discharges,
         );
-        if let Some(v) = logic.evaluate_victory_condition() {
+        if let Some(v) = victory {
             frame.match_over = true;
             frame.victory_label = Some(format!("{v:?}"));
             let winner = match v {

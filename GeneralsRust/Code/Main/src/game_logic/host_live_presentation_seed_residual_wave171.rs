@@ -97,11 +97,11 @@ pub fn honesty_seed_presentation_after_match_start_source() -> bool {
     };
     let body = &src[i..src.len().min(i + 2000)];
     // hq-nnuu 2026-08-15: match-start seed inlines sync_from_host +
-    // build_for_engine (camera_drain.rs) instead of calling the shared
+    // publish_for_engine (camera_drain.rs) instead of calling the shared
     // host_sync_shadow_and_build_presentation helper. Either form is the
     // Wave 172/590/926 presentation-build boundary.
     let seed_builds = body.contains("host_sync_shadow_and_build_presentation")
-        || (body.contains("sync_from_host") && body.contains("build_for_engine"));
+        || (body.contains("sync_from_host") && body.contains("publish_for_engine"));
     seed_builds
         && src.contains("fn host_sync_shadow_and_build_presentation")
         && src.contains("host_seed_presentation_after_match_start()")

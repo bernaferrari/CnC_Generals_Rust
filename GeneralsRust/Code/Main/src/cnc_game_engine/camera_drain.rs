@@ -1425,6 +1425,12 @@ impl CnCGameEngine {
     }
 
     fn snow_anim2d_dt_for_present(&mut self) -> f32 {
+        self.snow_anim2d_dt_for_present_with_now(Instant::now)
+    }
+
+    /// The host branch observes wall time only outside a running/paused match.
+    /// Keeping observation here allows deterministic tests of the real API.
+    fn snow_anim2d_dt_for_present_with_now(&mut self, now: impl FnOnce() -> Instant) -> f32 {
         if matches!(self.current_state, GameState::InGame | GameState::Paused) {
             let now = self.host_match_logic_frame;
             let steps = match (now, self.host_snow_logic_frame_applied) {
@@ -1437,7 +1443,7 @@ impl CnCGameEngine {
             }
             return steps as f32 * game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL;
         }
-        snow_anim2d_client_only_dt()
+        snow_anim2d_client_only_dt(&mut self.host_snow_client_only_last_tick, now())
     }
 
     /// Wave 588: Menu GameClient shell tick + NewGame drain residual.
@@ -1727,8 +1733,8 @@ impl CnCGameEngine {
                 runtime_heightmap,
             )
         } else {
-            crate::presentation_frame::PresentationFrame::build_for_engine_with_runtime_heightmap(
-                &self.game_logic,
+            crate::presentation_frame::PresentationFrame::publish_for_engine_with_runtime_heightmap(
+                &mut self.game_logic,
                 local_id,
                 self.gameworld_shadow.as_ref(),
                 runtime_heightmap,
@@ -1749,8 +1755,8 @@ impl CnCGameEngine {
         }
         let runtime_heightmap = self.presentation_runtime_heightmap_for_frame();
         let mut pres =
-            crate::presentation_frame::PresentationFrame::build_for_engine_with_runtime_heightmap(
-                &self.game_logic,
+            crate::presentation_frame::PresentationFrame::publish_for_engine_with_runtime_heightmap(
+                &mut self.game_logic,
                 self.current_player_id,
                 self.gameworld_shadow.as_ref(),
                 runtime_heightmap,
@@ -2101,12 +2107,13 @@ impl CnCGameEngine {
             shadow.sync_from_host(&self.game_logic);
         }
         let runtime_heightmap = self.presentation_runtime_heightmap_for_frame();
-        let env_frame = crate::game_logic::seed_presentation_env_frame_from_host_and_shadow_with_runtime_heightmap(
-            &self.game_logic,
-            self.current_player_id,
-            self.gameworld_shadow.as_ref(),
-            runtime_heightmap,
-        );
+        let env_frame =
+            crate::presentation_frame::PresentationFrame::publish_for_engine_with_runtime_heightmap(
+                &mut self.game_logic,
+                self.current_player_id,
+                self.gameworld_shadow.as_ref(),
+                runtime_heightmap,
+            );
         self.render_pipeline
             .set_presentation_frame(Some(env_frame.into()));
     }
@@ -2788,14 +2795,7 @@ impl CnCGameEngine {
     }
 }
 
-fn snow_anim2d_client_only_dt() -> f32 {
-    use std::sync::Mutex;
-    use std::time::Instant;
-    static LAST: Mutex<Option<Instant>> = Mutex::new(None);
-    let now = Instant::now();
-    let Ok(mut last) = LAST.lock() else {
-        return 0.0;
-    };
+fn snow_anim2d_client_only_dt(last: &mut Option<Instant>, now: Instant) -> f32 {
     let elapsed = last
         .map(|t| now.saturating_duration_since(t).as_secs_f32())
         .unwrap_or(game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL);
@@ -3047,4 +3047,13 @@ mod superweapon_countdown_tests {
 #[cfg(feature = "internal")]
 pub(super) fn run_replay_fast_forward_engine_probe() -> anyhow::Result<()> {
     replay_fast_forward_probe::run_replay_fast_forward_engine_probe()
+}
+
+#[cfg(all(feature = "internal", not(target_arch = "wasm32")))]
+#[path = "snow_anim2d_owner_probe.rs"]
+mod snow_anim2d_owner_probe;
+
+#[cfg(all(feature = "internal", not(target_arch = "wasm32")))]
+pub(super) fn run_snow_anim2d_owner_probe() -> anyhow::Result<()> {
+    snow_anim2d_owner_probe::run()
 }

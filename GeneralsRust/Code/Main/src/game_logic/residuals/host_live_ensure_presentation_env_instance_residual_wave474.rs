@@ -204,8 +204,8 @@ pub fn simulate_ensure_presentation_env_instance_source() -> bool {
     let ok = wrap_ok
         && (body.contains("Wave 474") || body.contains("Wave 590"))
         && body.contains("self.gameworld_shadow.as_ref()")
-        && body.contains("&self.game_logic")
-        && body.contains("build_for_engine")
+        && body.contains("&mut self.game_logic")
+        && body.contains("publish_for_engine")
         && !body.contains("game_logic: &GameLogic");
     residual_action_store(ResidualEnsurePresentationEnvInstanceAction::EnsureSource);
     ok

@@ -92,10 +92,10 @@ pub fn honesty_seed_presentation_shadow_overlay_source() -> bool {
         },
     };
     let body = &src[i..src.len().min(i + 2200)];
-    // Wave 195/590: seed uses build_for_engine which applies GW overlay/rebuild internally.
+    // The mutable publisher applies the GameWorld overlay/rebuild internally.
     body.contains("gameworld_shadow")
         && body.contains("sync_from_host")
-        && body.contains("build_for_engine")
+        && body.contains("publish_for_engine")
         && src.contains("host_seed_presentation_after_match_start()")
 }
 

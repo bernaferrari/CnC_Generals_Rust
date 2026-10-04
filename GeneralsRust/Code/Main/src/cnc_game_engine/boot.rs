@@ -423,6 +423,7 @@ impl CnCGameEngine {
             host_match_logic_steps: None,
             host_visual_logic_frame_applied: None,
             host_snow_logic_frame_applied: None,
+            host_snow_client_only_last_tick: None,
             host_match_in_replay: None,
             host_match_in_shell: None,
             host_match_local_team: None,
