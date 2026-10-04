@@ -709,9 +709,12 @@ impl MissileAIUpdate {
             }
 
             if self.launcher_id != INVALID_ID {
-                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.launcher_id, |launcher_guard| {
-                    launcher_guard.score_the_kill(&contained_guard);
-                    });
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    self.launcher_id,
+                    |launcher_guard| {
+                        launcher_guard.score_the_kill(&contained_guard);
+                    },
+                );
             }
             contained_guard.kill(None, None);
             num_killed += 1;
@@ -1084,7 +1087,7 @@ impl MissileAIUpdate {
         let Some(distance_to_target_sq) = self.distance_to_goal_position_2d_squared() else {
             return;
         };
-        ai.with_cur_locomotor(&mut |loco| {
+        ai.with_cur_locomotor_mut(&mut |loco| {
             if loco.preferred_height > 0.0
                 && distance_to_target_sq < self.data.dive_distance * self.data.dive_distance
             {
@@ -1194,7 +1197,7 @@ impl MissileAIUpdate {
         let Some(ai) = self.current_ai_interface() else {
             return;
         };
-        ai.with_cur_locomotor(&mut |loco| {
+        ai.with_cur_locomotor_mut(&mut |loco| {
             loco.set_max_acceleration(acceleration);
             loco.set_max_turn_rate(turn_rate);
         });
@@ -1231,7 +1234,7 @@ impl MissileAIUpdate {
 
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
             guard.set_status(ObjectStatusMaskType::BRAKING, true);
-            });
+        });
 
         self.set_locomotor_acceleration_and_turn(self.max_accel, BIGNUM);
 
@@ -1246,9 +1249,12 @@ impl MissileAIUpdate {
                     < close_enough * close_enough
                 {
                     if let Some(goal_pos) = goal.read().ok().map(|guard| *guard.get_position()) {
-                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
-                            let _ = guard.set_position(&goal_pos);
-                            });
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                            self.object_id,
+                            |guard| {
+                                let _ = guard.set_position(&goal_pos);
+                            },
+                        );
                     }
                     self.detonate();
                 } else if let Some(goal_id) = goal.read().ok().map(|guard| guard.get_id()) {
@@ -1321,9 +1327,12 @@ impl MissileAIUpdate {
 
         if self.detonation_weapon_tmpl.is_some() {
             if self.data.detonate_calls_kill {
-                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |obj_guard| {
-                    obj_guard.kill(None, None);
-                    });
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    self.object_id,
+                    |obj_guard| {
+                        obj_guard.kill(None, None);
+                    },
+                );
             } else {
                 let _ = TheGameLogic::destroy_object_by_id(self.object_id);
             }
@@ -1503,8 +1512,8 @@ impl MissileAIUpdateBehavior {
                 let launch_ai = obj_guard.get_ai_update_interface();
                 drop(obj_guard);
                 if let Some(ai) = launch_ai {
-                    if let Ok(ai_guard) = ai.try_lock() {
-                        ai_guard.with_cur_locomotor(&mut |loco| {
+                    if let Ok(mut ai_guard) = ai.try_lock() {
+                        ai_guard.with_cur_locomotor_mut(&mut |loco| {
                             loco.set_max_speed(initial_vel);
                             loco.set_max_acceleration(initial_vel);
                         });

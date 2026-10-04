@@ -454,8 +454,7 @@ impl ParachuteContain {
     fn position_contained_objects(&mut self) {
         let ids = self.base.get_contained_object_ids().to_vec();
         for id in ids {
-            if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(id)
-            {
+            if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(id) {
                 if let Ok(mut rider) = obj.write() {
                     self.position_rider(&mut rider);
                 }
@@ -472,8 +471,7 @@ impl ParachuteContain {
     /// C++ ParachuteContain::onContaining
     pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
         self.base.on_containing(obj_id, was_selected)?;
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
         let Ok(mut rider) = obj.try_write() else {
@@ -495,8 +493,7 @@ impl ParachuteContain {
     /// C++ ParachuteContain::onRemoving
     pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
         self.base.on_removing(obj_id)?;
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -780,7 +777,7 @@ impl ParachuteContain {
                         .unwrap_or(Coord3D::new(0.0, 0.0, 0.0));
                     if self.is_landing_override_set {
                         target = self.landing_override;
-                        ai.with_cur_locomotor(&mut |loco| loco.set_ultra_accurate(true));
+                        ai.with_cur_locomotor_mut(&mut |loco| loco.set_ultra_accurate(true));
                     } else if let Some(partition) = ThePartitionManager::get() {
                         let mut found = target;
                         if partition.find_position_around(&target, 0.0, 100.0, &mut found) {
@@ -858,7 +855,7 @@ impl ParachuteContain {
                     self.roll += self.roll_rate;
 
                     if self.is_landing_override_set {
-                        ai.with_cur_locomotor(&mut |loco| loco.set_close_enough_dist(10.0));
+                        ai.with_cur_locomotor_mut(&mut |loco| loco.set_close_enough_dist(10.0));
                     }
                 }
 
@@ -907,7 +904,8 @@ impl ParachuteContain {
     }
 
     pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
+        let obj = crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
             .ok_or("Parachute contain object not found")?;
         let Ok(obj_ref) = obj.try_read() else {
             return Err("Parachute passenger lock busy".into());
@@ -1021,7 +1019,7 @@ impl ContainModuleInterface for ParachuteContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
             return self.is_valid_container_for(&*obj_guard, true);
-            });
+        });
         false
     }
 

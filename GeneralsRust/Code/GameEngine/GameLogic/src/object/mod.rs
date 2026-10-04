@@ -1887,9 +1887,15 @@ where
 impl ModuleUpdateProxy {
     fn new(entry: Arc<ModuleEntry>, object_id: ObjectID) -> Self {
         let module_name = entry.name().clone();
-        let phase = entry
-            .with_module(Self::dispatch_phase)
-            .unwrap_or(SleepyUpdatePhase::Normal);
+        let phase = if entry.data().is_ai_module_data() {
+            // C++ AIUpdate.h:570-580: immutable class metadata puts AI before Physics.
+            // Missing dispatch stays missing until the exact runtime is bound.
+            SleepyUpdatePhase::Initial
+        } else {
+            entry
+                .with_module(Self::dispatch_phase)
+                .unwrap_or(SleepyUpdatePhase::Normal)
+        };
         Self {
             entry,
             object_id,

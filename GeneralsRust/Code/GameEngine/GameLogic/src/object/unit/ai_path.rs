@@ -45,7 +45,8 @@ pub fn leftover_should_use_direct_path_for_line_passable_non_final_goal(
     if surfaces == 0 {
         return false;
     }
-    let ai_store = the_ai();let Some(ai) = ai_store.read().ok() else {
+    let ai_store = the_ai();
+    let Some(ai) = ai_store.read().ok() else {
         return false;
     };
     let Some(pathfinder) = ai.pathfinder() else {
@@ -138,11 +139,14 @@ impl UnitAIUpdate {
             return false;
         };
         let surfaces = {
-            let set_surfaces = guard.locomotor_set.get_valid_surfaces();
+            let set_surfaces = self.locomotor_set.get_valid_surfaces();
             if set_surfaces != 0 {
                 set_surfaces
             } else {
-                guard.get_locomotor_surface_mask().unwrap_or(0)
+                self.locomotor_set
+                    .get_active()
+                    .map(|loco| loco.get_legal_surfaces())
+                    .unwrap_or(0)
             }
         };
         if surfaces == 0 {
@@ -173,13 +177,9 @@ impl UnitAIUpdate {
             .unwrap_or(false)
     }
     pub(super) fn current_locomotor_is_ultra_accurate(&self) -> bool {
-        get_unit_arc(self.unit_id)
-            .and_then(|unit| {
-                unit.read().ok().and_then(|guard| {
-                    guard.locomotor_set.get_active().map(|loco| loco.is_ultra_accurate())
-                })
-            })
-            .unwrap_or(false)
+        self.locomotor_set
+            .get_active()
+            .is_some_and(|loco| loco.is_ultra_accurate())
     }
     pub(super) fn path_with_cpp_final_node(
         &self,
@@ -202,9 +202,6 @@ impl UnitAIUpdate {
         destination: &Coord3D,
     ) -> Result<bool, String> {
         let request = self.build_classic_path_request(*destination, false)?;
-        let locomotor_set = get_unit_arc(self.unit_id)
-            .and_then(|unit| unit.read().ok().map(|guard| guard.locomotor_set.clone()))
-            .ok_or_else(|| "unit no longer available".to_string())?;
         let pathfinder = {
             let ai_store = the_ai();
             let Some(ai) = ai_store.read().ok() else {
@@ -222,7 +219,7 @@ impl UnitAIUpdate {
                 return Ok(false);
             };
             if pf_guard.valid_movement_position(
-                &locomotor_set,
+                &self.locomotor_set,
                 request.is_crusher,
                 destination,
                 request.ignore_obstacle_id,
@@ -276,7 +273,8 @@ impl UnitAIUpdate {
             .map_err(|_| "unit lock poisoned".to_string())?
             .get_position();
 
-        let ai_store = the_ai();let snapped = ai_store
+        let ai_store = the_ai();
+        let snapped = ai_store
             .read()
             .ok()
             .and_then(|ai| ai.pathfinder())
@@ -358,24 +356,28 @@ impl UnitAIUpdate {
         }
 
         let request = self.build_classic_path_request(destination, false)?;
-        let ai_store = the_ai();let path_result =
-            ai_store
-                .read()
-                .ok()
-                .and_then(|ai| ai.pathfinder())
-                .and_then(|pathfinder| {
-                    pathfinder
-                        .write()
-                        .ok()
-                        .map(|mut pf| pf.find_path_result(request.clone()))
-                });
+        let ai_store = the_ai();
+        let path_result = ai_store
+            .read()
+            .ok()
+            .and_then(|ai| ai.pathfinder())
+            .and_then(|pathfinder| {
+                pathfinder
+                    .write()
+                    .ok()
+                    .map(|mut pf| pf.find_path_result(request.clone()))
+            });
 
         if let Some(result) = path_result {
             if result.success && !result.waypoints.is_empty() {
                 self.set_path_from_coords(&result.waypoints)?;
                 self.remember_result_layers(
                     &result.waypoints,
-                    &result.layers.iter().map(|layer| *layer as u8).collect::<Vec<_>>(),
+                    &result
+                        .layers
+                        .iter()
+                        .map(|layer| *layer as u8)
+                        .collect::<Vec<_>>(),
                 );
                 self.apply_final_ground_path_layer(&result.waypoints)?;
                 return Ok(true);
@@ -394,23 +396,27 @@ impl UnitAIUpdate {
         }
 
         self.retry_path = true;
-        let ai_store = the_ai();let closest_result =
-            ai_store
-                .read()
-                .ok()
-                .and_then(|ai| ai.pathfinder())
-                .and_then(|pathfinder| {
-                    pathfinder
-                        .write()
-                        .ok()
-                        .map(|mut pf| pf.find_closest_path_result(request))
-                });
+        let ai_store = the_ai();
+        let closest_result = ai_store
+            .read()
+            .ok()
+            .and_then(|ai| ai.pathfinder())
+            .and_then(|pathfinder| {
+                pathfinder
+                    .write()
+                    .ok()
+                    .map(|mut pf| pf.find_closest_path_result(request))
+            });
         if let Some(result) = closest_result {
             if result.success && !result.waypoints.is_empty() {
                 self.set_path_from_coords(&result.waypoints)?;
                 self.remember_result_layers(
                     &result.waypoints,
-                    &result.layers.iter().map(|layer| *layer as u8).collect::<Vec<_>>(),
+                    &result
+                        .layers
+                        .iter()
+                        .map(|layer| *layer as u8)
+                        .collect::<Vec<_>>(),
                 );
                 self.apply_final_ground_path_layer(&result.waypoints)?;
                 return Ok(true);
@@ -539,24 +545,28 @@ impl UnitAIUpdate {
         self.destroy_path();
 
         let request = self.build_classic_path_request(destination, false)?;
-        let ai_store = the_ai();let closest_result =
-            ai_store
-                .read()
-                .ok()
-                .and_then(|ai| ai.pathfinder())
-                .and_then(|pathfinder| {
-                    pathfinder
-                        .write()
-                        .ok()
-                        .map(|mut pf| pf.find_closest_path_result(request))
-                });
+        let ai_store = the_ai();
+        let closest_result = ai_store
+            .read()
+            .ok()
+            .and_then(|ai| ai.pathfinder())
+            .and_then(|pathfinder| {
+                pathfinder
+                    .write()
+                    .ok()
+                    .map(|mut pf| pf.find_closest_path_result(request))
+            });
 
         if let Some(result) = closest_result {
             if result.success && !result.waypoints.is_empty() {
                 self.set_path_from_coords(&result.waypoints)?;
                 self.remember_result_layers(
                     &result.waypoints,
-                    &result.layers.iter().map(|layer| *layer as u8).collect::<Vec<_>>(),
+                    &result
+                        .layers
+                        .iter()
+                        .map(|layer| *layer as u8)
+                        .collect::<Vec<_>>(),
                 );
                 self.apply_final_ground_path_layer(&result.waypoints)?;
                 return Ok(true);
@@ -609,28 +619,27 @@ impl UnitAIUpdate {
             .unwrap_or(0.0);
         let safe_radius = owner_vision_range + repulsed_distance;
         let request = self.build_classic_path_request(owner_pos, false)?;
-        let ai_store = the_ai();let safe_result =
-            ai_store
-                .read()
-                .ok()
-                .and_then(|ai| ai.pathfinder())
-                .and_then(|pathfinder| {
-                    pathfinder.write().ok().map(|mut pf| {
-                        pf.find_safe_path_result(
-                            request,
-                            &repulsor_pos1,
-                            &repulsor_pos2,
-                            safe_radius,
-                        )
-                    })
-                });
+        let ai_store = the_ai();
+        let safe_result = ai_store
+            .read()
+            .ok()
+            .and_then(|ai| ai.pathfinder())
+            .and_then(|pathfinder| {
+                pathfinder.write().ok().map(|mut pf| {
+                    pf.find_safe_path_result(request, &repulsor_pos1, &repulsor_pos2, safe_radius)
+                })
+            });
 
         if let Some(result) = safe_result {
             if result.success && !result.waypoints.is_empty() {
                 self.set_path_from_coords(&result.waypoints)?;
                 self.remember_result_layers(
                     &result.waypoints,
-                    &result.layers.iter().map(|layer| *layer as u8).collect::<Vec<_>>(),
+                    &result
+                        .layers
+                        .iter()
+                        .map(|layer| *layer as u8)
+                        .collect::<Vec<_>>(),
                 );
                 self.apply_final_ground_path_layer(&result.waypoints)?;
                 return Ok(true);
@@ -684,8 +693,10 @@ impl UnitAIUpdate {
         let obj_guard = base_arc
             .read()
             .map_err(|_| "unit base object lock poisoned".to_string())?;
-        let surfaces = guard
-            .get_locomotor_surface_mask()
+        let surfaces = self
+            .locomotor_set
+            .get_active()
+            .map(|loco| loco.get_legal_surfaces())
             .unwrap_or(crate::locomotor::SURFACE_GROUND);
         Ok(crate::ai::pathfind_complete::PathRequest {
             object_id: obj_guard.get_id(),
@@ -707,7 +718,8 @@ impl UnitAIUpdate {
     pub(super) fn queue_path_request_now(&self, destination: Coord3D) -> Result<(), String> {
         let request = self.build_classic_path_request(destination, false)?;
 
-        let ai_store = the_ai(); if let Some(ai) = ai_store.read().ok() {
+        let ai_store = the_ai();
+        if let Some(ai) = ai_store.read().ok() {
             if let Some(pathfinder) = ai.pathfinder() {
                 pathfinder
                     .write()
@@ -744,7 +756,7 @@ impl UnitAIUpdate {
                 .map(|obj| obj.is_significantly_above_terrain())
                 .unwrap_or(false);
             if above_terrain {
-                let preferred = guard
+                let preferred = self
                     .locomotor_set
                     .get_active()
                     .map(|loc| loc.preferred_height)
@@ -932,14 +944,9 @@ impl UnitAIUpdate {
         pathfinder.set_aircraft_goal_cells(unit_id, new_cell, radius, center_in_cell);
     }
     pub(super) fn has_valid_locomotor_surfaces(&self) -> bool {
-        get_unit_arc(self.unit_id)
-            .and_then(|unit| {
-                unit.read()
-                    .ok()
-                    .and_then(|guard| guard.get_locomotor_surface_mask())
-            })
-            .map(|surfaces| surfaces != 0)
-            .unwrap_or(false)
+        self.locomotor_set
+            .get_active()
+            .is_some_and(|loco| loco.get_legal_surfaces() != 0)
     }
     pub(super) fn safe_path_search_distance(vision_range: Real, repulsed_distance: Real) -> Real {
         vision_range + repulsed_distance

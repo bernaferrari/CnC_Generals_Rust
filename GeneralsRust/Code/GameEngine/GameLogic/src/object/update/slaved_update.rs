@@ -610,8 +610,7 @@ impl SlavedUpdate {
         };
 
         if self.module_data.attack_wander_range > 0 {
-            let random_direction =
-                crate::GameLogicRandomValue!(0, 6) as Real;
+            let random_direction = crate::GameLogicRandomValue!(0, 6) as Real;
             self.guard_point_offset = Coord3D::ZERO;
             self.guard_point_offset.x +=
                 self.module_data.attack_wander_range as Real * random_direction.cos();
@@ -674,8 +673,7 @@ impl SlavedUpdate {
         };
 
         if self.module_data.scout_wander_range > 0 {
-            let random_direction =
-                crate::GameLogicRandomValue!(0, 6) as Real;
+            let random_direction = crate::GameLogicRandomValue!(0, 6) as Real;
             self.guard_point_offset = Coord3D::ZERO;
             self.guard_point_offset.x +=
                 self.module_data.scout_wander_range as Real * random_direction.cos();
@@ -706,8 +704,7 @@ impl SlavedUpdate {
 
         let mut target_position = *pinned_position;
         if self.module_data.guard_wander_range > 0 {
-            let random_direction =
-                crate::GameLogicRandomValue!(0, 6) as Real;
+            let random_direction = crate::GameLogicRandomValue!(0, 6) as Real;
             self.guard_point_offset = Coord3D::ZERO;
             self.guard_point_offset.x +=
                 self.module_data.guard_max_range as Real * random_direction.cos();
@@ -784,7 +781,7 @@ impl SlavedUpdate {
                 .ok()
                 .and_then(|me| me.get_ai_update_interface());
             if let Some(ai) = ai {
-                ai.with_cur_locomotor(&mut |loco| {
+                ai.with_cur_locomotor_mut(&mut |loco| {
                     loco.set_precise_z_pos(close_enough_for_z_precision);
                 });
 
@@ -832,7 +829,7 @@ impl SlavedUpdate {
         });
         if let Some(ai) = ai {
             ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-            ai.with_cur_locomotor(&mut |loco| {
+            ai.with_cur_locomotor_mut(&mut |loco| {
                 loco.set_ultra_accurate(false);
                 loco.set_precise_z_pos(false);
             });
@@ -896,11 +893,11 @@ impl SlavedUpdate {
         };
         if let Some(ai) = ai {
             ai.choose_locomotor_set(crate::common::LocomotorSetType::Panic);
-            ai.with_cur_locomotor(&mut |loco| {
+            ai.with_cur_locomotor_mut(&mut |loco| {
                 loco.set_ultra_accurate(true);
             });
             ai.ai_move_to_position(&self.guard_point_offset, false, CommandSourceType::FromAi);
-            ai.with_cur_locomotor(&mut |loco| {
+            ai.with_cur_locomotor_mut(&mut |loco| {
                 loco.set_precise_z_pos(true);
             });
         }
@@ -1346,8 +1343,7 @@ impl SlavedUpdateInterface for SlavedUpdate {
             return Ok(());
         }
 
-        let Some(master) = crate::object::registry::OBJECT_REGISTRY.get_object(master_id)
-        else {
+        let Some(master) = crate::object::registry::OBJECT_REGISTRY.get_object(master_id) else {
             return Ok(());
         };
         let master_guard = master.read().map_err(|_| "slaver lock poisoned")?;

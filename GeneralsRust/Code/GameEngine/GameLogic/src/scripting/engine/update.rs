@@ -28,10 +28,25 @@ impl Drop for SequentialContextRestore<'_> {
 impl ScriptEngine {
     /// Update script engine
     pub fn update(&self) -> GameLogicResult<()> {
-        self.with_active(|| self.update_active())
+        let mut driver = CanonicalScriptExecutionDriver;
+        self.update_with_driver(
+            crate::scripting::executor::ScriptContext::new(),
+            &mut driver,
+        )
     }
 
-    fn update_active(&self) -> GameLogicResult<()> {
+    /// Execute against the supplied world frame and trigger state. C++
+    /// executeActions applies each action before examining the next one.
+    pub fn update_with_driver(
+        &self,
+        context: crate::scripting::executor::ScriptContext,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> GameLogicResult<()> {
+        let mut execution = ScriptExecution::new(context, driver);
+        self.with_active(|| self.update_active(&mut execution))
+    }
+
+    fn update_active(&self, execution: &mut ScriptExecution<'_>) -> GameLogicResult<()> {
         #[cfg(feature = "script_profiling")]
         let start_time = Instant::now();
 
@@ -117,7 +132,7 @@ impl ScriptEngine {
         }
 
         // Evaluate scripts for each player/side, matching C++ `ScriptEngine::update()`.
-        self.execute_side_scripts()?;
+        self.execute_side_scripts(execution)?;
 
         // C++ ScriptEngine.cpp:5573-5575 ThePlayerList->updateTeamStates()
         if let Ok(mut team_factory) = crate::team::get_team_factory().lock() {
@@ -129,7 +144,7 @@ impl ScriptEngine {
         self.lock_inner_mut().ui_interactions.clear();
 
         // Process sequential scripts
-        self.evaluate_and_progress_all_sequential_scripts()?;
+        self.evaluate_and_progress_all_sequential_scripts(execution)?;
 
         #[cfg(feature = "script_profiling")]
         {
@@ -178,37 +193,23 @@ impl ScriptEngine {
         self.set_frame_object_count_changed(TheGameLogic::get_frame() as u32);
     }
 
-    fn execute_side_scripts(&self) -> GameLogicResult<()> {
-        self.with_active_script_lists(|| self.execute_side_scripts_from_active_lists())
+    fn execute_side_scripts(&self, execution: &mut ScriptExecution<'_>) -> GameLogicResult<()> {
+        self.with_active_script_lists(|| self.execute_side_scripts_from_active_lists(execution))
     }
 
-    fn execute_side_scripts_from_active_lists(&self) -> GameLogicResult<()> {
-        let current_frame = crate::helpers::TheGameLogic::get_frame();
-
+    fn execute_side_scripts_from_active_lists(
+        &self,
+        execution: &mut ScriptExecution<'_>,
+    ) -> GameLogicResult<()> {
         // C++ ScriptEngine.cpp:5554-5571 walks every side's ScriptList even
         // when no Objects exist. TRUE/COUNTER/FLAG/TIMER scripts still fire.
         // Host takes the engine out of the global RwLock before update()
         // (scripts_camera.rs), so this walk cannot re-lock TheScriptEngine.
 
-        // Prepare executor context for this frame (shared by action/condition evaluation).
-        let exec_context = Arc::new(RwLock::new(crate::scripting::executor::ScriptContext {
-            game_logic_id: 0,
-            object_manager_id: 0,
-            player_manager_id: 0,
-            event_system_id: 0,
-            camera_system_id: 0,
-            audio_system_id: 0,
-            partition_manager_id: 0,
-            special_powers_id: 0,
-            current_frame,
-            suppress_new_windows: false,
-            host_trigger_world: Arc::new(std::sync::Mutex::new(Default::default())),
-        }));
-
         let mut action_dispatcher =
-            crate::scripting::executor::ScriptActionDispatcher::new(exec_context.clone());
+            crate::scripting::executor::ScriptActionDispatcher::new(execution.context.clone());
         let mut condition_evaluator =
-            crate::scripting::executor::ScriptConditionEvaluator::new(exec_context);
+            crate::scripting::executor::ScriptConditionEvaluator::new(execution.context.clone());
 
         // Snapshot player names before dispatch.  A script action may change
         // player state or call a subroutine; no PlayerList lock may survive
@@ -245,6 +246,7 @@ impl ScriptEngine {
                 ScriptContainer::Root,
                 &mut condition_evaluator,
                 &mut action_dispatcher,
+                execution,
             )?;
 
             // Execute active non-subroutine groups.
@@ -259,6 +261,7 @@ impl ScriptEngine {
                         ScriptContainer::Group(group_index),
                         &mut condition_evaluator,
                         &mut action_dispatcher,
+                        execution,
                     )?;
                 }
                 group_index += 1;
@@ -369,6 +372,7 @@ impl ScriptEngine {
         script: &mut Script,
         condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator,
         action_dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher,
+        execution: &mut ScriptExecution<'_>,
     ) -> GameLogicResult<()> {
         // If script is not active, return.
         if !script.is_active {
@@ -399,8 +403,8 @@ impl ScriptEngine {
             _ => {}
         }
 
-        // Periodic evaluation gate.
-        let current_frame = crate::helpers::TheGameLogic::get_frame();
+        // Periodic evaluation uses the driving logic frame, not an ambient world.
+        let current_frame = execution.frame;
         if current_frame < script.frame_to_evaluate_at {
             return Ok(());
         }
@@ -434,6 +438,7 @@ impl ScriptEngine {
                         script,
                         condition_evaluator,
                         action_dispatcher,
+                        execution,
                         false,
                     )?;
                 }
@@ -443,7 +448,13 @@ impl ScriptEngine {
         }
 
         self.lock_inner_mut().condition_team = None;
-        self.evaluate_and_execute_script(script, condition_evaluator, action_dispatcher, true)?;
+        self.evaluate_and_execute_script(
+            script,
+            condition_evaluator,
+            action_dispatcher,
+            execution,
+            true,
+        )?;
         self.lock_inner_mut().condition_team = saved_condition_team;
         Ok(())
     }
@@ -453,6 +464,7 @@ impl ScriptEngine {
         script: &mut Script,
         condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator,
         action_dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher,
+        execution: &mut ScriptExecution<'_>,
         deactivate_one_shot_on_false_action: bool,
     ) -> GameLogicResult<()> {
         // If no conditions, C++ treats as false (no AND chain).
@@ -468,7 +480,8 @@ impl ScriptEngine {
         if condition_true {
             let mut action_state = ActionChainExecution::Completed;
             if let Some(action_head) = script.action.as_deref() {
-                action_state = self.execute_action_chain(action_head, action_dispatcher)?;
+                action_state =
+                    self.execute_action_chain(action_head, action_dispatcher, execution)?;
             }
             match action_state {
                 ActionChainExecution::Completed => {
@@ -477,18 +490,18 @@ impl ScriptEngine {
                     }
                 }
                 ActionChainExecution::Pending(frames) => {
-                    self.schedule_script_pending_frames(script, frames);
+                    self.schedule_script_pending_frames(script, frames, execution.frame);
                 }
             }
         } else if let Some(false_action) = script.action_false.as_deref() {
-            match self.execute_action_chain(false_action, action_dispatcher)? {
+            match self.execute_action_chain(false_action, action_dispatcher, execution)? {
                 ActionChainExecution::Completed => {
                     if script.is_one_shot && deactivate_one_shot_on_false_action {
                         script.is_active = false;
                     }
                 }
                 ActionChainExecution::Pending(frames) => {
-                    self.schedule_script_pending_frames(script, frames);
+                    self.schedule_script_pending_frames(script, frames, execution.frame);
                 }
             }
         }
@@ -500,12 +513,11 @@ impl ScriptEngine {
         &self,
         action_head: &ScriptAction,
         dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher,
+        execution: &mut ScriptExecution<'_>,
     ) -> GameLogicResult<ActionChainExecution> {
         let mut cur: Option<&ScriptAction> = Some(action_head);
         while let Some(action) = cur {
-            let result = dispatcher.execute_action(action).map_err(|e| {
-                GameLogicError::Configuration(format!("Script action error: {}", e))
-            })?;
+            let result = self.dispatch_action_with_driver(action, dispatcher, execution)?;
             match result {
                 crate::scripting::executor::ScriptActionResult::Success => {}
                 crate::scripting::executor::ScriptActionResult::Pending(frames) => {
@@ -529,8 +541,36 @@ impl ScriptEngine {
         Ok(ActionChainExecution::Completed)
     }
 
-    fn schedule_script_pending_frames(&self, script: &mut Script, pending_frames: f32) {
-        let current_frame = crate::helpers::TheGameLogic::get_frame();
+    fn dispatch_action_with_driver(
+        &self,
+        action: &ScriptAction,
+        dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher,
+        execution: &mut ScriptExecution<'_>,
+    ) -> GameLogicResult<crate::scripting::executor::ScriptActionResult> {
+        let result = if action.action_type == ScriptActionType::CallSubroutine {
+            let name = dispatcher.get_string_param(action, 0).map_err(|error| {
+                GameLogicError::Configuration(format!("Script action error: {}", error))
+            })?;
+            // CPP ScriptEngine.cpp:7631: subroutine executes immediately in
+            // this engine before the following action, using the same driver.
+            self.execute_subroutine_with_execution(&name, execution)?;
+            crate::scripting::executor::ScriptActionResult::Success
+        } else {
+            dispatcher
+                .execute_action(action)
+                .map_err(|e| GameLogicError::Configuration(format!("Script action error: {}", e)))?
+        };
+        // All engine/list guards and dispatcher context guards ended above.
+        execution.driver.after_action()?;
+        Ok(result)
+    }
+
+    fn schedule_script_pending_frames(
+        &self,
+        script: &mut Script,
+        pending_frames: f32,
+        current_frame: u32,
+    ) {
         let pending_resume_frame = Self::pending_resume_frame(current_frame, pending_frames);
         script.frame_to_evaluate_at = script.frame_to_evaluate_at.max(pending_resume_frame);
     }
@@ -609,8 +649,21 @@ impl ScriptEngine {
 
         inner.fade = TFade::None;
     }
+    #[cfg(test)]
+    fn evaluate_sequential_scripts_canonical_for_test(&self) -> GameLogicResult<()> {
+        let mut driver = CanonicalScriptExecutionDriver;
+        let mut execution = ScriptExecution::new(
+            crate::scripting::executor::ScriptContext::new(),
+            &mut driver,
+        );
+        self.evaluate_and_progress_all_sequential_scripts(&mut execution)
+    }
+
     /// Evaluate and progress sequential scripts
-    fn evaluate_and_progress_all_sequential_scripts(&self) -> GameLogicResult<()> {
+    fn evaluate_and_progress_all_sequential_scripts(
+        &self,
+        execution: &mut ScriptExecution<'_>,
+    ) -> GameLogicResult<()> {
         // C++ ScriptEngine.cpp:7860 evaluateAndProgressAllSequentialScripts
         // walks the sequential list even when no Objects exist. Missing
         // object/team nodes still clean up below (object_arc/team_arc none).
@@ -622,21 +675,8 @@ impl ScriptEngine {
             condition_object: inner.condition_object,
         });
 
-        let current_frame = crate::helpers::TheGameLogic::get_frame();
-        let exec_context = Arc::new(RwLock::new(crate::scripting::executor::ScriptContext {
-            game_logic_id: 0,
-            object_manager_id: 0,
-            player_manager_id: 0,
-            event_system_id: 0,
-            camera_system_id: 0,
-            audio_system_id: 0,
-            partition_manager_id: 0,
-            special_powers_id: 0,
-            current_frame,
-            suppress_new_windows: false,
-            host_trigger_world: Arc::new(std::sync::Mutex::new(Default::default())),
-        }));
-        let mut dispatcher = crate::scripting::executor::ScriptActionDispatcher::new(exec_context);
+        let mut dispatcher =
+            crate::scripting::executor::ScriptActionDispatcher::new(execution.context.clone());
 
         let mut i: usize = 0;
         let mut last_i: Option<usize> = None;
@@ -686,22 +726,43 @@ impl ScriptEngine {
             let mut it_advanced = false;
             let team_name = sequence.team_to_exec_on.clone();
             let object_id = sequence.object_id;
-            let team_arc = team_name.as_ref().and_then(|name| {
-                get_team_factory()
-                    .lock()
-                    .ok()
-                    .and_then(|mut factory| factory.find_team(name))
-            });
-            let object_arc = (object_id != INVALID_ID)
-                .then(|| TheGameLogic::find_object_by_id(object_id))
-                .flatten();
-            let host_obj = if object_arc.is_none() && object_id != INVALID_ID {
+            let driving_object = if object_id == INVALID_ID {
+                ScriptOwnerQuery::Missing
+            } else {
+                execution.driver.object_status(object_id)
+            };
+            let driving_team = team_name
+                .as_deref()
+                .map(|name| execution.driver.team_status(name))
+                .unwrap_or(ScriptOwnerQuery::Missing);
+            let team_arc = team_name
+                .as_ref()
+                .filter(|_| matches!(driving_team, ScriptOwnerQuery::Unavailable))
+                .and_then(|name| {
+                    get_team_factory()
+                        .lock()
+                        .ok()
+                        .and_then(|mut factory| factory.find_team(name))
+                });
+            let object_arc = (object_id != INVALID_ID
+                && matches!(driving_object, ScriptOwnerQuery::Unavailable))
+            .then(|| TheGameLogic::find_object_by_id(object_id))
+            .flatten();
+            let host_obj = if matches!(driving_object, ScriptOwnerQuery::Unavailable)
+                && object_arc.is_none()
+                && object_id != INVALID_ID
+            {
                 crate::scripting::host_script_query_object_by_id(object_id)
             } else {
                 None
             };
 
-            if object_arc.is_none() && team_arc.is_none() && host_obj.is_none() {
+            if object_arc.is_none()
+                && team_arc.is_none()
+                && host_obj.is_none()
+                && !matches!(driving_object, ScriptOwnerQuery::Present(_))
+                && !matches!(driving_team, ScriptOwnerQuery::Present(_))
+            {
                 if self
                     .cleanup_sequential_script_by_token(token, false)
                     .is_none()
@@ -711,30 +772,44 @@ impl ScriptEngine {
                 continue;
             }
 
+            let current_player = match execution
+                .driver
+                .sequential_current_player(object_id, team_name.as_deref())
             {
-                let mut inner = self.lock_inner_mut();
-                inner.current_player =
-                    self.resolve_sequential_current_player(object_arc.as_ref(), team_arc.as_ref());
-            }
-
-            let (obj_has_ai, obj_idle, _) = if let Some(arc) = &object_arc {
-                Self::object_ai_status(arc)
-            } else if let Some(host) = &host_obj {
-                // C++ getAIUpdateInterface on a live sequential unit. Host
-                // snapshot has no leftover AI pointer; treat as having AI so
-                // the node can progress. Dead counts as idle (AIGroup::isIdle).
-                let dead = host.effectively_dead || !host.alive;
-                (true, host.idle || dead, dead)
-            } else {
-                (false, false, false)
+                ScriptOwnerQuery::Present(player) => player,
+                ScriptOwnerQuery::Missing => None,
+                ScriptOwnerQuery::Unavailable => {
+                    self.resolve_sequential_current_player(object_arc.as_ref(), team_arc.as_ref())
+                }
             };
-            let (team_has_group, team_idle, _) = team_arc
-                .as_ref()
-                .map(|team| {
-                    let (idle, dead) = Self::team_ai_status(team);
-                    (true, idle, dead)
-                })
-                .unwrap_or((false, false, false));
+            self.lock_inner_mut().current_player = current_player;
+
+            let (obj_has_ai, obj_idle, _) =
+                if let ScriptOwnerQuery::Present(status) = driving_object {
+                    (status.has_ai, status.idle, status.effectively_dead)
+                } else if let Some(arc) = &object_arc {
+                    Self::object_ai_status(arc)
+                } else if let Some(host) = &host_obj {
+                    // C++ getAIUpdateInterface on a live sequential unit. Host
+                    // snapshot has no leftover AI pointer; treat as having AI so
+                    // the node can progress. Dead counts as idle (AIGroup::isIdle).
+                    let dead = host.effectively_dead || !host.alive;
+                    (true, host.idle || dead, dead)
+                } else {
+                    (false, false, false)
+                };
+            let (team_has_group, team_idle, _) =
+                if let ScriptOwnerQuery::Present(status) = driving_team {
+                    (status.has_group, status.idle, status.dead)
+                } else {
+                    team_arc
+                        .as_ref()
+                        .map(|team| {
+                            let (idle, dead) = Self::team_ai_status(team);
+                            (true, idle, dead)
+                        })
+                        .unwrap_or((false, false, false))
+                };
 
             if obj_has_ai || team_has_group {
                 let should_progress = (((obj_has_ai && obj_idle) || (team_has_group && team_idle))
@@ -753,7 +828,9 @@ impl ScriptEngine {
                         if !self.prepare_sequential_action_context(
                             token,
                             team_name.clone(),
-                            object_arc.as_ref().map(|_| object_id),
+                            (object_arc.is_some()
+                                || matches!(driving_object, ScriptOwnerQuery::Present(_)))
+                            .then_some(object_id),
                         ) {
                             continue;
                         }
@@ -762,12 +839,8 @@ impl ScriptEngine {
                         // drops its `RefCell` guard before this call. Actions
                         // therefore retain C++ immediate nesting without
                         // aliasing the sequential Vec entry.
-                        let result = dispatcher.execute_action(&action).map_err(|error| {
-                            GameLogicError::Configuration(format!(
-                                "Sequential script action error: {}",
-                                error
-                            ))
-                        })?;
+                        let result =
+                            self.dispatch_action_with_driver(&action, &mut dispatcher, execution)?;
 
                         // An action can re-enter the engine. Reconcile by the
                         // opaque node identity instead of treating whatever is
@@ -818,20 +891,34 @@ impl ScriptEngine {
                             continue;
                         }
 
-                        // Host snapshot is frozen until the next inject. Do not
-                        // treat stale idle as C++ ai->isIdle() after executeActions
-                        // (a MOVE would still look idle and blast the chain).
-                        let obj_idle_now = object_arc
-                            .as_ref()
-                            .map(|object| Self::object_ai_status(object).1)
-                            .unwrap_or(false);
-                        let team_idle_now = if dual_world_registry_unavailable() {
-                            false
-                        } else {
-                            team_arc
+                        // CPP ScriptEngine.cpp:7992-8021 re-queries live AI
+                        // after the synchronous effects of this instruction.
+                        let object_after = execution.driver.object_status(object_id);
+                        let team_after = team_name
+                            .as_deref()
+                            .map(|name| execution.driver.team_status(name))
+                            .unwrap_or(ScriptOwnerQuery::Missing);
+                        let obj_idle_now = match object_after {
+                            ScriptOwnerQuery::Present(status) => status.has_ai && status.idle,
+                            ScriptOwnerQuery::Missing => true,
+                            ScriptOwnerQuery::Unavailable => object_arc
                                 .as_ref()
-                                .map(|team| Self::team_ai_status(team).0)
-                                .unwrap_or(false)
+                                .map(|object| Self::object_ai_status(object).1)
+                                .unwrap_or(false),
+                        };
+                        let team_idle_now = match team_after {
+                            ScriptOwnerQuery::Present(status) => status.has_group && status.idle,
+                            ScriptOwnerQuery::Missing => true,
+                            ScriptOwnerQuery::Unavailable => {
+                                if dual_world_registry_unavailable() {
+                                    false
+                                } else {
+                                    team_arc
+                                        .as_ref()
+                                        .map(|team| Self::team_ai_status(team).0)
+                                        .unwrap_or(false)
+                                }
+                            }
                         };
                         if (obj_has_ai && obj_idle_now) || (team_has_group && team_idle_now) {
                             it_advanced = true;
@@ -844,16 +931,23 @@ impl ScriptEngine {
                             let _ = self.cleanup_sequential_script_by_token(token, true);
                             continue;
                         }
-
                         if it_advanced {
-                            let obj_dead_now = object_arc
-                                .as_ref()
-                                .map(|object| Self::object_ai_status(object).2)
-                                .unwrap_or(false);
-                            let team_dead_now = team_arc
-                                .as_ref()
-                                .map(|team| Self::team_ai_status(team).1)
-                                .unwrap_or(false);
+                            let obj_dead_now = match object_after {
+                                ScriptOwnerQuery::Present(status) => status.effectively_dead,
+                                ScriptOwnerQuery::Missing => obj_has_ai,
+                                ScriptOwnerQuery::Unavailable => object_arc
+                                    .as_ref()
+                                    .map(|object| Self::object_ai_status(object).2)
+                                    .unwrap_or(false),
+                            };
+                            let team_dead_now = match team_after {
+                                ScriptOwnerQuery::Present(status) => status.dead,
+                                ScriptOwnerQuery::Missing => team_has_group,
+                                ScriptOwnerQuery::Unavailable => team_arc
+                                    .as_ref()
+                                    .map(|team| Self::team_ai_status(team).1)
+                                    .unwrap_or(false),
+                            };
                             if obj_dead_now || team_dead_now {
                                 let _ = self.cleanup_sequential_script_by_token(token, true);
                                 continue;

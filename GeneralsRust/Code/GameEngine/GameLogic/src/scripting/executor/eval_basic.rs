@@ -133,6 +133,19 @@ impl ScriptConditionEvaluator {
         &self,
         area_name: &str,
     ) -> Result<crate::polygon_trigger::PolygonTrigger, ScriptError> {
+        let owned = self
+            .context
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .owned_trigger_area(area_name);
+        if let Some(trigger) = owned {
+            return trigger.ok_or_else(|| {
+                ScriptError::ObjectNotFound(format!(
+                    "Trigger area '{}' not found in driving owner",
+                    area_name
+                ))
+            });
+        }
         if let Some(trigger) =
             with_script_engine_ref(|engine| engine.get_qualified_trigger_area_by_name(area_name))
                 .flatten()

@@ -31,9 +31,9 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers,
+    search_qualifiers, the_ai,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
@@ -214,22 +214,25 @@ impl StateImplementation for AIWanderInPlaceState {
             ai.with_cur_locomotor(&mut |loco| __close = loco.get_close_enough_dist());
             __close
         };
-        let arrived = !ai.is_waiting_for_path()
-            && ai.get_locomotor_distance_to_goal() <= close_enough;
+        let arrived =
+            !ai.is_waiting_for_path() && ai.get_locomotor_distance_to_goal() <= close_enough;
         if owner_guard.is_kind_of(KindOf::CanBeRepulsed) {
             self.timer -= 1;
             if self.timer < 0 {
                 self.timer = self.wait_frames;
                 let ai_store = the_ai();
-                let enemy_id = ai_store.read().ok().and_then(|store| {
-                    store
-                        .find_closest_repulsor(
-                            owner_guard.get_id(),
-                            owner_guard.get_vision_range(),
-                        )
-                        .ok()
-                })
-                .flatten();
+                let enemy_id = ai_store
+                    .read()
+                    .ok()
+                    .and_then(|store| {
+                        store
+                            .find_closest_repulsor(
+                                owner_guard.get_id(),
+                                owner_guard.get_vision_range(),
+                            )
+                            .ok()
+                    })
+                    .flatten();
                 if enemy_id.is_some() {
                     return StateReturnType::Failure;
                 }
@@ -367,13 +370,17 @@ impl AIWanderInPlaceState {
                 if self.timer < 0 {
                     self.timer = self.wait_frames;
                     let ai_store = the_ai();
-                    let enemy_id = ai_store.read().ok().and_then(|ai| {
-                        ai.find_closest_repulsor(
-                            owner_guard.get_id(),
-                            owner_guard.get_vision_range(),
-                        )
+                    let enemy_id = ai_store
+                        .read()
                         .ok()
-                    }).flatten();
+                        .and_then(|ai| {
+                            ai.find_closest_repulsor(
+                                owner_guard.get_id(),
+                                owner_guard.get_vision_range(),
+                            )
+                            .ok()
+                        })
+                        .flatten();
                     if enemy_id.is_some() {
                         return Ok(StateReturnType::Failure);
                     }
@@ -705,8 +712,7 @@ impl StateImplementation for AIMoveAndTightenState {
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> StateReturnType {
-        if self.check_for_path && !ai.is_waiting_for_path() && ai.get_path_destination().is_some()
-        {
+        if self.check_for_path && !ai.is_waiting_for_path() && ai.get_path_destination().is_some() {
             self.base.set_adjusts_destination(true);
             self.check_for_path = false;
             if let Some(owner) = self.base.base.get_machine_owner() {
@@ -957,10 +963,7 @@ impl StateImplementation for AIMoveAwayFromRepulsorsState {
         Some((self.goal_position, clear_object))
     }
 
-    fn note_step_owner(
-        &mut self,
-        owner: std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
-    ) {
+    fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<crate::object::Object>>) {
         if let Ok(guard) = owner.read() {
             self.base.base.owner_id = guard.get_id();
         }
@@ -983,12 +986,16 @@ impl StateImplementation for AIMoveAwayFromRepulsorsState {
             return StateReturnType::Failure;
         };
         let ai_store = the_ai();
-        let Some(enemy_id) = ai_store.read().ok().and_then(|store| {
-            store
-                .find_closest_repulsor(owner_guard.get_id(), owner_guard.get_vision_range())
-                .ok()
-        })
-        .flatten() else {
+        let Some(enemy_id) = ai_store
+            .read()
+            .ok()
+            .and_then(|store| {
+                store
+                    .find_closest_repulsor(owner_guard.get_id(), owner_guard.get_vision_range())
+                    .ok()
+            })
+            .flatten()
+        else {
             return StateReturnType::Failure;
         };
         let Some(enemy) = get_legacy_object(enemy_id) else {
@@ -1117,7 +1124,8 @@ impl ClassicState for AIMoveAwayFromRepulsorsState {
             .read()
             .map_err(|_| "move away from repulsors owner lock poisoned".to_string())?;
 
-        let ai_store = the_ai();let enemy_id = ai_store
+        let ai_store = the_ai();
+        let enemy_id = ai_store
             .read()
             .ok()
             .and_then(|ai| {
@@ -1324,7 +1332,7 @@ impl AIMoveToState {
         let _ = ai.set_path_extra_distance(0.0);
         ai.set_desired_speed(FAST_AS_POSSIBLE);
         ai.friend_starting_move();
-        ai.with_cur_locomotor(&mut |loco| loco.start_move());
+        ai.with_cur_locomotor_mut(&mut |loco| loco.start_move());
         self.start_move_sound(owner_guard);
         if owner_guard.get_formation_id() != FormationID::NONE {
             if let Some(group_id) = owner_guard.get_group_id() {
@@ -1456,8 +1464,11 @@ impl AIMoveToState {
                 }
             }
             self.goal_position = new_goal;
-            if !self.is_same_position(owner_guard.get_position(), &self.path_goal_position, &new_goal)
-            {
+            if !self.is_same_position(
+                owner_guard.get_position(),
+                &self.path_goal_position,
+                &new_goal,
+            ) {
                 goal_moved = true;
             }
         }
@@ -1839,21 +1850,22 @@ impl AIMoveToState {
         }
         let ai_arc;
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai_ref) = borrowed.as_mut() {
-            *ai_ref
-        } else {
-            if owner_ai_mutex_held {
-                self.adjust_destinations = false;
-                return Ok(StateReturnType::Continue);
-            }
-            ai_arc = owner_guard
-                .get_ai_update_interface()
-                .ok_or_else(|| "AIMoveToState missing AIUpdateInterface".to_string())?;
-            locked_ai = ai_arc
-                .lock()
-                .map_err(|_| "AIMoveToState AI lock poisoned".to_string())?;
-            &mut *locked_ai
-        };
+        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+            if let Some(ai_ref) = borrowed.as_mut() {
+                *ai_ref
+            } else {
+                if owner_ai_mutex_held {
+                    self.adjust_destinations = false;
+                    return Ok(StateReturnType::Continue);
+                }
+                ai_arc = owner_guard
+                    .get_ai_update_interface()
+                    .ok_or_else(|| "AIMoveToState missing AIUpdateInterface".to_string())?;
+                locked_ai = ai_arc
+                    .lock()
+                    .map_err(|_| "AIMoveToState AI lock poisoned".to_string())?;
+                &mut *locked_ai
+            };
 
         if owner_guard.test_status(ObjectStatusTypes::Parachuting) {
             self.adjust_destinations = false;
@@ -1868,13 +1880,14 @@ impl AIMoveToState {
 
         // C++ AIInternalMoveToState::onEnter (AIStates.cpp:1604-1605): startMove.
         ai_guard.friend_starting_move();
-        ai_guard.with_cur_locomotor(&mut |loco| loco.start_move());
+        ai_guard.with_cur_locomotor_mut(&mut |loco| loco.start_move());
 
         self.start_move_sound(&owner_guard);
 
         if owner_guard.get_formation_id() != FormationID::NONE {
             if let Some(group_id) = owner_guard.get_group_id() {
-                let ai_store = the_ai(); if let Ok(ai_lock) = ai_store.read() {
+                let ai_store = the_ai();
+                if let Ok(ai_lock) = ai_store.read() {
                     if let Some(group) = ai_lock.find_group(group_id) {
                         if let Ok(mut group_guard) = group.write() {
                             let speed = group_guard.get_speed();
@@ -1888,7 +1901,6 @@ impl AIMoveToState {
         Ok(StateReturnType::Continue)
     }
 }
-
 
 /// Move and evacuate state - move to a position then evacuate transport.
 #[derive(Debug)]
@@ -2058,7 +2070,6 @@ impl ClassicState for AIMoveAndEvacuateState {
         if let Ok(owner_guard) = owner.read() {
             self.origin = *owner_guard.get_position();
         }
-
 
         self.base.set_adjusts_destination(true);
         self.base.classic_on_enter()

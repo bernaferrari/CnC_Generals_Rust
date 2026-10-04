@@ -49,6 +49,7 @@ pub struct UnitAIUpdate {
     pub(super) turret_secondary_data: Option<TurretAIData>,
     pub(super) locomotor_upgraded: Bool,
     pub(super) current_locomotor_set: LocomotorSetType,
+    pub(super) locomotor_set: LocomotorSet,
     pub(super) locomotor_sets: HashMap<LocomotorSetType, Vec<AsciiString>>,
     pub(super) turret_primary_enabled: Bool,
     pub(super) turret_secondary_enabled: Bool,
@@ -191,7 +192,8 @@ impl UnitAIUpdate {
             turret_primary_data: None,
             turret_secondary_data: None,
             locomotor_upgraded: false,
-            current_locomotor_set: LocomotorSetType::Normal,
+            current_locomotor_set: LocomotorSetType::Invalid,
+            locomotor_set: LocomotorSet::new(),
             locomotor_sets: HashMap::new(),
             turret_primary_enabled: true,
             turret_secondary_enabled: true,
@@ -299,29 +301,17 @@ impl UnitAIUpdate {
         }
     }
     pub(super) fn xfer_locomotor_set_state(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        if let Some(unit) = get_unit_arc(self.unit_id) {
-            let mut guard = unit
-                .write()
-                .map_err(|_| "unit lock poisoned during locomotor xfer".to_string())?;
-            let guard = &mut *guard;
-            let mut current_name = guard
-                .locomotor_set
-                .active_name()
-                .map(|name| name.to_string());
-            guard
-                .locomotor_set
-                .xfer_self_and_cur_loco_ptr(xfer, &mut current_name)?;
-        } else {
-            let mut empty_set = LocomotorSet::new();
-            let mut current_name = None;
-            empty_set.xfer_self_and_cur_loco_ptr(xfer, &mut current_name)?;
-        }
-
-        let mut current_locomotor_set = self.current_locomotor_set as i32;
-        xfer.xfer_int(&mut current_locomotor_set)
-            .map_err(|e| e.to_string())?;
+        // C++ AIUpdate.cpp:5130-5145 clears only the receiving set before load.
         if xfer.is_loading() {
-            self.current_locomotor_set = locomotor_set_type_from_i32(current_locomotor_set)?;
+            self.locomotor_set.clear();
+        }
+        let mut current_name = self.locomotor_set.active_name().map(str::to_owned);
+        self.locomotor_set
+            .xfer_self_and_cur_loco_ptr(xfer, &mut current_name)?;
+        let mut current_set = self.current_locomotor_set as i32;
+        xfer.xfer_int(&mut current_set).map_err(|e| e.to_string())?;
+        if xfer.is_loading() {
+            self.current_locomotor_set = locomotor_set_type_from_i32(current_set)?;
         }
         Ok(())
     }

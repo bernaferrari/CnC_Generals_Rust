@@ -20,13 +20,13 @@ impl ChinookAIUpdate {
             ChinookFlightStatus::TakingOff | ChinookFlightStatus::Landing => {
                 let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
                 let _ = ai.set_allow_invalid_position(false);
-                ai.with_cur_locomotor(&mut |loco| {
+                ai.with_cur_locomotor_mut(&mut |loco| {
                     loco.set_precise_z_pos(true);
                     loco.set_ultra_accurate(true);
                 });
             }
             ChinookFlightStatus::Flying => {
-                ai.with_cur_locomotor(&mut |loco| {
+                ai.with_cur_locomotor_mut(&mut |loco| {
                     loco.set_precise_z_pos(false);
                     loco.set_ultra_accurate(false);
                 });
@@ -229,7 +229,7 @@ impl ChinookAIUpdate {
         let owner_dead = TheGameLogic::find_object_by_id(self.object_id)
             .and_then(|owner| owner.read().ok().map(|g| g.is_effectively_dead()))
             .unwrap_or(false);
-        ai.with_cur_locomotor(&mut |loco| {
+        ai.with_cur_locomotor_mut(&mut |loco| {
             loco.set_precise_z_pos(false);
             loco.set_ultra_accurate(false);
             if !owner_dead {
@@ -283,7 +283,7 @@ impl ChinookAIUpdate {
 
     /// C++ `ChinookMoveToBldgState::onEnter`.
     fn enter_move_to_bldg(&mut self, ai: &mut dyn AIUpdateInterface) {
-        ai.with_cur_locomotor(&mut |loco| {
+        ai.with_cur_locomotor_mut(&mut |loco| {
             loco.set_ultra_accurate(true);
             self.move_to_bldg_old_preferred = loco.preferred_height;
         });
@@ -304,7 +304,7 @@ impl ChinookAIUpdate {
                 }
             });
         }
-        ai.with_cur_locomotor(&mut |loco| {
+        ai.with_cur_locomotor_mut(&mut |loco| {
             loco.set_preferred_height(self.move_to_bldg_new_preferred);
         });
         let ground = TheTerrainLogic::get()
@@ -335,7 +335,7 @@ impl ChinookAIUpdate {
     }
 
     fn exit_move_to_bldg(&mut self, ai: &mut dyn AIUpdateInterface) {
-        ai.with_cur_locomotor(&mut |loco| {
+        ai.with_cur_locomotor_mut(&mut |loco| {
             loco.set_preferred_height(self.move_to_bldg_old_preferred);
             loco.set_ultra_accurate(false);
         });

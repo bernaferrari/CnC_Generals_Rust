@@ -630,7 +630,7 @@ impl UnitAIUpdate {
             let precise_z = crate::object::registry::OBJECT_REGISTRY
                 .with_object_mut(owner_id, |owner| owner.ai_pending_precise_z.take());
             if let Some(Some(precise)) = precise_z {
-                self.with_cur_locomotor(&mut |loco| loco.set_precise_z_pos(precise));
+                self.with_cur_locomotor_mut(&mut |loco| loco.set_precise_z_pos(precise));
             }
             let path_index = crate::object::registry::OBJECT_REGISTRY
                 .with_object_mut(owner_id, |owner| owner.ai_pending_goal_path_index.take());

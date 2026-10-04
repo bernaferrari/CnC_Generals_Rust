@@ -37,8 +37,10 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         height
     }
 
-    /// Borrow the current locomotor. C++ `getCurLocomotor` returned a pointer into the set.
-    fn with_cur_locomotor(&self, _f: &mut dyn FnMut(&mut crate::locomotor::Locomotor)) {}
+    /// Borrow the current member without mutating its instance state.
+    fn with_cur_locomotor(&self, _f: &mut dyn FnMut(&crate::locomotor::Locomotor)) {}
+    /// Borrow the current mutable member. The simulation owner grants mutation.
+    fn with_cur_locomotor_mut(&mut self, _f: &mut dyn FnMut(&mut crate::locomotor::Locomotor)) {}
     /// Get whether a locomotor path is active (matches C++ AIUpdateInterface::getPath).
     fn get_path(&self) -> Option<()> {
         self.get_path_destination().map(|_| ())

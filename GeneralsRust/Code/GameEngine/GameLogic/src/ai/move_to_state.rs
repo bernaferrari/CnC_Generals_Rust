@@ -179,8 +179,8 @@ impl AIState for AIMoveToState {
             pathfinding,
         );
         let mut slot = Some(loco);
-        if let Ok(ai_guard) = ai_handle.lock() {
-            ai_guard.with_cur_locomotor(&mut |active| {
+        if let Ok(mut ai_guard) = ai_handle.lock() {
+            ai_guard.with_cur_locomotor_mut(&mut |active| {
                 if let Some(updated) = slot.take() {
                     *active = updated;
                 }

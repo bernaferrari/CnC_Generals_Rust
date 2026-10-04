@@ -1378,7 +1378,7 @@ impl DeliverPayloadAIUpdate {
             );
             if current_distance_sqr <= start_dive_distance_sqr {
                 self.dive_state = DiveState::Diving;
-                ai.with_cur_locomotor(&mut |loco| loco.set_precise_z_pos(true));
+                ai.with_cur_locomotor_mut(&mut |loco| loco.set_precise_z_pos(true));
 
                 if let Some(mut sound) = owner_guard.get_template().get_per_unit_sound("StartDive")
                 {
@@ -1398,7 +1398,7 @@ impl DeliverPayloadAIUpdate {
             );
             if current_distance_sqr <= end_dive_distance_sqr {
                 self.dive_state = DiveState::PostDive;
-                ai.with_cur_locomotor(&mut |loco| loco.set_precise_z_pos(false));
+                ai.with_cur_locomotor_mut(&mut |loco| loco.set_precise_z_pos(false));
             }
 
             if let Some(slot) = self.data.strafing_weapon_slot {

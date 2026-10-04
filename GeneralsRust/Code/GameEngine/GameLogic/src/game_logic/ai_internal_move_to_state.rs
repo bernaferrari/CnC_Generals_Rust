@@ -132,7 +132,7 @@ impl AIInternalMoveToState {
             .lock()
             .map_err(|_| "AIInternalMoveToState AI lock poisoned".to_string())?;
 
-        ai_guard.with_cur_locomotor(&mut |loco| {
+        ai_guard.with_cur_locomotor_mut(&mut |loco| {
             if loco.is_ultra_accurate() {
                 self.set_adjusts_destination(false);
             }

@@ -225,7 +225,15 @@ fn panel_flag_is_indestructible(flag: &str) -> bool {
         .eq_ignore_ascii_case("indestructible")
 }
 
+mod script_action_effects;
+mod script_execution_driver;
 mod script_runtime_camera;
 mod script_state;
 mod script_team_actions;
 mod script_unit_actions;
+
+#[cfg(test)]
+mod sequential_actor_tests;
+
+#[cfg(test)]
+mod script_action_order_tests;

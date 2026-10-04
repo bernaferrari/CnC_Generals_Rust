@@ -111,11 +111,11 @@ impl ScriptActionDispatcher {
             let Some(ai_arc) = ai_arc else {
                 return Ok(ScriptActionResult::Success);
             };
-            let Ok(ai_guard) = ai_arc.lock() else {
+            let Ok(mut ai_guard) = ai_arc.lock() else {
                 return Ok(ScriptActionResult::Success);
             };
             let mut has_loco = false;
-            ai_guard.with_cur_locomotor(&mut |loco| {
+            ai_guard.with_cur_locomotor_mut(&mut |loco| {
                 has_loco = true;
                 loco.set_close_enough_dist(distance);
             });

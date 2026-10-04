@@ -38,3 +38,6 @@ mod tests;
 
 #[cfg(test)]
 mod rappel_command_tests;
+
+#[cfg(test)]
+mod owned_locomotor_tests;

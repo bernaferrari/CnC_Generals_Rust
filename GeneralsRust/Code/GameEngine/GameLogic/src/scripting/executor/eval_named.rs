@@ -24,6 +24,45 @@ impl ScriptConditionEvaluator {
             area_name
         );
 
+        let owned = self
+            .context
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .owned_trigger_area(&area_name);
+        if let Some(trigger) = owned {
+            let Some(trigger) = trigger else {
+                return Ok(ScriptConditionResult::False);
+            };
+            if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+                // CPP ScriptConditions.cpp397-415: integer current position,
+                // with no inert/dead filter or another world's area geometry.
+                return Ok(Self::bool_result(
+                    crate::scripting::conditions::host_named_unit_point_in_trigger(
+                        &object_name,
+                        &trigger,
+                    ),
+                ));
+            }
+            let tracker = get_named_object_tracker();
+            let inside = tracker
+                .get_object_id(&object_name)
+                .ok()
+                .flatten()
+                .and_then(|id| {
+                    crate::object::registry::OBJECT_REGISTRY.with_object(id, |object| {
+                        let position = object.get_position();
+                        let point = crate::common::ICoord3D::new(
+                            position.x as i32,
+                            position.y as i32,
+                            position.z as i32,
+                        );
+                        trigger.point_in_trigger_int(&point)
+                    })
+                })
+                .unwrap_or(false);
+            return Ok(Self::bool_result(inside));
+        }
+
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             // Match named.rs: existence is not inside-area. Missing host AABB
             // is False (do not fall through to NamedObjectTracker).
@@ -61,27 +100,6 @@ impl ScriptConditionEvaluator {
         condition: &Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
         log::debug!("Evaluating named outside area (inverting inside check per C++)");
-
-        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            // Do not invert unresolved host area geometry (fail-closed).
-            let object_name = self.get_condition_string_param(condition, 0)?;
-            let area_name = self.get_condition_string_param(condition, 1)?;
-            return Ok(
-                match crate::scripting::host_script_named_unit_in_named_area(
-                    &object_name,
-                    &area_name,
-                ) {
-                    Some(inside) => {
-                        if inside {
-                            ScriptConditionResult::False
-                        } else {
-                            ScriptConditionResult::True
-                        }
-                    }
-                    None => ScriptConditionResult::False,
-                },
-            );
-        }
 
         // C++ pattern: return !evaluateNamedInsideArea(pUnitParm, pTriggerParm);
         match self.eval_named_inside_area(condition)? {

@@ -31,9 +31,9 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers,
+    search_qualifiers, the_ai,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
@@ -221,7 +221,7 @@ impl FollowWaypointPathCore {
         } else {
             ai.set_adjusts_destination(true);
             if owner.is_kind_of(KindOf::Projectile) {
-                ai.with_cur_locomotor(&mut |loco| loco.set_precise_z_pos(true));
+                ai.with_cur_locomotor_mut(&mut |loco| loco.set_precise_z_pos(true));
             }
         }
 

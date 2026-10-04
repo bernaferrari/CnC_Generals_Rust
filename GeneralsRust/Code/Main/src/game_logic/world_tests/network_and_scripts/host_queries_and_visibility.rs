@@ -1100,7 +1100,8 @@ fn live_script_tick_runs_one_script_engine_update() {
         include_str!("../../mission_scripts/script_actions.rs"),
         include_str!("../../mission_scripts/tests.rs"),
     );
-    assert!(tick.contains("engine.update()"));
+    assert_eq!(tick.matches("engine.update_with_driver(").count(), 1);
+    assert!(tick.contains("HostScriptExecutionDriver::new(self)"));
     assert!(tick.contains("guard.take()"));
     assert!(tick.contains("note_logic_frame"));
 

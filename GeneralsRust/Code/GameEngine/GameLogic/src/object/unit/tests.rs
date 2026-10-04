@@ -46,6 +46,39 @@ fn with_flat_pathfind_map(test: impl FnOnce()) {
     crate::system::engine_stores::with_active_stores(&stores, test);
 }
 
+/// Author definitions into the same AI-owned set used by requestPath and Xfer.
+/// C++ AIUpdate.cpp:229-232,278,813-826 constructs runtime members from the
+/// module's NORMAL list; a Unit's independent legacy set is not AI authority.
+fn configure_ai_locomotor(ai: &mut UnitAIUpdate, template: LocomotorTemplate) {
+    let name = AsciiString::from(template.name.as_str());
+    crate::locomotor::LOCOMOTOR_STORE.register_template(template);
+    let mut data = crate::object::update::AIUpdateModuleData::default();
+    data.set_locomotor_set_entries(LocomotorSetType::Normal, vec![name]);
+    ai.apply_ai_update_module_data(&data);
+    assert!(ai.get_locomotor_set_clone().unwrap().get_active().is_some());
+}
+
+/// These children own the temporary immutable catalog definitions and the
+/// residual legacy pose/path fixture until process exit, including unwinding.
+/// No locomotor runtime is copied into a Unit or an ambient registry.
+fn locomotor_fixture_child(name: &str) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        matches!(
+            crate::test_process::run_bounded(
+                name.strip_prefix("gamelogic::").unwrap_or(name),
+                "GENERALS_UNIT_LOCOMOTOR_FIXTURE_CHILD",
+            ),
+            crate::test_process::TestProcess::Child
+        )
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = name;
+        true
+    }
+}
+
 fn unit_ai_update_without_unit() -> UnitAIUpdate {
     UnitAIUpdate::new(
         INVALID_ID,
@@ -93,13 +126,11 @@ fn unit_ai_update_with_primary_weapon(
     crate::ai::object_registry::register_legacy_object(&base_object);
 
     let template = DefaultThingTemplate::new("GroundUnit".to_string());
-    let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+    let unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
     let loco_name = format!("GroundLoco{}", owner_id);
-    let loco_template = Arc::new(LocomotorTemplate::new_wheeled(loco_name.clone()));
-    unit.locomotor_set
-        .add_locomotor(loco_name, Locomotor::new(loco_template));
+    let loco_template = LocomotorTemplate::new_wheeled(loco_name.clone());
     let unit = Arc::new(RwLock::new(unit));
-    let ai = UnitAIUpdate::new(
+    let mut ai = UnitAIUpdate::new(
         {
             let __u = &unit;
             let __id = __u
@@ -125,6 +156,7 @@ fn unit_ai_update_with_primary_weapon(
         None,
         None,
     );
+    configure_ai_locomotor(&mut ai, loco_template);
 
     (base_object, unit, ai)
 }
@@ -193,16 +225,20 @@ fn mark_as_dead_sets_owner_effectively_dead_like_cpp() {
 
 #[test]
 fn compute_quick_path_preserves_cpp_start_and_destination_nodes() {
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::compute_quick_path_preserves_cpp_start_and_destination_nodes"
+    )) {
+        return;
+    }
     let base_object = Arc::new(RwLock::new(Object::new_test(43, 100.0)));
     {
         let mut object = base_object.write().unwrap();
         let _ = object.set_position(&Coord3D::new(3.0, 4.0, 2.0));
     }
     let template = DefaultThingTemplate::new("AirUnit".to_string());
-    let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-    let loco_template = Arc::new(LocomotorTemplate::new_thrust("AirLoco".to_string()));
-    unit.locomotor_set
-        .add_locomotor("AirLoco".to_string(), Locomotor::new(loco_template));
+    let unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+    let loco_template = LocomotorTemplate::new_thrust("AirLoco".to_string());
     let unit = Arc::new(RwLock::new(unit));
     let mut ai = UnitAIUpdate::new(
         {
@@ -230,6 +266,7 @@ fn compute_quick_path_preserves_cpp_start_and_destination_nodes() {
         None,
         None,
     );
+    configure_ai_locomotor(&mut ai, loco_template);
 
     let destination = Coord3D::new(30.0, 40.0, 12.0);
     assert!(ai.compute_quick_path(&destination));
@@ -246,16 +283,20 @@ fn compute_quick_path_preserves_cpp_start_and_destination_nodes() {
 
 #[test]
 fn request_path_for_off_map_start_uses_direct_path_like_cpp() {
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::request_path_for_off_map_start_uses_direct_path_like_cpp"
+    )) {
+        return;
+    }
     let base_object = Arc::new(RwLock::new(Object::new_test(44, 100.0)));
     {
         let mut object = base_object.write().unwrap();
         let _ = object.set_position(&Coord3D::new(-100.0, -100.0, 5.0));
     }
     let template = DefaultThingTemplate::new("GroundUnit".to_string());
-    let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-    let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-    unit.locomotor_set
-        .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+    let unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+    let loco_template = LocomotorTemplate::new_wheeled("GroundLoco".to_string());
     let unit = Arc::new(RwLock::new(unit));
     let mut ai = UnitAIUpdate::new(
         {
@@ -283,6 +324,7 @@ fn request_path_for_off_map_start_uses_direct_path_like_cpp() {
         None,
         None,
     );
+    configure_ai_locomotor(&mut ai, loco_template);
 
     let destination = Coord3D::new(-50.0, -25.0, 9.0);
     ai.request_path(&destination, true).unwrap();
@@ -302,6 +344,12 @@ fn request_path_for_off_map_start_uses_direct_path_like_cpp() {
 
 #[test]
 fn request_path_for_exit_production_uses_direct_path_and_clears_unit_phasing_like_cpp() {
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::request_path_for_exit_production_uses_direct_path_and_clears_unit_phasing_like_cpp"
+    )) {
+        return;
+    }
     with_flat_pathfind_map(|| {
         let base_object = Arc::new(RwLock::new(Object::new_test(45, 100.0)));
         {
@@ -309,10 +357,8 @@ fn request_path_for_exit_production_uses_direct_path_and_clears_unit_phasing_lik
             let _ = object.set_position(&Coord3D::new(10.0, 10.0, 2.0));
         }
         let template = DefaultThingTemplate::new("GroundUnit".to_string());
-        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-        unit.locomotor_set
-            .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+        let unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = LocomotorTemplate::new_wheeled("GroundLoco".to_string());
         let unit = Arc::new(RwLock::new(unit));
         let mut ai = UnitAIUpdate::new(
             {
@@ -340,6 +386,7 @@ fn request_path_for_exit_production_uses_direct_path_and_clears_unit_phasing_lik
             None,
             None,
         );
+        configure_ai_locomotor(&mut ai, loco_template);
         ai.set_can_path_through_units(true).unwrap();
         ai.current_command = Some(crate::ai::AiCommandType::FollowExitProductionPath);
 
@@ -362,6 +409,12 @@ fn request_path_for_exit_production_uses_direct_path_and_clears_unit_phasing_lik
 
 #[test]
 fn request_path_for_non_final_line_passable_ground_move_uses_direct_path_like_cpp() {
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::request_path_for_non_final_line_passable_ground_move_uses_direct_path_like_cpp"
+    )) {
+        return;
+    }
     with_flat_pathfind_map(|| {
         let base_object = Arc::new(RwLock::new(Object::new_test(46, 100.0)));
         {
@@ -369,10 +422,8 @@ fn request_path_for_non_final_line_passable_ground_move_uses_direct_path_like_cp
             let _ = object.set_position(&Coord3D::new(0.0, 0.0, 1.0));
         }
         let template = DefaultThingTemplate::new("GroundUnit".to_string());
-        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-        unit.locomotor_set
-            .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+        let unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = LocomotorTemplate::new_wheeled("GroundLoco".to_string());
         let unit = Arc::new(RwLock::new(unit));
         let mut ai = UnitAIUpdate::new(
             {
@@ -400,6 +451,7 @@ fn request_path_for_non_final_line_passable_ground_move_uses_direct_path_like_cp
             None,
             None,
         );
+        configure_ai_locomotor(&mut ai, loco_template);
 
         let destination = Coord3D::new(16.0, 0.0, 3.0);
         ai.retry_path = true;
@@ -421,6 +473,12 @@ fn request_path_for_non_final_line_passable_ground_move_uses_direct_path_like_cp
 
 #[test]
 fn line_passable_direct_path_requires_non_final_goal_like_cpp() {
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::line_passable_direct_path_requires_non_final_goal_like_cpp"
+    )) {
+        return;
+    }
     with_flat_pathfind_map(|| {
         let base_object = Arc::new(RwLock::new(Object::new_test(47, 100.0)));
         {
@@ -428,10 +486,8 @@ fn line_passable_direct_path_requires_non_final_goal_like_cpp() {
             let _ = object.set_position(&Coord3D::new(0.0, 0.0, 1.0));
         }
         let template = DefaultThingTemplate::new("GroundUnit".to_string());
-        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-        unit.locomotor_set
-            .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+        let unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = LocomotorTemplate::new_wheeled("GroundLoco".to_string());
         let unit = Arc::new(RwLock::new(unit));
         let mut ai = UnitAIUpdate::new(
             {
@@ -459,6 +515,7 @@ fn line_passable_direct_path_requires_non_final_goal_like_cpp() {
             None,
             None,
         );
+        configure_ai_locomotor(&mut ai, loco_template);
         let destination = Coord3D::new(16.0, 0.0, 3.0);
 
         ai.is_final_goal = true;
@@ -471,16 +528,20 @@ fn line_passable_direct_path_requires_non_final_goal_like_cpp() {
 
 #[test]
 fn invalid_destination_without_ready_pathfinder_returns_failure_like_cpp() {
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::invalid_destination_without_ready_pathfinder_returns_failure_like_cpp"
+    )) {
+        return;
+    }
     let base_object = Arc::new(RwLock::new(Object::new_test(48, 100.0)));
     {
         let mut object = base_object.write().unwrap();
         let _ = object.set_position(&Coord3D::new(10.0, 0.0, 1.0));
     }
     let template = DefaultThingTemplate::new("GroundUnit".to_string());
-    let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-    let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-    unit.locomotor_set
-        .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+    let unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+    let loco_template = LocomotorTemplate::new_wheeled("GroundLoco".to_string());
     let unit = Arc::new(RwLock::new(unit));
     let mut ai = UnitAIUpdate::new(
         {
@@ -508,9 +569,11 @@ fn invalid_destination_without_ready_pathfinder_returns_failure_like_cpp() {
         None,
         None,
     );
+    configure_ai_locomotor(&mut ai, loco_template);
 
     assert!(
-        !ai.try_install_closest_path_for_invalid_destination(&Coord3D::new(-5.0, 0.0, 3.0)).unwrap()
+        !ai.try_install_closest_path_for_invalid_destination(&Coord3D::new(-5.0, 0.0, 3.0))
+            .unwrap()
     );
 
     assert!(ai.retry_path);
@@ -522,6 +585,12 @@ fn invalid_destination_without_ready_pathfinder_returns_failure_like_cpp() {
 
 #[test]
 fn stuck_old_path_failure_stops_and_waits_like_cpp() {
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::stuck_old_path_failure_stops_and_waits_like_cpp"
+    )) {
+        return;
+    }
     let base_object = Arc::new(RwLock::new(Object::new_test(49, 100.0)));
     {
         let mut object = base_object.write().unwrap();
@@ -529,9 +598,7 @@ fn stuck_old_path_failure_stops_and_waits_like_cpp() {
     }
     let template = DefaultThingTemplate::new("GroundUnit".to_string());
     let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-    let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-    unit.locomotor_set
-        .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+    let loco_template = LocomotorTemplate::new_wheeled("GroundLoco".to_string());
     unit.current_path = Some(vec![Coord2D::new(10.0, 0.0), Coord2D::new(20.0, 0.0)]);
     unit.path_index = 1;
     unit.target_position = Some(Coord3D::new(20.0, 0.0, 0.0));
@@ -563,6 +630,7 @@ fn stuck_old_path_failure_stops_and_waits_like_cpp() {
         None,
         None,
     );
+    configure_ai_locomotor(&mut ai, loco_template);
     ai.set_current_path_snapshot_from_coords(&[
         Coord3D::new(10.0, 0.0, 1.0),
         Coord3D::new(20.0, 0.0, 0.0),
@@ -574,7 +642,8 @@ fn stuck_old_path_failure_stops_and_waits_like_cpp() {
     ai.locomotor_goal_data = Coord3D::new(20.0, 0.0, 0.0);
 
     assert!(
-        ai.try_install_closest_path_for_invalid_destination(&Coord3D::new(-5.0, 0.0, 3.0)).unwrap()
+        ai.try_install_closest_path_for_invalid_destination(&Coord3D::new(-5.0, 0.0, 3.0))
+            .unwrap()
     );
 
     assert_eq!(
@@ -599,6 +668,12 @@ fn stuck_old_path_failure_stops_and_waits_like_cpp() {
 
 #[test]
 fn set_path_from_waypoint_prepends_current_position_like_cpp() {
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::set_path_from_waypoint_prepends_current_position_like_cpp"
+    )) {
+        return;
+    }
     let base_object = Arc::new(RwLock::new(Object::new_test(57, 100.0)));
     {
         let mut object = base_object.write().unwrap();
@@ -606,9 +681,7 @@ fn set_path_from_waypoint_prepends_current_position_like_cpp() {
     }
     let template = DefaultThingTemplate::new("GroundUnit".to_string());
     let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-    let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-    unit.locomotor_set
-        .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+    let loco_template = LocomotorTemplate::new_wheeled("GroundLoco".to_string());
     unit.current_path = Some(vec![Coord2D::new(99.0, 99.0)]);
     let unit = Arc::new(RwLock::new(unit));
     let mut ai = UnitAIUpdate::new(
@@ -637,6 +710,7 @@ fn set_path_from_waypoint_prepends_current_position_like_cpp() {
         None,
         None,
     );
+    configure_ai_locomotor(&mut ai, loco_template);
     ai.set_current_path_snapshot_from_coords(&[Coord3D::new(99.0, 99.0, 0.0)]);
 
     let waypoint = crate::waypoint::Waypoint::new(
@@ -719,12 +793,16 @@ fn crate_created_marker_is_owned_per_ai_and_roundtrips_xfer() {
 
 #[test]
 fn unit_choose_locomotor_set_preserves_current_when_set_missing_like_cpp() {
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::unit_choose_locomotor_set_preserves_current_when_set_missing_like_cpp"
+    )) {
+        return;
+    }
     let base_object = Arc::new(RwLock::new(Object::new_test(59, 100.0)));
     let template = DefaultThingTemplate::new("GroundUnit".to_string());
-    let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-    let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-    unit.locomotor_set
-        .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+    let unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+    let loco_template = LocomotorTemplate::new_wheeled("GroundLoco".to_string());
     let unit = Arc::new(RwLock::new(unit));
 
     let mut ai = UnitAIUpdate::new(
@@ -753,14 +831,13 @@ fn unit_choose_locomotor_set_preserves_current_when_set_missing_like_cpp() {
         None,
         None,
     );
-    ai.current_locomotor_set = LocomotorSetType::Normal;
+    configure_ai_locomotor(&mut ai, loco_template);
     ai.locomotor_sets.clear();
 
     ai.choose_locomotor_set(LocomotorSetType::Wander).unwrap();
 
     assert_eq!(ai.current_locomotor_set, LocomotorSetType::Normal);
-    let unit_guard = unit.read().unwrap();
-    assert!(unit_guard.locomotor_set.get_active().is_some());
+    assert!(ai.get_locomotor_set_clone().unwrap().get_active().is_some());
 }
 
 #[test]
@@ -958,6 +1035,12 @@ fn destroy_path_clears_attack_and_locomotor_goal_like_cpp() {
 
 #[test]
 fn request_path_waits_until_queued_pathfind_installs_path_like_cpp() {
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::request_path_waits_until_queued_pathfind_installs_path_like_cpp"
+    )) {
+        return;
+    }
     with_flat_pathfind_map(|| {
         let base_object = Arc::new(RwLock::new(Object::new_test(50, 100.0)));
         {
@@ -965,10 +1048,8 @@ fn request_path_waits_until_queued_pathfind_installs_path_like_cpp() {
             let _ = object.set_position(&Coord3D::new(0.0, 0.0, 1.0));
         }
         let template = DefaultThingTemplate::new("GroundUnit".to_string());
-        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-        unit.locomotor_set
-            .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+        let unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = LocomotorTemplate::new_wheeled("GroundLoco".to_string());
         let unit = Arc::new(RwLock::new(unit));
         let mut ai = UnitAIUpdate::new(
             {
@@ -996,6 +1077,7 @@ fn request_path_waits_until_queued_pathfind_installs_path_like_cpp() {
             None,
             None,
         );
+        configure_ai_locomotor(&mut ai, loco_template);
         let destination = Coord3D::new(0.0, 0.0, 0.0);
 
         ai.request_path(&destination, true).unwrap();
@@ -1023,12 +1105,16 @@ fn request_path_waits_until_queued_pathfind_installs_path_like_cpp() {
 
 #[test]
 fn request_attack_path_enters_wait_state_before_repath_delay_like_cpp() {
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::request_attack_path_enters_wait_state_before_repath_delay_like_cpp"
+    )) {
+        return;
+    }
     let base_object = Arc::new(RwLock::new(Object::new_test(53, 100.0)));
     let template = DefaultThingTemplate::new("GroundUnit".to_string());
-    let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-    let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-    unit.locomotor_set
-        .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+    let unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+    let loco_template = LocomotorTemplate::new_wheeled("GroundLoco".to_string());
     let unit = Arc::new(RwLock::new(unit));
     let mut ai = UnitAIUpdate::new(
         {
@@ -1056,6 +1142,7 @@ fn request_attack_path_enters_wait_state_before_repath_delay_like_cpp() {
         None,
         None,
     );
+    configure_ai_locomotor(&mut ai, loco_template);
     let now = TheGameLogic::get_frame();
     ai.path_timestamp = now.saturating_add(1);
     let destination = Coord3D::new(12.0, 4.0, 0.0);
@@ -1073,6 +1160,12 @@ fn request_attack_path_enters_wait_state_before_repath_delay_like_cpp() {
 
 #[test]
 fn queued_attack_path_object_in_range_finishes_without_move_path_like_cpp() {
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::queued_attack_path_object_in_range_finishes_without_move_path_like_cpp"
+    )) {
+        return;
+    }
     with_flat_pathfind_map(|| {
         let owner_id = 58;
         let victim_id = 158;
@@ -1109,6 +1202,12 @@ fn queued_attack_path_object_in_range_finishes_without_move_path_like_cpp() {
 
 #[test]
 fn queued_attack_path_position_in_range_finishes_without_move_path_like_cpp() {
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::queued_attack_path_position_in_range_finishes_without_move_path_like_cpp"
+    )) {
+        return;
+    }
     with_flat_pathfind_map(|| {
         let owner_id = 59;
         let (_base_object, unit, mut ai) =
@@ -1135,6 +1234,12 @@ fn queued_attack_path_position_in_range_finishes_without_move_path_like_cpp() {
 
 #[test]
 fn queued_attack_path_fallback_clears_attack_and_tracks_live_victim_like_cpp() {
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::queued_attack_path_fallback_clears_attack_and_tracks_live_victim_like_cpp"
+    )) {
+        return;
+    }
     with_flat_pathfind_map(|| {
         let owner_id = 57;
         let victim_id = 157;
@@ -1154,10 +1259,8 @@ fn queued_attack_path_fallback_clears_attack_and_tracks_live_victim_like_cpp() {
         crate::ai::object_registry::register_legacy_object(&victim);
 
         let template = DefaultThingTemplate::new("GroundUnit".to_string());
-        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-        unit.locomotor_set
-            .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+        let unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = LocomotorTemplate::new_wheeled("GroundLoco".to_string());
         let unit = Arc::new(RwLock::new(unit));
         let mut ai = UnitAIUpdate::new(
             {
@@ -1185,6 +1288,7 @@ fn queued_attack_path_fallback_clears_attack_and_tracks_live_victim_like_cpp() {
             None,
             None,
         );
+        configure_ai_locomotor(&mut ai, loco_template);
 
         ai.request_attack_path(victim_id, &Coord3D::new(10.0, 0.0, 0.0))
             .unwrap();
@@ -1217,12 +1321,16 @@ fn queued_attack_path_fallback_clears_attack_and_tracks_live_victim_like_cpp() {
 
 #[test]
 fn request_approach_path_enters_wait_state_before_repath_delay_like_cpp() {
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::request_approach_path_enters_wait_state_before_repath_delay_like_cpp"
+    )) {
+        return;
+    }
     let base_object = Arc::new(RwLock::new(Object::new_test(54, 100.0)));
     let template = DefaultThingTemplate::new("GroundUnit".to_string());
-    let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-    let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-    unit.locomotor_set
-        .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+    let unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+    let loco_template = LocomotorTemplate::new_wheeled("GroundLoco".to_string());
     let unit = Arc::new(RwLock::new(unit));
     let mut ai = UnitAIUpdate::new(
         {
@@ -1250,6 +1358,7 @@ fn request_approach_path_enters_wait_state_before_repath_delay_like_cpp() {
         None,
         None,
     );
+    configure_ai_locomotor(&mut ai, loco_template);
     let now = TheGameLogic::get_frame();
     ai.path_timestamp = now.saturating_add(1);
     let destination = Coord3D::new(18.0, 6.0, 0.0);
@@ -1267,6 +1376,12 @@ fn request_approach_path_enters_wait_state_before_repath_delay_like_cpp() {
 
 #[test]
 fn request_approach_path_defers_closest_path_until_queued_update_like_cpp() {
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::request_approach_path_defers_closest_path_until_queued_update_like_cpp"
+    )) {
+        return;
+    }
     with_flat_pathfind_map(|| {
         let base_object = Arc::new(RwLock::new(Object::new_test(56, 100.0)));
         {
@@ -1274,10 +1389,8 @@ fn request_approach_path_defers_closest_path_until_queued_update_like_cpp() {
             let _ = object.set_position(&Coord3D::new(0.0, 0.0, 1.0));
         }
         let template = DefaultThingTemplate::new("GroundUnit".to_string());
-        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-        unit.locomotor_set
-            .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+        let unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = LocomotorTemplate::new_wheeled("GroundLoco".to_string());
         let unit = Arc::new(RwLock::new(unit));
         let mut ai = UnitAIUpdate::new(
             {
@@ -1305,6 +1418,7 @@ fn request_approach_path_defers_closest_path_until_queued_update_like_cpp() {
             None,
             None,
         );
+        configure_ai_locomotor(&mut ai, loco_template);
         let old_destination = Coord3D::new(10.0, 0.0, 0.0);
         ai.set_path_from_coords(&[Coord3D::new(0.0, 0.0, 1.0), old_destination])
             .unwrap();
@@ -1359,6 +1473,12 @@ fn request_safe_path_enters_wait_state_before_repath_delay_like_cpp() {
 
 #[test]
 fn request_safe_path_defers_safe_pathfind_until_queued_update_like_cpp() {
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::request_safe_path_defers_safe_pathfind_until_queued_update_like_cpp"
+    )) {
+        return;
+    }
     with_flat_pathfind_map(|| {
         let owner_id = 55;
         let repulsor_id = 155;
@@ -1377,10 +1497,8 @@ fn request_safe_path_defers_safe_pathfind_until_queued_update_like_cpp() {
         crate::object::registry::OBJECT_REGISTRY.register_object(repulsor_id, &repulsor);
 
         let template = DefaultThingTemplate::new("GroundUnit".to_string());
-        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-        unit.locomotor_set
-            .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+        let unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = LocomotorTemplate::new_wheeled("GroundLoco".to_string());
         let unit = Arc::new(RwLock::new(unit));
         let mut ai = UnitAIUpdate::new(
             {
@@ -1408,6 +1526,7 @@ fn request_safe_path_defers_safe_pathfind_until_queued_update_like_cpp() {
             None,
             None,
         );
+        configure_ai_locomotor(&mut ai, loco_template);
 
         assert!(ai.request_safe_path(repulsor_id).unwrap());
 
@@ -1436,14 +1555,16 @@ fn request_safe_path_defers_safe_pathfind_until_queued_update_like_cpp() {
 
 #[test]
 fn installed_path_uses_exact_requested_destination_for_ultra_accurate_loco_like_cpp() {
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::installed_path_uses_exact_requested_destination_for_ultra_accurate_loco_like_cpp"
+    )) {
+        return;
+    }
     let base_object = Arc::new(RwLock::new(Object::new_test(51, 100.0)));
     let template = DefaultThingTemplate::new("GroundUnit".to_string());
-    let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-    let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-    let mut loco = Locomotor::new(loco_template);
-    loco.set_ultra_accurate(true);
-    unit.locomotor_set
-        .add_locomotor("GroundLoco".to_string(), loco);
+    let unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+    let loco_template = LocomotorTemplate::new_wheeled("GroundLoco".to_string());
     let unit = Arc::new(RwLock::new(unit));
     let mut ai = UnitAIUpdate::new(
         {
@@ -1471,6 +1592,8 @@ fn installed_path_uses_exact_requested_destination_for_ultra_accurate_loco_like_
         None,
         None,
     );
+    configure_ai_locomotor(&mut ai, loco_template);
+    ai.set_ultra_accurate(true).unwrap();
     ai.requested_destination = Coord3D::new(14.25, 2.5, 3.0);
 
     ai.set_path_from_coords(&[Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(14.0, 2.0, 0.0)])
@@ -1487,16 +1610,20 @@ fn installed_path_uses_exact_requested_destination_for_ultra_accurate_loco_like_
 
 #[test]
 fn final_ground_path_install_updates_goal_layer_like_cpp_do_pathfind() {
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::final_ground_path_install_updates_goal_layer_like_cpp_do_pathfind"
+    )) {
+        return;
+    }
     let base_object = Arc::new(RwLock::new(Object::new_test(52, 100.0)));
     {
         let mut object = base_object.write().unwrap();
         object.set_destination_layer(crate::common::PathfindLayerEnum::Top);
     }
     let template = DefaultThingTemplate::new("GroundUnit".to_string());
-    let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-    let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-    unit.locomotor_set
-        .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+    let unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+    let loco_template = LocomotorTemplate::new_wheeled("GroundLoco".to_string());
     let unit = Arc::new(RwLock::new(unit));
     let mut ai = UnitAIUpdate::new(
         {
@@ -1524,6 +1651,7 @@ fn final_ground_path_install_updates_goal_layer_like_cpp_do_pathfind() {
         None,
         None,
     );
+    configure_ai_locomotor(&mut ai, loco_template);
     ai.is_final_goal = true;
     ai.requested_destination = Coord3D::new(32.0, 64.0, 0.0);
 

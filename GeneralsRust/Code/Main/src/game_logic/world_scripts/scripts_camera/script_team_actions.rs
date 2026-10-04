@@ -1941,26 +1941,133 @@ impl GameLogic {
 
 #[cfg(test)]
 #[test]
+#[cfg(not(target_arch = "wasm32"))]
 fn waypoint_follow_clears_adjust_for_aircraft() {
-    use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    let mut air_tmpl = ThingTemplate::new("Raptor");
-    air_tmpl.add_kind_of(KindOf::Aircraft);
-    let air = crate::game_logic::Object::new(air_tmpl, ObjectId(1), Team::USA);
-    logic.objects.insert(ObjectId(1), air);
-    let mut foot_tmpl = ThingTemplate::new("Ranger");
-    foot_tmpl.add_kind_of(KindOf::Infantry);
-    let foot = crate::game_logic::Object::new(foot_tmpl, ObjectId(2), Team::USA);
-    logic.objects.insert(ObjectId(2), foot);
-    let wps = [glam::Vec3::new(40.0, 0.0, 0.0)];
-    logic.host_script_issue_follow_waypoint_path(&[ObjectId(1)], &wps, false, false, "");
-    logic.host_script_issue_follow_waypoint_path(&[ObjectId(2)], &wps, false, false, "");
-    assert!(
-        !logic.host_object(ObjectId(1)).unwrap().adjust_destinations,
-        "an aircraft waypoint path must not adjust"
-    );
-    assert!(
-        logic.host_object(ObjectId(2)).unwrap().adjust_destinations,
-        "infantry on the ground keeps the move-request flag"
+    super::sequential_actor_tests::isolated(
+        module_path!(),
+        "waypoint_follow_clears_adjust_for_aircraft",
+        || {
+            use crate::game_logic::{GameLogic, Team};
+            use game_engine::common::ini::ini_locomotor::load_locomotors_from_str;
+            // CPP AIUpdate.cpp:2339–2380 rejects a NULL current locomotor even
+            // for infantry. Bind real authored locomotors through normal creation;
+            // a KindOf-only Object::new fixture cannot model ground movement.
+            assert_eq!(
+                load_locomotors_from_str(
+                    r#"
+Locomotor WaypointFixtureGround
+  Surfaces = GROUND
+  Speed = 20
+  SpeedDamaged = 20
+  TurnRate = 180
+  Acceleration = 100
+  AccelerationDamaged = 100
+  Braking = 100
+  Appearance = TWO_LEGS
+End
+Locomotor WaypointFixtureAir
+  Surfaces = AIR
+  Speed = 30
+  SpeedDamaged = 30
+  TurnRate = 180
+  Acceleration = 100
+  AccelerationDamaged = 100
+  Braking = 100
+  Appearance = HOVER
+  PreferredHeight = 50
+  AllowAirborneMotiveForce = Yes
+End
+"#
+                )
+                .expect("authored waypoint locomotors"),
+                2
+            );
+            let mut logic = GameLogic::new();
+            let mut parser = crate::assets::IniParser::new();
+            parser
+                .parse_ini_content(
+                    r#"
+Object WaypointFixtureAircraft
+  KindOf = VEHICLE AIRCRAFT
+  Body = ActiveBody ModuleTag_Body
+    MaxHealth = 100
+  End
+  Behavior = AIUpdate ModuleTag_AI
+  End
+  Locomotor = SET_NORMAL WaypointFixtureAir
+End
+Object WaypointFixtureInfantry
+  KindOf = INFANTRY
+  Body = ActiveBody ModuleTag_Body
+    MaxHealth = 100
+  End
+  Behavior = AIUpdate ModuleTag_AI
+  End
+  Locomotor = SET_NORMAL WaypointFixtureGround
+End
+"#,
+                    "waypoint_fixture.ini",
+                )
+                .unwrap();
+            for name in ["WaypointFixtureAircraft", "WaypointFixtureInfantry"] {
+                let template = GameLogic::build_template_from_object_definition(
+                    name,
+                    parser.get_definition(name).unwrap(),
+                    None,
+                );
+                logic.templates.insert(name.into(), template);
+            }
+            let air = logic
+                .create_object("WaypointFixtureAircraft", Team::USA, glam::Vec3::ZERO)
+                .unwrap();
+            let foot = logic
+                .create_object(
+                    "WaypointFixtureInfantry",
+                    Team::USA,
+                    glam::Vec3::new(10.0, 0.0, 0.0),
+                )
+                .unwrap();
+            // CPP ScriptActions.cpp:1623 chooses SET_NORMAL before following.
+            assert!(logic.apply_unit_locomotor_set(air, "normal"));
+            assert!(logic.apply_unit_locomotor_set(foot, "normal"));
+            assert!(logic.unit_can_move(air));
+            assert!(logic.unit_can_move(foot));
+            assert!(logic.host_object(air).unwrap().cur_locomotor_name.is_some());
+            assert!(
+                logic
+                    .host_object(foot)
+                    .unwrap()
+                    .cur_locomotor_name
+                    .is_some()
+            );
+            assert!(
+                !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(
+                    logic.host_object(air).unwrap()
+                )
+            );
+            assert!(
+                crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(
+                    logic.host_object(foot).unwrap()
+                )
+            );
+            assert!(logic.host_object(air).unwrap().adjust_destinations);
+            assert!(logic.host_object(foot).unwrap().adjust_destinations);
+            let wps = [glam::Vec3::new(40.0, 0.0, 0.0)];
+            logic.host_script_issue_follow_waypoint_path(&[air], &wps, false, false, "");
+            logic.host_script_issue_follow_waypoint_path(&[foot], &wps, false, false, "");
+            assert!(
+                !logic.host_object(air).unwrap().adjust_destinations,
+                "an aircraft waypoint path must not adjust"
+            );
+            assert!(
+                logic.host_object(foot).unwrap().adjust_destinations,
+                "infantry on the ground keeps the move-request flag"
+            );
+            assert_eq!(
+                logic.host_object(foot).unwrap().path_goal_position,
+                Some(wps[0]),
+                "actual waypoint command admitted"
+            );
+        },
     );
 }

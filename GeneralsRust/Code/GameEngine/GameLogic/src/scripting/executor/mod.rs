@@ -1388,6 +1388,21 @@ pub struct ScriptContext {
 }
 
 impl ScriptContext {
+    /// An installed owner is authoritative, including an installed empty
+    /// map. Only standalone, uninitialized contexts retain ambient fallback.
+    fn owned_trigger_area(
+        &self,
+        area_name: &str,
+    ) -> Option<Option<crate::polygon_trigger::PolygonTrigger>> {
+        let world = self
+            .host_trigger_world
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        world
+            .has_authored_trigger_geometry()
+            .then(|| world.trigger_area_by_name(area_name))
+    }
+
     pub fn new() -> Self {
         Self {
             game_logic_id: 0,

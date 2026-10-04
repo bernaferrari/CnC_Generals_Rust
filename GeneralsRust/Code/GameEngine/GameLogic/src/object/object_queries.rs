@@ -59,10 +59,7 @@ impl Object {
     /// Returns `None` when the object has no controlling player or the
     /// player's lock is poisoned.
     pub fn with_controlling_player<R>(&self, f: impl FnOnce(&Player) -> R) -> Option<R> {
-        crate::player::with_player(
-            self.get_controlling_player_id()? as Int,
-            f,
-        )
+        crate::player::with_player(self.get_controlling_player_id()? as Int, f)
     }
 
     /// Run `f` with exclusive access to this object's controlling player.
@@ -70,10 +67,7 @@ impl Object {
     /// Scoped counterpart of [`Object::with_controlling_player`]; see that
     /// method for the C++ mapping.
     pub fn with_controlling_player_mut<R>(&self, f: impl FnOnce(&mut Player) -> R) -> Option<R> {
-        crate::player::with_player_mut(
-            self.get_controlling_player_id()? as Int,
-            f,
-        )
+        crate::player::with_player_mut(self.get_controlling_player_id()? as Int, f)
     }
 
     pub fn get_player_id(&self) -> Option<PlayerId> {
@@ -234,8 +228,8 @@ impl Object {
         {
             if stop_dist >= 0.5 {
                 if let Some(ai) = self.get_ai_update_interface() {
-                    if let Ok(ai_guard) = ai.lock() {
-                        ai_guard.with_cur_locomotor(&mut |loco| {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        ai_guard.with_cur_locomotor_mut(&mut |loco| {
                             loco.set_close_enough_dist(stop_dist);
                         });
                     }
@@ -591,10 +585,10 @@ impl Object {
         let Some(ai) = self.ai.as_ref() else {
             return;
         };
-        let Ok(guard) = ai.lock() else {
+        let Ok(mut guard) = ai.lock() else {
             return;
         };
-        guard.with_cur_locomotor(f);
+        guard.with_cur_locomotor_mut(f);
     }
 
     /// C++ ControlBarCommand.cpp:1140 `dozerAI->isTaskPending(DOZER_TASK_BUILD)`.
@@ -880,7 +874,8 @@ impl Object {
 
         self.set_status(ObjectStatusMaskType::UNSELECTABLE, true);
         let is_enclosing = if container_id != INVALID_ID {
-            if let Some(container) = crate::object::registry::OBJECT_REGISTRY.get_object(container_id)
+            if let Some(container) =
+                crate::object::registry::OBJECT_REGISTRY.get_object(container_id)
             {
                 if let Ok(guard) = container.try_read() {
                     if let Some(contain) = guard.get_contain() {
@@ -1003,7 +998,8 @@ impl Object {
             SlotLook::Riders(rider_ids) => {
                 count = 0;
                 for rider_id in rider_ids {
-                    if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
+                    if let Some(rider) =
+                        crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
                     {
                         if let Ok(rider_guard) = rider.try_read() {
                             count += rider_guard.get_transport_slot_count();

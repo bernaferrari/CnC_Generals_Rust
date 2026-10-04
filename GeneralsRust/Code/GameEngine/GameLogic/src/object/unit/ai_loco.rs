@@ -13,31 +13,20 @@ use super::types::*;
 
 impl UnitAIUpdate {
     pub(super) fn get_preferred_height(&self) -> Option<Real> {
-        get_unit_arc(self.unit_id).and_then(|unit| {
-            unit.read().ok().and_then(|guard| {
-                guard
-                    .locomotor_set
-                    .get_active()
-                    .map(|loco| loco.preferred_height)
-            })
-        })
+        self.locomotor_set
+            .get_active()
+            .map(|loco| loco.preferred_height)
     }
     pub(super) fn is_allowed_to_adjust_destination(&self) -> bool {
-        if let Some(chinook_ai) = self.chinook_ai.as_ref() {
-            let invalid_allowed = get_unit_arc(self.unit_id)
-                .and_then(|unit| {
-                    unit.read().ok().and_then(|guard| {
-                        guard
-                            .locomotor_set
-                            .get_active()
-                            .map(|loco| loco.is_allowing_invalid_positions())
-                    })
-                })
-                .unwrap_or(false);
-            if invalid_allowed {
+        if let Some(chinook) = self.chinook_ai.as_ref() {
+            if self
+                .locomotor_set
+                .get_active()
+                .is_some_and(|loco| loco.is_allowing_invalid_positions())
+            {
                 return false;
             }
-            chinook_ai.is_allowed_to_adjust_destination()
+            chinook.is_allowed_to_adjust_destination()
         } else {
             true
         }
@@ -236,7 +225,7 @@ impl UnitAIUpdate {
             get_unit_arc(self.unit_id).ok_or_else(|| "unit no longer available".to_string())?;
         let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
 
-        if let Some(loc_guard) = guard.locomotor_set.get_active_mut() {
+        if let Some(loc_guard) = self.locomotor_set.get_active_mut() {
             if let Some(active_path) = loc_guard.active_path.as_mut() {
                 active_path.append_waypoint(*goal);
                 self.append_current_path_snapshot_goal(goal);
@@ -277,7 +266,7 @@ impl UnitAIUpdate {
         self.locomotor_goal_type = 1;
         self.locomotor_goal_data = Coord3D::ZERO;
 
-        if let Some(loc_guard) = guard.locomotor_set.get_active_mut() {
+        if let Some(loc_guard) = self.locomotor_set.get_active_mut() {
             loc_guard.clear_path();
         }
         drop(guard);
@@ -330,10 +319,10 @@ impl UnitAIUpdate {
         {
             return true;
         }
-        if guard.locomotor_set.get_valid_surfaces() == crate::ai::pathfind_complete::SURFACE_AIR {
+        if self.locomotor_set.get_valid_surfaces() == crate::ai::pathfind_complete::SURFACE_AIR {
             return false;
         }
-        let Some(locomotor) = guard.locomotor_set.get_active() else {
+        let Some(locomotor) = self.locomotor_set.get_active() else {
             return false;
         };
         if (locomotor.get_legal_surfaces() & crate::ai::pathfind_complete::SURFACE_AIR) != 0 {
@@ -417,7 +406,7 @@ impl UnitAIUpdate {
         if guard.path_extra_distance > PATHFIND_CLOSE_ENOUGH {
             treat_as_aircraft = true;
         }
-        if let Some(locomotor) = guard.locomotor_set.get_active() {
+        if let Some(locomotor) = self.locomotor_set.get_active() {
             if locomotor.get_appearance() == LocomotorAppearance::Hover {
                 treat_as_aircraft = true;
             }
@@ -482,7 +471,7 @@ impl UnitAIUpdate {
             state.path_goal_position = adjusted;
         }
 
-        if let Some(loc_guard) = guard.locomotor_set.get_active_mut() {
+        if let Some(loc_guard) = self.locomotor_set.get_active_mut() {
             if let Some(active_path) = loc_guard.active_path.as_mut() {
                 active_path.set_last_waypoint(adjusted);
             }
@@ -548,7 +537,7 @@ impl UnitAIUpdate {
         let Ok(guard) = unit.read() else {
             return false;
         };
-        if guard.locomotor_set.get_active().is_none() {
+        if self.locomotor_set.get_active().is_none() {
             return false;
         }
         // C++ Pathfinder::adjustDestination performs the 400-cell spiral and
@@ -570,7 +559,7 @@ impl UnitAIUpdate {
             return false;
         };
         let mut candidate = *goal;
-        if !pathfinder.adjust_destination(&base, &guard.locomotor_set, &mut candidate) {
+        if !pathfinder.adjust_destination(&base, &self.locomotor_set, &mut candidate) {
             return false;
         }
         *goal = candidate;
@@ -590,10 +579,7 @@ impl UnitAIUpdate {
         &mut self,
         allow: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let unit =
-            get_unit_arc(self.unit_id).ok_or_else(|| "unit no longer available".to_string())?;
-        let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
-        if let Some(loco) = guard.locomotor_set.get_active_mut() {
+        if let Some(loco) = self.locomotor_set.get_active_mut() {
             loco.set_allow_invalid_position(allow);
         }
         Ok(())
@@ -639,9 +625,6 @@ impl UnitAIUpdate {
             return Ok(());
         }
 
-        let Some(unit) = get_unit_arc(self.unit_id) else {
-            return Ok(());
-        };
         let Some(locomotors) = self.locomotor_sets.get(&target_set) else {
             return Ok(());
         };
@@ -662,18 +645,17 @@ impl UnitAIUpdate {
             }
         }
 
-        let mut guard = unit.write().map_err(|_| "unit lock poisoned")?;
-        let prev_name = guard
+        let prev_name = self
             .locomotor_set
             .active_name()
             .map(|name| name.to_string());
-        guard.locomotor_set = new_set;
-        let new_name = guard
+        self.locomotor_set = new_set;
+        let new_name = self
             .locomotor_set
             .active_name()
             .map(|name| name.to_string());
         if prev_name != new_name {
-            if let Some(loco) = guard.locomotor_set.get_active_mut() {
+            if let Some(loco) = self.locomotor_set.get_active_mut() {
                 loco.set_precise_z_pos(false);
                 loco.set_no_slow_down(false);
                 loco.set_ultra_accurate(false);
@@ -686,10 +668,7 @@ impl UnitAIUpdate {
         &mut self,
         ultra: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let unit =
-            get_unit_arc(self.unit_id).ok_or_else(|| "unit no longer available".to_string())?;
-        let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
-        if let Some(loco) = guard.locomotor_set.get_active_mut() {
+        if let Some(loco) = self.locomotor_set.get_active_mut() {
             loco.set_ultra_accurate(ultra);
         }
         Ok(())
@@ -698,32 +677,26 @@ impl UnitAIUpdate {
         &mut self,
         precise: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let unit =
-            get_unit_arc(self.unit_id).ok_or_else(|| "unit no longer available".to_string())?;
-        let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
-        if let Some(loco) = guard.locomotor_set.get_active_mut() {
+        if let Some(loco) = self.locomotor_set.get_active_mut() {
             loco.set_precise_z_pos(precise);
         }
         Ok(())
     }
-    pub(super) fn with_cur_locomotor(&self, f: &mut dyn FnMut(&mut crate::locomotor::Locomotor)) {
-        let Some(unit) = get_unit_arc(self.unit_id) else {
-            return;
-        };
-        let Ok(mut guard) = unit.write() else {
-            return;
-        };
-        if let Some(loco) = guard.locomotor_set.get_active_mut() {
+    pub(super) fn with_cur_locomotor(&self, f: &mut dyn FnMut(&crate::locomotor::Locomotor)) {
+        if let Some(loco) = self.locomotor_set.get_active() {
+            f(loco);
+        }
+    }
+    pub(super) fn with_cur_locomotor_mut(
+        &mut self,
+        f: &mut dyn FnMut(&mut crate::locomotor::Locomotor),
+    ) {
+        if let Some(loco) = self.locomotor_set.get_active_mut() {
             f(loco);
         }
     }
     pub(super) fn get_locomotor_set_clone(&self) -> Option<crate::locomotor::LocomotorSet> {
-        let unit = get_unit_arc(self.unit_id)?;
-        let guard = unit.read().ok()?;
-        if guard.locomotor_set.is_empty() {
-            return None;
-        }
-        Some(guard.locomotor_set.clone())
+        (!self.locomotor_set.is_empty()).then(|| self.locomotor_set.clone())
     }
     pub(super) fn get_path_destination(&self) -> Option<Coord3D> {
         let unit = get_unit_arc(self.unit_id)?;
@@ -788,7 +761,7 @@ impl UnitAIUpdate {
         let Ok(guard) = unit.read() else {
             return 0.0;
         };
-        let Some(loc_guard) = guard.locomotor_set.get_active() else {
+        let Some(loc_guard) = self.locomotor_set.get_active() else {
             return 0.0;
         };
 
@@ -956,13 +929,7 @@ impl UnitAIUpdate {
             .unwrap_or(false)
     }
     pub(super) fn is_aircraft_that_adjusts_destination(&self) -> bool {
-        let Some(unit) = get_unit_arc(self.unit_id) else {
-            return false;
-        };
-        let Ok(guard) = unit.read() else {
-            return false;
-        };
-        let Some(locomotor) = guard.locomotor_set.get_active() else {
+        let Some(locomotor) = self.locomotor_set.get_active() else {
             return false;
         };
         matches!(
@@ -1227,7 +1194,7 @@ impl UnitAIUpdate {
             Some(self.ignore_obstacle_id)
         };
         pf_guard.client_safe_quick_does_path_exist_with_ignore(
-            &guard.locomotor_set,
+            &self.locomotor_set,
             &pos,
             destination,
             ignore,
@@ -1338,7 +1305,7 @@ impl UnitAIUpdate {
         let Ok(guard) = unit.read() else {
             return false;
         };
-        let Some(surfaces) = guard
+        let Some(surfaces) = self
             .locomotor_set
             .get_default_locomotor()
             .map(|loco| loco.get_legal_surfaces())
@@ -1395,7 +1362,7 @@ impl UnitAIUpdate {
             return false;
         };
         let pos = guard.get_position();
-        pf_guard.client_safe_quick_does_path_exist_for_ui(&guard.locomotor_set, &pos, destination)
+        pf_guard.client_safe_quick_does_path_exist_for_ui(&self.locomotor_set, &pos, destination)
     }
     pub(super) fn is_valid_locomotor_position(&self, pos: &Coord3D) -> bool {
         let Some(unit) = get_unit_arc(self.unit_id) else {
@@ -1415,7 +1382,7 @@ impl UnitAIUpdate {
             return false;
         };
         pf_guard.valid_movement_position(
-            &guard.locomotor_set,
+            &self.locomotor_set,
             guard.get_crusher_level() > 0,
             pos,
             if self.ignore_obstacle_id == INVALID_ID {
@@ -1435,7 +1402,7 @@ impl UnitAIUpdate {
         let Ok(guard) = unit.read() else {
             return false;
         };
-        let Some(loc_guard) = guard.locomotor_set.get_active() else {
+        let Some(loc_guard) = self.locomotor_set.get_active() else {
             return false;
         };
         if loc_guard.template.wander_width_factor > 0.0 {
@@ -1506,7 +1473,7 @@ impl UnitAIUpdate {
         let Ok(guard) = unit.read() else {
             return 0.0;
         };
-        let Some(loc_guard) = guard.locomotor_set.get_active() else {
+        let Some(loc_guard) = self.locomotor_set.get_active() else {
             return 0.0;
         };
         let body_state = guard
@@ -1598,7 +1565,17 @@ impl UnitAIUpdate {
             )
         };
         let object_arc = guard.base_arc().clone();
-        let Some(loco) = guard.locomotor_set.get_active_mut() else {
+        let max_speed = self
+            .locomotor_set
+            .get_active()
+            .map(|loco| loco.get_max_speed_for_condition(body))
+            .unwrap_or(0.0);
+        let mut speed = self.desired_speed;
+        if speed == crate::modules::FAST_AS_POSSIBLE || speed > max_speed {
+            speed = max_speed;
+        }
+        speed = self.apply_bump_speed_limit(speed, self.blocked_frames > 0);
+        let Some(loco) = self.locomotor_set.get_active_mut() else {
             return;
         };
         if let Some(physics) = physics.as_ref() {
@@ -1607,12 +1584,7 @@ impl UnitAIUpdate {
             }
         }
         let delta = 1.0 / crate::common::LOGICFRAMES_PER_SECOND as Real;
-        let max_speed = loco.get_max_speed_for_condition(body);
-        let mut speed = self.desired_speed;
-        if speed == crate::modules::FAST_AS_POSSIBLE || speed > max_speed {
-            speed = max_speed;
-        }
-        speed = self.apply_bump_speed_limit(speed, self.blocked_frames > 0);
+
         let airborne_height = loco.template.airborne_targeting_height;
         let mut object_write = object_arc.write().ok();
         let mut physics_write = physics.as_ref().and_then(|physics| physics.access().ok());
@@ -2118,10 +2090,10 @@ impl UnitAIUpdate {
             };
         }
 
-        let is_air = unit_guard
-            .get_locomotor_surface_mask()
-            .map(|surfaces| (surfaces & SURFACE_AIR) != 0)
-            .unwrap_or(false);
+        let is_air = self
+            .locomotor_set
+            .get_active()
+            .is_some_and(|loco| (loco.get_legal_surfaces() & SURFACE_AIR) != 0);
         if is_air {
             value |= mood_matrix_parameters::UNITTYPE_AIR;
         } else if self.turret_primary_machine.is_some() {
@@ -2317,7 +2289,7 @@ impl UnitAIUpdate {
         }
         self.set_desired_speed(crate::modules::FAST_AS_POSSIBLE);
         self.friend_starting_move();
-        self.with_cur_locomotor(&mut |loco| loco.start_move());
+        self.with_cur_locomotor_mut(&mut |loco| loco.start_move());
         guard.owner_ai_mutex_held_for_next_enter = true;
         let _ = guard.set_temporary_state(
             AIStateType::FollowExitProductionPath as u32,

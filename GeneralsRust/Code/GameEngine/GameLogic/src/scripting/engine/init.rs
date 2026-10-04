@@ -177,6 +177,23 @@ impl ScriptEngine {
         action: &crate::scripting::core::ScriptAction,
         team_name: Option<&str>,
     ) {
+        let mut driver = CanonicalScriptExecutionDriver;
+        self.friend_execute_action_with_driver(
+            action,
+            team_name,
+            crate::scripting::executor::ScriptContext::new(),
+            &mut driver,
+        );
+    }
+
+    pub fn friend_execute_action_with_driver(
+        &self,
+        action: &crate::scripting::core::ScriptAction,
+        team_name: Option<&str>,
+        context: crate::scripting::executor::ScriptContext,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) {
+        let mut execution = ScriptExecution::new(context, driver);
         let (saved_team, saved_player) = {
             let mut inner = self.lock_inner_mut();
             let saved_team = inner.calling_team.take();
@@ -210,7 +227,13 @@ impl ScriptEngine {
         }
 
         self.with_active(|| {
-            self.friend_execute_action_active(action, team_name, saved_team, saved_player)
+            self.friend_execute_action_active(
+                action,
+                team_name,
+                saved_team,
+                saved_player,
+                &mut execution,
+            )
         });
     }
 
@@ -220,25 +243,11 @@ impl ScriptEngine {
         team_name: Option<&str>,
         saved_team: Option<String>,
         saved_player: Option<String>,
+        execution: &mut ScriptExecution<'_>,
     ) {
-        let current_frame = crate::helpers::TheGameLogic::get_frame();
-        let exec_context = std::sync::Arc::new(std::sync::RwLock::new(
-            crate::scripting::executor::ScriptContext {
-                game_logic_id: 0,
-                object_manager_id: 0,
-                player_manager_id: 0,
-                event_system_id: 0,
-                camera_system_id: 0,
-                audio_system_id: 0,
-                partition_manager_id: 0,
-                special_powers_id: 0,
-                current_frame,
-                suppress_new_windows: false,
-                host_trigger_world: Arc::new(std::sync::Mutex::new(Default::default())),
-            },
-        ));
-        let mut dispatcher = crate::scripting::executor::ScriptActionDispatcher::new(exec_context);
-        if let Err(err) = self.execute_action_chain(action, &mut dispatcher) {
+        let mut dispatcher =
+            crate::scripting::executor::ScriptActionDispatcher::new(execution.context.clone());
+        if let Err(err) = self.execute_action_chain(action, &mut dispatcher, execution) {
             log::warn!("friend_execute_action: {}", err);
         }
 
@@ -911,6 +920,7 @@ impl ScriptEngine {
         container: ScriptContainer,
         condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator,
         action_dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher,
+        execution: &mut ScriptExecution<'_>,
     ) -> GameLogicResult<()> {
         let mut script_index = 0;
         while let Some((is_subroutine, is_executing)) = self.script_slot_at(ScriptLocation {
@@ -925,7 +935,14 @@ impl ScriptEngine {
                         container,
                         script_index,
                     },
-                    |script| self.execute_script(script, condition_evaluator, action_dispatcher),
+                    |script| {
+                        self.execute_script(
+                            script,
+                            condition_evaluator,
+                            action_dispatcher,
+                            execution,
+                        )
+                    },
                 )?;
             }
             script_index += 1;
@@ -938,9 +955,10 @@ impl ScriptEngine {
         location: ScriptLocation,
         condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator,
         action_dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher,
+        execution: &mut ScriptExecution<'_>,
     ) -> GameLogicResult<()> {
         self.with_detached_script(location, |script| {
-            self.execute_script(script, condition_evaluator, action_dispatcher)
+            self.execute_script(script, condition_evaluator, action_dispatcher, execution)
         })
     }
 
@@ -952,36 +970,48 @@ impl ScriptEngine {
     /// Installs this lexical active engine so nested CALL_SUBROUTINE / flag /
     /// timer mutations can re-enter without taking the global mutex again.
     pub fn execute_subroutine_by_name(&self, name: &str) -> GameLogicResult<bool> {
-        self.with_active(|| self.execute_subroutine_by_name_active(name))
+        let mut driver = CanonicalScriptExecutionDriver;
+        self.execute_subroutine_by_name_with_driver(
+            name,
+            crate::scripting::executor::ScriptContext::new(),
+            &mut driver,
+        )
     }
 
-    fn execute_subroutine_by_name_active(&self, name: &str) -> GameLogicResult<bool> {
-        self.with_active_script_lists(|| self.execute_subroutine_by_name_from_active_lists(name))
+    pub fn execute_subroutine_by_name_with_driver(
+        &self,
+        name: &str,
+        context: crate::scripting::executor::ScriptContext,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> GameLogicResult<bool> {
+        let mut execution = ScriptExecution::new(context, driver);
+        self.execute_subroutine_with_execution(name, &mut execution)
     }
 
-    fn execute_subroutine_by_name_from_active_lists(&self, name: &str) -> GameLogicResult<bool> {
+    fn execute_subroutine_with_execution(
+        &self,
+        name: &str,
+        execution: &mut ScriptExecution<'_>,
+    ) -> GameLogicResult<bool> {
+        self.with_active(|| {
+            self.with_active_script_lists(|| {
+                self.execute_subroutine_by_name_from_active_lists(name, execution)
+            })
+        })
+    }
+
+    fn execute_subroutine_by_name_from_active_lists(
+        &self,
+        name: &str,
+        execution: &mut ScriptExecution<'_>,
+    ) -> GameLogicResult<bool> {
         let Some(_depth_guard) = SubroutineDepthGuard::enter() else {
             return Ok(false);
         };
-        let current_frame = crate::helpers::TheGameLogic::get_frame();
-        let exec_context = Arc::new(RwLock::new(crate::scripting::executor::ScriptContext {
-            game_logic_id: 0,
-            object_manager_id: 0,
-            player_manager_id: 0,
-            event_system_id: 0,
-            camera_system_id: 0,
-            audio_system_id: 0,
-            partition_manager_id: 0,
-            special_powers_id: 0,
-            current_frame,
-            suppress_new_windows: false,
-            host_trigger_world: Arc::new(std::sync::Mutex::new(Default::default())),
-        }));
-
         let mut action_dispatcher =
-            crate::scripting::executor::ScriptActionDispatcher::new(exec_context.clone());
+            crate::scripting::executor::ScriptActionDispatcher::new(execution.context.clone());
         let mut condition_evaluator =
-            crate::scripting::executor::ScriptConditionEvaluator::new(exec_context);
+            crate::scripting::executor::ScriptConditionEvaluator::new(execution.context.clone());
 
         match self.find_subroutine_lookup(name)? {
             SubroutineLookup::Group {
@@ -1003,6 +1033,7 @@ impl ScriptEngine {
                             ScriptContainer::Group(location.group_index),
                             &mut condition_evaluator,
                             &mut action_dispatcher,
+                            execution,
                         )
                     })?;
                 }
@@ -1023,6 +1054,7 @@ impl ScriptEngine {
                     location,
                     &mut condition_evaluator,
                     &mut action_dispatcher,
+                    execution,
                 )?;
                 Ok(true)
             }

@@ -148,6 +148,9 @@ include!("globals.rs");
 
 #[cfg(test)]
 include!("tests.rs");
+
+#[cfg(test)]
+mod nested_snapshot_tests;
 #[cfg(test)]
 include!("select_object_tests.rs");
 #[cfg(test)]

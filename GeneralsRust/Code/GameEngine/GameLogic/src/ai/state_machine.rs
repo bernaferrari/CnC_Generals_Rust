@@ -609,8 +609,8 @@ impl AiStateMachine {
                         owner_guard.get_ai_update_interface()
                     })
                     .flatten();
-                // Object write is dropped before locomotor/unit locks.
-                // `with_cur_locomotor` write-locks the unit.
+                // Release the object borrow before acquiring its AI runtime.
+                // The runtime owns the locomotor borrowed by this callback.
                 if let Some(ai) = ai {
                     if let Ok(mut ai_guard) = ai.lock() {
                         if parachuting || !ai_guard.is_allowed_to_adjust_destination() {
@@ -2798,8 +2798,21 @@ mod tests {
             Ok(())
         }
 
-        fn with_cur_locomotor(&self, f: &mut dyn FnMut(&mut crate::locomotor::Locomotor)) {
+        fn with_cur_locomotor(&self, f: &mut dyn FnMut(&crate::locomotor::Locomotor)) {
+            f(&self.locomotor.lock().expect("face-test locomotor"));
+        }
+
+        fn with_cur_locomotor_mut(&mut self, f: &mut dyn FnMut(&mut crate::locomotor::Locomotor)) {
             f(&mut self.locomotor.lock().expect("face-test locomotor"));
+        }
+
+        fn get_preferred_height(&self) -> Option<Real> {
+            Some(
+                self.locomotor
+                    .lock()
+                    .expect("face-test locomotor")
+                    .preferred_height,
+            )
         }
 
         fn set_locomotor_goal_orientation(&mut self, angle: Real) {

@@ -119,6 +119,8 @@ pub const GAME_LOGIC_SCRIPTS_CAMERA_SRC: &str = concat!(
     include_str!("../world_scripts/scripts_camera/script_unit_actions.rs"),
     include_str!("../world_scripts/scripts_camera/script_team_actions.rs"),
     include_str!("../world_scripts/scripts_camera/script_runtime_camera.rs"),
+    include_str!("../world_scripts/scripts_camera/script_action_effects.rs"),
+    include_str!("../world_scripts/scripts_camera/script_execution_driver.rs"),
 );
 pub const GAME_LOGIC_OBJECT_WEAPONS_SRC: &str = include_str!("../object/weapons.rs");
 pub const GAME_LOGIC_TANKS_SRC: &str = include_str!("../world_combat/tanks_and_upgrades.rs");

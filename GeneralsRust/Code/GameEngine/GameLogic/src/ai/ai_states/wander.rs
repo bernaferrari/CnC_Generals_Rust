@@ -186,15 +186,17 @@ impl AIFollowWaypointPathState {
         }
 
         let is_projectile = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner| owner.is_kind_of(KindOf::Projectile))
+            .with_object(context.owner_id, |owner| {
+                owner.is_kind_of(KindOf::Projectile)
+            })
             .unwrap_or(false);
         if !self.has_next_waypoint() && is_projectile {
             if let Some(ai) = OBJECT_REGISTRY
                 .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
                 .flatten()
             {
-                if let Ok(ai_guard) = ai.lock() {
-                    ai_guard.with_cur_locomotor(&mut |loco| loco.set_precise_z_pos(true));
+                if let Ok(mut ai_guard) = ai.lock() {
+                    ai_guard.with_cur_locomotor_mut(&mut |loco| loco.set_precise_z_pos(true));
                 }
             }
         }
@@ -403,7 +405,8 @@ impl AIState for AIWanderState {
             self.timer -= 1;
             if self.timer < 0 {
                 self.timer = self.wait_frames;
-                let ai_store = the_ai();let enemy_id = ai_store
+                let ai_store = the_ai();
+                let enemy_id = ai_store
                     .read()
                     .ok()
                     .and_then(|ai| {
@@ -543,7 +546,8 @@ impl AIState for AIWanderInPlaceState {
             self.timer -= 1;
             if self.timer < 0 {
                 self.timer = self.wait_frames;
-                let ai_store = the_ai();let enemy_id = ai_store
+                let ai_store = the_ai();
+                let enemy_id = ai_store
                     .read()
                     .ok()
                     .and_then(|ai| {
@@ -683,7 +687,8 @@ impl AIState for AIPanicState {
             self.timer -= 1;
             if self.timer < 0 {
                 self.timer = self.wait_frames;
-                let ai_store = the_ai();let enemy_id = ai_store
+                let ai_store = the_ai();
+                let enemy_id = ai_store
                     .read()
                     .ok()
                     .and_then(|ai| {
@@ -730,4 +735,3 @@ impl AIState for AIPanicState {
         AIStateType::Panic
     }
 }
-

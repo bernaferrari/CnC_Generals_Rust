@@ -915,7 +915,7 @@ fn sequential_script_dispatch_reenters_immediately_without_holding_inner_borrow(
     engine.append_sequential_script(sequence);
 
     engine
-        .with_active(|| engine.evaluate_and_progress_all_sequential_scripts())
+        .with_active(|| engine.evaluate_sequential_scripts_canonical_for_test())
         .expect("sequential CALL_SUBROUTINE should execute immediately");
 
     assert!(
@@ -1289,57 +1289,13 @@ fn empty_object_registry_still_progresses_sequential_scripts() {
     assert!(engine.sequential_script_count() > 0);
 
     engine
-        .with_active(|| engine.evaluate_and_progress_all_sequential_scripts())
+        .with_active(|| engine.evaluate_sequential_scripts_canonical_for_test())
         .expect("sequential walk must not fail-closed on empty OBJECT_REGISTRY");
     assert_eq!(
         engine.sequential_script_count(),
         0,
         "orphan sequential node must be cleaned up when no object/team exists"
     );
-}
-
-#[test]
-fn host_named_unit_sequential_progresses_when_registry_empty() {
-    let _lock = crate::test_sync::lock();
-    crate::object::registry::OBJECT_REGISTRY.clear();
-    crate::scripting::clear_host_script_query_snapshot();
-    let object_id = 0x51_5E_0002;
-    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
-        objects: vec![crate::scripting::HostScriptQueryObject {
-            id: object_id,
-            name: "SeqHero".into(),
-            alive: true,
-            idle: true,
-            ..Default::default()
-        }],
-        ..Default::default()
-    });
-
-    let engine = ScriptEngine::new().unwrap();
-    let mut sequence = SequentialScript::new();
-    sequence.object_id = object_id;
-    sequence.script_to_execute_sequentially = Some(Box::new({
-        let mut script = Script::new();
-        script.script_name = "HostSeq".to_string();
-        script.action = Some(set_flag_action("host_seq_ran"));
-        script
-    }));
-    engine.append_sequential_script(sequence);
-    engine
-        .with_active(|| engine.evaluate_and_progress_all_sequential_scripts())
-        .expect("host unit sequential must progress when leftover registry is empty");
-    assert!(
-        engine
-            .get_flag("host_seq_ran")
-            .is_some_and(|flag| flag.value),
-        "SET_FLAG in a host-bound sequential script must run"
-    );
-    assert_eq!(
-        engine.sequential_script_count(),
-        0,
-        "idle one-action host sequence must complete"
-    );
-    crate::scripting::clear_host_script_query_snapshot();
 }
 
 #[test]
@@ -1383,7 +1339,7 @@ fn leftover_team_sequential_progresses_when_host_members_idle() {
     }));
     engine.append_sequential_script(sequence);
     engine
-        .with_active(|| engine.evaluate_and_progress_all_sequential_scripts())
+        .with_active(|| engine.evaluate_sequential_scripts_canonical_for_test())
         .expect("host team sequential must progress when leftover members are empty");
     assert!(
         engine
@@ -1627,3 +1583,5 @@ fn live_host_take_engine_update_flag_ui_pulse_like_cxx() {
         *guard = Some(engine);
     }
 }
+
+mod borrowed_driver_tests;

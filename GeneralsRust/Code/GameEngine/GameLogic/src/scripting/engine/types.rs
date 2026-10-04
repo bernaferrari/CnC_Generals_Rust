@@ -15,6 +15,82 @@ enum ActionChainExecution {
     Pending(f32),
 }
 
+/// Live owner query supplied by the world driving this execution.
+/// Unavailable is reserved for the standalone canonical adapter; Missing is
+/// authoritative absence and must never fall back to a frozen host snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptOwnerQuery<T> {
+    Unavailable,
+    Missing,
+    Present(T),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScriptObjectStatus {
+    pub has_ai: bool,
+    pub idle: bool,
+    pub effectively_dead: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScriptTeamStatus {
+    pub has_group: bool,
+    pub idle: bool,
+    pub dead: bool,
+}
+
+/// Synchronous effects and live queries of the actual execution owner.
+/// The driver is borrowed for execution only; it is never installed in the
+/// engine, dispatcher context, or a process-wide active slot.
+pub trait ScriptExecutionDriver {
+    fn after_action(&mut self) -> GameLogicResult<()>;
+
+    fn object_status(&self, _id: ObjectID) -> ScriptOwnerQuery<ScriptObjectStatus> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    fn team_status(&self, _name: &str) -> ScriptOwnerQuery<ScriptTeamStatus> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    /// CPP ScriptEngine.cpp:7888–7910: select the controlling player only
+    /// for a skirmish AI owner. Present(None) is an authoritative human or
+    /// non-skirmish owner, not permission to discover another world's player.
+    fn sequential_current_player(
+        &self,
+        _object_id: ObjectID,
+        _team_name: Option<&str>,
+    ) -> ScriptOwnerQuery<Option<String>> {
+        ScriptOwnerQuery::Unavailable
+    }
+}
+
+struct CanonicalScriptExecutionDriver;
+impl ScriptExecutionDriver for CanonicalScriptExecutionDriver {
+    fn after_action(&mut self) -> GameLogicResult<()> {
+        Ok(())
+    }
+}
+
+struct ScriptExecution<'a> {
+    context: Arc<RwLock<crate::scripting::executor::ScriptContext>>,
+    frame: u32,
+    driver: &'a mut dyn ScriptExecutionDriver,
+}
+
+impl<'a> ScriptExecution<'a> {
+    fn new(
+        context: crate::scripting::executor::ScriptContext,
+        driver: &'a mut dyn ScriptExecutionDriver,
+    ) -> Self {
+        Self {
+            frame: context.current_frame,
+            context: Arc::new(RwLock::new(context)),
+            driver,
+        }
+    }
+}
+
 /// Host-side callbacks for script actions that require integration with the game loop.
 pub trait ScriptActionHandler: Send + Sync {
     fn enable_script(&self, _name: &str, _enabled: bool) -> GameLogicResult<()> {

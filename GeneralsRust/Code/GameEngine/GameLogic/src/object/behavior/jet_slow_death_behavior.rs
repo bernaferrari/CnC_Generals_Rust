@@ -445,8 +445,8 @@ impl JetSlowDeathBehavior {
             return;
         };
         let mut has_loco = false;
-        if let Ok(ai_guard) = ai.lock() {
-            ai_guard.with_cur_locomotor(&mut |loco| {
+        if let Ok(mut ai_guard) = ai.lock() {
+            ai_guard.with_cur_locomotor_mut(&mut |loco| {
                 has_loco = true;
                 let gravity = -1.0;
                 loco.set_max_lift(-gravity * (1.0 - self.module_data.fall_how_fast));

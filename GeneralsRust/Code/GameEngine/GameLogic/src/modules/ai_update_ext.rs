@@ -146,7 +146,8 @@ pub trait AIUpdateInterfaceExt {
     fn get_locomotor_distance_to_goal(&self) -> Real;
     fn get_current_victim(&self) -> Option<ObjectID>;
     fn set_current_victim(&mut self, victim: Option<ObjectID>);
-    fn with_cur_locomotor(&self, f: &mut dyn FnMut(&mut crate::locomotor::Locomotor));
+    fn with_cur_locomotor(&self, f: &mut dyn FnMut(&crate::locomotor::Locomotor));
+    fn with_cur_locomotor_mut(&self, f: &mut dyn FnMut(&mut crate::locomotor::Locomotor));
     fn get_preferred_height(&self) -> Option<Real>;
     fn ai_go_prone(&self, damage_info: &DamageInfo, cmd_source: CommandSourceType);
     fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>>;
@@ -825,9 +826,15 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
         }
     }
 
-    fn with_cur_locomotor(&self, f: &mut dyn FnMut(&mut crate::locomotor::Locomotor)) {
-        if let Ok(mut guard) = self.try_lock() {
+    fn with_cur_locomotor(&self, f: &mut dyn FnMut(&crate::locomotor::Locomotor)) {
+        if let Ok(guard) = self.try_lock() {
             guard.with_cur_locomotor(f);
+        }
+    }
+
+    fn with_cur_locomotor_mut(&self, f: &mut dyn FnMut(&mut crate::locomotor::Locomotor)) {
+        if let Ok(mut guard) = self.try_lock() {
+            guard.with_cur_locomotor_mut(f);
         }
     }
 

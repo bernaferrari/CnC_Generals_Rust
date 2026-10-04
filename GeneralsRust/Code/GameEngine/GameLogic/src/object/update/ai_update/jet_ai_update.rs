@@ -758,7 +758,7 @@ impl JetStateMachine {
                 jet_ai.set_allow_air_loco(true);
                 let _ = ai.choose_locomotor_set(LocomotorSetType::Normal);
                 if self.needs_runway {
-                    ai.with_cur_locomotor(&mut |loco| {
+                    ai.with_cur_locomotor_mut(&mut |loco| {
                         loco.set_max_lift(99999.0);
                         let max_speed = loco.get_max_speed_for_condition(
                             crate::locomotor::core::BodyDamageType::Pristine,
@@ -778,7 +778,7 @@ impl JetStateMachine {
                     self.issue_jet_flight_path(ai, jet_ai, landing);
                 } else {
                     // C++ HeliTakeoffOrLandingState::onEnter (JetAIUpdate.cpp:961-1024)
-                    ai.with_cur_locomotor(&mut |loco| {
+                    ai.with_cur_locomotor_mut(&mut |loco| {
                         loco.set_precise_z_pos(true);
                         loco.set_ultra_accurate(true);
                     });
@@ -886,7 +886,7 @@ impl JetStateMachine {
             | JetAIStateType::TaxiFromLanding
             | JetAIStateType::TaxiFromHangar => {
                 unregister_taxi_to_takeoff(jet_ai.object_id);
-                ai.with_cur_locomotor(&mut |loco| {
+                ai.with_cur_locomotor_mut(&mut |loco| {
                     loco.set_precise_z_pos(false);
                     loco.set_ultra_accurate(false);
                     loco.set_allow_invalid_position(false);
@@ -913,7 +913,7 @@ impl JetStateMachine {
                         let needs_runway = self.needs_runway;
                         let takeoff_max_lift = self.takeoff_max_lift;
                         let takeoff_max_speed = self.takeoff_max_speed;
-                        ai.with_cur_locomotor(&mut |loco| {
+                        ai.with_cur_locomotor_mut(&mut |loco| {
                             loco.set_precise_z_pos(false);
                             loco.set_ultra_accurate(false);
                             if !dead {
@@ -1026,7 +1026,7 @@ impl JetStateMachine {
                     jet_ai.set_taxi_in_progress(true);
                     jet_ai.set_allow_air_loco(false);
                     let _ = ai.choose_locomotor_set(LocomotorSetType::Taxiing);
-                    ai.with_cur_locomotor(&mut |loco| {
+                    ai.with_cur_locomotor_mut(&mut |loco| {
                         loco.set_allow_invalid_position(true);
                         loco.set_ultra_accurate(true);
                         loco.set_precise_z_pos(true);
@@ -1157,7 +1157,7 @@ impl JetStateMachine {
                             }
                         }
                     }
-                    ai.with_cur_locomotor(&mut |loco| loco.set_max_lift(99999.0));
+                    ai.with_cur_locomotor_mut(&mut |loco| loco.set_max_lift(99999.0));
                 } else {
                     let _ = jet_ai.with_producer_parking_place(|pp| {
                         pp.transfer_runway_reservation_to_next_in_line_for_takeoff(
@@ -1176,7 +1176,7 @@ impl JetStateMachine {
                                 });
                                 if let Some(ratio) = ratio {
                                     let takeoff_max_lift = self.takeoff_max_lift;
-                                    ai.with_cur_locomotor(&mut |loco| {
+                                    ai.with_cur_locomotor_mut(&mut |loco| {
                                         if takeoff_max_lift > 0.0 {
                                             loco.set_max_lift(takeoff_max_lift * ratio);
                                         }
@@ -1459,7 +1459,7 @@ impl JetStateMachine {
                 }
                 _ => {}
             }
-            ai.with_cur_locomotor(&mut |loco| {
+            ai.with_cur_locomotor_mut(&mut |loco| {
                 loco.set_allow_invalid_position(true);
                 loco.set_ultra_accurate(true);
                 loco.set_precise_z_pos(true);

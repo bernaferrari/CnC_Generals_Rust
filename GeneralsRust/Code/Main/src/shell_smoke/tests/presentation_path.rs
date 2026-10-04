@@ -193,7 +193,7 @@ fn presentation_popup_music_fps_residual() {
     ));
     let scripts_camera = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/game_logic/world_scripts/scripts_camera/script_runtime_camera.rs"
+        "/src/game_logic/world_scripts/scripts_camera/script_action_effects.rs"
     ));
     let popup_dismiss = popup_bridge
         .find("fn host_dismiss_in_game_popup_message")
@@ -249,7 +249,9 @@ fn presentation_play_time_residual() {
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     assert!(
         pf.contains("total_play_time_seconds: logic.get_total_play_time()")
-            && pf.contains("ui.current_game_time = self.total_play_time_seconds")
+            && pf.contains("let hud = self.hud_read_model()")
+            && pf.contains("total_play_time_seconds: self.total_play_time_seconds")
+            && pf.contains("ui.current_game_time = hud.total_play_time_seconds")
             && eng.contains("fn presentation_or_boot_total_play_time")
             && eng.contains("pres.total_play_time_seconds")
             && eng.contains(

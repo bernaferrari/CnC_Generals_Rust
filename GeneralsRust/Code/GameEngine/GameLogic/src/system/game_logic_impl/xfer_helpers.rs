@@ -184,9 +184,18 @@ impl game_engine::common::system::xfer::Xfer for CommonXferBridge<'_> {
 
     fn xfer_snapshot(
         &mut self,
-        _snapshot: &mut dyn game_engine::common::system::snapshot::Snapshotable,
+        snapshot: &mut dyn game_engine::common::system::snapshot::Snapshotable,
     ) -> Result<(), game_engine::common::system::xfer::XferStatus> {
-        Ok(())
+        use game_engine::common::system::xfer::XferStatus as Status;
+        // XferSave.cpp:249-263 / XferLoad.cpp:150-168 visit the same
+        // snapshot; XferCRC.cpp:98-111 calls its CRC visitor instead.
+        // Load post-processing belongs to the later driving-owner pass.
+        match self.inner.get_xfer_mode() {
+            XferMode::Save => snapshot.xfer(self).map_err(|_| Status::WriteError),
+            XferMode::Load => snapshot.xfer(self).map_err(|_| Status::ReadError),
+            XferMode::Crc => snapshot.crc(self).map_err(|_| Status::InvalidData),
+            XferMode::Invalid => Err(Status::ModeUnknown),
+        }
     }
 
     fn xfer_ascii_string(&mut self, ascii_string_data: &mut String) -> std::io::Result<()> {
@@ -236,7 +245,6 @@ fn xfer_polygon_snapshot(poly: &mut crate::polygon_trigger::PolygonTrigger, xfer
     let mut bridge = CommonXferBridge { inner: xfer };
     crate::common::types::Snapshot::xfer(poly, &mut bridge);
 }
-
 
 fn xfer_game_logic_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
     // C++ GameLogic::xfer currentVersion = 10 (GameLogic.cpp).
@@ -293,7 +301,6 @@ fn xfer_game_logic_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(
         xfer_game_logic_objects_load(logic, xfer, object_count)?;
     }
 
-
     xfer_campaign_manager_snapshot(xfer)?;
     xfer_cave_system_snapshot(xfer)?;
 
@@ -347,7 +354,6 @@ fn xfer_game_logic_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(
     Ok(())
 }
 
-
 fn xfer_cave_system_snapshot(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
     // C++ xferSnapshot(TheCaveSystem) — CaveSystem::xfer v1.
     let current_version: XferVersion = 1;
@@ -366,38 +372,38 @@ fn xfer_polygon_triggers(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
     // locks here; GameLogic.cpp:4880 runs pathfinder newMap after restore).
     let is_load = xfer.get_xfer_mode() == XferMode::Load;
     {
-    let mut terrain_guard = terrain.write().map_err(|_| XferStatus::InvalidData)?;
-    let list = terrain_guard.get_trigger_areas_mut();
-    let sanity = list.len() as UnsignedInt;
-    let mut trigger_count = sanity;
-    xfer.xfer_unsigned_int(&mut trigger_count)?;
-    if xfer.get_xfer_mode() == XferMode::Load && sanity != trigger_count {
-        return Err(XferStatus::InvalidData);
-    }
-    let ids: Vec<i32> = if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
-        list.get_triggers().iter().map(|t| t.get_id()).collect()
-    } else {
-        Vec::new()
-    };
-    if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
-        for id in ids {
-            let mut trigger_id = id;
-            xfer.xfer_int(&mut trigger_id)?;
-            if let Some(poly) = list.get_by_id_mut(id) {
-                xfer_polygon_snapshot(poly, xfer);
+        let mut terrain_guard = terrain.write().map_err(|_| XferStatus::InvalidData)?;
+        let list = terrain_guard.get_trigger_areas_mut();
+        let sanity = list.len() as UnsignedInt;
+        let mut trigger_count = sanity;
+        xfer.xfer_unsigned_int(&mut trigger_count)?;
+        if xfer.get_xfer_mode() == XferMode::Load && sanity != trigger_count {
+            return Err(XferStatus::InvalidData);
+        }
+        let ids: Vec<i32> = if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
+            list.get_triggers().iter().map(|t| t.get_id()).collect()
+        } else {
+            Vec::new()
+        };
+        if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
+            for id in ids {
+                let mut trigger_id = id;
+                xfer.xfer_int(&mut trigger_id)?;
+                if let Some(poly) = list.get_by_id_mut(id) {
+                    xfer_polygon_snapshot(poly, xfer);
+                }
+            }
+        } else {
+            for _ in 0..trigger_count {
+                let mut trigger_id = 0i32;
+                xfer.xfer_int(&mut trigger_id)?;
+                if let Some(poly) = list.get_by_id_mut(trigger_id) {
+                    xfer_polygon_snapshot(poly, xfer);
+                } else {
+                    return Err(XferStatus::InvalidData);
+                }
             }
         }
-    } else {
-        for _ in 0..trigger_count {
-            let mut trigger_id = 0i32;
-            xfer.xfer_int(&mut trigger_id)?;
-            if let Some(poly) = list.get_by_id_mut(trigger_id) {
-                xfer_polygon_snapshot(poly, xfer);
-            } else {
-                return Err(XferStatus::InvalidData);
-            }
-        }
-    }
     }
     if is_load {
         pathfinder_new_map_after_polygon_load();
@@ -512,7 +518,10 @@ fn xfer_sighting_info(
     // exactly `size_of::<u16>()` bytes within this call (C++ SightingInfo
     // xferUser parity).
     unsafe {
-        xfer.xfer_user((&mut for_whom as *mut u16).cast::<u8>(), std::mem::size_of::<u16>())?;
+        xfer.xfer_user(
+            (&mut for_whom as *mut u16).cast::<u8>(),
+            std::mem::size_of::<u16>(),
+        )?;
     }
     if xfer.get_xfer_mode() == XferMode::Load {
         info.for_whom = for_whom as u32;
@@ -614,9 +623,6 @@ fn xfer_partition_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<()
 
     Ok(())
 }
-
-
-
 
 fn xfer_sides_list_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
     let current_version: XferVersion = 1;

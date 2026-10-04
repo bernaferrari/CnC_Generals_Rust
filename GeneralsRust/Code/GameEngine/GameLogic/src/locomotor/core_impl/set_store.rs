@@ -80,8 +80,8 @@ impl LocomotorSet {
     }
 
     pub fn get_active_mut(&mut self) -> Option<&mut Locomotor> {
-        let name = self.active_locomotor.clone()?;
-        self.locomotors.get_mut(&name)
+        let name = self.active_locomotor.as_ref()?;
+        self.locomotors.get_mut(name)
     }
 
     pub fn get_active(&self) -> Option<&Locomotor> {
@@ -97,7 +97,6 @@ impl LocomotorSet {
     pub fn active_name(&self) -> Option<&str> {
         self.active_locomotor.as_deref()
     }
-
 
     /// Get the valid surface mask across all locomotors
     /// Matches C++ LocomotorSet::getValidSurfaces()
@@ -318,4 +317,3 @@ pub static LOCOMOTOR_STORE: Lazy<Arc<LocomotorStore>> = Lazy::new(|| {
 
     store
 });
-

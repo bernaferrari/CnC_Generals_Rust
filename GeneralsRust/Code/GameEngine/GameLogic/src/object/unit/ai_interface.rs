@@ -178,10 +178,6 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::execute_command(self, command)
     }
 
-    fn get_preferred_height(&self) -> Option<Real> {
-        UnitAIUpdate::get_preferred_height(self)
-    }
-
     fn is_allowed_to_adjust_destination(&self) -> bool {
         UnitAIUpdate::is_allowed_to_adjust_destination(self)
     }
@@ -341,8 +337,15 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::set_precise_z_pos(self, precise)
     }
 
-    fn with_cur_locomotor(&self, f: &mut dyn FnMut(&mut crate::locomotor::Locomotor)) {
+    fn get_preferred_height(&self) -> Option<Real> {
+        UnitAIUpdate::get_preferred_height(self)
+    }
+
+    fn with_cur_locomotor(&self, f: &mut dyn FnMut(&crate::locomotor::Locomotor)) {
         UnitAIUpdate::with_cur_locomotor(self, f);
+    }
+    fn with_cur_locomotor_mut(&mut self, f: &mut dyn FnMut(&mut crate::locomotor::Locomotor)) {
+        UnitAIUpdate::with_cur_locomotor_mut(self, f);
     }
 
     fn get_locomotor_set_clone(&self) -> Option<crate::locomotor::LocomotorSet> {
