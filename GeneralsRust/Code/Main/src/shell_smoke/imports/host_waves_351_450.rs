@@ -390,11 +390,6 @@ pub use crate::game_logic::host_live_wander_ai_dual_world_empty_gate_residual_wa
     honesty_live_wander_ai_dual_world_empty_gate_nav_commands_residual_wave430,
     simulate_live_wander_ai_dual_world_empty_gate_honesty,
 };
-pub use crate::game_logic::host_live_unit_exit_dual_world_empty_gate_residual_wave432::{
-    honesty_live_unit_exit_dual_world_empty_gate_method_names_residual_wave432,
-    honesty_live_unit_exit_dual_world_empty_gate_nav_commands_residual_wave432,
-    simulate_live_unit_exit_dual_world_empty_gate_honesty,
-};
 pub use crate::game_logic::host_live_owner_resolve_dual_world_empty_gate_residual_wave433::{
     honesty_live_owner_resolve_dual_world_empty_gate_method_names_residual_wave433,
     honesty_live_owner_resolve_dual_world_empty_gate_nav_commands_residual_wave433,

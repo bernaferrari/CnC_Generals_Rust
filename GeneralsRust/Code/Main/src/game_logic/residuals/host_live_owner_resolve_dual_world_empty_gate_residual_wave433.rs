@@ -3,8 +3,6 @@
 //! helpers fail-closed without dual-world factory walks.
 //! Never flips shell `playable_claim`. Network deferred.
 //!
-//! Orthogonal to Wave 432 UnitExit dual-world empty-gate residual.
-//!
 //! Sources:
 //! - `GameLogic/src/special_power_module/owner_resolve.rs`
 //!

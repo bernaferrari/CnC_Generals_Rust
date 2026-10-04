@@ -64,21 +64,6 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         r.detail
     );
     assert!(
-        r.live_unit_exit_dual_world_empty_gate_method_names_wave432_ok,
-        "live unit exit dual-world empty gate method names residual pack wave432: {}",
-        r.detail
-    );
-    assert!(
-        r.live_unit_exit_dual_world_empty_gate_nav_commands_wave432_ok,
-        "live unit exit dual-world empty gate nav commands residual pack wave432: {}",
-        r.detail
-    );
-    assert!(
-        r.live_unit_exit_dual_world_empty_gate_live_wave432_ok,
-        "live unit exit dual-world empty gate live residual wave432: {}",
-        r.detail
-    );
-    assert!(
         r.live_owner_resolve_dual_world_empty_gate_method_names_wave433_ok,
         "live owner resolve dual-world empty gate method names residual pack wave433: {}",
         r.detail

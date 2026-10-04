@@ -91,8 +91,10 @@
     pub live_missile_launcher_building_update_dual_world_empty_gate_method_names_wave382_ok: bool,
     pub live_missile_launcher_building_update_dual_world_empty_gate_nav_commands_wave382_ok: bool,
     pub live_missile_launcher_building_update_dual_world_empty_gate_live_wave382_ok: bool,
-    pub live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_method_names_wave383_ok: bool,
-    pub live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_nav_commands_wave383_ok: bool,
+    pub live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_method_names_wave383_ok:
+        bool,
+    pub live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_nav_commands_wave383_ok:
+        bool,
     pub live_dynamic_shroud_clearing_range_update_dual_world_empty_gate_live_wave383_ok: bool,
     pub live_command_button_hunt_update_dual_world_empty_gate_method_names_wave384_ok: bool,
     pub live_command_button_hunt_update_dual_world_empty_gate_nav_commands_wave384_ok: bool,
@@ -115,8 +117,10 @@
     pub live_salvage_crate_collide_dual_world_empty_gate_method_names_wave390_ok: bool,
     pub live_salvage_crate_collide_dual_world_empty_gate_nav_commands_wave390_ok: bool,
     pub live_salvage_crate_collide_dual_world_empty_gate_live_wave390_ok: bool,
-    pub live_sabotage_internet_center_crate_collide_dual_world_empty_gate_method_names_wave391_ok: bool,
-    pub live_sabotage_internet_center_crate_collide_dual_world_empty_gate_nav_commands_wave391_ok: bool,
+    pub live_sabotage_internet_center_crate_collide_dual_world_empty_gate_method_names_wave391_ok:
+        bool,
+    pub live_sabotage_internet_center_crate_collide_dual_world_empty_gate_nav_commands_wave391_ok:
+        bool,
     pub live_sabotage_internet_center_crate_collide_dual_world_empty_gate_live_wave391_ok: bool,
     pub live_power_plant_update_dual_world_empty_gate_method_names_wave392_ok: bool,
     pub live_power_plant_update_dual_world_empty_gate_nav_commands_wave392_ok: bool,
@@ -127,8 +131,10 @@
     pub live_auto_deposit_update_dual_world_empty_gate_method_names_wave394_ok: bool,
     pub live_auto_deposit_update_dual_world_empty_gate_nav_commands_wave394_ok: bool,
     pub live_auto_deposit_update_dual_world_empty_gate_live_wave394_ok: bool,
-    pub live_supply_warehouse_crippling_behavior_dual_world_empty_gate_method_names_wave395_ok: bool,
-    pub live_supply_warehouse_crippling_behavior_dual_world_empty_gate_nav_commands_wave395_ok: bool,
+    pub live_supply_warehouse_crippling_behavior_dual_world_empty_gate_method_names_wave395_ok:
+        bool,
+    pub live_supply_warehouse_crippling_behavior_dual_world_empty_gate_nav_commands_wave395_ok:
+        bool,
     pub live_supply_warehouse_crippling_behavior_dual_world_empty_gate_live_wave395_ok: bool,
     pub live_neutron_missile_slow_death_update_dual_world_empty_gate_method_names_wave396_ok: bool,
     pub live_neutron_missile_slow_death_update_dual_world_empty_gate_nav_commands_wave396_ok: bool,
@@ -193,8 +199,10 @@
     pub live_transition_damage_fx_dual_world_empty_gate_method_names_wave416_ok: bool,
     pub live_transition_damage_fx_dual_world_empty_gate_nav_commands_wave416_ok: bool,
     pub live_transition_damage_fx_dual_world_empty_gate_live_wave416_ok: bool,
-    pub live_spawn_point_production_exit_behavior_dual_world_empty_gate_method_names_wave417_ok: bool,
-    pub live_spawn_point_production_exit_behavior_dual_world_empty_gate_nav_commands_wave417_ok: bool,
+    pub live_spawn_point_production_exit_behavior_dual_world_empty_gate_method_names_wave417_ok:
+        bool,
+    pub live_spawn_point_production_exit_behavior_dual_world_empty_gate_nav_commands_wave417_ok:
+        bool,
     pub live_spawn_point_production_exit_behavior_dual_world_empty_gate_live_wave417_ok: bool,
     pub live_build_placement_dual_world_empty_gate_method_names_wave418_ok: bool,
     pub live_build_placement_dual_world_empty_gate_nav_commands_wave418_ok: bool,
@@ -232,9 +240,6 @@
     pub live_wander_ai_dual_world_empty_gate_method_names_wave430_ok: bool,
     pub live_wander_ai_dual_world_empty_gate_nav_commands_wave430_ok: bool,
     pub live_wander_ai_dual_world_empty_gate_live_wave430_ok: bool,
-    pub live_unit_exit_dual_world_empty_gate_method_names_wave432_ok: bool,
-    pub live_unit_exit_dual_world_empty_gate_nav_commands_wave432_ok: bool,
-    pub live_unit_exit_dual_world_empty_gate_live_wave432_ok: bool,
     pub live_owner_resolve_dual_world_empty_gate_method_names_wave433_ok: bool,
     pub live_owner_resolve_dual_world_empty_gate_nav_commands_wave433_ok: bool,
     pub live_owner_resolve_dual_world_empty_gate_live_wave433_ok: bool,

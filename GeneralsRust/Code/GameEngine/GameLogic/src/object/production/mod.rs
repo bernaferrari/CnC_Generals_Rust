@@ -16,7 +16,6 @@ pub mod queue;
 pub mod railed_transport_dock;
 pub mod rally_point;
 pub mod supply_warehouse_dock;
-pub mod unit_exit;
 
 #[cfg(test)]
 mod tests;
@@ -58,4 +57,3 @@ pub use rally_point::{RallyPoint, RallyPointManager, RallyPointType};
 pub use supply_warehouse_dock::{
     SupplyWarehouseDockUpdate, SupplyWarehouseDockUpdateData, SupplyWarehouseDockUpdateModule,
 };
-pub use unit_exit::{ExitDoor, ExitPath, StuckUnitHandler, UnitExitManager};
