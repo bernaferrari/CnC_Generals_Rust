@@ -1430,7 +1430,8 @@ fn stealth_residual_fire_breaks_stealth() {
         .expect("target");
 
     {
-        let s = game_logic.host_object_mut(shooter_id).unwrap();
+        let _ = game_logic.host_object_mut(shooter_id).unwrap();
+        let s = game_logic.objects.get_mut(&shooter_id).unwrap();
         s.set_status_stealthed(true);
         s.stealth_breaks_on_attack = true;
         s.weapon = Some(Weapon {
@@ -1440,7 +1441,12 @@ fn stealth_residual_fire_breaks_stealth() {
             last_fire_time: -1.0, // ready immediately
             ..Weapon::default()
         });
-        assert!(s.fire_at(target_id, 0.0));
+        assert!(s.fire_at(
+            target_id,
+            0.0,
+            game_logic.frame,
+            &mut game_logic.combat_system
+        ));
         assert!(!s.status.stealthed, "fire_at must break stealth");
     }
 }
@@ -2142,7 +2148,7 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
     use crate::command_system::{CommandType, GameCommand};
     use crate::game_logic::host_upgrades::{
         CAMO_NETTING_FRIENDLY_OPACITY_MAX, CAMO_NETTING_FRIENDLY_OPACITY_MIN,
-        CAMO_NETTING_STEALTH_DELAY_FRAMES, UPGRADE_GLA_CAMO_NETTING,
+        CAMO_NETTING_STEALTH_DELAY_FRAMES, HostUpgradeKind, UPGRADE_GLA_CAMO_NETTING,
     };
 
     let mut game_logic = GameLogic::new();
@@ -2198,10 +2204,20 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
-    // C++ research advances on the producer's Upgrade.ini BuildTime
-    // (ProductionUpdate.cpp:686-704); tick past the 5s CamoNetting window.
+    // C++ ProductionUpdate.cpp:686-704 advances research once per logic frame.
+    // A live update drops excess wall time, so drive the actual 5s research
+    // window with fixed frames rather than one oversized presentation delta.
     game_logic.update();
-    game_logic.update_with_dt(6.0);
+    for _ in 0..HostUpgradeKind::CamoNetting.retail_research_frames() {
+        game_logic.update();
+    }
+    assert!(
+        game_logic
+            .players
+            .get(&0)
+            .is_some_and(|player| player.has_unlocked_upgrade(UPGRADE_GLA_CAMO_NETTING)),
+        "producer research must complete before exercising CamoNetting stealth"
+    );
 
     for id in [tunnel_id, stinger_id] {
         let o = game_logic.host_object(id).unwrap();

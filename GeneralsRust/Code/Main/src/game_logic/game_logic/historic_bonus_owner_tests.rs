@@ -213,14 +213,6 @@ fn game_reset_clears_only_its_own_historic_samples_and_pending_bonus() {
 fn delayed_impact_uses_consumer_frame_for_historic_expiration() {
     let _serial = combat_test_guard();
     let _rules = RetentionRules::install(90);
-    clear_live_projectileless_delayed_for_test();
-    struct ClearDelayed;
-    impl Drop for ClearDelayed {
-        fn drop(&mut self) {
-            clear_live_projectileless_delayed_for_test();
-        }
-    }
-    let _clear = ClearDelayed;
     let mut world = GameLogic::new();
     let source = admit_source(&mut world, Team::China);
     world.frame = 100;
@@ -240,14 +232,17 @@ fn delayed_impact_uses_consumer_frame_for_historic_expiration() {
         historic_bonus_weapon: "FirestormSmallCreationWeapon".into(),
         ..lifecycle_test_pending_projectile("", None, pos)
     };
-    queue_delayed_impact_for_test(200, pending, pos);
+    queue_delayed_impact_for_test(&mut world.combat_system, 200, pending, pos);
     apply_ready_projectileless_delayed_damage(
         &mut world.combat_system,
         &mut world.objects,
         199,
         Some(&world.players),
     );
-    assert_eq!(live_projectileless_delayed_count_for_test(), 1);
+    assert_eq!(
+        live_projectileless_delayed_count_for_test(&world.combat_system),
+        1
+    );
     world.frame = 200;
     apply_ready_projectileless_delayed_damage(
         &mut world.combat_system,
@@ -255,7 +250,10 @@ fn delayed_impact_uses_consumer_frame_for_historic_expiration() {
         world.frame,
         Some(&world.players),
     );
-    assert_eq!(live_projectileless_delayed_count_for_test(), 0);
+    assert_eq!(
+        live_projectileless_delayed_count_for_test(&world.combat_system),
+        0
+    );
     world.drain_historic_bonus_firestorms();
     assert_eq!(
         zones(&world),

@@ -17,7 +17,7 @@ fn bootstrap_seeds_ranger_with_non_default_damage() {
         "retail RangerAdvancedCombatRifle PrimaryDamage is 5.0, got {}",
         w.damage
     );
-    assert!((w.range - 97.5).abs() < 0.01);
+    assert!((w.range - 100.0).abs() < 0.01);
 }
 
 /// Wave 77 residual: core host WeaponStore seed residual pack honesty.
@@ -90,7 +90,7 @@ fn create_object_usa_ranger_binds_store_weapon_stats() {
         "expected RangerAdvancedCombatRifle damage 5.0, got {}",
         weapon.damage
     );
-    assert!((weapon.range - 97.5).abs() < 0.01);
+    assert!((weapon.range - 100.0).abs() < 0.01);
 
     let secondary = obj
         .secondary_weapon
@@ -106,7 +106,7 @@ fn create_object_usa_ranger_binds_store_weapon_stats() {
         "expected RangerFlashBangGrenadeWeapon damage 35.0, got {}",
         secondary.damage
     );
-    assert!((secondary.range - 172.5).abs() < 0.01);
+    assert!((secondary.range - 175.0).abs() < 0.01);
 }
 
 #[test]
@@ -225,7 +225,7 @@ fn create_object_technical_and_battlemaster_bind_residual_not_default() {
         tw.damage
     );
     assert!((tw.damage - 10.0).abs() < 0.01);
-    assert!((tw.range - 147.5).abs() < 0.01);
+    assert!((tw.range - 150.0).abs() < 0.01);
 
     let bid = logic
         .create_object("China_BattleTank", Team::China, Vec3::new(10.0, 0.0, 0.0))
@@ -243,7 +243,7 @@ fn create_object_technical_and_battlemaster_bind_residual_not_default() {
         bw.damage
     );
     assert!((bw.damage - 60.0).abs() < 0.01);
-    assert!((bw.range - 147.5).abs() < 0.01);
+    assert!((bw.range - 150.0).abs() < 0.01);
 }
 
 /// FlashBang grenades fly as GameLogic Bezier-shell objects stepped by

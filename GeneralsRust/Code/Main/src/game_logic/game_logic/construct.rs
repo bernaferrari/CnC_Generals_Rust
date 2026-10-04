@@ -770,6 +770,9 @@ impl GameLogic {
         self.objects.clear();
         // C++ WeaponStore::resetWeaponTemplates clears same-template history.
         self.combat_system.reset_historic_bonus();
+        // C++ WeaponStore::reset also drops pending delayed damage.
+        self.combat_system.reset_projectileless_delayed();
+        self.combat_system.reset_pending_projectiles();
         self.warehouse_crippling_states.clear();
         self.mission_scripts.clear_warehouse_set_values();
         self.host_dock_approach_queues.get_mut().clear();

@@ -2826,16 +2826,14 @@ fn inferno_cannon_attack_spawns_fire_zone_damaging_enemies() {
             "InfernoCannonGun PrimaryDamage residual 30, got {}",
             w.damage
         );
-        // C++ WeaponTemplate::getAttackRange (Weapon.cpp:433-446,
-        // RATIONALIZE_ATTACK_RANGE) undersizes the authored range by 1/4 of a
-        // pathfind cell: 300 - 2.5 = 297.5 effective.
         assert!(
-            (w.range - (300.0 - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
-                .abs()
-                < 1.0,
-            "InfernoCannonGun effective AttackRange 297.5, got {}",
+            (w.range - 300.0).abs() < 1.0,
+            "InfernoCannonGun authored AttackRange 300, got {}",
             w.range
         );
+        // C++ getAttackRange deducts once at the actual runtime query.
+        assert!(c.is_within_attack_range_at_distance(0, 297.5));
+        assert!(!c.is_within_attack_range_at_distance(0, 297.51));
     }
 
     // Enemy at impact; far enemy outside fire radius (30).
@@ -3123,18 +3121,16 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
             "Angry Mob nexus must bind residual aggregate fire weapon"
         );
         let w = m.weapon.as_ref().unwrap();
-        // C++ WeaponTemplate::getAttackRange (Weapon.cpp:433-446) undersizes
-        // by 1/4 pathfind cell: 100 - 2.5 = 97.5 effective bound range.
         assert!(
-            (w.range
-                - (ANGRY_MOB_ATTACK_RANGE
-                    - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
-                .abs()
-                < 1.0,
-            "Angry Mob effective AttackRange {}, got {}",
-            ANGRY_MOB_ATTACK_RANGE - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25,
+            (w.range - ANGRY_MOB_ATTACK_RANGE).abs() < 1.0,
+            "Angry Mob authored AttackRange {}, got {}",
+            ANGRY_MOB_ATTACK_RANGE,
             w.range
         );
+        let effective_range =
+            ANGRY_MOB_ATTACK_RANGE - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+        assert!(m.is_within_attack_range_at_distance(0, effective_range));
+        assert!(!m.is_within_attack_range_at_distance(0, effective_range + 0.01));
     }
 
     // Near enemy inside residual range; far enemy outside.

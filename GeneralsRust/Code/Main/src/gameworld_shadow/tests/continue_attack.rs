@@ -558,13 +558,14 @@ fn private_attack_object_decision_authority() {
         }),
         "must log AttackTarget; got {events:?}"
     );
-    assert!(
-        logic.host_objects().get(&uid).unwrap().target.is_none(),
-        "host target deferred under decision authority"
-    );
+    // AIUpdate.cpp:3395 installs the goal before entering the attack state.
+    // Diagnostic decision recording does not postpone the host transition.
+    assert_eq!(logic.host_objects().get(&uid).unwrap().target, Some(vid));
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+    // Exercise writeback only after proving the ordinary host command worked.
+    logic.host_object_mut(uid).unwrap().target = None;
     assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
     assert_eq!(logic.host_objects().get(&uid).unwrap().target, Some(vid));
@@ -835,11 +836,12 @@ fn mood_auto_acquire_logs_decision_under_authority() {
         }),
         "mood acquire must log AttackTarget decision under authority; got {events:?}"
     );
-    // Host target still unset until shadow writeback.
-    assert!(logic.host_objects().get(&oid).unwrap().target.is_none());
+    // AIStates.cpp:1417-1427 enters the attack during the owning mood update.
+    assert_eq!(logic.host_objects().get(&oid).unwrap().target, Some(vid));
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+    logic.host_object_mut(oid).unwrap().target = None;
     assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
     assert_eq!(logic.host_objects().get(&oid).unwrap().target, Some(vid));
@@ -1057,50 +1059,53 @@ fn fire_spawn_authority_defers_queue_until_shadow() {
     host_fire_spawn_log::clear();
     // Fire-spawn defers only while a coupled shadow tick is live (Wave 682).
     begin_shadow_coupled_tick();
-    combat::queue_projectile(PendingProjectile {
-        shooter_id: ObjectId(1),
-        shooter_pos: glam::Vec3::ZERO,
-        source_context: None,
-        target_id: Some(ObjectId(2)),
-        target_pos: Some(glam::Vec3::new(50.0, 0.0, 0.0)),
-        damage: 12.0,
-        speed: 100.0,
-        speed_unit: combat::ProjectileSpeedUnit::DistancePerSecond,
-        splash_radius: 0.0,
-        is_homing: false,
-        damage_type: DamageType::Bullet,
-        death_type: HostDeathType::Normal,
-        // C++ WeaponTemplate::getProjectileTemplate()==NULL (empty name)
-        // routes to delayed damage with NO CombatSystem flight projectile
-        // (weapon_fire.rs is_projectileless_object_name). The shadow apply
-        // must spawn a flight projectile here, so author a projectile object.
-        projectile_object_name: "TestMissile".to_string(),
-        projectile_lifecycle: None,
-        fire_fx_name: String::new(),
-        fire_ocl_name: String::new(),
-        detonation_fx_name: String::new(),
-        detonation_ocl_name: String::new(),
-        exhaust_name: String::new(),
-        secondary_damage: 0.0,
-        secondary_damage_radius: 0.0,
-        shock_wave_amount: 0.0,
-        shock_wave_radius: 0.0,
-        shock_wave_taper_off: 0.0,
-        radius_damage_affects: 0,
-        projectile_collides: 0,
-        scatter_radius: 0.0,
-        scatter_table_offset: None,
-        min_weapon_speed: 0.0,
-        scale_weapon_speed: false,
-        attack_range: 0.0,
-        min_attack_range: 0.0,
-        historic_weapon_key: String::new(),
-        historic_bonus_time_frames: 0,
-        historic_bonus_count: 0,
-        historic_bonus_radius: 0.0,
-        historic_bonus_weapon: String::new(),
-        die_on_detonate: false,
-    });
+    combat::queue_projectile(
+        &mut logic.combat_system,
+        PendingProjectile {
+            shooter_id: ObjectId(1),
+            shooter_pos: glam::Vec3::ZERO,
+            source_context: None,
+            target_id: Some(ObjectId(2)),
+            target_pos: Some(glam::Vec3::new(50.0, 0.0, 0.0)),
+            damage: 12.0,
+            speed: 100.0,
+            speed_unit: combat::ProjectileSpeedUnit::DistancePerSecond,
+            splash_radius: 0.0,
+            is_homing: false,
+            damage_type: DamageType::Bullet,
+            death_type: HostDeathType::Normal,
+            // C++ WeaponTemplate::getProjectileTemplate()==NULL (empty name)
+            // routes to delayed damage with NO CombatSystem flight projectile
+            // (weapon_fire.rs is_projectileless_object_name). The shadow apply
+            // must spawn a flight projectile here, so author a projectile object.
+            projectile_object_name: "TestMissile".to_string(),
+            projectile_lifecycle: None,
+            fire_fx_name: String::new(),
+            fire_ocl_name: String::new(),
+            detonation_fx_name: String::new(),
+            detonation_ocl_name: String::new(),
+            exhaust_name: String::new(),
+            secondary_damage: 0.0,
+            secondary_damage_radius: 0.0,
+            shock_wave_amount: 0.0,
+            shock_wave_radius: 0.0,
+            shock_wave_taper_off: 0.0,
+            radius_damage_affects: 0,
+            projectile_collides: 0,
+            scatter_radius: 0.0,
+            scatter_table_offset: None,
+            min_weapon_speed: 0.0,
+            scale_weapon_speed: false,
+            attack_range: 0.0,
+            min_attack_range: 0.0,
+            historic_weapon_key: String::new(),
+            historic_bonus_time_frames: 0,
+            historic_bonus_count: 0,
+            historic_bonus_radius: 0.0,
+            historic_bonus_weapon: String::new(),
+            die_on_detonate: false,
+        },
+    );
     // Not yet in combat system.
     assert_eq!(logic.combat_system.projectile_count(), 0);
     let spawns = host_fire_spawn_log::drain();
@@ -1133,56 +1138,59 @@ fn fire_spawn_authority_enqueues_host_when_shadow_disabled() {
     assert!(gameworld_fire_spawn_authority_enabled());
     assert!(!gameworld_shadow_enabled());
     host_fire_spawn_log::clear();
-    combat::clear_pending_projectile_queue_for_test();
-    combat::queue_projectile(PendingProjectile {
-        shooter_id: ObjectId(9),
-        shooter_pos: glam::Vec3::ZERO,
-        source_context: None,
-        target_id: Some(ObjectId(10)),
-        target_pos: Some(glam::Vec3::new(10.0, 0.0, 0.0)),
-        damage: 5.0,
-        speed: 200.0,
-        speed_unit: combat::ProjectileSpeedUnit::DistancePerLogicFrame,
-        splash_radius: 0.0,
-        is_homing: false,
-        damage_type: DamageType::Bullet,
-        death_type: HostDeathType::Normal,
-        projectile_object_name: String::new(),
-        projectile_lifecycle: None,
-        fire_fx_name: String::new(),
-        fire_ocl_name: String::new(),
-        detonation_fx_name: String::new(),
-        detonation_ocl_name: String::new(),
-        exhaust_name: String::new(),
-        secondary_damage: 0.0,
-        secondary_damage_radius: 0.0,
-        shock_wave_amount: 0.0,
-        shock_wave_radius: 0.0,
-        shock_wave_taper_off: 0.0,
-        radius_damage_affects: 0,
-        projectile_collides: 0,
-        scatter_radius: 0.0,
-        scatter_table_offset: None,
-        min_weapon_speed: 0.0,
-        scale_weapon_speed: false,
-        attack_range: 0.0,
-        min_attack_range: 0.0,
-        historic_weapon_key: String::new(),
-        historic_bonus_time_frames: 0,
-        historic_bonus_count: 0,
-        historic_bonus_radius: 0.0,
-        historic_bonus_weapon: String::new(),
-        die_on_detonate: false,
-    });
+    combat::clear_pending_projectile_queue_for_test(&mut logic.combat_system);
+    combat::queue_projectile(
+        &mut logic.combat_system,
+        PendingProjectile {
+            shooter_id: ObjectId(9),
+            shooter_pos: glam::Vec3::ZERO,
+            source_context: None,
+            target_id: Some(ObjectId(10)),
+            target_pos: Some(glam::Vec3::new(10.0, 0.0, 0.0)),
+            damage: 5.0,
+            speed: 200.0,
+            speed_unit: combat::ProjectileSpeedUnit::DistancePerLogicFrame,
+            splash_radius: 0.0,
+            is_homing: false,
+            damage_type: DamageType::Bullet,
+            death_type: HostDeathType::Normal,
+            projectile_object_name: String::new(),
+            projectile_lifecycle: None,
+            fire_fx_name: String::new(),
+            fire_ocl_name: String::new(),
+            detonation_fx_name: String::new(),
+            detonation_ocl_name: String::new(),
+            exhaust_name: String::new(),
+            secondary_damage: 0.0,
+            secondary_damage_radius: 0.0,
+            shock_wave_amount: 0.0,
+            shock_wave_radius: 0.0,
+            shock_wave_taper_off: 0.0,
+            radius_damage_affects: 0,
+            projectile_collides: 0,
+            scatter_radius: 0.0,
+            scatter_table_offset: None,
+            min_weapon_speed: 0.0,
+            scale_weapon_speed: false,
+            attack_range: 0.0,
+            min_attack_range: 0.0,
+            historic_weapon_key: String::new(),
+            historic_bonus_time_frames: 0,
+            historic_bonus_count: 0,
+            historic_bonus_radius: 0.0,
+            historic_bonus_weapon: String::new(),
+            die_on_detonate: false,
+        },
+    );
     assert!(
         host_fire_spawn_log::drain().is_empty(),
         "host-only must not defer into fire_spawn_log"
     );
     assert!(
-        combat::pending_projectile_queue_len_for_test() >= 1,
-        "shadow-off + fire_spawn auth must enqueue PENDING_PROJECTILES immediately"
+        combat::pending_projectile_queue_len_for_test(&logic.combat_system) >= 1,
+        "shadow-off + fire_spawn auth must enqueue this world's accepted shots immediately"
     );
-    combat::clear_pending_projectile_queue_for_test();
+    combat::clear_pending_projectile_queue_for_test(&mut logic.combat_system);
     match prev_shadow {
         Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
         None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),

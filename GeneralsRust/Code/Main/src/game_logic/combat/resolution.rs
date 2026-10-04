@@ -25,13 +25,20 @@ impl CombatSystem {
     pub fn new() -> Self {
         Self {
             projectiles: HashMap::new(),
+            pending_projectiles: Vec::new(),
             next_projectile_id: ObjectId(100000), // Start high to avoid conflicts with objects
             impact_fx: Vec::new(),
             pending_under_attack: Vec::new(),
             pending_on_die: Vec::new(),
             fire_ocl: Vec::new(),
             historic_bonus: Default::default(),
+            projectileless_delayed: Vec::new(),
         }
+    }
+
+    /// Discard accepted shots only when this owning game resets.
+    pub(crate) fn reset_pending_projectiles(&mut self) {
+        self.pending_projectiles.clear();
     }
 
     /// Snapshot active projectiles for PresentationFrame freeze (read-only).
@@ -1137,6 +1144,11 @@ impl CombatSystem {
         &mut self,
     ) -> Vec<crate::game_logic::host_historic_bonus::PendingHistoricFirestorm> {
         self.historic_bonus.drain_pending_firestorms()
+    }
+
+    /// C++ WeaponStore::reset clears delayed damage for this match.
+    pub(in crate::game_logic) fn reset_projectileless_delayed(&mut self) {
+        self.projectileless_delayed.clear();
     }
 
     pub(in crate::game_logic) fn reset_historic_bonus(&mut self) {

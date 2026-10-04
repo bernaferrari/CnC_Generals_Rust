@@ -339,7 +339,12 @@ impl AIDecisionSystem {
 
         // Check if target is in range
         let distance = attacker.get_position().distance(target.get_position());
-        let attack_range = attacker.weapon.as_ref().map(|w| w.range).unwrap_or(0.0);
+        let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+        let attack_range = attacker
+            .weapon
+            .as_ref()
+            .map(|w| (attacker.effective_weapon_range_for_slot(0, w.range) - under).max(0.0))
+            .unwrap_or(0.0);
 
         if distance > attack_range * 1.5 {
             // Target too far, need to move closer

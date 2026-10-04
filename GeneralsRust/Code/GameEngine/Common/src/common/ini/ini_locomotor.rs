@@ -391,15 +391,23 @@ impl LocomotorTemplate {
     }
 }
 
-/// Locomotor template store
+/// Locomotor template store.
+///
+/// Names select definitions; legacy numeric keys only preserve traversal order.
+/// The admission ordinal distinguishes keys allocated in separate calling-thread
+/// namespaces without duplicating or replacing an unrelated template.
 pub struct LocomotorStore {
-    templates: BTreeMap<NameKeyType, LocomotorTemplate>,
+    templates: BTreeMap<(NameKeyType, u64), LocomotorTemplate>,
+    template_order_by_name: HashMap<String, (NameKeyType, u64)>,
+    next_registration_ordinal: u64,
 }
 
 impl LocomotorStore {
     pub fn new() -> Self {
         Self {
             templates: BTreeMap::new(),
+            template_order_by_name: HashMap::new(),
+            next_registration_ordinal: 0,
         }
     }
 
@@ -412,23 +420,38 @@ impl LocomotorStore {
     }
 
     pub fn add_template(&mut self, template: LocomotorTemplate) -> LocomotorResult<()> {
+        // Preserve NAMEKEY allocation at admission (Locomotor.cpp:594). A
+        // calling-thread key never determines which definition is replaced.
         let key = Self::template_key(&template.name);
-        if self.templates.contains_key(&key) {
-            // In C++, this would be an override situation
-            self.templates.insert(key, template);
-            Ok(())
+        if let Some(&order) = self.template_order_by_name.get(template.name.as_str()) {
+            self.templates.insert(order, template);
         } else {
-            self.templates.insert(key, template);
-            Ok(())
+            let order = (key, self.next_registration_ordinal);
+            self.next_registration_ordinal = self
+                .next_registration_ordinal
+                .checked_add(1)
+                .ok_or_else(|| {
+                    LocomotorError::ParseError("locomotor registration order exhausted".into())
+                })?;
+            self.template_order_by_name
+                .insert(template.name.to_string(), order);
+            self.templates.insert(order, template);
         }
+        Ok(())
     }
 
     pub fn find_template(&self, name: &str) -> Option<&LocomotorTemplate> {
-        self.templates.get(&Self::template_key_from_str(name))
+        // Keep the original string adapter's allocation side effect, but not
+        // its invalid assumption that every thread shares a numeric namespace.
+        let _ = Self::template_key_from_str(name);
+        let order = self.template_order_by_name.get(name)?;
+        self.templates.get(order)
     }
 
     pub fn find_template_mut(&mut self, name: &str) -> Option<&mut LocomotorTemplate> {
-        self.templates.get_mut(&Self::template_key_from_str(name))
+        let _ = Self::template_key_from_str(name);
+        let order = self.template_order_by_name.get(name)?;
+        self.templates.get_mut(order)
     }
 
     pub fn get_template_names(&self) -> Vec<&AsciiString> {
@@ -911,6 +934,10 @@ pub fn load_locomotors_from_str(content: &str) -> Result<usize, LocomotorLoadErr
 
     Ok(count)
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "locomotor_identity_tests.rs"]
+mod locomotor_identity_tests;
 
 #[cfg(test)]
 mod tests {

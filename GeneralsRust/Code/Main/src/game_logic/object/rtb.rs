@@ -699,10 +699,13 @@ impl Object {
         if self.can_crush_only(victim, false) {
             return true;
         }
-        // Too close residual: min_range
+        // C++ canPursue calls Weapon::isTooClose, which uses the template's
+        // rationalized minimum (AIStates.cpp:2361; Weapon.cpp:2211-2222).
         if let Some(w) = &self.weapon {
+            let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+            let minimum_range = (w.min_range - under).max(0.0);
             let dist = self.distance_to_object(victim);
-            if w.min_range > 0.0 && dist < w.min_range {
+            if minimum_range > 0.0 && dist < minimum_range {
                 return false;
             }
         }

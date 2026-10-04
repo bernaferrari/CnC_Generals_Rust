@@ -16,6 +16,7 @@ fn fire_at_records_fire_intent_residual() {
     logic.set_ai_attack_authority(true);
     let cfg = golden_skirmish_config("FireAtRec");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    logic.set_current_frame(77);
     if !logic.templates.contains_key("FrU") {
         let mut t = ThingTemplate::new("FrU");
         t.add_kind_of(KindOf::Infantry);
@@ -28,7 +29,8 @@ fn fire_at_records_fire_intent_residual() {
         .create_object("FrU", Team::China, glam::Vec3::new(12.0, 0.0, 10.0))
         .expect("v");
     {
-        let o = logic.host_object_mut(oid).expect("o");
+        let _ = logic.host_object_mut(oid).expect("o");
+        let o = logic.objects.get_mut(&oid).expect("o");
         o.weapon = Some(Weapon {
             damage: 15.0,
             range: 200.0,
@@ -36,7 +38,7 @@ fn fire_at_records_fire_intent_residual() {
             ..Weapon::default()
         });
         o.status.weapons_jammed = false;
-        let fired = o.fire_at(vid, 1.0);
+        let fired = o.fire_at(vid, 1.0, logic.frame, &mut logic.combat_system);
         assert!(fired, "close-range fire_at should discharge");
         // Host last_fire_* deferred under AI attack authority.
         assert_eq!(o.last_fire_victim_host, 0);
@@ -64,7 +66,8 @@ fn fire_at_records_fire_intent_residual() {
     logic.set_ai_attack_authority(false);
     host_fire_intent_log::clear();
     {
-        let o = logic.host_object_mut(oid).expect("o");
+        let _ = logic.host_object_mut(oid).expect("o");
+        let o = logic.objects.get_mut(&oid).expect("o");
         o.last_fire_victim_host = 0;
         o.last_fire_frame = 0;
         o.last_fire_damage = 0.0;
@@ -73,7 +76,7 @@ fn fire_at_records_fire_intent_residual() {
         if let Some(w) = o.weapon.as_mut() {
             w.last_fire_time = 0.0;
         }
-        let fired = o.fire_at(vid, 2.0);
+        let fired = o.fire_at(vid, 2.0, logic.frame, &mut logic.combat_system);
         assert!(fired);
         assert_eq!(o.last_fire_victim_host, vid.0);
         assert!(o.fire_intent_count >= 1);
@@ -200,11 +203,15 @@ fn private_idle_decision_authority() {
         }),
         "private_idle must log Idle; got {events:?}"
     );
-    // Host still engaged until writeback.
-    assert_eq!(logic.host_objects().get(&oid).unwrap().target, Some(vid));
+    // AIUpdate.cpp:3067 clears the state machine and enters Idle immediately.
+    let idle = logic.host_objects().get(&oid).unwrap();
+    assert!(idle.target.is_none());
+    assert_eq!(idle.ai_state, AIState::Idle);
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     assert!(shadow.apply_ai_decisions_as_world_mutations(&events) >= 1);
+    // Perturb the diagnostic input only after validating the host result.
+    logic.host_object_mut(oid).unwrap().target = Some(vid);
     let _ = shadow.writeback_ai_state_to_host(&mut logic);
     assert!(shadow.writeback_attack_targets_to_host(&mut logic) >= 1);
     let _ = crate::game_logic::host_attack_target_ready_log::drain();
@@ -215,22 +222,14 @@ fn private_idle_decision_authority() {
 }
 
 #[test]
-fn residual_ai_state_paths_honor_decision_authority_source() {
-    let src = GAME_LOGIC_HOST_SRC;
-    for fn_name in [
-        "fn try_return_to_base_rearm",
-        "fn try_min_range_backup",
-        "fn append_unit_waypoint",
-        "fn attack_aim_at_target_enter",
-        "fn attack_fire_weapon_enter",
-        "fn try_idle_crate_pickup",
-        "fn on_selling_container_residual",
-    ] {
-        let i = src
-            .find(fn_name)
-            .unwrap_or_else(|| panic!("missing {fn_name}"));
-        let bytes = src.as_bytes();
-        let mut j = src[i..].find('{').map(|o| i + o).expect("body");
+fn residual_ai_state_paths_use_owned_state_writers() {
+    // C++ changes the driving object's state synchronously. Optional shadow
+    // telemetry does not replace that writer, and wrappers may delegate it.
+    fn method<'a>(source: &'a str, header: &str) -> &'a str {
+        assert_eq!(source.matches(header).count(), 1, "exact method {header}");
+        let i = source.find(header).expect("method header");
+        let bytes = source.as_bytes();
+        let mut j = source[i..].find('{').map(|o| i + o).expect("body");
         let mut depth = 0i32;
         let end = loop {
             match bytes.get(j) {
@@ -242,17 +241,56 @@ fn residual_ai_state_paths_honor_decision_authority_source() {
                     }
                 }
                 Some(_) => {}
-                None => panic!("unclosed {fn_name}"),
+                None => panic!("unclosed {header}"),
             }
             j += 1;
         };
-        let w = &src[i..=end];
+        &source[i..=end]
+    }
+
+    let src = GAME_LOGIC_HOST_SRC;
+    for (header, write) in [
+        (
+            "fn try_return_to_base_rearm(",
+            "jet.set_ai_state(AIState::Moving);",
+        ),
+        (
+            "fn try_min_range_backup_between(",
+            "a.set_ai_state(AIState::Attacking);",
+        ),
+        (
+            "fn append_unit_waypoint(",
+            "unit.set_ai_state(AIState::Moving);",
+        ),
+        (
+            "fn attack_aim_at_target_enter(",
+            "u.set_ai_state(AIState::Attacking);",
+        ),
+        (
+            "fn attack_fire_weapon_enter(",
+            "u.set_ai_state(AIState::Attacking);",
+        ),
+        ("fn try_idle_crate_pickup(", "u.set_ai_state(parent_state);"),
+        (
+            "fn on_selling_container_residual(",
+            "unit.set_ai_state(AIState::Idle);",
+        ),
+    ] {
         assert!(
-            w.contains("gameworld_ai_decision_authority")
-                || w.contains("host_ai_decision_log::record_set_state"),
-            "{fn_name} must honor AI decision authority for AI state"
+            method(src, header).contains(write),
+            "{header} must use its exact owned state writer {write}"
         );
     }
+    // The public min-range wrapper reaches the checked implementation; crate
+    // pickup installs its owned move path and restores an existing parent.
+    assert!(
+        method(src, "fn try_min_range_backup(").contains("self.try_min_range_backup_between("),
+        "min-range wrapper must reach the concrete backup state writer"
+    );
+    assert!(
+        method(src, "fn try_idle_crate_pickup(").contains("self.assign_unit_path("),
+        "crate pickup must install its owned move path before parent restoration"
+    );
 }
 
 #[test]

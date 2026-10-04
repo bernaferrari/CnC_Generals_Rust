@@ -4,6 +4,100 @@
 
 Preserve C++ **behavior**. Do not preserve C++ **pointer ownership**.
 
+## Accepted shots and delayed-damage ownership (2026-10-04)
+
+The driving `GameLogic.combat_system` owns accepted shots and materialized
+projectileless delayed damage in two private vectors. Every existing host fire
+producer receives that same combat owner, and both existing due phases borrow
+it. Construction creates empty queues; the actual GameLogic reset clears only
+its queues before ObjectId reuse. The global `PENDING_PROJECTILES` and
+`LIVE_PROJECTILELESS_DELAYED` mutexes and their five production acquisition sites
+are removed (hq-rag5i, hq-s5j7c).
+
+Acceptance retains lifecycle stamping before the existing authority gate. The
+ordinary drain takes its own accepted batch in the existing order. The accepted
+record moves into the delayed queue instead of being cloned. Source/target
+identity, frozen launch effects, travel calculation and selection/application
+order remain unchanged. Actual normal attack tests check ammo consumption and
+discharge recording before testing foreign drains, reset/reused IDs, FIFO
+repeated shots and frozen source data after source destruction. Separate actual
+materialization tests cover delayed damage across interleaved worlds.
+
+Unsigned deadlines use `wrapping_add`, following C++ `Weapon.cpp:1057`. The
+existing raw current-frame comparison is retained: an overflowing deadline can
+already be due during the current high frame. Actual materialization tests
+cover this C++ behavior, normal waiting and once-only application (hq-8h16h).
+The two old Object fire characterizations now inspect actual materialization,
+Gattling damage classification, exact damage and absence of flying projectiles.
+The stealth characterization includes the firing-forbidden update phase before
+testing the allowed recloak deadline; production stealth timing is unchanged
+(hq-3npwv, hq-pn6xi).
+
+The coupled shadow fire log, native WeaponStore mirror, lifecycle rules catalog
+and bootstrap remain ambient dependencies. Rust still extracts due shots before
+callbacks, while C++ invokes a damage callback before erasing its current entry
+(hq-lzrdp). Main save/load does not capture these bridge queues, and the existing
+in-place restore does not clear them (hq-nkg0x). These ownership and CPU timing
+controls establish neither full match isolation nor retail playability,
+original-executable differential agreement or a frame-rate gain.
+
+Accepted Object firing now receives its driving unsigned logic frame separately
+from floating-point readiness time. Visual capture, sound/autoreload deadlines
+and last-fire bookkeeping use that scalar, removing three compatibility-clock
+acquisitions per reached firing path. Both ordinary GameLogic producers pass
+their own frame and combat owner. Actual same-ID worlds at frames 100 and 300
+exercise normal firing after foreign and own drains, with exact ammo, discharge,
+damage and timestamp controls. The compatibility clock and its remaining native
+consumers are still open under hq-vrkh8 (hq-9crla).
+
+The vision update, visibility snapshot and radar refresh borrow their existing
+shroud handles rather than cloning three temporary Arcs. Manager identity,
+locking, callback release/reacquisition, reset and snapshot data are unchanged;
+the shared manager locks remain. The containing visibility controls retain six
+failures independently reproduced at the starting revision and tracked under
+hq-972tr (hq-va85k). The healing characterization now preserves the medic source
+and HEALING type, matching ActiveBody and Guard retaliation; water damage and
+health assertions remain intact (hq-mkwhn). Remaining Object/shadow and visibility
+failures are tracked separately (hq-xi5wa, hq-972tr).
+
+## Authored range and locomotor identity (2026-10-04)
+
+Main Weapon stores authored maximum and minimum ranges. The runtime applies
+RANGE before deducting one quarter of a pathfinding cell, matching C++
+Weapon.cpp:437-462. Pre-reducing the converted definition deducted twice and
+multiplied the first deduction by range bonuses. Actual parsed rules and normal
+object admission exercise short-range, minimum-range and bonus boundaries;
+the native 2.5, 97.5, 7.5 and 197.5 yardsticks remain intact (hq-qh13p).
+Direct garrison, transport, drone and base-defense acquisition also derive their
+runtime ranges after conversion. Slot-qualified bonus queries select the actual
+weapon definition without changing the selected slot; an unnamed secondary does
+not inherit primary template extras. Existing active-slot wrapper behavior remains
+separate. Parsed A/B rules and normal defense dispatch retain the selected slot
+while checking native range boundaries. Existing AI distance multipliers and the
+host range-snap movement shortcut remain fidelity work (hq-ojec2).
+The public snapshot field layout is unchanged, but older Rust snapshots with
+pre-reduced named values do not establish the new field semantics or original
+C++ save interoperability.
+
+Common LocomotorStore resolves the exact case-sensitive admission name to one
+canonical definition. Captured numeric keys preserve existing traversal order;
+a private admission ordinal distinguishes formerly corrupt cross-thread key
+collisions. Overrides retain the first slot. Existing name-key allocation side
+effects and name-based LocomotorSet Xfer remain unchanged. Real cross-thread
+catalog tests expose wrong lookup, unrelated overwrite and wrong override in
+the old implementation, with numeric-order, case and allocation controls
+(hq-qy3pw). The process-wide catalog, thread-local name generator, mutable
+template-name surface and GameLogic definition cache still require ownership
+consolidation; this is not a shared owned RulesDb or complete match isolation.
+
+Command source checks delimit actual methods and delegation paths rather than
+fixed byte prefixes (hq-a7qgj). AI command characterizations assert the immediate
+host result before constructing a diagnostic shadow, then separately exercise
+writeback (hq-th83c). Camouflage research advances through real fixed logic
+frames before checking the upgrade and stealth behavior (hq-85nu7). These
+fixture corrections do not add production timing shortcuts or original-C++
+executable evidence.
+
 ## Owned query state and driving visibility (2026-10-04)
 
 The Pathfinder directly owns its ObjectId request ring. Admission requires its

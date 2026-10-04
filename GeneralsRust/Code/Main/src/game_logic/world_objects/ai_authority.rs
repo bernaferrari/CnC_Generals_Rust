@@ -683,7 +683,7 @@ impl GameLogic {
                 }
                 None => (999_000.0, 0.0, false, DamageType::Laser, 0.0, 0.0),
             };
-            combat::queue_projectile(PendingProjectile {
+            combat::queue_projectile(&mut self.combat_system, PendingProjectile {
                 shooter_id: attacker_id,
                 shooter_pos,
                 source_context: self.objects.get(&attacker_id).map(|attacker| {

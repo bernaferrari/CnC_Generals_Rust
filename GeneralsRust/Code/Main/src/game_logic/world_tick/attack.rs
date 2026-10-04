@@ -1813,6 +1813,8 @@ impl GameLogic {
                 current_time,
                 victim_infantry,
                 victim_faerie,
+                self.frame,
+                &mut self.combat_system,
             )
         };
 

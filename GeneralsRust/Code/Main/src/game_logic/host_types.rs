@@ -836,9 +836,11 @@ impl Default for Experience {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Weapon {
     pub damage: f32,
+    /// Authored WeaponTemplate::m_attackRange. Runtime applies RANGE bonus
+    /// before the C++ quarter-cell deduction; this field is not pre-reduced.
     pub range: f32,
-    /// C++ parity (WeaponTemplate::m_minimumAttackRange): weapons cannot fire
-    /// at targets closer than this distance.  0.0 = no minimum range.
+    /// Authored WeaponTemplate::m_minimumAttackRange. Runtime subtracts one
+    /// quarter-cell before its minimum-distance gate; 0.0 means no minimum.
     pub min_range: f32,
     pub reload_time: f32,
     pub last_fire_time: f32,

@@ -2294,7 +2294,7 @@ impl GameLogic {
     /// Update AI behavior for all objects
     /// Enhanced with AI decision system for intelligent behavior
 
-    /// Drain global fire-spawn queue into host CombatSystem (fire-spawn authority apply).
+    /// Drain this world's accepted shots into its CombatSystem (fire-spawn authority apply).
     pub(crate) fn drain_pending_projectiles_into_combat(&mut self) {
         crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
         crate::game_logic::combat::drain_pending_projectiles(

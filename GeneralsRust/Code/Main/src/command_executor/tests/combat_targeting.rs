@@ -446,7 +446,8 @@ fn do_weapon_uses_the_real_tertiary_slot_without_secondary_aliasing() {
         .create_object("DW_TERTIARY", Team::USA, Vec3::ZERO)
         .expect("unit");
     {
-        let unit = logic.host_object_mut(unit_id).expect("unit");
+        let _ = logic.host_object_mut(unit_id).expect("unit");
+        let unit = logic.objects.get_mut(&unit_id).expect("unit");
         unit.weapon = Some(Weapon {
             damage: 10.0,
             range: 100.0,
@@ -474,11 +475,12 @@ fn do_weapon_uses_the_real_tertiary_slot_without_secondary_aliasing() {
     );
     assert_eq!(result, CommandResult::Success);
 
-    let unit = logic.host_object_mut(unit_id).expect("unit");
+    let _ = logic.host_object_mut(unit_id).expect("unit");
+    let unit = logic.objects.get_mut(&unit_id).expect("unit");
     assert_eq!(unit.active_weapon_slot, 2);
     assert_eq!(unit.weapon_lock_type, WeaponLockType::LockedTemporarily);
     assert_eq!(unit.weapon_lock_slot, 2);
-    assert!(unit.fire_at(target, 1.0));
+    assert!(unit.fire_at(target, 1.0, logic.frame, &mut logic.combat_system));
     assert_eq!(unit.last_fire_slot, 2);
     assert!((unit.last_fire_damage - 73.0).abs() < f32::EPSILON);
     assert_eq!(
@@ -937,34 +939,95 @@ fn attack_move_uses_assign_unit_path() {
     );
 }
 
+// These are source contracts, so delimit the exact production methods rather
+// than assigning a byte budget that unrelated validation/comments can exhaust.
+fn command_source_method<'a>(source: &'a str, start: &str, next: &str) -> &'a str {
+    assert_eq!(source.matches(start).count(), 1, "exact method {start}");
+    let (_, tail) = source.split_once(start).expect("method header");
+    let (body, _) = tail.split_once(next).expect("next method boundary");
+    body
+}
+
 #[test]
 fn path_to_goal_with_state_used_by_guard_scatter_gather() {
-    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
-    let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
-    assert!(prod.contains("fn path_to_goal_with_state"));
-    for name in [
-        "fn execute_guard",
-        "fn execute_scatter",
-        "fn execute_gather",
-        "fn execute_build",
+    let attack = include_str!("../attack.rs");
+    let movement = include_str!("../movement.rs");
+    let leftover = include_str!("../leftover.rs");
+    let construct = include_str!("../construct.rs");
+    let commands = include_str!("../../game_logic/world_scripts/unit_commands.rs");
+    let path = command_source_method(
+        leftover,
+        "fn path_to_goal_with_state(",
+        "fn path_to_goal_with_state_ignoring(",
+    );
+    let path_ignoring = command_source_method(
+        leftover,
+        "fn path_to_goal_with_state_ignoring(",
+        "fn begin_support_order(",
+    );
+    let path_writer = command_source_method(
+        commands,
+        "fn unit_command_path_with_state_ignoring(",
+        "fn unit_command_apply_stealth_mood_delay(",
+    );
+    assert!(path.contains("self.path_to_goal_with_state_ignoring("));
+    assert!(path_ignoring.contains(".unit_command_path_with_state_ignoring("));
+    assert!(path_writer.contains("self.assign_unit_path_ignoring("));
+
+    for (name, body, call) in [
+        (
+            "fn execute_guard",
+            command_source_method(attack, "fn execute_guard(", "fn execute_set_attitude("),
+            "self.path_to_goal_with_state(",
+        ),
+        (
+            "fn execute_scatter",
+            command_source_method(movement, "fn execute_scatter(", "#[cfg(test)]"),
+            "self.queue_group_move_goal(",
+        ),
+        (
+            "fn execute_gather",
+            command_source_method(leftover, "fn execute_gather(", "fn execute_return_to_base("),
+            "self.path_to_goal_with_state(",
+        ),
+        (
+            "fn execute_build",
+            command_source_method(
+                construct,
+                "fn execute_build(",
+                "fn execute_dozer_construct(",
+            ),
+            "self.path_to_goal_with_state_ignoring(",
+        ),
     ] {
-        let i = prod.find(name).unwrap_or_else(|| panic!("missing {name}"));
-        let w = &prod[i..prod.len().min(i + 6000)];
         assert!(
-            w.contains("path_to_goal_with_state") || w.contains("assign_unit_path"),
+            body.contains(call),
             "{name} must pathfind, not bare set_destination"
         );
-        // Guard/scatter/gather should not use bare set_destination(goal)
         if name != "fn execute_build" {
             assert!(
-                !w.contains("set_destination(*pos)")
-                    && !w.contains("set_destination(pos)")
-                    && !w.contains("set_destination(dest)")
-                    && !w.contains("set_destination(target_pos)"),
+                !body.contains("set_destination(*pos)")
+                    && !body.contains("set_destination(pos)")
+                    && !body.contains("set_destination(dest)")
+                    && !body.contains("set_destination(target_pos)"),
                 "{name} still has bare set_destination"
             );
         }
     }
+    // Scatter reaches the actual owned path writer through its group helper;
+    // its explanatory comment alone must not satisfy the pathfinding contract.
+    let scatter_goal = command_source_method(
+        movement,
+        "fn queue_group_move_goal(",
+        "fn dissolve_free_move_formation_stamps(",
+    );
+    let scatter_writer = command_source_method(
+        commands,
+        "fn unit_command_move_to_moving(",
+        "fn unit_command_begin_construct(",
+    );
+    assert!(scatter_goal.contains("self.game_logic.unit_command_move_to_moving("));
+    assert!(scatter_writer.contains("self.assign_unit_path("));
 }
 
 /// C++ BuildAssistant.cpp:333-334 clearRemovableForConstruction before create.
@@ -1154,25 +1217,40 @@ fn deploy_command_uses_authored_metadata_and_pack_unpack_timing() {
 
 #[test]
 fn execute_stop_clears_guard_residual() {
-    // Wave 955: Stop delegates guard clear to GameLogic::unit_command_stop.
-    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
-    let gl = crate::game_logic::game_logic::GAME_LOGIC_FACADE_SRC;
-    let start = src.find("fn execute_stop").expect("execute_stop");
-    let body = &src[start..start + 800];
+    // C++ AIGroup::groupIdle and AIUpdateInterface::privateIdle.
+    let attack = include_str!("../attack.rs");
+    let movement = include_str!("../movement.rs");
+    let commands = include_str!("../../game_logic/world_scripts/unit_commands.rs");
+    let body = command_source_method(attack, "fn execute_stop(", "fn execute_guard(");
     assert!(
-        body.contains("unit_command_stop") && body.contains("apply_player_stealth_mood_delay"),
+        body.contains(".unit_command_stop(")
+            && body.contains("self.apply_player_stealth_mood_delay("),
         "Stop must call unit_command_stop and apply stealth mood delay"
     );
-    let gs = gl.find("fn unit_command_stop").expect("unit_command_stop");
-    let gbody = &gl[gs..gs + 900];
+    let gbody = command_source_method(
+        commands,
+        "fn unit_command_stop(",
+        "fn unit_command_stop_self(",
+    );
     assert!(
         gbody.contains("set_guard_position(None)")
             && gbody.contains("end_guard_retaliate")
             && gbody.contains("set_target(None)"),
         "unit_command_stop must clear guard anchors/targets"
     );
+    let mood = command_source_method(
+        movement,
+        "fn apply_player_stealth_mood_delay(",
+        "fn group_move_destinations(",
+    );
+    let mood_writer = command_source_method(
+        commands,
+        "fn unit_command_apply_stealth_mood_delay(",
+        "fn unit_position_if_movable(",
+    );
     assert!(
-        src.contains("fn apply_player_stealth_mood_delay") && src.contains("next_mood_check_time"),
+        mood.contains(".unit_command_apply_stealth_mood_delay(")
+            && mood_writer.contains("unit.next_mood_check_time ="),
         "shared stealth mood delay helper must schedule next_mood_check_time"
     );
 }

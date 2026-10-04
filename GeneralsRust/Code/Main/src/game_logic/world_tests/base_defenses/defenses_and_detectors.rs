@@ -768,16 +768,13 @@ fn sentry_drone_residual_detect_and_auto_fire() {
             "SentryDroneGun damage residual 8, got {}",
             w.damage
         );
-        // C++ WeaponTemplate::getAttackRange (Weapon.cpp:437-451,
-        // RATIONALIZE_ATTACK_RANGE) binds retail SentryDroneGun AttackRange
-        // 150 (Weapon.ini:129356+) as 147.5.
         assert!(
-            (w.range - (150.0 - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
-                .abs()
-                < 0.1,
-            "SentryDroneGun bound range 147.5, got {}",
+            (w.range - 150.0).abs() < 0.1,
+            "SentryDroneGun authored range150, got {}",
             w.range
         );
+        assert!(s.is_within_attack_range_at_distance(0, 147.5));
+        assert!(!s.is_within_attack_range_at_distance(0, 147.51));
         let _ = SENTRY_DRONE_GUN_WEAPON;
     }
     // C++ initObject updateUpgradeModules: drones built after research spawn armed.
@@ -804,14 +801,13 @@ fn sentry_drone_residual_detect_and_auto_fire() {
             "late SentryDroneGun damage residual 8, got {}",
             w.damage
         );
-        // Retail AttackRange 150 binds as 147.5 (Weapon.cpp:437-451).
         assert!(
-            (w.range - (150.0 - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
-                .abs()
-                < 0.1,
-            "late SentryDroneGun bound range 147.5, got {}",
+            (w.range - 150.0).abs() < 0.1,
+            "late SentryDroneGun authored range150, got {}",
             w.range
         );
+        assert!(s.is_within_attack_range_at_distance(0, 147.5));
+        assert!(!s.is_within_attack_range_at_distance(0, 147.51));
     }
     // Detected enemy becomes targetable; place in gun range and idle for auto-fire.
     if game_logic.host_object(stealth_id).is_none() {
@@ -1307,16 +1303,13 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
             "hellfire dmg 40, got {}",
             w.damage
         );
-        // C++ WeaponTemplate::getAttackRange (Weapon.cpp:437-451,
-        // RATIONALIZE_ATTACK_RANGE) binds retail HellfireMissileWeapon
-        // AttackRange 150 (Weapon.ini:129470+) as 147.5.
         assert!(
-            (w.range - (150.0 - crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25))
-                .abs()
-                < 0.1,
-            "hellfire bound range 147.5, got {}",
+            (w.range - 150.0).abs() < 0.1,
+            "hellfire authored range150, got {}",
             w.range
         );
+        assert!(h.is_within_attack_range_at_distance(0, 147.5));
+        assert!(!h.is_within_attack_range_at_distance(0, 147.51));
         let _ = HELLFIRE_MISSILE_WEAPON;
     }
     {

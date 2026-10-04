@@ -53,6 +53,8 @@ impl GameLogic {
                                             current_time,
                                             tgt_inf,
                                             tgt_faerie,
+                                            self.frame,
+                                            &mut self.combat_system,
                                         );
                                     }
                                 }
@@ -210,7 +212,7 @@ impl GameLogic {
                                 }
                             })
                             .unwrap_or(crate::game_logic::combat::DamageType::Bullet);
-                        super::super::combat::queue_projectile(super::super::combat::PendingProjectile {
+                        super::super::combat::queue_projectile(&mut self.combat_system, super::super::combat::PendingProjectile {
                             shooter_id: object_id,
                             shooter_pos,
                             source_context: Some(super::super::combat::ProjectileLaunchContext {

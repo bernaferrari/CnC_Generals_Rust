@@ -208,3 +208,6 @@ pub const GAME_LOGIC_FACADE_SRC: &str = concat!(
     include_str!("construct.rs"),
     include_str!("mod.rs"),
 );
+
+#[cfg(test)]
+mod accepted_projectile_owner_tests;

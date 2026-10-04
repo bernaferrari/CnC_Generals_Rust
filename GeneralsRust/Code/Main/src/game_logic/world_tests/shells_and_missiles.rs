@@ -907,7 +907,8 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
     let affected = game_logic.apply_camouflage_unlock_to_team(Team::GLA, UPGRADE_GLA_CAMOUFLAGE);
     assert!(affected > 0, "camouflage unlock must affect rebel");
     {
-        let rebel = game_logic.host_object_mut(rebel_id).expect("rebel");
+        let _ = game_logic.host_object_mut(rebel_id).expect("rebel");
+        let rebel = game_logic.objects.get_mut(&rebel_id).expect("rebel");
         rebel.set_ai_state(AIState::Idle);
         rebel.set_status_attacking(false);
         rebel.target = None;
@@ -930,10 +931,18 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
 
     // Fire residual breaks stealth.
     {
-        let rebel = game_logic.host_object_mut(rebel_id).expect("rebel");
+        let _ = game_logic.host_object_mut(rebel_id).expect("rebel");
+        let rebel = game_logic.objects.get_mut(&rebel_id).expect("rebel");
         rebel.set_status_stealthed(true);
         rebel.stealth_breaks_on_attack = true;
-        assert!(rebel.fire_at(enemy_id, 0.0) || true);
+        assert!(
+            rebel.fire_at(
+                enemy_id,
+                0.0,
+                game_logic.frame,
+                &mut game_logic.combat_system
+            ) || true
+        );
         // fire_at may fail without weapon; force residual break path.
         if rebel.status.stealthed {
             rebel.break_stealth();
@@ -949,7 +958,8 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
 
     // Idle before StealthDelay: must stay visible.
     {
-        let rebel = game_logic.host_object_mut(rebel_id).expect("rebel");
+        let _ = game_logic.host_object_mut(rebel_id).expect("rebel");
+        let rebel = game_logic.objects.get_mut(&rebel_id).expect("rebel");
         rebel.set_ai_state(AIState::Idle);
         rebel.set_status_attacking(false);
         rebel.target = None;

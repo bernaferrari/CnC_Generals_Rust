@@ -175,6 +175,22 @@ impl Object {
         &self,
         container: Option<&Object>,
     ) -> (f32, f32, f32, f32, f32) {
+        let name = self
+            .weapon_name_for_slot(self.active_weapon_slot)
+            .or_else(|| self.primary_weapon_name());
+        self.weapon_bonus_fields_with_name(container, name)
+    }
+
+    /// Compute template extras for this concrete firing slot without changing selection.
+    pub(crate) fn weapon_bonus_fields_for_slot(&self, slot: u8) -> (f32, f32, f32, f32, f32) {
+        self.weapon_bonus_fields_with_name(None, self.weapon_name_for_slot(slot))
+    }
+
+    fn weapon_bonus_fields_with_name(
+        &self,
+        container: Option<&Object>,
+        weapon_name: Option<&str>,
+    ) -> (f32, f32, f32, f32, f32) {
         use crate::game_logic::VeterancyLevel;
         use crate::game_logic::host_propaganda::{
             ENTHUSIASTIC_RATE_OF_FIRE_MULT, SUBLIMINAL_RATE_OF_FIRE_MULT,
@@ -444,10 +460,7 @@ impl Object {
                 21 => flags.set(WeaponBonusConditionType::SoloAiHard),
                 _ => {}
             }
-            if let Some(name) = self
-                .weapon_name_for_slot(self.active_weapon_slot)
-                .or_else(|| self.primary_weapon_name())
-            {
+            if let Some(name) = weapon_name {
                 crate::game_logic::weapon_bootstrap::append_extra_weapon_bonus(
                     name, flags, &mut bonus,
                 );
@@ -466,6 +479,11 @@ impl Object {
     /// Effective weapon range with WeaponBonus RANGE field.
     pub fn effective_weapon_range(&self, base_range: f32) -> f32 {
         base_range * self.weapon_bonus_fields().1
+    }
+
+    /// RANGE multiplier for the concrete firing slot, before the caller's quarter-cell deduction.
+    pub(crate) fn effective_weapon_range_for_slot(&self, slot: u8, base_range: f32) -> f32 {
+        base_range * self.weapon_bonus_fields_for_slot(slot).1
     }
 
     /// Effective weapon damage with WeaponBonus DAMAGE field.

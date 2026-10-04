@@ -107,6 +107,8 @@ pub struct WeaponFireOcl {
 #[derive(Debug)]
 pub struct CombatSystem {
     projectiles: HashMap<ObjectId, Projectile>,
+    /// Accepted shots awaiting this world's existing materialization phase.
+    pending_projectiles: Vec<PendingProjectile>,
     next_projectile_id: ObjectId,
     /// Impacts carrying ProjectileDetonationFX residual (drained by GameLogic).
     impact_fx: Vec<ProjectileImpactFx>,
@@ -118,12 +120,9 @@ pub struct CombatSystem {
     fire_ocl: Vec<WeaponFireOcl>,
     /// Same-template impact history and pending bonuses belong to this match.
     historic_bonus: crate::game_logic::host_historic_bonus::HostHistoricBonus,
+    /// Materialized projectileless damage belongs to the accepting match.
+    projectileless_delayed: Vec<LiveProjectilelessDelayedDamage>,
 }
-
-/// Global projectile spawn queue. Objects call this when firing, and the
-/// game loop drains it each frame into the CombatSystem.
-static PENDING_PROJECTILES: std::sync::Mutex<Vec<PendingProjectile>> =
-    std::sync::Mutex::new(Vec::new());
 
 /// C++ `WeaponTemplate::getProjectileTemplate()==NULL` (empty / `NONE`).
 fn is_projectileless_object_name(name: &str) -> bool {
@@ -147,8 +146,6 @@ struct LiveProjectilelessDelayedDamage {
     damage_id: Option<ObjectId>,
 }
 
-static LIVE_PROJECTILELESS_DELAYED: std::sync::Mutex<Vec<LiveProjectilelessDelayedDamage>> =
-    std::sync::Mutex::new(Vec::new());
 
 fn leftover_weapon_is_laser(weapon_name: &str) -> bool {
     let name = weapon_name.trim();
@@ -209,32 +206,33 @@ fn leftover_set_delayed_damage(
 }
 
 fn queue_live_projectileless_delayed(
+    combat: &mut CombatSystem,
     when: u32,
     pending: PendingProjectile,
     damage_pos: Vec3,
     damage_id: Option<ObjectId>,
 ) {
-    if let Ok(mut queue) = LIVE_PROJECTILELESS_DELAYED.lock() {
-        queue.push(LiveProjectilelessDelayedDamage {
+    combat
+        .projectileless_delayed
+        .push(LiveProjectilelessDelayedDamage {
             when,
             pending,
             damage_pos,
             damage_id,
         });
-    }
 }
 
 /// C++ `Weapon.cpp:998-1075` projectileless fire: lasers and sub-frame travel
 /// deal damage now; otherwise leftover `setDelayedDamage` + live apply later.
 fn handle_projectileless_pending(
-    pending: &PendingProjectile,
+    combat: &mut CombatSystem,
+    pending: PendingProjectile,
     damage_pos: Vec3,
     damage_id: Option<ObjectId>,
     flight_speed: f32,
-    speed_unit: ProjectileSpeedUnit,
     frame: u32,
 ) {
-    let speed_per_logic_frame = speed_unit.distance_per_logic_frame(flight_speed);
+    let speed_per_logic_frame = pending.speed_unit.distance_per_logic_frame(flight_speed);
     let delay_in_frames =
         if speed_per_logic_frame > 0.0 && !Projectile::is_instant_speed(flight_speed) {
             pending.shooter_pos.distance(damage_pos) / speed_per_logic_frame
@@ -243,11 +241,11 @@ fn handle_projectileless_pending(
         };
     let laser = leftover_weapon_is_laser(&pending.historic_weapon_key);
     if laser || delay_in_frames < 1.0 {
-        queue_live_projectileless_delayed(frame, pending.clone(), damage_pos, damage_id);
+        queue_live_projectileless_delayed(combat, frame, pending, damage_pos, damage_id);
         return;
     }
     let delay_whole_frames = delay_in_frames.ceil() as u32;
-    let when = frame.saturating_add(delay_whole_frames);
+    let when = frame.wrapping_add(delay_whole_frames);
     leftover_set_delayed_damage(
         &pending.historic_weapon_key,
         damage_pos,
@@ -255,7 +253,7 @@ fn handle_projectileless_pending(
         pending.shooter_id,
         damage_id.unwrap_or(ObjectId(0)),
     );
-    queue_live_projectileless_delayed(when, pending.clone(), damage_pos, damage_id);
+    queue_live_projectileless_delayed(combat, when, pending, damage_pos, damage_id);
 }
 
 /// Apply leftover delayed-damage entries whose frame has arrived to live objects.
@@ -265,7 +263,10 @@ pub fn apply_ready_projectileless_delayed_damage(
     current_frame: u32,
     players: Option<&HashMap<u32, crate::game_logic::Player>>,
 ) {
-    let ready = if let Ok(mut queue) = LIVE_PROJECTILELESS_DELAYED.lock() {
+    // Preserve the existing due selection and application order. Release the
+    // short queue borrow before effects can call other CombatSystem methods.
+    let ready = {
+        let queue = &mut combat.projectileless_delayed;
         let mut ready = Vec::new();
         let mut i = 0;
         while i < queue.len() {
@@ -276,8 +277,6 @@ pub fn apply_ready_projectileless_delayed_damage(
             }
         }
         ready
-    } else {
-        Vec::new()
     };
     let historic_damage_limit = game_engine::common::global_data::read().historic_damage_limit;
     for shot in ready {
@@ -387,7 +386,7 @@ pub struct PendingProjectile {
 }
 
 /// Queue a projectile for spawning. Called from Object::fire_at().
-pub fn queue_projectile(mut pending: PendingProjectile) {
+pub fn queue_projectile(combat: &mut CombatSystem, mut pending: PendingProjectile) {
     stamp_pending_projectile_lifecycle(&mut pending);
     // Defer only when a live shadow session will drain host_fire_spawn_log.
     // Host-only (shadow off) must enqueue immediately or combat never spawns shots.
@@ -397,17 +396,13 @@ pub fn queue_projectile(mut pending: PendingProjectile) {
         crate::game_logic::host_fire_spawn_log::record(pending);
         return;
     }
-    if let Ok(mut queue) = PENDING_PROJECTILES.lock() {
-        queue.push(pending);
-    }
+    combat.pending_projectiles.push(pending);
 }
 
 /// Unconditional enqueue for shadow fire-spawn apply (bypasses authority gate).
-pub fn queue_projectile_direct(mut pending: PendingProjectile) {
+pub fn queue_projectile_direct(combat: &mut CombatSystem, mut pending: PendingProjectile) {
     stamp_pending_projectile_lifecycle(&mut pending);
-    if let Ok(mut queue) = PENDING_PROJECTILES.lock() {
-        queue.push(pending);
-    }
+    combat.pending_projectiles.push(pending);
 }
 
 /// Freeze the exact parsed Object INI lifecycle on the queue record.  A caller
@@ -432,36 +427,31 @@ fn stamp_pending_projectile_lifecycle(pending: &mut PendingProjectile) {
     }
 }
 
-/// Test helper: length of the static pending projectile queue.
+/// Test helper: length of one owner's pending projectile queue.
 #[cfg(test)]
-pub fn pending_projectile_queue_len_for_test() -> usize {
-    PENDING_PROJECTILES.lock().map(|q| q.len()).unwrap_or(0)
+pub fn pending_projectile_queue_len_for_test(combat: &CombatSystem) -> usize {
+    combat.pending_projectiles.len()
 }
 
-/// Test helper: clear static pending projectile queue.
+/// Test helper: clear one owner's pending projectile queue.
 #[cfg(test)]
-pub fn clear_pending_projectile_queue_for_test() {
-    if let Ok(mut q) = PENDING_PROJECTILES.lock() {
-        q.clear();
-    }
+pub fn clear_pending_projectile_queue_for_test(combat: &mut CombatSystem) {
+    combat.pending_projectiles.clear();
 }
 
 /// Test helper: last queued projectile DamageType (fire_at → take_damage path).
 #[cfg(test)]
-pub fn last_pending_projectile_damage_type_for_test() -> Option<DamageType> {
-    PENDING_PROJECTILES
-        .lock()
-        .ok()
-        .and_then(|q| q.last().map(|p| p.damage_type))
+pub fn last_pending_projectile_damage_type_for_test(combat: &CombatSystem) -> Option<DamageType> {
+    combat.pending_projectiles.last().map(|p| p.damage_type)
 }
 
 /// Test helper: last queued projectile secondary-ring amount.
 #[cfg(test)]
-pub fn last_pending_projectile_secondary_damage_for_test() -> Option<f32> {
-    PENDING_PROJECTILES
-        .lock()
-        .ok()
-        .and_then(|q| q.last().map(|p| p.secondary_damage))
+pub fn last_pending_projectile_secondary_damage_for_test(combat: &CombatSystem) -> Option<f32> {
+    combat
+        .pending_projectiles
+        .last()
+        .map(|p| p.secondary_damage)
 }
 
 /// Test helper: leftover WeaponStore delayed-damage queue length.
@@ -473,19 +463,8 @@ pub fn leftover_delayed_damage_count_for_test() -> usize {
 
 /// Test helper: live projectileless delayed-damage queue length.
 #[cfg(test)]
-pub fn live_projectileless_delayed_count_for_test() -> usize {
-    LIVE_PROJECTILELESS_DELAYED
-        .lock()
-        .map(|q| q.len())
-        .unwrap_or(0)
-}
-
-/// Test helper: clear live projectileless delayed-damage queue.
-#[cfg(test)]
-pub fn clear_live_projectileless_delayed_for_test() {
-    if let Ok(mut q) = LIVE_PROJECTILELESS_DELAYED.lock() {
-        q.clear();
-    }
+pub fn live_projectileless_delayed_count_for_test(combat: &CombatSystem) -> usize {
+    combat.projectileless_delayed.len()
 }
 
 /// C++ `TheTerrainLogic->getBridgeAttackPoints` nearer end (Weapon.cpp:819-831).
@@ -509,11 +488,7 @@ pub fn drain_pending_projectiles(
     objects: &HashMap<ObjectId, Object>,
     frame: u32,
 ) {
-    let pending = if let Ok(mut queue) = PENDING_PROJECTILES.lock() {
-        std::mem::take(&mut *queue)
-    } else {
-        Vec::new()
-    };
+    let pending = std::mem::take(&mut combat.pending_projectiles);
 
     for p in pending {
         // Queue acceptance normally froze this field. Retain the parsed-only
@@ -674,11 +649,11 @@ pub fn drain_pending_projectiles(
         // dummy that can collide mid-flight.
         if is_projectileless_object_name(&p.projectile_object_name) {
             handle_projectileless_pending(
-                &p,
+                combat,
+                p,
                 target_pos,
                 fire_target_id,
                 flight_speed,
-                p.speed_unit,
                 frame,
             );
             continue;

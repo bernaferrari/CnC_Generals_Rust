@@ -1501,7 +1501,8 @@ impl GameLogic {
         }
 
         let team = attacker.team;
-        let range = weapon.range;
+        let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+        let range = (attacker.effective_weapon_range_for_slot(0, weapon.range) - under).max(0.0);
         let damage = weapon.damage;
         let fire_pos = attacker.get_position();
 
@@ -1567,9 +1568,7 @@ impl GameLogic {
             if entered_attack {
                 attacker.set_ai_state(AIState::Attacking);
             }
-            if entered_attack
-                && crate::gameworld_shadow::gameworld_ai_decision_authority_live()
-            {
+            if entered_attack && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_attack(sentry_id, target_id);
                 crate::game_logic::host_ai_decision_log::record_set_state(sentry_id, 2);
             } else if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
@@ -1685,7 +1684,8 @@ impl GameLogic {
         }
 
         let team = attacker.team;
-        let range = weapon.range;
+        let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+        let range = (attacker.effective_weapon_range_for_slot(0, weapon.range) - under).max(0.0);
         let damage = weapon.damage;
         let fire_pos = attacker.get_position();
 

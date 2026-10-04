@@ -17,7 +17,7 @@ pub(in crate::game_logic) mod tests {
     use glam::Vec3;
 
     /// The characterization tests in this module share process globals (the
-    /// pending-projectile queue, the WeaponStore delayed-damage list, the
+    /// WeaponStore delayed-damage list, the
     /// global logic frame, and the thread-local authority context), so the default parallel
     /// test harness must not run them concurrently inside one process.
     /// Mirrors the host_rng_residual RNG_TEST_LOCK precedent.
@@ -28,11 +28,12 @@ pub(in crate::game_logic) mod tests {
     }
 
     pub(in crate::game_logic) fn queue_delayed_impact_for_test(
+        combat: &mut CombatSystem,
         apply_frame: u32,
         projectile: PendingProjectile,
         position: Vec3,
     ) {
-        queue_live_projectileless_delayed(apply_frame, projectile, position, None);
+        queue_live_projectileless_delayed(combat, apply_frame, projectile, position, None);
     }
 
     fn make_obj(
@@ -114,15 +115,18 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn retail_dumb_projectile_expiry_detonates_through_pending_host_path() {
-        let _combat_serial = combat_test_guard();
-        clear_pending_projectile_queue_for_test();
         let mut combat = CombatSystem::new();
+        let _combat_serial = combat_test_guard();
+
         let mut objects = HashMap::new();
-        queue_projectile_direct(lifecycle_test_pending_projectile(
-            "RangerFlashBangGrenade",
-            None,
-            Vec3::new(10_000.0, 0.0, 0.0),
-        ));
+        queue_projectile_direct(
+            &mut combat,
+            lifecycle_test_pending_projectile(
+                "RangerFlashBangGrenade",
+                None,
+                Vec3::new(10_000.0, 0.0, 0.0),
+            ),
+        );
         drain_pending_projectiles(&mut combat, &objects, 0);
 
         let projectile = combat
@@ -158,18 +162,20 @@ pub(in crate::game_logic) mod tests {
     #[test]
     fn retail_missile_fuel_detonation_and_target_loss_use_distinct_authored_paths() {
         let _combat_serial = combat_test_guard();
-        clear_pending_projectile_queue_for_test();
 
         // DragonTankFlameProjectile has FuelLifetime=350ms and
         // DetonateOnNoFuel=Yes in retail WeaponObjects.ini. C++ rounds that
         // duration up to 11 logic frames and invokes its detonation weapon.
         let mut fuel_combat = CombatSystem::new();
         let mut fuel_objects = HashMap::new();
-        queue_projectile_direct(lifecycle_test_pending_projectile(
-            "DragonTankFlameProjectile",
-            None,
-            Vec3::new(10_000.0, 0.0, 0.0),
-        ));
+        queue_projectile_direct(
+            &mut fuel_combat,
+            lifecycle_test_pending_projectile(
+                "DragonTankFlameProjectile",
+                None,
+                Vec3::new(10_000.0, 0.0, 0.0),
+            ),
+        );
         drain_pending_projectiles(&mut fuel_combat, &fuel_objects, 0);
         for _ in 0..10 {
             let _ = fuel_combat.update_projectiles(1.0 / 30.0, &mut fuel_objects);
@@ -209,11 +215,14 @@ pub(in crate::game_logic) mod tests {
                 5.0,
             ),
         );
-        queue_projectile_direct(lifecycle_test_pending_projectile(
-            "PatriotMissile",
-            Some(target),
-            Vec3::new(10_000.0, 0.0, 0.0),
-        ));
+        queue_projectile_direct(
+            &mut target_loss_combat,
+            lifecycle_test_pending_projectile(
+                "PatriotMissile",
+                Some(target),
+                Vec3::new(10_000.0, 0.0, 0.0),
+            ),
+        );
         drain_pending_projectiles(&mut target_loss_combat, &target_loss_objects, 0);
         let projectile = target_loss_combat
             .projectiles_snapshot()
@@ -1174,10 +1183,10 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn pending_projectile_preserves_exhaust_and_frozen_fire_effect_context() {
-        let _combat_serial = combat_test_guard();
         let mut combat = CombatSystem::new();
+        let _combat_serial = combat_test_guard();
         let objects = HashMap::new();
-        queue_projectile(PendingProjectile {
+        queue_projectile(&mut combat, PendingProjectile {
             shooter_id: ObjectId(1),
             shooter_pos: Vec3::ZERO,
             source_context: Some(ProjectileLaunchContext {
@@ -1947,6 +1956,7 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn scatter_radius_offsets_aim_and_clears_target() {
+        let mut combat = CombatSystem::new();
         let _combat_serial = combat_test_guard();
         let mut objects = HashMap::new();
         let atk = ObjectId(80);
@@ -1962,8 +1972,7 @@ pub(in crate::game_logic) mod tests {
                 5.0,
             ),
         );
-        let mut combat = CombatSystem::new();
-        queue_projectile(PendingProjectile {
+        queue_projectile(&mut combat, PendingProjectile {
             shooter_id: atk,
             shooter_pos: Vec3::ZERO,
             source_context: None,
@@ -2019,6 +2028,7 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn scale_weapon_speed_slows_close_shots() {
+        let mut combat = CombatSystem::new();
         let _combat_serial = combat_test_guard();
         let mut objects = HashMap::new();
         let atk = ObjectId(90);
@@ -2035,8 +2045,7 @@ pub(in crate::game_logic) mod tests {
                 20.0,
             ),
         );
-        let mut combat = CombatSystem::new();
-        queue_projectile(PendingProjectile {
+        queue_projectile(&mut combat, PendingProjectile {
             shooter_id: atk,
             shooter_pos: Vec3::ZERO,
             source_context: None,
@@ -2090,7 +2099,7 @@ pub(in crate::game_logic) mod tests {
 
         // Far shot at max range → full speed.
         let mut combat2 = CombatSystem::new();
-        queue_projectile(PendingProjectile {
+        queue_projectile(&mut combat2, PendingProjectile {
             shooter_id: atk,
             shooter_pos: Vec3::ZERO,
             source_context: None,
@@ -2214,8 +2223,9 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn parsed_weapon_speed_advances_one_cpp_logic_frame_distance() {
+        let mut combat = CombatSystem::new();
         let _combat_serial = combat_test_guard();
-        clear_pending_projectile_queue_for_test();
+
         let parsed = parse_test_weapon_speed();
         assert_eq!(
             parsed.projectile_speed, 10.0,
@@ -2230,9 +2240,8 @@ pub(in crate::game_logic) mod tests {
         );
         pending.speed = parsed.projectile_speed;
         pending.speed_unit = ProjectileSpeedUnit::DistancePerLogicFrame;
-        queue_projectile_direct(pending);
+        queue_projectile_direct(&mut combat, pending);
 
-        let mut combat = CombatSystem::new();
         let mut objects = HashMap::new();
         drain_pending_projectiles(&mut combat, &objects, 0);
         let projectile = combat
@@ -2260,8 +2269,9 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn parsed_weapon_speed_uses_frame_units_for_authored_dumb_path() {
+        let mut combat = CombatSystem::new();
         let _combat_serial = combat_test_guard();
-        clear_pending_projectile_queue_for_test();
+
         crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
         let parsed = parse_test_weapon_speed();
         let start = Vec3::ZERO;
@@ -2301,9 +2311,8 @@ pub(in crate::game_logic) mod tests {
         pending.shooter_pos = start;
         pending.speed = parsed.projectile_speed;
         pending.speed_unit = ProjectileSpeedUnit::DistancePerLogicFrame;
-        queue_projectile_direct(pending);
+        queue_projectile_direct(&mut combat, pending);
 
-        let mut combat = CombatSystem::new();
         let mut objects = HashMap::new();
         drain_pending_projectiles(&mut combat, &objects, 0);
         let projectile = combat
@@ -2329,8 +2338,9 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn parsed_minimum_weapon_speed_scales_in_logic_frames_before_materialization() {
+        let mut combat = CombatSystem::new();
         let _combat_serial = combat_test_guard();
-        clear_pending_projectile_queue_for_test();
+
         let mut parsed = parse_test_weapon_speed();
         parsed.min_weapon_speed = 2.5;
         parsed.scale_weapon_speed = true;
@@ -2349,9 +2359,8 @@ pub(in crate::game_logic) mod tests {
         pending.scale_weapon_speed = parsed.scale_weapon_speed;
         pending.attack_range = parsed.range;
         pending.min_attack_range = parsed.min_range;
-        queue_projectile_direct(pending);
+        queue_projectile_direct(&mut combat, pending);
 
-        let mut combat = CombatSystem::new();
         let objects = HashMap::new();
         drain_pending_projectiles(&mut combat, &objects, 0);
         let projectile = combat
@@ -2364,17 +2373,17 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn materialized_missile_close_distance_uses_normalized_weapon_speed() {
+        let mut combat = CombatSystem::new();
         let _combat_serial = combat_test_guard();
-        clear_pending_projectile_queue_for_test();
+
         crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
         let parsed = parse_test_weapon_speed();
         let destination = Vec3::new(8.0, 0.0, 0.0);
         let mut pending = lifecycle_test_pending_projectile("PatriotMissile", None, destination);
         pending.speed = parsed.projectile_speed;
         pending.speed_unit = ProjectileSpeedUnit::DistancePerLogicFrame;
-        queue_projectile_direct(pending);
+        queue_projectile_direct(&mut combat, pending);
 
-        let mut combat = CombatSystem::new();
         let mut objects = HashMap::new();
         drain_pending_projectiles(&mut combat, &objects, 0);
         let projectile_id = combat
@@ -2408,10 +2417,10 @@ pub(in crate::game_logic) mod tests {
 
     #[test]
     fn projectileless_finite_speed_queues_leftover_delayed_damage() {
+        let mut combat = CombatSystem::new();
         let _combat_serial = combat_test_guard();
         ensure_unit_test_direct_damage();
-        clear_pending_projectile_queue_for_test();
-        clear_live_projectileless_delayed_for_test();
+
         crate::game_logic::host_historic_bonus::set_logic_frame(20);
         let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
         let parsed = parse_test_weapon_speed();
@@ -2438,12 +2447,10 @@ pub(in crate::game_logic) mod tests {
             ),
         );
         let hp0 = objects.get(&ObjectId(502)).unwrap().health.current;
-        let mut combat = CombatSystem::new();
-        queue_projectile_direct(projectileless_pending(
-            parsed.projectile_speed,
-            Vec3::new(100.0, 0.0, 0.0),
-            NAME,
-        ));
+        queue_projectile_direct(
+            &mut combat,
+            projectileless_pending(parsed.projectile_speed, Vec3::new(100.0, 0.0, 0.0), NAME),
+        );
         drain_pending_projectiles(&mut combat, &objects, 20);
         assert_eq!(
             combat.projectile_count(),
@@ -2454,7 +2461,7 @@ pub(in crate::game_logic) mod tests {
             leftover_delayed_damage_count_for_test() > leftover_before,
             "leftover WeaponStore setDelayedDamage must be queued"
         );
-        assert_eq!(live_projectileless_delayed_count_for_test(), 1);
+        assert_eq!(live_projectileless_delayed_count_for_test(&combat), 1);
 
         // C++ Weapon.cpp:1006: 100 units / parsed 10 units/frame = 10 frames.
         // Damage must still be pending immediately before frame 20 + 10.
@@ -2468,17 +2475,15 @@ pub(in crate::game_logic) mod tests {
             hp1 < hp0 - 1.0,
             "leftover delayed damage must apply on the live host ({hp0}->{hp1})"
         );
-        assert_eq!(live_projectileless_delayed_count_for_test(), 0);
-        clear_pending_projectile_queue_for_test();
-        clear_live_projectileless_delayed_for_test();
+        assert_eq!(live_projectileless_delayed_count_for_test(&combat), 0);
     }
 
     #[test]
     fn projectileless_subframe_delay_applies_same_frame() {
+        let mut combat = CombatSystem::new();
         let _combat_serial = combat_test_guard();
         ensure_unit_test_direct_damage();
-        clear_pending_projectile_queue_for_test();
-        clear_live_projectileless_delayed_for_test();
+
         crate::game_logic::host_historic_bonus::set_logic_frame(7);
         let leftover_before = leftover_delayed_damage_count_for_test();
 
@@ -2495,12 +2500,10 @@ pub(in crate::game_logic) mod tests {
             ),
         );
         let hp0 = objects.get(&ObjectId(502)).unwrap().health.current;
-        let mut combat = CombatSystem::new();
-        queue_projectile_direct(projectileless_pending(
-            10.0,
-            Vec3::new(5.0, 0.0, 0.0),
-            "Hq0c9b4CombatRifleNow",
-        ));
+        queue_projectile_direct(
+            &mut combat,
+            projectileless_pending(10.0, Vec3::new(5.0, 0.0, 0.0), "Hq0c9b4CombatRifleNow"),
+        );
         drain_pending_projectiles(&mut combat, &objects, 7);
         assert_eq!(combat.projectile_count(), 0);
         assert_eq!(
@@ -2511,15 +2514,14 @@ pub(in crate::game_logic) mod tests {
         apply_ready_projectileless_delayed_damage(&mut combat, &mut objects, 7, None);
         let hp1 = objects.get(&ObjectId(502)).unwrap().health.current;
         assert!(hp1 < hp0 - 1.0, "sub-frame projectileless must apply now");
-        clear_pending_projectile_queue_for_test();
-        clear_live_projectileless_delayed_for_test();
     }
 
     #[test]
     fn fire_at_projectileless_weapon_skips_dummy_projectile() {
+        let mut combat = CombatSystem::new();
         let _combat_serial = combat_test_guard();
         ensure_unit_test_direct_damage();
-        clear_pending_projectile_queue_for_test();
+
         crate::game_logic::host_historic_bonus::set_logic_frame(3);
         let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
         const NAME: &str = "Hq0c9b4CombatRifleFireAt";
@@ -2550,8 +2552,7 @@ pub(in crate::game_logic) mod tests {
             last_fire_time: -10.0,
             ..Weapon::default()
         });
-        assert!(atk.fire_at(ObjectId(2), 1.0));
-        let mut combat = CombatSystem::new();
+        assert!(atk.fire_at(ObjectId(2), 1.0, 3, &mut combat));
         let mut objects = HashMap::new();
         objects.insert(
             ObjectId(2),
@@ -2568,8 +2569,6 @@ pub(in crate::game_logic) mod tests {
 
         assert_eq!(combat.projectile_count(), 0);
         assert!(leftover_delayed_damage_count_for_test() > leftover_before);
-        clear_pending_projectile_queue_for_test();
-        clear_live_projectileless_delayed_for_test();
     }
 
     #[test]

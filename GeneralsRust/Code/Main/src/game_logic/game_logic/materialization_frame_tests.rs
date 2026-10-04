@@ -1,5 +1,6 @@
 //! Clock ownership at the actual host materialization boundary. The global
-//! queues remain separate migration debt; each test drains only its own shot.
+//! coupled shadow log remains separate migration debt; accepted and materialized delayed
+//! damage belongs to the accepting CombatSystem.
 //! C++ JetAIUpdate.cpp:2057-2074 and Weapon.cpp:804-817,998-1063.
 
 use super::*;
@@ -23,8 +24,6 @@ impl RestoreCombatInputs {
             // into another test, including when the RED assertion panics.
             weapon_store: gamelogic::weapon::with_weapon_store_mut(std::mem::take).ok(),
         };
-        clear_pending_projectile_queue_for_test();
-        clear_live_projectileless_delayed_for_test();
         gameworld_authority::publish_gameworld_authority(GameWorldAuthority::DEFAULT_OFF);
         saved
     }
@@ -32,8 +31,6 @@ impl RestoreCombatInputs {
 
 impl Drop for RestoreCombatInputs {
     fn drop(&mut self) {
-        clear_pending_projectile_queue_for_test();
-        clear_live_projectileless_delayed_for_test();
         if let Some(previous) = self.weapon_store.take() {
             gamelogic::weapon::with_weapon_store_mut(|store| *store = previous)
                 .expect("restore the previously initialized weapon store");
@@ -83,7 +80,13 @@ fn aurora_world(frame: u32) -> (GameLogic, ObjectId, ObjectId) {
     (world, source, target)
 }
 
-fn queue_shot(world: &GameLogic, source: ObjectId, target: ObjectId, projectile: &str, speed: f32) {
+fn queue_shot(
+    world: &mut GameLogic,
+    source: ObjectId,
+    target: ObjectId,
+    projectile: &str,
+    speed: f32,
+) {
     let mut pending = lifecycle_test_pending_projectile(
         projectile,
         Some(target),
@@ -98,7 +101,7 @@ fn queue_shot(world: &GameLogic, source: ObjectId, target: ObjectId, projectile:
     pending.damage = 40.0;
     pending.damage_type = DamageType::Bullet;
     pending.detonation_fx_name.clear();
-    queue_projectile_direct(pending);
+    queue_projectile_direct(&mut world.combat_system, pending);
 }
 
 /// Exercise the actual materialization boundary without publishing the clock.
@@ -121,7 +124,7 @@ fn active_aurora_materializes_using_driving_frame_not_other_world_clock() {
     assert!((offset.length() - 20.0).abs() < 0.001);
     let expected = aurora.get_position() + offset;
     crate::game_logic::host_historic_bonus::set_logic_frame(second.frame);
-    queue_shot(&first, source, target, "PatriotMissile", 10.0);
+    queue_shot(&mut first, source, target, "PatriotMissile", 10.0);
     let frame = first.frame;
     materialize(&mut first, frame);
     let shots = first.combat_system.projectiles_snapshot();
@@ -160,7 +163,7 @@ fn expired_aurora_materializes_using_driving_frame_not_other_world_clock() {
     );
     let expected = first.objects[&target].get_position();
     crate::game_logic::host_historic_bonus::set_logic_frame(second.frame);
-    queue_shot(&first, source, target, "PatriotMissile", 10.0);
+    queue_shot(&mut first, source, target, "PatriotMissile", 10.0);
     let frame = first.frame;
     materialize(&mut first, frame);
     let shots = first.combat_system.projectiles_snapshot();
@@ -213,11 +216,14 @@ fn delayed_projectileless_due_frame_belongs_to_materializing_world() {
     let hp = first.objects[&target].health.current;
     let other_hp = second.objects[&other_target].health.current;
     crate::game_logic::host_historic_bonus::set_logic_frame(second.frame);
-    queue_shot(&first, source, target, "", 10.0);
+    queue_shot(&mut first, source, target, "", 10.0);
     let frame = first.frame;
     materialize(&mut first, frame);
     assert_eq!(first.combat_system.projectile_count(), 0);
-    assert_eq!(live_projectileless_delayed_count_for_test(), 1);
+    assert_eq!(
+        live_projectileless_delayed_count_for_test(&first.combat_system),
+        1
+    );
     apply(&mut first, 102);
     assert_eq!(
         first.objects[&target].health.current, hp,
@@ -228,7 +234,10 @@ fn delayed_projectileless_due_frame_belongs_to_materializing_world() {
         first.objects[&target].health.current < hp,
         "damage is due at owner frame100+3"
     );
-    assert_eq!(live_projectileless_delayed_count_for_test(), 0);
+    assert_eq!(
+        live_projectileless_delayed_count_for_test(&first.combat_system),
+        0
+    );
     assert_eq!(second.objects[&other_target].health.current, other_hp);
 }
 
@@ -244,16 +253,25 @@ fn immediate_projectileless_damage_belongs_to_materializing_world_frame() {
     let other_hp = second.objects[&other_target].health.current;
     crate::game_logic::host_historic_bonus::set_logic_frame(second.frame);
     // Thirty units / one hundred units per frame is sub-frame travel.
-    queue_shot(&first, source, target, "", 100.0);
+    queue_shot(&mut first, source, target, "", 100.0);
     let frame = first.frame;
     materialize(&mut first, frame);
     assert_eq!(first.combat_system.projectile_count(), 0);
-    assert_eq!(live_projectileless_delayed_count_for_test(), 1);
+    assert_eq!(
+        live_projectileless_delayed_count_for_test(&first.combat_system),
+        1
+    );
     apply(&mut first, frame);
     assert!(
         first.objects[&target].health.current < hp,
         "sub-frame shot applies this logic frame"
     );
-    assert_eq!(live_projectileless_delayed_count_for_test(), 0);
+    assert_eq!(
+        live_projectileless_delayed_count_for_test(&first.combat_system),
+        0
+    );
     assert_eq!(second.objects[&other_target].health.current, other_hp);
 }
+
+#[path = "delayed_queue_owner_tests.rs"]
+mod delayed_queue_owner_tests;

@@ -425,7 +425,7 @@ mod scoped_publication_tests {
         assert!(!gameworld_fire_spawn_authority_enabled());
 
         host_fire_spawn_log::clear();
-        combat::clear_pending_projectile_queue_for_test();
+        combat::clear_pending_projectile_queue_for_test(&mut logic.combat_system);
         host_fire_spawn_log::record(PendingProjectile {
             shooter_id: ObjectId(1),
             shooter_pos: glam::Vec3::ZERO,
@@ -485,7 +485,7 @@ mod scoped_publication_tests {
         assert!(!gameworld_fire_spawn_authority_enabled());
 
         host_fire_spawn_log::clear();
-        combat::clear_pending_projectile_queue_for_test();
+        combat::clear_pending_projectile_queue_for_test(&mut logic.combat_system);
         match prev_shadow {
             Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
             None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),

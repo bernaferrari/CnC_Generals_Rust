@@ -425,11 +425,16 @@ impl GameLogic {
         }
         let team = attacker.team;
         let fire_pos = attacker.get_position();
-        let ground_range = attacker.weapon.as_ref().map(|w| w.range).unwrap_or(0.0);
+        let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+        let ground_range = attacker
+            .weapon
+            .as_ref()
+            .map(|w| (attacker.effective_weapon_range_for_slot(0, w.range) - under).max(0.0))
+            .unwrap_or(0.0);
         let air_range = attacker
             .secondary_weapon
             .as_ref()
-            .map(|w| w.range)
+            .map(|w| (attacker.effective_weapon_range_for_slot(1, w.range) - under).max(0.0))
             .unwrap_or(0.0);
         // Scan range residual: dual-slot defenses use max(primary, secondary) so AA
         // can acquire out to air range while ground stays at primary range.

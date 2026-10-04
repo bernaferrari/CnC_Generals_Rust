@@ -1093,13 +1093,13 @@ fn neutron_shell_residual_upgrade_and_blast() {
             "cannon must equip neutron secondary after upgrade"
         );
         let sec = c.secondary_weapon.as_ref().unwrap();
-        // Retail AttackRange 350 rationalized −¼ pathfind cell
-        // (Weapon.cpp:437-462 RATIONALIZE_ATTACK_RANGE) = 347.5.
         assert!(
-            (sec.range - 347.5).abs() < 0.01,
-            "neutron secondary range residual 347.5, got {}",
+            (sec.range - 350.0).abs() < 0.01,
+            "neutron secondary authored AttackRange 350, got {}",
             sec.range
         );
+        assert!(c.is_within_attack_range_at_distance(1, 347.5));
+        assert!(!c.is_within_attack_range_at_distance(1, 347.51));
     }
 
     // Fire secondary at infantry location (slot lock residual).

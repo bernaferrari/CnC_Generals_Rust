@@ -81,6 +81,7 @@ fn previous_acceleration_survives_clone_and_object_serde_round_trip() {
 
 #[test]
 fn return_to_base_blocks_fire_until_rearm() {
+    let mut shot_combat = crate::game_logic::combat::CombatSystem::new();
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
     use glam::Vec3;
     let mut tmpl = ThingTemplate::new("AmericaJetRaptor");
@@ -102,12 +103,12 @@ fn return_to_base_blocks_fire_until_rearm() {
         ..Weapon::default()
     });
     let tgt = ObjectId(9);
-    assert!(jet.fire_at(tgt, 1.0));
+    assert!(jet.fire_at(tgt, 1.0, 0, &mut shot_combat));
     assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(1));
-    assert!(jet.fire_at(tgt, 1.0));
+    assert!(jet.fire_at(tgt, 1.0, 0, &mut shot_combat));
     assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(0));
     assert!(jet.needs_return_to_base_rearm());
-    assert!(!jet.fire_at(tgt, 2.0));
+    assert!(!jet.fire_at(tgt, 2.0, 0, &mut shot_combat));
     assert!(!Object::weapon_ready_named(
         jet.weapon.as_ref().unwrap(),
         2.0,
@@ -116,7 +117,7 @@ fn return_to_base_blocks_fire_until_rearm() {
     ));
     assert!(jet.rearm_return_to_base_weapons());
     assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(2));
-    assert!(jet.fire_at(tgt, 3.0));
+    assert!(jet.fire_at(tgt, 3.0, 0, &mut shot_combat));
     assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(1));
 }
 

@@ -127,7 +127,9 @@ impl GameLogic {
             }
             // C++ Weapon::isWithinAttackRange / getAttackRange applies
             // WEAPONBONUSCONDITION_GARRISONED RANGE 133% (not raw PrimaryAttackRange).
-            let range = attacker.effective_weapon_range(weapon.range);
+            let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+            let range =
+                (attacker.effective_weapon_range_for_slot(slot, weapon.range) - under).max(0.0);
             let dist = fire_pos.distance(cand.position);
             if dist > range {
                 continue;

@@ -74,6 +74,8 @@ impl GameLogic {
         } else {
             weapon.range
         };
+        let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+        let range = (range - under).max(0.0);
         let damage = weapon.damage;
         let passenger_index = container
             .contained_units()

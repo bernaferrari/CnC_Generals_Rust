@@ -597,7 +597,7 @@ impl GameLogic {
             *store = specs.clone();
         }
         if let Some(local) = self.host_local_player() {
-            if let Ok(mut shroud) = std::sync::Arc::clone(self.engine_stores.shroud()).lock() {
+            if let Ok(mut shroud) = self.engine_stores.shroud().lock() {
                 shroud.refresh_radar_shroud_for_player(local.id);
             }
         }

@@ -454,7 +454,7 @@ fn projectiles_step_inside_game_logic_update() {
     logic.objects.insert(shooter, s);
     logic.objects.insert(target, t);
 
-    crate::game_logic::combat::queue_projectile(crate::game_logic::combat::PendingProjectile {
+    crate::game_logic::combat::queue_projectile(&mut logic.combat_system, crate::game_logic::combat::PendingProjectile {
         shooter_id: shooter,
         shooter_pos: glam::Vec3::ZERO,
         source_context: None,

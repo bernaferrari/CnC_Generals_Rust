@@ -1886,10 +1886,16 @@ impl GameLogic {
                         if !attacker.can_attack() {
                             // leave unarmed units alone
                         } else {
+                            let under =
+                                crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
                             let range = attacker
                                 .selected_weapon_slot()
-                                .and_then(|slot| attacker.weapon_slot(slot))
-                                .map(|w| attacker.effective_weapon_range(w.range))
+                                .and_then(|slot| attacker.weapon_slot(slot).map(|w| (slot, w)))
+                                .map(|(slot, w)| {
+                                    (attacker.effective_weapon_range_for_slot(slot, w.range)
+                                        - under)
+                                        .max(0.0)
+                                })
                                 .unwrap_or(50.0);
                             let from = attacker.get_position();
                             let mut dir = tpos - from;
