@@ -18720,6 +18720,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_operation_order_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/sparse_match_finder.rs"
             },
@@ -18962,6 +18967,11 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_declaration_order_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_operation_order_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -20346,6 +20356,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/display_string.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/display_string/font_identity_tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/DisplayString.cpp",
@@ -188807,7 +188822,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "828b35a6729c23b461c65b2ee62149d3484f16972708ba027e7be886b61a3982",
+  "provenance_input_digest": "e0e813efa1fab75dd4a7b16ea9c95fda68cae09f310e786d1f8b3ae333183abb",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,
