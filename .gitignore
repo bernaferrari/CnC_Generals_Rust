@@ -46,6 +46,7 @@ __pycache__/
 # Local retail/extracted game data — never commit
 /windows_game/
 /GeneralsRust/windows_game/
+/GeneralsRust/Code/Main/assets/*.big
 
 # w3d_to_gltf is a normal workspace crate. Keep local retail inputs, generated
 # converter output, and the recovered standalone-repository metadata out of

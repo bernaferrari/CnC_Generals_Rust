@@ -40,9 +40,12 @@ impl Win32BIGFileSystem {
         // Load BIG files from current directory - matches C++ line 61
         self.loadBigFilesFromDirectory("".to_string(), "*.big".to_string(), false);
         
-        // Load original Generals assets from assets directory - matches C++ InstallPath logic
-        // Check multiple possible asset locations
+        // Prefer the local retail install so game archives stay outside the repository.
+        // Check the repository install from common working directories before source assets.
         let asset_paths = [
+            "windows_game/Command & Conquer Generals Zero Hour/Data",
+            "../windows_game/Command & Conquer Generals Zero Hour/Data",
+            "../../../windows_game/Command & Conquer Generals Zero Hour/Data",
             "assets",
             "GeneralsRust/Code/Main/assets",
             "../assets",
@@ -243,4 +246,3 @@ mod tests {
         assert_eq!(fs.config.max_concurrent_files, 5);
     }
 }
-
