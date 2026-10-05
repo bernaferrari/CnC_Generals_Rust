@@ -168,7 +168,6 @@ impl GameLogic {
                             victim_pos,
                             victim_team,
                             wname.as_deref(),
-                            20.0,
                         );
                     }
                 }
@@ -1527,36 +1526,26 @@ impl GameLogic {
                             .map(|a| a.get_position())
                             .unwrap_or(target_position);
                         if !at_self {
-                            if let Some(target) = self.objects.get_mut(&target_id) {
-                                if target.get_sneaky_targeting_offset(self.frame).is_some() {
-                                    // C++ fireWeaponTemplate clears victimObj; the shot
-                                    // flies at the offset point and does not connect.
-                                } else {
-                                    let destroyed = target.take_damage_with_context(
-                                        weapon_damage,
-                                        Some(attacker_id),
-                                        damage_type,
-                                        death_type,
-                                        None,
-                                        self.frame,
-                                        &context,
-                                    );
-                                    if destroyed {
-                                        // C++ parity: XP is victim ExperienceValue at current level.
-                                        let kill_xp = target.kill_experience_value();
-                                        let victim_pos = target.get_position();
-                                        let victim_team = target.team;
-                                        self.mark_object_for_destruction(
-                                            target_id,
-                                            Some(attacker_team),
-                                        );
+                            let admitted = self.objects.get(&target_id).is_some_and(|target| {
+                                target.get_sneaky_targeting_offset(self.frame).is_none()
+                            });
+                            if admitted {
+                                if let Some(result) = self.apply_owned_damage(
+                                    target_id,
+                                    weapon_damage,
+                                    Some(attacker_id),
+                                    damage_type,
+                                    death_type,
+                                    None,
+                                    &context,
+                                ) {
+                                    if result.destroyed {
                                         self.continue_or_stop_after_kill(
                                             attacker_id,
                                             target_id,
-                                            victim_pos,
-                                            victim_team,
+                                            result.victim_position,
+                                            result.victim_team,
                                             fire_wname.as_deref(),
-                                            kill_xp,
                                         );
                                     }
                                 }

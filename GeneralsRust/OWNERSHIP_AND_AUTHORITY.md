@@ -2487,8 +2487,10 @@ deliberately not done until an ownership record needs to cite one.
 ## Explicit hit inputs, controlled poses and native helper ownership (2026-10-05)
 
 Main synchronous combat now owns a DamageHitContext per impact. Source template,
-ObjectId, veterancy and position are captured before the victim mutable borrow;
-splash victims borrow one capture. Authored status is the original ObjectStatusTypes
+ObjectId, veterancy and position are captured before the victim mutable borrow for
+pre-damage consumers; existing CombatSystem splash victims borrow one capture.
+Ordinary direct/ground owned damage refreshes source facts after credit/onDie for
+armor FX, as explained below. Authored status is the original ObjectStatusTypes
 enum. No current-hit publication, implicit consumption or clear guard remains:
 HIVE_SHOOTER_XZ, PENDING_DAMAGE_STATUS and DAMAGE_FX_SOURCE are removed. The impact
 frame reaches every armor-FX dispatch and current default direct/ground/bunker
@@ -2576,3 +2578,56 @@ The lifecycle envelope omission audit now identifies ten actual unencoded fields
 including transfer/subdual inputs and prior health. Correcting its stale audit
 expectations does not credit those fields as persisted. Their original Xfer and
 real phase-boundary continuation are tracked separately from current save gates.
+
+### Owned synchronous ordinary damage phases (2026-10-05)
+
+C++ ActiveBody.cpp585–653 runs damage/body-state callbacks and fear before eligible
+kill credit, then onDie, then DamageFX.cpp63/87 reads the source's current rank.
+The Main ordinary direct and ground branches now follow those explicit phases.
+An owned, non-Clone DamageApplication is consumed synchronously: mutate victim,
+release its borrow, award through the existing once-only enemy/construction/XP-sink
+gates, run death while the victim remains installed, observe the actual source
+again, and complete FX. Nothing waits for the next tick or uses a current-hit slot.
+Retarget position/team observations remain after body callbacks and before onDie.
+The unused kill-XP parameter and result copy were removed; actual scoring always
+reads the authoritative victim through the existing owner.
+
+Ordinary repulsor work follows armor FX. Undead second life follows first-life
+armor FX and restores final healthy body/model state. A bridge's true lethal phase
+now receives credit/onDie, while its existing final false result still suppresses
+this caller's retarget branch. The current second-life helper emits StartUndeath
+FX before its healthy model refresh; complete healthy-transition/effect-order parity
+remains unverified. No new snapshot fields, raw pointer, mutex or TLS is added.
+
+Accepted parsed direct attacks reproduce the old promotion-dependent FX/list
+and throttle discrepancy. The initial ground witness stopped at a separate
+double-ammo assertion, so it provides no ground FX-specific OLD evidence.
+Nonlethal, no-promotion, XP-sink and allied forced-kill controls retain their
+distinct contracts. Standalone Object wrappers immediately
+finish without a world kill-credit owner. Specialized Complete branches retain
+their prior effects. CombatSystem projectile direct/splash and other residual hit
+producers still need the same per-victim owner seam; batching tails after all hits
+would change C++ visibility/order and is not an accepted substitute.
+
+Actual Avenger primary attacks also honor the admitted status enum instead of
+manufacturing paint from source class. NONE/another status cannot become FAERIE_FIRE.
+The retained FAERIE branch still has a fixed six-frame duration and bypasses generic
+armor/bookkeeping/FX; its factory numeric override and zero-duration fallback seed
+admission remain separate authored-flow gaps.
+
+### One finalizer for an accepted ground shot (2026-10-05)
+
+C++ Weapon.cpp2692–2703 sends both Object and position targets through the same
+privateFireWeapon. Its accepted-shot bookkeeping consumes one round and advances
+one barrel at2617–2623. Main's ground branch duplicated the common successful-shot
+finalizer, consuming two rounds and publishing two accepted cues. A new actual
+empty-ground command regression fails on the old code at ammo6 rather than7 from
+a clip of8, independently of victim damage or promotion.
+
+The ground branch now leaves ammo, automatic reload, temporary-slot unlocking,
+stealth disruption and accepted cue/barrel recording to the existing common
+finalizer. Ground-specific max-shot and target/force/AI/turret cleanup retain their
+existing boundary and order. The common finalizer captures the actual fired slot
+and pre-advance barrel before consuming ammo. This bounded correction adds no
+state or synchronization. Full original fire-template effect ordering, generic
+max-shot scheduling and native Weapon ownership remain separate contracts.

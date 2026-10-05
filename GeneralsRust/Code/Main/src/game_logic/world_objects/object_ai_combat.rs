@@ -390,7 +390,7 @@ impl GameLogic {
         };
 
         // Apply damage to target (BodyModule last_damage_source residual).
-        let (destroyed, kill_xp, victim_pos, victim_team, hp_lost) = {
+        let (destroyed, victim_pos, victim_team, hp_lost) = {
             let Some(target) = self.objects.get_mut(&target_id) else {
                 return;
             };
@@ -398,12 +398,11 @@ impl GameLogic {
             let destroyed = target.take_damage_from(weapon_damage, Some(attacker_id));
             let hp_lost = (before - target.health.current).max(0.0);
             if destroyed {
-                let kill_xp = target.kill_experience_value();
                 let victim_pos = target.get_position();
                 let victim_team = target.team;
-                (true, kill_xp, victim_pos, victim_team, hp_lost)
+                (true, victim_pos, victim_team, hp_lost)
             } else {
-                (false, 0.0, glam::Vec3::ZERO, Team::Neutral, hp_lost)
+                (false, glam::Vec3::ZERO, Team::Neutral, hp_lost)
             }
         };
         // C++ Object.cpp:1846-1854 then TheRadar->tryUnderAttackEvent(this).
@@ -430,7 +429,6 @@ impl GameLogic {
                 victim_pos,
                 victim_team,
                 wname.as_deref(),
-                kill_xp,
             );
         }
     }

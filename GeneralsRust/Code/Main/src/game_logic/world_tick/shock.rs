@@ -1160,11 +1160,9 @@ impl GameLogic {
         original_victim_pos: glam::Vec3,
         victim_team: Team,
         weapon_name: Option<&str>,
-        kill_xp: f32,
     ) {
-        // C++ scores in ActiveBody; mark_object_for_destruction awards from
-        // last_damage_source. Keep this for callers that skip mark.
-        let _ = kill_xp;
+        // The owned damage executor scores before onDie/FX. Retain once-only
+        // credit for residual callers that have not migrated to that executor.
         self.award_score_the_kill_experience(attacker_id, dead_victim_id);
         let cont = weapon_name
             .map(crate::game_logic::weapon_bootstrap::host_continue_attack_range_for_weapon_name)

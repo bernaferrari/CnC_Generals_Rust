@@ -3201,6 +3201,7 @@ mod bonuses;
 mod construct;
 pub(crate) use construct::template_has_worker_ai_update;
 mod damage;
+pub(in crate::game_logic) use damage::DamageApplication;
 pub(crate) use damage::record_neutral_vehicle_sniped;
 mod death;
 #[cfg(test)]
@@ -3273,6 +3274,7 @@ pub const OBJECT_SRC: &str = concat!(
     include_str!("bonuses.rs"),
     include_str!("construct.rs"),
     include_str!("damage.rs"),
+    include_str!("damage/application.rs"),
     include_str!("death.rs"),
     include_str!("install.rs"),
     include_str!("jets.rs"),

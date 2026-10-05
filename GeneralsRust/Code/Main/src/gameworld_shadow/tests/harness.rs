@@ -59,6 +59,7 @@ pub const GAME_LOGIC_HOST_SRC: &str = concat!(
     include_str!("../../game_logic/world_objects/object_queries.rs"),
     include_str!("../../game_logic/world_objects/create_destroy_die.rs"),
     include_str!("../../game_logic/world_objects/create_destroy_die/death.rs"),
+    include_str!("../../game_logic/world_objects/damage_application.rs"),
     include_str!("../../game_logic/world_objects/host_ops_writeback.rs"),
     include_str!("../../game_logic/world_objects/ai_authority.rs"),
     include_str!("../../game_logic/world_objects/support_states/mod.rs"),

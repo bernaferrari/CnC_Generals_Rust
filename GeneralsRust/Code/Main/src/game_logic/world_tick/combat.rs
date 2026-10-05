@@ -9,6 +9,9 @@ mod ground_target;
 mod object_hit;
 mod object_target;
 
+#[cfg(test)]
+mod damage_promotion_fx_tests;
+
 /// Only facts already copied by the old per-attacker loop. This value is
 /// synchronous call input, not a second object state or service context.
 #[derive(Clone, Copy)]

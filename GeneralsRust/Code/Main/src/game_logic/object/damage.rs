@@ -1,5 +1,9 @@
 use super::*;
 
+mod application;
+use application::ActiveDamageContinuation;
+pub(in crate::game_logic) use application::DamageApplication;
+
 impl Object {
     pub fn take_damage_from(&mut self, damage: f32, source: Option<ObjectId>) -> bool {
         self.take_damage_from_typed(
@@ -178,7 +182,8 @@ impl Object {
         )
     }
 
-    /// One synchronous impact. Context belongs to the caller, including across early returns.
+    /// Standalone Object calls have no world kill-credit owner; finish immediately.
+    /// World combat uses begin_damage_with_context through apply_owned_damage.
     pub(in crate::game_logic) fn take_damage_with_context(
         &mut self,
         damage: f32,
@@ -189,45 +194,68 @@ impl Object {
         frame: u32,
         context: &DamageHitContext,
     ) -> bool {
+        let application = self.begin_damage_with_context(
+            damage,
+            source,
+            damage_type,
+            death_type,
+            fx_override,
+            frame,
+            context,
+        );
+        application.finish(self, context.source())
+    }
+
+    /// Mutate one impact and return its owned synchronous completion.
+    pub(in crate::game_logic) fn begin_damage_with_context(
+        &mut self,
+        damage: f32,
+        source: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        fx_override: Option<crate::game_logic::combat::DamageType>,
+        frame: u32,
+        context: &DamageHitContext,
+    ) -> DamageApplication {
         // C++ InactiveBody::attemptDamage (InactiveBody.cpp:53-86): no HP except
         // DAMAGE_UNRESISTABLE (onDie once, never DamageFX).
         if self.is_inactive_body() {
-            return self.apply_inactive_body_damage(damage_type);
+            return DamageApplication::Complete(self.apply_inactive_body_damage(damage_type));
         }
         // C++ HiveStructureBody::attemptDamage (HiveStructureBody.cpp:45-112):
         // propagate SMALL_ARMS/SNIPER/POISON/RADIATION/SURRENDER/MICROWAVE to
         // closest slave; swallow SNIPER/POISON/SURRENDER when none remain.
         if self.try_hive_structure_body_damage(damage, source, damage_type, frame, context) {
-            return false;
+            return DamageApplication::Complete(false);
         }
         // C++ ActiveBody::attemptDamage (ActiveBody.cpp:329-330) bails before
         // type switch / armor / HP when m_indestructible.
         if self.indestructible {
-            return false;
+            return DamageApplication::Complete(false);
         }
         // C++ ActiveBody::attemptDamage returns on isEffectivelyDead before the
         // damage-type switch. Healing stays later so bridge rubble can revive.
         if self.status.effectively_dead
             && !matches!(damage_type, crate::game_logic::combat::DamageType::Healing)
         {
-            return false;
+            return DamageApplication::Complete(false);
         }
 
         // C++ DAMAGE_DISARM residual: destroy mine without detonation splash.
         if matches!(damage_type, crate::game_logic::combat::DamageType::Disarm) {
             let _ = (source, death_type, damage);
-            return self.disarm_mine_safe();
+            return DamageApplication::Complete(self.disarm_mine_safe());
         }
         // C++ DAMAGE_DEPLOY residual: no HP on victim.
         // AssaultTransportAI::beginAssault is source-side (GameLogic combat path).
         if matches!(damage_type, crate::game_logic::combat::DamageType::Deploy) {
             let _ = (source, death_type, damage);
-            return false;
+            return DamageApplication::Complete(false);
         }
         // C++ DAMAGE_HACK residual: fire does not deal HP (effect is timer-driven).
         if matches!(damage_type, crate::game_logic::combat::DamageType::Hack) {
             let _ = (source, death_type, damage);
-            return false;
+            return DamageApplication::Complete(false);
         }
         // C++ DAMAGE_KILL_GARRISONED residual: structure HP untouched; occupants
         // cleared by GameLogic using pending kill count = floor(amount).
@@ -250,7 +278,7 @@ impl Object {
                 context.source(),
             );
             let _ = (source, death_type);
-            return false;
+            return DamageApplication::Complete(false);
         }
         // DAMAGE_PENALTY: normal HP path (no special intercept).
         // C++ DAMAGE_HEALING residual: restore HP via attemptHealing; never destroys.
@@ -260,10 +288,10 @@ impl Object {
             let _ = death_type;
             let is_bridge = self.is_host_bridge_member();
             if self.status.effectively_dead && !is_bridge {
-                return false;
+                return DamageApplication::Complete(false);
             }
             if self.status.destroyed && !self.status.keep_as_rubble && !is_bridge {
-                return false;
+                return DamageApplication::Complete(false);
             }
             let slow_dying = self.slow_death.as_ref().is_some_and(|s| s.is_active())
                 || self.jet_slow_death.as_ref().is_some_and(|j| j.is_active())
@@ -272,7 +300,7 @@ impl Object {
                     .as_ref()
                     .is_some_and(|h| h.is_active());
             if !is_bridge && (self.status.keep_as_rubble || slow_dying) {
-                return false;
+                return DamageApplication::Complete(false);
             }
             if is_bridge {
                 self.revive_from_bridge_rubble();
@@ -315,7 +343,7 @@ impl Object {
                 frame,
                 context.source(),
             );
-            return false;
+            return DamageApplication::Complete(false);
         }
         // DAMAGE_WATER: normal HP damage path (type distinguishes FX in C++).
         if matches!(
@@ -363,7 +391,7 @@ impl Object {
                         if self.is_kind_of(crate::game_logic::KindOf::Vehicle) {
                             record_neutral_vehicle_sniped();
                         }
-                        return true;
+                        return DamageApplication::Complete(true);
                     }
                     self.occupants.clear();
                     self.rider_change_scuttled_on_frame =
@@ -381,7 +409,7 @@ impl Object {
                     if self.is_kind_of(crate::game_logic::KindOf::Vehicle) {
                         record_neutral_vehicle_sniped();
                     }
-                    return false;
+                    return DamageApplication::Complete(false);
                 }
                 if self.is_car_bomb() {
                     // Detonation handled by combat caller; mark unmanned edge.
@@ -403,7 +431,7 @@ impl Object {
                 context.source(),
             );
             let _ = (source, death_type);
-            return false;
+            return DamageApplication::Complete(false);
         }
 
         // C++ DAMAGE_MICROWAVE (Damage.h:63) is ordinary HP through armor.
@@ -430,7 +458,7 @@ impl Object {
                 context.source(),
             );
             let _ = (source, death_type);
-            return false;
+            return DamageApplication::Complete(false);
         }
         // C++ DAMAGE_STATUS residual: amount is duration msec, not hitpoints.
         if matches!(damage_type, crate::game_logic::combat::DamageType::Status) {
@@ -461,10 +489,10 @@ impl Object {
                 context.source(),
             );
             let _ = (source, death_type);
-            return false;
+            return DamageApplication::Complete(false);
         }
 
-        self.take_damage_from_typed_death_with_host_hp_at_frame(
+        self.begin_damage_from_typed_death_with_host_hp_at_frame(
             damage,
             source,
             damage_type,
@@ -508,23 +536,47 @@ impl Object {
         frame: u32,
         context: &DamageHitContext,
     ) -> bool {
+        let application = self.begin_damage_from_typed_death_with_host_hp_at_frame(
+            damage,
+            source,
+            damage_type,
+            death_type,
+            force_host_hp,
+            fx_override,
+            frame,
+            context,
+        );
+        application.finish(self, context.source())
+    }
+
+    fn begin_damage_from_typed_death_with_host_hp_at_frame(
+        &mut self,
+        damage: f32,
+        source: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        force_host_hp: bool,
+        fx_override: Option<crate::game_logic::combat::DamageType>,
+        frame: u32,
+        context: &DamageHitContext,
+    ) -> DamageApplication {
         if self.status.destroyed {
-            return false;
+            return DamageApplication::Complete(false);
         }
         if self.is_inactive_body() {
-            return self.apply_inactive_body_damage(damage_type);
+            return DamageApplication::Complete(self.apply_inactive_body_damage(damage_type));
         }
         // C++ ActiveBody::attemptDamage returns when isEffectivelyDead,
         // before armor, repulsor, and onDie.
         if self.status.effectively_dead {
-            return false;
+            return DamageApplication::Complete(false);
         }
         // OCL InvulnerableTime residual (post-eject pilot shield).
         if self.status.eject_invulnerable {
-            return false;
+            return DamageApplication::Complete(false);
         }
         if self.try_hive_structure_body_damage(damage, source, damage_type, frame, context) {
-            return false;
+            return DamageApplication::Complete(false);
         }
         let prev_health = self.health.current;
         let old_body_state = self.body_damage_state;
@@ -589,7 +641,7 @@ impl Object {
             if battle_bus_start_second {
                 self.start_battle_bus_second_life_at_frame(frame);
             }
-            return false;
+            return DamageApplication::Complete(false);
         }
 
         // C++ ActiveBody::attemptDamage: ArmorTemplate::adjustDamage, then
@@ -609,17 +661,6 @@ impl Object {
         } else {
             typed * battle_plan_armor
         };
-
-        // C++ ActiveBody: damaged CAN_BE_REPULSED civilians scare others when EnableRepulsors.
-        // Object::setStatus(REPULSOR) + ObjectRepulsorHelper sleepUntil(+2 sec).
-        if crate::game_logic::host_repulsor_gate::is_enabled()
-            && self.is_kind_of(KindOf::CanBeRepulsed)
-            && !self.status.repulsor
-        {
-            // C++ Object::setStatus sleeps the helper only when the bit changes.
-            self.repulsor_until_frame = 60; // 2 seconds @ 30Hz
-            self.set_status_repulsor(true);
-        }
 
         // C++ ImmortalBody::internalChangeHealth (ImmortalBody.cpp:31-37):
         // delta = max(delta, -getHealth()+1) — never below 1, never dead.
@@ -651,7 +692,7 @@ impl Object {
             .mine_data
             .as_ref()
             .is_some_and(|md| md.defers_lethal_body_destroy());
-        let mut destroyed = if actual_damage > 0.0
+        let destroyed = if actual_damage > 0.0
             && prev_health > 0.0
             && !self.health.is_alive()
             && !defer_mine_death
@@ -691,20 +732,6 @@ impl Object {
         if let Some(src) = source {
             crate::game_logic::host_attacked_by_log::record(self.id, src);
         }
-        let fx_type = fx_override.unwrap_or(damage_type);
-        let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
-            self,
-            fx_type,
-            actual_damage,
-            frame,
-            context.source(),
-        );
-
-        // C++ UndeadBody::startSecondLife after ActiveBody::attemptDamage residual.
-        if battle_bus_start_second {
-            self.start_battle_bus_second_life_at_frame(frame);
-        }
-
         // C++ PoisonedBehavior::onDamage residual.
         if actual_damage > 0.0 {
             self.notify_poisoned_on_damage(frame, damage_type, actual_damage, death_type);
@@ -749,22 +776,6 @@ impl Object {
         }
 
         self.refresh_model_condition_bits_with_source(context.source());
-        if self.is_host_bridge_member() {
-            crate::game_logic::host_bridge_behavior::record_mirror(
-                self.id,
-                actual_damage,
-                max_health,
-                source,
-                damage_type.to_store() as u32,
-                death_type.ordinal() as u32,
-                crate::game_logic::host_bridge_behavior::HostBridgeMirrorKind::Damage,
-            );
-            if destroyed {
-                self.convert_bridge_to_rubble_husk();
-                crate::game_logic::host_bridge_behavior::record_death_link(self.id);
-                destroyed = false;
-            }
-        }
         let voice_fear_id = self.id;
         let voice_fear_pos = self.get_position();
         let voice_fear_player = self.owner_player_id;
@@ -780,11 +791,18 @@ impl Object {
             voice_fear_pos,
             voice_fear_player,
         );
-        if battle_bus_start_second {
-            false
-        } else {
-            destroyed
-        }
+        DamageApplication::Active(ActiveDamageContinuation {
+            victim_id: self.id,
+            source,
+            damage_type,
+            death_type,
+            fx_type: fx_override.unwrap_or(damage_type),
+            actual_damage,
+            max_health,
+            frame,
+            lethal: destroyed,
+            start_second_life: battle_bus_start_second,
+        })
     }
 
     fn is_host_bridge_member(&self) -> bool {
@@ -1697,6 +1715,47 @@ mod tests {
             "y = 0 + height 10 + 10, got {}",
             pos.y
         );
+    }
+
+    #[test]
+    fn undead_second_life_restores_final_pristine_body_and_model_state() {
+        use crate::game_logic::host_battle_bus::BATTLE_BUS_SECOND_LIFE_MAX_HEALTH;
+        use crate::game_logic::host_enum_table_residual::{
+            HostBodyDamageType, MC_BIT_DAMAGED, MC_BIT_REALLYDAMAGED, MC_BIT_RUBBLE,
+        };
+        // C++ UndeadBody:68–85 returns from ActiveBody then fully heals the
+        // second life. ActiveBody:1206–1220 recalculates body/model immediately.
+        // Use full armor coefficient so first-life HP becomes 1, exercising
+        // the damaged→healthy recomputation rather than an already-healthy bus.
+        register_coeff_armor(
+            "BusSecondLifeStateArmor",
+            gamelogic::damage::DamageType::Explosion,
+            1.0,
+        );
+        let mut bus = vehicle("GLAVehicleBattleBus", 96, 50.0);
+        bus.install_battle_bus_transport();
+        bus.health.maximum = 50.0;
+        bus.health.current = 50.0;
+        bus.thing
+            .template
+            .armor_sets
+            .push(crate::game_logic::HostArmorSet {
+                conditions: 0,
+                armor: Some("BusSecondLifeStateArmor".into()),
+                damage_fx: None,
+            });
+        assert_eq!(bus.body_damage_state, HostBodyDamageType::Pristine);
+        assert!(!bus.take_damage_from_typed(200.0, None, DamageType::Explosive));
+        assert!(bus.armor_set_second_life);
+        assert_eq!(bus.health.maximum, BATTLE_BUS_SECOND_LIFE_MAX_HEALTH);
+        assert_eq!(bus.health.current, BATTLE_BUS_SECOND_LIFE_MAX_HEALTH);
+        assert_eq!(bus.body_damage_state, HostBodyDamageType::Pristine);
+        let body_bits =
+            (1u128 << MC_BIT_DAMAGED) | (1u128 << MC_BIT_REALLYDAMAGED) | (1u128 << MC_BIT_RUBBLE);
+        assert_eq!(bus.model_condition_bits & body_bits, 0);
+        assert!(!bus.status.destroyed);
+        assert!(!bus.status.effectively_dead);
+        assert!(!bus.status.on_die_started);
     }
 
     #[test]

@@ -110,7 +110,6 @@ fn continue_attack_range_chains_to_nearby_same_team_target() {
         glam::Vec3::new(40.0, 0.0, 0.0),
         team,
         Some("DozerMineDisarmingWeapon"),
-        5.0,
     );
     let a = logic.objects.get(&atk).unwrap();
     assert!(matches!(a.ai_state, AIState::Idle) || a.target.is_none());

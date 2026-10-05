@@ -359,23 +359,17 @@ impl GameLogic {
                         ground_wname.as_deref(),
                         damage_type,
                     );
-                    if let Some(target) = self.objects.get_mut(&ground_target_id) {
-                        let destroyed = target.take_damage_with_context(
-                            weapon_damage,
-                            Some(attacker_id),
+                    let _ = self.apply_owned_damage(
+                        ground_target_id,
+                        weapon_damage,
+                        Some(attacker_id),
+                        damage_type,
+                        crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
                             damage_type,
-                            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
-                                damage_type,
-                            ),
-                            None,
-                            self.frame,
-                            &context,
-                        );
-                        if destroyed {
-                            self.mark_object_for_destruction(ground_target_id, Some(attacker_team));
-                            self.award_score_the_kill_experience(attacker_id, ground_target_id);
-                        }
-                    }
+                        ),
+                        None,
+                        &context,
+                    );
                 }
 
                 // Inferno Cannon residual: ground attack also seeds FireFieldSmall.
@@ -405,24 +399,11 @@ impl GameLogic {
                     }
                 }
             }
+            // The common successful-shot finalizer owns ammo, temporary-slot
+            // unlock, stealth disruption and accepted presentation/barrel commit
+            // for both Object and position targets (CPP Weapon.cpp2692-2703).
+            // Keep only this ground command's max-shot/target cleanup here.
             if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                let slot = ground_slot;
-                let name = attacker.weapon_name_for_slot(slot).map(str::to_owned);
-                let auto_reloaded = if let Some(w) = attacker.weapon_slot_mut(slot) {
-                    Object::consume_ammo_on_fire_named(w, current_time, name.as_deref());
-                    Object::auto_reloaded_clip_after_firing(w, name.as_deref())
-                } else {
-                    false
-                };
-                if auto_reloaded
-                    && attacker.weapon_lock_type == WeaponLockType::LockedTemporarily
-                    && attacker.weapon_lock_slot == slot
-                {
-                    attacker.release_weapon_lock(WeaponLockType::LockedTemporarily);
-                }
-                if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
-                    attacker.break_stealth();
-                }
                 attacker.consume_max_shot_count();
                 if attacker.max_shots_to_fire == 0 {
                     attacker.target_location = None;
@@ -438,7 +419,6 @@ impl GameLogic {
             {
                 self.set_turret_target_position(attacker_id, None);
             }
-            let _ = self.record_accepted_weapon_discharge(attacker_id, ground_slot);
         } else if self.objects.get(&attacker_id).is_some_and(|attacker| {
             attacker.can_attack()
                 && attacker.can_move()
