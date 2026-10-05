@@ -73,7 +73,7 @@ fn unmapped_dozer_hp_gain_uses_energy_adjusted_build_time_frames() {
         .create_object_under_construction("TestBuilding", Team::USA, glam::Vec3::ZERO)
         .expect("scaffold");
     if let Some(site) = logic.host_object_mut(sid) {
-        site.thing.template.build_time = 10.0; // 300 authored frames
+        site.template_mut().build_time = 10.0; // 300 authored frames
         site.construction_percent = 0.0;
     }
     let did = logic
@@ -148,7 +148,7 @@ fn dozer_tick_truncates_handicap_before_player_template_modifier() {
         .create_object_under_construction("TestBuilding", Team::USA, glam::Vec3::ZERO)
         .expect("scaffold");
     if let Some(site) = logic.host_object_mut(sid) {
-        site.thing.template.build_time = 0.3; // C++ Int(0.3 * 30) = 9 frames
+        site.template_mut().build_time = 0.3; // C++ Int(0.3 * 30) = 9 frames
         site.construction_percent = 0.0;
     }
     let did = logic

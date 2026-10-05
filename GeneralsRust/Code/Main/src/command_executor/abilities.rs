@@ -282,7 +282,7 @@ impl<'a> CommandExecutor<'a> {
             let Some(power) = self
                 .game_logic
                 .host_object(unit_id)
-                .and_then(|unit| unit.thing.template.capture_power.special_power_type())
+                .and_then(|unit| unit.thing().template.capture_power.special_power_type())
             else {
                 continue;
             };

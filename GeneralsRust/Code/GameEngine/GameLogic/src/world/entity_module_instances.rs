@@ -1,8 +1,9 @@
 //! Real crate helper instances for flag-ON entity module install.
 //!
 //! Helpers are the same types `Object::install_ctor_helpers` constructs
-//! (Object.cpp:299-384). Template tags are recorded as live handles without
-//! `TheGameLogic` update registration (no ticking).
+//! (Object.cpp:299-384). Each graph owns its concrete mutable helpers.
+//! Template tags are recorded without `TheGameLogic` update registration
+//! (no ticking); no helper handle escapes the owning graph.
 
 use super::entity_modules::{
     EntityModuleInstallSpec, HELPER_TAG_DEFECTION, HELPER_TAG_FIRING_TRACKER, HELPER_TAG_REPULSOR,
@@ -17,18 +18,17 @@ use crate::object::helper::{
     StatusDamageHelperModuleData, SubdualDamageHelper, SubdualDamageHelperModuleData,
     TempWeaponBonusHelper, TempWeaponBonusHelperModuleData,
 };
-use std::sync::{Arc, Mutex};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum EntityLiveModule {
-    Smc(Arc<Mutex<ObjectSMCHelper>>),
-    Status(Arc<Mutex<StatusDamageHelper>>),
-    Subdual(Arc<Mutex<SubdualDamageHelper>>),
-    Repulsor(Arc<Mutex<ObjectRepulsorHelper>>),
-    Defection(Arc<Mutex<ObjectDefectionHelper>>),
-    WeaponStatus(Arc<Mutex<ObjectWeaponStatusHelper>>),
-    FiringTracker(Arc<Mutex<FiringTracker>>),
-    TempWeaponBonus(Arc<Mutex<TempWeaponBonusHelper>>),
+    Smc(ObjectSMCHelper),
+    Status(StatusDamageHelper),
+    Subdual(SubdualDamageHelper),
+    Repulsor(ObjectRepulsorHelper),
+    Defection(ObjectDefectionHelper),
+    WeaponStatus(ObjectWeaponStatusHelper),
+    FiringTracker(FiringTracker),
+    TempWeaponBonus(TempWeaponBonusHelper),
     Template { tag: String },
 }
 
@@ -54,37 +54,37 @@ impl EntityLiveModule {
 
 pub fn live_modules_from_spec(spec: &EntityModuleInstallSpec) -> Vec<EntityLiveModule> {
     let mut out = Vec::new();
-    out.push(EntityLiveModule::Smc(Arc::new(Mutex::new(
-        ObjectSMCHelper::new(ObjectSMCHelperModuleData::new()),
-    ))));
+    out.push(EntityLiveModule::Smc(ObjectSMCHelper::new(
+        ObjectSMCHelperModuleData::new(),
+    )));
     if !spec.inactive_body {
-        out.push(EntityLiveModule::Status(Arc::new(Mutex::new(
-            StatusDamageHelper::new(0, StatusDamageHelperModuleData::new()),
-        ))));
-        out.push(EntityLiveModule::Subdual(Arc::new(Mutex::new(
-            SubdualDamageHelper::new(0, SubdualDamageHelperModuleData::new()),
-        ))));
+        out.push(EntityLiveModule::Status(StatusDamageHelper::new(
+            0,
+            StatusDamageHelperModuleData::new(),
+        )));
+        out.push(EntityLiveModule::Subdual(SubdualDamageHelper::new(
+            0,
+            SubdualDamageHelperModuleData::new(),
+        )));
     }
     if spec.can_be_repulsed {
-        out.push(EntityLiveModule::Repulsor(Arc::new(Mutex::new(
-            ObjectRepulsorHelper::new(ObjectRepulsorHelperModuleData::new()),
-        ))));
+        out.push(EntityLiveModule::Repulsor(ObjectRepulsorHelper::new(
+            ObjectRepulsorHelperModuleData::new(),
+        )));
     }
     if !spec.shrubbery {
-        out.push(EntityLiveModule::Defection(Arc::new(Mutex::new(
-            ObjectDefectionHelper::new(ObjectDefectionHelperModuleData::new()),
-        ))));
+        out.push(EntityLiveModule::Defection(ObjectDefectionHelper::new(
+            ObjectDefectionHelperModuleData::new(),
+        )));
     }
     if spec.has_weapons {
-        out.push(EntityLiveModule::WeaponStatus(Arc::new(Mutex::new(
+        out.push(EntityLiveModule::WeaponStatus(
             ObjectWeaponStatusHelper::new(ObjectWeaponStatusHelperModuleData::new(), true),
-        ))));
-        out.push(EntityLiveModule::FiringTracker(Arc::new(Mutex::new(
-            FiringTracker::new(0),
-        ))));
-        out.push(EntityLiveModule::TempWeaponBonus(Arc::new(Mutex::new(
+        ));
+        out.push(EntityLiveModule::FiringTracker(FiringTracker::new(0)));
+        out.push(EntityLiveModule::TempWeaponBonus(
             TempWeaponBonusHelper::new(0, TempWeaponBonusHelperModuleData::new()),
-        ))));
+        ));
     }
     for tag in &spec.template_module_tags {
         out.push(EntityLiveModule::Template { tag: tag.clone() });

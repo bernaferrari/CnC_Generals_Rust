@@ -179,12 +179,12 @@ impl GameLogic {
                     let enter_guard = self
                         .objects
                         .get(&object_id)
-                        .map(|o| o.thing.template.enter_guard)
+                        .map(|o| o.thing().template.enter_guard)
                         .unwrap_or(false);
                     let hijack_guard = self
                         .objects
                         .get(&object_id)
-                        .map(|o| o.thing.template.hijack_guard)
+                        .map(|o| o.thing().template.hijack_guard)
                         .unwrap_or(false);
                     let picking_crate = self
                         .objects
@@ -297,12 +297,12 @@ impl GameLogic {
                     let enter_guard = self
                         .objects
                         .get(&object_id)
-                        .map(|o| o.thing.template.enter_guard)
+                        .map(|o| o.thing().template.enter_guard)
                         .unwrap_or(false);
                     let hijack_guard = self
                         .objects
                         .get(&object_id)
-                        .map(|o| o.thing.template.hijack_guard)
+                        .map(|o| o.thing().template.hijack_guard)
                         .unwrap_or(false);
                     let on_quick_exit = self
                         .unit_ai_runtime(object_id)
@@ -1276,7 +1276,7 @@ impl GameLogic {
                     // legacy Combat Cycle template-name refresh below.
                     let is_rider_change_target = normal_enter
                         && self.objects.get(&container_id).is_some_and(|container| {
-                            container.thing.template.contain_module.kind
+                            container.thing().template.contain_module.kind
                                 == crate::game_logic::ContainModuleKind::RiderChange
                         });
                     if is_rider_change_target {
@@ -1416,7 +1416,7 @@ impl GameLogic {
                     let container_is_heal_contain = self
                         .objects
                         .get(&container_id)
-                        .is_some_and(|c| c.thing.template.contain_module.kind.is_heal_contain());
+                        .is_some_and(|c| c.thing().template.contain_module.kind.is_heal_contain());
                     self.tunnel_network
                         .stamp_contained_by_frame(object_id, self.frame);
 
@@ -1550,11 +1550,11 @@ impl GameLogic {
                         .get(&object_id)
                         .map(|obj| {
                             (
-                                obj.thing.template.capture_power,
-                                obj.thing.template.capture_start_ability_range,
-                                obj.thing.template.capture_unpack_time_ms,
-                                obj.thing.template.capture_preparation_time_ms,
-                                obj.thing.template.capture_pack_time_ms,
+                                obj.thing().template.capture_power,
+                                obj.thing().template.capture_start_ability_range,
+                                obj.thing().template.capture_unpack_time_ms,
+                                obj.thing().template.capture_preparation_time_ms,
+                                obj.thing().template.capture_pack_time_ms,
                                 obj.capture_channel,
                                 obj.host_ai_is_moving(),
                             )
@@ -1693,7 +1693,7 @@ impl GameLogic {
                                     .objects
                                     .get(&object_id)
                                     .map(|object| {
-                                        object.thing.template.capture_pack_unpack_variation_factor
+                                        object.thing().template.capture_pack_unpack_variation_factor
                                     })
                                     .unwrap_or(0.0);
                                 let unpack_time_ms =
@@ -1830,7 +1830,7 @@ impl GameLogic {
                         if self.can_unit_capture_building(object_id, capture_target_id, false) {
                             let target_is_garrisonable =
                                 self.objects.get(&capture_target_id).is_some_and(|target| {
-                                    target.thing.template.garrison_contain_max.is_some()
+                                    target.thing().template.garrison_contain_max.is_some()
                                 });
                             if target_is_garrisonable {
                                 // C++ `removeAllContained(TRUE); break;`: clearing
@@ -1898,7 +1898,10 @@ impl GameLogic {
                                     crate::game_logic::CaptureChannelPhase::Packing,
                                     crate::game_logic::vary_pack_unpack_duration_ms(
                                         pack_time_ms,
-                                        object.thing.template.capture_pack_unpack_variation_factor,
+                                        object
+                                            .thing()
+                                            .template
+                                            .capture_pack_unpack_variation_factor,
                                     ),
                                 ));
 
@@ -3164,9 +3167,9 @@ impl GameLogic {
                                 s.is_alive(),
                                 s.get_position(),
                                 s.stored_resources.supplies,
-                                s.thing.template.dock_kind
+                                s.thing().template.dock_kind
                                     == crate::game_logic::DockKind::SupplyWarehouse,
-                                s.thing.template.dock_delete_when_empty,
+                                s.thing().template.dock_delete_when_empty,
                             )
                         })
                         .unwrap_or((false, position, 0, false, false));
@@ -3186,16 +3189,16 @@ impl GameLogic {
                     let collector_metadata_early = self
                         .objects
                         .get(&object_id)
-                        .and_then(|object| object.thing.template.supply_truck_metadata);
+                        .and_then(|object| object.thing().template.supply_truck_metadata);
                     if source_is_warehouse && collector_metadata_early.is_some() {
                         let docker_r = self
                             .objects
                             .get(&object_id)
                             .map(|o| {
                                 crate::game_logic::host_supply_gather::host_bounding_circle_radius(
-                                    o.thing.template.geometry_info.authored,
-                                    o.thing.template.geometry_info.bounding_circle_radius(),
-                                    o.thing.geometry.radius,
+                                    o.thing().template.geometry_info.authored,
+                                    o.thing().template.geometry_info.bounding_circle_radius(),
+                                    o.thing().geometry.radius,
                                 )
                             })
                             .unwrap_or(1.0);
@@ -3204,9 +3207,9 @@ impl GameLogic {
                             .get(&source_id)
                             .map(|o| {
                                 crate::game_logic::host_supply_gather::host_bounding_circle_radius(
-                                    o.thing.template.geometry_info.authored,
-                                    o.thing.template.geometry_info.bounding_circle_radius(),
-                                    o.thing.geometry.radius,
+                                    o.thing().template.geometry_info.authored,
+                                    o.thing().template.geometry_info.bounding_circle_radius(),
+                                    o.thing().geometry.radius,
                                 )
                             })
                             .unwrap_or(0.0);
@@ -3253,7 +3256,7 @@ impl GameLogic {
                     let collector_metadata = self
                         .objects
                         .get(&object_id)
-                        .and_then(|object| object.thing.template.supply_truck_metadata);
+                        .and_then(|object| object.thing().template.supply_truck_metadata);
                     if let Some(metadata) = collector_metadata {
                         let (state, next_frame) = self
                             .objects
@@ -3333,9 +3336,9 @@ impl GameLogic {
                                 .get(&object_id)
                                 .map(|o| {
                                     crate::game_logic::host_supply_gather::host_bounding_circle_radius(
-                                        o.thing.template.geometry_info.authored,
-                                        o.thing.template.geometry_info.bounding_circle_radius(),
-                                        o.thing.geometry.radius,
+                                        o.thing().template.geometry_info.authored,
+                                        o.thing().template.geometry_info.bounding_circle_radius(),
+                                        o.thing().geometry.radius,
                                     )
                                 })
                                 .unwrap_or(1.0);
@@ -3344,9 +3347,9 @@ impl GameLogic {
                                 .get(&source_id)
                                 .map(|o| {
                                     crate::game_logic::host_supply_gather::host_bounding_circle_radius(
-                                        o.thing.template.geometry_info.authored,
-                                        o.thing.template.geometry_info.bounding_circle_radius(),
-                                        o.thing.geometry.radius,
+                                        o.thing().template.geometry_info.authored,
+                                        o.thing().template.geometry_info.bounding_circle_radius(),
+                                        o.thing().geometry.radius,
                                     )
                                 })
                                 .unwrap_or(0.0);
@@ -3448,7 +3451,7 @@ impl GameLogic {
                         let voice = self
                             .objects
                             .get(&object_id)
-                            .map(|o| o.thing.template.supplies_depleted_voice.clone())
+                            .map(|o| o.thing().template.supplies_depleted_voice.clone())
                             .unwrap_or_default();
                         if crate::game_logic::host_supply_gather::should_play_supplies_depleted_voice(
                             next_dist, scan, &voice,
@@ -3497,7 +3500,7 @@ impl GameLogic {
                         let collector_metadata = self
                             .objects
                             .get(&object_id)
-                            .and_then(|object| object.thing.template.supply_truck_metadata);
+                            .and_then(|object| object.thing().template.supply_truck_metadata);
                         if let Some(metadata) = collector_metadata {
                             let (state, next_frame) = self
                                 .objects
@@ -3582,7 +3585,7 @@ impl GameLogic {
                                             &o.template_name,
                                         );
                                     let authored = o
-                                        .thing
+                                        .thing()
                                         .template
                                         .supply_truck_metadata
                                         .map(|m| m.upgraded_supply_boost)
@@ -3712,10 +3715,9 @@ impl GameLogic {
                                 .record_shoes_drop_off_boost(worker_shoes_boost);
                         }
                         if deposit_amount > 0 {
-                            let has_supply_truck = self
-                                .objects
-                                .get(&object_id)
-                                .is_some_and(|o| o.thing.template.supply_truck_metadata.is_some());
+                            let has_supply_truck = self.objects.get(&object_id).is_some_and(|o| {
+                                o.thing().template.supply_truck_metadata.is_some()
+                            });
                             let source_id = (!has_supply_truck)
                                 .then_some(target_id)
                                 .flatten()
@@ -3727,9 +3729,9 @@ impl GameLogic {
                                 }
                                 self.set_ai_state_decision_aware(object_id, AIState::Gathering);
                                 let warehouse = self.objects.get(&sid).is_some_and(|s| {
-                                    s.thing.template.dock_kind
+                                    s.thing().template.dock_kind
                                         == crate::game_logic::DockKind::SupplyWarehouse
-                                        || s.thing.template.dock_delete_when_empty
+                                        || s.thing().template.dock_delete_when_empty
                                         || s.template_name
                                             .to_ascii_lowercase()
                                             .contains("supplypile")
@@ -3754,9 +3756,9 @@ impl GameLogic {
                                 object_id,
                             ) {
                                 let warehouse = self.objects.get(&next).is_some_and(|s| {
-                                    s.thing.template.dock_kind
+                                    s.thing().template.dock_kind
                                         == crate::game_logic::DockKind::SupplyWarehouse
-                                        || s.thing.template.dock_delete_when_empty
+                                        || s.thing().template.dock_delete_when_empty
                                         || s.template_name
                                             .to_ascii_lowercase()
                                             .contains("supplypile")
@@ -3936,12 +3938,12 @@ impl GameLogic {
             .iter()
             .filter_map(|(&id, object)| {
                 let delay = object
-                    .thing
+                    .thing()
                     .template
                     .contain_module
                     .rider_change_scuttle_delay_frames?;
                 let started = object.rider_change_scuttled_on_frame;
-                (object.thing.template.contain_module.kind
+                (object.thing().template.contain_module.kind
                     == crate::game_logic::ContainModuleKind::RiderChange
                     && started != 0
                     && !object.status.destroyed

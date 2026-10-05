@@ -2596,8 +2596,8 @@ mod tests {
         truck.braking = 1.0;
         truck.movement.velocity = Vec3::ZERO;
         truck.no_slow_down_as_approaching_dest = true;
-        truck.thing.template.geometry_info.authored = true;
-        truck.thing.template.geometry_info.major_radius = 8.0;
+        truck.template_mut().geometry_info.authored = true;
+        truck.template_mut().geometry_info.major_radius = 8.0;
         truck.movement.target_position = Some(Vec3::new(-20.0, 0.0, 0.0));
         logic.objects.insert(id, truck);
         logic.update_movement_for_test(&[id], 1.0 / 30.0);

@@ -2,7 +2,7 @@
 //! The no-art-path branch checks removal hooks and door timing, not movement AI.
 
 use crate::common::{Coord3D, DisabledType, ModelConditionFlags};
-use crate::modules::ExitDoorType;
+use crate::modules::{ExitDoorType, ExitInterface};
 use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
 use crate::player::{Player, ThePlayerList};
 use crate::team::Team;
@@ -119,7 +119,7 @@ fn verify_factory_exit(hurry: bool) {
         .unwrap()
         .get_base_object()
         .unwrap();
-    let (contain, exit, drawable) = {
+    let (contain, mut exit, drawable) = {
         let carrier = carrier.read().unwrap();
         (
             carrier.get_contain().expect("authored cargo module"),
@@ -159,19 +159,12 @@ fn verify_factory_exit(hurry: bool) {
     // C++ OpenContain.cpp:915-932/1036-1055 first calls virtual
     // removeFromContain, so Transport onRemoving must precede the shared door pulse.
     if hurry {
-        exit.lock()
-            .unwrap()
-            .exit_object_in_a_hurry(passenger_id)
-            .unwrap();
+        exit.exit_object_in_a_hurry(passenger_id).unwrap();
     } else {
-        exit.lock()
-            .unwrap()
-            .exit_object_via_door(passenger_id, ExitDoorType::NoneAvailable)
+        exit.exit_object_via_door(passenger_id, ExitDoorType::NoneAvailable)
             .unwrap();
         assert_eq!(contain.lock().unwrap().get_contained_count(), 1);
-        exit.lock()
-            .unwrap()
-            .exit_object_via_door(passenger_id, ExitDoorType::Door1)
+        exit.exit_object_via_door(passenger_id, ExitDoorType::Door1)
             .unwrap();
     }
     assert_eq!(contain.lock().unwrap().get_contained_count(), 0);

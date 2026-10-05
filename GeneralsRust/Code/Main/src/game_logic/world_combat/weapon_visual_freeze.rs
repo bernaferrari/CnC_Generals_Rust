@@ -26,7 +26,7 @@ impl GameLogic {
     ) -> Vec3 {
         if let Some(target_id) = capture.target_id {
             if let Some(victim) = self.objects.get(&target_id) {
-                return geometry_center(victim.get_position(), &victim.thing.geometry);
+                return geometry_center(victim.get_position(), &victim.thing().geometry);
             }
         }
         capture

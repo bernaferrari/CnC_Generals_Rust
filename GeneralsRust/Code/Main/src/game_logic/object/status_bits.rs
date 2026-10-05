@@ -243,6 +243,16 @@ impl Object {
 
     /// C++ FlammableUpdate tryToIgnite / update status + model + body setAflame.
     pub fn apply_flammable_visuals(&mut self, aflame: bool, smoldering: bool, burned: bool) {
+        self.apply_flammable_visuals_with_source(aflame, smoldering, burned, None);
+    }
+
+    fn apply_flammable_visuals_with_source(
+        &mut self,
+        aflame: bool,
+        smoldering: bool,
+        burned: bool,
+        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+    ) {
         if aflame {
             let _ = self.apply_status_bits_upgrade_masks(&["AFLAME"], &[]);
         } else if burned {
@@ -261,7 +271,14 @@ impl Object {
                 fs.smoldering = true;
             }
         }
-        self.refresh_model_condition_bits();
+        self.refresh_model_condition_bits_with_source(source);
+    }
+
+    pub(super) fn apply_flammable_ignite_visuals_with_source(
+        &mut self,
+        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+    ) {
+        self.apply_flammable_visuals_with_source(true, false, false, source);
     }
 
     /// C++ tryToIgnite: AFLAME status, body setAflame, MODELCONDITION_AFLAME.

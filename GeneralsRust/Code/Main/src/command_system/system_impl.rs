@@ -1571,7 +1571,7 @@ impl CommandSystem {
         let Some(target) = game_logic.host_object(target_id) else {
             return false;
         };
-        let target_kind = target.thing.template.dock_kind;
+        let target_kind = target.thing().template.dock_kind;
         // Do not use faction as player authority once even one live object
         // carries owner provenance.  This mirrors the frozen-frame rule and
         // keeps boot/input classification from visibly offering a Dock order

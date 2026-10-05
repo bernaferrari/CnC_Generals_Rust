@@ -2219,6 +2219,21 @@ impl BodyModuleInterface for ActiveBody {
         self.internal_change_health(new_health - current_health)
     }
 
+    fn set_initial_health_for_borrowed_owner(
+        &mut self,
+        initial_percent: i32,
+        is_structure: bool,
+    ) -> BodyResult<Option<super::body_module::OwnerHealthTransition>> {
+        // C++ setInitialHealth uses the current initialHealth, including a
+        // preceding map max-health assignment. Preserve the derived floor
+        // and previous-health bookkeeping through the canonical kernel.
+        let factor = initial_percent as f32 / 100.0;
+        let new_health = factor * self.get_initial_health();
+        let delta = new_health - self.get_health();
+        self.change_health_for_borrowed_owner(delta, is_structure)
+            .map(Some)
+    }
+
     fn begin_owner_max_health_change(
         &mut self,
         max_health: f32,

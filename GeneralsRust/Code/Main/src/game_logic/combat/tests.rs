@@ -1034,8 +1034,8 @@ pub(in crate::game_logic) mod tests {
             "CivilianBuilding".to_string(),
         );
         bunker.set_position(Vec3::new(5.0, 0.0, 0.0));
-        bunker.thing.template.contain_module.kind = crate::game_logic::ContainModuleKind::Garrison;
-        bunker.thing.template.garrison_contain_max = Some(5);
+        bunker.template_mut().contain_module.kind = crate::game_logic::ContainModuleKind::Garrison;
+        bunker.template_mut().garrison_contain_max = Some(5);
         let mut bd = crate::game_logic::buildings::BuildingData::new(
             crate::game_logic::buildings::BuildingType::Bunker,
         );
@@ -1559,10 +1559,10 @@ pub(in crate::game_logic) mod tests {
         );
         flyer.ground_height = 0.0;
         flyer.selection_radius = 0.0;
-        flyer.thing.template.geometry_info.authored = true;
-        flyer.thing.template.geometry_info.major_radius = 0.0;
-        flyer.thing.template.geometry_info.geom_type = crate::game_logic::HostGeometryType::Sphere;
-        flyer.thing.template.geometry_info.height = 0.0;
+        flyer.template_mut().geometry_info.authored = true;
+        flyer.template_mut().geometry_info.major_radius = 0.0;
+        flyer.template_mut().geometry_info.geom_type = crate::game_logic::HostGeometryType::Sphere;
+        flyer.template_mut().geometry_info.height = 0.0;
         objects.insert(high, flyer);
         let ground0 = objects.get(&ground).unwrap().health.current;
         let high0 = objects.get(&high).unwrap().health.current;
@@ -1619,9 +1619,9 @@ pub(in crate::game_logic) mod tests {
             &[KindOf::Structure, KindOf::Attackable],
             1.0,
         );
-        bldg.thing.template.geometry_info.authored = true;
-        bldg.thing.template.geometry_info.geom_type = crate::game_logic::HostGeometryType::Sphere;
-        bldg.thing.template.geometry_info.major_radius = 8.0;
+        bldg.template_mut().geometry_info.authored = true;
+        bldg.template_mut().geometry_info.geom_type = crate::game_logic::HostGeometryType::Sphere;
+        bldg.template_mut().geometry_info.major_radius = 8.0;
         objects.insert(building, bldg);
 
         let mut combat = CombatSystem::new();

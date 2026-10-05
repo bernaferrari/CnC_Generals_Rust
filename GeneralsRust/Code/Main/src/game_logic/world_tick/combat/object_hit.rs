@@ -41,23 +41,33 @@ impl GameLogic {
             // Shot consumed; delayed dive residual pending (no instant HP damage).
         } else {
             // Avenger Target Designator residual: paint FAERIE_FIRE (no HP damage).
-            let avenger_paint = {
+            // Capture the admitted primary status once. The class gate cannot
+            // manufacture FAERIE_FIRE over a found NONE/other authored status.
+            let avenger_paint_context = self.objects.get(&attacker_id).and_then(|a| {
                 use crate::game_logic::host_avenger::{
-                    AVENGER_FAERIE_FIRE_DURATION_FRAMES, AVENGER_PAINT_AUDIO, is_avenger_template,
-                    should_apply_faerie_fire_paint,
+                    is_avenger_template, should_apply_faerie_fire_paint,
                 };
-                self.objects
-                    .get(&attacker_id)
-                    .map(|a| {
-                        should_apply_faerie_fire_paint(
-                            is_avenger_template(&a.template_name),
-                            slot,
-                            true,
-                            enemy_or_forced,
-                        )
-                    })
-                    .unwrap_or(false)
-            };
+                if !should_apply_faerie_fire_paint(
+                    is_avenger_template(&a.template_name),
+                    slot,
+                    true,
+                    enemy_or_forced,
+                ) {
+                    return None;
+                }
+                let weapon = a.weapon_name_for_slot(slot);
+                let kind = weapon
+                    .map(crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name)
+                    .unwrap_or(crate::game_logic::combat::DamageType::Explosive);
+                Some(crate::game_logic::object::DamageHitContext::new(
+                    Some(a),
+                    weapon,
+                    kind,
+                ))
+            });
+            let avenger_paint = avenger_paint_context.as_ref().is_some_and(|context| {
+                context.status() == Some(gamelogic::common::ObjectStatusTypes::FaerieFire)
+            });
             let avenger_air = {
                 use crate::game_logic::host_avenger::{
                     is_avenger_template, should_apply_avenger_air_laser,
@@ -1500,11 +1510,13 @@ impl GameLogic {
                                 fire_wname.as_deref(),
                                 damage_type,
                             );
-                        crate::game_logic::object::prime_live_damage_context(
-                            self.objects.get(&attacker_id),
-                            fire_wname.as_deref(),
-                            damage_type,
-                        );
+                        let context = avenger_paint_context.unwrap_or_else(|| {
+                            crate::game_logic::object::DamageHitContext::new(
+                                self.objects.get(&attacker_id),
+                                fire_wname.as_deref(),
+                                damage_type,
+                            )
+                        });
                         let at_self = fire_wname.as_deref().map(
                             crate::game_logic::weapon_bootstrap::host_damage_dealt_at_self_position_for_weapon_name,
                         )
@@ -1520,11 +1532,14 @@ impl GameLogic {
                                     // C++ fireWeaponTemplate clears victimObj; the shot
                                     // flies at the offset point and does not connect.
                                 } else {
-                                    let destroyed = target.take_damage_from_typed_death(
+                                    let destroyed = target.take_damage_with_context(
                                         weapon_damage,
                                         Some(attacker_id),
                                         damage_type,
                                         death_type,
+                                        None,
+                                        self.frame,
+                                        &context,
                                     );
                                     if destroyed {
                                         // C++ parity: XP is victim ExperienceValue at current level.

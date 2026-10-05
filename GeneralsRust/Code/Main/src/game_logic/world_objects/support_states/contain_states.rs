@@ -17,9 +17,19 @@ impl GameLogic {
             return leftover;
         }
         let authored = if enter {
-            container.thing.template.contain_module.enter_sound.as_str()
+            container
+                .thing()
+                .template
+                .contain_module
+                .enter_sound
+                .as_str()
         } else {
-            container.thing.template.contain_module.exit_sound.as_str()
+            container
+                .thing()
+                .template
+                .contain_module
+                .exit_sound
+                .as_str()
         };
         let authored = authored.trim();
         if !authored.is_empty() && !authored.eq_ignore_ascii_case("NONE") {
@@ -133,7 +143,7 @@ impl GameLogic {
         rider_id: ObjectId,
     ) {
         let reset = self.objects.get(&container_id).is_some_and(|container| {
-            let data = &container.thing.template.contain_module;
+            let data = &container.thing().template.contain_module;
             data.reset_mood_check_time_on_exit
                 && matches!(
                     data.kind,

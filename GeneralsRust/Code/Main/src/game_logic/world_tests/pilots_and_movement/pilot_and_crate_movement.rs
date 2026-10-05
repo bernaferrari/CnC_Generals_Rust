@@ -2130,11 +2130,11 @@ fn supply_drop_zone_residual_credits_cash_on_interval() {
         let obj = game_logic.host_object(*id).expect("spawned crate");
         assert_eq!(obj.team, Team::USA);
         assert!(
-            obj.thing.template.name == SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE
-                || obj.thing.template.name.contains("Crate")
-                || obj.thing.template.name.contains("SupplyDrop"),
+            obj.thing().template.name == SUPPLY_DROP_PAYLOAD_RESIDUAL_TEMPLATE
+                || obj.thing().template.name.contains("Crate")
+                || obj.thing().template.name.contains("SupplyDrop"),
             "spawned residual crate template, got {}",
-            obj.thing.template.name
+            obj.thing().template.name
         );
         // AmericaCrateParachute residual: elevated spawn (PreferredHeight + DropOffset).
         assert!(

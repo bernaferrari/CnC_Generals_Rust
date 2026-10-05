@@ -678,6 +678,7 @@ pub fn play_transition_event_fx_ocl(
     yaw: f32,
     model: &str,
     scale: f32,
+    source: Option<&HostDamageFxVictim>,
 ) {
     if let Some(fx) = ev.fx_name.as_deref() {
         let (world, matrix) = leftover_named_slot_world_transform(
@@ -704,7 +705,7 @@ pub fn play_transition_event_fx_ocl(
     for (i, ocl) in ev.ocl_names.iter().enumerate() {
         let world =
             leftover_named_slot_world_pos(ev.ocl_locs.get(i), owner, host_pos, yaw, model, scale);
-        play_authored_transition_ocl(ocl, owner, world);
+        play_authored_transition_ocl_with_source(ocl, owner, world, source);
     }
 }
 
@@ -716,8 +717,9 @@ pub fn take_played_transition_event_fx_ocl(
     yaw: f32,
     model: &str,
     scale: f32,
+    source: Option<&HostDamageFxVictim>,
 ) {
-    play_transition_event_fx_ocl(ev, owner, host_pos, yaw, model, scale);
+    play_transition_event_fx_ocl(ev, owner, host_pos, yaw, model, scale, source);
     ev.fx_name = None;
     ev.extra_fx_names.clear();
     ev.ocl_names.clear();
@@ -727,14 +729,23 @@ pub fn take_played_transition_event_fx_ocl(
 ///
 /// C++ `TransitionDamageFX.cpp:354-355` / leftover `play_fx_for_state`:
 /// secondary is `damageSource->getPosition()`, falling back to the bone/loc
-/// world pos when no source is snapshotted (`peek_damage_fx_source`).
+/// world pos when no source is supplied.
 pub fn play_authored_transition_ocl(name: &str, owner: u32, pos: glam::Vec3) {
+    play_authored_transition_ocl_with_source(name, owner, pos, None);
+}
+
+fn play_authored_transition_ocl_with_source(
+    name: &str,
+    owner: u32,
+    pos: glam::Vec3,
+    source: Option<&HostDamageFxVictim>,
+) {
     let trimmed = name.trim();
     if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("none") {
         return;
     }
     let leftover_pos = host_pos_to_leftover_coord(pos);
-    let leftover_secondary = leftover_transition_ocl_secondary(pos);
+    let leftover_secondary = leftover_transition_ocl_secondary(pos, source);
     let Some(ocl) =
         gamelogic::helpers::TheObjectCreationListStore::find_object_creation_list(trimmed)
     else {
@@ -759,14 +770,11 @@ fn host_pos_to_leftover_coord(pos: glam::Vec3) -> gamelogic::common::Coord3D {
 }
 
 /// Leftover `play_fx_for_state` secondary: damage-source world pos, else `pos`.
-pub fn leftover_transition_ocl_secondary(pos: glam::Vec3) -> gamelogic::common::Coord3D {
-    peek_damage_fx_source()
-        .map(|src| {
-            gamelogic::helpers::TheGameLogic::find_object_by_id(src.id)
-                .and_then(|source| source.read().ok().map(|guard| *guard.get_position()))
-                .unwrap_or_else(|| host_pos_to_leftover_coord(src.pos))
-        })
-        .unwrap_or_else(|| host_pos_to_leftover_coord(pos))
+pub fn leftover_transition_ocl_secondary(
+    pos: glam::Vec3,
+    source: Option<&HostDamageFxVictim>,
+) -> gamelogic::common::Coord3D {
+    host_pos_to_leftover_coord(source.map_or(pos, |source| source.pos))
 }
 
 /// `Bone:Name RandomBone:No PSys:Template` or `Loc: X:0 Y:0 Z:0 PSys:Template`.
@@ -1005,7 +1013,6 @@ thread_local! {
     static PENDING_ATTACKED_BY: RefCell<Vec<(u32, ObjectId)>> = const { RefCell::new(Vec::new()) };
     static ATTACKED_BY_LOG: RefCell<Vec<(i32, i32)>> = const { RefCell::new(Vec::new()) };
     static VOICE_FEAR_ROLL: Cell<Option<i32>> = const { Cell::new(None) };
-    static DAMAGE_FX_SOURCE: RefCell<Option<HostDamageFxVictim>> = const { RefCell::new(None) };
 }
 
 fn nonempty_event_name(event: &game_engine::common::audio::AudioEventRts) -> Option<String> {
@@ -1174,18 +1181,6 @@ pub fn snapshot_damage_fx_source(obj: &crate::game_logic::Object) -> HostDamageF
     }
 }
 
-pub fn set_damage_fx_source(source: Option<HostDamageFxVictim>) {
-    DAMAGE_FX_SOURCE.with(|c| *c.borrow_mut() = source);
-}
-
-pub fn peek_damage_fx_source() -> Option<HostDamageFxVictim> {
-    DAMAGE_FX_SOURCE.with(|c| c.borrow().clone())
-}
-
-pub fn clear_damage_fx_source() {
-    DAMAGE_FX_SOURCE.with(|c| *c.borrow_mut() = None);
-}
-
 impl game_engine::common::ini::ini_damage_fx::Object for HostDamageFxVictim {
     fn get_name(&self) -> &str {
         &self.name
@@ -1205,13 +1200,14 @@ pub fn dispatch_armor_damage_fx(
     obj: &mut crate::game_logic::Object,
     damage_type: crate::game_logic::combat::DamageType,
     actual_damage: f32,
+    now: u32,
+    source: Option<&HostDamageFxVictim>,
 ) -> Option<String> {
     let flags = crate::game_logic::host_armor_residual::live_armor_set_flags(obj);
-    let Some(dfx_name) = find_best_armor_set_damage_fx(&obj.thing.template.armor_sets, flags)
+    let Some(dfx_name) = find_best_armor_set_damage_fx(&obj.thing().template.armor_sets, flags)
     else {
         return None;
     };
-    let now = crate::game_logic::host_historic_bonus::logic_frame();
     // C++ ActiveBody.cpp:309-315 — same type + now < next time → skip.
     if obj.last_damage_fx_done == Some(damage_type) && now < obj.next_damage_fx_time {
         return None;
@@ -1223,9 +1219,9 @@ pub fn dispatch_armor_damage_fx(
         obj.get_orientation(),
         obj.owner_player_id.map(|p| p as i32).unwrap_or(-1),
         crate::game_logic::host_supply_gather::host_bounding_circle_radius(
-            obj.thing.template.geometry_info.authored,
-            obj.thing.template.geometry_info.bounding_circle_radius(),
-            obj.thing.geometry.radius.max(obj.selection_radius),
+            obj.thing().template.geometry_info.authored,
+            obj.thing().template.geometry_info.bounding_circle_radius(),
+            obj.thing().geometry.radius.max(obj.selection_radius),
         ),
     );
 
@@ -1238,10 +1234,7 @@ pub fn dispatch_armor_damage_fx(
     };
     // C++ DamageFX.cpp:61-93 — throttle + major/minor list use SOURCE veterancy.
     // Missing source → LEVEL_REGULAR. Victim stays primary FX object.
-    let source = peek_damage_fx_source();
-    let source_ref = source
-        .as_ref()
-        .map(|s| s as &dyn game_engine::common::ini::ini_damage_fx::Object);
+    let source_ref = source.map(|s| s as &dyn game_engine::common::ini::ini_damage_fx::Object);
     let (list_name, throttle) = {
         let store = game_engine::common::ini::ini_damage_fx::get_damage_fx_store()?;
         let dfx = store.find_damage_fx(&dfx_name)?;
@@ -1652,18 +1645,18 @@ mod tests {
     #[test]
     fn leftover_transition_ocl_secondary_uses_damage_source_pos() {
         // C++ TransitionDamageFX.cpp:354-355 — secondary is attacker pos.
-        set_damage_fx_source(Some(HostDamageFxVictim {
+        let source = HostDamageFxVictim {
             name: "AmericaTankCrusader".into(),
             id: 2,
             vet: 0,
             pos: glam::Vec3::new(10.0, 4.0, 6.0),
-        }));
-        let secondary = leftover_transition_ocl_secondary(glam::Vec3::new(1.0, 2.0, 3.0));
+        };
+        let secondary =
+            leftover_transition_ocl_secondary(glam::Vec3::new(1.0, 2.0, 3.0), Some(&source));
         assert_eq!(secondary.x, 10.0);
         assert_eq!(secondary.y, 6.0);
         assert_eq!(secondary.z, 4.0);
-        clear_damage_fx_source();
-        let fallback = leftover_transition_ocl_secondary(glam::Vec3::new(1.0, 2.0, 3.0));
+        let fallback = leftover_transition_ocl_secondary(glam::Vec3::new(1.0, 2.0, 3.0), None);
         assert_eq!(fallback.x, 1.0);
         assert_eq!(fallback.y, 3.0);
         assert_eq!(fallback.z, 2.0);

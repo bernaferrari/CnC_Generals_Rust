@@ -97,13 +97,7 @@ impl GameLogic {
         let logic_frame = self.frame;
         let owned = owned_upgrade_tag_refs(&object_tags, &player_tags);
         let mut chosen = Vec::new();
-        for (runtime, metadata) in object.temporary_weapon_runtime.damaged.iter_mut().zip(
-            object
-                .thing
-                .template
-                .fire_weapon_when_damaged_behaviors
-                .iter(),
-        ) {
+        for (runtime, metadata) in object.damaged_temporary_weapon_instances_mut() {
             if metadata.starts_active || metadata.upgrade_mux.triggered_by_owned(&owned) {
                 runtime.upgrade_executed = true;
             }
@@ -150,13 +144,7 @@ impl GameLogic {
         let logic_frame = self.frame;
         let owned = owned_upgrade_tag_refs(&object_tags, &player_tags);
         let mut chosen = Vec::new();
-        for (runtime, metadata) in object.temporary_weapon_runtime.damaged.iter_mut().zip(
-            object
-                .thing
-                .template
-                .fire_weapon_when_damaged_behaviors
-                .iter(),
-        ) {
+        for (runtime, metadata) in object.damaged_temporary_weapon_instances_mut() {
             if metadata.starts_active || metadata.upgrade_mux.triggered_by_owned(&owned) {
                 runtime.upgrade_executed = true;
             }
@@ -216,12 +204,7 @@ impl GameLogic {
         };
         let owned = owned_upgrade_tag_refs(&object_tags, &player_tags);
         let mut specs = Vec::new();
-        for (runtime, metadata) in object
-            .temporary_weapon_runtime
-            .dead
-            .iter_mut()
-            .zip(object.thing.template.fire_weapon_when_dead_behaviors.iter())
-        {
+        for (runtime, metadata) in object.dead_temporary_weapon_instances_mut() {
             if metadata.starts_active || metadata.upgrade_mux.triggered_by_owned(&owned) {
                 runtime.upgrade_executed = true;
             }

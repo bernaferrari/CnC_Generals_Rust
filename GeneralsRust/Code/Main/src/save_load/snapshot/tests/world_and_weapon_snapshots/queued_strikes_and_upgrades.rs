@@ -18,7 +18,7 @@ fn special_power_daisy_cutter_mid_flight_save_load_still_impacts() {
         let enemy = source.host_object_mut(enemy_id).expect("enemy");
         enemy.health.current = 500.0;
         enemy.health.maximum = 500.0;
-        enemy.thing.template.armor = 0.0;
+        enemy.template_mut().armor = 0.0;
     }
 
     // Activate at frame 0 → DaisyCutter impact at frame 90.
@@ -142,7 +142,7 @@ fn special_power_a10_mid_flight_save_load_still_impacts() {
         let enemy = source.host_object_mut(enemy_id).expect("enemy");
         enemy.health.current = 200.0;
         enemy.health.maximum = 200.0;
-        enemy.thing.template.armor = 0.0;
+        enemy.template_mut().armor = 0.0;
     }
 
     // A10 delay is 60 frames.
@@ -226,7 +226,7 @@ fn save_file_roundtrip_preserves_pending_special_power_strike() {
         let e = source.host_object_mut(enemy).unwrap();
         e.health.current = 300.0;
         e.health.maximum = 300.0;
-        e.thing.template.armor = 0.0;
+        e.template_mut().armor = 0.0;
     }
     source.set_current_frame(0);
     source

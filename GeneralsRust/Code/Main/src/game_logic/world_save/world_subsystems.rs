@@ -686,7 +686,7 @@ impl GameLogic {
             let dx = op.x - world_pos.x;
             let dz = op.z - world_pos.z;
             let dist = (dx * dx + dz * dz).sqrt();
-            let geom = &other.thing.template.geometry_info;
+            let geom = &other.thing().template.geometry_info;
             let radius = if geom.authored {
                 // C++ FROM_BOUNDINGSPHERE_2D subtracts bounding-circle
                 // (sqrt(major^2+minor^2) for boxes).

@@ -18,8 +18,9 @@ use game_engine::common::ini::INI;
 /// Matches C++ UpgradeCenter from Upgrade.h
 #[derive(Clone)]
 pub struct UpgradeCenter {
-    /// All upgrade templates indexed by name key
-    upgrades: HashMap<NameKeyType, Arc<UpgradeTemplate>>,
+    /// Canonical catalog identity is the exact authored name. NameKey values
+    /// belong to the generator namespace that constructed each template.
+    upgrades: HashMap<String, Arc<UpgradeTemplate>>,
     /// Ordered list of upgrades (for iteration)
     upgrade_list: Vec<Arc<UpgradeTemplate>>,
     /// Default upgrade template for inheritance
@@ -75,7 +76,8 @@ impl UpgradeCenter {
                 let mut template = (*arc).clone();
                 template.cache_button_image();
                 let cached = Arc::new(template);
-                self.upgrades.insert(cached.get_name_key(), cached.clone());
+                self.upgrades
+                    .insert(cached.get_name().as_str().to_owned(), cached.clone());
                 if cached.get_name().as_str() == "DefaultUpgrade" {
                     self.default_upgrade = Some(cached.clone());
                 }
@@ -87,9 +89,11 @@ impl UpgradeCenter {
 
     /// Matches C++ UpgradeCenter::newUpgrade
     pub fn new_upgrade(&mut self, name: AsciiString) -> Arc<UpgradeTemplate> {
-        let name_key = NameKeyGenerator::name_to_key(&name);
+        // Preserve construction-time key allocation; only catalog lookup is
+        // independent of the calling thread's numeric namespace.
+        let _name_key = NameKeyGenerator::name_to_key(&name);
 
-        if let Some(existing) = self.upgrades.get(&name_key) {
+        if let Some(existing) = self.upgrades.get(name.as_str()) {
             if !name.is_empty() {
                 return existing.clone();
             }
@@ -109,7 +113,7 @@ impl UpgradeCenter {
 
         let template = Arc::new(template);
         self.upgrades
-            .insert(template.get_name_key(), template.clone());
+            .insert(template.get_name().as_str().to_owned(), template.clone());
         self.upgrade_list.insert(0, template.clone());
 
         if name.as_str() == "DefaultUpgrade" {
@@ -129,25 +133,26 @@ impl UpgradeCenter {
 
     fn create_veterancy_upgrade(&mut self, level: &str) {
         let template = self.new_upgrade(AsciiString::from(""));
-        let empty_key = template.get_name_key();
+        let empty_name = template.get_name().as_str().to_owned();
         let mut owned = (*template).clone();
         owned.friend_make_veterancy_upgrade(level);
-        let name_key = owned.get_name_key();
         let template = Arc::new(owned);
-        self.upgrades.remove(&empty_key);
-        self.upgrades.insert(name_key, template.clone());
+        self.upgrades.remove(&empty_name);
+        self.upgrades
+            .insert(template.get_name().as_str().to_owned(), template.clone());
         if let Some(slot) = self.upgrade_list.first_mut() {
             *slot = template;
         }
     }
 
-    fn store_parsed_template(&mut self, name_key: NameKeyType, template: Arc<UpgradeTemplate>) {
-        self.upgrades.insert(name_key, template.clone());
+    fn store_parsed_template(&mut self, _name_key: NameKeyType, template: Arc<UpgradeTemplate>) {
+        self.upgrades
+            .insert(template.get_name().as_str().to_owned(), template.clone());
 
         if let Some(existing) = self
             .upgrade_list
             .iter_mut()
-            .find(|upgrade| upgrade.get_name_key() == name_key)
+            .find(|upgrade| upgrade.get_name() == template.get_name())
         {
             *existing = template;
         } else {
@@ -155,17 +160,23 @@ impl UpgradeCenter {
         }
     }
 
-    /// Find upgrade by name
-    /// Matches C++ UpgradeCenter::findUpgrade
+    /// Exact authored-name lookup in this catalog. C++ has one process key
+    /// namespace; Rust catalogs may outlive or cross a TLS key namespace.
+    /// Queries do not intern absent names; future numeric IDs may therefore
+    /// differ from the C++ global generator's lookup-side allocation.
     pub fn find_upgrade(&self, name: &str) -> Option<Arc<UpgradeTemplate>> {
-        let key = NameKeyGenerator::name_to_key(name);
-        self.find_upgrade_by_key(key)
+        self.upgrades.get(name).cloned()
     }
 
     /// Find upgrade by name key
     /// Matches C++ UpgradeCenter::findUpgradeByKey
     pub fn find_upgrade_by_key(&self, key: NameKeyType) -> Option<Arc<UpgradeTemplate>> {
-        self.upgrades.get(&key).cloned()
+        // C++ walks its linked list and returns the first matching stored key.
+        // Numeric keys remain compatibility metadata, not portable identity.
+        self.upgrade_list
+            .iter()
+            .find(|template| template.get_name_key() == key)
+            .cloned()
     }
 
     /// Find veterancy upgrade by level
@@ -227,7 +238,7 @@ impl UpgradeCenter {
 
         // Find or create upgrade
         let name_key = NameKeyGenerator::name_to_key(&name);
-        let mut template = if let Some(existing) = self.upgrades.get(&name_key) {
+        let mut template = if let Some(existing) = self.upgrades.get(name.as_str()) {
             // Clone existing to modify
             (**existing).clone()
         } else {
@@ -463,3 +474,7 @@ mod tests {
         assert_eq!(other.get_cost(), 500);
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "center/namespace_tests.rs"]
+mod namespace_tests;

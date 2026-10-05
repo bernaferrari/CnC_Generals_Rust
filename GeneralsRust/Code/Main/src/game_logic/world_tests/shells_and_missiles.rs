@@ -353,13 +353,13 @@ fn bomb_truck_default_detonation_residual_damages_nearby() {
         let n = game_logic.host_object_mut(near_id).unwrap();
         n.health.current = 5000.0;
         n.health.maximum = 5000.0;
-        n.thing.template.armor = 0.0;
+        n.template_mut().armor = 0.0;
     }
     {
         let f = game_logic.host_object_mut(far_id).unwrap();
         f.health.current = 5000.0;
         f.health.maximum = 5000.0;
-        f.thing.template.armor = 0.0;
+        f.template_mut().armor = 0.0;
     }
 
     let near_before = game_logic.host_object(near_id).unwrap().health.current;
@@ -431,7 +431,7 @@ fn bomb_truck_he_and_bio_detonation_residual() {
         let v = game_logic.host_object_mut(he_victim).unwrap();
         v.health.current = 5000.0;
         v.health.maximum = 5000.0;
-        v.thing.template.armor = 0.0;
+        v.template_mut().armor = 0.0;
     }
     let he_before = game_logic.host_object(he_victim).unwrap().health.current;
     game_logic.mark_object_for_destruction(he_truck, Some(Team::USA));
@@ -463,7 +463,7 @@ fn bomb_truck_he_and_bio_detonation_residual() {
         let v = game_logic.host_object_mut(bio_victim).unwrap();
         v.health.current = 5000.0;
         v.health.maximum = 5000.0;
-        v.thing.template.armor = 0.0;
+        v.template_mut().armor = 0.0;
     }
     game_logic.mark_object_for_destruction(bio_truck, Some(Team::USA));
     game_logic.process_destroy_list();
@@ -537,7 +537,7 @@ fn helix_napalm_bomb_special_power_residual_blast_and_firestorm() {
         let e = game_logic.host_object_mut(enemy_id).unwrap();
         e.health.current = 5000.0;
         e.health.maximum = 5000.0;
-        e.thing.template.armor = 0.0;
+        e.template_mut().armor = 0.0;
     }
     let far_id = game_logic
         .create_object("TestTank", Team::GLA, Vec3::new(0.0, 0.0, 500.0))
@@ -546,7 +546,7 @@ fn helix_napalm_bomb_special_power_residual_blast_and_firestorm() {
         let f = game_logic.host_object_mut(far_id).unwrap();
         f.health.current = 5000.0;
         f.health.maximum = 5000.0;
-        f.thing.template.armor = 0.0;
+        f.template_mut().armor = 0.0;
     }
 
     let hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
@@ -2540,7 +2540,7 @@ fn helix_minigun_residual_intended_only() {
         let e = game_logic.host_object_mut(enemy_id).expect("enemy");
         e.health.current = 100.0;
         e.health.maximum = 100.0;
-        e.thing.template.armor = 0.0;
+        e.template_mut().armor = 0.0;
     }
     // Splash / non-intended neighbor outside intended-only residual.
     let neighbor_id = game_logic
@@ -2550,7 +2550,7 @@ fn helix_minigun_residual_intended_only() {
         let n = game_logic.host_object_mut(neighbor_id).expect("neighbor");
         n.health.current = 100.0;
         n.health.maximum = 100.0;
-        n.thing.template.armor = 0.0;
+        n.template_mut().armor = 0.0;
     }
 
     {
@@ -2643,7 +2643,7 @@ fn inferno_black_napalm_upgraded_fire_field_residual() {
         let e = game_logic.host_object_mut(enemy_id).expect("enemy");
         e.health.current = 300.0;
         e.health.maximum = 300.0;
-        e.thing.template.armor = 0.0;
+        e.template_mut().armor = 0.0;
     }
 
     {

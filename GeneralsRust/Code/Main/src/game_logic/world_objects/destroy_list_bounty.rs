@@ -55,7 +55,7 @@ fn damage_percent_to_units_from_ini(obj: &Object) -> f32 {
 fn transport_contain_kills_unfree_riders(obj: &Object) -> bool {
     use crate::game_logic::ContainModuleKind;
     matches!(
-        obj.thing.template.contain_module.kind,
+        obj.thing().template.contain_module.kind,
         ContainModuleKind::Transport | ContainModuleKind::RailedTransport
     ) || obj.is_overlord_style_container()
         || obj.is_helix_transport
@@ -160,7 +160,7 @@ fn is_specific_rider_free_to_exit(
     let surfaces = if rider.locomotor_surfaces != 0 {
         rider.locomotor_surfaces
     } else {
-        Object::default_locomotor_surfaces_for_template(&rider.thing.template)
+        Object::default_locomotor_surfaces_for_template(&rider.thing().template)
     };
     if surfaces == 0 {
         return false;
@@ -262,7 +262,7 @@ impl GameLogic {
             let (crate_data, death_pos_pre, death_team_pre, last_src) =
                 if let Some(o) = self.objects.get(&event.id) {
                     (
-                        o.thing.template.create_crate_data.clone(),
+                        o.thing().template.create_crate_data.clone(),
                         o.get_position(),
                         o.team,
                         o.last_damage_source,
@@ -437,7 +437,7 @@ impl GameLogic {
                 // contained body for the existing destruction authority after
                 // clearing its containment link, so no snapshot frame can
                 // retain an orphan rider inside a removed bike.
-                let rider_change_payload = obj.thing.template.contain_module.kind
+                let rider_change_payload = obj.thing().template.contain_module.kind
                     == crate::game_logic::ContainModuleKind::RiderChange;
                 // C++ TunnelContain::onDie (TunnelContain.cpp:326) overrides
                 // OpenContain::onDie — no occupant eject; shared pool stays.
@@ -573,11 +573,11 @@ impl GameLogic {
                     let kill_unfree = transport_contain_kills_unfree_riders(&obj);
                     let scatter_on_death = kill_unfree;
                     let scatter_radius = {
-                        let geom = &obj.thing.template.geometry_info;
+                        let geom = &obj.thing().template.geometry_info;
                         if geom.authored {
                             geom.bounding_circle_radius()
                         } else {
-                            obj.selection_radius.max(obj.thing.geometry.radius)
+                            obj.selection_radius.max(obj.thing().geometry.radius)
                         }
                     };
                     let container_template = obj.template_name.clone();
@@ -893,7 +893,7 @@ impl GameLogic {
             Some(pid) => self.modified_build_cost_supplies(
                 pid,
                 &destroyed_object.template_name,
-                destroyed_object.thing.template.build_cost.supplies,
+                destroyed_object.thing().template.build_cost.supplies,
             ),
             None => 0,
         };
@@ -1173,7 +1173,7 @@ impl GameLogic {
             if !self.object_owned_by_player(object, player_id) {
                 continue;
             }
-            for module in &object.thing.template.special_power_modules {
+            for module in &object.thing().template.special_power_modules {
                 if let Some(pct) =
                     Self::cash_bounty_module_percent(module, science_name, has_science)
                 {
@@ -1196,10 +1196,12 @@ impl GameLogic {
         let Some(object) = self.objects.get(&object_id) else {
             return;
         };
-        let has_cash_bounty =
-            object.thing.template.special_power_modules.iter().any(|m| {
-                m.module_kind == crate::game_logic::SpecialPowerModuleKind::CashBountyPower
-            });
+        let has_cash_bounty = object
+            .thing()
+            .template
+            .special_power_modules
+            .iter()
+            .any(|m| m.module_kind == crate::game_logic::SpecialPowerModuleKind::CashBountyPower);
         if !has_cash_bounty {
             return;
         }
@@ -1585,7 +1587,7 @@ mod tests {
         logic.frame = 42;
         if let Some(c) = logic.host_object_mut(transport) {
             c.is_technical_transport = true;
-            c.thing.template.geometry_info = crate::game_logic::HostGeometryInfo {
+            c.template_mut().geometry_info = crate::game_logic::HostGeometryInfo {
                 geom_type: crate::game_logic::HostGeometryType::Cylinder,
                 is_small: false,
                 height: 10.0,

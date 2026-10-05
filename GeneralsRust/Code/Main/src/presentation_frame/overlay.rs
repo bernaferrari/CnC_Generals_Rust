@@ -2076,7 +2076,7 @@ impl PresentationFrame {
                 ro.friendly_stealth_opacity = friendly_stealth_opacity;
                 dirty = true;
             }
-            let friendly_stealth_opacity_max = obj.thing.template.stealth_friendly_opacity_max;
+            let friendly_stealth_opacity_max = obj.thing().template.stealth_friendly_opacity_max;
             if (ro.friendly_stealth_opacity_max - friendly_stealth_opacity_max).abs() > f32::EPSILON
             {
                 ro.friendly_stealth_opacity_max = friendly_stealth_opacity_max;
@@ -2131,7 +2131,7 @@ impl PresentationFrame {
             // the immutable host containment snapshot at frame construction
             // time so physical RMB remains presentation-only and does not
             // invent a transport from vehicle geometry.
-            let contain_kind = obj.thing.template.contain_module.kind;
+            let contain_kind = obj.thing().template.contain_module.kind;
             let contain_present = contain_kind != crate::game_logic::ContainModuleKind::None;
             if ro.contain_module_present != contain_present {
                 ro.contain_module_present = contain_present;
@@ -2147,7 +2147,7 @@ impl PresentationFrame {
                 dirty = true;
             }
             let rider_change_allowed_templates: Vec<String> = obj
-                .thing
+                .thing()
                 .template
                 .contain_module
                 .rider_change_riders
@@ -2159,17 +2159,17 @@ impl PresentationFrame {
                 ro.rider_change_allowed_templates = rider_change_allowed_templates;
                 dirty = true;
             }
-            let allow_allies = obj.thing.template.contain_module.allow_allies_inside;
+            let allow_allies = obj.thing().template.contain_module.allow_allies_inside;
             if ro.contain_allow_allies_inside != allow_allies {
                 ro.contain_allow_allies_inside = allow_allies;
                 dirty = true;
             }
-            let allow_enemies = obj.thing.template.contain_module.allow_enemies_inside;
+            let allow_enemies = obj.thing().template.contain_module.allow_enemies_inside;
             if ro.contain_allow_enemies_inside != allow_enemies {
                 ro.contain_allow_enemies_inside = allow_enemies;
                 dirty = true;
             }
-            let allow_neutral = obj.thing.template.contain_module.allow_neutral_inside;
+            let allow_neutral = obj.thing().template.contain_module.allow_neutral_inside;
             if ro.contain_allow_neutral_inside != allow_neutral {
                 ro.contain_allow_neutral_inside = allow_neutral;
                 dirty = true;

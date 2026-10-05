@@ -1712,7 +1712,7 @@ fn combat_kill_spawns_particle_system_registry_entries() {
             .expect("target exists");
         target.health.current = 10.0;
         target.health.maximum = 10.0;
-        target.thing.template.armor = 0.0;
+        target.template_mut().armor = 0.0;
     }
 
     game_logic.frame = 60;
@@ -1843,7 +1843,7 @@ fn cash_bounty_increases_cash_on_enemy_kill() {
             .expect("target exists");
         target.health.current = 10.0;
         target.health.maximum = 10.0;
-        target.thing.template.armor = 0.0;
+        target.template_mut().armor = 0.0;
     }
 
     game_logic.frame = 60;
@@ -1943,7 +1943,7 @@ fn cash_bounty_zero_percent_does_not_award() {
             .expect("target exists");
         target.health.current = 10.0;
         target.health.maximum = 10.0;
-        target.thing.template.armor = 0.0;
+        target.template_mut().armor = 0.0;
     }
 
     game_logic.frame = 60;
@@ -2292,7 +2292,7 @@ fn combat_kill_does_not_queue_invented_unit_die() {
             .expect("target exists");
         target.health.current = 10.0;
         target.health.maximum = 10.0;
-        target.thing.template.armor = 0.0;
+        target.template_mut().armor = 0.0;
     }
 
     game_logic.frame = 60;
@@ -2377,19 +2377,19 @@ fn daisy_cutter_host_path_queues_and_completes_area_damage() {
         let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
         enemy.health.current = 500.0;
         enemy.health.maximum = 500.0;
-        enemy.thing.template.armor = 0.0;
+        enemy.template_mut().armor = 0.0;
     }
     {
         let friend = game_logic.host_object_mut(friend_id).expect("friend");
         friend.health.current = 500.0;
         friend.health.maximum = 500.0;
-        friend.thing.template.armor = 0.0;
+        friend.template_mut().armor = 0.0;
     }
     {
         let far = game_logic.host_object_mut(far_enemy_id).expect("far");
         far.health.current = 500.0;
         far.health.maximum = 500.0;
-        far.thing.template.armor = 0.0;
+        far.template_mut().armor = 0.0;
     }
     {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
@@ -2560,7 +2560,7 @@ fn a10_strike_host_path_queues_and_completes() {
         let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
         enemy.health.current = 200.0;
         enemy.health.maximum = 200.0;
-        enemy.thing.template.armor = 0.0;
+        enemy.template_mut().armor = 0.0;
     }
     {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
@@ -2666,7 +2666,7 @@ fn carpet_bomb_host_path_queues_and_applies_delayed_line_damage() {
         let obj = game_logic.host_object_mut(id).expect("obj");
         obj.health.current = 500.0;
         obj.health.maximum = 500.0;
-        obj.thing.template.armor = 0.0;
+        obj.template_mut().armor = 0.0;
     }
     {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");

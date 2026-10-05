@@ -1198,9 +1198,9 @@ impl GameLogic {
             let unarmed_worker = target.is_kind_of(KindOf::Dozer)
                 || target.is_kind_of(KindOf::Worker)
                 || target.is_kind_of(KindOf::Harvester);
-            let authored = target.thing.template.primary_weapon_name.is_some()
-                || target.thing.template.secondary_weapon_name.is_some()
-                || target.thing.template.tertiary_weapon_name.is_some();
+            let authored = target.thing().template.primary_weapon_name.is_some()
+                || target.thing().template.secondary_weapon_name.is_some()
+                || target.thing().template.tertiary_weapon_name.is_some();
             let bound_damage = [0u8, 1, 2]
                 .into_iter()
                 .any(|slot| target.weapon_slot(slot).is_some_and(|w| w.damage > 0.0));

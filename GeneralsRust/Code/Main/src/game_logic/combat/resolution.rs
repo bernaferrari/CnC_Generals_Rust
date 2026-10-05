@@ -9,7 +9,7 @@ fn projectile_goal_on_object(target: &Object) -> Vec3 {
     let pos = target.get_position();
     let mut goal = pos;
     let half = target
-        .thing
+        .thing()
         .template
         .geometry_info
         .max_height_above_position()
@@ -583,7 +583,7 @@ impl CombatSystem {
                         // when the intended victim reserved a parking space.
                         // Other buildings still detonate AA / airborne shots.
                         if obj.is_kind_of(KindOf::FSAirfield)
-                            && obj.thing.template.parking_place.is_some()
+                            && obj.thing().template.parking_place.is_some()
                         {
                             if let Some(tid) = intended {
                                 if let Some(t) = objects.get(&tid) {
@@ -814,19 +814,21 @@ impl CombatSystem {
                     shooter_id,
                     ..
                 } => {
-                    crate::game_logic::object::prime_live_damage_context(
+                    let context = crate::game_logic::object::DamageHitContext::new(
                         objects.get(shooter_id),
                         None,
                         *damage_type,
                     );
                     if let Some(target) = objects.get_mut(target_id) {
                         let before = target.health.current;
-                        let destroyed = target.take_damage_from_typed_death_at_frame(
+                        let destroyed = target.take_damage_with_context(
                             *damage,
                             Some(*shooter_id),
                             *damage_type,
                             *death_type,
+                            None,
                             frame,
+                            &context,
                         );
                         let hp_lost = (before - target.health.current).max(0.0);
                         self.note_kill_for_on_die(
@@ -867,8 +869,10 @@ impl CombatSystem {
                     radius_damage_angle,
                     shooter_team,
                 } => {
-                    let splash_fx_source = objects.get(shooter_id).map(
-                        crate::game_logic::host_transition_damage_fx::snapshot_damage_fx_source,
+                    let context = crate::game_logic::object::DamageHitContext::new(
+                        objects.get(shooter_id),
+                        None,
+                        *damage_type,
                     );
                     let primary_r = *radius;
                     let secondary_r = (*secondary_radius).max(0.0);
@@ -966,16 +970,15 @@ impl CombatSystem {
                                 0.0
                             };
                             if area_damage > 0.0 {
-                                crate::game_logic::host_transition_damage_fx::set_damage_fx_source(
-                                    splash_fx_source.clone(),
-                                );
                                 let before = obj.health.current;
-                                let destroyed = obj.take_damage_from_typed_death_at_frame(
+                                let destroyed = obj.take_damage_with_context(
                                     area_damage,
                                     Some(*shooter_id),
                                     *damage_type,
                                     *death_type,
+                                    None,
                                     frame,
+                                    &context,
                                 );
                                 let hp_lost = (before - obj.health.current).max(0.0);
                                 self.note_kill_for_on_die(
@@ -1294,7 +1297,7 @@ pub(crate) fn splash_from_bounding_sphere_3d(
 }
 
 pub(crate) fn victim_splash_sphere_radius(obj: &Object) -> f32 {
-    let geom = &obj.thing.template.geometry_info;
+    let geom = &obj.thing().template.geometry_info;
     crate::game_logic::host_battlemaster::leftover_horde_bounding_sphere_radius(
         geom.authored,
         geom.bounding_sphere_radius(),

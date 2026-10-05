@@ -288,10 +288,8 @@ fn update_test_object_state(
 
     let template = ThingTemplate::new("TestObject");
     let mut mock_object = Object::new(template, object_id, Team::USA);
-    mock_object.thing.set_position(position);
-    mock_object
-        .thing
-        .set_orientation(rotation.to_euler(glam::EulerRot::XYZ).1); // Y rotation
+    mock_object.set_position(position);
+    mock_object.set_orientation(rotation.to_euler(glam::EulerRot::XYZ).1); // Y rotation
 
     // Use the proper update method
     interpolation_manager.update_object_state(object_id, &mock_object);

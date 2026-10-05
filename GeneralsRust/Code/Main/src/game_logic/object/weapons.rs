@@ -1,6 +1,39 @@
 use super::*;
 
 impl Object {
+    /// Loan each same-owner damaged module's live state and immutable rules
+    /// together, in the existing authored declaration order. No rule clone or
+    /// mutable Thing/pose access escapes this boundary.
+    pub(in crate::game_logic) fn damaged_temporary_weapon_instances_mut(
+        &mut self,
+    ) -> impl Iterator<Item = (
+        &mut crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDamagedRuntimeState,
+        &crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDamagedMetadata,
+    )>{
+        self.temporary_weapon_runtime.damaged.iter_mut().zip(
+            self.thing
+                .template
+                .fire_weapon_when_damaged_behaviors
+                .iter(),
+        )
+    }
+
+    /// The onDie plan loans the same installed dead-module state/rules; its
+    /// caller executes any weapon callbacks after this iterator is dropped.
+    pub(in crate::game_logic) fn dead_temporary_weapon_instances_mut(
+        &mut self,
+    ) -> impl Iterator<
+        Item = (
+            &mut crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadRuntimeState,
+            &crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadMetadata,
+        ),
+    > {
+        self.temporary_weapon_runtime
+            .dead
+            .iter_mut()
+            .zip(self.thing.template.fire_weapon_when_dead_behaviors.iter())
+    }
+
     /// C++ `WeaponSet::getVictimAntiMask`, expressed against the host's
     /// semantic KindOf set. Ordering is material: small and ballistic
     /// missiles are also projectiles, but C++ chooses their more specific

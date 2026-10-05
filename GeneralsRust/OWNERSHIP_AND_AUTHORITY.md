@@ -2483,3 +2483,96 @@ surfaces; water has a real wgpu renderer with the `W3DWater` class scaffold
 uncredited; audio is a real rodio-backed port without Miles spatial/device
 parity. Registering dedicated deviation ids in `ALLOWED_DEVIATIONS` is
 deliberately not done until an ownership record needs to cite one.
+
+## Explicit hit inputs, controlled poses and native helper ownership (2026-10-05)
+
+Main synchronous combat now owns a DamageHitContext per impact. Source template,
+ObjectId, veterancy and position are captured before the victim mutable borrow;
+splash victims borrow one capture. Authored status is the original ObjectStatusTypes
+enum. No current-hit publication, implicit consumption or clear guard remains:
+HIVE_SHOOTER_XZ, PENDING_DAMAGE_STATUS and DAMAGE_FX_SOURCE are removed. The impact
+frame reaches every armor-FX dispatch and current default direct/ground/bunker
+producer. Healing, ignition and body-state OCL dispatch receive the same explicit
+source at their original synchronous phase. Standalone generic operations receive
+None. The captured driving source pose replaces an ambient native-object lookup;
+this avoids cross-world ID resolution and metadata clones per splash victim.
+
+C++ DamageInfoInput, ActiveBody, DamageFX and HiveStructureBody are the behavioral
+contracts. New regressions expose first-alive instead of closest-slave targeting
+and ambient-clock FX throttling. Parsed DamageStatusType NONE is authoritative;
+the known Avenger fallback definition explicitly authors FAERIE_FIRE, as retail
+Weapon.ini does. Generic clock wrappers, damage/output TLS queues, global rule/FX
+catalogs and native per-hit callbacks remain separate dependencies.
+
+Main Object has one pose authority: private Thing's transform. The public duplicate
+position and mutable Thing access are removed. Read facts via thing(); shape/rule
+edits use named operations. Position and matrix changes preserve the complete basis
+and invoke the same integer trigger, terrain-tree and partition reactions. Physics
+translation uses this path before shock-up continuation. Current WorldSnapshot23
+wire is unchanged. Raw Thing keeps its seven-field serde order and reconstructs
+caches without notifications; removing raw Object's redundant field deliberately
+retires its older unversioned binary layout, which current disk saves do not use.
+This establishes pose invariants, not invariant enforcement for every public Object
+health/status field or complete multi-match isolation.
+
+The optional GameWorld entity preview directly owns eight concrete helper variants;
+no runtime helper alias/Clone escapes. Metadata remains cloneable. Eight Arc/Mutex
+pairs per fully enabled preview object disappear. This graph is inert and default
+off; canonical native ModuleEntry/body/AI bindings retain genuine shared aliases.
+No default-gameplay lock reduction or helper Xfer completeness is implied.
+
+Canonical native map health changes now loan the existing body's pure mutation
+phase and release that guard before reacting on the supplied Object. Max precedes
+initial percent with C++ SAME_CURRENTHEALTH policy, fresh cap checks, derived floors
+and the original construction/visual/dead-bit timing. The same body is retained;
+Xfer and CRC fields are unchanged. Native per-hit phases still require a larger
+ordered owner migration and cannot simply defer all callbacks to the tick end.
+
+Script census projects its nonempty roster under one existing trigger guard and
+releases it before publication/callbacks. Camera effects take five focus families
+under one existing notification guard at each existing action boundary, preserving
+family order and later-action visibility. These reduce acquisitions, retaining real
+shared-handler synchronization. Empty census takes no trigger guard. No measured
+FPS, full-game fidelity or fewer-than-50-lock claim follows from these changes.
+
+### Explicit impact scope
+
+Weapon-aware synchronous direct, ground and bunker paths carry parsed status as
+ObjectStatusTypes. Existing projectile DamageEvent records do not retain weapon
+or status metadata, so their current resolution path intentionally receives no
+status input. At impact resolution, source metadata is captured from the driving
+world's live Object; splash reuses that capture for its victim loop. It is not a
+launch-time frozen pose, and retained snapshot metadata does not establish full
+native callback or rule/catalog isolation. Generic source-free hits retain None,
+including regular-veterancy FX and the existing first-alive Hive fallback.
+
+### Native exit queries and immutable upgrade catalog identity
+
+Native Object exit queries return a locally owned ExitInterfaceHandle with a
+closed Module/Behavior/Contain source. Four successful query branches no longer
+allocate an extra Arc/Mutex around an immutable descriptor. Operations continue
+to borrow the same installed runtime under its genuine guard; source selection,
+reservation order, failure policy and module Xfer are unchanged. Retained query
+identity survives cache replacement. This is an intentional Rust API migration,
+not a neutral file split or completion of native module/body ownership.
+
+UpgradeCenter indexes immutable definitions by their exact authored names.
+Name lookup no longer discovers the caller's thread-local numeric namespace;
+registration/reparse cannot overwrite a different rule with the same foreign key.
+One canonical definition remains shared by the index and ordered list. Mask
+allocation, constructor/parser key calls, installed metadata and Xfer stay intact.
+The numeric compatibility lookup retains C++ first-matching list order. An absent
+name query deliberately no longer interns a name, so later numeric allocations
+can differ from C++'s process-global lookup side effect. Numeric cross-namespace
+identity and the remaining ambient definition providers are still separate gaps.
+
+The current disk format still saves position/yaw, including before this pose
+migration; it does not yet preserve a tilted matrix basis. Unadmitted ordinary
+Object clones retain their source weak trigger attachment; admission explicitly
+rebinds it and raw deserialization stays detached. Neither fact is a new claim of
+complete save continuation or unrestricted clone isolation.
+
+The lifecycle envelope omission audit now identifies ten actual unencoded fields,
+including transfer/subdual inputs and prior health. Correcting its stale audit
+expectations does not credit those fields as persisted. Their original Xfer and
+real phase-boundary continuation are tracked separately from current save gates.

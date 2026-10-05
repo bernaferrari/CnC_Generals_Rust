@@ -723,7 +723,7 @@ fn steal_cash_hack_awards_lotus_award_xp_for_triggering() {
         .expect("lotus");
     {
         let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
-        lotus.thing.template.is_trainable = true;
+        lotus.template_mut().is_trainable = true;
     }
     let target_id = game_logic
         .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))

@@ -768,7 +768,7 @@ mod tests {
             .expect("id");
         let frame = PresentationFrame::build_from_logic(&logic, 0);
         if let Some(obj) = logic.host_object_mut(id) {
-            obj.position = glam::Vec3::new(8888.0, 0.0, 8888.0);
+            obj.set_position(glam::Vec3::new(8888.0, 0.0, 8888.0));
         }
         let input = RtsInputSystem::new();
         let mut proc = InputProcessor::new(input, 0, (1024.0, 768.0));

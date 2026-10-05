@@ -688,13 +688,13 @@ impl PathfindingGrid {
         {
             return None;
         }
-        let fence_width = obj.thing.template.fence_width;
+        let fence_width = obj.thing().template.fence_width;
         if fence_width > 0.0 && !obj.is_kind_of(KindOf::DefensiveWall) {
             return self.classify_fence_world(
                 obj.get_position(),
                 obj.get_orientation(),
                 fence_width,
-                obj.thing.template.fence_x_offset,
+                obj.thing().template.fence_x_offset,
                 obj.is_kind_of(KindOf::CanSeeThrough),
                 obj.id.0,
                 obj.owner_player_id,
@@ -707,7 +707,7 @@ impl PathfindingGrid {
         if obj.is_mobile() {
             return None;
         }
-        let geom = obj.thing.template.geometry_info;
+        let geom = obj.thing().template.geometry_info;
         if geom.authored && geom.is_small {
             return None;
         }
@@ -824,7 +824,7 @@ impl PathfindingGrid {
         obj: &Object,
         insert: bool,
     ) -> Option<(GridPos, GridPos)> {
-        let geom = obj.thing.template.geometry_info;
+        let geom = obj.thing().template.geometry_info;
         let pos = obj.get_position();
         let is_transparent = obj.is_kind_of(KindOf::CanSeeThrough);
         let mut lo = GridPos::new(i32::MAX, i32::MAX);

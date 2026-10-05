@@ -1002,14 +1002,14 @@ impl<'a> CommandExecutor<'a> {
                 let Some(target_obj) = self.game_logic.host_object(*target_id) else {
                     return CommandResult::InvalidTarget;
                 };
-                (target_obj.position, Some(*target_id))
+                (target_obj.get_position(), Some(*target_id))
             }
         };
         // C++ MoveToBldg: geom.getMaxHeightAbovePosition(), not object world Y.
         let bldg_h = object_target.and_then(|tid| {
             self.game_logic.host_object(tid).and_then(|o| {
                 if o.is_alive() && o.is_kind_of(crate::game_logic::KindOf::Structure) {
-                    Some(o.thing.template.geometry_info.max_height_above_position())
+                    Some(o.thing().template.geometry_info.max_height_above_position())
                 } else {
                     None
                 }
@@ -1044,11 +1044,11 @@ impl<'a> CommandExecutor<'a> {
                             tgt.status.under_construction,
                             tgt.status.sold,
                             &tgt.template_name,
-                            tgt.thing.template.contain_module.kind
+                            tgt.thing().template.contain_module.kind
                                 != crate::game_logic::ContainModuleKind::None
                                 || tgt.can_contain()
                                 || tgt.is_garrison_contain(),
-                            tgt.thing.template.contain_module.kind.is_heal_contain(),
+                            tgt.thing().template.contain_module.kind.is_heal_contain(),
                             chinook.health.current >= chinook.health.maximum,
                             tgt.is_faction_structure(),
                         )

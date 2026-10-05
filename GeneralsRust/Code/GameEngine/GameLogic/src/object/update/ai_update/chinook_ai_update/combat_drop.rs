@@ -9,7 +9,7 @@ use crate::common::{Coord3D, KindOf, Real, UnsignedInt, LOGICFRAMES_PER_SECOND};
 use crate::helpers::{
     get_game_logic_random_value, TheGameClient, TheGameLogic, TheTerrainLogic, TheThingFactory,
 };
-use crate::modules::{AIUpdateInterfaceExt, ContainModuleInterfaceExt};
+use crate::modules::{AIUpdateInterfaceExt, ContainModuleInterfaceExt, ExitInterface};
 use crate::object::draw::draw_module::RGBColor;
 use crate::object::drawable::{Drawable, DrawableArcExt};
 use crate::object::Object;
@@ -248,7 +248,7 @@ impl ChinookAIUpdate {
 
             if now >= rope.next_drop_time {
                 if let Some(rappeller) = self.get_potential_rappeller() {
-                    let exit_interface = owner
+                    let mut exit_interface = owner
                         .read()
                         .ok()
                         .and_then(|owner| owner.get_object_exit_interface());
@@ -258,14 +258,12 @@ impl ChinookAIUpdate {
                     let prepared = owner.read().ok().and_then(|owner_guard| {
                         rappeller.read().ok().map(|rappeller_guard| {
                             let exit_door = exit_interface
-                                .as_ref()
-                                .and_then(|exit| {
-                                    exit.lock().ok().map(|mut guard| {
-                                        guard.reserve_door_for_exit(
-                                            Some(&*owner_guard),
-                                            Some(&*rappeller_guard),
-                                        )
-                                    })
+                                .as_mut()
+                                .map(|exit| {
+                                    exit.reserve_door_for_exit(
+                                        Some(&*owner_guard),
+                                        Some(&*rappeller_guard),
+                                    )
                                 })
                                 .unwrap_or(crate::modules::DOOR_NONE_AVAILABLE);
                             (exit_door, rappeller_guard.get_id())
@@ -273,10 +271,8 @@ impl ChinookAIUpdate {
                     });
                     if let Some((exit_door, rappeller_id)) = prepared {
                         if exit_door != crate::modules::DOOR_NONE_AVAILABLE {
-                            if let Some(exit) = exit_interface {
-                                let _ = exit.lock().ok().map(|mut guard| {
-                                    guard.exit_object_via_door(rappeller_id, exit_door)
-                                });
+                            if let Some(mut exit) = exit_interface {
+                                let _ = exit.exit_object_via_door(rappeller_id, exit_door);
                             }
                         }
                     }

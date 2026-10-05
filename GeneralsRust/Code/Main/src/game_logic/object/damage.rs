@@ -1,66 +1,5 @@
 use super::*;
 
-thread_local! {
-    static HIVE_SHOOTER_XZ: std::cell::Cell<Option<(f32, f32)>> =
-        const { std::cell::Cell::new(None) };
-    static PENDING_DAMAGE_STATUS: std::cell::Cell<Option<&'static str>> =
-        const { std::cell::Cell::new(None) };
-}
-
-/// C++ `getClosestSlave(shooter->pos)` context for live `Object::take_damage`.
-pub fn set_hive_shooter_xz(xz: Option<(f32, f32)>) {
-    HIVE_SHOOTER_XZ.with(|c| c.set(xz));
-}
-
-fn take_hive_shooter_xz() -> Option<(f32, f32)> {
-    HIVE_SHOOTER_XZ.with(|c| c.replace(None))
-}
-
-/// C++ `DamageInfo.in.m_damageStatusType` for the current `take_damage` apply.
-/// `None` / `"NONE"` → no status paint (Weapon.ini default OBJECT_STATUS_NONE).
-pub fn set_pending_damage_status_type(name: Option<&'static str>) {
-    PENDING_DAMAGE_STATUS.with(|c| c.set(name));
-}
-
-fn peek_pending_damage_status_type() -> Option<&'static str> {
-    PENDING_DAMAGE_STATUS.with(|c| c.get())
-}
-
-fn clear_pending_damage_status_type() {
-    PENDING_DAMAGE_STATUS.with(|c| c.set(None));
-}
-
-/// Prime live combat fire: attacker DamageFX vet + authored DamageStatusType.
-pub fn prime_live_damage_context(
-    source: Option<&Object>,
-    weapon_name: Option<&str>,
-    damage_type: crate::game_logic::combat::DamageType,
-) {
-    if let Some(src) = source {
-        crate::game_logic::host_transition_damage_fx::set_damage_fx_source(Some(
-            crate::game_logic::host_transition_damage_fx::snapshot_damage_fx_source(src),
-        ));
-    } else {
-        crate::game_logic::host_transition_damage_fx::set_damage_fx_source(None);
-    }
-    if matches!(damage_type, crate::game_logic::combat::DamageType::Status) {
-        set_pending_damage_status_type(weapon_name.and_then(
-            crate::game_logic::weapon_bootstrap::host_damage_status_type_for_weapon_name,
-        ));
-    } else {
-        set_pending_damage_status_type(None);
-    }
-}
-
-struct PendingDamageContextGuard;
-
-impl Drop for PendingDamageContextGuard {
-    fn drop(&mut self) {
-        clear_pending_damage_status_type();
-        crate::game_logic::host_transition_damage_fx::clear_damage_fx_source();
-    }
-}
-
 impl Object {
     pub fn take_damage_from(&mut self, damage: f32, source: Option<ObjectId>) -> bool {
         self.take_damage_from_typed(
@@ -228,7 +167,28 @@ impl Object {
         fx_override: Option<crate::game_logic::combat::DamageType>,
         frame: u32,
     ) -> bool {
-        let _ctx = PendingDamageContextGuard;
+        self.take_damage_with_context(
+            damage,
+            source,
+            damage_type,
+            death_type,
+            fx_override,
+            frame,
+            &DamageHitContext::default(),
+        )
+    }
+
+    /// One synchronous impact. Context belongs to the caller, including across early returns.
+    pub(in crate::game_logic) fn take_damage_with_context(
+        &mut self,
+        damage: f32,
+        source: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        fx_override: Option<crate::game_logic::combat::DamageType>,
+        frame: u32,
+        context: &DamageHitContext,
+    ) -> bool {
         // C++ InactiveBody::attemptDamage (InactiveBody.cpp:53-86): no HP except
         // DAMAGE_UNRESISTABLE (onDie once, never DamageFX).
         if self.is_inactive_body() {
@@ -237,7 +197,7 @@ impl Object {
         // C++ HiveStructureBody::attemptDamage (HiveStructureBody.cpp:45-112):
         // propagate SMALL_ARMS/SNIPER/POISON/RADIATION/SURRENDER/MICROWAVE to
         // closest slave; swallow SNIPER/POISON/SURRENDER when none remain.
-        if self.try_hive_structure_body_damage(damage, source, damage_type, frame) {
+        if self.try_hive_structure_body_damage(damage, source, damage_type, frame, context) {
             return false;
         }
         // C++ ActiveBody::attemptDamage (ActiveBody.cpp:329-330) bails before
@@ -286,6 +246,8 @@ impl Object {
                 self,
                 fx_type,
                 damage.max(0.0),
+                frame,
+                context.source(),
             );
             let _ = (source, death_type);
             return false;
@@ -320,7 +282,7 @@ impl Object {
                 damage_type,
                 damage,
             );
-            self.heal(amount.max(0.0));
+            self.heal_with_source(amount.max(0.0), context.source());
             if amount > 0.0 {
                 let now = frame;
                 self.last_healing_timestamp = Some(now);
@@ -350,6 +312,8 @@ impl Object {
                 self,
                 fx_type,
                 amount.max(0.0),
+                frame,
+                context.source(),
             );
             return false;
         }
@@ -393,6 +357,8 @@ impl Object {
                                 self,
                                 fx_type,
                                 damage.max(0.0),
+                                frame,
+                                context.source(),
                             );
                         if self.is_kind_of(crate::game_logic::KindOf::Vehicle) {
                             record_neutral_vehicle_sniped();
@@ -409,6 +375,8 @@ impl Object {
                         self,
                         fx_type,
                         damage.max(0.0),
+                        frame,
+                        context.source(),
                     );
                     if self.is_kind_of(crate::game_logic::KindOf::Vehicle) {
                         record_neutral_vehicle_sniped();
@@ -431,6 +399,8 @@ impl Object {
                 self,
                 fx_type,
                 damage.max(0.0),
+                frame,
+                context.source(),
             );
             let _ = (source, death_type);
             return false;
@@ -456,6 +426,8 @@ impl Object {
                 self,
                 fx_type,
                 typed.max(0.0),
+                frame,
+                context.source(),
             );
             let _ = (source, death_type);
             return false;
@@ -471,7 +443,7 @@ impl Object {
             if frames > 0 {
                 // C++ ActiveBody.cpp:460-464 doStatusDamage(m_damageStatusType).
                 // Default OBJECT_STATUS_NONE: no paint. Avenger authors FAERIE_FIRE.
-                if let Some(name) = peek_pending_damage_status_type() {
+                if let Some(name) = context.status_name() {
                     if !name.is_empty() && !name.eq_ignore_ascii_case("NONE") {
                         self.do_status_damage(name, frames.max(1), frame);
                     }
@@ -485,6 +457,8 @@ impl Object {
                 self,
                 fx_type,
                 amount.max(0.0),
+                frame,
+                context.source(),
             );
             let _ = (source, death_type);
             return false;
@@ -498,6 +472,7 @@ impl Object {
             false,
             fx_override,
             frame,
+            context,
         )
     }
 
@@ -518,6 +493,7 @@ impl Object {
             force_host_hp,
             fx_override,
             crate::game_logic::host_historic_bonus::logic_frame(),
+            &DamageHitContext::default(),
         )
     }
 
@@ -530,8 +506,8 @@ impl Object {
         force_host_hp: bool,
         fx_override: Option<crate::game_logic::combat::DamageType>,
         frame: u32,
+        context: &DamageHitContext,
     ) -> bool {
-        let _ctx = PendingDamageContextGuard;
         if self.status.destroyed {
             return false;
         }
@@ -547,7 +523,7 @@ impl Object {
         if self.status.eject_invulnerable {
             return false;
         }
-        if self.try_hive_structure_body_damage(damage, source, damage_type, frame) {
+        if self.try_hive_structure_body_damage(damage, source, damage_type, frame, context) {
             return false;
         }
         let prev_health = self.health.current;
@@ -720,6 +696,8 @@ impl Object {
             self,
             fx_type,
             actual_damage,
+            frame,
+            context.source(),
         );
 
         // C++ UndeadBody::startSecondLife after ActiveBody::attemptDamage residual.
@@ -741,7 +719,7 @@ impl Object {
         {
             if let Some(fs) = self.fire_spread.as_mut() {
                 if fs.apply_flame_damage(actual_damage, frame) {
-                    self.apply_flammable_ignite_visuals();
+                    self.apply_flammable_ignite_visuals_with_source(context.source());
                 }
             }
         }
@@ -770,7 +748,7 @@ impl Object {
             }
         }
 
-        self.refresh_model_condition_bits();
+        self.refresh_model_condition_bits_with_source(context.source());
         if self.is_host_bridge_member() {
             crate::game_logic::host_bridge_behavior::record_mirror(
                 self.id,
@@ -910,6 +888,7 @@ impl Object {
         source: Option<ObjectId>,
         damage_type: crate::game_logic::combat::DamageType,
         frame: u32,
+        context: &DamageHitContext,
     ) -> bool {
         use crate::game_logic::host_base_defense::{
             HostHiveDamageClass, hive_damage_class_for_type, is_stinger_site_structure,
@@ -927,7 +906,9 @@ impl Object {
         }
         let struct_hp = self.health.current;
         let pos = self.get_position();
-        let shooter_xz = take_hive_shooter_xz().map(|(qx, qz)| (pos.x, pos.z, qx, qz));
+        let shooter_xz = context
+            .source()
+            .map(|source| (pos.x, pos.z, source.pos.x, source.pos.z));
         let (_, _, result) = resolve_hive_structure_damage_roster(
             &mut self.hive_slaves,
             struct_hp,
@@ -956,6 +937,8 @@ impl Object {
                 self,
                 damage_type,
                 dealt,
+                frame,
+                context.source(),
             );
             return true;
         }
@@ -1043,7 +1026,19 @@ mod tests {
         // TankArmor SUBDUAL_MISSILE residual is 0% — still not Unresistable HP.
         assert!((tank.subdual_damage).abs() < 1e-3);
 
-        let mut bare = Object::new(ThingTemplate::new("Bare"), ObjectId(12), Team::USA);
+        // CPP ActiveBody defaults SubdualDamageCap to zero and is immune.
+        // Armor's coefficient alone cannot make an unauthored body subduable.
+        let mut immune = Object::new(ThingTemplate::new("BareImmune"), ObjectId(13), Team::USA);
+        assert_eq!(immune.subdual_damage_cap, 0.0);
+        let before_hp = immune.health.current;
+        assert!(!immune.take_damage_from_typed(40.0, None, DamageType::SubdualMissile));
+        assert_eq!(immune.health.current, before_hp);
+        assert_eq!(immune.subdual_damage, 0.0);
+
+        let mut template = ThingTemplate::new("Bare");
+        template.subdual_damage_cap = 100.0;
+        let mut bare = Object::new(template, ObjectId(12), Team::USA);
+        assert_eq!(bare.subdual_damage_cap, 100.0);
         bare.health.current = 100.0;
         bare.health.maximum = 100.0;
         assert!(!bare.take_damage_from_typed(40.0, None, DamageType::SubdualMissile));
@@ -1296,8 +1291,17 @@ mod tests {
         let frame = crate::game_logic::host_historic_bonus::logic_frame();
         // 2000 msec * 0.5 armor = 1000 msec → 30 frames @ 30 FPS.
         // Avenger-shaped STATUS weapon authors FAERIE_FIRE.
-        set_pending_damage_status_type(Some("FAERIE_FIRE"));
-        assert!(!o.take_damage_from_typed(2000.0, None, DamageType::Status));
+        let context =
+            DamageHitContext::with_status(gamelogic::common::ObjectStatusTypes::FaerieFire);
+        assert!(!o.take_damage_with_context(
+            2000.0,
+            None,
+            DamageType::Status,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            frame,
+            &context
+        ));
         assert!((o.health.current - 100.0).abs() < 1e-3);
         assert!(o.is_faerie_fire());
         assert_eq!(o.faerie_fire_until_frame, frame.saturating_add(30));
@@ -1347,9 +1351,7 @@ mod tests {
 
     #[test]
     fn damage_fx_uses_attacker_veterancy_not_victim() {
-        use crate::game_logic::host_transition_damage_fx::{
-            set_damage_fx_source, snapshot_damage_fx_source, take_dispatched_armor_damage_fx,
-        };
+        use crate::game_logic::host_transition_damage_fx::take_dispatched_armor_damage_fx;
         game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store();
         let mut dfx = game_engine::common::ini::ini_damage_fx::DamageFX::new();
         dfx.set_major_minor_fx_at_level(
@@ -1373,7 +1375,7 @@ mod tests {
         let _ = take_dispatched_armor_damage_fx();
         let mut attacker = vehicle("HeroGun", 82, 100.0);
         attacker.experience.level = crate::game_logic::VeterancyLevel::Heroic;
-        set_damage_fx_source(Some(snapshot_damage_fx_source(&attacker)));
+        let context = DamageHitContext::new(Some(&attacker), None, DamageType::Unresistable);
         let mut victim = vehicle("RookieTank", 83, 200.0);
         victim.experience.level = crate::game_logic::VeterancyLevel::Rookie;
         victim
@@ -1385,7 +1387,15 @@ mod tests {
                 armor: Some("TankArmor".into()),
                 damage_fx: Some("VetDamageFX".into()),
             });
-        assert!(!victim.take_damage_from_typed(20.0, Some(ObjectId(82)), DamageType::Unresistable));
+        assert!(!victim.take_damage_with_context(
+            20.0,
+            Some(ObjectId(82)),
+            DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            0,
+            &context
+        ));
         let dispatched = take_dispatched_armor_damage_fx();
         assert!(
             dispatched.iter().any(|n| n == "FX_HeroHit"),
@@ -1803,3 +1813,7 @@ mod tests {
         assert!((o.health.current - 90.0).abs() < 1e-3);
     }
 }
+
+#[cfg(test)]
+#[path = "damage_context_tests.rs"]
+mod damage_context_tests;

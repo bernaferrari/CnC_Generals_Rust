@@ -601,7 +601,7 @@ pub fn drain_pending_projectiles(
                 if target.is_kind_of(crate::game_logic::KindOf::Structure) {
                     target_pos = crate::game_logic::weapon_bootstrap::structure_scatter_aim_origin(
                         target_pos,
-                        &target.thing.template.geometry_info,
+                        &target.thing().template.geometry_info,
                     );
                 }
             }

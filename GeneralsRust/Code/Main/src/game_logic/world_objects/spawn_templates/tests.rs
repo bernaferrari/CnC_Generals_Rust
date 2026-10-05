@@ -3517,10 +3517,10 @@ End
             expected_circle,
             obj.selection_radius
         );
-        assert!((obj.thing.geometry.radius - expected_circle).abs() < 1e-4);
-        assert!((obj.thing.geometry.bounds_max.x - 13.0).abs() < 1e-4);
-        assert!((obj.thing.geometry.bounds_max.z - 9.0).abs() < 1e-4);
-        assert!((obj.thing.geometry.bounds_max.y - 10.0).abs() < 1e-4);
+        assert!((obj.thing().geometry.radius - expected_circle).abs() < 1e-4);
+        assert!((obj.thing().geometry.bounds_max.x - 13.0).abs() < 1e-4);
+        assert!((obj.thing().geometry.bounds_max.z - 9.0).abs() < 1e-4);
+        assert!((obj.thing().geometry.bounds_max.y - 10.0).abs() < 1e-4);
 
         // Unknown Geometry token fails closed (keeps default SPHERE).
         let mut bad = ObjectDefinition::new("BogusGeom".to_string());

@@ -1389,7 +1389,7 @@ fn disabled_freezes_structure_superweapon_countdown() {
         .expect("puc");
     // Start mid-recharge residual.
     if let Some(o) = logic.host_object_mut(puc) {
-        o.thing.template.add_kind_of(KindOf::Powered);
+        o.template_mut().add_kind_of(KindOf::Powered);
         o.special_power_cooldowns
             .insert(SpecialPowerType::ParticleCannon, 100.0);
         o.special_power_cooldown_remaining = 100.0;
@@ -1479,7 +1479,7 @@ fn disabled_underpowered_blocks_structure_superweapon_fire() {
             .remove(&SpecialPowerType::ParticleCannon);
         o.special_power_cooldown_remaining = 0.0;
         o.set_special_power_ready(true);
-        o.thing.template.add_kind_of(KindOf::Powered);
+        o.template_mut().add_kind_of(KindOf::Powered);
         assert!(!o.is_disabled());
     }
     assert!(

@@ -1529,7 +1529,7 @@ fn loaded_combat_chinook_does_not_auto_gather() {
     let chinook_id = create_test_combat_chinook(&mut logic, Vec3::ZERO);
     {
         let chinook = logic.host_object_mut(chinook_id).expect("chinook mut");
-        chinook.thing.template.supply_truck_metadata = Some(SupplyTruckMetadata {
+        chinook.template_mut().supply_truck_metadata = Some(SupplyTruckMetadata {
             max_boxes: 8,
             warehouse_scan_distance: 700.0,
             warehouse_delay_frames: 0,
@@ -2054,8 +2054,7 @@ fn garrisonable_until_destroyed_still_allows_occupy_when_really_damaged() {
     {
         let bunker = game_logic.host_object_mut(bunker_id).expect("bunker mut");
         bunker
-            .thing
-            .template
+            .template_mut()
             .add_kind_of(KindOf::GarrisonableUntilDestroyed);
         bunker.health.current = 200.0;
         bunker.refresh_model_condition_bits();
@@ -2624,7 +2623,7 @@ fn overlord_bunker_enter_sets_rider_experience_sink_to_tank() {
         .expect("infantry");
     {
         let overlord = game_logic.host_object_mut(overlord_id).expect("overlord");
-        overlord.thing.template.is_trainable = true;
+        overlord.template_mut().is_trainable = true;
     }
 
     game_logic.queue_command(GameCommand {

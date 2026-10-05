@@ -2011,7 +2011,7 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
     {
         let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
         enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
-        enemy.thing.template.armor = 0.0;
+        enemy.template_mut().armor = 0.0;
     }
     crate::game_logic::host_damage_log::clear();
     game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
@@ -2064,7 +2064,7 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
     // Observable armor effect: ally takes 90% damage under HoldTheLine.
     {
         let ally = game_logic.host_object_mut(ally_id).expect("ally");
-        ally.thing.template.armor = 0.0;
+        ally.template_mut().armor = 0.0;
         ally.health.current = 100.0;
         ally.max_health = 100.0;
         ally.health.maximum = 100.0;
@@ -2083,7 +2083,7 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
         enemy.set_ai_state(AIState::Attacking);
         enemy.set_status_attacking(true);
         enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
-        enemy.thing.template.armor = 0.0;
+        enemy.template_mut().armor = 0.0;
     }
     {
         let ally = game_logic.host_object_mut(ally_id).expect("ally");
@@ -2147,7 +2147,7 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
     {
         let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
         enemy.set_position(Vec3::new(110.0, 0.0, 0.0)); // 110 > 100 base, < 120 residual
-        enemy.thing.template.armor = 0.0;
+        enemy.template_mut().armor = 0.0;
         enemy.health.current = 100.0;
         enemy.target = None;
         enemy.set_status_attacking(false);
@@ -2272,7 +2272,7 @@ fn strategy_center_battle_plan_paralyze_residual_on_plan_change() {
     {
         let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
         enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
-        enemy.thing.template.armor = 0.0;
+        enemy.template_mut().armor = 0.0;
     }
     crate::game_logic::host_damage_log::clear();
     game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);

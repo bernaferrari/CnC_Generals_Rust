@@ -618,8 +618,7 @@ impl Object {
     fn set_position_keep_rotation(&mut self, pos: glam::Vec3) {
         let mut mtx = self.get_transform_matrix();
         mtx.w_axis = pos.extend(1.0);
-        self.thing.set_transform_matrix(mtx);
-        self.position = pos;
+        self.set_transform_matrix(mtx);
         self.sync_shock_up_from_transform();
     }
 
@@ -650,8 +649,7 @@ impl Object {
         mtx *= glam::Mat4::from_rotation_x(roll_rate);
         mtx *= glam::Mat4::from_rotation_z(pitch_rate);
         mtx *= glam::Mat4::from_rotation_y(yaw_rate);
-        self.thing.set_transform_matrix(mtx);
-        self.position = mtx.w_axis.truncate();
+        self.set_transform_matrix(mtx);
         self.sync_shock_up_from_transform();
     }
 
@@ -665,7 +663,7 @@ impl Object {
         } else {
             std::f32::consts::PI
         };
-        self.thing.set_transform_matrix(
+        self.set_transform_matrix(
             glam::Mat4::from_translation(pos)
                 * glam::Mat4::from_rotation_y(yaw)
                 * glam::Mat4::from_rotation_x(roll),

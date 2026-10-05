@@ -72,6 +72,17 @@ struct AudioCompletionTracking {
     audio_complete_frame: HashMap<String, u64>,
 }
 
+/// Notifications consumed together at one existing synchronous camera-focus boundary.
+/// This value owns requests; no notification guard survives into camera/view effects.
+#[derive(Default)]
+pub(crate) struct CameraFocusRequests {
+    pub(crate) moves: Vec<Vec3>,
+    pub(crate) move_to_selection: Vec<()>,
+    pub(crate) move_home: Vec<()>,
+    pub(crate) follows: Vec<CameraFollowRequest>,
+    pub(crate) tethers: Vec<CameraTetherRequest>,
+}
+
 pub struct MissionScriptHooks {
     runtime: Mutex<MissionScriptRuntime>,
     pending_script_enabled_updates: Arc<Mutex<Vec<(String, bool)>>>,
@@ -736,6 +747,22 @@ impl MissionScriptHooks {
         self.notifications
             .lock()
             .map(|mut q| q.sound_events.drain(..).collect())
+            .unwrap_or_default()
+    }
+
+    /// Take only the five contiguous focus families; preserve later action drains.
+    /// Producers and the Main driver run synchronously on the game thread.
+    /// Retain the external shared-handler synchronization and poisoned fallback.
+    pub(crate) fn take_camera_focus_requests(&self) -> CameraFocusRequests {
+        self.notifications
+            .lock()
+            .map(|mut q| CameraFocusRequests {
+                moves: q.camera_moves.drain(..).collect(),
+                move_to_selection: q.camera_move_to_selection_requests.drain(..).collect(),
+                move_home: q.camera_move_home_requests.drain(..).collect(),
+                follows: q.camera_follows.drain(..).collect(),
+                tethers: q.camera_tethers.drain(..).collect(),
+            })
             .unwrap_or_default()
     }
 

@@ -112,7 +112,7 @@ impl GameLogic {
         power_name: &str,
     ) -> Option<crate::command_system::SpecialPowerType> {
         let obj = self.host_object(id)?;
-        for module in &obj.thing.template.special_power_modules {
+        for module in &obj.thing().template.special_power_modules {
             if module
                 .special_power_template
                 .eq_ignore_ascii_case(power_name)
@@ -125,7 +125,7 @@ impl GameLogic {
         }
         let power = crate::command_system::special_power_type_from_template_name(power_name)?;
         if obj
-            .thing
+            .thing()
             .template
             .special_power_module_for_command(&power)
             .is_some()
@@ -613,7 +613,7 @@ impl GameLogic {
             if !relationship_ok {
                 continue;
             }
-            let cost = obj.thing.template.build_cost.supplies as i32;
+            let cost = obj.thing().template.build_cost.supplies as i32;
             if best.map(|(c, _)| cost > c).unwrap_or(true) {
                 best = Some((cost, obj.id));
             }
@@ -853,7 +853,7 @@ impl GameLogic {
             let cash = if obj.partition_cash_value > 0 {
                 obj.partition_cash_value as i32
             } else {
-                obj.thing.template.build_cost.supplies as i32
+                obj.thing().template.build_cost.supplies as i32
             };
             *cells.entry((cx, cz)).or_insert(0) += cash;
         }
@@ -1627,10 +1627,10 @@ impl GameLogic {
     ) -> Option<ObjectId> {
         let source = self.host_object(source_id)?;
         let source_pos = source.get_position();
-        let source_off_map = source.position.x < self.world_min.x
-            || source.position.x > self.world_max.x
-            || source.position.z < self.world_min.z
-            || source.position.z > self.world_max.z;
+        let source_off_map = source.get_position().x < self.world_min.x
+            || source.get_position().x > self.world_max.x
+            || source.get_position().z < self.world_min.z
+            || source.get_position().z > self.world_max.z;
         let type_names = host_script_object_type_names(object_type);
         if type_names.is_empty() {
             return None;
@@ -1640,10 +1640,10 @@ impl GameLogic {
             if *id == source_id || !obj.is_alive() || obj.status.destroyed {
                 continue;
             }
-            let off_map = obj.position.x < self.world_min.x
-                || obj.position.x > self.world_max.x
-                || obj.position.z < self.world_min.z
-                || obj.position.z > self.world_max.z;
+            let off_map = obj.get_position().x < self.world_min.x
+                || obj.get_position().x > self.world_max.x
+                || obj.get_position().z < self.world_min.z
+                || obj.get_position().z > self.world_max.z;
             if off_map != source_off_map {
                 continue;
             }

@@ -270,3 +270,6 @@ fn stream_query_bootstraps_absent_actual_catalog() {
 
 #[path = "ranger_primary_admission_tests.rs"]
 mod ranger_primary_admission_tests;
+
+#[path = "status_definition_tests.rs"]
+mod status_definition_tests;

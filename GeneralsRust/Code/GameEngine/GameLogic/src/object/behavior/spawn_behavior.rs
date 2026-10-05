@@ -704,17 +704,12 @@ impl SpawnBehavior {
         let data = Arc::clone(&self.module_data);
 
         // Get exit interface
-        let exit_interface = self
+        let mut exit_interface = self
             .with_object(|obj_guard| obj_guard.get_object_exit_interface())
             .map_err(|_| "Failed to read object")?
             .ok_or("Object must have ExitInterface to use SpawnBehavior")?;
 
-        let exit_door = {
-            let mut exit_guard = exit_interface
-                .lock()
-                .map_err(|_| "Failed to lock exit interface")?;
-            exit_guard.reserve_door_for_exit(None, None)
-        };
+        let exit_door = { exit_interface.reserve_door_for_exit(None, None) };
 
         if matches!(exit_door, crate::modules::ExitDoorType::NoneAvailable) {
             return Ok(false);
@@ -801,10 +796,6 @@ impl SpawnBehavior {
 
         // Handle exit behavior
         if !reclaimed_orphan {
-            let mut exit_guard = exit_interface
-                .lock()
-                .map_err(|_| "Failed to lock exit interface")?;
-
             if data.exit_by_budding {
                 let mut barracks_exit_success = false;
 
@@ -822,24 +813,19 @@ impl SpawnBehavior {
                             drop(barracks_guard);
 
                             if is_structure {
-                                if let Some(barracks_exit) = barracks
+                                if let Some(mut barracks_exit) = barracks
                                     .read()
                                     .ok()
                                     .and_then(|guard| guard.get_object_exit_interface())
                                 {
-                                    let mut barracks_exit_guard = barracks_exit
-                                        .lock()
-                                        .map_err(|_| "Failed to lock barracks exit")?;
                                     let barracks_door =
-                                        barracks_exit_guard.reserve_door_for_exit(None, None);
+                                        barracks_exit.reserve_door_for_exit(None, None);
                                     let spawn_id = new_spawn
                                         .read()
                                         .ok()
                                         .map(|guard| guard.get_id())
                                         .unwrap_or(0);
-                                    barracks_exit_guard
-                                        .exit_object_via_door(spawn_id, barracks_door)?;
-                                    drop(barracks_exit_guard);
+                                    barracks_exit.exit_object_via_door(spawn_id, barracks_door)?;
 
                                     // Set producer back to parent
                                     let mut spawn_guard =
@@ -890,19 +876,14 @@ impl SpawnBehavior {
                     let host_id = bud_host
                         .as_ref()
                         .and_then(|host| host.read().ok().map(|guard| guard.get_id()));
-                    exit_guard.exit_object_by_budding(new_spawn_id, host_id)?;
+                    exit_interface.exit_object_by_budding(new_spawn_id, host_id)?;
                 }
             } else {
-                exit_guard.exit_object_via_door(new_spawn_id, exit_door)?;
+                exit_interface.exit_object_via_door(new_spawn_id, exit_door)?;
             }
-            drop(exit_guard);
         } else {
             // Unreserve the door since we used a reclaimed orphan
-            let mut exit_guard = exit_interface
-                .lock()
-                .map_err(|_| "Failed to lock exit interface")?;
-            exit_guard.unreserve_door_for_exit(exit_door);
-            drop(exit_guard);
+            exit_interface.unreserve_door_for_exit(exit_door);
         }
 
         // Update counters

@@ -53,6 +53,7 @@ pub const GAME_LOGIC_HOST_SRC: &str = concat!(
     include_str!("../world_scripts/ambush_leaflet.rs"),
     include_str!("../world_objects/object_queries.rs"),
     include_str!("../world_objects/create_destroy_die.rs"),
+    include_str!("../world_objects/create_destroy_die/death.rs"),
     include_str!("../world_objects/host_ops_writeback.rs"),
     include_str!("../world_objects/ai_authority.rs"),
     include_str!("../world_objects/support_states/mod.rs"),

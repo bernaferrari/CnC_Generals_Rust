@@ -314,9 +314,9 @@ impl ProductionUpdate {
             })
             .unwrap_or(false);
         if needs_door {
-            if let Some(exit_interface) = object.get_object_exit_interface() {
-                let modules_door =
-                    exit_interface.reserve_door_for_exit(Some(unit_type.get_name().as_str()), None);
+            if let Some(mut exit_interface) = object.get_object_exit_interface() {
+                let modules_door = exit_interface
+                    .reserve_door_for_template(Some(unit_type.get_name().as_str()), None);
                 exit_door = ExitDoorType::from_modules_exit_door_type(modules_door);
                 if exit_door == ExitDoorType::NoneAvailable {
                     return false;
@@ -650,7 +650,7 @@ impl ProductionUpdate {
             obj_guard.and_then(|g| g.get_object_exit_interface())
         };
 
-        let Some(exit_interface) = exit_interface else {
+        let Some(mut exit_interface) = exit_interface else {
             // No exit interface — create the unit directly
             self.create_unit_no_exit(&template, &player, &building, idx, ctx);
             return;
@@ -660,7 +660,7 @@ impl ProductionUpdate {
         let mut exit_door = self.production_queue[idx].exit_door;
         if exit_door == ExitDoorType::NoneAvailable {
             let name = template.get_name();
-            let modules_door = exit_interface.reserve_door_for_exit(Some(name.as_str()), None);
+            let modules_door = exit_interface.reserve_door_for_template(Some(name.as_str()), None);
             exit_door = ExitDoorType::from_modules_exit_door_type(modules_door);
             self.production_queue[idx].exit_door = exit_door;
         }
@@ -686,7 +686,7 @@ impl ProductionUpdate {
                 &template,
                 &player,
                 &building,
-                &exit_interface,
+                &mut exit_interface,
                 exit_door.to_modules_exit_door_type(),
                 idx,
                 ctx,
@@ -700,7 +700,7 @@ impl ProductionUpdate {
         template: &Arc<dyn crate::common::ThingTemplate>,
         player: &Arc<RwLock<crate::player::Player>>,
         building: &Arc<RwLock<crate::object::Object>>,
-        exit_interface: &Arc<std::sync::Mutex<dyn crate::modules::ExitInterface>>,
+        exit_interface: &mut crate::object::ExitInterfaceHandle,
         door: crate::modules::ExitDoorType,
         idx: usize,
         ctx: &mut UpdateContext<'_>,
@@ -732,12 +732,10 @@ impl ProductionUpdate {
             new_obj_guard.set_producer_id(producer_id);
         }
 
-        if let Ok(mut exit_guard) = exit_interface.lock() {
-            let new_id = new_obj.read().map(|g| g.get_id()).unwrap_or(0);
-            let _ = exit_guard.exit_object_via_door(new_id, door);
-            // A successful exit owns the reservation. Do not unreserve it later.
-            self.production_queue[idx].exit_door = ExitDoorType::NoneAvailable;
-        }
+        let new_id = new_obj.read().map(|g| g.get_id()).unwrap_or(0);
+        let _ = exit_interface.exit_object_via_door(new_id, door);
+        // A successful exit owns the reservation. Do not unreserve it later.
+        self.production_queue[idx].exit_door = ExitDoorType::NoneAvailable;
 
         let unit_id = new_obj
             .read()
@@ -1087,7 +1085,7 @@ impl ProductionUpdate {
             && production.exit_door != ExitDoorType::NoneAvailable
         {
             if let Some(object) = ctx.game_logic.find_object(self.thing) {
-                if let Some(exit_interface) = object.get_object_exit_interface() {
+                if let Some(mut exit_interface) = object.get_object_exit_interface() {
                     exit_interface
                         .unreserve_door_for_exit(production.exit_door.to_modules_exit_door_type());
                 }

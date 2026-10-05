@@ -491,8 +491,8 @@ impl GameLogic {
             world_max.x,
             world_max.z,
         );
-        let enter_guard = me.thing.template.enter_guard;
-        let hijack_guard = me.thing.template.hijack_guard;
+        let enter_guard = me.thing().template.enter_guard;
+        let hijack_guard = me.thing().template.hijack_guard;
         let radius_sq = inner * inner;
         let mut best: Option<(ObjectId, f32)> = None;
         for (cid, cand) in self.objects.iter() {
@@ -831,9 +831,13 @@ impl GameLogic {
         let lower = name.to_ascii_lowercase();
         if let Some((id, _)) = self.objects.iter().find(|(_, o)| {
             (!o.name.is_empty() && o.name.eq_ignore_ascii_case(name))
-                || o.thing.template.name.eq_ignore_ascii_case(name)
+                || o.thing().template.name.eq_ignore_ascii_case(name)
                 || o.template_name.eq_ignore_ascii_case(name)
-                || o.thing.template.name.to_ascii_lowercase().contains(&lower)
+                || o.thing()
+                    .template
+                    .name
+                    .to_ascii_lowercase()
+                    .contains(&lower)
         }) {
             return Some(*id);
         }

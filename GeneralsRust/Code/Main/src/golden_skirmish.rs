@@ -672,8 +672,8 @@ fn ensure_object_gatherable(logic: &mut GameLogic, id: ObjectId) {
         tpl.add_kind_of(KindOf::Harvestable);
     }
     if let Some(obj) = logic./* Wave 950 */ host_object_mut(id) {
-        obj.thing.template.add_kind_of(KindOf::Resource);
-        obj.thing.template.add_kind_of(KindOf::Harvestable);
+        obj.template_mut().add_kind_of(KindOf::Resource);
+        obj.template_mut().add_kind_of(KindOf::Harvestable);
     }
 }
 

@@ -19,6 +19,7 @@ use crate::helpers::{
     TheAudio, TheGameLogic, ThePartitionManager, TheTerrainLogic, get_game_logic_random_value_real,
 };
 use crate::modules::{
+    ExitInterface,
     AIUpdateInterfaceExt, ContainModuleInterface, ContainWant, PhysicsBehaviorExt, UpdateSleepTime,
 };
 use crate::object::Object;
@@ -544,26 +545,23 @@ impl ParachuteContain {
                                 if let Some(building) = TheGameLogic::find_object_by_id(building_id)
                                 {
                                     if let Ok(building_guard) = building.read() {
-                                        if let Some(exit) =
+                                        if let Some(mut exit) =
                                             building_guard.get_object_exit_interface()
                                         {
-                                            if let Ok(mut exit_guard) = exit.lock() {
-                                                if exit_guard.use_spawn_rally_point() {
-                                                    let rider_id = rider.get_id();
-                                                    drop(rider);
-                                                    exit_guard.exit_object_via_door(
-                                                        rider_id,
-                                                        crate::modules::ExitDoorType::Primary,
+                                            if exit.use_spawn_rally_point() {
+                                                let rider_id = rider.get_id();
+                                                drop(rider);
+                                                exit.exit_object_via_door(
+                                                    rider_id,
+                                                    crate::modules::ExitDoorType::Primary,
+                                                );
+                                                let Ok(guard) = obj.write() else {
+                                                    return Err(
+                                                        "Parachute passenger lock poisoned".into(),
                                                     );
-                                                    let Ok(guard) = obj.write() else {
-                                                        return Err(
-                                                            "Parachute passenger lock poisoned"
-                                                                .into(),
-                                                        );
-                                                    };
-                                                    rider = guard;
-                                                    has_rally = true;
-                                                }
+                                                };
+                                                rider = guard;
+                                                has_rally = true;
                                             }
                                         }
                                     }

@@ -175,7 +175,7 @@ impl GameLogic {
         let snapshot = match self.objects.get(&pilot_id) {
             Some(obj) if obj.is_alive() => {
                 let is_pilot = obj
-                    .thing
+                    .thing()
                     .template
                     .veterancy_crate_collide
                     .as_ref()
@@ -818,7 +818,7 @@ impl GameLogic {
         let use_spawn = building_id.is_some_and(|bid| {
             self.objects.get(&bid).is_some_and(|building| {
                 building
-                    .thing
+                    .thing()
                     .template
                     .production_exit_metadata
                     .is_some_and(|exit| exit.use_spawn_rally_point)
@@ -847,14 +847,14 @@ impl GameLogic {
         let Some(building) = self.objects.get(&building_id) else {
             return;
         };
-        let Some(exit) = building.thing.template.production_exit_metadata else {
+        let Some(exit) = building.thing().template.production_exit_metadata else {
             return;
         };
         if !exit.use_spawn_rally_point {
             return;
         }
         let prod_pos = building.get_position();
-        let forward = building.thing.get_direction_vector();
+        let forward = building.thing().get_direction_vector();
         let orientation = building.get_orientation();
         let custom_rally = building.building_data.as_ref().and_then(|b| b.rally_point);
         let create = crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(

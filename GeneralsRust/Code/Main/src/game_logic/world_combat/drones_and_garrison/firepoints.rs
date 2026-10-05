@@ -28,7 +28,7 @@ pub(super) fn load_prefix_bones_for_model(
     prefix: &str,
     max: usize,
 ) -> Vec<glam::Vec3> {
-    let scale = container.thing.template.asset_scale;
+    let scale = container.thing().template.asset_scale;
     let pos = container.get_position();
     let yaw = container.get_orientation();
     let mut out = Vec::new();
@@ -51,15 +51,15 @@ pub(super) fn load_prefix_bones_world(
 ) -> Vec<glam::Vec3> {
     load_prefix_bones_for_model(
         container,
-        container.thing.template.get_model_name(),
+        container.thing().template.get_model_name(),
         prefix,
         max,
     )
 }
 
 pub(super) fn named_bone_world(container: &Object, name: &str) -> Option<glam::Vec3> {
-    let model = container.thing.template.get_model_name();
-    let scale = container.thing.template.asset_scale;
+    let model = container.thing().template.get_model_name();
+    let scale = container.thing().template.asset_scale;
     let pos = container.get_position();
     let yaw = container.get_orientation();
     let local = gamelogic::object::draw::lookup_pristine_bone_translation(model, scale, name)?;
@@ -93,7 +93,7 @@ pub(super) fn garrison_points_for_condition<'a>(
 pub(super) fn load_garrison_condition_bone_sets(
     container: &Object,
 ) -> (Vec<glam::Vec3>, Vec<glam::Vec3>, Vec<glam::Vec3>) {
-    let base = container.thing.template.get_model_name();
+    let base = container.thing().template.get_model_name();
     let pristine =
         load_prefix_bones_for_model(container, base, "FIREPOINT", MAX_GARRISON_FIRE_POINTS);
     let dmg_key = crate::assets::mesh_asset_resolve::model_key_with_body_damage(base, 1, false);
@@ -138,7 +138,7 @@ pub(crate) fn open_contain_exit_path(
 ) -> (glam::Vec3, glam::Vec3, u8) {
     let origin = container.get_position();
     let yaw = container.get_orientation();
-    let geom = container.thing.template.geometry_info;
+    let geom = container.thing().template.geometry_info;
     let major = if geom.authored {
         geom.major_radius.max(8.0)
     } else {

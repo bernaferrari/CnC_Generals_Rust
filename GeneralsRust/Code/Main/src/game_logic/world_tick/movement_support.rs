@@ -28,7 +28,7 @@ impl GameLogic {
                     let surfaces = if obj.locomotor_surfaces != 0 {
                         obj.locomotor_surfaces
                     } else {
-                        Object::default_locomotor_surfaces_for_template(&obj.thing.template)
+                        Object::default_locomotor_surfaces_for_template(&obj.thing().template)
                     };
                     let quick = (surfaces & crate::game_logic::object::LOCO_SURFACE_AIR) != 0
                         && !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(obj);
@@ -808,7 +808,7 @@ impl GameLogic {
                 pid.and_then(|pid| {
                     self.objects.get(&pid).and_then(|producer| {
                         producer
-                            .thing
+                            .thing()
                             .template
                             .parking_place
                             .as_ref()
@@ -1489,8 +1489,8 @@ impl GameLogic {
                                 // C++ Locomotor.cpp:1292-1323 reverse / 3pt + turn-speed cap.
                                 let actual_stopped = obj.movement.velocity.x.abs() < 1e-4
                                     && obj.movement.velocity.z.abs() < 1e-4;
-                                let major = if obj.thing.template.geometry_info.authored {
-                                    obj.thing.template.geometry_info.major_radius
+                                let major = if obj.thing().template.geometry_info.authored {
+                                    obj.thing().template.geometry_info.major_radius
                                 } else {
                                     obj.selection_radius.max(1.0)
                                 };
@@ -1974,7 +1974,7 @@ impl GameLogic {
                         if let Some(pid) = producer {
                             if let Some(extra) = self.objects.get(&pid).and_then(|carrier| {
                                 carrier
-                                    .thing
+                                    .thing()
                                     .template
                                     .parking_place
                                     .as_ref()

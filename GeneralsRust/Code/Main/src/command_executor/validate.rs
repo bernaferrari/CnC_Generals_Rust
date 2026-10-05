@@ -187,7 +187,7 @@ impl<'a> CommandExecutor<'a> {
             }
         };
 
-        match target.thing.template.dock_kind {
+        match target.thing().template.dock_kind {
             DockKind::SupplyCenter
                 if unit.is_resource_collector()
                     && unit.stored_resources.supplies > 0

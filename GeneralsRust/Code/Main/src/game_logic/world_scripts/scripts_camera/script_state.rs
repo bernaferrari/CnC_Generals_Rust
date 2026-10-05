@@ -56,7 +56,7 @@ impl GameLogic {
         let Some(obj) = self.objects.get(&object_id) else {
             return;
         };
-        let template = obj.thing.template.name.clone();
+        let template = obj.thing().template.name.clone();
         let pos = obj.get_position();
         self.queue_resolved_per_unit_sound_named(
             &template,
@@ -276,7 +276,7 @@ impl GameLogic {
                 if !o.is_alive() || o.status.destroyed {
                     return false;
                 }
-                let p = o.position;
+                let p = o.get_position();
                 p.x >= min.x && p.x <= max.x && p.z >= min.z && p.z <= max.z
             })
             .map(|(id, _)| *id)
@@ -294,6 +294,37 @@ impl GameLogic {
             let _ = tracker.register_named_object(name, id);
         }
         self.inject_host_script_query_snapshot();
+    }
+
+    /// Project this roster into its trigger owner without callbacks under the guard.
+    /// C++ Object.cpp:2563–2635 preserves integer pose, skips and frame edges.
+    fn project_host_trigger_flags(&self) {
+        let objects = self.host_objects();
+        if objects.is_empty() {
+            return;
+        }
+        let mut trigger_world = self
+            .host_trigger_world
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        trigger_world.set_current_frame(self.frame);
+        for (id, object) in objects {
+            let skip = object.is_kind_of(crate::game_logic::KindOf::Projectile)
+                || object.is_kind_of(crate::game_logic::KindOf::Inert);
+            let team = if object.team_instance_name.is_empty() {
+                None
+            } else {
+                Some(object.team_instance_name.as_str())
+            };
+            trigger_world.update_object_flags(
+                id.0,
+                object.get_position().x,
+                object.get_position().z,
+                self.frame,
+                skip,
+                team,
+            );
+        }
     }
 
     /// Fill crate condition host-query snapshot from `host_named_unit_id*`.
@@ -318,9 +349,9 @@ impl GameLogic {
                 id: id.0,
                 name: obj.name.clone(),
                 team: obj.team as u32,
-                x: obj.position.x,
-                y: obj.position.y,
-                z: obj.position.z,
+                x: obj.get_position().x,
+                y: obj.get_position().y,
+                z: obj.get_position().z,
 
                 alive: obj.is_alive() && !obj.status.destroyed,
                 effectively_dead: obj.status.effectively_dead || obj.status.destroyed,
@@ -372,7 +403,7 @@ impl GameLogic {
                     && !obj.status.attacking,
                 vision_range: obj.vision_range,
                 kind_names: obj
-                    .thing
+                    .thing()
                     .template
                     .kind_of
                     .iter()
@@ -383,7 +414,7 @@ impl GameLogic {
                     && !obj.is_disabled()
                     && !obj.status.destroyed,
                 special_power_templates: obj
-                    .thing
+                    .thing()
                     .template
                     .special_power_modules
                     .iter()
@@ -393,12 +424,12 @@ impl GameLogic {
                 captured: obj.status.private_captured,
                 unmanned: obj.status.disabled_unmanned,
                 garrisonable: obj.is_garrison_contain(),
-                build_cost: obj.thing.template.build_cost.supplies as i32,
+                build_cost: obj.thing().template.build_cost.supplies as i32,
                 status_bits: host_query_object_status_bits(obj),
                 player_who_entered: host_query_player_who_entered(self, obj),
-                is_supply_warehouse: obj.thing.template.dock_kind
+                is_supply_warehouse: obj.thing().template.dock_kind
                     == crate::game_logic::DockKind::SupplyWarehouse,
-                warehouse_boxes: if obj.thing.template.dock_kind
+                warehouse_boxes: if obj.thing().template.dock_kind
                     == crate::game_logic::DockKind::SupplyWarehouse
                 {
                     // C++ SupplyWarehouseDockUpdate::getBoxesStored.
@@ -414,10 +445,10 @@ impl GameLogic {
                 } else {
                     0
                 },
-                off_map: obj.position.x < self.world_min.x
-                    || obj.position.x > self.world_max.x
-                    || obj.position.z < self.world_min.z
-                    || obj.position.z > self.world_max.z,
+                off_map: obj.get_position().x < self.world_min.x
+                    || obj.get_position().x > self.world_max.x
+                    || obj.get_position().z < self.world_min.z
+                    || obj.get_position().z > self.world_max.z,
                 contained_by: obj.contained_by.map(|cid| cid.0).unwrap_or(0),
                 // Live has no AI_EXIT state; leftover Exit is pretend-contained.
                 ai_exiting: false,
@@ -430,27 +461,8 @@ impl GameLogic {
                     .or_default()
                     .push(id.0);
             }
-            let skip = obj.is_kind_of(crate::game_logic::KindOf::Projectile)
-                || obj.is_kind_of(crate::game_logic::KindOf::Inert);
-            let team = if obj.team_instance_name.is_empty() {
-                None
-            } else {
-                Some(obj.team_instance_name.as_str())
-            };
-            let mut trigger_world = self
-                .host_trigger_world
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            trigger_world.set_current_frame(self.frame);
-            trigger_world.update_object_flags(
-                id.0,
-                obj.position.x,
-                obj.position.z,
-                self.frame,
-                skip,
-                team,
-            );
         }
+        self.project_host_trigger_flags();
         if let Ok(factory) = self.team_factory.lock() {
             for name in factory.prototype_names() {
                 if snap.team_instance_ids.contains_key(&name) {
@@ -629,15 +641,15 @@ impl GameLogic {
                 continue;
             }
             tech_buildings.push(HostTechBuildingCensus {
-                x: obj.position.x,
-                z: obj.position.z,
+                x: obj.get_position().x,
+                z: obj.get_position().z,
                 owner_player: obj
                     .owner_player_id
                     .and_then(|pid| self.player_name(pid))
                     .unwrap_or_default(),
                 team: obj.team as u32,
                 off_map: crate::game_logic::host_deliver_payload::is_off_map_default_residual(
-                    obj.position,
+                    obj.get_position(),
                 ),
             });
         }
@@ -1495,3 +1507,6 @@ impl GameLogic {
             .map(|p| p.id)
     }
 }
+
+#[cfg(test)]
+mod trigger_projection_tests;

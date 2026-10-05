@@ -1034,7 +1034,7 @@ impl BuildingBehavior {
                         quantity,
                     }) => {
                         let spawn_pos = building.get_position()
-                            + building.thing.get_direction_vector()
+                            + building.thing().get_direction_vector()
                                 * building.selection_radius.max(10.0);
                         Some((building.team, template_name, spawn_pos, rally, quantity))
                     }
@@ -1168,7 +1168,7 @@ impl BuildingBehavior {
             (
                 candidate,
                 building.get_position(),
-                building.thing.get_direction_vector().normalize_or_zero(),
+                building.thing().get_direction_vector().normalize_or_zero(),
             )
         };
 

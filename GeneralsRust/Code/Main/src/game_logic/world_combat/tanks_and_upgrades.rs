@@ -598,7 +598,7 @@ impl GameLogic {
                     return None;
                 }
                 let p = o.get_position();
-                let geom = &o.thing.template.geometry_info;
+                let geom = &o.thing().template.geometry_info;
                 Some((
                     *id,
                     o.team,

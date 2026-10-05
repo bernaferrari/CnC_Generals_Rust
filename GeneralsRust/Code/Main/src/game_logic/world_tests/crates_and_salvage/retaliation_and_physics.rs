@@ -1238,8 +1238,8 @@ fn player_attack_command_uses_weaponset_target_legality_before_stamping_target()
     assert_eq!(logic.objects[&attacker_id].target, None);
 
     let target = logic.objects.get_mut(&target_id).unwrap();
-    target.thing.template.kind_of.remove(&KindOf::Unattackable);
-    target.thing.template.add_kind_of(KindOf::Projectile);
+    target.template_mut().kind_of.remove(&KindOf::Unattackable);
+    target.template_mut().add_kind_of(KindOf::Projectile);
 
     // A hand-authored ground-only weapon is not silently promoted to
     // AntiProjectile by the command route.
@@ -1247,7 +1247,7 @@ fn player_attack_command_uses_weaponset_target_legality_before_stamping_target()
     assert_eq!(logic.objects[&attacker_id].target, None);
 
     let target = logic.objects.get_mut(&target_id).unwrap();
-    target.thing.template.kind_of.remove(&KindOf::Projectile);
+    target.template_mut().kind_of.remove(&KindOf::Projectile);
     assert!(logic.unit_command_attack(attacker_id, target_id));
     assert_eq!(logic.objects[&attacker_id].target, Some(target_id));
 
@@ -1332,8 +1332,7 @@ fn host_direct_attack_authority_does_not_bypass_weaponset_target_legality() {
         .objects
         .get_mut(&target_id)
         .expect("target")
-        .thing
-        .template
+        .template_mut()
         .kind_of
         .remove(&KindOf::Unattackable);
     logic.command_attack(0, target_id);
@@ -2765,12 +2764,8 @@ fn loco_set_physics_options_sticks_infantry() {
     assert!(o.stick_to_ground);
     assert!((o.extra_friction - 0.2).abs() < 1e-6);
     assert!(o.apply_friction_2d_when_airborne);
-    let mut loose = Object::new(
-        ThingTemplate::new("LocoInfLoose"),
-        ObjectId(953),
-        Team::USA,
-    );
-    loose.thing.template.add_kind_of(KindOf::Infantry);
+    let mut loose = Object::new(ThingTemplate::new("LocoInfLoose"), ObjectId(953), Team::USA);
+    loose.template_mut().add_kind_of(KindOf::Infantry);
     loose.stick_to_ground = false;
     loose.set_locomotor_physics_options();
     assert!(
@@ -2887,7 +2882,7 @@ fn compute_ground_bounce_force_rights_tilted_unflipped_body() {
     o.original_allow_bounce = true;
     let pos = o.get_position();
     let yaw = o.get_orientation();
-    o.thing.set_transform_matrix(
+    o.set_transform_matrix(
         Mat4::from_translation(pos)
             * Mat4::from_rotation_y(yaw)
             * Mat4::from_rotation_z(std::f32::consts::FRAC_PI_4),

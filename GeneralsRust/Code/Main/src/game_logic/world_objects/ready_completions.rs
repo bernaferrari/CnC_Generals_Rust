@@ -1146,8 +1146,8 @@ impl GameLogic {
             obj.apply_body_damage_state_change_residual(prev, next);
             let pos = obj.get_position();
             let yaw = obj.get_orientation();
-            let model = obj.thing.template.get_model_name().to_string();
-            let scale = obj.thing.template.asset_scale;
+            let model = obj.thing().template.get_model_name().to_string();
+            let scale = obj.thing().template.asset_scale;
             let aflame = obj.has_object_status_bit("AFLAME")
                 || obj.fire_spread.as_ref().is_some_and(|f| f.is_aflame());
             let owner = ev.object;

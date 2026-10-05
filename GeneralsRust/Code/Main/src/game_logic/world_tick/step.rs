@@ -334,9 +334,9 @@ impl GameLogic {
                 continue;
             };
             hasher.compute_crc(&id.to_le_bytes());
-            hasher.compute_crc(&obj.position.x.to_bits().to_le_bytes());
-            hasher.compute_crc(&obj.position.y.to_bits().to_le_bytes());
-            hasher.compute_crc(&obj.position.z.to_bits().to_le_bytes());
+            hasher.compute_crc(&obj.get_position().x.to_bits().to_le_bytes());
+            hasher.compute_crc(&obj.get_position().y.to_bits().to_le_bytes());
+            hasher.compute_crc(&obj.get_position().z.to_bits().to_le_bytes());
             hasher.compute_crc(&obj.health.current.to_bits().to_le_bytes());
             hasher.compute_crc(&obj.health.maximum.to_bits().to_le_bytes());
         }
@@ -1295,7 +1295,7 @@ impl GameLogic {
                 }
                 if let Some(owner) = self.objects.get(&shooter_id) {
                     if owner.is_kind_of(crate::game_logic::KindOf::Vehicle) {
-                        let geom = &owner.thing.template.geometry_info;
+                        let geom = &owner.thing().template.geometry_info;
                         self.projectile_streams.apply_vehicle_roof_skim(
                             shooter_id,
                             owner.get_position(),

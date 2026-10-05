@@ -290,7 +290,7 @@ fn accepted_discharge_snapshot_builder_restores_baseline_without_replaying_cues(
     // Restore must receive the exact fixture definitions through the same
     // catalog setup existing SnapshotBuilder tests use, not synthesized names.
     for id in [SOURCE, VICTIM] {
-        let definition = source.host_object(id).unwrap().thing.template.clone();
+        let definition = source.host_object(id).unwrap().thing().template.clone();
         source.templates.insert(definition.name.clone(), definition);
     }
     accept_shot(&mut source, 1.0);

@@ -1363,7 +1363,7 @@ fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
     // per-Object counter through the sole-tick progress event.
     let runtime = {
         let producer = logic.host_object_mut(producer_id).expect("producer object");
-        let exit = producer.thing.template.production_exit_metadata;
+        let exit = producer.thing().template.production_exit_metadata;
         let building = producer.building_data.as_mut().expect("building");
         building.record_successful_production_exit(exit.as_ref());
         building.production_exit_runtime_state()

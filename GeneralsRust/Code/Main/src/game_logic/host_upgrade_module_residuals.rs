@@ -753,7 +753,7 @@ pub fn apply_locomotor_set_kind_for_surfaces(
     if obj.jet_ai.cur_locomotor_set.as_deref() == Some(token) {
         return true;
     }
-    if let Some(sets) = &obj.thing.template.authored_locomotor_sets {
+    if let Some(sets) = &obj.thing().template.authored_locomotor_sets {
         let Some(row) = sets.iter().find(|row| row.kind == kind) else {
             return false;
         };
@@ -884,7 +884,7 @@ fn apply_locomotor_set_for_cell_change(
     if obj.jet_ai.cur_locomotor_set.as_deref() == Some(token) {
         return true;
     }
-    let Some(sets) = obj.thing.template.authored_locomotor_sets.clone() else {
+    let Some(sets) = obj.thing().template.authored_locomotor_sets.clone() else {
         return apply_locomotor_set_kind(obj, kind);
     };
     let Some(row) = sets.into_iter().find(|row| row.kind == kind) else {
@@ -1033,8 +1033,7 @@ mod tests {
         let mut first = Object::new(template.clone(), ObjectId(101), Team::USA);
         let mut second = Object::new(template, ObjectId(102), Team::USA);
         second
-            .thing
-            .template
+            .template_mut()
             .authored_locomotor_sets
             .as_mut()
             .unwrap()[1]

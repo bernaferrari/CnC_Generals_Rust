@@ -57,7 +57,7 @@ impl GameLogic {
                     }
                     let container = self.objects.get(&obj.contained_by?)?;
                     let garrisonable = container.is_garrison_contain()
-                        || container.thing.template.garrison_contain_max.is_some();
+                        || container.thing().template.garrison_contain_max.is_some();
                     if Object::transport_contain_should_destalth(garrisonable) {
                         Some(*id)
                     } else {
@@ -921,7 +921,7 @@ impl GameLogic {
                     .contained_by
                     .and_then(|cid| self.objects.get(&cid))
                     .map(|c| {
-                        c.thing.template.garrison_contain_max.is_some()
+                        c.thing().template.garrison_contain_max.is_some()
                             || (c.is_kind_of(KindOf::Structure) && c.building_data.is_some())
                     })
                     .unwrap_or(false);
@@ -1655,7 +1655,7 @@ impl GameLogic {
             obj.movement.max_speed = 0.0;
             obj.weapon = None;
             obj.secondary_weapon = None;
-            obj.thing.template.add_kind_of(KindOf::DemoTrap);
+            obj.template_mut().add_kind_of(KindOf::DemoTrap);
             obj.apply_mine_innate_stealth();
         }
         self.mine_residual_places = self.mine_residual_places.saturating_add(1);
@@ -1828,7 +1828,9 @@ impl GameLogic {
                 && mine_spot_under_structure(
                     pos,
                     obj.get_position(),
-                    obj.selection_radius.max(obj.thing.geometry.radius).max(1.0),
+                    obj.selection_radius
+                        .max(obj.thing().geometry.radius)
+                        .max(1.0),
                     LAND_MINE_GEOMETRY_RADIUS,
                 )
         })
@@ -1876,14 +1878,20 @@ impl GameLogic {
         let pos = obj.get_position();
         let major = obj
             .selection_radius
-            .max(obj.thing.geometry.radius)
-            .max(((obj.thing.geometry.bounds_max.x - obj.thing.geometry.bounds_min.x).abs()) * 0.5)
+            .max(obj.thing().geometry.radius)
+            .max(
+                ((obj.thing().geometry.bounds_max.x - obj.thing().geometry.bounds_min.x).abs())
+                    * 0.5,
+            )
             .max(1.0);
         let minor = obj
-            .thing
+            .thing()
             .geometry
             .radius
-            .max(((obj.thing.geometry.bounds_max.z - obj.thing.geometry.bounds_min.z).abs()) * 0.5)
+            .max(
+                ((obj.thing().geometry.bounds_max.z - obj.thing().geometry.bounds_min.z).abs())
+                    * 0.5,
+            )
             .max(1.0);
         let is_box = (major - minor).abs() > 1.0;
         let template = china_mine_template_for_upgrade(upgrade);
@@ -2161,10 +2169,10 @@ impl GameLogic {
             obj.secondary_weapon = None;
             match kind {
                 crate::game_logic::host_mines::HostMineKind::DemoTrap => {
-                    obj.thing.template.add_kind_of(KindOf::DemoTrap);
+                    obj.template_mut().add_kind_of(KindOf::DemoTrap);
                 }
                 _ => {
-                    obj.thing.template.add_kind_of(KindOf::Mine);
+                    obj.template_mut().add_kind_of(KindOf::Mine);
                 }
             }
             obj.apply_mine_innate_stealth();
@@ -2761,7 +2769,7 @@ impl GameLogic {
                 if crate::game_logic::host_mines::is_above_terrain(obj.get_position().y, ground_y) {
                     return None;
                 }
-                let geom = &obj.thing.template.geometry_info;
+                let geom = &obj.thing().template.geometry_info;
                 let victim_r = victim_mine_collide_radius(
                     geom.authored,
                     geom.bounding_circle_radius(),
@@ -3803,9 +3811,9 @@ impl GameLogic {
             return;
         }
         let bpos = building.get_position();
-        let br = if building.thing.template.geometry_info.authored {
+        let br = if building.thing().template.geometry_info.authored {
             building
-                .thing
+                .thing()
                 .template
                 .geometry_info
                 .bounding_circle_radius()
@@ -3824,8 +3832,8 @@ impl GameLogic {
                 continue;
             }
             let mpos = obj.get_position();
-            let mr = if obj.thing.template.geometry_info.authored {
-                obj.thing.template.geometry_info.bounding_circle_radius()
+            let mr = if obj.thing().template.geometry_info.authored {
+                obj.thing().template.geometry_info.bounding_circle_radius()
             } else {
                 obj.selection_radius.max(1.0)
             };

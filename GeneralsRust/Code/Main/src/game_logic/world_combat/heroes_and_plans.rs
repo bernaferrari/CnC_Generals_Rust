@@ -227,7 +227,7 @@ impl GameLogic {
             return false;
         }
         let owner_id = self.player_owner_for_host_object(target);
-        let modules = target.thing.template.special_power_modules.clone();
+        let modules = target.thing().template.special_power_modules.clone();
 
         let mut recharged: Vec<crate::command_system::SpecialPowerType> = Vec::new();
         let mut shared_resets: Vec<(crate::command_system::SpecialPowerType, f32)> = Vec::new();

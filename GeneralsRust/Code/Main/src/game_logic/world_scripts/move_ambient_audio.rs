@@ -139,8 +139,8 @@ impl GameLogic {
         } else {
             TemplateMoveAmbientSlot::SoundMoveLoop
         };
-        let start_name = resolve_for_object(&unit.thing.template, start_slot);
-        let loop_name = resolve_for_object(&unit.thing.template, loop_slot);
+        let start_name = resolve_for_object(&unit.thing().template, start_slot);
+        let loop_name = resolve_for_object(&unit.thing().template, loop_slot);
         let pos = unit.get_position();
         if let Some(name) = start_name {
             self.stop_move_loop_sound(id);
@@ -203,7 +203,7 @@ impl GameLogic {
             return;
         }
         let state = unit.body_damage_state;
-        let name = resolve_ambient_event(&unit.thing.template, state);
+        let name = resolve_ambient_event(&unit.thing().template, state);
         let pos = unit.get_position();
         let current = unit.ambient_audio.clone();
         if current.as_deref() == name.as_deref() {

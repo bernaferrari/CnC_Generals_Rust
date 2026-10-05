@@ -8,7 +8,7 @@ use crate::common::coord::*;
 use crate::common::xfer::{Xfer, XferExt, XferVersion};
 use crate::common::*;
 use crate::helpers::{TheGameLogic, ThePartitionManager, game_logic_random_value};
-use crate::modules::{AIUpdateInterfaceExt, ExitDoorType};
+use crate::modules::{AIUpdateInterfaceExt, ExitDoorType, ExitInterface};
 use crate::object::*;
 use crate::player::Player;
 use crate::state_machine::*;
@@ -965,14 +965,11 @@ impl AITNGuardIdleState {
             // AI mutex is already held, and try_write cannot run under the read guard.
             match hurry {
                 Some(Err(status)) => return status,
-                Some(Ok((exit_interface, hurry_owner_id))) => {
-                    let Ok(mut exit_guard) = exit_interface.lock() else {
-                        return StateReturnType::Sleep(0);
-                    };
-                    if exit_guard.is_exit_busy() {
+                Some(Ok((mut exit_interface, hurry_owner_id))) => {
+                    if exit_interface.is_exit_busy() {
                         return StateReturnType::Sleep(0);
                     }
-                    let _ = exit_guard.exit_object_in_a_hurry(hurry_owner_id);
+                    let _ = exit_interface.exit_object_in_a_hurry(hurry_owner_id);
                     return StateReturnType::Sleep(0);
                 }
                 None => {}

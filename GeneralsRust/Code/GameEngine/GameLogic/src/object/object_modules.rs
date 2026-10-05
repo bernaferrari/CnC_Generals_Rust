@@ -279,11 +279,8 @@ impl Object {
     where
         F: FnOnce(&mut dyn ExitInterface) -> R,
     {
-        let exit_interface = self.get_object_exit_interface()?;
-        let Ok(mut guard) = exit_interface.lock() else {
-            return None;
-        };
-        Some(func(&mut *guard))
+        let mut exit_interface = self.get_object_exit_interface()?;
+        Some(func(exit_interface.interface_mut()))
     }
 
     /// Find an update module by name.
@@ -688,7 +685,7 @@ impl Object {
         Ok(false)
     }
 
-    pub fn get_object_exit_interface(&self) -> Option<Arc<Mutex<dyn ExitInterface>>> {
+    pub fn get_object_exit_interface(&self) -> Option<ExitInterfaceHandle> {
         for entry in &self.modules {
             let has_exit = entry.with_module(|module| {
                 module_production_behavior_kind(module)
@@ -696,9 +693,7 @@ impl Object {
                     .unwrap_or(false)
             });
             if has_exit {
-                return Some(Arc::new(Mutex::new(ModuleExitInterfaceProxy {
-                    entry: Arc::clone(entry),
-                })));
+                return Some(ExitInterfaceHandle::module(Arc::clone(entry)));
             }
         }
 
@@ -712,28 +707,22 @@ impl Object {
             };
 
             if has_exit {
-                return Some(Arc::new(Mutex::new(ExitInterfaceProxy {
-                    behavior: behavior.clone(),
-                })));
+                return Some(ExitInterfaceHandle::behavior(behavior));
             }
         }
 
         if let Some(contain) = &self.contain {
-            return Some(Arc::new(Mutex::new(ContainExitInterfaceProxy {
-                contain: Arc::clone(contain),
-            })));
+            return Some(ExitInterfaceHandle::contain(Arc::clone(contain)));
         }
 
         None
     }
 
     /// C++ ContainModuleInterface::getContainExitInterface. Not the production exit.
-    pub fn get_contain_exit_interface(&self) -> Option<Arc<Mutex<dyn ExitInterface>>> {
-        self.contain.as_ref().map(|contain| {
-            Arc::new(Mutex::new(ContainExitInterfaceProxy {
-                contain: Arc::clone(contain),
-            })) as Arc<Mutex<dyn ExitInterface>>
-        })
+    pub fn get_contain_exit_interface(&self) -> Option<ExitInterfaceHandle> {
+        self.contain
+            .as_ref()
+            .map(|contain| ExitInterfaceHandle::contain(Arc::clone(contain)))
     }
 
     pub fn get_physics(&self) -> Option<PhysicsInterfaceHandle> {

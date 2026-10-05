@@ -20,14 +20,14 @@ impl GameLogic {
 
         let mut heal_jobs: Vec<(ObjectId, u32, Vec<ObjectId>)> = Vec::new();
         for (&id, obj) in &self.objects {
-            if !obj.thing.template.contain_module.kind.is_heal_contain() {
+            if !obj.thing().template.contain_module.kind.is_heal_contain() {
                 continue;
             }
             if !obj.is_alive() || obj.status.under_construction {
                 continue;
             }
             let frames = obj
-                .thing
+                .thing()
                 .template
                 .contain_module
                 .frames_for_full_heal
@@ -73,7 +73,7 @@ impl GameLogic {
 
         let mut garrison_jobs: Vec<(u32, Vec<ObjectId>)> = Vec::new();
         for obj in self.objects.values() {
-            if obj.thing.template.contain_module.kind
+            if obj.thing().template.contain_module.kind
                 != crate::game_logic::thing::ContainModuleKind::Garrison
             {
                 continue;
@@ -82,13 +82,13 @@ impl GameLogic {
             // (`healObjects`). Retail bunkers author both HealObjects and
             // TimeForFullHeal — skip this unguarded sliver so they do not
             // double-heal with the HealObjects pass below.
-            if obj.thing.template.contain_module.heal_objects {
+            if obj.thing().template.contain_module.heal_objects {
                 continue;
             }
             if !obj.is_alive() || obj.status.under_construction {
                 continue;
             }
-            let Some(frames) = obj.thing.template.contain_module.frames_for_full_heal else {
+            let Some(frames) = obj.thing().template.contain_module.frames_for_full_heal else {
                 continue;
             };
             let occupants = obj.contained_units();
@@ -121,12 +121,12 @@ impl GameLogic {
                 continue;
             }
             let is_tunnel = obj.is_tunnel_network_style_container()
-                || obj.thing.template.contain_module.kind.is_tunnel_contain();
+                || obj.thing().template.contain_module.kind.is_tunnel_contain();
             if !is_tunnel {
                 continue;
             }
             let frames = obj
-                .thing
+                .thing()
                 .template
                 .contain_module
                 .frames_for_full_heal
@@ -159,12 +159,12 @@ impl GameLogic {
         // C++ GarrisonContain::update → healObjects when HealObjects=Yes.
         let mut garrison_jobs: Vec<(u32, Vec<ObjectId>)> = Vec::new();
         for obj in self.objects.values() {
-            if obj.thing.template.contain_module.kind
+            if obj.thing().template.contain_module.kind
                 != crate::game_logic::ContainModuleKind::Garrison
             {
                 continue;
             }
-            if !obj.thing.template.contain_module.heal_objects {
+            if !obj.thing().template.contain_module.heal_objects {
                 continue;
             }
             if !obj.is_alive() || obj.status.under_construction {
@@ -175,7 +175,7 @@ impl GameLogic {
                 continue;
             }
             let frames = obj
-                .thing
+                .thing()
                 .template
                 .contain_module
                 .frames_for_full_heal
@@ -376,12 +376,18 @@ impl GameLogic {
                             1
                         };
                         let n = container.transport_number_of_exit_paths();
-                        let (start, end, next) = super::super::super::world_combat::open_contain_exit_path(
-                            container,
-                            which,
+                        let (start, end, next) =
+                            super::super::super::world_combat::open_contain_exit_path(
+                                container, which, n,
+                            );
+                        (
+                            start,
+                            end,
+                            container.pathfind_layer,
+                            container.get_orientation(),
+                            next,
                             n,
-                        );
-                        (start, end, container.pathfind_layer, container.get_orientation(), next, n)
+                        )
                     })
                     .unwrap_or((nemesis_pos, nemesis_pos, 1, 0.0, 1, 1));
                 // OpenContain.cpp only advances m_whichExitPath when numberExits > 1.
@@ -393,7 +399,7 @@ impl GameLogic {
                 if let Some(container) = self.objects.get_mut(&exit_tunnel) {
                     let time = gamelogic::object::contain::open_contain::leftover_open_contain_resolved_door_open_time(
                         &container.template_name,
-                        container.thing.template.contain_module.door_open_time,
+                        container.thing().template.contain_module.door_open_time,
                     );
                     if time > 0 {
                         let pulse = gamelogic::object::contain::open_contain::leftover_open_contain_arm_exit_door(
@@ -401,8 +407,7 @@ impl GameLogic {
                         );
                         container.door_close_countdown = pulse.countdown;
                         super::super::super::world_combat::apply_leftover_open_contain_door_pulse(
-                            container,
-                            pulse,
+                            container, pulse,
                         );
                     }
                 }
@@ -645,20 +650,10 @@ impl GameLogic {
         match wanting_dock_target(number_boxes) {
             WantingDockTarget::Center => {
                 let has_center = self
-                    .preferred_or_allied_supply_center(
-                        object_id,
-                        team,
-                        owner_player_id,
-                        position,
-                    )
+                    .preferred_or_allied_supply_center(object_id, team, owner_player_id, position)
                     .is_some();
                 if has_center && can_move {
-                    self.begin_return_to_supply_center(
-                        object_id,
-                        team,
-                        owner_player_id,
-                        position,
-                    );
+                    self.begin_return_to_supply_center(object_id, team, owner_player_id, position);
                 } else if has_center {
                     self.set_ai_state_decision_aware(object_id, AIState::ReturningResources);
                 } else {
@@ -671,8 +666,8 @@ impl GameLogic {
                     self.find_nearest_harvestable_supply_within(team, position, scan, object_id)
                 {
                     let warehouse = self.objects.get(&next).is_some_and(|s| {
-                        s.thing.template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse
-                            || s.thing.template.dock_delete_when_empty
+                        s.thing().template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse
+                            || s.thing().template.dock_delete_when_empty
                             || s.template_name.to_ascii_lowercase().contains("supplypile")
                     });
                     if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -682,8 +677,7 @@ impl GameLogic {
                     self.set_ai_state_decision_aware(object_id, AIState::Gathering);
                     if warehouse {
                         let _ = self.try_claim_dock(next, object_id);
-                    } else if let Some(dest) = self.objects.get(&next).map(|s| s.get_position())
-                    {
+                    } else if let Some(dest) = self.objects.get(&next).map(|s| s.get_position()) {
                         self.path_approach_with_state(object_id, dest, AIState::Gathering);
                     }
                     return;
@@ -705,7 +699,7 @@ impl GameLogic {
         let Some(obj) = self.objects.get(&object_id) else {
             return;
         };
-        if obj.thing.template.supply_truck_metadata.is_none() {
+        if obj.thing().template.supply_truck_metadata.is_none() {
             return;
         }
         let force = obj.supply_truck_force_pending;
@@ -742,7 +736,7 @@ impl GameLogic {
         let authored = self
             .objects
             .get(&object_id)
-            .and_then(|object| object.thing.template.supply_truck_metadata)
+            .and_then(|object| object.thing().template.supply_truck_metadata)
             .map(|metadata| metadata.warehouse_scan_distance)?;
         let is_computer =
             owner_player_id.is_some_and(|pid| self.ai_manager.ai_players.contains_key(&pid));
@@ -756,17 +750,14 @@ impl GameLogic {
         owner_player_id: Option<u32>,
         from: Vec3,
     ) {
-        use crate::game_logic::host_repair::{
-            DozerFindPositionQuery, find_position_around_dozer,
-        };
+        use crate::game_logic::host_repair::{DozerFindPositionQuery, find_position_around_dozer};
         use crate::game_logic::host_supply_gather::REGROUP_SUCCESS_DISTANCE_SQUARED;
         use gamelogic::ai::pathfind_astar::PathfindCellType;
         // C++ RegroupingState::onEnter clears the ignore before the search.
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.ignored_obstacle_id = None;
         }
-        let Some((dest_pos, radius)) =
-            self.find_supply_regroup_target(team, owner_player_id, from)
+        let Some((dest_pos, radius)) = self.find_supply_regroup_target(team, owner_player_id, from)
         else {
             self.stop_attack_decision_aware(object_id);
             self.set_ai_state_decision_aware(object_id, AIState::Idle);
@@ -776,8 +767,8 @@ impl GameLogic {
             .objects
             .get(&object_id)
             .map(|obj| {
-                if obj.thing.template.geometry_info.authored {
-                    obj.thing.template.geometry_info.bounding_circle_radius()
+                if obj.thing().template.geometry_info.authored {
+                    obj.thing().template.geometry_info.bounding_circle_radius()
                 } else {
                     obj.selection_radius
                 }
@@ -877,8 +868,8 @@ impl GameLogic {
                 continue;
             }
             let pos = obj.get_position();
-            let radius = if obj.thing.template.geometry_info.authored {
-                obj.thing.template.geometry_info.bounding_circle_radius()
+            let radius = if obj.thing().template.geometry_info.authored {
+                obj.thing().template.geometry_info.bounding_circle_radius()
             } else {
                 obj.selection_radius
             };
@@ -887,7 +878,7 @@ impl GameLogic {
             let dist2 = dx * dx + dz * dz;
             let is_cash = obj.is_kind_of(KindOf::SupplyCenter)
                 || obj.is_kind_of(KindOf::FSSupplyCenter)
-                || obj.thing.template.dock_kind == crate::game_logic::DockKind::SupplyCenter;
+                || obj.thing().template.dock_kind == crate::game_logic::DockKind::SupplyCenter;
             let is_cc = obj.is_kind_of(KindOf::CommandCenter);
             let is_struct = obj.is_kind_of(KindOf::Structure);
             if is_cash && best_cash.is_none_or(|(d, _, _)| dist2 < d) {

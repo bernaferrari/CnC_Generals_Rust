@@ -46,7 +46,7 @@ impl GameLogic {
         if !v.is_alive() || v.status.destroyed {
             return false;
         }
-        v.thing
+        v.thing()
             .template
             .eject_pilot_die
             .as_ref()
@@ -1731,7 +1731,7 @@ impl GameLogic {
             .objects
             .values()
             .filter(|o| o.is_alive() && !o.status.destroyed)
-            .map(|o| (o.get_position(), o.thing.geometry.radius.max(1.0)))
+            .map(|o| (o.get_position(), o.thing().geometry.radius.max(1.0)))
             .collect();
         let mut spawned = 0usize;
         for i in 0..count {
@@ -1923,7 +1923,7 @@ impl GameLogic {
         let killer_kind_names: Vec<String> = killer_id
             .and_then(|kid| self.objects.get(&kid))
             .map(|k| {
-                k.thing
+                k.thing()
                     .template
                     .kind_of
                     .iter()

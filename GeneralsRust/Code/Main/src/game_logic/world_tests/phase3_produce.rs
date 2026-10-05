@@ -210,7 +210,7 @@ fn construction_percent_cpp_scale_and_exclusive_dozer() {
     if let Some(o) = logic.host_object_mut(sid) {
         o.set_status_under_construction(true);
         o.construction_percent = 0.1;
-        o.thing.template.build_time = 10.0;
+        o.template_mut().build_time = 10.0;
     }
     let before = logic
         .host_object(sid)
@@ -269,7 +269,7 @@ fn exclusive_dozer_does_not_stack_build_rate() {
         .create_object_under_construction("TestBuilding", Team::USA, glam::Vec3::ZERO)
         .expect("scaffold");
     if let Some(o) = logic.host_object_mut(sid) {
-        o.thing.template.build_time = 10.0;
+        o.template_mut().build_time = 10.0;
         o.construction_percent = 0.0;
     }
     let d1 = logic
@@ -332,7 +332,7 @@ fn under_construction_starts_at_one_hp_and_gains_linearly() {
         max_hp * 0.1
     );
     if let Some(o) = logic.host_object_mut(sid) {
-        o.thing.template.build_time = 10.0; // 300 frames
+        o.template_mut().build_time = 10.0; // 300 frames
     }
     let did = logic
         .create_object("TestDozer", Team::USA, glam::Vec3::new(2.0, 0.0, 0.0))
@@ -851,7 +851,7 @@ fn dozer_dock_plays_under_construction_loop_and_stops_on_complete() {
         .create_object_under_construction("TestBuilding", Team::USA, glam::Vec3::ZERO)
         .expect("scaffold");
     if let Some(o) = logic.host_object_mut(sid) {
-        o.thing.template.build_time = 10.0;
+        o.template_mut().build_time = 10.0;
         o.construction_percent = 0.0;
     }
     let did = logic

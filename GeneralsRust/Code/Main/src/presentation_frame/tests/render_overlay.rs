@@ -965,7 +965,7 @@ fn overlay_gameworld_shadow_copies_entity_residual() {
     shadow.sync_from_host(&logic);
     // Poison host after sync — overlay must use shadow residual.
     if let Some(obj) = logic.host_object_mut(id) {
-        obj.position = glam::Vec3::new(999.0, 0.0, 999.0);
+        obj.set_position(glam::Vec3::new(999.0, 0.0, 999.0));
         obj.selected = false;
         obj.command_set_override = None;
         obj.status.stealthed = false;

@@ -231,11 +231,9 @@ mod tests {
         assert_eq!(INVENTORY_TAGS[0], "UpgradeDie");
         assert_eq!(INVENTORY_TAGS[3], "CaptureChannel");
         assert_eq!(INVENTORY_TAGS[19], "SlowDeath");
-        assert_eq!(INVENTORY_TAGS[49], "CommandButtonHuntUpdate");
-        assert_eq!(
-            *INVENTORY_TAGS.last().expect("tags"),
-            "ProjectileFlightResiduals"
-        );
+        assert_eq!(INVENTORY_TAGS[49], "FiringTracker");
+        assert_eq!(INVENTORY_TAGS[53], "CommandButtonHuntUpdate");
+        assert_eq!(*INVENTORY_TAGS.last().expect("tags"), "PathExtraDistance");
     }
 
     #[test]

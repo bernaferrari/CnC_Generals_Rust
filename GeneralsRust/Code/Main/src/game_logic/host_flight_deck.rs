@@ -103,7 +103,7 @@ impl GameLogic {
     pub(crate) fn tick_flight_decks(&mut self) {
         let mut carriers: Vec<ObjectId> = self.flight_decks.keys().copied().collect();
         for (&id, object) in self.objects.iter() {
-            if object.thing.template.flight_deck.is_some() {
+            if object.thing().template.flight_deck.is_some() {
                 carriers.push(id);
             }
         }
@@ -127,7 +127,7 @@ impl GameLogic {
         if carrier.status.under_construction {
             return;
         }
-        if carrier.thing.template.flight_deck.is_none() {
+        if carrier.thing().template.flight_deck.is_none() {
             self.flight_decks.remove(&carrier_id);
             return;
         }
@@ -158,8 +158,8 @@ impl GameLogic {
         }
         let Some((metadata, origin, forward, right, team, owner)) =
             self.objects.get(&carrier_id).and_then(|carrier| {
-                let metadata = carrier.thing.template.flight_deck.clone()?;
-                let mut forward = carrier.thing.get_direction_vector();
+                let metadata = carrier.thing().template.flight_deck.clone()?;
+                let mut forward = carrier.thing().get_direction_vector();
                 forward.y = 0.0;
                 if forward.length_squared() < 1.0e-6 {
                     forward = Vec3::new(0.0, 0.0, -1.0);
@@ -330,7 +330,7 @@ impl GameLogic {
         let payload = self
             .objects
             .get(&carrier_id)
-            .and_then(|c| c.thing.template.flight_deck.as_ref())
+            .and_then(|c| c.thing().template.flight_deck.as_ref())
             .map(|m| m.payload_template.clone())
             .filter(|name| !name.is_empty());
         let Some(payload) = payload else {
@@ -392,7 +392,7 @@ impl GameLogic {
         let deck_offset = self
             .objects
             .get(&carrier_id)
-            .and_then(|c| c.thing.template.flight_deck.as_ref())
+            .and_then(|c| c.thing().template.flight_deck.as_ref())
             .map(|m| m.landing_deck_height_offset)
             .unwrap_or(0.0);
         if let Some(jet) = self.objects.get_mut(&jet_id) {
@@ -415,7 +415,7 @@ impl GameLogic {
         let Some(metadata) = self
             .objects
             .get(&carrier_id)
-            .and_then(|c| c.thing.template.flight_deck.clone())
+            .and_then(|c| c.thing().template.flight_deck.clone())
         else {
             return;
         };
@@ -502,7 +502,7 @@ impl GameLogic {
         let Some(metadata) = self
             .objects
             .get(&carrier_id)
-            .and_then(|c| c.thing.template.flight_deck.clone())
+            .and_then(|c| c.thing().template.flight_deck.clone())
         else {
             return;
         };
@@ -614,7 +614,7 @@ impl GameLogic {
         let Some(metadata) = self
             .objects
             .get(&carrier_id)
-            .and_then(|c| c.thing.template.flight_deck.clone())
+            .and_then(|c| c.thing().template.flight_deck.clone())
         else {
             return;
         };
@@ -787,7 +787,7 @@ impl GameLogic {
         position: Option<Vec3>,
     ) -> bool {
         if !self.objects.get(&carrier_id).is_some_and(|obj| {
-            obj.thing.template.flight_deck.is_some()
+            obj.thing().template.flight_deck.is_some()
                 && obj.is_alive()
                 && !obj.status.under_construction
                 && !obj.status.sold

@@ -18,12 +18,12 @@ impl GameLogic {
         else {
             return false;
         };
-        if warehouse.thing.template.dock_kind != crate::game_logic::DockKind::SupplyWarehouse
+        if warehouse.thing().template.dock_kind != crate::game_logic::DockKind::SupplyWarehouse
             || !warehouse.is_alive()
             || warehouse.status.under_construction
             || warehouse.status.sold
             || warehouse.stored_resources.supplies == 0
-            || collector.thing.template.supply_truck_metadata.is_none()
+            || collector.thing().template.supply_truck_metadata.is_none()
             || !collector.is_alive()
             || collector.status.under_construction
             || self.object_relationship(warehouse, collector)
@@ -218,9 +218,9 @@ impl GameLogic {
             dock_crippled,
         ) = match self.objects.get(&dock_id) {
             Some(dock) => {
-                let warehouse = dock.thing.template.dock_kind
+                let warehouse = dock.thing().template.dock_kind
                     == crate::game_logic::DockKind::SupplyWarehouse
-                    || dock.thing.template.dock_delete_when_empty
+                    || dock.thing().template.dock_delete_when_empty
                     || dock
                         .template_name
                         .to_ascii_lowercase()
@@ -239,11 +239,11 @@ impl GameLogic {
                     dock.dock_active_docker,
                     dock.template_name.clone(),
                     dock.is_kind_of(crate::game_logic::KindOf::RepairPad),
-                    dock.thing.template.dock_kind,
-                    dock.thing.template.dock_delete_when_empty,
+                    dock.thing().template.dock_kind,
+                    dock.thing().template.dock_delete_when_empty,
                     dock.get_position(),
-                    if dock.thing.template.geometry_info.authored {
-                        dock.thing.template.geometry_info.bounding_circle_radius()
+                    if dock.thing().template.geometry_info.authored {
+                        dock.thing().template.geometry_info.bounding_circle_radius()
                     } else {
                         dock.selection_radius
                     },
@@ -564,8 +564,8 @@ impl GameLogic {
         let Some(dock) = self.objects.get(&dock_id) else {
             return Vec::new();
         };
-        let model = dock.thing.template.get_model_name();
-        let scale = dock.thing.template.asset_scale;
+        let model = dock.thing().template.get_model_name();
+        let scale = dock.thing().template.asset_scale;
         let pos = dock.get_position();
         let yaw = dock.get_orientation();
         let (sin, cos) = yaw.sin_cos();
@@ -724,7 +724,7 @@ impl GameLogic {
         let Some(producer) = self.objects.get(&producer_id) else {
             return;
         };
-        let Some(exit) = producer.thing.template.production_exit_metadata else {
+        let Some(exit) = producer.thing().template.production_exit_metadata else {
             return;
         };
         if !exit.is_supply_center() {
@@ -810,10 +810,10 @@ impl GameLogic {
         if !center.is_alive() || !center.is_constructed() || center.status.sold {
             return false;
         }
-        let is_center = center.thing.template.dock_kind
+        let is_center = center.thing().template.dock_kind
             == crate::game_logic::DockKind::SupplyCenter
             || center.is_kind_of(KindOf::SupplyCenter)
-            || center.thing.template.has_supply_center_create;
+            || center.thing().template.has_supply_center_create;
         if !is_center {
             return false;
         }

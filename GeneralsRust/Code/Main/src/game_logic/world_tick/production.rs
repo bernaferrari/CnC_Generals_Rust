@@ -58,7 +58,7 @@ impl GameLogic {
                 Some((
                     *id,
                     Self::cpp_build_time_frames_from_modifiers(
-                        obj.thing.template.build_time,
+                        obj.thing().template.build_time,
                         handicap,
                         player_template_factor,
                     ),
@@ -184,7 +184,7 @@ impl GameLogic {
                     let authored_frames =
                         authored_time_frames.get(&id).copied().unwrap_or_else(|| {
                             Self::cpp_build_time_frames_from_modifiers(
-                                obj.thing.template.build_time,
+                                obj.thing().template.build_time,
                                 1.0,
                                 1.0,
                             )
@@ -989,9 +989,9 @@ impl GameLogic {
             let mut start_door_cycle = false;
             let mut pop_closing_door = false;
             let door_spawn_phase = obj.production_door_spawn_phase();
-            let exit_metadata = obj.thing.template.production_exit_metadata;
+            let exit_metadata = obj.thing().template.production_exit_metadata;
             let producer_template = obj.template_name.clone();
-            let parking_place = obj.thing.template.parking_place.clone();
+            let parking_place = obj.thing().template.parking_place.clone();
             let is_airfield = obj.is_kind_of(KindOf::FSAirfield);
             if let Some(building) = obj.building_data.as_mut() {
                 let pf = object_owner_player_ids
@@ -1203,7 +1203,7 @@ impl GameLogic {
                             for completion_index in 0..completed.quantity {
                                 let mut rally = completion_rally;
                                 // Spawn slightly offset from the building facing to reduce clumping.
-                                let forward = obj.thing.get_direction_vector();
+                                let forward = obj.thing().get_direction_vector();
                                 let base =
                                     obj.get_position() + forward * obj.selection_radius.max(10.0);
                                 // Deterministic jitter based on template bytes (simple FNV-1a).
@@ -1848,7 +1848,7 @@ impl GameLogic {
             let producer_exit_metadata = self
                 .objects
                 .get(&producer_id)
-                .and_then(|producer| producer.thing.template.production_exit_metadata);
+                .and_then(|producer| producer.thing().template.production_exit_metadata);
             let mut spawn_pos = Vec3::new(ev.spawn_pos[0], ev.spawn_pos[1], ev.spawn_pos[2]);
             let rally = ev.rally.map(|r| Vec3::new(r[0], r[1], r[2]));
             // Wave 739: under production sole-tick, GameWorld ready-log pose is
@@ -2017,7 +2017,7 @@ impl GameLogic {
                     })
                     .unwrap_or((crate::game_logic::LOCO_SURFACE_GROUND, false, None, 0, true));
                 let mut natural = if let Some(prod) = self.objects.get(&producer_id) {
-                    let f = prod.thing.get_direction_vector();
+                    let f = prod.thing().get_direction_vector();
                     if let Some(exit) = producer_exit_metadata {
                         let point = if exit.is_supply_center() {
                             exit.natural_rally_point
@@ -2292,8 +2292,7 @@ impl GameLogic {
                             && !obj.is_kind_of(crate::game_logic::KindOf::Selectable)
                             && !obj.is_kind_of(crate::game_logic::KindOf::AlwaysSelectable)
                         {
-                            obj.thing
-                                .template
+                            obj.template_mut()
                                 .add_kind_of(crate::game_logic::KindOf::Selectable);
                         }
                     }
@@ -2324,8 +2323,7 @@ impl GameLogic {
                                     && !obj.is_kind_of(crate::game_logic::KindOf::Selectable)
                                     && !obj.is_kind_of(crate::game_logic::KindOf::AlwaysSelectable)
                                 {
-                                    obj.thing
-                                        .template
+                                    obj.template_mut()
                                         .add_kind_of(crate::game_logic::KindOf::Selectable);
                                 }
                             }

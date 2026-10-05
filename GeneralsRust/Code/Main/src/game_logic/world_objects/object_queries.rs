@@ -19,7 +19,7 @@ fn object_has_special_power_module(
     power: &crate::command_system::SpecialPowerType,
 ) -> bool {
     if obj
-        .thing
+        .thing()
         .template
         .special_power_module_for_command(power)
         .is_some()
@@ -27,7 +27,7 @@ fn object_has_special_power_module(
         return true;
     }
     if obj
-        .thing
+        .thing()
         .template
         .capture_power
         .special_power_type()
@@ -39,7 +39,7 @@ fn object_has_special_power_module(
     matches!(
         power,
         crate::command_system::SpecialPowerType::HackerDisableBuilding
-    ) && obj.thing.template.hacker_disable_building.is_some()
+    ) && obj.thing().template.hacker_disable_building.is_some()
         // Cooldown-tracked residual evidence (see doc above).
         || obj.special_power_cooldowns.contains_key(power)
 }
@@ -162,7 +162,7 @@ impl GameLogic {
         let preferred = self
             .objects
             .get(&query_id)
-            .filter(|collector| collector.thing.template.supply_truck_metadata.is_some())
+            .filter(|collector| collector.thing().template.supply_truck_metadata.is_some())
             .and_then(|collector| collector.preferred_dock_id);
         if let Some(preferred) = preferred
             && self.supply_warehouse_available_for(preferred, query_id)
@@ -172,7 +172,7 @@ impl GameLogic {
         let supply_truck_query = self
             .objects
             .get(&query_id)
-            .is_some_and(|collector| collector.thing.template.supply_truck_metadata.is_some());
+            .is_some_and(|collector| collector.thing().template.supply_truck_metadata.is_some());
         // Pure residual acquire: nearest harvestable supply pile (3D distance).
         let candidates: Vec<_> = self
             .objects
@@ -194,12 +194,12 @@ impl GameLogic {
                         || obj.is_kind_of(KindOf::Harvestable)
                         || obj.object_type == ObjectType::Supply)
                 {
-                    if obj.thing.template.dock_kind == DockKind::SupplyWarehouse {
+                    if obj.thing().template.dock_kind == DockKind::SupplyWarehouse {
                         return None;
                     }
                 }
                 // C++ `computeRelativeCost`: occupied approach-queues score FLT_MAX.
-                if obj.thing.template.dock_kind == DockKind::SupplyWarehouse {
+                if obj.thing().template.dock_kind == DockKind::SupplyWarehouse {
                     if supply_truck_query {
                         if let Some(scan_limit) = max_scan {
                             let in_range =
@@ -274,10 +274,10 @@ impl GameLogic {
                     return None;
                 }
                 let on_manager = manager_ids.contains(&obj_id);
-                let kind_fallback = obj.thing.template.dock_kind
+                let kind_fallback = obj.thing().template.dock_kind
                     == crate::game_logic::DockKind::SupplyCenter
                     || obj.is_kind_of(KindOf::SupplyCenter)
-                    || obj.thing.template.has_supply_center_create;
+                    || obj.thing().template.has_supply_center_create;
                 if !manager_ids.is_empty() {
                     if !on_manager {
                         return None;
@@ -334,7 +334,7 @@ impl GameLogic {
                     && self.player_owner_for_host_object(center) == owner_player_id
                     && center.is_alive()
                     && center.is_constructed()
-                    && (center.thing.template.dock_kind
+                    && (center.thing().template.dock_kind
                         == crate::game_logic::DockKind::SupplyCenter
                         || center.is_kind_of(KindOf::SupplyCenter))
             });
@@ -410,8 +410,8 @@ impl GameLogic {
                     && object.is_constructed()
                     && object.overcharge_enabled
                     && object.is_disabled()
-                    && object.thing.template.supports_overcharge())
-                .then(|| object.thing.template.energy_bonus.unwrap_or(0));
+                    && object.thing().template.supports_overcharge())
+                .then(|| object.thing().template.energy_bonus.unwrap_or(0));
                 (old_owner_player_id, retained_overcharge_bonus)
             })
             .unwrap_or((None, None));
@@ -810,7 +810,7 @@ impl GameLogic {
         };
         if !pilot.is_alive()
             || !pilot
-                .thing
+                .thing()
                 .template
                 .veterancy_crate_collide
                 .as_ref()
@@ -1123,7 +1123,12 @@ impl GameLogic {
 
         // C++ ActionManager.cpp:636-644 — HealContain is not a transport;
         // a unit at max health cannot enter barracks/hospital.
-        if target.thing.template.contain_module.kind.is_heal_contain()
+        if target
+            .thing()
+            .template
+            .contain_module
+            .kind
+            .is_heal_contain()
             && unit.health.current >= unit.health.maximum
         {
             return false;
@@ -1180,7 +1185,7 @@ impl GameLogic {
             // Forbid HUGE_VEHICLE rejects Overlord/Helix without fail-closing
             // infantry / ordinary vehicle Enter.
             if !target
-                .thing
+                .thing()
                 .template
                 .contain_module
                 .leftover_kind_masks_admit(unit.kind_of_cpp_mask())
@@ -1376,7 +1381,7 @@ impl GameLogic {
             }
 
             if obj.is_kind_of(KindOf::Structure) {
-                let cost = obj.thing.template.build_cost.supplies as i32;
+                let cost = obj.thing().template.build_cost.supplies as i32;
                 if cost > highest_cost {
                     highest_cost = cost;
                     fallback = Some(obj.get_position());
@@ -1584,7 +1589,7 @@ impl GameLogic {
                 let cost = self.modified_build_cost_supplies(
                     id,
                     &obj.template_name,
-                    obj.thing.template.build_cost.supplies,
+                    obj.thing().template.build_cost.supplies,
                 ) as i32;
                 if cost > highest_cost {
                     highest_cost = cost;
@@ -1782,7 +1787,7 @@ impl GameLogic {
         if !object_has_special_power_module(obj, power) {
             return false;
         }
-        let parsed_module = obj.thing.template.special_power_module_for_command(power);
+        let parsed_module = obj.thing().template.special_power_module_for_command(power);
         // A parsed module's loaded SpecialPowerTemplate owns science and
         // SharedSyncedTimer policy.  Fall back only for command families not
         // yet represented by a source module record.
@@ -1843,7 +1848,7 @@ impl GameLogic {
             Some(o) => (
                 self.player_owner_for_host_object(o),
                 o.team,
-                o.thing
+                o.thing()
                     .template
                     .special_power_module_for_command(power)
                     .cloned(),
@@ -2200,7 +2205,7 @@ impl GameLogic {
             return false;
         };
 
-        let Some(power) = source.thing.template.capture_power.special_power_type() else {
+        let Some(power) = source.thing().template.capture_power.special_power_type() else {
             return false;
         };
         if !source.is_alive()
@@ -2209,7 +2214,7 @@ impl GameLogic {
             || !target.is_kind_of(KindOf::Structure)
             || target.status.under_construction
             || target.status.sold
-            || target.thing.template.immune_to_capture
+            || target.thing().template.immune_to_capture
             // C++ ActionManager rejects a pure-stealth target before the
             // relationship/capturable tests.  A disguise is intentionally
             // not pure stealth for this purpose.
@@ -2253,7 +2258,7 @@ impl GameLogic {
             Relationship::Enemies
         };
         if !(relation == Relationship::Enemies
-            || (target.thing.template.capturable && relation != Relationship::Allies))
+            || (target.thing().template.capturable && relation != Relationship::Allies))
         {
             return false;
         }
@@ -2264,7 +2269,7 @@ impl GameLogic {
         // not accidentally authorize a structure whose runtime occupant list
         // still contains a friendly child. Missing objects are conservatively
         // rejected so stale links cannot make a defended building capturable.
-        let target_is_garrisonable = target.thing.template.garrison_contain_max.is_some();
+        let target_is_garrisonable = target.thing().template.garrison_contain_max.is_some();
         for contained_id in target.contained_units() {
             let Some(contained) = self.objects.get(&contained_id) else {
                 return false;
@@ -2296,7 +2301,7 @@ impl GameLogic {
         let Some(source) = self.objects.get(&source_id) else {
             return false;
         };
-        let Some(metadata) = source.thing.template.hacker_disable_building.as_ref() else {
+        let Some(metadata) = source.thing().template.hacker_disable_building.as_ref() else {
             return false;
         };
         let power = metadata.command_power();
@@ -2342,7 +2347,7 @@ impl GameLogic {
         }
         let Some((metadata, owner_id)) = self.objects.get(&source_id).and_then(|source| {
             source
-                .thing
+                .thing()
                 .template
                 .hacker_disable_building
                 .clone()
@@ -2393,7 +2398,7 @@ impl GameLogic {
         let Some(target) = self.objects.get(&target_id) else {
             return false;
         };
-        let Some(metadata) = source.thing.template.hacker_disable_building.as_ref() else {
+        let Some(metadata) = source.thing().template.hacker_disable_building.as_ref() else {
             return false;
         };
         if !metadata.update_module_starts_attack
@@ -2473,9 +2478,9 @@ impl GameLogic {
         // C++ permits either a normal capturable building or its FSTechnology
         // exception.  The exception has to remain separate: a technology
         // structure is legal even if it lacks CAPTURABLE, but not if immune.
-        let capturable = target.thing.template.capturable && !target.is_rebuild_hole;
+        let capturable = target.thing().template.capturable && !target.is_rebuild_hole;
         let technology_exception =
-            target.is_kind_of(KindOf::FSTechnology) && !target.thing.template.immune_to_capture;
+            target.is_kind_of(KindOf::FSTechnology) && !target.thing().template.immune_to_capture;
         if !(capturable || technology_exception) {
             return false;
         }
@@ -2519,7 +2524,7 @@ impl GameLogic {
     pub fn unit_capture_start_ability_range(&self, object_id: ObjectId) -> Option<f32> {
         self.objects
             .get(&object_id)
-            .and_then(|obj| obj.thing.template.capture_start_ability_range)
+            .and_then(|obj| obj.thing().template.capture_start_ability_range)
     }
 
     pub fn local_player_id(&self) -> Option<u32> {
@@ -2735,12 +2740,12 @@ impl GameLogic {
             // spelling that merely contains "capture" into an ability on a
             // Ranger/RedGuard/Rebel-named object.
             let capture_unpause = obj
-                .thing
+                .thing()
                 .template
                 .capture_power
                 .special_power_type()
                 .filter(|_| {
-                    obj.thing
+                    obj.thing()
                         .template
                         .capture_upgrade_trigger
                         .as_deref()
@@ -3340,7 +3345,7 @@ mod human_enter_fog_gate_tests {
         );
 
         if let Some(b) = logic.host_object_mut(bunker) {
-            b.thing.template.always_visible = true;
+            b.template_mut().always_visible = true;
         }
         set_target_shroud(1, bunker, ObjectShroudStatus::Fogged);
         assert!(

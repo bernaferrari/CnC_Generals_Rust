@@ -340,7 +340,7 @@ pub fn hijack_target_rejected(target: &crate::game_logic::Object) -> bool {
     if !target.is_alive() {
         return true;
     }
-    if target.thing.template.immune_to_capture || target.is_kind_of(KindOf::ImmuneToCapture) {
+    if target.thing().template.immune_to_capture || target.is_kind_of(KindOf::ImmuneToCapture) {
         return true;
     }
     if target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target {

@@ -444,7 +444,7 @@ fn damaged_reaction_rejects_non_matching_damage_type() {
         FireWeaponWhenDamagedWeaponRole::ReactionPristine,
     );
     let mut object = damaged_object(16, weapon);
-    object.thing.template.fire_weapon_when_damaged_behaviors[0].damage_types =
+    object.template_mut().fire_weapon_when_damaged_behaviors[0].damage_types =
         FireWeaponDamageTypeMask(1u64 << 6); // C++ DAMAGE_FLAME
     let source = ObjectId(16);
     logic.objects.insert(source, object);

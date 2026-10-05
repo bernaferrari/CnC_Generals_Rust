@@ -560,7 +560,7 @@ impl GameLogic {
         };
         let evac = container.garrison_evac_disposition();
         let enclosing = container.is_enclosing_garrison_container();
-        let geom = container.thing.template.geometry_info;
+        let geom = container.thing().template.geometry_info;
         let major = if geom.authored {
             geom.major_radius.max(1.0)
         } else {
@@ -817,7 +817,7 @@ impl GameLogic {
             0
         };
         let enclosing = container.is_enclosing_garrison_container();
-        let geom = container.thing.template.geometry_info;
+        let geom = container.thing().template.geometry_info;
         let major = if geom.authored {
             geom.major_radius.max(1.0)
         } else {
@@ -960,7 +960,7 @@ impl GameLogic {
 
                 // C++ HackInternetAIUpdate::aiDoCommand (HackInternetAIUpdate.cpp:105)
                 // PACKING on evacuate/exit. Cash must stop immediately.
-                if p.thing.template.hack_internet_ai_update.is_some() {
+                if p.thing().template.hack_internet_ai_update.is_some() {
                     packing_hackers.push(*pid);
                 }
                 any = true;
@@ -1209,7 +1209,7 @@ impl GameLogic {
             return (false, layer_y);
         }
         let roof = bldg
-            .thing
+            .thing()
             .template
             .geometry_info
             .max_height_above_position();
@@ -1397,11 +1397,11 @@ impl GameLogic {
         };
         let bldg_pos = bldg.get_position();
         let exit_angle = bldg.get_orientation();
-        let bldg_r = bldg.thing.template.geometry_info.bounding_circle_radius();
+        let bldg_r = bldg.thing().template.geometry_info.bounding_circle_radius();
         let pax_r = self
             .objects
             .get(&pid)
-            .map(|p| p.thing.template.geometry_info.bounding_circle_radius())
+            .map(|p| p.thing().template.geometry_info.bounding_circle_radius())
             .unwrap_or(8.0);
         let offset = pax_r.min(bldg_r).max(1.0);
         let angle = std::f32::consts::PI + garrison_evac_rand(pid.0, 0.0, std::f32::consts::PI);

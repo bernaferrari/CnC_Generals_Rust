@@ -1087,7 +1087,7 @@ impl GameLogic {
     pub fn unit_dock_kind(&self, id: ObjectId) -> DockKind {
         self.objects
             .get(&id)
-            .map(|o| o.thing.template.dock_kind)
+            .map(|o| o.thing().template.dock_kind)
             .unwrap_or(DockKind::None)
     }
 

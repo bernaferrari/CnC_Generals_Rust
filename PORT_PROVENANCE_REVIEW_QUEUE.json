@@ -52325,6 +52325,16 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/exit_interface_owner_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/exit_interfaces.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "shim",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/experience_tracker.rs"
             },
@@ -52437,6 +52447,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_lifecycle.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_map_health_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -188889,7 +188904,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "bc04fa31cbd7db6febd261a8a161fe39c40f618582dd5402fed6642d8d870bd6",
+  "provenance_input_digest": "bd02113ada2fdd1d44445548be2599930fba69a6c7c682bd4f90cb9956756ab7",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

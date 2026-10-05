@@ -1111,7 +1111,7 @@ impl PathfindingSystem {
     /// Leftover `Weapon::is_clear_goal_firing_line_of_sight_terrain` eye:
     /// `GeometryInfo::getMaxHeightAbovePosition` when authored, else selection radius.
     pub(super) fn leftover_firing_los_eye_y(obj: &Object, pos_y: f32) -> f32 {
-        let geom = &obj.thing.template.geometry_info;
+        let geom = &obj.thing().template.geometry_info;
         let h = if geom.authored {
             geom.max_height_above_position()
         } else {
@@ -1317,7 +1317,7 @@ impl PathfindingSystem {
 
     /// C++ `Pathfinder::addWallPiece` from a live host object.
     pub fn add_wall_piece_from_object(&mut self, obj: &Object, wall_height: f32) {
-        let geom = &obj.thing.template.geometry_info;
+        let geom = &obj.thing().template.geometry_info;
         let major = if geom.authored && geom.major_radius > 0.0 {
             geom.major_radius
         } else {

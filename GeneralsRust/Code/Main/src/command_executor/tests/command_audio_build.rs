@@ -1731,9 +1731,9 @@ fn free_move_clamp_uses_geometry_not_selection_radius() {
     for id in [a, b] {
         let o = logic.host_object_mut(id).unwrap();
         o.selection_radius = 100.0;
-        o.thing.geometry.radius = 2.0;
-        o.thing.geometry.bounds_min = Vec3::new(-2.0, 0.0, -2.0);
-        o.thing.geometry.bounds_max = Vec3::new(2.0, 0.0, 2.0);
+        o.set_geometry_radius(2.0);
+        o.set_geometry_bounds_min(Vec3::new(-2.0, 0.0, -2.0));
+        o.set_geometry_bounds_max(Vec3::new(2.0, 0.0, 2.0));
     }
     let click = Vec3::new(100.0, 0.0, 0.0);
     let exec = CommandExecutor::new(&mut logic, 0);

@@ -888,7 +888,7 @@ impl AIPlayer {
                 available_cash: source.stored_resources.supplies as i32,
                 is_structure: source.is_kind_of(KindOf::Structure),
                 is_supply_source: source.is_kind_of(KindOf::SupplySource),
-                has_warehouse_dock: source.thing.template.dock_kind == DockKind::SupplyWarehouse,
+                has_warehouse_dock: source.thing().template.dock_kind == DockKind::SupplyWarehouse,
                 is_enemy: source.team != Team::Neutral
                     && source.team != self.team
                     && self.team != Team::Neutral,
@@ -907,9 +907,9 @@ impl AIPlayer {
 
     pub(super) fn host_object_bounding_circle(obj: &crate::game_logic::Object) -> f32 {
         crate::game_logic::host_supply_gather::host_bounding_circle_radius(
-            obj.thing.template.geometry_info.authored,
-            obj.thing.template.geometry_info.bounding_circle_radius(),
-            obj.thing.geometry.radius.max(obj.selection_radius),
+            obj.thing().template.geometry_info.authored,
+            obj.thing().template.geometry_info.bounding_circle_radius(),
+            obj.thing().geometry.radius.max(obj.selection_radius),
         )
     }
 
@@ -1016,12 +1016,12 @@ impl AIPlayer {
                 disguised: other.status.disguised,
                 is_enemy: other.team != self.team && other.team != Team::Neutral,
                 insignificant_building_rejected: other.is_non_faction_structure()
-                    && match other.thing.template.contain_module.kind {
+                    && match other.thing().template.contain_module.kind {
                         crate::game_logic::ContainModuleKind::Garrison => {
                             other.occupants.is_empty()
                         }
                         crate::game_logic::ContainModuleKind::None => {
-                            other.thing.template.garrison_contain_max.is_some()
+                            other.thing().template.garrison_contain_max.is_some()
                                 && other.occupants.is_empty()
                         }
                         _ => true,
@@ -1290,7 +1290,8 @@ impl AIPlayer {
                 // module only (AIPlayer.cpp:275-283): a warehouse-dock source must
                 // hold boxes and must not be an ENEMY (allies and neutral pass);
                 // non-dock sources carry no cash or relationship gate.
-                if source.thing.template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse {
+                if source.thing().template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse
+                {
                     if source.stored_resources.supplies == 0 {
                         return None;
                     }

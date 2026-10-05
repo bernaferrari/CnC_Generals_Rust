@@ -514,8 +514,8 @@ fn timed_c4_kill_sinks_xp_to_planter() {
         .expect("burton");
     {
         let burton = game_logic.host_object_mut(burton_id).unwrap();
-        burton.thing.template.is_trainable = true;
-        burton.thing.template.veterancy_xp_thresholds = [40.0, 150.0, 300.0];
+        burton.template_mut().is_trainable = true;
+        burton.template_mut().veterancy_xp_thresholds = [40.0, 150.0, 300.0];
     }
 
     let charge_id = game_logic
@@ -534,7 +534,7 @@ fn timed_c4_kill_sinks_xp_to_planter() {
             Some(burton_id),
             "C4 must sink XP to the planter"
         );
-        assert!(!charge.thing.template.is_trainable);
+        assert!(!charge.thing().template.is_trainable);
     }
 
     let victim_id = game_logic
@@ -544,8 +544,8 @@ fn timed_c4_kill_sinks_xp_to_planter() {
         let victim = game_logic.host_object_mut(victim_id).unwrap();
         victim.health.current = 10.0;
         victim.health.maximum = 10.0;
-        victim.thing.template.experience_value = 40.0;
-        victim.thing.template.experience_values = [40.0, 40.0, 80.0, 120.0];
+        victim.template_mut().experience_value = 40.0;
+        victim.template_mut().experience_values = [40.0, 40.0, 80.0, 120.0];
     }
 
     game_logic.frame = 1;
@@ -944,10 +944,10 @@ fn land_mine_trips_on_vehicle_geometry_contact() {
     {
         let e = game_logic.host_object_mut(enemy_id).unwrap();
         e.selection_radius = 8.0;
-        e.thing.template.geometry_info.authored = true;
-        e.thing.template.geometry_info.major_radius = 8.0;
-        e.thing.template.geometry_info.minor_radius = 8.0;
-        e.thing.template.add_kind_of(KindOf::Vehicle);
+        e.template_mut().geometry_info.authored = true;
+        e.template_mut().geometry_info.major_radius = 8.0;
+        e.template_mut().geometry_info.minor_radius = 8.0;
+        e.template_mut().add_kind_of(KindOf::Vehicle);
     }
 
     game_logic.update_mines_and_demo_traps();
@@ -972,10 +972,10 @@ fn land_mine_does_not_trip_when_geometry_misses() {
     {
         let e = game_logic.host_object_mut(enemy_id).unwrap();
         e.selection_radius = 8.0;
-        e.thing.template.geometry_info.authored = true;
-        e.thing.template.geometry_info.major_radius = 8.0;
-        e.thing.template.geometry_info.minor_radius = 8.0;
-        e.thing.template.add_kind_of(KindOf::Vehicle);
+        e.template_mut().geometry_info.authored = true;
+        e.template_mut().geometry_info.major_radius = 8.0;
+        e.template_mut().geometry_info.minor_radius = 8.0;
+        e.template_mut().add_kind_of(KindOf::Vehicle);
     }
 
     game_logic.update_mines_and_demo_traps();
@@ -1218,8 +1218,8 @@ fn emp_mine_neutron_unmans_vehicle_and_kills_infantry() {
         .expect("tank");
     {
         let t = logic.host_object_mut(tank).unwrap();
-        t.thing.template.kind_of.remove(&KindOf::Infantry);
-        t.thing.template.add_kind_of(KindOf::Vehicle);
+        t.template_mut().kind_of.remove(&KindOf::Infantry);
+        t.template_mut().add_kind_of(KindOf::Vehicle);
         t.health.current = 400.0;
         t.health.maximum = 400.0;
     }
@@ -1261,7 +1261,7 @@ fn demo_trap_proximity_uses_height_not_aircraft_kind() {
         .expect("chinook");
     {
         let c = logic.host_object_mut(chinook).unwrap();
-        c.thing.template.add_kind_of(KindOf::Aircraft);
+        c.template_mut().add_kind_of(KindOf::Aircraft);
         c.status.airborne_target = false;
     }
     logic.update_mines_and_demo_traps();

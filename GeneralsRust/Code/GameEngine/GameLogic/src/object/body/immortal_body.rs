@@ -164,6 +164,14 @@ impl BodyModuleInterface for ImmortalBody {
         self.active_body.set_initial_health(initial_percent)
     }
 
+    fn set_initial_health_for_borrowed_owner(
+        &mut self,
+        initial_percent: i32,
+        is_structure: bool,
+    ) -> BodyResult<Option<super::body_module::OwnerHealthTransition>> {
+        self.active_body
+            .set_initial_health_for_borrowed_owner(initial_percent, is_structure)
+    }
     fn begin_owner_max_health_change(
         &mut self,
         max: f32,

@@ -1043,7 +1043,7 @@ fn lookup_named_armor_template(name: &str) -> Option<ArmorTemplate> {
 pub fn residual_armor_for_object(obj: &crate::game_logic::Object) -> ArmorTemplate {
     use crate::game_logic::KindOf;
     let flags = live_armor_set_flags(obj);
-    if let Some(name) = find_best_armor_set_name(&obj.thing.template.armor_sets, flags) {
+    if let Some(name) = find_best_armor_set_name(&obj.thing().template.armor_sets, flags) {
         if let Some(armor) = lookup_named_armor_template(&name) {
             return armor;
         }

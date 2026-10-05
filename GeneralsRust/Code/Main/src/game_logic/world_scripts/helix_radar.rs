@@ -20,7 +20,7 @@ fn is_legal_superweapon_cash_hack_victim(victim: &Object, caster_team: Option<Te
     if victim.team == caster_team || victim.team == Team::Neutral || caster_team == Team::Neutral {
         return false;
     }
-    if !victim.thing.template.capturable || victim.thing.template.immune_to_capture {
+    if !victim.thing().template.capturable || victim.thing().template.immune_to_capture {
         return false;
     }
     if victim.is_rebuild_hole {
@@ -1637,9 +1637,9 @@ impl GameLogic {
             if let Some(obj) = self.host_object_mut(id) {
                 obj.health.maximum = SPY_DRONE_MAX_HEALTH;
                 Self::write_object_health_authority_aware(obj, SPY_DRONE_MAX_HEALTH);
-                obj.thing.template.add_kind_of(KindOf::Selectable);
-                obj.thing.template.add_kind_of(KindOf::Vehicle);
-                obj.thing.template.add_kind_of(KindOf::Drone);
+                obj.template_mut().add_kind_of(KindOf::Selectable);
+                obj.template_mut().add_kind_of(KindOf::Vehicle);
+                obj.template_mut().add_kind_of(KindOf::Drone);
                 obj.set_status_unselectable(false);
                 obj.set_status_stealthed(true);
                 obj.innate_stealth = true;

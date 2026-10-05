@@ -490,7 +490,8 @@ fn sneak_attack_residual_spawns_tunnel_and_shockwave() {
         "spawned tunnel must be a structure residual"
     );
     assert_eq!(
-        tunnel.thing.template.name, SNEAK_ATTACK_RESIDUAL_TEMPLATE,
+        tunnel.thing().template.name,
+        SNEAK_ATTACK_RESIDUAL_TEMPLATE,
         "must use residual tunnel template when retail unloaded"
     );
     let tpos = tunnel.get_position();
@@ -1056,7 +1057,7 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
     if let Some(o) = logic.host_object_mut(bid) {
         o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Barracks));
         // Orient for deterministic natural rally residual.
-        o.thing.set_orientation(0.0);
+        o.set_orientation(0.0);
     }
     // One queue entry pays once, QuantityModifier yields two exits.
     assert!(logic.enqueue_production(bid, "ChinaInfantryRedguard".into()));
@@ -1207,7 +1208,7 @@ fn queue_factory_exit_follows_snapped_production_path() {
         .expect("barracks");
     if let Some(o) = logic.host_object_mut(bid) {
         o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Barracks));
-        o.thing.set_orientation(0.0);
+        o.set_orientation(0.0);
     }
     let uid = logic
         .create_object(
@@ -1252,9 +1253,9 @@ fn queue_factory_exit_follows_snapped_production_path() {
         let producer = logic.host_object(bid).expect("producer");
         (
             producer.get_position(),
-            producer.thing.get_direction_vector(),
+            producer.thing().get_direction_vector(),
             producer
-                .thing
+                .thing()
                 .template
                 .production_exit_metadata
                 .expect("queue metadata"),
@@ -1337,7 +1338,7 @@ fn queue_exit_with_a_rally_keeps_the_next_segment() {
         .expect("barracks");
     if let Some(o) = logic.host_object_mut(bid) {
         o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Barracks));
-        o.thing.set_orientation(0.0);
+        o.set_orientation(0.0);
     }
     let uid = logic
         .create_object(
@@ -1360,13 +1361,19 @@ fn queue_exit_with_a_rally_keeps_the_next_segment() {
     let index = unit.movement.current_path_index;
     let path = unit.movement.path.clone();
     let extra = unit.path_extra_distance;
-    assert!(index + 1 < path.len(), "rally must follow the natural exit, path={path:?}");
+    assert!(
+        index + 1 < path.len(),
+        "rally must follow the natural exit, path={path:?}"
+    );
     let goal = path[index];
     let next = path[index + 1];
     let dx = next.x - goal.x;
     let dz = next.z - goal.z;
     let seg = (dx * dx + dz * dz).sqrt();
-    assert!(seg > 1.0, "following point must be distinct, seg={seg} path={path:?}");
+    assert!(
+        seg > 1.0,
+        "following point must be distinct, seg={seg} path={path:?}"
+    );
     let mut expected = seg;
     if index + 2 < path.len() {
         expected += 40.0;
@@ -1414,7 +1421,7 @@ fn factory_spawn_keeps_unit_create_point_without_selection_radius_jitter() {
         .expect("barracks");
     if let Some(o) = logic.host_object_mut(bid) {
         o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Barracks));
-        o.thing.set_orientation(0.0);
+        o.set_orientation(0.0);
     }
     let create_pos = glam::Vec3::new(100.0, 15.0, 75.0);
     let uid = logic
@@ -1494,7 +1501,7 @@ fn queue_exit_applies_airborne_motive_and_pitch_after_ground_snap() {
     let producer_vel = glam::Vec3::new(8.0, 3.0, -2.0);
     if let Some(o) = logic.host_object_mut(bid) {
         o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Barracks));
-        o.thing.set_orientation(0.0);
+        o.set_orientation(0.0);
         o.movement.velocity = producer_vel;
     }
     let create_pos = glam::Vec3::new(20.0, 15.0, 10.0);

@@ -131,7 +131,7 @@ pub fn host_estimate_victim_from_object(
         kind_demo_trap: v.is_kind_of(KindOf::Mine) || v.is_disarmable_mine(),
         under_construction: v.status.under_construction,
         contain_count,
-        garrisonable: v.thing.template.contain_module.slots.unwrap_or(0) > 0,
+        garrisonable: v.thing().template.contain_module.slots.unwrap_or(0) > 0,
         immune_to_clear_building: false,
         airborne_target: v.status.airborne_target,
         armor_coeff,

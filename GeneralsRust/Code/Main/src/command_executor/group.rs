@@ -103,11 +103,11 @@ impl<'a> CommandExecutor<'a> {
                         || o.special_power_cooldowns.contains_key(power_type)
                 }
                 CommandType::Sell { .. } => o.is_kind_of(crate::game_logic::KindOf::Structure),
-                CommandType::ToggleOvercharge => o.thing.template.supports_overcharge(),
+                CommandType::ToggleOvercharge => o.thing().template.supports_overcharge(),
                 // C++ exposes this command through the object's
                 // HackInternetAIUpdate interface.  A mobile unit or a
                 // Hacker-looking basename must not acquire income authority.
-                CommandType::HackInternet => o.thing.template.hack_internet_ai_update.is_some(),
+                CommandType::HackInternet => o.thing().template.hack_internet_ai_update.is_some(),
                 CommandType::GetRepaired { .. } | CommandType::GetHealed { .. } => o.can_move(),
                 CommandType::CreateFormation => o.can_move(),
                 _ => {
@@ -445,17 +445,14 @@ impl<'a> CommandExecutor<'a> {
                 if !o.is_kind_of(KindOf::Infantry) && o.object_type != ObjectType::Infantry {
                     continue;
                 }
-                if !o.is_alive()
-                    || o.contained_by.is_some()
-                    || !Self::member_has_ai_update(o)
-                {
+                if !o.is_alive() || o.contained_by.is_some() || !Self::member_has_ai_update(o) {
                     continue;
                 }
                 let surfaces = if o.locomotor_surfaces != 0 {
                     o.locomotor_surfaces
                 } else {
                     crate::game_logic::object::Object::default_locomotor_surfaces_for_template(
-                        &o.thing.template,
+                        &o.thing().template,
                     )
                 };
                 let from = o.get_position();

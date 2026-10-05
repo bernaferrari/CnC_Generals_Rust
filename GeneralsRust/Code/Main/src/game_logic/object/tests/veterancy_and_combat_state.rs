@@ -2095,8 +2095,18 @@ fn status_damage_applies_faerie_without_hp_loss() {
     let mut o = Object::new(tmpl, ObjectId(9), Team::GLA);
     o.health.current = 100.0;
     o.health.maximum = 100.0;
-    crate::game_logic::object::set_pending_damage_status_type(Some("FAERIE_FIRE"));
-    let dead = o.take_damage_from_typed(200.0, None, DamageType::Status);
+    let context = crate::game_logic::object::DamageHitContext::with_status(
+        gamelogic::common::ObjectStatusTypes::FaerieFire,
+    );
+    let dead = o.take_damage_with_context(
+        200.0,
+        None,
+        DamageType::Status,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+        None,
+        0,
+        &context,
+    );
     assert!(!dead);
     assert!((o.health.current - 100.0).abs() < 1e-3);
     assert!(o.is_faerie_fire());

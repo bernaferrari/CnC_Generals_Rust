@@ -1,7 +1,8 @@
-//! Synchronous max-health change on the driving Object and its one cached body.
+//! Synchronous health setters on the driving Object and its one cached body.
 //! C++ ActiveBody.cpp:873-922,930-943,952-1178,1188-1227. No owner is retained.
 use super::body_module::{
-    BodyModuleInterface, BodyResult, MaxHealthChangeType, OwnerMaxHealthChange,
+    BodyModuleInterface, BodyResult, MaxHealthChangeType, OwnerHealthTransition,
+    OwnerMaxHealthChange,
 };
 use crate::common::ObjectStatusMaskType;
 use crate::helpers::{TheParticleSystemManager, game_client_random_value};
@@ -110,15 +111,65 @@ impl Object {
             let operation = body.begin_owner_max_health_change(max_health, kind)?;
             (max_health, operation)
         };
+        self.finish_body_max_health_with_owner(&body, max_health, operation)
+    }
+
+    /// Absolute map max-health assignment; preserve the map adapter's
+    /// existing poisoned-initial-acquisition no-op policy. No new body is made.
+    pub(crate) fn set_body_max_health_with_owner(
+        &mut self,
+        max_health: f32,
+        kind: MaxHealthChangeType,
+    ) -> BodyResult<()> {
+        let Some(body) = self.get_body_module() else {
+            return Ok(());
+        };
+        let operation = {
+            let Ok(mut body) = body.lock() else {
+                return Ok(());
+            };
+            body.begin_owner_max_health_change(max_health, kind)?
+        };
+        self.finish_body_max_health_with_owner(&body, max_health, operation)
+    }
+
+    fn finish_body_max_health_with_owner(
+        &mut self,
+        body: &Body,
+        max_health: f32,
+        operation: OwnerMaxHealthChange,
+    ) -> BodyResult<()> {
         let OwnerMaxHealthChange::Active { first_delta } = operation else {
             return Ok(());
         };
         if let Some(delta) = first_delta {
-            self.change_body_health_with_owner(&body, delta)?;
+            self.change_body_health_with_owner(body, delta)?;
         }
         let now = body.lock().expect("max health body poisoned").get_health();
         if now > max_health {
-            self.change_body_health_with_owner(&body, max_health - now)?;
+            self.change_body_health_with_owner(body, max_health - now)?;
+        }
+        Ok(())
+    }
+
+    /// Percent setter and reaction operate on the same canonical body; its
+    /// guard is released before any Drawable/particle/footprint callback.
+    pub(crate) fn set_body_initial_health_with_owner(
+        &mut self,
+        initial_percent: i32,
+    ) -> BodyResult<()> {
+        let Some(body) = self.get_body_module() else {
+            return Ok(());
+        };
+        let is_structure = self.is_structure();
+        let transition = {
+            let Ok(mut body) = body.lock() else {
+                return Ok(());
+            };
+            body.set_initial_health_for_borrowed_owner(initial_percent, is_structure)?
+        };
+        if let Some(transition) = transition {
+            self.finish_body_health_transition_with_owner(&body, transition)?;
         }
         Ok(())
     }
@@ -130,6 +181,14 @@ impl Object {
             .lock()
             .expect("health body poisoned")
             .change_health_for_borrowed_owner(delta, is_structure)?;
+        self.finish_body_health_transition_with_owner(body, transition)
+    }
+
+    fn finish_body_health_transition_with_owner(
+        &mut self,
+        body: &Body,
+        transition: OwnerHealthTransition,
+    ) -> BodyResult<()> {
         // C++ setCorrectDamageState updates the structure footprint and pose
         // before testing the construction status and notifying its drawable.
         // The helper borrows this owner after releasing the canonical body.

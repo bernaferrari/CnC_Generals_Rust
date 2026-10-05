@@ -13,23 +13,34 @@ impl Object {
     }
 
     pub fn set_position(&mut self, position: Vec3) {
-        let old_ix = self.position.x as i32;
-        let old_iz = self.position.z as i32;
-        let old_cell = crate::game_logic::partition_manager::PartitionManager::cell_coords(
-            self.position.x,
-            self.position.z,
-        );
+        let old_position = self.get_position();
         self.thing.set_position(position);
-        // Keep compatibility shadow in sync (many call sites still read `position`).
-        self.position = position;
+        self.react_to_position_change(old_position);
+    }
+
+    /// C++ Thing::setTransformMatrix reaches Object::reactToTransformChange.
+    /// Physics may retain pitch/roll while changing translation.
+    pub fn set_transform_matrix(&mut self, transform: Mat4) {
+        let old_position = self.get_position();
+        self.thing.set_transform_matrix(transform);
+        self.react_to_position_change(old_position);
+    }
+
+    fn react_to_position_change(&mut self, old_position: Vec3) {
+        let position = self.get_position();
+        let old_cell = crate::game_logic::partition_manager::PartitionManager::cell_coords(
+            old_position.x,
+            old_position.z,
+        );
         let new_cell = crate::game_logic::partition_manager::PartitionManager::cell_coords(
             position.x, position.z,
         );
         if old_cell != new_cell {
             self.restamp_partition_value_threat();
         }
-        // C++ Object.cpp:2580-2583: integer XY change notifies W3DTreeBuffer::unitMoved.
-        if old_ix != position.x as i32 || old_iz != position.z as i32 {
+        // CPP Object.cpp:2563–2587 uses integer horizontal coordinates.
+        if old_position.x as i32 != position.x as i32 || old_position.z as i32 != position.z as i32
+        {
             self.notify_terrain_trees_on_unit_move();
             let skip = self.is_kind_of(KindOf::Projectile) || self.is_kind_of(KindOf::Inert);
             let team = if self.team_instance_name.is_empty() {
@@ -43,6 +54,35 @@ impl Object {
                 world.update_object_flags(self.id.0, position.x, position.z, frame, skip, team);
             }
         }
+    }
+
+    /// Immutable authored and derived Thing facts; cannot mutate this Object's pose.
+    pub fn thing(&self) -> &Thing {
+        &self.thing
+    }
+
+    /// Existing authored rule edits are separate from the owned pose domain.
+    pub(crate) fn template_mut(&mut self) -> &mut ThingTemplate {
+        &mut self.thing.template
+    }
+
+    pub fn set_geometry_radius(&mut self, radius: f32) {
+        self.thing.geometry.radius = radius;
+    }
+
+    pub fn set_geometry_bounds_min(&mut self, bounds: Vec3) {
+        self.thing.geometry.bounds_min = bounds;
+    }
+
+    pub fn set_geometry_bounds_max(&mut self, bounds: Vec3) {
+        self.thing.geometry.bounds_max = bounds;
+    }
+
+    /// C++ setGeometryInfo changes shape, never the object's pose.
+    pub fn set_geometry_info(&mut self, mut geometry: GeometryInfo) {
+        geometry.position = self.get_position();
+        geometry.rotation = self.get_orientation();
+        self.thing.geometry = geometry;
     }
 
     /// C++ `TheGameClient->notifyTerrainObjectMoved` → `W3DTreeBuffer::unitMoved`.
@@ -92,8 +132,8 @@ impl Object {
         };
         self.unstamp_partition_value_threat();
         let stamp = crate::game_logic::partition_manager::HostPartitionAffectStamp {
-            x: self.position.x,
-            z: self.position.z,
+            x: self.get_position().x,
+            z: self.get_position().z,
             range: self.vision_range.max(1.0),
             value: self.partition_cash_value,
             threat: self.partition_threat_value,
@@ -795,7 +835,15 @@ impl Object {
 
     fn queue_transition_damage_fx_event(
         &mut self,
+        ev: crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent,
+    ) {
+        self.queue_transition_damage_fx_event_with_source(ev, None);
+    }
+
+    fn queue_transition_damage_fx_event_with_source(
+        &mut self,
         mut ev: crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent,
+        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
     ) {
         crate::game_logic::host_transition_damage_fx::take_played_transition_event_fx_ocl(
             &mut ev,
@@ -804,6 +852,7 @@ impl Object {
             self.get_orientation(),
             self.thing.template.get_model_name(),
             self.thing.template.asset_scale,
+            source,
         );
         self.pending_transition_damage_fx.push(ev);
     }
@@ -887,6 +936,13 @@ impl Object {
     }
 
     pub fn refresh_model_condition_bits(&mut self) {
+        self.refresh_model_condition_bits_with_source(None);
+    }
+
+    pub(super) fn refresh_model_condition_bits_with_source(
+        &mut self,
+        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+    ) {
         use crate::game_logic::host_enum_table_residual::{
             HostBodyDamageType, MC_BIT_ATTACKING, MC_BIT_DISGUISED, MC_BIT_DYING, MC_BIT_MOVING,
             host_apply_body_damage_model_bits, host_calc_body_damage_state,
@@ -949,7 +1005,7 @@ impl Object {
                         self.last_damage_info_type.map(|d| d.to_store()),
                     )
                 {
-                    self.queue_transition_damage_fx_event(ev);
+                    self.queue_transition_damage_fx_event_with_source(ev, source);
                 }
             }
         }

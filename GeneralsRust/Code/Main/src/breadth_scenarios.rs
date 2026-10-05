@@ -308,7 +308,7 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
         // Confirm template cost is present on the live object (sell refund source).
         let cost = logic
             .host_object(bldg)
-            .map(|o| o.thing.template.build_cost.supplies)
+            .map(|o| o.thing().template.build_cost.supplies)
             .unwrap_or(0);
         // Economy authority: refund lands in pending_supply_delta; use effective_supplies.
         let before = logic

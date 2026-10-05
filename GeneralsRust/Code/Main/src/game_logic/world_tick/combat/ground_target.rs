@@ -354,16 +354,22 @@ impl GameLogic {
                         // DAMAGE_EXPLOSION (Weapon.cpp:249); an unnamed host
                         // weapon fires Explosion, not Bullet.
                         .unwrap_or(crate::game_logic::combat::DamageType::Explosive);
-                    crate::game_logic::object::prime_live_damage_context(
+                    let context = crate::game_logic::object::DamageHitContext::new(
                         self.objects.get(&attacker_id),
                         ground_wname.as_deref(),
                         damage_type,
                     );
                     if let Some(target) = self.objects.get_mut(&ground_target_id) {
-                        let destroyed = target.take_damage_from_typed(
+                        let destroyed = target.take_damage_with_context(
                             weapon_damage,
                             Some(attacker_id),
                             damage_type,
+                            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
+                                damage_type,
+                            ),
+                            None,
+                            self.frame,
+                            &context,
                         );
                         if destroyed {
                             self.mark_object_for_destruction(ground_target_id, Some(attacker_team));
@@ -466,7 +472,7 @@ impl GameLogic {
                     let away = attacker.get_position() - target_location;
                     let len = away.length().max(0.01);
                     let src_r = attacker
-                        .thing
+                        .thing()
                         .template
                         .geometry_info
                         .bounding_circle_radius();
@@ -527,7 +533,7 @@ impl GameLogic {
                     let away = attacker.get_position() - target_location;
                     let len = away.length().max(0.01);
                     let src_r = attacker
-                        .thing
+                        .thing()
                         .template
                         .geometry_info
                         .bounding_circle_radius();

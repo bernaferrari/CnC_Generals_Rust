@@ -989,8 +989,8 @@ impl GameLogic {
             if play_sparks && !BATTLE_DRONE_REPAIR_WELDING_SYS.is_empty() {
                 let bone = self.objects.get(&drone_id).and_then(|drone| {
                     gamelogic::object::draw::lookup_pristine_bone_translation(
-                        drone.thing.template.get_model_name(),
-                        drone.thing.template.asset_scale,
+                        drone.thing().template.get_model_name(),
+                        drone.thing().template.asset_scale,
                         BATTLE_DRONE_REPAIR_WELDING_FX_BONE,
                     )
                     .map(|c| glam::Vec3::new(c.x, c.z, c.y))
@@ -1597,7 +1597,7 @@ impl GameLogic {
                     return None;
                 }
                 let p = o.get_position();
-                let geom = &o.thing.template.geometry_info;
+                let geom = &o.thing().template.geometry_info;
                 Some((
                     *id,
                     o.team,

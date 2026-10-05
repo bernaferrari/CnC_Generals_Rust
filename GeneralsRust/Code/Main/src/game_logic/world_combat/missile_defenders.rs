@@ -449,10 +449,10 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        let parsed_rider_change = obj.thing.template.contain_module.kind
+        let parsed_rider_change = obj.thing().template.contain_module.kind
             == crate::game_logic::ContainModuleKind::RiderChange
             && obj
-                .thing
+                .thing()
                 .template
                 .contain_module
                 .has_supported_rider_change_roster();
@@ -517,10 +517,10 @@ impl GameLogic {
         let Some(container) = self.objects.get(&container_id) else {
             return;
         };
-        let parsed_rider_change = container.thing.template.contain_module.kind
+        let parsed_rider_change = container.thing().template.contain_module.kind
             == crate::game_logic::ContainModuleKind::RiderChange
             && container
-                .thing
+                .thing()
                 .template
                 .contain_module
                 .has_supported_rider_change_roster();
@@ -2112,7 +2112,7 @@ impl GameLogic {
         }
 
         for occ_id in ejected {
-            crate::game_logic::object::prime_live_damage_context(
+            let context = crate::game_logic::object::DamageHitContext::new(
                 attacker_id.and_then(|id| self.objects.get(&id)),
                 Some(BUNKER_BUSTER_OCCUPANT_WEAPON),
                 occupant_damage_type,
@@ -2123,11 +2123,14 @@ impl GameLogic {
             if !occ.is_alive() {
                 continue;
             }
-            let killed = occ.take_damage_from_typed_death(
+            let killed = occ.take_damage_with_context(
                 BUNKER_BUSTER_HARM_AMOUNT,
                 attacker_id,
                 occupant_damage_type,
                 occupant_death_type,
+                None,
+                self.frame,
+                &context,
             );
             if killed || !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed {
                 kills = kills.saturating_add(1);

@@ -275,9 +275,9 @@ impl<'a> CommandExecutor<'a> {
             let slots = self.game_logic.host_object(target_id).map(|dock| {
                 crate::game_logic::host_supply_gather::number_approach_positions_for_dock(
                     &dock.template_name,
-                    dock.thing.template.dock_kind,
+                    dock.thing().template.dock_kind,
                     dock.is_kind_of(KindOf::RepairPad),
-                    dock.thing.template.dock_delete_when_empty,
+                    dock.thing().template.dock_delete_when_empty,
                 )
             });
             if slots.is_some_and(|n| n != 0) {

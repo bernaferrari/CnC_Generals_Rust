@@ -383,7 +383,7 @@ impl GameLogic {
                 let mut ground = jet.ground_height;
                 if let Some(pid) = jet.producer_id {
                     if let Some(af) = self.objects.get(&pid) {
-                        if let Some(pp) = af.thing.template.parking_place.as_ref() {
+                        if let Some(pp) = af.thing().template.parking_place.as_ref() {
                             ground += pp.landing_deck_height_offset;
                         }
                     }
@@ -618,7 +618,7 @@ impl GameLogic {
     }
 
     pub(crate) fn object_is_produced_at_helipad(object: &Object) -> bool {
-        Self::template_is_produced_at_helipad(&object.thing.template)
+        Self::template_is_produced_at_helipad(&object.thing().template)
             || crate::game_logic::host_helicopter_slow_death::is_helicopter_slow_death_template(
                 &object.template_name,
             )
@@ -897,7 +897,7 @@ impl GameLogic {
             PARKING_PLACE_RUNWAY_APPROACH_DIST, PARKING_PLACE_RUNWAY_PREP_SPACING,
         };
         let airfield = self.objects.get(&airfield_id)?;
-        let metadata = airfield.thing.template.parking_place.as_ref()?;
+        let metadata = airfield.thing().template.parking_place.as_ref()?;
         let spaces = self.airfield_parking_spaces.get(&airfield_id)?;
         let index = spaces
             .iter()
@@ -906,7 +906,7 @@ impl GameLogic {
         let num_cols = usize::try_from(metadata.num_cols).ok().filter(|&c| c > 0)?;
         let num_rows = usize::try_from(metadata.num_rows).ok().filter(|&r| r > 0)?;
         let origin = airfield.get_position();
-        let mut forward = airfield.thing.get_direction_vector();
+        let mut forward = airfield.thing().get_direction_vector();
         forward.y = 0.0;
         if forward.length_squared() < 1.0e-6 {
             forward = glam::Vec3::new(0.0, 0.0, -1.0);
@@ -998,7 +998,7 @@ impl GameLogic {
     fn heli_park01_pose(&self, airfield_id: ObjectId) -> Option<glam::Vec3> {
         let airfield = self.objects.get(&airfield_id)?;
         let deck = airfield
-            .thing
+            .thing()
             .template
             .parking_place
             .as_ref()
@@ -1014,7 +1014,7 @@ impl GameLogic {
             .objects
             .get(&airfield_id)
             .filter(|object| Self::has_usable_airfield_parking_behavior(object))
-            .and_then(|object| object.thing.template.parking_place.as_ref())
+            .and_then(|object| object.thing().template.parking_place.as_ref())
             .and_then(|metadata| metadata.runway_count())?;
         if runway_count == 0 {
             return None;
@@ -1061,7 +1061,7 @@ impl GameLogic {
         let cols = self
             .objects
             .get(&airfield_id)
-            .and_then(|object| object.thing.template.parking_place.as_ref())
+            .and_then(|object| object.thing().template.parking_place.as_ref())
             .and_then(|metadata| usize::try_from(metadata.num_cols).ok())
             .filter(|&cols| cols > 0)?;
         Some(index % cols)
@@ -1214,7 +1214,7 @@ impl GameLogic {
         self.apply_pending_helipad_exits();
         let mut airfields: Vec<ObjectId> = self.airfield_parking_spaces.keys().copied().collect();
         for (&id, object) in self.objects.iter() {
-            if object.thing.template.parking_place.is_some() {
+            if object.thing().template.parking_place.is_some() {
                 airfields.push(id);
             }
         }
@@ -1251,7 +1251,7 @@ impl GameLogic {
             && !object.status.sold
             && object.is_kind_of(KindOf::FSAirfield)
             && object
-                .thing
+                .thing()
                 .template
                 .parking_place
                 .as_ref()
@@ -1306,7 +1306,7 @@ impl GameLogic {
         self.objects
             .get(&airfield_id)
             .filter(|object| Self::has_usable_airfield_parking_behavior(object))
-            .and_then(|object| object.thing.template.parking_place.as_ref())
+            .and_then(|object| object.thing().template.parking_place.as_ref())
             .and_then(|metadata| metadata.capacity())
     }
 
@@ -1955,7 +1955,7 @@ impl GameLogic {
             .objects
             .get(&airfield_id)
             .filter(|object| Self::has_usable_airfield_parking_behavior(object))
-            .and_then(|object| object.thing.template.parking_place.as_ref())
+            .and_then(|object| object.thing().template.parking_place.as_ref())
             .and_then(|metadata| metadata.runway_count())?;
         if runway_count == 0 {
             return None;
@@ -2122,7 +2122,7 @@ impl GameLogic {
             else {
                 return false;
             };
-            let Some(metadata) = airfield.thing.template.parking_place.clone() else {
+            let Some(metadata) = airfield.thing().template.parking_place.clone() else {
                 return false;
             };
             (af_id, metadata, airfield.get_position())
@@ -2668,7 +2668,7 @@ impl GameLogic {
                 Self::has_usable_airfield_parking_behavior(airfield)
                     .then(|| {
                         airfield
-                            .thing
+                            .thing()
                             .template
                             .parking_place
                             .clone()
@@ -2805,9 +2805,10 @@ impl GameLogic {
             self.release_airfield_runway_for_jet(jet_id);
             let was_taxi = phase >= crate::game_logic::object::JET_RTB_PHASE_TAXI;
             if was_taxi {
-                let need_path = self.objects.get(&jet_id).is_some_and(|jet| {
-                    jet.movement.path.is_empty() && !jet.waiting_for_path
-                });
+                let need_path = self
+                    .objects
+                    .get(&jet_id)
+                    .is_some_and(|jet| jet.movement.path.is_empty() && !jet.waiting_for_path);
                 if !need_path {
                     return true;
                 }
@@ -2847,9 +2848,10 @@ impl GameLogic {
             // pathfinder refuses an off-grid air goal so an accepted landing
             // command is not rejected after its reservation was made.
             if was_approach {
-                let need_path = self.objects.get(&jet_id).is_some_and(|jet| {
-                    jet.movement.path.is_empty() && !jet.waiting_for_path
-                });
+                let need_path = self
+                    .objects
+                    .get(&jet_id)
+                    .is_some_and(|jet| jet.movement.path.is_empty() && !jet.waiting_for_path);
                 if !need_path {
                     return true;
                 }
@@ -2875,9 +2877,10 @@ impl GameLogic {
             jet.set_status_attacking(false);
         }
         if was_landing {
-            let need_path = self.objects.get(&jet_id).is_some_and(|jet| {
-                jet.movement.path.is_empty() && !jet.waiting_for_path
-            });
+            let need_path = self
+                .objects
+                .get(&jet_id)
+                .is_some_and(|jet| jet.movement.path.is_empty() && !jet.waiting_for_path);
             if !need_path {
                 self.maybe_play_jet_wheel_screech(jet_id);
                 return true;
@@ -3066,7 +3069,7 @@ impl GameLogic {
             let heal_per_sec = self
                 .objects
                 .get(&airfield_id)
-                .and_then(|airfield| airfield.thing.template.parking_place.as_ref())
+                .and_then(|airfield| airfield.thing().template.parking_place.as_ref())
                 .map(|metadata| metadata.heal_amount_per_second)
                 .unwrap_or(0.0);
             let amount = AIRFIELD_HEAL_RATE_FRAMES as f32 * heal_per_sec * LOGIC_FRAME_TIMESTEP;

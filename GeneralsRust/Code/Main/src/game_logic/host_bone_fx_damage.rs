@@ -870,7 +870,7 @@ mod tests {
 
     #[test]
     fn destroy_and_collapse_call_stop_all_bone_fx() {
-        let die = include_str!("world_objects/create_destroy_die.rs");
+        let die = include_str!("world_objects/create_destroy_die/death.rs");
         assert!(die.contains("bfx.stop_all_bone_fx()"));
         let death = include_str!("object/death.rs");
         assert!(death.contains("bfx.stop_all_bone_fx()"));

@@ -346,7 +346,6 @@ impl Object {
         // C++ ActiveBody ctor: current/prev/initial = INI InitialHealth; max = MaxHealth.
         let initial_health =
             leftover_factory_body_initial_health(&template_name).unwrap_or(max_health);
-        let position = Vec3::ZERO; // Default position
         let auto_acquire_idle_bits = leftover_factory_auto_acquire_bits(&template_name)
             .unwrap_or(template.auto_acquire_enemies_when_idle);
         let auto_acquire_when_idle = (auto_acquire_idle_bits
@@ -1061,7 +1060,6 @@ impl Object {
             unit_ai_runtime: Default::default(),
             object_type,
             template_name: template_name.clone(),
-            position,
             max_health,
             initial_health,
             target_location: None,
@@ -1990,7 +1988,6 @@ impl Object {
             unit_ai_runtime: Default::default(),
             object_type,
             template_name: template_name.clone(),
-            position: Vec3::ZERO,
             max_health: 100.0,
             initial_health,
             target_location: None,

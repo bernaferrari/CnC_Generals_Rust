@@ -38,7 +38,7 @@ impl GameWorldShadow {
             let Some(obj) = /* Wave 946/947 */ logic./* Wave 950 */ host_object_mut(ObjectId(hid)) else {
                 continue;
             };
-            let exit_metadata = obj.thing.template.production_exit_metadata;
+            let exit_metadata = obj.thing().template.production_exit_metadata;
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
             if shadow_coupled_tick_active()
                 && crate::game_logic::host_production_log::has_pending(ObjectId(hid))

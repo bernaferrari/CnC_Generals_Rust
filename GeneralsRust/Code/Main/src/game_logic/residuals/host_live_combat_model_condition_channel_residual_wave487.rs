@@ -157,11 +157,17 @@ pub fn honesty_combat_model_condition_channel_nav_commands_residual_wave487() ->
 }
 
 pub fn simulate_combat_model_condition_channel_refresh_source() -> bool {
-    let Some(body) = function_body(object_source(), "fn refresh_model_condition_bits(") else {
+    let src = object_source();
+    let Some(wrapper) = function_body(src, "fn refresh_model_condition_bits(") else {
         return false;
     };
-    let ok = body
-        .contains("Wave 487: preserve combat/presentation bits refresh rebuild does not recompute")
+    let Some(body) = function_body(src, "fn refresh_model_condition_bits_with_source(") else {
+        return false;
+    };
+    let ok = wrapper.contains("self.refresh_model_condition_bits_with_source(None)")
+        && body.contains(
+            "Wave 487: preserve combat/presentation bits refresh rebuild does not recompute",
+        )
         && body.contains("WEAPON_MC_PRESERVE")
         && body.contains("PRONE")
         && body.contains("MC_BIT_FRONTCRUSHED")

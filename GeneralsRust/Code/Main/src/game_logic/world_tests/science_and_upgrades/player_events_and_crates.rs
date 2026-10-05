@@ -917,7 +917,7 @@ fn fake_building_sabotage_uses_unresistable_detonated() {
     // Armor residual must not blunt UNRESISTABLE.
     {
         let f = logic.objects.get_mut(&fid).unwrap();
-        f.thing.template.armor = 500.0;
+        f.template_mut().armor = 500.0;
         f.health.current = f.health.maximum;
     }
     let saboteur = ObjectId(9301);
@@ -1592,14 +1592,14 @@ fn parachute_land_use_spawn_rally_point_walks_factory_exit() {
 
     let factory = logic.host_object(factory_id).expect("factory live");
     let exit = factory
-        .thing
+        .thing()
         .template
         .production_exit_metadata
         .expect("exit");
     let create =
         crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
             factory.get_position(),
-            factory.thing.get_direction_vector(),
+            factory.thing().get_direction_vector(),
             (
                 exit.unit_create_point[0],
                 exit.unit_create_point[1],

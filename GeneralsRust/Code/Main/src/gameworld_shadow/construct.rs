@@ -14,7 +14,7 @@ impl GameWorldShadow {
     ) -> Option<(String, u32)> {
         use crate::command_system::SpecialPowerType as P;
 
-        obj.thing
+        obj.thing()
             .template
             .special_power_modules
             .iter()
@@ -378,19 +378,19 @@ impl GameWorldShadow {
                     e.weapons_jammed = obj.status.weapons_jammed;
                     e.masked = obj.status.masked;
                     e.unattackable = obj.is_kind_of(crate::game_logic::KindOf::Unattackable);
-                    e.dock_kind = obj.thing.template.dock_kind as u8;
-                    e.capturable = obj.thing.template.capturable;
-                    e.immune_to_capture = obj.thing.template.immune_to_capture;
-                    e.capture_garrisonable = obj.thing.template.garrison_contain_max.is_some();
-                    e.capture_power = obj.thing.template.capture_power as u8;
+                    e.dock_kind = obj.thing().template.dock_kind as u8;
+                    e.capturable = obj.thing().template.capturable;
+                    e.immune_to_capture = obj.thing().template.immune_to_capture;
+                    e.capture_garrisonable = obj.thing().template.garrison_contain_max.is_some();
+                    e.capture_power = obj.thing().template.capture_power as u8;
                     e.capture_power_ready = obj
-                        .thing
+                        .thing()
                         .template
                         .capture_power
                         .special_power_type()
                         .is_some_and(|power| logic.is_special_power_ready_for(oid, &power));
                     e.hacker_disable_building_capable = obj
-                        .thing
+                        .thing()
                         .template
                         .hacker_disable_building
                         .as_ref()
@@ -1895,19 +1895,19 @@ impl GameWorldShadow {
                 e.weapons_jammed = obj.status.weapons_jammed;
                 e.masked = obj.status.masked;
                 e.unattackable = obj.is_kind_of(crate::game_logic::KindOf::Unattackable);
-                e.dock_kind = obj.thing.template.dock_kind as u8;
-                e.capturable = obj.thing.template.capturable;
-                e.immune_to_capture = obj.thing.template.immune_to_capture;
-                e.capture_garrisonable = obj.thing.template.garrison_contain_max.is_some();
-                e.capture_power = obj.thing.template.capture_power as u8;
+                e.dock_kind = obj.thing().template.dock_kind as u8;
+                e.capturable = obj.thing().template.capturable;
+                e.immune_to_capture = obj.thing().template.immune_to_capture;
+                e.capture_garrisonable = obj.thing().template.garrison_contain_max.is_some();
+                e.capture_power = obj.thing().template.capture_power as u8;
                 e.capture_power_ready = obj
-                    .thing
+                    .thing()
                     .template
                     .capture_power
                     .special_power_type()
                     .is_some_and(|power| logic.is_special_power_ready_for(oid, &power));
                 e.hacker_disable_building_capable = obj
-                    .thing
+                    .thing()
                     .template
                     .hacker_disable_building
                     .as_ref()
@@ -2307,7 +2307,7 @@ impl GameWorldShadow {
                     }
                 }
                 {
-                    let metadata = obj.thing.template.hack_internet_ai_update;
+                    let metadata = obj.thing().template.hack_internet_ai_update;
                     if let Some(metadata) = metadata {
                         // `InternetHackContain::onContaining` starts the AI
                         // command.  A faction-building KindOf or an
@@ -2320,9 +2320,9 @@ impl GameWorldShadow {
                                     && container.is_constructed()
                                     && !container.status.under_construction
                                     && !container.status.sold
-                                    && container.thing.template.contain_module.kind
+                                    && container.thing().template.contain_module.kind
                                         == crate::game_logic::ContainModuleKind::InternetHack
-                                    && container.thing.template.contain_module.admission
+                                    && container.thing().template.contain_module.admission
                                         == crate::game_logic::ContainAdmission::MoneyHackerOnly
                                     && container.contained_units().contains(&oid)
                                     && logic.normal_enter_controller_matches(obj, container)
@@ -2854,7 +2854,7 @@ impl GameWorldShadow {
 fn entity_module_spec_from_host(
     obj: &crate::game_logic::Object,
 ) -> gamelogic::world::EntityModuleInstallSpec {
-    let template = obj.thing.get_template();
+    let template = obj.thing().get_template();
     let mut template_module_tags = Vec::new();
     if template.garrison_contain_max.is_some() {
         template_module_tags.push("GarrisonContain".to_string());
@@ -2867,7 +2867,7 @@ fn entity_module_spec_from_host(
         inactive_body: false,
         shrubbery: false,
         can_be_repulsed: obj
-            .thing
+            .thing()
             .is_kind_of(crate::game_logic::KindOf::CanBeRepulsed),
         has_weapons: obj.weapon.is_some(),
     }

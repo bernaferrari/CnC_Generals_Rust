@@ -160,7 +160,7 @@ impl GameLogic {
         let pack_frames = self
             .objects
             .get(&id)
-            .and_then(|obj| obj.thing.template.hack_internet_ai_update)
+            .and_then(|obj| obj.thing().template.hack_internet_ai_update)
             .map(|meta| meta.pack_time_frames)
             .unwrap_or(0);
         if self
@@ -517,7 +517,8 @@ impl GameLogic {
         unit.hunting = false;
         // C++ SupplyTruckAIUpdate::privateIdle(CMD_FROM_PLAYER) setForceBusyState.
         // Workers omit the latch (WorkerAIUpdate.cpp:516-526).
-        if unit.thing.template.supply_truck_metadata.is_some() && !unit.is_kind_of(KindOf::Worker) {
+        if unit.thing().template.supply_truck_metadata.is_some() && !unit.is_kind_of(KindOf::Worker)
+        {
             unit.supply_truck_state = crate::game_logic::SupplyTruckState::Idle;
             unit.supply_truck_force_pending = false;
         }
@@ -1849,7 +1850,7 @@ impl GameLogic {
         // C++ TransportContain onRemoving: bike secondary → Kell secondary.
         self.transfer_kell_snipe_reload_from_bike(container_id, occupant_id);
         let is_rider_change = self.objects.get(&container_id).is_some_and(|container| {
-            container.thing.template.contain_module.kind
+            container.thing().template.contain_module.kind
                 == crate::game_logic::ContainModuleKind::RiderChange
         });
         if is_rider_change {

@@ -1158,7 +1158,7 @@ impl crate::game_logic::GameLogic {
         self.warehouse_crippling_states.retain(|id, _| {
             objects.get(id).is_some_and(|object| {
                 object.is_alive()
-                    && object.thing.template.dock_kind
+                    && object.thing().template.dock_kind
                         == crate::game_logic::DockKind::SupplyWarehouse
             })
         });
@@ -1167,7 +1167,7 @@ impl crate::game_logic::GameLogic {
             .iter()
             .filter(|(_, o)| {
                 o.is_alive()
-                    && o.thing.template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse
+                    && o.thing().template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse
             })
             .map(|(id, _)| *id)
             .collect();
@@ -1217,7 +1217,7 @@ impl crate::game_logic::GameLogic {
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
         };
-        if obj.thing.template.dock_kind != crate::game_logic::DockKind::SupplyWarehouse {
+        if obj.thing().template.dock_kind != crate::game_logic::DockKind::SupplyWarehouse {
             return false;
         }
         obj.set_stored_supplies(warehouse_stored_supplies_from_cash(cash));

@@ -239,9 +239,9 @@ pub fn refresh_host_fx_object_poses_from_presentation(
 
 fn host_object_fx_radius(obj: &crate::game_logic::Object) -> f32 {
     crate::game_logic::host_supply_gather::host_bounding_circle_radius(
-        obj.thing.template.geometry_info.authored,
-        obj.thing.template.geometry_info.bounding_circle_radius(),
-        obj.thing.geometry.radius.max(obj.selection_radius),
+        obj.thing().template.geometry_info.authored,
+        obj.thing().template.geometry_info.bounding_circle_radius(),
+        obj.thing().geometry.radius.max(obj.selection_radius),
     )
 }
 
@@ -468,7 +468,7 @@ mod tests {
 
     #[test]
     fn crushing_fx_uses_terrain_height() {
-        let src = include_str!("world_objects/create_destroy_die.rs");
+        let src = include_str!("world_objects/create_destroy_die/death.rs");
         let start = src
             .find("pub(crate) fn apply_structure_topple_crush_samples")
             .expect("crush samples");

@@ -350,7 +350,12 @@ mod tests {
             .expect("restore");
 
         assert_eq!(
-            restored.host_object(dock).unwrap().thing.template.dock_kind,
+            restored
+                .host_object(dock)
+                .unwrap()
+                .thing()
+                .template
+                .dock_kind,
             DockKind::SupplyWarehouse,
             "restore must use the authoritative warehouse template"
         );

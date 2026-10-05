@@ -209,25 +209,32 @@ pub fn host_weapon_is_water_damage(name: &str) -> bool {
 
 /// C++ Weapon.ini DamageStatusType residual name (OBJECT_STATUS bit name).
 pub fn host_damage_status_type_for_weapon_name(name: &str) -> Option<&'static str> {
+    host_damage_status_for_weapon_name(name).and_then(object_status_bit_name)
+}
+
+pub(in crate::game_logic) fn host_damage_status_for_weapon_name(
+    name: &str,
+) -> Option<gamelogic::common::ObjectStatusTypes> {
     use super::with_host_weapon_store as with_weapon_store;
     let from_store = with_weapon_store(|store| {
         store
             .find_weapon_template(name)
-            .map(|wt| object_status_bit_name(wt.damage_status_type.into()))
+            .map(|weapon| weapon.damage_status_type.into())
     })
     .ok()
-    .flatten()
     .flatten();
-    if from_store.is_some() {
-        return from_store;
+    if let Some(status) = from_store {
+        // C++ Weapon::fireWeapon copies the authored value, including NONE.
+        // A found NONE definition is distinct from a missing seed definition.
+        return Some(status);
     }
-    if !host_weapon_is_status_damage(name) {
-        return None;
-    }
-    Some("FAERIE_FIRE")
+    // Only a missing definition may use the known-template fallback.
+    host_weapon_is_status_damage(name).then_some(gamelogic::common::ObjectStatusTypes::FaerieFire)
 }
 
-fn object_status_bit_name(status: gamelogic::common::ObjectStatusTypes) -> Option<&'static str> {
+pub(in crate::game_logic) fn object_status_bit_name(
+    status: gamelogic::common::ObjectStatusTypes,
+) -> Option<&'static str> {
     use gamelogic::common::ObjectStatusTypes::{self, *};
     match status {
         ObjectStatusTypes::None => Option::<&str>::None,

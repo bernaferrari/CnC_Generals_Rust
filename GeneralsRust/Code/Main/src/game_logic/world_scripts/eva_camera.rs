@@ -337,7 +337,7 @@ impl GameLogic {
             }
         }
         // C++ m_radarData != NULL — live NotOnRadar never gets radar data.
-        if obj.thing.template.radar_priority == 1 {
+        if obj.thing().template.radar_priority == 1 {
             return false;
         }
         true

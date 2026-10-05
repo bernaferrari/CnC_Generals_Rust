@@ -181,9 +181,9 @@ impl GameLogic {
                 }
                 let pos = obj.get_position();
                 let sphere = leftover_emp_bounding_sphere_radius(
-                    obj.thing.geometry.radius,
-                    obj.thing.geometry.bounds_min,
-                    obj.thing.geometry.bounds_max,
+                    obj.thing().geometry.radius,
+                    obj.thing().geometry.bounds_min,
+                    obj.thing().geometry.bounds_max,
                     obj.selection_radius,
                 );
                 if !in_emp_pulse_radius_from_bounding_sphere_3d(
@@ -309,7 +309,7 @@ impl GameLogic {
         for (id, scale) in visual {
             if let Some(o) = self.objects.get_mut(&id) {
                 if o.emp_pulse_spheroid {
-                    o.thing.geometry.radius = EMP_SPHEROID_GEOMETRY_RADIUS * scale;
+                    o.set_geometry_radius(EMP_SPHEROID_GEOMETRY_RADIUS * scale);
                     o.visual_draw_state_revision = o.visual_draw_state_revision.wrapping_add(1);
                 }
             }

@@ -336,7 +336,9 @@ impl GameLogic {
                     None => return false,
                 };
                 let do_force = match self.objects.get_mut(&a_id) {
-                    Some(a) => a.ai_process_collision(&b_snap, frame, is_ally, other_sees_us_as_ally),
+                    Some(a) => {
+                        a.ai_process_collision(&b_snap, frame, is_ally, other_sees_us_as_ally)
+                    }
                     None => return false,
                 };
                 if !do_force {
@@ -377,8 +379,7 @@ impl GameLogic {
         if let Some(other_id) = req_away {
             let already_yielding = if let Some(other) = self.objects.get_mut(&other_id) {
                 if other.move_away_frames > 0
-                    && (other.move_away_from == Some(a_id)
-                        || other.move_away_from_2 == Some(a_id))
+                    && (other.move_away_from == Some(a_id) || other.move_away_from_2 == Some(a_id))
                 {
                     if other.is_blocked {
                         other.ignore_collisions_until_frame = frame.saturating_add(60);
@@ -391,52 +392,39 @@ impl GameLogic {
                 true
             };
             if !already_yielding {
-            let a_path = self
-                .objects
-                .get(&a_id)
-                .map(|a| a.movement.path.clone())
-                .unwrap_or_default();
-            let a_radius = self
-                .objects
-                .get(&a_id)
-                .map(|a| a.selection_radius)
-                .unwrap_or(0.0);
-            let prev_path = self
-                .objects
-                .get(&other_id)
-                .and_then(|o| o.move_away_from)
-                .and_then(|id| {
-                    self.objects.get(&id).and_then(|prev| {
-                        (prev.movement.path.len() >= 2).then(|| prev.movement.path.clone())
-                    })
-                });
-            if a_path.len() >= 2 {
-                if let Some(other) = self.objects.get(&other_id) {
-                    let from = other.get_position();
-                    let surfaces = if other.locomotor_surfaces != 0 {
-                        other.locomotor_surfaces
-                    } else {
-                        gamelogic::ai::pathfind_complete::SURFACE_GROUND
-                    };
-                    let is_crusher = other.crusher_level > 0;
-                    let unit_radius = other.selection_radius;
-                    let seeker_player = other.owner_player_id.or(Some(other.team as u32));
-                    let crusher_level = other.crusher_level;
-                    let can_tunnel = other.can_path_through_units;
-                    let mut yield_path = self.pathfinding_system.get_move_away_from_path(
-                        from,
-                        &a_path,
-                        prev_path.as_deref(),
-                        surfaces,
-                        is_crusher,
-                        unit_radius,
-                        a_radius,
-                        seeker_player,
-                        crusher_level,
-                        false,
-                    );
-                    if yield_path.is_none() && !can_tunnel {
-                        yield_path = self.pathfinding_system.get_move_away_from_path(
+                let a_path = self
+                    .objects
+                    .get(&a_id)
+                    .map(|a| a.movement.path.clone())
+                    .unwrap_or_default();
+                let a_radius = self
+                    .objects
+                    .get(&a_id)
+                    .map(|a| a.selection_radius)
+                    .unwrap_or(0.0);
+                let prev_path = self
+                    .objects
+                    .get(&other_id)
+                    .and_then(|o| o.move_away_from)
+                    .and_then(|id| {
+                        self.objects.get(&id).and_then(|prev| {
+                            (prev.movement.path.len() >= 2).then(|| prev.movement.path.clone())
+                        })
+                    });
+                if a_path.len() >= 2 {
+                    if let Some(other) = self.objects.get(&other_id) {
+                        let from = other.get_position();
+                        let surfaces = if other.locomotor_surfaces != 0 {
+                            other.locomotor_surfaces
+                        } else {
+                            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+                        };
+                        let is_crusher = other.crusher_level > 0;
+                        let unit_radius = other.selection_radius;
+                        let seeker_player = other.owner_player_id.or(Some(other.team as u32));
+                        let crusher_level = other.crusher_level;
+                        let can_tunnel = other.can_path_through_units;
+                        let mut yield_path = self.pathfinding_system.get_move_away_from_path(
                             from,
                             &a_path,
                             prev_path.as_deref(),
@@ -446,28 +434,41 @@ impl GameLogic {
                             a_radius,
                             seeker_player,
                             crusher_level,
-                            true,
+                            false,
                         );
-                        if let Some(other) = self.objects.get_mut(&other_id) {
-                            other.can_path_through_units = true;
-                        }
-                    }
-                    if let Some(path) = yield_path {
-                        let mut installed = false;
-                        if let Some(other) = self.objects.get_mut(&other_id) {
-                            installed = other.apply_move_away_path(a_id, &path);
-                            if other.ignore_collisions_until_frame > 0
-                                && other.ignore_collisions_until_frame < 100_000
-                            {
-                                other.ignore_collisions_until_frame = frame.saturating_add(60);
+                        if yield_path.is_none() && !can_tunnel {
+                            yield_path = self.pathfinding_system.get_move_away_from_path(
+                                from,
+                                &a_path,
+                                prev_path.as_deref(),
+                                surfaces,
+                                is_crusher,
+                                unit_radius,
+                                a_radius,
+                                seeker_player,
+                                crusher_level,
+                                true,
+                            );
+                            if let Some(other) = self.objects.get_mut(&other_id) {
+                                other.can_path_through_units = true;
                             }
                         }
-                        if installed {
-                            self.scoot_allies_off_mover_path(other_id);
+                        if let Some(path) = yield_path {
+                            let mut installed = false;
+                            if let Some(other) = self.objects.get_mut(&other_id) {
+                                installed = other.apply_move_away_path(a_id, &path);
+                                if other.ignore_collisions_until_frame > 0
+                                    && other.ignore_collisions_until_frame < 100_000
+                                {
+                                    other.ignore_collisions_until_frame = frame.saturating_add(60);
+                                }
+                            }
+                            if installed {
+                                self.scoot_allies_off_mover_path(other_id);
+                            }
                         }
                     }
                 }
-            }
             }
         }
         let self_yield = self
@@ -491,48 +492,35 @@ impl GameLogic {
                 true
             };
             if !already_yielding {
-            let other_path = self
-                .objects
-                .get(&other_id)
-                .map(|o| o.movement.path.clone())
-                .unwrap_or_default();
-            let other_radius = self
-                .objects
-                .get(&other_id)
-                .map(|o| o.selection_radius)
-                .unwrap_or(0.0);
-            let prev_path = self
-                .objects
-                .get(&a_id)
-                .and_then(|o| o.move_away_from)
-                .and_then(|id| {
-                    self.objects.get(&id).and_then(|prev| {
-                        (prev.movement.path.len() >= 2).then(|| prev.movement.path.clone())
-                    })
-                });
-            if other_path.len() >= 2 {
-                if let Some(me) = self.objects.get(&a_id) {
-                    let from = me.get_position();
-                    let surfaces = if me.locomotor_surfaces != 0 {
-                        me.locomotor_surfaces
-                    } else {
-                        gamelogic::ai::pathfind_complete::SURFACE_GROUND
-                    };
-                    let can_tunnel = me.can_path_through_units;
-                    let mut yield_path = self.pathfinding_system.get_move_away_from_path(
-                        from,
-                        &other_path,
-                        prev_path.as_deref(),
-                        surfaces,
-                        me.crusher_level > 0,
-                        me.selection_radius,
-                        other_radius,
-                        me.owner_player_id.or(Some(me.team as u32)),
-                        me.crusher_level,
-                        false,
-                    );
-                    if yield_path.is_none() && !can_tunnel {
-                        yield_path = self.pathfinding_system.get_move_away_from_path(
+                let other_path = self
+                    .objects
+                    .get(&other_id)
+                    .map(|o| o.movement.path.clone())
+                    .unwrap_or_default();
+                let other_radius = self
+                    .objects
+                    .get(&other_id)
+                    .map(|o| o.selection_radius)
+                    .unwrap_or(0.0);
+                let prev_path = self
+                    .objects
+                    .get(&a_id)
+                    .and_then(|o| o.move_away_from)
+                    .and_then(|id| {
+                        self.objects.get(&id).and_then(|prev| {
+                            (prev.movement.path.len() >= 2).then(|| prev.movement.path.clone())
+                        })
+                    });
+                if other_path.len() >= 2 {
+                    if let Some(me) = self.objects.get(&a_id) {
+                        let from = me.get_position();
+                        let surfaces = if me.locomotor_surfaces != 0 {
+                            me.locomotor_surfaces
+                        } else {
+                            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+                        };
+                        let can_tunnel = me.can_path_through_units;
+                        let mut yield_path = self.pathfinding_system.get_move_away_from_path(
                             from,
                             &other_path,
                             prev_path.as_deref(),
@@ -542,28 +530,41 @@ impl GameLogic {
                             other_radius,
                             me.owner_player_id.or(Some(me.team as u32)),
                             me.crusher_level,
-                            true,
+                            false,
                         );
-                        if let Some(me) = self.objects.get_mut(&a_id) {
-                            me.can_path_through_units = true;
-                        }
-                    }
-                    if let Some(path) = yield_path {
-                        let mut installed = false;
-                        if let Some(me) = self.objects.get_mut(&a_id) {
-                            installed = me.apply_move_away_path(other_id, &path);
-                            if me.ignore_collisions_until_frame > 0
-                                && me.ignore_collisions_until_frame < 100_000
-                            {
-                                me.ignore_collisions_until_frame = frame.saturating_add(60);
+                        if yield_path.is_none() && !can_tunnel {
+                            yield_path = self.pathfinding_system.get_move_away_from_path(
+                                from,
+                                &other_path,
+                                prev_path.as_deref(),
+                                surfaces,
+                                me.crusher_level > 0,
+                                me.selection_radius,
+                                other_radius,
+                                me.owner_player_id.or(Some(me.team as u32)),
+                                me.crusher_level,
+                                true,
+                            );
+                            if let Some(me) = self.objects.get_mut(&a_id) {
+                                me.can_path_through_units = true;
                             }
                         }
-                        if installed {
-                            self.scoot_allies_off_mover_path(a_id);
+                        if let Some(path) = yield_path {
+                            let mut installed = false;
+                            if let Some(me) = self.objects.get_mut(&a_id) {
+                                installed = me.apply_move_away_path(other_id, &path);
+                                if me.ignore_collisions_until_frame > 0
+                                    && me.ignore_collisions_until_frame < 100_000
+                                {
+                                    me.ignore_collisions_until_frame = frame.saturating_add(60);
+                                }
+                            }
+                            if installed {
+                                self.scoot_allies_off_mover_path(a_id);
+                            }
                         }
                     }
                 }
-            }
             }
         }
         let unstack = self
@@ -596,7 +597,7 @@ impl GameLogic {
         if let Some(a) = self.objects.get_mut(&a_id) {
             if a.allow_collide_force {
                 let lift = |obj: &crate::game_logic::Object| {
-                    let g = &obj.thing.template.geometry_info;
+                    let g = &obj.thing().template.geometry_info;
                     match g.geom_type {
                         crate::game_logic::thing::HostGeometryType::Sphere => 0.0,
                         crate::game_logic::thing::HostGeometryType::Box
@@ -629,8 +630,7 @@ impl GameLogic {
                     let dist = dist_sqr.sqrt();
                     let overlap = radius_sum - dist;
                     if overlap > 0.0 {
-                        let them_center =
-                            glam::Vec3::new(them.x, them.y + lift(&b_snap), them.z);
+                        let them_center = glam::Vec3::new(them.x, them.y + lift(&b_snap), them.z);
                         a.apply_overlap_collide_force(them_center, overlap);
                     }
                 }
@@ -770,7 +770,7 @@ impl GameLogic {
             };
             // C++ PhysicsUpdate.cpp:1222 / leftover: KINDOF_IMMOBILE only.
             let imm_ok = imm.is_kind_of(crate::game_logic::KindOf::Immobile);
-            let imm_g = &imm.thing.template.geometry_info;
+            let imm_g = &imm.thing().template.geometry_info;
             let imm_lift = match imm_g.geom_type {
                 crate::game_logic::thing::HostGeometryType::Sphere => 0.0,
                 crate::game_logic::thing::HostGeometryType::Box
@@ -804,7 +804,7 @@ impl GameLogic {
             let us = m.get_position();
             let them = imm.get_position();
             let lift = |obj: &crate::game_logic::Object| {
-                let g = &obj.thing.template.geometry_info;
+                let g = &obj.thing().template.geometry_info;
                 match g.geom_type {
                     crate::game_logic::thing::HostGeometryType::Sphere => 0.0,
                     crate::game_logic::thing::HostGeometryType::Box
@@ -1293,7 +1293,7 @@ impl GameLogic {
         };
         self.objects
             .get(&pid)
-            .and_then(|p| p.thing.template.parking_place.as_ref())
+            .and_then(|p| p.thing().template.parking_place.as_ref())
             .map(|pp| pp.landing_deck_height_offset)
             .unwrap_or(0.0)
     }

@@ -374,7 +374,8 @@ fn default_adjust_destinations() -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Object {
     /// Base Thing functionality
-    pub thing: Thing,
+    // All pose mutation runs through Object operations; readers receive an immutable view.
+    thing: Thing,
 
     /// Unique identifier
     pub id: ObjectId,
@@ -1149,8 +1150,6 @@ pub struct Object {
     /// Template name for identification
     pub template_name: String,
 
-    /// Current position (shadow of thing.position for compatibility)
-    pub position: Vec3,
 
     /// Maximum health
     pub max_health: f32,
@@ -3235,7 +3234,8 @@ pub use entity_lifecycle_envelope::{
 pub use entity_lifecycle_tags::INVENTORY_TAGS;
 
 pub use barrels::WeaponBarrelState;
-pub use damage::{prime_live_damage_context, set_pending_damage_status_type};
+mod damage_context;
+pub(in crate::game_logic) use damage_context::DamageHitContext;
 pub use status_bits::{
     drain_mask_deselects, leftover_object_is_hero, leftover_object_is_kind_of_hero,
     leftover_object_script_targetable,

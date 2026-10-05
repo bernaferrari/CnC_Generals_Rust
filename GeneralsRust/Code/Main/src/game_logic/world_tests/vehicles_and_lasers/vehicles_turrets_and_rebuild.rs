@@ -2301,7 +2301,7 @@ fn rebuild_hole_transfers_attackers_and_cancel_skips_refund() {
         if o.status.reconstructing {
             0
         } else {
-            o.thing.template.build_cost.supplies
+            o.thing().template.build_cost.supplies
         }
     };
     assert_eq!(refund, 0);
@@ -2528,16 +2528,16 @@ fn rebuild_hole_copies_dying_building_geometry() {
     if let Some(o) = logic.host_object_mut(sid) {
         o.set_status_under_construction(false);
         o.construction_percent = 1.0;
-        o.thing.geometry.bounds_min = glam::Vec3::new(-40.0, 0.0, -35.0);
-        o.thing.geometry.bounds_max = glam::Vec3::new(40.0, 55.0, 35.0);
-        o.thing.geometry.radius = 53.0;
+        o.set_geometry_bounds_min(glam::Vec3::new(-40.0, 0.0, -35.0));
+        o.set_geometry_bounds_max(glam::Vec3::new(40.0, 55.0, 35.0));
+        o.set_geometry_radius(53.0);
         o.selection_radius = 48.0;
     }
     let hole = logic.maybe_spawn_rebuild_hole(sid).expect("hole");
     let h = logic.host_object(hole).expect("hole obj");
-    assert!((h.thing.geometry.bounds_min.x + 40.0).abs() < 0.01);
-    assert!((h.thing.geometry.bounds_max.y - 55.0).abs() < 0.01);
-    assert!((h.thing.geometry.radius - 53.0).abs() < 0.01);
+    assert!((h.thing().geometry.bounds_min.x + 40.0).abs() < 0.01);
+    assert!((h.thing().geometry.bounds_max.y - 55.0).abs() < 0.01);
+    assert!((h.thing().geometry.radius - 53.0).abs() < 0.01);
     assert!((h.selection_radius - 48.0).abs() < 0.01);
 }
 

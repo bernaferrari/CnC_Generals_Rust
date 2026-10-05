@@ -131,7 +131,7 @@ impl GameLogic {
                             let away = attacker.get_position() - loc;
                             let len = away.length().max(0.01);
                             let src_r = attacker
-                                .thing
+                                .thing()
                                 .template
                                 .geometry_info
                                 .bounding_circle_radius();
@@ -180,7 +180,7 @@ impl GameLogic {
                         .unwrap_or(25.0);
                     if let Some(target_loc) = attacker.target_location {
                         let wname = attacker.weapon_name_for_slot(slot).or(attacker
-                            .thing
+                            .thing()
                             .template
                             .primary_weapon_name
                             .as_deref());
@@ -272,8 +272,8 @@ impl GameLogic {
                                 .unwrap_or_default(),
                             exhaust_name: crate::game_logic::weapon_bootstrap::host_projectile_exhaust_for_unit_slot_at_veterancy(
                                 attacker.template_name.as_str(),
-                                attacker.thing.template.primary_weapon_name.as_deref(),
-                                attacker.thing.template.secondary_weapon_name.as_deref(),
+                                attacker.thing().template.primary_weapon_name.as_deref(),
+                                attacker.thing().template.secondary_weapon_name.as_deref(),
                                 0,
                                 attacker.experience.level,
                             ),
@@ -418,11 +418,11 @@ impl GameLogic {
             // (C++ Player::addSkillPointsForKill / victim SkillPointValue).
             self.mark_object_for_destruction(target_id, Some(attacker_team));
             let wname = self.objects.get(&attacker_id).and_then(|a| {
-                a.thing
+                a.thing()
                     .template
                     .primary_weapon_name
                     .clone()
-                    .or_else(|| a.thing.template.secondary_weapon_name.clone())
+                    .or_else(|| a.thing().template.secondary_weapon_name.clone())
             });
             self.continue_or_stop_after_kill(
                 attacker_id,

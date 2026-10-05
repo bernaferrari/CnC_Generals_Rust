@@ -2166,7 +2166,11 @@ impl GameLogic {
             } else {
                 raw
             };
-            let vic_r = victim.thing.template.geometry_info.bounding_circle_radius();
+            let vic_r = victim
+                .thing()
+                .template
+                .geometry_info
+                .bounding_circle_radius();
             let (min_range, max_range, src_r, is_contact) = self
                 .objects
                 .get(&unit_id)
@@ -2190,7 +2194,7 @@ impl GameLogic {
                     (
                         min_r,
                         max_r,
-                        u.thing.template.geometry_info.bounding_circle_radius(),
+                        u.thing().template.geometry_info.bounding_circle_radius(),
                         contact,
                     )
                 })
@@ -2450,7 +2454,7 @@ impl GameLogic {
         let surfaces = if obj.locomotor_surfaces != 0 {
             obj.locomotor_surfaces
         } else {
-            Object::default_locomotor_surfaces_for_template(&obj.thing.template)
+            Object::default_locomotor_surfaces_for_template(&obj.thing().template)
         };
         let is_crusher = obj.crusher_level > 0;
         let unit_radius = obj.selection_radius;
@@ -2467,13 +2471,8 @@ impl GameLogic {
             && self
                 .pathfinding_system
                 .leftover_should_use_direct_path_for_line_passable_non_final_goal(
-                    is_final,
-                    start,
-                    dest,
-                    loco,
-                    None,
-                )
-        {
+                    is_final, start, dest, loco, None,
+                ) {
             crate::game_logic::pathfinding::PathfindingSystem::leftover_compute_quick_path_nodes(
                 start, dest,
             )
@@ -2482,46 +2481,46 @@ impl GameLogic {
             self.pathfinding_system
                 .set_adjust_goal(is_final && adjusts && !projectile);
             let found = match self.pathfinding_system.find_path_ex_surfaces(
-            start,
-            dest,
-            &self.objects,
-            is_aircraft,
-            loco,
-            is_crusher,
-            Some(id),
-        ) {
-            Some(w) => w,
-            None => {
-                // C++ AIUpdateInterface::doPathfind: adjustToPossibleDestination
-                // then computePath (AIUpdate.cpp:434-438).
-                if !self.pathfinding_system.adjust_to_possible_destination(
-                    start,
-                    &mut dest,
-                    loco,
-                    is_crusher,
-                    unit_radius,
-                ) {
-                    self.pathfinding_system.set_adjust_goal(saved_adjust);
-                    return false;
+                start,
+                dest,
+                &self.objects,
+                is_aircraft,
+                loco,
+                is_crusher,
+                Some(id),
+            ) {
+                Some(w) => w,
+                None => {
+                    // C++ AIUpdateInterface::doPathfind: adjustToPossibleDestination
+                    // then computePath (AIUpdate.cpp:434-438).
+                    if !self.pathfinding_system.adjust_to_possible_destination(
+                        start,
+                        &mut dest,
+                        loco,
+                        is_crusher,
+                        unit_radius,
+                    ) {
+                        self.pathfinding_system.set_adjust_goal(saved_adjust);
+                        return false;
+                    }
+                    // C++ doPathfind: computePath after adjustToPossibleDestination
+                    // still goes through validMovementPosition + findPath; when the
+                    // pathfinder refuses (no route), the request fails — it never
+                    // installs a straight-line march.
+                    let Some(w) = self.pathfinding_system.find_path_ex_surfaces(
+                        start,
+                        dest,
+                        &self.objects,
+                        is_aircraft,
+                        loco,
+                        is_crusher,
+                        Some(id),
+                    ) else {
+                        self.pathfinding_system.set_adjust_goal(saved_adjust);
+                        return false;
+                    };
+                    w
                 }
-                // C++ doPathfind: computePath after adjustToPossibleDestination
-                // still goes through validMovementPosition + findPath; when the
-                // pathfinder refuses (no route), the request fails — it never
-                // installs a straight-line march.
-                let Some(w) = self.pathfinding_system.find_path_ex_surfaces(
-                    start,
-                    dest,
-                    &self.objects,
-                    is_aircraft,
-                    loco,
-                    is_crusher,
-                    Some(id),
-                ) else {
-                    self.pathfinding_system.set_adjust_goal(saved_adjust);
-                    return false;
-                };
-                w
-            }
             };
             self.pathfinding_system.set_adjust_goal(saved_adjust);
             found

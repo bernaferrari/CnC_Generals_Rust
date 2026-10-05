@@ -1641,7 +1641,7 @@ fn battle_bus_undead_body_first_life_converts_to_second_life() {
         let bus = game_logic.host_object_mut(bus_id).unwrap();
         bus.health.maximum = 400.0;
         bus.health.current = 50.0;
-        bus.thing.template.armor = 0.0;
+        bus.template_mut().armor = 0.0;
     }
     // Lethal explosion should intercept → second life 650 HP full.
     let killed = {
@@ -1695,7 +1695,7 @@ fn battle_bus_undead_damages_passengers_and_empty_hulk_destroys() {
         let bus = game_logic.host_object_mut(bus_id).unwrap();
         bus.health.maximum = 400.0;
         bus.health.current = 40.0;
-        bus.thing.template.armor = 0.0;
+        bus.template_mut().armor = 0.0;
     }
     {
         let r = game_logic.host_object_mut(rider_id).unwrap();
@@ -1760,7 +1760,7 @@ fn battle_bus_unresistable_bypasses_undead_body() {
         let bus = game_logic.host_object_mut(bus_id).unwrap();
         bus.health.maximum = 400.0;
         bus.health.current = 50.0;
-        bus.thing.template.armor = 0.0;
+        bus.template_mut().armor = 0.0;
     }
     let killed = {
         let bus = game_logic.host_object_mut(bus_id).unwrap();
@@ -1793,7 +1793,7 @@ fn highlander_body_clamps_normal_and_penalty_damage_unresistable_kills() {
             o.highlander_body,
             "create_object must install HighlanderBody"
         );
-        o.thing.template.armor = 0.0;
+        o.template_mut().armor = 0.0;
         o.health.maximum = 50.0;
         o.health.current = 50.0;
     }
@@ -1824,7 +1824,7 @@ fn highlander_body_clamps_normal_and_penalty_damage_unresistable_kills() {
     {
         let penalty = game_logic.host_object_mut(penalty_id).unwrap();
         assert!(penalty.highlander_body);
-        penalty.thing.template.armor = 0.0;
+        penalty.template_mut().armor = 0.0;
         penalty.health.maximum = 50.0;
         penalty.health.current = 50.0;
     }

@@ -211,7 +211,7 @@ fn host_unlook_persist_frames() -> u32 {
 }
 
 fn container_blocks_passenger_look(container: &Object) -> bool {
-    let kind = container.thing.template.contain_module.kind;
+    let kind = container.thing().template.contain_module.kind;
     kind != crate::game_logic::ContainModuleKind::None && !container.is_garrison_contain()
 }
 

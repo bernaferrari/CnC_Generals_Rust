@@ -114,7 +114,7 @@ impl GameLogic {
                     inf.experience.level,
                     inf.is_alive()
                         && inf
-                            .thing
+                            .thing()
                             .template
                             .veterancy_crate_collide
                             .as_ref()
@@ -967,7 +967,7 @@ impl GameLogic {
     /// calculation.  The completion paths (normal host tick and coupled
     /// GameWorld writeback) deliberately share this one calculation.
     fn sell_refund_for_object(&self, object: &Object, owner_player_id: Option<u32>) -> u32 {
-        let authored_refund = object.thing.template.refund_value;
+        let authored_refund = object.thing().template.refund_value;
         if authored_refund != 0 {
             return authored_refund as u32;
         }
@@ -977,10 +977,10 @@ impl GameLogic {
                 self.modified_build_cost_supplies(
                     player_id,
                     &object.template_name,
-                    object.thing.template.build_cost.supplies,
+                    object.thing().template.build_cost.supplies,
                 )
             })
-            .unwrap_or(object.thing.template.build_cost.supplies);
+            .unwrap_or(object.thing().template.build_cost.supplies);
         let sell_percentage = game_engine::common::global_data::read().sell_percentage;
         ((build_cost as f32) * sell_percentage).max(0.0) as u32
     }
@@ -1136,7 +1136,7 @@ impl GameLogic {
         };
         let eligible = obj.is_kind_of(KindOf::Worker)
             || obj.is_resource_collector()
-            || obj.thing.template.supply_truck_metadata.is_some()
+            || obj.thing().template.supply_truck_metadata.is_some()
             || obj.template_name.to_ascii_lowercase().contains("worker");
         if !eligible {
             return;
@@ -1879,9 +1879,9 @@ impl GameLogic {
                 o.is_kind_of(KindOf::Structure),
                 o.is_rebuild_hole,
                 o.name.clone(),
-                o.thing.geometry.clone(),
+                o.thing().geometry.clone(),
                 o.selection_radius,
-                o.thing.template.rebuild_hole_expose.clone(),
+                o.thing().template.rebuild_hole_expose.clone(),
             )
         };
         // C++ RebuildHoleBehavior::onDie: hole death destroys the generated worker.
@@ -1974,9 +1974,7 @@ impl GameLogic {
             h.rebuild_spawner_id = Some(destroyed_id);
             // C++ RebuildHoleExposeDie.cpp:126 hole->setGeometryInfo(us->getGeometryInfo()).
             // Preserve the dying pad's collision / selection / pathfind footprint.
-            let hole_pos = h.thing.geometry.position;
-            h.thing.geometry = dying_geometry;
-            h.thing.geometry.position = hole_pos;
+            h.set_geometry_info(dying_geometry);
             h.selection_radius = dying_selection_radius;
             h.rebuild_ready_frame = self
                 .frame

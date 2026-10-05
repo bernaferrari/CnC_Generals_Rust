@@ -211,7 +211,7 @@ impl GameLogic {
         let any_ready = attacker
             .weapon_slot(0)
             .is_some_and(|w| Object::weapon_ready_vs_target(w, current_time, target_has_faerie))
-            || ((secondary_explicit || attacker.thing.template.slot_allows_auto_choose(1))
+            || ((secondary_explicit || attacker.thing().template.slot_allows_auto_choose(1))
                 && attacker.secondary_weapon.as_ref().is_some_and(|w| {
                     Object::weapon_ready_vs_target(w, current_time, target_has_faerie)
                 }))

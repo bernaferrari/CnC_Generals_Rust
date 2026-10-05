@@ -1236,7 +1236,7 @@ mod hq_m6gcj_tests {
             clip_size: 4,
             ..Weapon::default()
         });
-        jet.thing.template.primary_weapon_name = Some("RaptorMissileWeapon".to_string());
+        jet.template_mut().primary_weapon_name = Some("RaptorMissileWeapon".to_string());
         jet.set_ai_state(AIState::AttackMoving);
         jet.is_attack_path = true;
         logic.objects.insert(jet.id, jet);

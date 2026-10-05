@@ -77,7 +77,7 @@ fn garrison_world(
     assert!(logic.objects[&bunker].contained_units().contains(&source));
     assert_eq!(
         logic.objects[&source]
-            .thing
+            .thing()
             .template
             .primary_weapon_name
             .as_deref(),
@@ -91,7 +91,7 @@ fn garrison_world(
     );
     assert_eq!(
         logic.objects[&source]
-            .thing
+            .thing()
             .template
             .geometry_info
             .bounding_circle_radius(),
@@ -106,7 +106,7 @@ fn garrison_world(
         .unwrap();
     assert_eq!(
         logic.objects[&victim]
-            .thing
+            .thing()
             .template
             .geometry_info
             .bounding_circle_radius(),
@@ -204,7 +204,7 @@ fn base_defense_world(
     assert!(logic.objects[&source].is_kind_of(KindOf::FSBaseDefense));
     assert_eq!(
         logic.objects[&source]
-            .thing
+            .thing()
             .template
             .primary_weapon_name
             .as_deref(),

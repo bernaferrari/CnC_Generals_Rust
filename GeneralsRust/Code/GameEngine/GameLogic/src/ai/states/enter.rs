@@ -46,6 +46,7 @@ use crate::damage::DamageInfo;
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
 use crate::locomotor::LocomotorAppearance;
 use crate::modules::{
+    ExitInterface,
     AIUpdateInterface, AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt,
     ContainWant, ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
 };
@@ -475,17 +476,14 @@ impl ClassicState for AIExitState {
             }
         }
 
-        let exit_interface = goal_guard.get_contain_exit_interface().ok_or_else(|| {
-            "exit state missing contain exit interface".to_string()
-        })?;
+        let mut exit_interface = goal_guard
+            .get_contain_exit_interface()
+            .ok_or_else(|| "exit state missing contain exit interface".to_string())?;
         let exit_door = {
-            let mut exit_guard = exit_interface
-                .lock()
-                .map_err(|_| "exit state exit interface lock poisoned".to_string())?;
-            if exit_guard.is_exit_busy() {
+            if exit_interface.is_exit_busy() {
                 return Ok(StateReturnType::Continue);
             }
-            exit_guard.reserve_door_for_exit(Some(&*owner_guard), Some(&*owner_guard))
+            exit_interface.reserve_door_for_exit(Some(&*owner_guard), Some(&*owner_guard))
         };
         if exit_door == ExitDoorType::NoneAvailable {
             return Ok(StateReturnType::Failure);
@@ -493,8 +491,6 @@ impl ClassicState for AIExitState {
         drop(owner_guard);
         drop(goal_guard);
         exit_interface
-            .lock()
-            .map_err(|_| "exit state exit interface lock poisoned".to_string())?
             .exit_object_via_door(owner_id, exit_door)
             .map_err(|err| format!("exit state exit_object_via_door failed: {}", err))?;
 
@@ -618,22 +614,18 @@ impl ClassicState for AIExitInstantlyState {
             .read()
             .map_err(|_| "exit instantly goal lock poisoned".to_string())?;
 
-
-
         let owner_id = owner_guard.get_id();
         let Some(contain) = goal_guard.get_contain() else {
             return Ok(StateReturnType::Failure);
         };
         contain.on_object_wants_to_enter_or_exit(&*owner_guard, ContainWant::WantsToExit);
         self.entry_to_clear = goal_id;
-        let exit_interface = goal_guard
+        let mut exit_interface = goal_guard
             .get_contain_exit_interface()
             .ok_or_else(|| "exit instantly missing contain exit interface".to_string())?;
         drop(owner_guard);
         drop(goal_guard);
         exit_interface
-            .lock()
-            .map_err(|_| "exit instantly exit interface lock poisoned".to_string())?
             .exit_object_via_door(owner_id, ExitDoorType::Door1)
             .map_err(|err| format!("exit instantly exit_object_via_door failed: {}", err))?;
 

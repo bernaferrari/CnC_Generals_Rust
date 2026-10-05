@@ -92,11 +92,11 @@ fn special_ability_attach_bone_world(caster: &Object, bone_name: &str) -> glam::
     if bone_name.is_empty() {
         return origin;
     }
-    let model = caster.thing.template.get_model_name();
+    let model = caster.thing().template.get_model_name();
     if model.is_empty() {
         return origin;
     }
-    let scale = caster.thing.template.asset_scale;
+    let scale = caster.thing().template.asset_scale;
     let yaw = caster.get_orientation();
     let Some(local) =
         gamelogic::object::draw::lookup_pristine_bone_translation(model, scale, bone_name)
@@ -295,9 +295,9 @@ impl GameLogic {
         ) {
             let meta = self.objects.get(&object_id).and_then(|object| {
                 if matches!(kind, LeftoverSaKind::PlantTimed) {
-                    object.thing.template.charge_plant_ability_for_timed()
+                    object.thing().template.charge_plant_ability_for_timed()
                 } else {
-                    object.thing.template.charge_plant_ability_for_remote()
+                    object.thing().template.charge_plant_ability_for_remote()
                 }
             });
             if let Some(meta) = meta {
@@ -485,7 +485,7 @@ impl GameLogic {
         let authored = self
             .objects
             .get(&object_id)
-            .and_then(|object| object.thing.template.leftover_sa_trigger_sound.clone())
+            .and_then(|object| object.thing().template.leftover_sa_trigger_sound.clone())
             .filter(|name| !name.is_empty());
         let name = authored.or_else(|| {
             crate::game_logic::host_hero_abilities::leftover_sa_trigger_sound(kind)
@@ -570,9 +570,9 @@ impl GameLogic {
     ) {
         let authored = self.objects.get(&object_id).and_then(|object| {
             if packing {
-                object.thing.template.capture_pack_sound.clone()
+                object.thing().template.capture_pack_sound.clone()
             } else {
-                object.thing.template.capture_unpack_sound.clone()
+                object.thing().template.capture_unpack_sound.clone()
             }
         });
         let name = authored.or_else(|| {
@@ -606,7 +606,7 @@ impl GameLogic {
         let authored = self
             .objects
             .get(&object_id)
-            .and_then(|object| object.thing.template.capture_trigger_sound.clone())
+            .and_then(|object| object.thing().template.capture_trigger_sound.clone())
             .filter(|name| !name.is_empty());
         let name = authored.or_else(|| {
             if matches!(power, crate::game_logic::CapturePowerKind::BlackLotus) {
@@ -631,7 +631,7 @@ impl GameLogic {
         let Some(template_name) = self
             .objects
             .get(&object_id)
-            .map(|object| object.thing.template.name.clone())
+            .map(|object| object.thing().template.name.clone())
         else {
             return;
         };
@@ -743,7 +743,7 @@ impl GameLogic {
                 .iter()
                 .find(|power| {
                     object
-                        .thing
+                        .thing()
                         .template
                         .special_power_module_for_command(power)
                         .is_some()
@@ -792,7 +792,7 @@ impl GameLogic {
                     .iter()
                     .find(|power| {
                         object
-                            .thing
+                            .thing()
                             .template
                             .special_power_module_for_command(power)
                             .is_some()
@@ -930,7 +930,7 @@ impl GameLogic {
             ]
             .into_iter()
             .find(|p| {
-                o.thing
+                o.thing()
                     .template
                     .special_power_module_for_command(p)
                     .is_some()
@@ -1146,7 +1146,7 @@ impl GameLogic {
     ) -> Option<(glam::Vec3, glam::Vec3)> {
         let caster = self.objects.get(&caster_id)?;
         let target = self.objects.get(&target_id)?;
-        let geom = &target.thing.template.geometry_info;
+        let geom = &target.thing().template.geometry_info;
         let start = special_ability_attach_bone_world(caster, attach_bone);
         Some(
             crate::game_logic::host_weapon_laser::special_ability_laser_endpoints(
@@ -1257,7 +1257,7 @@ impl GameLogic {
     ) -> bool {
         let (is_structure, footprint, pos, yaw, geom) = match self.objects.get(&target_id) {
             Some(target) => {
-                let geom = target.thing.template.geometry_info;
+                let geom = target.thing().template.geometry_info;
                 let area =
                     crate::game_logic::host_hero_abilities::leftover_disable_fx_footprint_area(
                         geom.authored,
@@ -2203,7 +2203,7 @@ impl GameLogic {
             container.rider_change_scuttled_on_frame = self.frame.max(1);
             container.set_status_unselectable(true);
             container.model_condition_bits |= container
-                .thing
+                .thing()
                 .template
                 .contain_module
                 .rider_change_scuttle_status_mask;
@@ -2475,7 +2475,7 @@ impl GameLogic {
         let pack_time_ms = self
             .objects
             .get(&object_id)
-            .and_then(|object| object.thing.template.hacker_disable_building.as_ref())
+            .and_then(|object| object.thing().template.hacker_disable_building.as_ref())
             .map(|meta| {
                 crate::game_logic::vary_pack_unpack_duration_ms(
                     pack_time_ms,
@@ -2764,7 +2764,7 @@ impl GameLogic {
 
         let Some((metadata, channel)) = self.objects.get(&object_id).and_then(|object| {
             object
-                .thing
+                .thing()
                 .template
                 .hacker_disable_building
                 .clone()

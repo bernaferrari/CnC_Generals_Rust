@@ -100,7 +100,7 @@ impl GameLogic {
     pub fn live_drawable_model_names(&self) -> Vec<String> {
         let mut names = std::collections::BTreeSet::new();
         for obj in self.objects.values() {
-            let Some(name) = obj.thing.template.model_name.as_deref() else {
+            let Some(name) = obj.thing().template.model_name.as_deref() else {
                 continue;
             };
             let trimmed = name.trim();
@@ -216,3 +216,6 @@ mod accepted_projectile_owner_tests;
 
 #[cfg(test)]
 mod radius_decal_clock_owner_tests;
+
+#[cfg(test)]
+mod pose_owner_tests;

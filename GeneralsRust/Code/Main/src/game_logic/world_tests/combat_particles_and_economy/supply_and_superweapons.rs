@@ -121,7 +121,7 @@ fn supply_center_one_shot_collector_uses_exit_interface() {
 
     let (producer_pos, forward) = {
         let center = logic.host_object(center_id).expect("center");
-        (center.get_position(), center.thing.get_direction_vector())
+        (center.get_position(), center.thing().get_direction_vector())
     };
     let expected_door =
         crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
@@ -138,7 +138,7 @@ fn supply_center_one_shot_collector_uses_exit_interface() {
     let exit = logic
         .host_object(center_id)
         .expect("center meta")
-        .thing
+        .thing()
         .template
         .production_exit_metadata
         .expect("supply exit");
@@ -1414,7 +1414,7 @@ fn anthrax_bomb_host_path_queues_damage_after_delay_and_toxin() {
         // Blast = 200; keep HP so we can also observe toxin if still alive.
         enemy.health.current = 100.0;
         enemy.health.maximum = 100.0;
-        enemy.thing.template.armor = 0.0;
+        enemy.template_mut().armor = 0.0;
     }
     {
         let v = game_logic
@@ -1422,13 +1422,13 @@ fn anthrax_bomb_host_path_queues_damage_after_delay_and_toxin() {
             .expect("tox victim");
         v.health.current = 500.0;
         v.health.maximum = 500.0;
-        v.thing.template.armor = 0.0;
+        v.template_mut().armor = 0.0;
     }
     {
         let far = game_logic.host_object_mut(far_id).expect("far");
         far.health.current = 500.0;
         far.health.maximum = 500.0;
-        far.thing.template.armor = 0.0;
+        far.template_mut().armor = 0.0;
     }
     {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
@@ -2665,7 +2665,7 @@ fn firewall_special_power_applies_line_fire_damage() {
         caster
             .special_power_cooldowns
             .remove(&SpecialPowerType::FireWall);
-        caster.thing.template.armor = 0.0;
+        caster.template_mut().armor = 0.0;
     }
 
     // Place enemy on the residual wall line (first segment ~START_OFFSET along +X).
@@ -2676,7 +2676,7 @@ fn firewall_special_power_applies_line_fire_damage() {
         let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
         enemy.health.current = 100.0;
         enemy.health.maximum = 100.0;
-        enemy.thing.template.armor = 0.0;
+        enemy.template_mut().armor = 0.0;
     }
 
     // Far enemy must not take residual fire damage.
@@ -2687,7 +2687,7 @@ fn firewall_special_power_applies_line_fire_damage() {
         let far = game_logic.host_object_mut(far_id).expect("far");
         far.health.current = 100.0;
         far.health.maximum = 100.0;
-        far.thing.template.armor = 0.0;
+        far.template_mut().armor = 0.0;
     }
 
     game_logic.queue_command(GameCommand {
@@ -2844,7 +2844,7 @@ fn inferno_cannon_attack_spawns_fire_zone_damaging_enemies() {
         let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
         enemy.health.current = 200.0;
         enemy.health.maximum = 200.0;
-        enemy.thing.template.armor = 0.0;
+        enemy.template_mut().armor = 0.0;
     }
     let far_id = game_logic
         .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 500.0))
@@ -2853,7 +2853,7 @@ fn inferno_cannon_attack_spawns_fire_zone_damaging_enemies() {
         let far = game_logic.host_object_mut(far_id).expect("far");
         far.health.current = 200.0;
         far.health.maximum = 200.0;
-        far.thing.template.armor = 0.0;
+        far.template_mut().armor = 0.0;
     }
 
     // Ready weapon + attack enemy in range.
@@ -2866,7 +2866,7 @@ fn inferno_cannon_attack_spawns_fire_zone_damaging_enemies() {
             // Fail-closed residual min range 0 for host tests.
             w.min_range = 0.0;
         }
-        c.thing.template.armor = 0.0;
+        c.template_mut().armor = 0.0;
     }
 
     let enemy_hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
@@ -3142,7 +3142,7 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
         let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
         enemy.health.current = 5_000.0;
         enemy.health.maximum = 5_000.0;
-        enemy.thing.template.armor = 0.0;
+        enemy.template_mut().armor = 0.0;
     }
     let far_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(500.0, 0.0, 0.0))
@@ -3151,7 +3151,7 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
         let far = game_logic.host_object_mut(far_id).expect("far");
         far.health.current = 5_000.0;
         far.health.maximum = 5_000.0;
-        far.thing.template.armor = 0.0;
+        far.template_mut().armor = 0.0;
     }
     // Ally must not take residual friendly fire (fail-closed residual).
     let ally_id = game_logic
@@ -3161,7 +3161,7 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
         let ally = game_logic.host_object_mut(ally_id).expect("ally");
         ally.health.current = 5_000.0;
         ally.health.maximum = 5_000.0;
-        ally.thing.template.armor = 0.0;
+        ally.template_mut().armor = 0.0;
     }
 
     let enemy_hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
@@ -3296,7 +3296,7 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
             .expect("armed enemy");
         e.health.current = 500.0;
         e.health.maximum = 500.0;
-        e.thing.template.armor = 0.0;
+        e.template_mut().armor = 0.0;
     }
     let hp_pre_armed = game_logic
         .host_object(armed_enemy_id)
@@ -3399,7 +3399,7 @@ fn aurora_bomb_host_path_queues_and_applies_delayed_area_damage() {
         let obj = game_logic.host_object_mut(id).expect("obj");
         obj.health.current = 500.0;
         obj.health.maximum = 500.0;
-        obj.thing.template.armor = 0.0;
+        obj.template_mut().armor = 0.0;
     }
 
     {
@@ -3530,7 +3530,7 @@ fn aurora_bomb_host_path_queues_and_applies_delayed_area_damage() {
         let e = game_logic.host_object_mut(fuel_enemy).expect("e");
         e.health.current = 1500.0;
         e.health.maximum = 1500.0;
-        e.thing.template.armor = 0.0;
+        e.template_mut().armor = 0.0;
     }
     {
         let a = game_logic.host_object_mut(fuel_id).expect("fuel");

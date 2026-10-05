@@ -116,10 +116,9 @@ impl SnapshotBuilder {
         // Geometry / transform
         object.set_position(snapshot.geometry.position);
         object.set_orientation(snapshot.geometry.rotation);
-        object.thing.geometry.bounds_min = snapshot.geometry.bounds_min;
-        object.thing.geometry.bounds_max = snapshot.geometry.bounds_max;
-        object.thing.geometry.radius = snapshot.geometry.radius;
-        object.position = snapshot.geometry.position;
+        object.set_geometry_bounds_min(snapshot.geometry.bounds_min);
+        object.set_geometry_bounds_max(snapshot.geometry.bounds_max);
+        object.set_geometry_radius(snapshot.geometry.radius);
         // C++ Object ctor instantiates ChinookAIUpdate / TransportContain
         // before those modules xfer. Spawn-only install must run after pose
         // so default AI original_pos matches the saved hull, and before
@@ -152,7 +151,7 @@ impl SnapshotBuilder {
         // missing legacy tail must not manufacture runtime state from a
         // template name; it remains an explicitly inactive bundle.
         if let Some(runtime) = &snapshot.temporary_weapon_runtime {
-            if !runtime.matches_thing_template(&object.thing.template) {
+            if !runtime.matches_thing_template(&object.thing().template) {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Temporary Weapon runtime source mismatch for object {}",
                     snapshot.id
@@ -255,7 +254,7 @@ impl SnapshotBuilder {
         // ID order, so validating a target here would incorrectly erase a
         // valid channel whose target happens to be restored later.
         if let Some(channel) = object.hacker_disable_channel {
-            if object.thing.template.hacker_disable_building.is_some() && object.is_alive() {
+            if object.thing().template.hacker_disable_building.is_some() && object.is_alive() {
                 object.set_ai_state(AIState::SpecialAbility);
                 object.set_order_target(Some(channel.target_id));
             } else {
@@ -480,7 +479,7 @@ impl SnapshotBuilder {
                         if object.stealth_delay_frames == 0 {
                             object.stealth_delay_frames = crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_STEALTH_DELAY_FRAMES;
                         }
-                        object.thing.template.add_kind_of(KindOf::Attackable);
+                        object.template_mut().add_kind_of(KindOf::Attackable);
                         object.record_host_detector();
                         object.record_host_contain_capacity();
                         object.record_host_stealth_flags();
@@ -585,7 +584,7 @@ impl SnapshotBuilder {
         if let Some(channel) = snapshot.hacker_disable_channel {
             let source_live = game_logic.host_object(snapshot.id).is_some_and(|source| {
                 source.hacker_disable_channel == Some(channel)
-                    && source.thing.template.hacker_disable_building.is_some()
+                    && source.thing().template.hacker_disable_building.is_some()
                     && source.is_alive()
             });
             let target_live = game_logic
@@ -880,7 +879,6 @@ impl SnapshotBuilder {
                     continue;
                 };
                 resource_obj.set_position(depot.position);
-                resource_obj.position = depot.position;
                 resource_obj.set_stored_supplies(depot.amount);
                 if resource_obj.object_type != ObjectType::Supply
                     && (resource_obj.is_kind_of(KindOf::Resource)

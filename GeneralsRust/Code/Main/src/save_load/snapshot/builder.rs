@@ -81,10 +81,10 @@ impl SnapshotBuilder {
             player_id,
             geometry: GeometryInfo {
                 position: object.get_position(),
-                rotation: object.thing.geometry.rotation,
-                bounds_min: object.thing.geometry.bounds_min,
-                bounds_max: object.thing.geometry.bounds_max,
-                radius: object.thing.geometry.radius,
+                rotation: object.thing().geometry.rotation,
+                bounds_min: object.thing().geometry.bounds_min,
+                bounds_max: object.thing().geometry.bounds_max,
+                radius: object.thing().geometry.radius,
             },
             status,
             // C++ Object::xfer uses getBodyModule()->getHealth() (the live

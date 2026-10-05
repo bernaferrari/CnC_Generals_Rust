@@ -420,7 +420,7 @@ impl GameLogic {
             o.producer_id = Some(producer);
             o.emp_pulse_spheroid_expires_frame =
                 Some(self.frame.saturating_add(EMP_SPHEROID_LIFETIME_FRAMES));
-            o.thing.geometry.radius = EMP_SPHEROID_GEOMETRY_RADIUS * EMP_SPHEROID_START_SCALE;
+            o.set_geometry_radius(EMP_SPHEROID_GEOMETRY_RADIUS * EMP_SPHEROID_START_SCALE);
             o.visual_draw_state_revision = o.visual_draw_state_revision.wrapping_add(1);
         }
         self.emp_pulses.record_spheroid_spawn();
@@ -460,7 +460,7 @@ impl GameLogic {
             o.producer_id = Some(producer);
             o.emp_pulse_spheroid_expires_frame =
                 Some(self.frame.saturating_add(EMP_SPHEROID_LIFETIME_FRAMES));
-            o.thing.geometry.radius = EMP_SPHEROID_GEOMETRY_RADIUS * EMP_SPHEROID_START_SCALE;
+            o.set_geometry_radius(EMP_SPHEROID_GEOMETRY_RADIUS * EMP_SPHEROID_START_SCALE);
             o.visual_draw_state_revision = o.visual_draw_state_revision.wrapping_add(1);
         }
         self.supw_patriot_emp_spheroids_spawned =
@@ -476,9 +476,9 @@ impl GameLogic {
     ) {
         use crate::game_logic::combat_particles::CombatParticleKind;
         use crate::game_logic::host_emp_pulse::{
-            leftover_emp_spark_dome_clamp, leftover_emp_spark_emitter_count,
-            leftover_emp_spark_initial_delay, leftover_emp_spark_lifetime, leftover_emp_spark_z,
-            EMP_SPHEROID_DISABLE_FX,
+            EMP_SPHEROID_DISABLE_FX, leftover_emp_spark_dome_clamp,
+            leftover_emp_spark_emitter_count, leftover_emp_spark_initial_delay,
+            leftover_emp_spark_lifetime, leftover_emp_spark_z,
         };
         use crate::game_logic::host_hero_abilities::leftover_disable_fx_footprint_area;
 
@@ -487,7 +487,7 @@ impl GameLogic {
         };
         let pos = victim.get_position();
         let yaw = victim.get_orientation();
-        let geom = victim.thing.template.geometry_info;
+        let geom = victim.thing().template.geometry_info;
         let height = if geom.height > 0.0 {
             geom.height
         } else {

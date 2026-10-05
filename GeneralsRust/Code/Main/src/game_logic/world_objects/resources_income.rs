@@ -663,7 +663,7 @@ impl GameLogic {
                     self.objects.get(&occ_id).map(|occ| {
                         (
                             occ.is_kind_of(KindOf::MoneyHacker),
-                            occ.thing.template.hack_internet_ai_update,
+                            occ.thing().template.hack_internet_ai_update,
                             occ.is_alive(),
                             occ.team == Team::Neutral,
                             occ.status.disabled_hacked,
@@ -706,9 +706,9 @@ impl GameLogic {
                 if !obj.is_alive() {
                     return None;
                 }
-                let is_ic = obj.thing.template.contain_module.kind
+                let is_ic = obj.thing().template.contain_module.kind
                     == crate::game_logic::ContainModuleKind::InternetHack
-                    && obj.thing.template.contain_module.admission
+                    && obj.thing().template.contain_module.admission
                         == crate::game_logic::ContainAdmission::MoneyHackerOnly
                     && obj.is_constructed()
                     && !obj.status.under_construction
@@ -746,7 +746,7 @@ impl GameLogic {
             .objects
             .iter()
             .filter_map(|(id, obj)| {
-                let metadata = obj.thing.template.hack_internet_ai_update?;
+                let metadata = obj.thing().template.hack_internet_ai_update?;
                 let container = obj.container_id();
                 // `InternetHackContain::onContaining` is an exact normal
                 // Enter relationship: the source must still be an actual
@@ -769,7 +769,7 @@ impl GameLogic {
                                 c.status.detected,
                                 c.team,
                                 c.owner_player_id,
-                                c.thing.geometry.radius,
+                                c.thing().geometry.radius,
                                 c.status.disabled_subdued,
                             )
                         })
@@ -941,7 +941,7 @@ impl GameLogic {
         let Some(obj) = self.objects.get(&hacker_id) else {
             return false;
         };
-        let Some(metadata) = obj.thing.template.hack_internet_ai_update else {
+        let Some(metadata) = obj.thing().template.hack_internet_ai_update else {
             return false;
         };
         if !is_legal_hacker_income_source(

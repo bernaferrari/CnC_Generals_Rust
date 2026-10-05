@@ -198,8 +198,8 @@ impl GameLogic {
                 return false;
             }
             (
-                obj.thing.template.railed_path_prefix_name.clone(),
-                obj.thing.template.dock_kind,
+                obj.thing().template.railed_path_prefix_name.clone(),
+                obj.thing().template.dock_kind,
                 obj.dock_active_docker.is_some(),
                 obj.railed_waypoint_data_loaded,
                 obj.railed_current_path,
@@ -244,10 +244,10 @@ impl GameLogic {
                 if !obj.is_alive() {
                     return None;
                 }
-                if obj.thing.template.railed_path_prefix_name.is_empty() {
+                if obj.thing().template.railed_path_prefix_name.is_empty() {
                     return None;
                 }
-                if obj.thing.template.dock_kind != DockKind::RailedTransport {
+                if obj.thing().template.dock_kind != DockKind::RailedTransport {
                     return None;
                 }
                 Some(*id)
@@ -261,7 +261,7 @@ impl GameLogic {
                 };
                 obj.set_ultra_accurate(true);
                 (
-                    obj.thing.template.railed_path_prefix_name.clone(),
+                    obj.thing().template.railed_path_prefix_name.clone(),
                     obj.railed_waypoint_data_loaded,
                     obj.railed_paths.clone(),
                     obj.railed_current_path,

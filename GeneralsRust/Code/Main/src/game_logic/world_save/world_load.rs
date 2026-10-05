@@ -768,7 +768,7 @@ pub(in super::super) fn landmark_bridge_half_sizes(
             }
         }
     }
-    let geom = &obj.thing.template.geometry_info;
+    let geom = &obj.thing().template.geometry_info;
     if geom.authored && geom.major_radius > 0.0 && geom.minor_radius > 0.0 {
         return (geom.major_radius, geom.minor_radius);
     }

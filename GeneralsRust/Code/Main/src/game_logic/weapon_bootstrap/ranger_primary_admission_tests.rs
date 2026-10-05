@@ -59,9 +59,9 @@ fn ranger_primary_admission_authored_none_stays_unarmed() {
             );
             let (world, id) = ordinary_create(template);
             let object = world.host_object(id).unwrap();
-            assert!(object.thing.template.primary_weapon_explicitly_none);
-            assert!(object.thing.template.primary_weapon_name.is_none());
-            assert!(object.thing.template.primary_weapon.is_none());
+            assert!(object.thing().template.primary_weapon_explicitly_none);
+            assert!(object.thing().template.primary_weapon_name.is_none());
+            assert!(object.thing().template.primary_weapon.is_none());
             assert!(object.secondary_weapon.is_none());
             assert!(object.tertiary_weapon.is_none());
             assert!(
@@ -104,9 +104,9 @@ fn ranger_primary_admission_named_auto_choose_none_keeps_real_weapon() {
             assert_eq!(resolved.range, 123.0);
             let (world, id) = ordinary_create(template);
             let object = world.host_object(id).unwrap();
-            assert!(object.thing.template.primary_auto_choose_none);
+            assert!(object.thing().template.primary_auto_choose_none);
             assert_eq!(
-                object.thing.template.primary_weapon_name.as_deref(),
+                object.thing().template.primary_weapon_name.as_deref(),
                 Some(RULE)
             );
             let weapon = object

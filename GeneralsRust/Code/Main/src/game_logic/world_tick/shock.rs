@@ -705,7 +705,7 @@ impl GameLogic {
         let orientation = attacker.get_orientation();
         let above = attacker.is_above_terrain();
         let src_r = attacker
-            .thing
+            .thing()
             .template
             .geometry_info
             .bounding_circle_radius();
@@ -714,7 +714,7 @@ impl GameLogic {
         let center = (dx * dx + dz * dz).sqrt();
         let tgt_r = target_id
             .and_then(|id| self.objects.get(&id))
-            .map(|o| o.thing.template.geometry_info.bounding_circle_radius())
+            .map(|o| o.thing().template.geometry_info.bounding_circle_radius())
             .unwrap_or(0.0);
         // C++ getVectorTo FROM_BOUNDINGSPHERE_2D.
         let dist = (center - src_r - tgt_r).max(0.0);
@@ -814,13 +814,13 @@ impl GameLogic {
             .unwrap_or(weapon_range);
         let src = attacker.get_position();
         let src_r = attacker
-            .thing
+            .thing()
             .template
             .geometry_info
             .bounding_circle_radius();
         let tgt_r = target_id
             .and_then(|id| self.objects.get(&id))
-            .map(|o| o.thing.template.geometry_info.bounding_circle_radius())
+            .map(|o| o.thing().template.geometry_info.bounding_circle_radius())
             .unwrap_or(0.0);
         let dx = target_pos.x - src.x;
         let dz = target_pos.z - src.z;
@@ -861,7 +861,7 @@ impl GameLogic {
         if !PathfindingGrid::is_aircraft_that_adjusts_destination(obj) {
             return dest;
         }
-        let src_r = obj.thing.template.geometry_info.bounding_circle_radius();
+        let src_r = obj.thing().template.geometry_info.bounding_circle_radius();
         let unit_radius = obj.selection_radius.max(src_r);
         let tgt_r = self
             .objects
@@ -873,7 +873,7 @@ impl GameLogic {
                 let dz = p.z - target_pos.z;
                 dx * dx + dz * dz < 1.0
             })
-            .map(|o| o.thing.template.geometry_info.bounding_circle_radius())
+            .map(|o| o.thing().template.geometry_info.bounding_circle_radius())
             .unwrap_or(0.0);
         let min_range = self
             .objects

@@ -697,6 +697,14 @@ impl Object {
     }
 
     pub fn heal(&mut self, amount: f32) {
+        self.heal_with_source(amount, None);
+    }
+
+    pub(super) fn heal_with_source(
+        &mut self,
+        amount: f32,
+        source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
+    ) {
         if self.status.destroyed {
             return;
         }
@@ -711,9 +719,7 @@ impl Object {
         };
         let projected = (before + amount).min(cap);
         if projected <= before {
-            if projected == before
-                && !crate::gameworld_shadow::gameworld_damage_authority_live()
-            {
+            if projected == before && !crate::gameworld_shadow::gameworld_damage_authority_live() {
                 self.previous_health = before;
             }
             return;
@@ -730,7 +736,7 @@ impl Object {
             self.previous_health = before;
             self.health.current = projected;
             crate::game_logic::host_heal_log::record(self.id, self.health.current);
-            self.refresh_model_condition_bits();
+            self.refresh_model_condition_bits_with_source(source);
         }
     }
 }

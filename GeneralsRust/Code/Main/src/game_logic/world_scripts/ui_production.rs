@@ -115,8 +115,10 @@ impl GameLogic {
                 )
             {
                 // Normalize position to 0.0-1.0 range based on world dimensions
-                let normalized_x = ((obj.position.x - world_min.x) / world_span_x).clamp(0.0, 1.0);
-                let normalized_y = ((obj.position.z - world_min.z) / world_span_z).clamp(0.0, 1.0);
+                let normalized_x =
+                    ((obj.get_position().x - world_min.x) / world_span_x).clamp(0.0, 1.0);
+                let normalized_y =
+                    ((obj.get_position().z - world_min.z) / world_span_z).clamp(0.0, 1.0);
 
                 let color = match obj.team {
                     Team::USA => color_for_player(1),
@@ -535,9 +537,9 @@ impl GameLogic {
 
     /// Structure placement radius residual for LBC_OBJECTS_IN_THE_WAY.
     pub(in super::super) fn structure_place_radius(obj: &Object) -> f32 {
-        if obj.thing.template.geometry_info.authored {
+        if obj.thing().template.geometry_info.authored {
             return obj
-                .thing
+                .thing()
                 .template
                 .geometry_info
                 .bounding_circle_radius()
@@ -763,8 +765,8 @@ impl GameLogic {
                 // Rect_Circle), not on a center-distance radius sum. Objects
                 // without authored geometry keep the port's radius residual
                 // as a circle shape.
-                let obj_shape = if obj.thing.template.geometry_info.authored {
-                    let geometry = &obj.thing.template.geometry_info;
+                let obj_shape = if obj.thing().template.geometry_info.authored {
+                    let geometry = &obj.thing().template.geometry_info;
                     PlacementShape {
                         x: p.x,
                         z: p.z,
@@ -915,7 +917,7 @@ impl GameLogic {
                 let transform = glam::Mat4::from_translation(glam::Vec3::new(p.x, p.y, p.z))
                     * glam::Mat4::from_rotation_y(angle);
                 let (major, minor, is_box) = {
-                    let g = &obj.thing.template.geometry_info;
+                    let g = &obj.thing().template.geometry_info;
                     if g.authored {
                         (
                             g.major_radius.max(1.0),
@@ -1109,8 +1111,8 @@ impl GameLogic {
             // misses the pad shape are never candidates. The old radius-sum
             // circle flagged authored-shape neutral props that legally miss
             // the pad and aborted the whole placement.
-            let obj_shape = if obj.thing.template.geometry_info.authored {
-                let geometry = &obj.thing.template.geometry_info;
+            let obj_shape = if obj.thing().template.geometry_info.authored {
+                let geometry = &obj.thing().template.geometry_info;
                 PlacementShape {
                     x: p.x,
                     z: p.z,
@@ -1219,7 +1221,7 @@ impl GameLogic {
         };
         let pos = obj.get_position();
         let angle = obj.get_orientation();
-        let geom = obj.thing.template.geometry_info;
+        let geom = obj.thing().template.geometry_info;
         let radius = Self::structure_place_radius(obj).max(1.0);
         // C++ flattenTerrain returns immediately for GeometryIsSmall.
         let skip_flatten = geom.authored && geom.is_small;
@@ -1385,7 +1387,7 @@ impl GameLogic {
             .filter(|o| {
                 o.team == team
                     && o.is_alive()
-                    && o.thing.template.has_superweapon_restriction_link_key()
+                    && o.thing().template.has_superweapon_restriction_link_key()
             })
             .count() as u32
     }
@@ -1399,7 +1401,7 @@ impl GameLogic {
             .filter(|obj| {
                 obj.owner_player_id == Some(player_id)
                     && obj.is_alive()
-                    && obj.thing.template.has_superweapon_restriction_link_key()
+                    && obj.thing().template.has_superweapon_restriction_link_key()
             })
             .count() as u32
     }
@@ -1727,7 +1729,7 @@ impl GameLogic {
         let candidate = self
             .templates
             .get(&obj.template_name)
-            .unwrap_or(&obj.thing.template);
+            .unwrap_or(&obj.thing().template);
         candidate.counts_toward_max_simultaneous_of(wanted)
     }
 

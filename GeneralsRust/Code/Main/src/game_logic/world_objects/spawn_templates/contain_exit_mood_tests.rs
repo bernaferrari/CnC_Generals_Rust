@@ -126,8 +126,7 @@ fn garrison_exit_does_not_inherit_transport_mood_wake() {
     world
         .host_object_mut(container)
         .unwrap()
-        .thing
-        .template
+        .template_mut()
         .contain_module
         .kind = ContainModuleKind::Garrison;
     world.walk_unit_via_open_contain_exit(rider, container);

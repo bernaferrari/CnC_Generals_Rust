@@ -110,7 +110,7 @@ fn test_command_execution() {
     template.set_health(100.0);
 
     let mut obj = Object::new(template, ObjectId(1), Team::USA);
-    obj.position = Vec3::new(0.0, 0.0, 0.0);
+    obj.set_position(Vec3::new(0.0, 0.0, 0.0));
     game_logic.add_object(obj);
 
     let command = GameCommand {

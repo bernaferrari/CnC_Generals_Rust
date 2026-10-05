@@ -492,7 +492,7 @@ impl GameLogic {
     ) -> Option<(Option<u32>, Team, &'static str)> {
         let obj = self.objects.get(&source_id)?;
         let kind = obj
-            .thing
+            .thing()
             .template
             .special_power_modules
             .iter()
@@ -838,7 +838,7 @@ impl GameLogic {
             return false;
         };
         let required = obj
-            .thing
+            .thing()
             .template
             .special_power_modules
             .iter()
@@ -879,7 +879,7 @@ impl GameLogic {
                     return None;
                 }
                 let obj_kind = obj
-                    .thing
+                    .thing()
                     .template
                     .special_power_modules
                     .iter()
@@ -1028,7 +1028,7 @@ impl GameLogic {
         }
         let owner_id = self.player_owner_for_host_object(obj);
         // C++ SpecialPowerCreate walks every getSpecialPower() behavior — not a type whitelist.
-        let modules: Vec<_> = obj.thing.template.special_power_modules.clone();
+        let modules: Vec<_> = obj.thing().template.special_power_modules.clone();
         if modules.is_empty() {
             return;
         }
@@ -1040,7 +1040,7 @@ impl GameLogic {
         // SpecialPowerCreate module never run this residual, so hand-built /
         // map-spawned fixtures stay ready instead of silently arming a reload.
         let mut shared_ready = Vec::new();
-        if obj.thing.template.has_special_power_create {
+        if obj.thing().template.has_special_power_create {
             if let Some(obj) = self.objects.get_mut(&structure_id) {
                 for module in modules.iter() {
                     let Some(power) = module.command_power.as_ref() else {
@@ -1135,7 +1135,7 @@ impl GameLogic {
         // resolves that skip, so non-SharedNSync, non-StartsPaused modules
         // begin their authored ReloadTime countdown here.
         let arm_recharge: Vec<(crate::command_system::SpecialPowerType, u32)> = obj
-            .thing
+            .thing()
             .template
             .special_power_modules
             .iter()
@@ -1424,10 +1424,10 @@ impl GameLogic {
     pub fn toggle_overcharge_object(&mut self, object_id: ObjectId) -> bool {
         let Some((energy_bonus, has_power_plant_update, was_active)) =
             self.objects.get(&object_id).and_then(|obj| {
-                (obj.is_alive() && obj.thing.template.supports_overcharge()).then(|| {
+                (obj.is_alive() && obj.thing().template.supports_overcharge()).then(|| {
                     (
-                        obj.thing.template.energy_bonus.unwrap_or(0),
-                        obj.thing.template.power_plant_update.is_some(),
+                        obj.thing().template.energy_bonus.unwrap_or(0),
+                        obj.thing().template.power_plant_update.is_some(),
                         obj.overcharge_enabled,
                     )
                 })
@@ -1476,11 +1476,11 @@ impl GameLogic {
         for id in ids {
             let Some((behavior, energy_bonus, has_power_plant_update)) =
                 self.objects.get(&id).and_then(|obj| {
-                    obj.thing.template.overcharge_behavior.map(|behavior| {
+                    obj.thing().template.overcharge_behavior.map(|behavior| {
                         (
                             behavior,
-                            obj.thing.template.energy_bonus.unwrap_or(0),
-                            obj.thing.template.power_plant_update.is_some(),
+                            obj.thing().template.energy_bonus.unwrap_or(0),
+                            obj.thing().template.power_plant_update.is_some(),
                         )
                     })
                 })
@@ -1822,9 +1822,8 @@ mod tests {
             .create_object_for_player("AmericaParticleUplinkCannon", 0, glam::Vec3::ZERO)
             .expect("puc");
         if let Some(obj) = logic.host_object_mut(id) {
-            obj.thing.template.special_power_modules.clear();
-            obj.thing
-                .template
+            obj.template_mut().special_power_modules.clear();
+            obj.template_mut()
                 .special_power_modules
                 .push(particle_cannon_module(required_science));
         }

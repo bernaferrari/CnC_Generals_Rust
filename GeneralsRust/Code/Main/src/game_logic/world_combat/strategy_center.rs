@@ -1344,9 +1344,9 @@ impl GameLogic {
                 }
                 let pos = obj.get_position();
                 let sphere = leftover_emp_bounding_sphere_radius(
-                    obj.thing.geometry.radius,
-                    obj.thing.geometry.bounds_min,
-                    obj.thing.geometry.bounds_max,
+                    obj.thing().geometry.radius,
+                    obj.thing().geometry.bounds_min,
+                    obj.thing().geometry.bounds_max,
                     obj.selection_radius,
                 );
                 if !in_emp_pulse_radius_from_bounding_sphere_3d(impact, pos, sphere, radius) {

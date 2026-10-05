@@ -208,7 +208,7 @@ fn leftover_authored_radar_priority(template_name: &str) -> Option<RadarPriority
 }
 
 fn radar_priority_for_object(obj: &Object) -> RadarPriorityType {
-    let mut priority = match obj.thing.template.radar_priority {
+    let mut priority = match obj.thing().template.radar_priority {
         1 => RadarPriorityType::NotOnRadar,
         2 => RadarPriorityType::Structure,
         3 => RadarPriorityType::Unit,
@@ -218,7 +218,7 @@ fn radar_priority_for_object(obj: &Object) -> RadarPriorityType {
     };
     // C++ Object.cpp:6254-6267 infer only when template is INVALID.
     if priority == RadarPriorityType::Invalid {
-        if obj.thing.template.garrison_contain_max.is_some() || obj.thing.template.capturable {
+        if obj.thing().template.garrison_contain_max.is_some() || obj.thing().template.capturable {
             priority = RadarPriorityType::Structure;
         }
     }

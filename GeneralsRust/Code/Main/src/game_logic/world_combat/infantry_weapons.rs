@@ -425,7 +425,7 @@ impl GameLogic {
             if let Some(owner) = caster_owner {
                 g.owner_player_id = Some(owner);
             }
-            g.thing.template.add_kind_of(KindOf::Selectable);
+            g.template_mut().add_kind_of(KindOf::Selectable);
             g.set_orientation(plan.orientation);
             // Preferred altitude residual.
             let mut p = g.get_position();

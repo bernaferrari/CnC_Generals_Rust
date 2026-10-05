@@ -403,7 +403,7 @@ fn kindof_multi(obj: &Object, required: &[KindOf], forbidden: &[KindOf]) -> bool
 }
 
 fn is_garrisonable_container(obj: &Object) -> bool {
-    if obj.thing.template.garrison_contain_max.is_some() {
+    if obj.thing().template.garrison_contain_max.is_some() {
         return true;
     }
     obj.building_data

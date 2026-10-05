@@ -65,15 +65,12 @@ impl GameLogic {
             self.queue_audio_event(event);
         }
 
-        for camera_target in self.mission_scripts.drain_camera_moves() {
+        let camera_focus = self.mission_scripts.take_camera_focus_requests();
+        for camera_target in camera_focus.moves {
             self.request_camera_focus(camera_target);
         }
 
-        if !self
-            .mission_scripts
-            .drain_camera_move_to_selection_requests()
-            .is_empty()
-        {
+        if !camera_focus.move_to_selection.is_empty() {
             // C++ doModCameraMoveToSelection → cameraModFinalMoveTo: path modifier,
             // not a new lookAt. No-op during rotate; no-op if no path/move.
             if self.pending_camera_rotate.is_none() {
@@ -98,23 +95,14 @@ impl GameLogic {
             }
         }
 
-        if !self
-            .mission_scripts
-            .drain_camera_move_home_requests()
-            .is_empty()
-        {
+        if !camera_focus.move_home.is_empty() {
             if let Some(home) = self.local_player_camera_home_position() {
                 self.camera_follow_target = None;
                 self.request_camera_focus(home);
             }
         }
 
-        if let Some(last) = self
-            .mission_scripts
-            .drain_camera_follows()
-            .into_iter()
-            .last()
-        {
+        if let Some(last) = camera_focus.follows.into_iter().last() {
             if last.object_id == 0 {
                 self.camera_follow_target = None;
                 self.camera_tether_play = None;
@@ -131,12 +119,7 @@ impl GameLogic {
             }
         }
 
-        if let Some(last) = self
-            .mission_scripts
-            .drain_camera_tethers()
-            .into_iter()
-            .last()
-        {
+        if let Some(last) = camera_focus.tethers.into_iter().last() {
             self.script_camera_move_to = None;
             self.script_camera_path = None;
             self.set_camera_tether_object(ObjectId(last.object_id), last.snap_to_unit, last.play);
@@ -860,3 +843,6 @@ impl GameLogic {
         }
     }
 }
+
+#[cfg(test)]
+mod camera_focus_drain_tests;

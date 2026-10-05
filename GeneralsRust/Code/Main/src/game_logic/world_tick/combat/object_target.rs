@@ -281,15 +281,16 @@ impl GameLogic {
                         .map(crate::game_logic::weapon_bootstrap::host_target_pitch_limits_for_weapon_name)
                         .unwrap_or_default();
                     let src_half = {
-                        let b = &attacker.thing.geometry.bounds_max.y
-                            - attacker.thing.geometry.bounds_min.y;
+                        let b = &attacker.thing().geometry.bounds_max.y
+                            - attacker.thing().geometry.bounds_min.y;
                         (b * 0.5).max(0.0)
                     };
                     let (tgt_above, tgt_below) = self
                         .objects
                         .get(&target_id)
                         .map(|t| {
-                            let h = (t.thing.geometry.bounds_max.y - t.thing.geometry.bounds_min.y)
+                            let h = (t.thing().geometry.bounds_max.y
+                                - t.thing().geometry.bounds_min.y)
                                 .max(0.0);
                             // Position is typically feet; above ≈ full height, below ≈ 0.
                             (h, 0.0_f32)
@@ -484,14 +485,14 @@ impl GameLogic {
                     .map(|a| {
                         (
                             a.get_position(),
-                            a.thing.template.geometry_info.bounding_circle_radius(),
+                            a.thing().template.geometry_info.bounding_circle_radius(),
                         )
                     })
                     .unwrap_or((target_position, 0.0));
                 let tgt_r = self
                     .objects
                     .get(&target_id)
-                    .map(|o| o.thing.template.geometry_info.bounding_circle_radius())
+                    .map(|o| o.thing().template.geometry_info.bounding_circle_radius())
                     .unwrap_or(0.0);
                 let dx = src.x - target_position.x;
                 let dz = src.z - target_position.z;
@@ -567,14 +568,14 @@ impl GameLogic {
                     .map(|a| {
                         (
                             a.get_position(),
-                            a.thing.template.geometry_info.bounding_circle_radius(),
+                            a.thing().template.geometry_info.bounding_circle_radius(),
                         )
                     })
                     .unwrap_or((target_position, 0.0));
                 let tgt_r = self
                     .objects
                     .get(&target_id)
-                    .map(|o| o.thing.template.geometry_info.bounding_circle_radius())
+                    .map(|o| o.thing().template.geometry_info.bounding_circle_radius())
                     .unwrap_or(0.0);
                 let dx = src.x - target_position.x;
                 let dz = src.z - target_position.z;

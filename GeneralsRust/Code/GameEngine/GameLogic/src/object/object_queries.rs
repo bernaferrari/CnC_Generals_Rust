@@ -152,23 +152,19 @@ impl Object {
 
         if let Some(max_hps) = get_int(crate::common::well_known_keys::key_object_max_hps()) {
             if max_hps >= 0 {
-                if let Some(body) = self.get_body_module() {
-                    if let Ok(mut guard) = body.lock() {
-                        let _ = guard
-                            .set_max_health(max_hps as f32, MaxHealthChangeType::PreserveRatio);
-                    }
-                }
+                // C++ BodyModule.h default is SAME_CURRENTHEALTH. Keep the
+                // exact live owner through synchronous cap/art/particle work.
+                let _ = self.set_body_max_health_with_owner(
+                    max_hps as f32,
+                    MaxHealthChangeType::SameCurrentHealth,
+                );
             }
         }
 
         if let Some(initial_health) =
             get_int(crate::common::well_known_keys::key_object_initial_health())
         {
-            if let Some(body) = self.get_body_module() {
-                if let Ok(mut guard) = body.lock() {
-                    let _ = guard.set_initial_health(initial_health);
-                }
-            }
+            let _ = self.set_body_initial_health_with_owner(initial_health);
         }
 
         if let Some(veterancy) = get_int(crate::common::well_known_keys::key_object_veterancy()) {
@@ -1163,3 +1159,7 @@ impl Object {
         Ok(self)
     }
 }
+
+#[cfg(test)]
+#[path = "object_map_health_tests.rs"]
+mod map_health_tests;

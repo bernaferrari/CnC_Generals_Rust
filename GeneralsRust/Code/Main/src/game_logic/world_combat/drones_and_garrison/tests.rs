@@ -495,7 +495,7 @@ fn garrison_fire_point_is_not_eight_point_ring() {
         crate::game_logic::BuildingType::Bunker,
     ));
     assert_eq!(
-        obj.thing.template.contain_module.kind,
+        obj.thing().template.contain_module.kind,
         ContainModuleKind::Garrison
     );
     let (idx, pos) = garrison_occupant_fire_point(

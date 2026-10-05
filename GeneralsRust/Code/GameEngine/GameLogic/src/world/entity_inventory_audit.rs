@@ -6,14 +6,22 @@
 //! fails the Main source-scan. Inventoring a gap requires removing it here
 //! and adding the matching tag to Main `INVENTORY_TAGS`.
 
-/// Transient presentation drain queues in the residual window.
-/// These are not C++ Object::xfer fields (Object.cpp:3995-4364); C++ FX/audio
-/// is module-side or client-side and is drained same-frame by Main.
+/// Fields in Main's audited residual window not encoded by this envelope.
+/// Includes transient drains, authored CrushDie data, and pending transfer/body
+/// state. This is an omission inventory, not proof that all are presentation
+/// queues or that current WorldSnapshot saves preserve them. Original Object
+/// and ActiveBody Xfer/continuation must be reviewed for each persistent field.
 pub const KNOWN_GAPS: &[&str] = &[
     "pending_transition_damage_fx",
     "pending_death_fx",
     "pending_death_audio",
+    "pending_death_audio_stop",
     "pending_create_object_die_spawns",
+    "create_object_die_transfer_subdual",
+    "create_object_die_transfer_source",
+    "pending_instant_death_weapon",
+    "crush_die",
+    "previous_health",
 ];
 
 /// Entity flattened write-surface families that are not envelope tags.
@@ -51,9 +59,10 @@ mod tests {
 
     #[test]
     fn known_gaps_are_unique_and_declaration_ordered() {
-        assert_eq!(KNOWN_GAPS.len(), 4);
+        assert_eq!(KNOWN_GAPS.len(), 10);
         assert_eq!(KNOWN_GAPS[0], "pending_transition_damage_fx");
-        assert_eq!(KNOWN_GAPS[3], "pending_create_object_die_spawns");
+        assert_eq!(KNOWN_GAPS[4], "pending_create_object_die_spawns");
+        assert_eq!(KNOWN_GAPS[9], "previous_health");
         assert!(unique(KNOWN_GAPS), "KNOWN_GAPS must stay unique");
         for gap in KNOWN_GAPS {
             assert!(

@@ -476,7 +476,7 @@ impl<'a> CommandExecutor<'a> {
             }
             (
                 obj.template_name.clone(),
-                obj.thing.template.build_cost.supplies,
+                obj.thing().template.build_cost.supplies,
                 obj.status.reconstructing,
             )
         };

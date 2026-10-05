@@ -1187,7 +1187,7 @@ mod tests {
         let frame = PresentationFrame::build_from_logic(&logic, 0);
         // Poison live pose — presentation must still win.
         if let Some(obj) = logic.host_object_mut(id) {
-            obj.position = glam::Vec3::new(9999.0, 0.0, 9999.0);
+            obj.set_position(glam::Vec3::new(9999.0, 0.0, 9999.0));
         }
         let mut ctl = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
         ctl.selected_objects = vec![id];
@@ -1377,8 +1377,7 @@ mod tests {
         logic
             .host_object_mut(id)
             .expect("live object")
-            .thing
-            .template
+            .template_mut()
             .add_kind_of(KindOf::Unattackable);
         let frame = PresentationFrame::build_from_logic(&logic, 0);
         let object = frame.objects.iter().find(|object| object.id == id).unwrap();

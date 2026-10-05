@@ -1226,7 +1226,7 @@ fn ai_decision_authority_applies_host_state_when_shadow_disabled() {
         .create_object("AiUnit", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("unit");
     if let Some(o) = logic.host_object_mut(id) {
-        o.thing.template.add_kind_of(KindOf::Infantry);
+        o.template_mut().add_kind_of(KindOf::Infantry);
         o.movement.max_speed = 30.0;
     }
     assert!(

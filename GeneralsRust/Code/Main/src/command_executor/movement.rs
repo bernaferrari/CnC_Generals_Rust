@@ -30,7 +30,7 @@ impl<'a> CommandExecutor<'a> {
     /// C++ `GeometryInfo::getBoundingCircleRadius` from authored collision geom,
     /// not the pick/click `selection_radius` (`AIGroup.cpp:1790-1791`).
     fn bounding_circle_radius(unit: &crate::game_logic::object::Object) -> f32 {
-        let g = &unit.thing.geometry;
+        let g = &unit.thing().geometry;
         let half_x = ((g.bounds_max.x - g.bounds_min.x).abs() * 0.5).max(0.0);
         let half_z = ((g.bounds_max.z - g.bounds_min.z).abs() * 0.5).max(0.0);
         let authored_shape = half_x > 1e-3 && half_z > 1e-3 && (half_x - half_z).abs() > 1e-3;
@@ -42,7 +42,7 @@ impl<'a> CommandExecutor<'a> {
         // (GEOMETRY_SPHERE,1,1,1): it carries no real footprint, so derive
         // the scatter/clamp circle from the pick `selection_radius` like
         // Object::construct does for other unauthored-size consumers.
-        if !unit.thing.template.geometry_info.authored && g.radius <= 1.0 + f32::EPSILON {
+        if !unit.thing().template.geometry_info.authored && g.radius <= 1.0 + f32::EPSILON {
             unit.selection_radius.max(radius).max(1.0)
         } else {
             radius.max(1.0)
@@ -98,8 +98,12 @@ impl<'a> CommandExecutor<'a> {
             let dx = p.x - dest.x;
             let dz = p.z - dest.z;
             let dist_sq = dx * dx + dz * dz;
-            let r = if other.thing.template.geometry_info.authored {
-                other.thing.template.geometry_info.bounding_circle_radius()
+            let r = if other.thing().template.geometry_info.authored {
+                other
+                    .thing()
+                    .template
+                    .geometry_info
+                    .bounding_circle_radius()
             } else {
                 other.selection_radius.max(1.0)
             };

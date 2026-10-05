@@ -1329,9 +1329,9 @@ impl GameLogic {
             o.angry_mob_nexus_id = Some(nexus_id);
             o.producer_id = Some(nexus_id);
             o.health.maximum = ANGRY_MOB_MEMBER_MAX_HEALTH;
-            o.thing.template.add_kind_of(KindOf::Attackable);
-            o.thing.template.add_kind_of(KindOf::Selectable);
-            o.thing.template.add_kind_of(KindOf::IgnoredInGui);
+            o.template_mut().add_kind_of(KindOf::Attackable);
+            o.template_mut().add_kind_of(KindOf::Selectable);
+            o.template_mut().add_kind_of(KindOf::IgnoredInGui);
             Self::write_object_health_authority_aware(o, ANGRY_MOB_MEMBER_MAX_HEALTH);
         }
         if let Some(m) = self
@@ -1578,8 +1578,8 @@ impl GameLogic {
                 if obj.status.masked {
                     obj.set_status_masked(false);
                 }
-                obj.thing.template.add_kind_of(KindOf::Selectable);
-                obj.thing.template.add_kind_of(KindOf::Infantry);
+                obj.template_mut().add_kind_of(KindOf::Selectable);
+                obj.template_mut().add_kind_of(KindOf::Infantry);
             }
         }
 

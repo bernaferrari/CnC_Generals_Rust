@@ -358,8 +358,8 @@ impl GameLogic {
                         (
                             o.get_position(),
                             o.get_orientation(),
-                            o.thing.template.get_model_name().to_string(),
-                            o.thing.template.asset_scale,
+                            o.thing().template.get_model_name().to_string(),
+                            o.thing().template.asset_scale,
                         )
                     })
                     .unwrap_or((glam::Vec3::ZERO, 0.0, String::new(), 1.0));
@@ -470,8 +470,8 @@ impl GameLogic {
                     (
                         o.get_position(),
                         o.get_orientation(),
-                        o.thing.template.get_model_name().to_string(),
-                        o.thing.template.asset_scale,
+                        o.thing().template.get_model_name().to_string(),
+                        o.thing().template.asset_scale,
                         o.drawable_hidden,
                     )
                 });

@@ -51,7 +51,7 @@ fn artillery_barrage_host_path_queues_and_applies_delayed_multi_shell_damage() {
         let obj = game_logic.host_object_mut(id).expect("obj");
         obj.health.current = 500.0;
         obj.health.maximum = 500.0;
-        obj.thing.template.armor = 0.0;
+        obj.template_mut().armor = 0.0;
     }
     {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
@@ -298,7 +298,7 @@ fn cruise_missile_host_path_queues_and_applies_delayed_area_damage() {
         let obj = game_logic.host_object_mut(id).expect("obj");
         obj.health.current = 500.0;
         obj.health.maximum = 500.0;
-        obj.thing.template.armor = 0.0;
+        obj.template_mut().armor = 0.0;
     }
     {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
@@ -594,11 +594,11 @@ fn america_paradrop_host_path_queues_and_spawns_infantry() {
         let obj = game_logic.host_object(*id).expect("spawned infantry");
         assert_eq!(obj.team, Team::USA);
         assert!(
-            obj.thing.template.name == PARADROP_RESIDUAL_TEMPLATE
-                || obj.thing.template.name.contains("Infantry")
-                || obj.thing.template.name.contains("Ranger"),
+            obj.thing().template.name == PARADROP_RESIDUAL_TEMPLATE
+                || obj.thing().template.name.contains("Infantry")
+                || obj.thing().template.name.contains("Ranger"),
             "spawned residual infantry template, got {}",
-            obj.thing.template.name
+            obj.thing().template.name
         );
         let pos = obj.get_position();
         let dx = pos.x - target.x;
@@ -729,11 +729,11 @@ fn gla_ambush_host_path_queues_and_spawns_infantry() {
         let obj = game_logic.host_object(*id).expect("spawned infantry");
         assert_eq!(obj.team, Team::GLA);
         assert!(
-            obj.thing.template.name == AMBUSH_RESIDUAL_TEMPLATE
-                || obj.thing.template.name.contains("Infantry")
-                || obj.thing.template.name.contains("Rebel"),
+            obj.thing().template.name == AMBUSH_RESIDUAL_TEMPLATE
+                || obj.thing().template.name.contains("Infantry")
+                || obj.thing().template.name.contains("Rebel"),
             "spawned residual infantry template, got {}",
-            obj.thing.template.name
+            obj.thing().template.name
         );
         let pos = obj.get_position();
         let dx = pos.x - target.x;
@@ -788,7 +788,7 @@ fn scud_storm_host_path_queues_and_completes() {
         let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
         enemy.health.current = 800.0;
         enemy.health.maximum = 800.0;
-        enemy.thing.template.armor = 0.0;
+        enemy.template_mut().armor = 0.0;
     }
     {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
@@ -947,7 +947,7 @@ fn particle_cannon_host_path_queues_and_completes() {
         // Survive first pulse so multi-pulse residual is observable.
         enemy.health.current = 500.0;
         enemy.health.maximum = 500.0;
-        enemy.thing.template.armor = 0.0;
+        enemy.template_mut().armor = 0.0;
     }
     {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
@@ -1503,7 +1503,7 @@ fn nuclear_missile_host_path_queues_damage_after_delay_and_radiation() {
         let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
         enemy.health.current = 800.0;
         enemy.health.maximum = 800.0;
-        enemy.thing.template.armor = 0.0;
+        enemy.template_mut().armor = 0.0;
     }
     {
         let v = game_logic
@@ -1512,13 +1512,13 @@ fn nuclear_missile_host_path_queues_damage_after_delay_and_radiation() {
         // Blast falloff at 150: inner 60, outer 210 → t=(150-60)/150=0.6 → dmg=3500*0.4=1400
         v.health.current = 5000.0;
         v.health.maximum = 5000.0;
-        v.thing.template.armor = 0.0;
+        v.template_mut().armor = 0.0;
     }
     {
         let far = game_logic.host_object_mut(far_id).expect("far");
         far.health.current = 500.0;
         far.health.maximum = 500.0;
-        far.thing.template.armor = 0.0;
+        far.template_mut().armor = 0.0;
     }
     {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
@@ -1793,13 +1793,13 @@ fn spectre_gunship_host_path_queues_orbit_damage_over_time() {
         // Enough HP for multiple howitzer residual ticks.
         enemy.health.current = 500.0;
         enemy.health.maximum = 500.0;
-        enemy.thing.template.armor = 0.0;
+        enemy.template_mut().armor = 0.0;
     }
     {
         let far = game_logic.host_object_mut(far_id).expect("far");
         far.health.current = 500.0;
         far.health.maximum = 500.0;
-        far.thing.template.armor = 0.0;
+        far.template_mut().armor = 0.0;
     }
     {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
@@ -1823,9 +1823,16 @@ fn spectre_gunship_host_path_queues_orbit_damage_over_time() {
         let shroud = gamelogic::system::shroud_manager::get_shroud_manager();
         let mut mgr = shroud.lock().unwrap_or_else(|e| e.into_inner());
         if !mgr.has_shroud_grid() {
-            mgr.init_shroud_grid(game_logic.world_width.max(1.0), game_logic.world_height.max(1.0));
+            mgr.init_shroud_grid(
+                game_logic.world_width.max(1.0),
+                game_logic.world_height.max(1.0),
+            );
         }
-        mgr.do_shroud_reveal(&center, crate::game_logic::special_power_strikes::SPECTRE_VIEW_OBJECT_RANGE, 1);
+        mgr.do_shroud_reveal(
+            &center,
+            crate::game_logic::special_power_strikes::SPECTRE_VIEW_OBJECT_RANGE,
+            1,
+        );
     }
     game_logic.queue_command(GameCommand {
         command_type: CommandType::DoSpecialPower {
@@ -2026,7 +2033,7 @@ fn spectre_orbit_skips_gattling_when_gunship_overhead() {
         let e = logic.host_object_mut(enemy).expect("enemy");
         e.health.current = 500.0;
         e.health.maximum = 500.0;
-        e.thing.template.armor = 0.0;
+        e.template_mut().armor = 0.0;
     }
     {
         let c = logic.host_object_mut(caster).expect("caster");
@@ -2060,7 +2067,11 @@ fn spectre_orbit_skips_gattling_when_gunship_overhead() {
         if !mgr.has_shroud_grid() {
             mgr.init_shroud_grid(logic.world_width.max(1.0), logic.world_height.max(1.0));
         }
-        mgr.do_shroud_reveal(&center, crate::game_logic::special_power_strikes::SPECTRE_VIEW_OBJECT_RANGE, 1);
+        mgr.do_shroud_reveal(
+            &center,
+            crate::game_logic::special_power_strikes::SPECTRE_VIEW_OBJECT_RANGE,
+            1,
+        );
     }
     logic.queue_command(GameCommand {
         command_type: CommandType::DoSpecialPower {
@@ -2127,7 +2138,7 @@ fn spectre_gattling_skips_friendly_presenting_bomb_truck() {
 
     {
         let truck = logic.host_object_mut(friend_face).expect("friend face");
-        truck.thing.template.add_kind_of(KindOf::Disguiser);
+        truck.template_mut().add_kind_of(KindOf::Disguiser);
         truck.status.stealthed = true;
         truck.status.detected = false;
         truck.status.disguised = true;
@@ -2135,7 +2146,7 @@ fn spectre_gattling_skips_friendly_presenting_bomb_truck() {
     }
     {
         let truck = logic.host_object_mut(enemy_face).expect("enemy face");
-        truck.thing.template.add_kind_of(KindOf::Disguiser);
+        truck.template_mut().add_kind_of(KindOf::Disguiser);
         truck.status.stealthed = true;
         truck.status.detected = false;
         truck.status.disguised = true;
@@ -2171,7 +2182,7 @@ fn spectre_gattling_skips_friendly_presenting_bomb_truck() {
         let truck = logic.host_object_mut(friend_face).expect("friend face hp");
         truck.health.current = 200.0;
         truck.health.maximum = 200.0;
-        truck.thing.template.armor = 0.0;
+        truck.template_mut().armor = 0.0;
     }
     let hp0 = logic.host_object(friend_face).unwrap().health.current;
     let strike_frame = logic.frame;

@@ -102,7 +102,7 @@ impl GameLogic {
         info: &AttackPriorityInfo,
         target: &crate::game_logic::object::Object,
     ) -> i32 {
-        let mut pri = info.get_priority_for_template(&target.thing.template.name);
+        let mut pri = info.get_priority_for_template(&target.thing().template.name);
         for (kind, &kp) in &info.kind_priorities {
             let hit = match kind.as_str() {
                 "infantry" => target.is_kind_of(crate::game_logic::KindOf::Infantry),
@@ -121,7 +121,7 @@ impl GameLogic {
         if !target.contained_units().is_empty() {
             for cid in target.contained_units() {
                 if let Some(c) = self.objects.get(&cid) {
-                    let cp = info.get_priority_for_template(&c.thing.template.name);
+                    let cp = info.get_priority_for_template(&c.thing().template.name);
                     if cp > pri {
                         pri = cp;
                     }

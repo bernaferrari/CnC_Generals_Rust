@@ -363,7 +363,7 @@ impl AIPlayer {
             if object.team != self.team || !object.is_alive() {
                 continue;
             }
-            for module in &object.thing.template.special_power_modules {
+            for module in &object.thing().template.special_power_modules {
                 if !module
                     .special_power_template
                     .eq_ignore_ascii_case(power_name)
@@ -966,7 +966,7 @@ impl AIPlayer {
             }
             let dist = dist_sqr.sqrt();
             let factor = 1.0 - (dist / (2.0 * radius));
-            let mut value = object.thing.template.build_cost.supplies as f32;
+            let mut value = object.thing().template.build_cost.supplies as f32;
             if object.is_kind_of(KindOf::CommandCenter) || object.is_kind_of(KindOf::FSSuperweapon)
             {
                 if include_military_units {

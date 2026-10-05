@@ -98,7 +98,7 @@ fn admit(name: &str) -> (GameLogic, crate::game_logic::ObjectId) {
         .expect("actual GameLogic roster admission");
     assert_eq!(
         logic.objects[&id]
-            .thing
+            .thing()
             .template
             .primary_weapon_name
             .as_deref(),
@@ -123,7 +123,11 @@ fn authored_short_range_survives_one_runtime_deduction() {
     let object = &logic.objects[&id];
     assert_eq!(object.weapon_slot(0).unwrap().damage, 11.0);
     assert_eq!(
-        object.thing.template.geometry_info.bounding_circle_radius(),
+        object
+            .thing()
+            .template
+            .geometry_info
+            .bounding_circle_radius(),
         1.0
     );
     let mine_position = Vec3::new(2.0, 0.0, 0.0);

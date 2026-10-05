@@ -100,9 +100,9 @@ fn scatter_uses_bounding_circle_not_selection_radius() {
     for id in [a, b] {
         let o = logic.host_object_mut(id).unwrap();
         o.selection_radius = 50.0;
-        o.thing.geometry.radius = 5.0;
-        o.thing.geometry.bounds_min = Vec3::new(-5.0, 0.0, -5.0);
-        o.thing.geometry.bounds_max = Vec3::new(5.0, 0.0, 5.0);
+        o.set_geometry_radius(5.0);
+        o.set_geometry_bounds_min(Vec3::new(-5.0, 0.0, -5.0));
+        o.set_geometry_bounds_max(Vec3::new(5.0, 0.0, 5.0));
     }
     let before_a = logic.host_object(a).unwrap().get_position();
     {

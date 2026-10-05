@@ -6,7 +6,7 @@ use game_engine::common::ini::{INI, INIError};
 
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::{ObjectID, PathfindLayerEnum};
-use crate::modules::{AIUpdateInterface, ExitDoorType};
+use crate::modules::{AIUpdateInterface, ExitDoorType, ExitInterface};
 use crate::object::Object;
 use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
 use crate::path::PATHFIND_CELL_SIZE_F;
@@ -108,16 +108,14 @@ impl FactoryExit {
     }
 
     fn exit(&self) {
-        let exit = self
+        let mut exit = self
             .producer
             .read()
             .unwrap()
             .get_object_exit_interface()
             .expect("actual authored DefaultProductionExitUpdate interface");
         let id = self.passenger.read().unwrap().get_id();
-        exit.lock()
-            .unwrap()
-            .exit_object_via_door(id, ExitDoorType::Primary)
+        exit.exit_object_via_door(id, ExitDoorType::Primary)
             .unwrap();
     }
 

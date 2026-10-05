@@ -39,7 +39,7 @@ use crate::common::{INVALID_ID, ObjectID, UnsignedInt};
 use crate::helpers::TheGameLogic;
 #[cfg(feature = "allow_surrender")]
 use crate::modules::{
-    BehaviorModuleInterface, ContainModuleInterface, ContainWant, ExitDoorType,
+    BehaviorModuleInterface, ContainModuleInterface, ContainWant, ExitDoorType, ExitInterface,
     UpdateModuleInterface, UpdateSleepTime,
 };
 #[cfg(feature = "allow_surrender")]
@@ -232,7 +232,7 @@ impl PropagandaCenterBehavior {
             if current_frame.saturating_sub(self.brainwashing_subject_start_frame)
                 >= self.module_data.brainwash_duration
             {
-                let Some(exit_interface) = self
+                let Some(mut exit_interface) = self
                     .with_object(|guard| guard.get_object_exit_interface())
                     .flatten()
                 else {
@@ -244,11 +244,8 @@ impl PropagandaCenterBehavior {
                 };
                 let Some((exit_door, controlling_player)) = self
                     .with_object(|owner_guard| {
-                        let Ok(mut exit_guard) = exit_interface.lock() else {
-                            return None;
-                        };
                         Some((
-                            exit_guard
+                            exit_interface
                                 .reserve_door_for_exit(Some(owner_guard), Some(&*subject_guard)),
                             owner_guard.get_controlling_player(),
                         ))
@@ -286,9 +283,7 @@ impl PropagandaCenterBehavior {
                     self.brainwashed_list.push(subject_id);
                 }
 
-                if let Ok(mut exit_guard) = exit_interface.lock() {
-                    let _ = exit_guard.exit_object_via_door(subject_id, exit_door);
-                };
+                let _ = exit_interface.exit_object_via_door(subject_id, exit_door);
             }
         }
 

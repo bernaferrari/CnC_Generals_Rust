@@ -251,7 +251,7 @@ impl GameWorldShadow {
             if (host_obj.health.current - ent.health).abs() > 0.01 {
                 return Some(format!(
                     "host_id={hid} template={} host_health={} shadow_health={} host_max={} shadow_max={} host_destroyed={} shadow_destroyed={}",
-                    host_obj.thing.template.name,
+                    host_obj.thing().template.name,
                     host_obj.health.current,
                     ent.health,
                     host_obj.max_health,

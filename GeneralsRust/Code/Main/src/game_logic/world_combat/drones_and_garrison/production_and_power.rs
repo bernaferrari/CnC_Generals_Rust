@@ -21,7 +21,7 @@ impl GameLogic {
         // older residual helper only for hand-authored templates used by
         // unrelated existing PowerPlantUpgrade paths.
         let frames = obj
-            .thing
+            .thing()
             .template
             .power_plant_update
             .map(|metadata| metadata.rods_extend_time_frames)
@@ -92,10 +92,10 @@ impl GameLogic {
         // Retail `SupplyWarehouseDockUpdate::StartingBoxes` is authoritative.
         // Retain the legacy bootstrap table only for hand-authored templates
         // that have no parsed Behavior metadata; it never grants Dock ability.
-        let supplies = if obj.thing.template.dock_kind
+        let supplies = if obj.thing().template.dock_kind
             == crate::game_logic::DockKind::SupplyWarehouse
         {
-            obj.thing.template.dock_starting_boxes.map(|boxes| {
+            obj.thing().template.dock_starting_boxes.map(|boxes| {
                 boxes.saturating_mul(
                     crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX as u32,
                 )
@@ -103,8 +103,8 @@ impl GameLogic {
         } else {
             starting_supplies_for_template(&obj.template_name)
         };
-        let has_warehouse_create = obj.thing.template.has_supply_warehouse_create
-            || obj.thing.template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse;
+        let has_warehouse_create = obj.thing().template.has_supply_warehouse_create
+            || obj.thing().template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse;
         let had_supplies = supplies.is_some();
         if let Some(supplies) = supplies {
             // Only seed if empty (map may already set amount).
@@ -142,7 +142,7 @@ impl GameLogic {
     pub(in crate::game_logic) fn on_supply_center_build_complete(&mut self, object_id: ObjectId) {
         use crate::game_logic::host_upgrades::is_supply_center_template;
         let is_supply_center = self.objects.get(&object_id).is_some_and(|obj| {
-            obj.thing.template.has_supply_center_create
+            obj.thing().template.has_supply_center_create
                 || obj.is_kind_of(KindOf::SupplyCenter)
                 || obj.is_kind_of(KindOf::FSSupplyCenter)
                 || is_supply_center_template(&obj.template_name)
@@ -197,7 +197,7 @@ impl GameLogic {
         let hacker_disable = self
             .objects
             .get(&object_id)
-            .and_then(|obj| obj.thing.template.hacker_disable_building.clone());
+            .and_then(|obj| obj.thing().template.hacker_disable_building.clone());
         let handled_hdb = hacker_disable.is_some();
         if let Some(metadata) = hacker_disable {
             let owner_id = self
@@ -236,7 +236,7 @@ impl GameLogic {
             planned.iter().any(|(existing, _, _, _)| existing == power)
         };
 
-        for module in &obj.thing.template.special_power_modules {
+        for module in &obj.thing().template.special_power_modules {
             let Some(power) = module.command_power.clone() else {
                 continue;
             };
@@ -259,8 +259,8 @@ impl GameLogic {
             ));
         }
 
-        if obj.thing.template.capture_starts_paused {
-            if let Some(power) = obj.thing.template.capture_power.special_power_type() {
+        if obj.thing().template.capture_starts_paused {
+            if let Some(power) = obj.thing().template.capture_power.special_power_type() {
                 if !already(&planned, &power) {
                     planned.push((power, None, false, true));
                 }

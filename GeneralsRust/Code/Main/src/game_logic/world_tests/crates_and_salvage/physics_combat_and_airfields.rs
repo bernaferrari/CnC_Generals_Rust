@@ -1076,8 +1076,8 @@ fn splash_kill_awards_score_the_kill_experience() {
         .create_object("SplashGun", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .unwrap();
     if let Some(o) = logic.objects.get_mut(&gun) {
-        o.thing.template.is_trainable = true;
-        o.thing.template.veterancy_xp_thresholds = [40.0, 150.0, 300.0];
+        o.template_mut().is_trainable = true;
+        o.template_mut().veterancy_xp_thresholds = [40.0, 150.0, 300.0];
     }
     let tgt = logic
         .create_object(
@@ -1092,8 +1092,8 @@ fn splash_kill_awards_score_the_kill_experience() {
     if let Some(o) = logic.objects.get_mut(&near) {
         o.health.current = 10.0;
         o.health.maximum = 10.0;
-        o.thing.template.experience_value = 40.0;
-        o.thing.template.experience_values = [40.0, 40.0, 80.0, 120.0];
+        o.template_mut().experience_value = 40.0;
+        o.template_mut().experience_values = [40.0, 40.0, 80.0, 120.0];
     }
     let hits = logic.apply_instant_hit_splash_at(
         glam::Vec3::new(80.0, 0.0, 0.0),
@@ -1292,10 +1292,10 @@ End
         o.health.maximum = 200.0;
         o.ground_height = 0.0;
         o.selection_radius = 0.0;
-        o.thing.template.geometry_info.authored = true;
-        o.thing.template.geometry_info.major_radius = 0.0;
-        o.thing.template.geometry_info.geom_type = crate::game_logic::HostGeometryType::Sphere;
-        o.thing.template.geometry_info.height = 0.0;
+        o.template_mut().geometry_info.authored = true;
+        o.template_mut().geometry_info.major_radius = 0.0;
+        o.template_mut().geometry_info.geom_type = crate::game_logic::HostGeometryType::Sphere;
+        o.template_mut().geometry_info.height = 0.0;
     }
     let _ = logic.apply_scatter_miss_splash_at(
         glam::Vec3::ZERO,
@@ -1423,10 +1423,10 @@ fn scatter_miss_splash_does_not_invent_1_5x_secondary() {
         o.health.current = 200.0;
         o.health.maximum = 200.0;
         o.selection_radius = 0.0;
-        o.thing.template.geometry_info.authored = true;
-        o.thing.template.geometry_info.major_radius = 0.0;
-        o.thing.template.geometry_info.geom_type = crate::game_logic::HostGeometryType::Sphere;
-        o.thing.template.geometry_info.height = 0.0;
+        o.template_mut().geometry_info.authored = true;
+        o.template_mut().geometry_info.major_radius = 0.0;
+        o.template_mut().geometry_info.geom_type = crate::game_logic::HostGeometryType::Sphere;
+        o.template_mut().geometry_info.height = 0.0;
     }
     let _ = logic.apply_scatter_miss_splash_at(
         glam::Vec3::ZERO,
@@ -1472,10 +1472,10 @@ fn scatter_miss_splash_uses_bounding_sphere_3d() {
         o.health.maximum = 200.0;
         o.ground_height = 0.0;
         o.selection_radius = 0.0;
-        o.thing.template.geometry_info.authored = true;
-        o.thing.template.geometry_info.major_radius = 0.0;
-        o.thing.template.geometry_info.geom_type = crate::game_logic::HostGeometryType::Sphere;
-        o.thing.template.geometry_info.height = 0.0;
+        o.template_mut().geometry_info.authored = true;
+        o.template_mut().geometry_info.major_radius = 0.0;
+        o.template_mut().geometry_info.geom_type = crate::game_logic::HostGeometryType::Sphere;
+        o.template_mut().geometry_info.height = 0.0;
     }
     let _ = logic.apply_scatter_miss_splash_at(
         glam::Vec3::ZERO,
@@ -1963,7 +1963,7 @@ fn airfield_runway_blocks_rtb_landing_when_busy() {
             ..Weapon::default()
         });
         // Ensure weapon name peels RETURN_TO_BASE.
-        o.thing.template.primary_weapon_name = Some("AmericaJetRaptorRocketPods".into());
+        o.template_mut().primary_weapon_name = Some("AmericaJetRaptorRocketPods".into());
     }
     // While runways busy, RTB is accepted (LANDING_AWAIT_CLEARANCE keeps the
     // stall) but the jet must not dock.

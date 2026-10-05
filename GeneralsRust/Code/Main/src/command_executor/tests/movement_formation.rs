@@ -149,16 +149,16 @@ fn group_move_destinations_preserves_relative_offset() {
     {
         let oa = logic./* Wave 950 */ host_object_mut(a).unwrap();
         oa.selection_radius = 10.0;
-        oa.thing.geometry.radius = 10.0;
-        oa.thing.geometry.bounds_min = Vec3::new(-10.0, 0.0, -10.0);
-        oa.thing.geometry.bounds_max = Vec3::new(10.0, 0.0, 10.0);
+        oa.set_geometry_radius(10.0);
+        oa.set_geometry_bounds_min(Vec3::new(-10.0, 0.0, -10.0));
+        oa.set_geometry_bounds_max(Vec3::new(10.0, 0.0, 10.0));
     }
     {
         let ob = logic.host_object_mut(b).unwrap();
         ob.selection_radius = 10.0;
-        ob.thing.geometry.radius = 10.0;
-        ob.thing.geometry.bounds_min = Vec3::new(-10.0, 0.0, -10.0);
-        ob.thing.geometry.bounds_max = Vec3::new(10.0, 0.0, 10.0);
+        ob.set_geometry_radius(10.0);
+        ob.set_geometry_bounds_min(Vec3::new(-10.0, 0.0, -10.0));
+        ob.set_geometry_bounds_max(Vec3::new(10.0, 0.0, 10.0));
     }
 
     let click = Vec3::new(100.0, 0.0, 50.0);

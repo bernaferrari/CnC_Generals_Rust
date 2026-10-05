@@ -32,6 +32,7 @@ use crate::common::{
 };
 use crate::helpers::{TheAudio, TheGameLogic, TheThingFactory};
 use crate::modules::{
+    ExitInterface,
     BehaviorModule, BehaviorModuleInterface, DieModuleInterface, ExitDoorType, MODULEINTERFACE_DIE,
     MODULEINTERFACE_UPDATE, ProductionUpdateInterface, UPDATE_SLEEP_NONE, UpdateModuleInterface,
     UpdateSleepTime,
@@ -1061,13 +1062,10 @@ impl ProductionUpdateComplete {
         if !needs {
             return Ok(-1);
         }
-        let Some(exit) = exit else {
+        let Some(mut exit) = exit else {
             return Err("No parking door available".to_string());
         };
-        let Ok(mut exit_guard) = exit.lock() else {
-            return Err("No parking door available".to_string());
-        };
-        let door = exit_guard.reserve_door_for_exit(None, None);
+        let door = exit.reserve_door_for_exit(None, None);
         if door == ExitDoorType::NoneAvailable {
             return Err("No parking door available".to_string());
         }
@@ -1080,15 +1078,13 @@ impl ProductionUpdateComplete {
         if exit_door < 0 {
             return;
         }
-        let Some(exit) = crate::object::registry::OBJECT_REGISTRY
+        let Some(mut exit) = crate::object::registry::OBJECT_REGISTRY
             .with_object(self.owner_id, |guard| guard.get_object_exit_interface())
             .flatten()
         else {
             return;
         };
-        if let Ok(mut exit_guard) = exit.lock() {
-            exit_guard.unreserve_door_for_exit(i32_to_exit_door(exit_door));
-        }
+        exit.unreserve_door_for_exit(i32_to_exit_door(exit_door));
     }
 
     /// C++ queueCreateUnit QuantityModifier via isEquivalentTo
@@ -1149,7 +1145,7 @@ impl ProductionUpdateComplete {
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return Err("Cannot create unit, producer object missing".to_string());
         };
-        let Some(exit) = owner
+        let Some(mut exit) = owner
             .read()
             .ok()
             .and_then(|guard| guard.get_object_exit_interface())
@@ -1184,10 +1180,7 @@ impl ProductionUpdateComplete {
                 if produced_at_helipad && has_parking {
                     prod.exit_door = -2;
                 } else {
-                    let Ok(mut exit_guard) = exit.lock() else {
-                        break;
-                    };
-                    let door = exit_guard.reserve_door_for_exit(None, None);
+                    let door = exit.reserve_door_for_exit(None, None);
                     prod.exit_door = exit_door_to_i32(door);
                 }
             }
@@ -1271,11 +1264,8 @@ impl ProductionUpdateComplete {
                 new_guard.set_producer_id(producer_id);
             }
 
-            if let Ok(mut exit_guard) = exit.lock() {
-                exit_guard
-                    .exit_object_via_door(new_id, i32_to_exit_door(exit_door))
-                    .map_err(|err| err.to_string())?;
-            }
+            exit.exit_object_via_door(new_id, i32_to_exit_door(exit_door))
+                .map_err(|err| err.to_string())?;
             if let Some(prod) = self.current_production.as_mut() {
                 prod.exit_door = -1;
             }

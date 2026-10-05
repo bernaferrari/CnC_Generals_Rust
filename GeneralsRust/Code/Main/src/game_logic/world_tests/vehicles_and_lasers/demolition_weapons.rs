@@ -96,7 +96,7 @@ fn demo_suicide_bomb_structure_death_residual() {
         let e = game_logic.host_object_mut(enemy_id).unwrap();
         e.health.current = 5000.0;
         e.health.maximum = 5000.0;
-        e.thing.template.armor = 0.0;
+        e.template_mut().armor = 0.0;
     }
     let hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
     game_logic.mark_object_for_destruction(rebel_id, Some(Team::USA));
@@ -249,7 +249,7 @@ fn demo_tertiary_suicide_plus_fire_command_set_residual() {
         let e = game_logic.host_object_mut(enemy_id).unwrap();
         e.health.current = 5000.0;
         e.health.maximum = 5000.0;
-        e.thing.template.armor = 0.0;
+        e.template_mut().armor = 0.0;
     }
     let hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
     game_logic.queue_command(GameCommand {

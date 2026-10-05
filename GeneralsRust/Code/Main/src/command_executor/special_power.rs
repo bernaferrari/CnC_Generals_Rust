@@ -226,7 +226,7 @@ impl<'a> CommandExecutor<'a> {
             if !o.is_alive() {
                 continue;
             }
-            if o.thing
+            if o.thing()
                 .template
                 .special_power_module_for_command(power_type)
                 .is_some()
@@ -385,7 +385,7 @@ impl<'a> CommandExecutor<'a> {
                 self.game_logic.host_object(id).is_some_and(|o| {
                     o.is_alive()
                         && (o
-                            .thing
+                            .thing()
                             .template
                             .special_power_module_for_command(power_type)
                             .is_some()
@@ -1008,7 +1008,7 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             };
             let module_name = obj
-                .thing
+                .thing()
                 .template
                 .special_power_module_for_command(power_type)
                 .map(|m| m.special_power_template.clone());

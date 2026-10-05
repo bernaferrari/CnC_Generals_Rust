@@ -127,8 +127,8 @@ impl GameLogic {
         // numbered FireFX record reuses the previous numbered FX pivot when
         // its own pivot is missing (retail multi-flash exception); the
         // unadorned base is the single-barrel name.
-        let model_name = object.thing.template.get_model_name();
-        let scale = object.thing.template.asset_scale;
+        let model_name = object.thing().template.get_model_name();
+        let scale = object.thing().template.asset_scale;
         let mut pose = None;
         for index in (1..=u32::from(fired_barrel) + 1).rev() {
             let numbered = format!("{fx_base}{index:02}");

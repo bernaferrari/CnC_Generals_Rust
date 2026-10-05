@@ -269,17 +269,21 @@ impl GameLogic {
         let Some(container) = self.objects.get(&container_id) else {
             return;
         };
-        if container.thing.template.contain_module.kind != ContainModuleKind::Garrison {
+        if container.thing().template.contain_module.kind != ContainModuleKind::Garrison {
             return;
         }
         let roster = gamelogic::object::contain::InitialRoster {
             template_name: container
-                .thing
+                .thing()
                 .template
                 .contain_module
                 .initial_roster_template
                 .clone(),
-            count: container.thing.template.contain_module.initial_roster_count,
+            count: container
+                .thing()
+                .template
+                .contain_module
+                .initial_roster_count,
         };
         if !roster.is_populated() {
             return;
@@ -425,7 +429,7 @@ impl GameLogic {
                 Vec::new()
             } else {
                 let max = container
-                    .thing
+                    .thing()
                     .template
                     .contain_module
                     .slots
@@ -690,7 +694,7 @@ impl GameLogic {
         let rally = container.building_data.as_ref().and_then(|b| b.rally_point);
         let is_garrison = container.is_garrison_contain();
         let container_layer = container.pathfind_layer;
-        let door_open_time = container.thing.template.contain_module.door_open_time;
+        let door_open_time = container.thing().template.contain_module.door_open_time;
         let template_name = container.template_name.clone();
         let mut exit_count = 1i32;
         let snap_garrison_to_ground = is_garrison && container.is_enclosing_garrison_container();
@@ -700,7 +704,7 @@ impl GameLogic {
             let disposition = container.garrison_evac_disposition();
             let (sin, cos) = yaw.sin_cos();
             if disposition == 1 || disposition == 2 {
-                let geom = container.thing.template.geometry_info;
+                let geom = container.thing().template.geometry_info;
                 let half_length = if geom.authored {
                     geom.major_radius
                 } else {
@@ -859,7 +863,7 @@ impl GameLogic {
         // template SoundExit / SoundFallingFromPlane.
         let transport_mood = self.objects.get(&container_id).is_some_and(|c| {
             matches!(
-                c.thing.template.contain_module.kind,
+                c.thing().template.contain_module.kind,
                 crate::game_logic::ContainModuleKind::Transport
                     | crate::game_logic::ContainModuleKind::RiderChange
                     | crate::game_logic::ContainModuleKind::RailedTransport

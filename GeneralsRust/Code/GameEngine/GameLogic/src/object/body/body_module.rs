@@ -256,6 +256,19 @@ pub trait BodyModuleInterface: Send + Sync {
     /// Set initial health
     fn set_initial_health(&mut self, initial_percent: i32) -> BodyResult<()>;
 
+    /// Canonical initial-percent change under a borrowed driving Object.
+    /// One body guard computes the percentage and mutates that same runtime;
+    /// Object then completes its synchronous art/particle/dead-bit reaction.
+    /// Inactive bodies return None, matching their empty setter.
+    #[doc(hidden)]
+    fn set_initial_health_for_borrowed_owner(
+        &mut self,
+        _initial_percent: i32,
+        _is_structure: bool,
+    ) -> BodyResult<Option<OwnerHealthTransition>> {
+        Ok(None)
+    }
+
     /// Set maximum health
     fn set_max_health(
         &mut self,

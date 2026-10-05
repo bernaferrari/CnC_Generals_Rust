@@ -9,7 +9,7 @@ pub fn host_object_collide_geom(obj: &Object) -> (gamelogic::object::collide::Ge
     use crate::game_logic::HostGeometryType;
     use gamelogic::object::collide::GeometryInfo;
     let angle = obj.get_orientation();
-    let authored = &obj.thing.template.geometry_info;
+    let authored = &obj.thing().template.geometry_info;
     if authored.authored {
         let geom = match authored.geom_type {
             HostGeometryType::Sphere => {
@@ -34,7 +34,7 @@ pub fn host_object_collide_geom(obj: &Object) -> (gamelogic::object::collide::Ge
         };
         return (geom, angle);
     }
-    let g = &obj.thing.geometry;
+    let g = &obj.thing().geometry;
     let half_x = ((g.bounds_max.x - g.bounds_min.x).abs() * 0.5).max(0.0);
     let half_z = ((g.bounds_max.z - g.bounds_min.z).abs() * 0.5).max(0.0);
     let height = (g.bounds_max.y - g.bounds_min.y).abs().max(g.radius);
@@ -52,7 +52,7 @@ pub fn host_object_collide_geom(obj: &Object) -> (gamelogic::object::collide::Ge
 
 pub fn host_object_footprint(obj: &Object) -> HostPartitionFootprint {
     use crate::game_logic::HostGeometryType;
-    let authored = &obj.thing.template.geometry_info;
+    let authored = &obj.thing().template.geometry_info;
     if authored.authored {
         let (major, minor, is_box) = match authored.geom_type {
             HostGeometryType::Sphere | HostGeometryType::Cylinder => {
@@ -68,7 +68,7 @@ pub fn host_object_footprint(obj: &Object) -> HostPartitionFootprint {
             is_box,
         };
     }
-    let g = &obj.thing.geometry;
+    let g = &obj.thing().geometry;
     let half_x = ((g.bounds_max.x - g.bounds_min.x).abs() * 0.5).max(0.0);
     let half_z = ((g.bounds_max.z - g.bounds_min.z).abs() * 0.5).max(0.0);
     let major = g.radius.max(obj.selection_radius).max(half_x).max(1.0);
@@ -229,7 +229,7 @@ pub fn host_fire_weapon_collide_spec(obj: &Object) -> Option<HostFireWeaponColli
         return None;
     }
     let weapon_name = obj
-        .thing
+        .thing()
         .template
         .primary_weapon_name
         .clone()

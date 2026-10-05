@@ -231,7 +231,7 @@ mod authored_weapon_range_tests;
 mod weapon_resolve_tests;
 
 /// Base Thing class - common functionality for all game entities
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub struct Thing {
     pub template: ThingTemplate,
     pub geometry: GeometryInfo,
@@ -269,9 +269,8 @@ impl Thing {
     }
 
     pub fn set_position(&mut self, position: Vec3) {
-        self.geometry.position = position;
-        self.transform =
-            Mat4::from_translation(position) * Mat4::from_rotation_y(self.cached_angle);
+        // CPP Thing.cpp:145–161 preserves the complete rotation/scale basis.
+        self.transform.w_axis = position.extend(1.0);
         self.update_cache();
     }
 
@@ -374,3 +373,6 @@ impl Clone for Thing {
         }
     }
 }
+
+#[path = "thing/pose_persist.rs"]
+mod pose_persist;

@@ -128,7 +128,7 @@ pub(super) fn freeze_friendly_stealth_opacity(obj: &crate::game_logic::Object) -
     if object_is_mine_kind(obj) {
         obj.camo_friendly_opacity
     } else {
-        obj.thing.template.stealth_friendly_opacity_min
+        obj.thing().template.stealth_friendly_opacity_min
     }
 }
 
@@ -167,7 +167,7 @@ pub(super) fn freeze_sticky_bomb_overlay(obj: &crate::game_logic::Object, now: u
 pub(super) fn freeze_direct_can_disguise_as_team(obj: &crate::game_logic::Object) -> bool {
     crate::game_logic::host_bomb_truck_disguise::BOMB_TRUCK_DISGUISES_AS_TEAM
         && crate::game_logic::host_bomb_truck_disguise::has_disguises_as_team_stealth_residual(
-            obj.thing.template.name.as_str(),
+            obj.thing().template.name.as_str(),
         )
 }
 
@@ -176,7 +176,7 @@ pub(super) fn freeze_direct_can_disguise_as_team(obj: &crate::game_logic::Object
 /// Objects and use the committed disguise template only once the status says
 /// it is active.
 fn direct_host_visual_template_name(obj: &crate::game_logic::Object) -> String {
-    let actual_template_name = obj.thing.template.name.as_str();
+    let actual_template_name = obj.thing().template.name.as_str();
     if obj.status.disguised {
         obj.disguise_as_template
             .as_deref()
@@ -629,7 +629,7 @@ impl PresentationFrame {
             // special-power command.  The UI must not rediscover this from a
             // structure basename after the logic snapshot has been taken.
             let ready_structure_special_power_module = obj
-                .thing
+                .thing()
                 .template
                 .special_power_modules
                 .iter()
@@ -704,7 +704,7 @@ impl PresentationFrame {
                     p.y += obj.presentation_collapse_height_offset();
                     p.y += obj.presentation_slow_death_sink_offset();
                     if crate::assets::authored_draw_adjusts_height_by_construction(&draw_models) {
-                        let geom = &obj.thing.template.geometry_info;
+                        let geom = &obj.thing().template.geometry_info;
                         let height = if geom.authored {
                             geom.max_height_above_position()
                         } else {
@@ -843,19 +843,19 @@ impl PresentationFrame {
                 stored_supplies: obj.stored_resources.supplies,
                 drawable_supply_boxes: obj.drawable_supply_boxes,
                 drawable_supply_max_boxes: obj.drawable_supply_max_boxes,
-                dock_kind: obj.thing.template.dock_kind,
-                capturable: obj.thing.template.capturable,
-                immune_to_capture: obj.thing.template.immune_to_capture,
-                capture_garrisonable: obj.thing.template.garrison_contain_max.is_some(),
-                capture_power: obj.thing.template.capture_power,
+                dock_kind: obj.thing().template.dock_kind,
+                capturable: obj.thing().template.capturable,
+                immune_to_capture: obj.thing().template.immune_to_capture,
+                capture_garrisonable: obj.thing().template.garrison_contain_max.is_some(),
+                capture_power: obj.thing().template.capture_power,
                 capture_power_ready: obj
-                    .thing
+                    .thing()
                     .template
                     .capture_power
                     .special_power_type()
                     .is_some_and(|power| logic.is_special_power_ready_for(obj.id, &power)),
                 hacker_disable_building_capable: obj
-                    .thing
+                    .thing()
                     .template
                     .hacker_disable_building
                     .as_ref()
@@ -959,7 +959,7 @@ impl PresentationFrame {
                 effectively_stealthed: obj.is_effectively_stealthed(),
                 can_disguise_as_team: freeze_direct_can_disguise_as_team(obj),
                 friendly_stealth_opacity: freeze_friendly_stealth_opacity(obj),
-                friendly_stealth_opacity_max: obj.thing.template.stealth_friendly_opacity_max,
+                friendly_stealth_opacity_max: obj.thing().template.stealth_friendly_opacity_max,
                 disabled: obj.is_disabled(),
                 contained_by: obj.contained_by,
                 force_attack: obj.force_attack,
@@ -1059,7 +1059,7 @@ impl PresentationFrame {
                 },
                 sub_object_visibility: obj.sub_object_visibility.clone(),
 
-                upgrade_cameo_names: obj.thing.template.upgrade_cameo_names.clone(),
+                upgrade_cameo_names: obj.thing().template.upgrade_cameo_names.clone(),
                 has_secondary_weapon: obj.secondary_weapon.is_some(),
                 secondary_weapon_range: obj
                     .secondary_weapon
@@ -1110,12 +1110,12 @@ impl PresentationFrame {
                 is_combat_chinook_transport: obj.is_combat_chinook_transport,
                 max_transport: obj.max_transport,
                 overlord_bunker_capacity: obj.overlord_bunker_capacity.unwrap_or(usize::MAX),
-                contain_module_present: obj.thing.template.contain_module.kind
+                contain_module_present: obj.thing().template.contain_module.kind
                     != crate::game_logic::ContainModuleKind::None,
-                contain_module_kind: obj.thing.template.contain_module.kind,
+                contain_module_kind: obj.thing().template.contain_module.kind,
                 contain_admission: obj.normal_enter_admission(),
                 rider_change_allowed_templates: obj
-                    .thing
+                    .thing()
                     .template
                     .contain_module
                     .rider_change_riders
@@ -1123,14 +1123,18 @@ impl PresentationFrame {
                     .filter(|rider| rider.physical_enter_supported)
                     .map(|rider| rider.template_name.clone())
                     .collect(),
-                contain_allow_allies_inside: obj.thing.template.contain_module.allow_allies_inside,
+                contain_allow_allies_inside: obj
+                    .thing()
+                    .template
+                    .contain_module
+                    .allow_allies_inside,
                 contain_allow_enemies_inside: obj
-                    .thing
+                    .thing()
                     .template
                     .contain_module
                     .allow_enemies_inside,
                 contain_allow_neutral_inside: obj
-                    .thing
+                    .thing()
                     .template
                     .contain_module
                     .allow_neutral_inside,
@@ -1154,7 +1158,7 @@ impl PresentationFrame {
                 is_panicking: obj.is_panicking,
                 moving_backwards: obj.moving_backwards,
                 overcharge_enabled: obj.overcharge_enabled,
-                can_toggle_overcharge: obj.thing.template.supports_overcharge(),
+                can_toggle_overcharge: obj.thing().template.supports_overcharge(),
                 // Wave 519: shock / power-plant rods / jet slow-death residuals.
                 shock_was_airborne: obj.shock_was_airborne,
                 shock_allow_bounce: obj.shock_allow_bounce,
@@ -1241,7 +1245,7 @@ impl PresentationFrame {
                 health_box_width: obj.get_health_box_dimensions().1,
                 health_box_z_offset: obj.health_box_world_z_offset(),
                 max_height_above_position: {
-                    let geom = &obj.thing.template.geometry_info;
+                    let geom = &obj.thing().template.geometry_info;
                     if geom.authored {
                         geom.max_height_above_position()
                     } else {
@@ -1411,7 +1415,7 @@ impl PresentationFrame {
                                 || o.is_kind_of(crate::game_logic::KindOf::FSSuperweapon))
                     })
                     .flat_map(|obj| {
-                        obj.thing
+                        obj.thing()
                             .template
                             .special_power_modules
                             .iter()

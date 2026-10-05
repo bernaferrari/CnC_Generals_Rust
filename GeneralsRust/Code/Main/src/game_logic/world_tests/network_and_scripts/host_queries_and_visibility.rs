@@ -2132,7 +2132,7 @@ fn capture_trigger_awards_ranger_award_xp_for_triggering() {
         .expect("building");
     {
         let captor = game_logic.host_object_mut(captor_id).expect("captor");
-        captor.thing.template.is_trainable = true;
+        captor.template_mut().is_trainable = true;
         captor.target = Some(building_id);
         captor.set_ai_state(AIState::Capturing);
         assert_eq!(captor.experience.current, 0.0);
@@ -2181,7 +2181,7 @@ fn capture_does_not_heal_building_to_full() {
     }
     {
         let captor = game_logic.host_object_mut(captor_id).expect("captor");
-        captor.thing.template.is_trainable = true;
+        captor.template_mut().is_trainable = true;
         captor.target = Some(building_id);
         captor.set_ai_state(AIState::Capturing);
     }
