@@ -1,6 +1,6 @@
 // C++ ownership: ScriptEngine.cpp host notification queues — push/drain seams and completion tracking for every scripted side effect.
 
-/// Notification queues drained by the GameClient tick, in C++ order.
+/// Host requests drained by the driving Main world after each script action.
 #[derive(Default)]
 struct ScriptNotificationQueues {
     pending_warehouse_set_values: Vec<(String, i32)>,
@@ -105,6 +105,35 @@ pub struct MissionScriptHooks {
 }
 
 impl MissionScriptHooks {
+    /// Requests contain plain owned values; a producer unwind can leave an
+    /// earlier request queued but does not invalidate the remaining vectors.
+    /// Recover those values, report the interruption once, and let the existing
+    /// synchronous action/drain sequence continue. Never replay a drained action.
+    fn recover_notifications<'a>(
+        &self,
+        error: std::sync::PoisonError<std::sync::MutexGuard<'a, ScriptNotificationQueues>>,
+    ) -> std::sync::MutexGuard<'a, ScriptNotificationQueues> {
+        log::warn!(
+            "Recovering interrupted mission script notification queue; retained requests will still execute"
+        );
+        let queue = error.into_inner();
+        self.notifications.clear_poison();
+        queue
+    }
+
+    #[cfg(test)]
+    pub(crate) fn poison_notifications_for_test(&self) {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _queue = self
+                .notifications
+                .lock()
+                .expect("unpoisoned notification queue");
+            panic!("notification producer interrupted");
+        }));
+        assert!(result.is_err());
+        assert!(self.notifications.is_poisoned());
+    }
+
     /// Test seam: the completion maps were folded into one guard, so tests
     /// reach them through the same lock the drain uses.
     #[cfg(test)]
@@ -120,24 +149,29 @@ impl MissionScriptHooks {
         if name.is_empty() {
             return;
         }
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue
-                .pending_warehouse_set_values
-                .push((name.to_string(), cash));
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue
+            .pending_warehouse_set_values
+            .push((name.to_string(), cash));
     }
 
     pub fn drain_warehouse_set_values(&self) -> Vec<(String, i32)> {
-        self.notifications
+        let mut queue = self
+            .notifications
             .lock()
-            .map(|mut queue| queue.pending_warehouse_set_values.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.pending_warehouse_set_values.drain(..).collect()
     }
 
     pub fn clear_warehouse_set_values(&self) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.pending_warehouse_set_values.clear();
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.pending_warehouse_set_values.clear();
     }
 
     pub fn new() -> GameLogicResult<Arc<Self>> {
@@ -152,7 +186,7 @@ impl MissionScriptHooks {
             runtime: Mutex::new(mission_runtime_with_host_trigger_world(
                 Arc::clone(&pending_script_enabled_updates),
                 host_trigger_world,
-            )?),
+            )),
             pending_script_enabled_updates,
             notifications: Mutex::new(ScriptNotificationQueues::default()),
             completion: Mutex::new(AudioCompletionTracking::default()),
@@ -214,225 +248,291 @@ impl MissionScriptHooks {
     }
 
     pub fn push_message(&self, text: String) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            let localized = localization::localize_with_args(
-                "hud.script.broadcast",
-                "Transmission: {message}",
-                &[("message", text.as_str())],
-            );
-            queue.messages.push(localized);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        let localized = localization::localize_with_args(
+            "hud.script.broadcast",
+            "Transmission: {message}",
+            &[("message", text.as_str())],
+        );
+        queue.messages.push(localized);
     }
 
     pub fn push_sound(&self, name: String) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.sounds.push(name);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.sounds.push(name);
     }
 
     pub fn push_sound_event(&self, event: ScriptSoundEvent) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.sound_events.push(event);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.sound_events.push(event);
     }
 
     pub fn push_camera_move(&self, position: Vec3) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_moves.push(position);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_moves.push(position);
     }
 
     pub fn push_camera_tether(&self, request: CameraTetherRequest) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_tethers.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_tethers.push(request);
     }
 
     pub fn push_camera_follow(&self, request: CameraFollowRequest) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_follows.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_follows.push(request);
     }
 
     pub fn push_camera_path_move(&self, request: CameraPathRequest) {
         self.camera_movement_finished
             .store(false, Ordering::Relaxed);
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_path_moves.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_path_moves.push(request);
     }
 
     pub fn push_camera_move_to(&self, request: CameraMoveToRequest) {
         self.camera_movement_finished
             .store(false, Ordering::Relaxed);
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_move_to.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_move_to.push(request);
     }
 
     pub fn push_camera_move_to_selection(&self) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_move_to_selection_requests.push(());
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_move_to_selection_requests.push(());
     }
 
     pub fn push_camera_move_home(&self) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_move_home_requests.push(());
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_move_home_requests.push(());
     }
 
     pub fn push_camera_reset(&self, request: CameraResetRequest) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_resets.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_resets.push(request);
     }
 
     pub fn push_camera_zoom(&self, request: CameraZoomRequest) {
         self.camera_movement_finished
             .store(false, Ordering::Relaxed);
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_zoom_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_zoom_requests.push(request);
     }
 
     pub fn push_camera_pitch(&self, request: CameraPitchRequest) {
         self.camera_movement_finished
             .store(false, Ordering::Relaxed);
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_pitch_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_pitch_requests.push(request);
     }
 
     pub fn push_camera_rotate(&self, request: CameraRotateRequest) {
         self.camera_movement_finished
             .store(false, Ordering::Relaxed);
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_rotate_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_rotate_requests.push(request);
     }
 
     pub fn push_camera_mod_final_zoom(&self, request: CameraModFinalZoomRequest) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_mod_final_zoom_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_mod_final_zoom_requests.push(request);
     }
 
     pub fn push_camera_mod_final_pitch(&self, request: CameraModFinalPitchRequest) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_mod_final_pitch_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_mod_final_pitch_requests.push(request);
     }
 
     pub fn push_camera_mod_freeze_time(&self) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_mod_freeze_time_requests.push(());
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_mod_freeze_time_requests.push(());
     }
 
     pub fn push_camera_mod_freeze_angle(&self) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_mod_freeze_angle_requests.push(());
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_mod_freeze_angle_requests.push(());
     }
 
     pub fn push_camera_mod_final_speed_multiplier(
         &self,
         request: CameraModFinalSpeedMultiplierRequest,
     ) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue
-                .camera_mod_final_speed_multiplier_requests
-                .push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue
+            .camera_mod_final_speed_multiplier_requests
+            .push(request);
     }
 
     pub fn push_camera_mod_rolling_average(&self, request: CameraModRollingAverageRequest) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_mod_rolling_average_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_mod_rolling_average_requests.push(request);
     }
 
     pub fn push_visual_speed_multiplier(&self, request: VisualSpeedMultiplierRequest) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.visual_speed_multiplier_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.visual_speed_multiplier_requests.push(request);
     }
 
     pub fn push_script_freeze_time(&self, freeze: bool) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.script_freeze_time_requests.push(freeze);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.script_freeze_time_requests.push(freeze);
     }
 
     pub fn push_set_fps_limit(&self, request: SetFpsLimitRequest) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.set_fps_limit_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.set_fps_limit_requests.push(request);
     }
 
     pub fn push_camera_setup(&self, request: CameraSetupRequest) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_setup_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_setup_requests.push(request);
     }
 
     pub fn push_camera_look_toward_object(&self, request: CameraLookTowardObjectRequest) {
         self.camera_movement_finished
             .store(false, Ordering::Relaxed);
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_look_toward_object_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_look_toward_object_requests.push(request);
     }
 
     pub fn push_camera_look_toward_waypoint(&self, request: CameraLookTowardWaypointRequest) {
         self.camera_movement_finished
             .store(false, Ordering::Relaxed);
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_look_toward_waypoint_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_look_toward_waypoint_requests.push(request);
     }
 
     pub fn push_camera_mod_look_toward(&self, request: CameraModLookTowardRequest) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_mod_look_toward_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_mod_look_toward_requests.push(request);
     }
 
     pub fn push_camera_mod_final_look_toward(&self, request: CameraModFinalLookTowardRequest) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_mod_final_look_toward_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_mod_final_look_toward_requests.push(request);
     }
 
     pub fn push_camera_set_default(&self, request: CameraSetDefaultRequest) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_set_default_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_set_default_requests.push(request);
     }
 
     pub fn push_camera_slave_mode_enable(&self, request: CameraSlaveModeRequest) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_slave_mode_enable_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_slave_mode_enable_requests.push(request);
     }
 
     pub fn push_camera_slave_mode_disable(&self) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_slave_mode_disable_requests.push(());
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_slave_mode_disable_requests.push(());
     }
 
     pub fn push_screen_shake(&self, request: ScreenShakeRequest) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.screen_shake_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.screen_shake_requests.push(request);
     }
 
     pub fn push_camera_add_shaker(&self, request: CameraAddShakerRequest) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_add_shaker_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_add_shaker_requests.push(request);
     }
 
     pub fn set_camera_movement_finished(&self, finished: bool) {
@@ -445,158 +545,206 @@ impl MissionScriptHooks {
     }
 
     pub fn push_cinematic_text(&self, text: String, font: String, duration_seconds: i32) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.cinematic_text.push((text, font, duration_seconds));
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.cinematic_text.push((text, font, duration_seconds));
     }
 
     pub fn push_military_caption(&self, text: String, duration_ms: i32) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue
-                .military_captions
-                .push(MilitaryCaptionRequest { text, duration_ms });
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue
+            .military_captions
+            .push(MilitaryCaptionRequest { text, duration_ms });
     }
 
     pub fn push_letterbox(&self, enabled: bool) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.letterbox_events.push(enabled);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.letterbox_events.push(enabled);
     }
 
     pub fn push_movie_request(&self, filename: String) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.movie_requests.push(filename);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.movie_requests.push(filename);
     }
 
     pub fn push_radar_movie_request(&self, filename: String) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.radar_movie_requests.push(filename);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.radar_movie_requests.push(filename);
     }
 
     pub fn push_objective_update(&self, update: ObjectiveUpdate) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.objective_updates.push(update);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.objective_updates.push(update);
     }
 
     pub fn push_effect_request(&self, request: ScriptEffectRequest) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.effect_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.effect_requests.push(request);
     }
 
     pub fn push_radar_event_request(&self, request: RadarScriptEventRequest) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.radar_event_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.radar_event_requests.push(request);
     }
 
     pub fn push_radar_enabled(&self, enabled: bool) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.radar_enabled_updates.push(enabled);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.radar_enabled_updates.push(enabled);
     }
 
     pub fn push_radar_forced(&self, forced: bool) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.radar_forced_updates.push(forced);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.radar_forced_updates.push(forced);
     }
 
     pub fn push_weather_visible(&self, visible: bool) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.weather_visibility_updates.push(visible);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.weather_visibility_updates.push(visible);
     }
 
     pub fn push_popup_message(&self, mut request: ScriptPopupMessageRequest) {
         // Keep this opaque and monotonic rather than deriving authority from
         // popup text/layout fields. Acknowledge only the exact live instance.
         request.popup_generation = next_live_popup_generation();
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.popup_message_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.popup_message_requests.push(request);
     }
 
     pub fn push_view_guardband(&self, request: ViewGuardbandRequest) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.view_guardband_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.view_guardband_requests.push(request);
     }
 
     pub fn push_camera_bw_mode(&self, request: CameraBwModeRequest) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_bw_mode_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_bw_mode_requests.push(request);
     }
 
     pub fn push_skybox_enabled(&self, enabled: bool) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.skybox_enabled_updates.push(enabled);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.skybox_enabled_updates.push(enabled);
     }
 
     pub fn push_camera_motion_blur(&self, request: CameraMotionBlurRequest) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_motion_blur_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.camera_motion_blur_requests.push(request);
     }
 
     pub fn push_cameo_flash(&self, request: CameoFlashRequest) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.cameo_flash_requests.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.cameo_flash_requests.push(request);
     }
 
     pub fn push_named_timer_mutation(&self, request: NamedTimerMutation) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.named_timer_mutations.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.named_timer_mutations.push(request);
     }
 
     pub fn push_named_timer_display(&self, show: bool) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.named_timer_display_updates.push(show);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.named_timer_display_updates.push(show);
     }
 
     pub fn push_superweapon_display_enabled(&self, enabled: bool) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.superweapon_display_enabled_updates.push(enabled);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.superweapon_display_enabled_updates.push(enabled);
     }
 
     pub fn push_named_special_power_countdown_mutation(
         &self,
         request: NamedSpecialPowerCountdownMutation,
     ) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.named_special_power_countdown_mutations.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.named_special_power_countdown_mutations.push(request);
     }
 
     pub fn push_superweapon_object_display_mutation(
         &self,
         request: SuperweaponObjectDisplayMutation,
     ) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.superweapon_object_display_mutations.push(request);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.superweapon_object_display_mutations.push(request);
     }
 
     pub fn push_music_stop(&self) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.music_stop_requests.push(());
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.music_stop_requests.push(());
     }
 
     pub fn push_oversize_terrain(&self, amount: i32) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.oversize_terrain_requests.push(amount);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.oversize_terrain_requests.push(amount);
     }
 
     pub fn note_speech_started(&self, name: &str) {
@@ -730,448 +878,509 @@ impl MissionScriptHooks {
     }
 
     pub fn drain_messages(&self) -> Vec<String> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.messages.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.messages.drain(..).collect()
     }
 
     pub fn drain_sounds(&self) -> Vec<String> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.sounds.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.sounds.drain(..).collect()
     }
 
     pub fn drain_sound_events(&self) -> Vec<ScriptSoundEvent> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.sound_events.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.sound_events.drain(..).collect()
     }
 
     /// Take only the five contiguous focus families; preserve later action drains.
     /// Producers and the Main driver run synchronously on the game thread.
-    /// Retain the external shared-handler synchronization and poisoned fallback.
+    /// Retain the external shared-handler synchronization and recover retained requests.
     pub(crate) fn take_camera_focus_requests(&self) -> CameraFocusRequests {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| CameraFocusRequests {
-                moves: q.camera_moves.drain(..).collect(),
-                move_to_selection: q.camera_move_to_selection_requests.drain(..).collect(),
-                move_home: q.camera_move_home_requests.drain(..).collect(),
-                follows: q.camera_follows.drain(..).collect(),
-                tethers: q.camera_tethers.drain(..).collect(),
-            })
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        CameraFocusRequests {
+            moves: q.camera_moves.drain(..).collect(),
+            move_to_selection: q.camera_move_to_selection_requests.drain(..).collect(),
+            move_home: q.camera_move_home_requests.drain(..).collect(),
+            follows: q.camera_follows.drain(..).collect(),
+            tethers: q.camera_tethers.drain(..).collect(),
+        }
     }
 
     pub fn drain_camera_moves(&self) -> Vec<Vec3> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_moves.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_moves.drain(..).collect()
     }
 
     pub fn drain_camera_follows(&self) -> Vec<CameraFollowRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_follows.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_follows.drain(..).collect()
     }
 
     pub fn drain_camera_tethers(&self) -> Vec<CameraTetherRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_tethers.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_tethers.drain(..).collect()
     }
 
     pub fn drain_camera_path_moves(&self) -> Vec<CameraPathRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_path_moves.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_path_moves.drain(..).collect()
     }
 
     pub fn drain_camera_move_to(&self) -> Vec<CameraMoveToRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_move_to.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_move_to.drain(..).collect()
     }
 
     pub fn drain_camera_move_to_selection_requests(&self) -> Vec<()> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_move_to_selection_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_move_to_selection_requests.drain(..).collect()
     }
 
     pub fn drain_camera_move_home_requests(&self) -> Vec<()> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_move_home_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_move_home_requests.drain(..).collect()
     }
 
     pub fn drain_camera_resets(&self) -> Vec<CameraResetRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_resets.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_resets.drain(..).collect()
     }
 
     pub fn drain_camera_zoom_requests(&self) -> Vec<CameraZoomRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_zoom_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_zoom_requests.drain(..).collect()
     }
 
     pub fn drain_camera_pitch_requests(&self) -> Vec<CameraPitchRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_pitch_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_pitch_requests.drain(..).collect()
     }
 
     pub fn drain_camera_rotate_requests(&self) -> Vec<CameraRotateRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_rotate_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_rotate_requests.drain(..).collect()
     }
 
     pub fn drain_camera_mod_final_zoom_requests(&self) -> Vec<CameraModFinalZoomRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_mod_final_zoom_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_mod_final_zoom_requests.drain(..).collect()
     }
 
     pub fn drain_camera_mod_final_pitch_requests(&self) -> Vec<CameraModFinalPitchRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_mod_final_pitch_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_mod_final_pitch_requests.drain(..).collect()
     }
 
     pub fn drain_camera_mod_freeze_time_requests(&self) -> Vec<()> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_mod_freeze_time_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_mod_freeze_time_requests.drain(..).collect()
     }
 
     pub fn drain_camera_mod_freeze_angle_requests(&self) -> Vec<()> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_mod_freeze_angle_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_mod_freeze_angle_requests.drain(..).collect()
     }
 
     pub fn drain_camera_mod_final_speed_multiplier_requests(
         &self,
     ) -> Vec<CameraModFinalSpeedMultiplierRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| {
-                q.camera_mod_final_speed_multiplier_requests
-                    .drain(..)
-                    .collect()
-            })
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        {
+            q.camera_mod_final_speed_multiplier_requests
+                .drain(..)
+                .collect()
+        }
     }
 
     pub fn drain_camera_mod_rolling_average_requests(&self) -> Vec<CameraModRollingAverageRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_mod_rolling_average_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_mod_rolling_average_requests.drain(..).collect()
     }
 
     pub fn drain_visual_speed_multiplier_requests(&self) -> Vec<VisualSpeedMultiplierRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.visual_speed_multiplier_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.visual_speed_multiplier_requests.drain(..).collect()
     }
 
     pub fn drain_script_freeze_time_requests(&self) -> Vec<bool> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.script_freeze_time_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.script_freeze_time_requests.drain(..).collect()
     }
 
     pub fn drain_set_fps_limit_requests(&self) -> Vec<SetFpsLimitRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.set_fps_limit_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.set_fps_limit_requests.drain(..).collect()
     }
 
     pub fn drain_camera_setup_requests(&self) -> Vec<CameraSetupRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_setup_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_setup_requests.drain(..).collect()
     }
 
     pub fn drain_camera_look_toward_object_requests(&self) -> Vec<CameraLookTowardObjectRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_look_toward_object_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_look_toward_object_requests.drain(..).collect()
     }
 
     pub fn drain_camera_look_toward_waypoint_requests(
         &self,
     ) -> Vec<CameraLookTowardWaypointRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_look_toward_waypoint_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_look_toward_waypoint_requests.drain(..).collect()
     }
 
     pub fn drain_camera_mod_look_toward_requests(&self) -> Vec<CameraModLookTowardRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_mod_look_toward_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_mod_look_toward_requests.drain(..).collect()
     }
 
     pub fn drain_camera_mod_final_look_toward_requests(
         &self,
     ) -> Vec<CameraModFinalLookTowardRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_mod_final_look_toward_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_mod_final_look_toward_requests.drain(..).collect()
     }
 
     pub fn drain_camera_set_default_requests(&self) -> Vec<CameraSetDefaultRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_set_default_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_set_default_requests.drain(..).collect()
     }
 
     pub fn drain_camera_slave_mode_enable_requests(&self) -> Vec<CameraSlaveModeRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_slave_mode_enable_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_slave_mode_enable_requests.drain(..).collect()
     }
 
     pub fn drain_camera_slave_mode_disable_requests(&self) -> Vec<()> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_slave_mode_disable_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_slave_mode_disable_requests.drain(..).collect()
     }
 
     pub fn drain_screen_shake_requests(&self) -> Vec<ScreenShakeRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.screen_shake_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.screen_shake_requests.drain(..).collect()
     }
 
     pub fn drain_camera_add_shaker_requests(&self) -> Vec<CameraAddShakerRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_add_shaker_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_add_shaker_requests.drain(..).collect()
     }
 
     pub fn drain_cinematic_text(&self) -> Vec<(String, String, i32)> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.cinematic_text.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.cinematic_text.drain(..).collect()
     }
 
     pub fn drain_military_captions(&self) -> Vec<MilitaryCaptionRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.military_captions.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.military_captions.drain(..).collect()
     }
 
     pub fn drain_letterbox_events(&self) -> Vec<bool> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.letterbox_events.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.letterbox_events.drain(..).collect()
     }
 
     pub fn drain_movie_requests(&self) -> Vec<String> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.movie_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.movie_requests.drain(..).collect()
     }
 
     pub fn drain_radar_movie_requests(&self) -> Vec<String> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.radar_movie_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.radar_movie_requests.drain(..).collect()
     }
 
     pub fn drain_objective_updates(&self) -> Vec<ObjectiveUpdate> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.objective_updates.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.objective_updates.drain(..).collect()
     }
 
     pub fn drain_effect_requests(&self) -> Vec<ScriptEffectRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.effect_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.effect_requests.drain(..).collect()
     }
 
     pub fn drain_radar_event_requests(&self) -> Vec<RadarScriptEventRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.radar_event_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.radar_event_requests.drain(..).collect()
     }
 
     pub fn drain_radar_enabled_updates(&self) -> Vec<bool> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.radar_enabled_updates.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.radar_enabled_updates.drain(..).collect()
     }
 
     pub fn drain_radar_forced_updates(&self) -> Vec<bool> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.radar_forced_updates.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.radar_forced_updates.drain(..).collect()
     }
 
     pub fn drain_weather_visibility_updates(&self) -> Vec<bool> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.weather_visibility_updates.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.weather_visibility_updates.drain(..).collect()
     }
 
     pub fn drain_popup_message_requests(&self) -> Vec<ScriptPopupMessageRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.popup_message_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.popup_message_requests.drain(..).collect()
     }
 
     pub fn drain_view_guardband_requests(&self) -> Vec<ViewGuardbandRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.view_guardband_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.view_guardband_requests.drain(..).collect()
     }
 
     pub fn drain_camera_bw_mode_requests(&self) -> Vec<CameraBwModeRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_bw_mode_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_bw_mode_requests.drain(..).collect()
     }
 
     pub fn drain_skybox_enabled_updates(&self) -> Vec<bool> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.skybox_enabled_updates.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.skybox_enabled_updates.drain(..).collect()
     }
 
     pub fn drain_camera_motion_blur_requests(&self) -> Vec<CameraMotionBlurRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.camera_motion_blur_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.camera_motion_blur_requests.drain(..).collect()
     }
 
     pub fn drain_cameo_flash_requests(&self) -> Vec<CameoFlashRequest> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.cameo_flash_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.cameo_flash_requests.drain(..).collect()
     }
 
     pub fn drain_named_timer_mutations(&self) -> Vec<NamedTimerMutation> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.named_timer_mutations.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.named_timer_mutations.drain(..).collect()
     }
 
     pub fn drain_named_timer_display_updates(&self) -> Vec<bool> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.named_timer_display_updates.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.named_timer_display_updates.drain(..).collect()
     }
 
     pub fn drain_superweapon_display_enabled_updates(&self) -> Vec<bool> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.superweapon_display_enabled_updates.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.superweapon_display_enabled_updates.drain(..).collect()
     }
 
     pub fn drain_named_special_power_countdown_mutations(
         &self,
     ) -> Vec<NamedSpecialPowerCountdownMutation> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| {
-                q.named_special_power_countdown_mutations
-                    .drain(..)
-                    .collect()
-            })
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        {
+            q.named_special_power_countdown_mutations
+                .drain(..)
+                .collect()
+        }
     }
 
     pub fn drain_superweapon_object_display_mutations(
         &self,
     ) -> Vec<SuperweaponObjectDisplayMutation> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.superweapon_object_display_mutations.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.superweapon_object_display_mutations.drain(..).collect()
     }
 
     pub fn drain_music_stop_requests(&self) -> Vec<()> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.music_stop_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.music_stop_requests.drain(..).collect()
     }
 
     pub fn push_border_shroud_level(&self, level: u8) {
-        if let Ok(mut queue) = self.notifications.lock() {
-            queue.border_shroud_levels.push(level);
-        }
+        let mut queue = self
+            .notifications
+            .lock()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        queue.border_shroud_levels.push(level);
     }
 
     pub fn drain_border_shroud_levels(&self) -> Vec<u8> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.border_shroud_levels.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.border_shroud_levels.drain(..).collect()
     }
 
     pub fn drain_oversize_terrain_requests(&self) -> Vec<i32> {
-        self.notifications
+        let mut q = self
+            .notifications
             .lock()
-            .map(|mut q| q.oversize_terrain_requests.drain(..).collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|e| self.recover_notifications(e));
+        q.oversize_terrain_requests.drain(..).collect()
     }
 }

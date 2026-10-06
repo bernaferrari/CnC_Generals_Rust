@@ -11,9 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::localization;
 use gamelogic::scripting::core::{Script, ScriptAction, ScriptActionType, ScriptList};
-use gamelogic::scripting::engine::{
-    ScriptActionHandler, get_script_engine, initialize_script_engine,
-};
+use gamelogic::scripting::engine::{ScriptActionHandler, get_script_engine};
 use gamelogic::scripting::evaluator::ScriptEvaluator;
 use gamelogic::{GameLogicError, GameLogicResult};
 use glam::Vec3;

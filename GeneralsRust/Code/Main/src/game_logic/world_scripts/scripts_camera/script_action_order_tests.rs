@@ -214,3 +214,94 @@ fn driving_main_team_status_uses_exact_owner_identity_and_existing_empty_team() 
         },
     );
 }
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn actual_world_construction_does_not_publish_script_engine() {
+    super::sequential_actor_tests::isolated(
+        module_path!(),
+        "actual_world_construction_does_not_publish_script_engine",
+        || {
+            *get_script_engine().write().unwrap() = None;
+            let mut first = GameLogic::new();
+            assert!(
+                get_script_engine().read().unwrap().is_none(),
+                "constructing a world must not install a process-wide script engine"
+            );
+            let second = GameLogic::new();
+            assert!(
+                get_script_engine().read().unwrap().is_none(),
+                "constructing a second world must also remain inert"
+            );
+
+            // Map/script startup remains the explicit installation operation.
+            // Missing map data must not prevent installation of the host handler.
+            first.initialize_scripts("__inert_constructor_missing_map__");
+            assert!(
+                get_script_engine()
+                    .read()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .action_handler()
+                    .is_some()
+            );
+            get_script_engine()
+                .read()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .set_counter("ConstructorMarker", 73)
+                .unwrap();
+            let third = GameLogic::new();
+            assert_eq!(
+                get_script_engine()
+                    .read()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .get_counter("ConstructorMarker")
+                    .unwrap()
+                    .value,
+                73,
+                "a constructor must not replace an explicitly installed engine"
+            );
+            drop((second, third));
+        },
+    );
+}
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn poisoned_main_script_callback_queue_preserves_nested_action_order() {
+    super::sequential_actor_tests::isolated(
+        module_path!(),
+        "poisoned_main_script_callback_queue_preserves_nested_action_order",
+        || {
+            let mut world = GameLogic::new();
+            world
+                .mission_scripts
+                .push_message("retained-before-interruption".into());
+            world.mission_scripts.poison_notifications_for_test();
+            execute_chain(
+                &mut world,
+                vec![
+                    real_action(ScriptActionType::RotateCamera, &[1.0, 4.0, 0.0, 0.0]),
+                    Box::new(ScriptAction::new(ScriptActionType::CameraModFreezeAngle)),
+                    real_action(ScriptActionType::RotateCamera, &[2.0, 3.0, 0.0, 0.0]),
+                ],
+                true,
+            );
+            assert_eq!(world.pending_camera_rotate.as_ref().unwrap().rotations, 2.0);
+            assert_eq!(world.script_camera_rotate_remaining, 3.0);
+            assert_eq!(world.new_script_messages.len(), 1);
+            assert!(world.new_script_messages[0].contains("retained-before-interruption"));
+            world.apply_script_action_requests();
+            assert_eq!(
+                world.new_script_messages.len(),
+                1,
+                "retained action executes only once"
+            );
+        },
+    );
+}

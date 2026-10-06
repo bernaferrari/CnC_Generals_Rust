@@ -7,7 +7,60 @@ mod tests {
         Condition, ConditionType, Coord3D, OrCondition, Parameter, ParameterType, ScriptActionType,
         ScriptGroup,
     };
-    use gamelogic::scripting::engine::{ScriptEngine, ScriptEngineHandle};
+    use gamelogic::scripting::engine::{
+        ScriptEngine, ScriptEngineHandle, initialize_script_engine,
+    };
+
+    #[test]
+    fn poisoned_notification_queue_preserves_existing_and_next_handler_actions() {
+        let hooks = MissionScriptHooks::new().expect("hooks");
+        let handler = MissionScriptActionHandler::new(hooks.clone());
+        handler.set_radar_forced(true).unwrap();
+        hooks.poison_notifications_for_test();
+        handler.set_radar_forced(false).unwrap();
+        assert_eq!(hooks.drain_radar_forced_updates(), vec![true, false]);
+        assert!(hooks.drain_radar_forced_updates().is_empty());
+        assert!(!hooks.notifications.is_poisoned());
+    }
+
+    #[test]
+    fn poisoned_notification_queue_recovers_grouped_camera_drain_and_clear() {
+        let hooks = MissionScriptHooks::new().expect("hooks");
+        hooks.push_camera_move(Vec3::new(1.0, 2.0, 3.0));
+        hooks.push_camera_move_home();
+        hooks.queue_warehouse_set_value("Depot", 700);
+        hooks.poison_notifications_for_test();
+        let focus = hooks.take_camera_focus_requests();
+        assert_eq!(focus.moves, vec![Vec3::new(1.0, 2.0, 3.0)]);
+        assert_eq!(focus.move_home.len(), 1);
+        assert!(hooks.take_camera_focus_requests().moves.is_empty());
+        hooks.poison_notifications_for_test();
+        hooks.clear_warehouse_set_values();
+        assert!(hooks.drain_warehouse_set_values().is_empty());
+        hooks.queue_warehouse_set_value("Depot", 900);
+        assert_eq!(
+            hooks.drain_warehouse_set_values(),
+            vec![("Depot".into(), 900)]
+        );
+    }
+
+    #[test]
+    fn poisoned_notification_queue_is_local_to_its_hooks() {
+        let first = MissionScriptHooks::new().expect("first hooks");
+        let second = MissionScriptHooks::new().expect("second hooks");
+        first.queue_warehouse_set_value("Depot", 100);
+        second.queue_warehouse_set_value("Depot", 200);
+        first.poison_notifications_for_test();
+        assert!(!second.notifications.is_poisoned());
+        assert_eq!(
+            second.drain_warehouse_set_values(),
+            vec![("Depot".into(), 200)]
+        );
+        assert_eq!(
+            first.drain_warehouse_set_values(),
+            vec![("Depot".into(), 100)]
+        );
+    }
 
     #[test]
     fn handler_forwards_camera_pitch_rotate_and_mod_requests() {
@@ -259,6 +312,9 @@ mod tests {
 
     #[test]
     fn has_finished_video_waits_leftover_list_unknown_names_false() {
+        // Standalone video bookkeeping needs explicit engine startup; hook
+        // construction must not install it as a hidden side effect.
+        initialize_script_engine().unwrap();
         let hooks = MissionScriptHooks::new().expect("hooks");
         let handler = MissionScriptActionHandler::new(hooks.clone());
 
