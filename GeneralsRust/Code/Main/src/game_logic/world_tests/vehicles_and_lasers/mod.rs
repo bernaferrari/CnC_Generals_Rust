@@ -12,6 +12,7 @@ use super::helpers::*;
 // -----------------------------------------------------------------------
 
 // Behavior-named suites keep each test file below the 4k LOC ceiling.
+mod ai_interface_los_tests;
 mod hero_weapons_and_airfields;
 mod rebuild_and_repairs;
 mod vehicles_turrets_and_rebuild;

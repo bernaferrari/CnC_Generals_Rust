@@ -18608,7 +18608,9 @@
           "blockers": [
             "unreviewed_mapping",
             "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory.rs"
+            "unreviewed_source_range_ownership",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory/behavior_interfaces.rs"
           ],
           "candidate_destinations": [
             {
@@ -18620,6 +18622,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory/behavior_interfaces.rs"
             },
             {
               "cargo_reachable": true,
@@ -18698,6 +18705,7 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/draw_module.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/module.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory/behavior_interfaces.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/object_ini_fields.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_factory.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template.rs",
@@ -18743,6 +18751,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory/behavior_interfaces.rs"
             },
             {
               "cargo_reachable": true,
@@ -53037,6 +53050,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update_interface.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update_interface/turret_owner_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -188904,7 +188922,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "bd02113ada2fdd1d44445548be2599930fba69a6c7c682bd4f90cb9956756ab7",
+  "provenance_input_digest": "0b81b4908b43a05e14e9e746509c9194e7252cb51877d37276bce5c49927845a",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

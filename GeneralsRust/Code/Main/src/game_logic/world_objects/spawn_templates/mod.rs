@@ -320,6 +320,7 @@ fn unshroud_stale_host_partition_covers(
     }
 }
 
+mod ai_interface;
 mod definition;
 mod metadata;
 mod seeding;

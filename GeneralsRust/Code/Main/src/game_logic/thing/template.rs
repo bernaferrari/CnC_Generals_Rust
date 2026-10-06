@@ -478,6 +478,11 @@ pub struct ThingTemplate {
     /// C++ `AIUpdateModuleData::m_autoAcquireEnemiesWhenIdle` from Object INI.
     #[serde(default)]
     pub auto_acquire_enemies_when_idle: u32,
+    /// Exact authored module-interface metadata. `None` means unproven
+    /// (hand-built rules or an unknown class), not absence. This belongs to
+    /// the template; Object snapshots retain only the template identity.
+    #[serde(default)]
+    authored_ai_update_interface: Option<bool>,
     /// C++ `AIUpdateModuleData::m_forbidPlayerCommands` (Spectre gunship).
     #[serde(default)]
     pub forbid_player_commands: bool,
@@ -488,6 +493,14 @@ pub struct ThingTemplate {
 }
 
 impl ThingTemplate {
+    pub(crate) fn authored_ai_update_interface(&self) -> Option<bool> {
+        self.authored_ai_update_interface
+    }
+
+    pub(crate) fn set_authored_ai_update_interface(&mut self, presence: Option<bool>) {
+        self.authored_ai_update_interface = presence;
+    }
+
     pub fn new(name: &str) -> Self {
         Self {
             name: name.to_string(),
@@ -636,6 +649,7 @@ impl ThingTemplate {
             geometry_info: HostGeometryInfo::default(),
             structure_rubble_height: 0,
             auto_acquire_enemies_when_idle: 0,
+            authored_ai_update_interface: None,
             forbid_player_commands: false,
             production_prerequisites: Vec::new(),
         }

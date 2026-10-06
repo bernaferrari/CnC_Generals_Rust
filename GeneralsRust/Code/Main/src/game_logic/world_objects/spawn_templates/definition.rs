@@ -225,6 +225,7 @@ impl GameLogic {
         Self::apply_authored_flight_deck_metadata(&mut template, definition);
         Self::apply_authored_deploy_style_metadata(&mut template, definition);
         Self::apply_authored_auto_acquire_metadata(&mut template, definition);
+        Self::apply_authored_ai_interface_metadata(&mut template, definition);
 
         Self::apply_authored_supply_truck_metadata(&mut template, definition);
         Self::apply_authored_production_exit_metadata(&mut template, definition);
@@ -620,16 +621,25 @@ impl GameLogic {
         use crate::game_logic::host_upgrade_module_residuals::{
             AuthoredLocomotorSet, HostLocomotorSetKind, locomotor_set_kind_from_token,
         };
-        let sets: Vec<_> = definition.locomotor_sets.iter().filter_map(|row| {
-            let kind = locomotor_set_kind_from_token(&row.set_name)?;
-            Some(AuthoredLocomotorSet {
-                kind,
-                members: row.locomotor_names.iter()
-                    .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("None"))
-                    .cloned().collect(),
+        let sets: Vec<_> = definition
+            .locomotor_sets
+            .iter()
+            .filter_map(|row| {
+                let kind = locomotor_set_kind_from_token(&row.set_name)?;
+                Some(AuthoredLocomotorSet {
+                    kind,
+                    members: row
+                        .locomotor_names
+                        .iter()
+                        .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("None"))
+                        .cloned()
+                        .collect(),
+                })
             })
-        }).collect();
-        let normal = sets.iter().find(|row| row.kind == HostLocomotorSetKind::Normal);
+            .collect();
+        let normal = sets
+            .iter()
+            .find(|row| row.kind == HostLocomotorSetKind::Normal);
         let names = if definition_has_rider_change_contain(definition) {
             rider_change_normal_locomotors.as_deref().unwrap_or(&[])
         } else {

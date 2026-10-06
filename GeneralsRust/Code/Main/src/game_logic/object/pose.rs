@@ -332,13 +332,6 @@ impl Object {
             if phase == 0 {
                 self.start_production_door_cycle_at(now, door);
             }
-        } else if matches!(self.production_door_phases[door], 2 | 4)
-            || (door == 0 && matches!(self.production_door_phase, 2 | 4))
-        {
-            self.production_door_phase_end_frames[door] = now;
-            if door == 0 {
-                self.production_door_phase_end_frame = now;
-            }
         }
         self.sync_primary_production_door();
         self.record_host_production_door();
@@ -453,8 +446,8 @@ impl Object {
             }
             2 => {
                 if self.production_door_is_held(door) {
-                    self.production_door_phase_end_frames[door] =
-                        now.saturating_add(producer_door_phase_duration(name.as_str(), 2));
+                    // C++ retains m_doorWaitOpenFrame while held. Release
+                    // must use that original deadline, not restart the wait.
                     return false;
                 }
                 // C++ updateDoors: WAITING_OPEN → CLOSING. Never WAITING_TO_CLOSE.

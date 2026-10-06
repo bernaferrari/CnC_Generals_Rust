@@ -3390,6 +3390,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory/behavior_interfaces.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "test",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -5857,6 +5864,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory/behavior_interfaces.rs"
           },
           {
             "cargo_reachable": true,
@@ -28655,6 +28669,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update_interface/turret_owner_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -40473,7 +40494,9 @@
       "blockers": [
         "unreviewed_mapping",
         "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory.rs"
+        "unreviewed_source_range_ownership",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory/behavior_interfaces.rs"
       ],
       "id": "game_engine:Source/Common/Thing/ModuleFactory.cpp",
       "inventory_class": "required_runtime",
@@ -40496,6 +40519,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory/behavior_interfaces.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "test",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -40511,7 +40541,7 @@
         ],
         "mode": "split_inferred",
         "ownership_diagnostics": [],
-        "range_validation": "not_required",
+        "range_validation": "unreviewed",
         "review_state": "unreviewed",
         "reviewed_path_implementation": false,
         "stale_reviewed_destinations": [],
@@ -40547,6 +40577,7 @@
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/draw_module.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/module.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory/behavior_interfaces.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/object_ini_fields.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_factory.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/thing_template.rs",
@@ -40612,6 +40643,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory/behavior_interfaces.rs"
           },
           {
             "cargo_reachable": true,
@@ -60963,6 +61001,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update_interface.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update_interface/turret_owner_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -157182,7 +157227,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "bd02113ada2fdd1d44445548be2599930fba69a6c7c682bd4f90cb9956756ab7",
+  "input_digest": "0b81b4908b43a05e14e9e746509c9194e7252cb51877d37276bce5c49927845a",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -160134,11 +160179,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 477,
+        "end_line": 504,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/crc.rs",
-      "sha256": "8a631fc3250d32375e5cee2a6bec9a1e2e1ae111efd3472801d4ad0b9ea00fc7",
+      "sha256": "a3ff20c49b1d50d379e57fb0093b36755629681ffa374383661d1334c8828ab0",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -160558,11 +160603,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2544,
+        "end_line": 2550,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini.rs",
-      "sha256": "1a4f906bcd54be28a2c20222f5dce87ec7aed442a61f781b884b0250e157dcfa",
+      "sha256": "e7698bd6d192d547286f85d96db6dc2673bdd2b6f24afdee3e380548fda9b289",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -160874,7 +160919,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_weapon.rs",
-      "sha256": "5d610ba6dba39e9dd72514965879244f5318b2bccc32b6adebdf24ad30526aa8",
+      "sha256": "0be1e98bee38c8991841e36ba2789893d71c561fc013a8d4103e62a5e543dce2",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -162058,11 +162103,23 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1513,
+        "end_line": 44,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory/behavior_interfaces.rs",
+      "sha256": "ca5c2e89815fbc2c3f69eef2fed613f2288c01736c52cc2229944dafafbf8150",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 1516,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory.rs",
-      "sha256": "861f226665afb8034505a4af71c33ae6b89c7a6894533f6a665f0407cfd3a924",
+      "sha256": "edd4a245ca40a3117fe8c442d2a71587d02a81aa47fb40916b12f8d9d7b95cb8",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -197007,11 +197064,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 236,
+        "end_line": 242,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/locomotor/core_impl/locomotor.rs",
-      "sha256": "d4a88aaf26acee3c410c1dd3535f60809b23efd545ac38913b033506667be7b3",
+      "sha256": "4e8ca1b6dae2f77a905edc389722a9087675959066cbce0edcc3a9b67e0fb6b6",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -197175,11 +197232,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 207,
+        "end_line": 204,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/locomotor/ini_bridge.rs",
-      "sha256": "877d020063d1afab7acf790f45df893d70be1d8f958f26e8b40777e05def4e25",
+      "sha256": "48f61eb313e65cd74f2a236f6c567822c5cfe3d2898a09d47ccb057c979e07b3",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -202213,13 +202270,25 @@
     },
     {
       "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 57,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update_interface/turret_owner_tests.rs",
+      "sha256": "817d1e285d7c68bf74f0e78693f340c8bbe77b02092fded55f17fa225a293769",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3891,
+        "end_line": 3883,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update_interface.rs",
-      "sha256": "c53016ca567d395ed20e22089e9ae78e71b37d221705f37e1a97f8e24e94163c",
+      "sha256": "7611cd3260e8650bc39094b9ccc47d063cb87701ad09ae15cdf327f7dc05c44f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -218080,12 +218149,12 @@
     },
     "behavior_verified": 1,
     "blockers_by_kind": {
-      "duplicate_implementation_destination": 684,
+      "duplicate_implementation_destination": 686,
       "missing_mapping": 21,
       "no_reachable_implementation": 684,
       "ownership_symbol": 6,
       "unreviewed_mapping": 1381,
-      "unreviewed_source_range_ownership": 41,
+      "unreviewed_source_range_ownership": 42,
       "unreviewed_symbol_ownership": 1388
     },
     "by_scope": {
@@ -218146,13 +218215,13 @@
       }
     },
     "deferred_network_translation_units": 47,
-    "duplicate_implementation_destinations": 312,
+    "duplicate_implementation_destinations": 313,
     "orphan_ownership_records": 0,
     "reachable_implementation_candidates": 705,
     "required_translation_units": 1389,
     "reviewed_path_implementations": 8,
     "source_range_ownership_reviewed": 3,
-    "strict_blockers": 4205,
+    "strict_blockers": 4208,
     "symbol_ownership_reviewed": 1,
     "translation_units": 1436
   }

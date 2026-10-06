@@ -2943,15 +2943,21 @@ fn production_door_hold_open_blocks_close_until_released() {
         assert!(o.production_door_hold_open);
         assert_eq!(o.production_door_phase, 1);
         assert!(!o.tick_production_door(open));
+        // C++ updateDoors advances only after the exact phase deadline.
+        assert_eq!(o.production_door_phase, 1);
+        assert!(!o.tick_production_door(open.saturating_add(1)));
         assert_eq!(o.production_door_phase, 2);
+        let waiting_deadline = o.production_door_phase_end_frame;
         assert!(!o.tick_production_door(open.saturating_add(10_000)));
         assert_eq!(o.production_door_phase, 2);
+        assert_eq!(o.production_door_phase_end_frame, waiting_deadline);
         assert!(host_model_condition_has(
             o.model_condition_bits,
             door_1_waiting_open_model_bit()
         ));
         let release = open.saturating_add(10_000);
         o.set_production_door_hold_open(false, release);
+        assert_eq!(o.production_door_phase_end_frame, waiting_deadline);
         assert!(!o.tick_production_door(release));
         // C++ updateDoors: WAITING_OPEN → CLOSING. No WAITING_TO_CLOSE.
         assert_eq!(o.production_door_phase, 4);
@@ -2959,7 +2965,9 @@ fn production_door_hold_open_blocks_close_until_released() {
             o.model_condition_bits,
             door_1_closing_model_bit()
         ));
-        assert!(o.tick_production_door(release.saturating_add(close)));
+        assert!(!o.tick_production_door(release.saturating_add(close)));
+        assert_eq!(o.production_door_phase, 4);
+        assert!(o.tick_production_door(release.saturating_add(close).saturating_add(1)));
         assert_eq!(o.production_door_phase, 0);
     }
 }

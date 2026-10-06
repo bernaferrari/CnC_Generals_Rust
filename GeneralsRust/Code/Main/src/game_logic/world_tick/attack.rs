@@ -356,8 +356,17 @@ impl GameLogic {
         let name = obj.template_name.to_ascii_lowercase();
         let spawns = name.contains("spawnsaretheweapons") || name.contains("stinger");
         let immobile = obj.is_kind_of(crate::game_logic::KindOf::Immobile);
-        let moving = crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(obj);
-        let on_ground = immobile || spawns || container_ground || moving;
+        // C++ AIStates.cpp:1090 starts true and queries ground movement only
+        // when getAI() is non-null. A present AI with no current locomotor
+        // returns false (AIUpdate.cpp:2353); an absent AI stays on the ground.
+        // Unknown host metadata retains the existing movement fallback.
+        let ai_on_ground = match obj.get_template().authored_ai_update_interface() {
+            Some(false) => true,
+            Some(true) | None => {
+                crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(obj)
+            }
+        };
+        let on_ground = immobile || spawns || container_ground || ai_on_ground;
         let victim_high = victim.is_significantly_above_terrain();
         if !contact && on_ground && !victim_high {
             let to = victim.get_position();
@@ -1545,9 +1554,10 @@ impl GameLogic {
                     let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
                     let range = u
                         .selected_weapon_slot()
-                        .and_then(|s| u.weapon_slot(s).map(|w| {
-                            (u.effective_weapon_range(w.range) - under).max(0.0)
-                        }))
+                        .and_then(|s| {
+                            u.weapon_slot(s)
+                                .map(|w| (u.effective_weapon_range(w.range) - under).max(0.0))
+                        })
                         .unwrap_or(1.0)
                         .max(1.0);
                     let dist = v.length();
@@ -1901,7 +1911,8 @@ impl GameLogic {
     /// C++ AIUpdateInterface::privateMoveToPosition residual.
     pub fn private_move_to_position(&mut self, unit_id: ObjectId, pos: glam::Vec3) -> bool {
         let from_player = self.objects.get(&unit_id).is_some_and(|u| {
-            u.last_command_source == crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_PLAYER
+            u.last_command_source
+                == crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_PLAYER
         });
         let pos = if from_player {
             self.clip_player_goal(unit_id, pos)
@@ -1938,7 +1949,8 @@ impl GameLogic {
         let try_adjust = adjusts && !rider;
         let goal = if try_adjust && !projectile {
             let cell_size = self.pathfinding_system.grid.grid_size();
-            let (_, center) = crate::game_logic::PathfindingGrid::radius_and_center(radius, cell_size);
+            let (_, center) =
+                crate::game_logic::PathfindingGrid::radius_and_center(radius, cell_size);
             let mut shifted = pos;
             if !center {
                 shifted.x += cell_size * 0.5;
@@ -1946,16 +1958,14 @@ impl GameLogic {
             }
             let cell = self.pathfinding_system.grid.world_to_grid(shifted);
             let layer = self.pathfinding_system.grid.layer_for_destination(pos);
-            if let Some(adjusted) = self.pathfinding_system.grid.adjust_destination_on_layer(
-                cell,
-                surfaces,
-                crusher,
-                400,
-                player,
-                level,
-                layer,
-            ) {
-                self.pathfinding_system.grid.grid_to_world_on_layer(adjusted, layer)
+            if let Some(adjusted) = self
+                .pathfinding_system
+                .grid
+                .adjust_destination_on_layer(cell, surfaces, crusher, 400, player, level, layer)
+            {
+                self.pathfinding_system
+                    .grid
+                    .grid_to_world_on_layer(adjusted, layer)
             } else {
                 self.pathfinding_system
                     .snap_closest_goal_position(pos, surfaces, crusher, radius)
@@ -2017,8 +2027,8 @@ impl GameLogic {
             u.is_blocked_and_stuck = false;
             if let Some(cliff) = enter_model {
                 if cliff {
-                    let climb = 1u128
-                        << crate::game_logic::host_enum_table_residual::climbing_model_bit();
+                    let climb =
+                        1u128 << crate::game_logic::host_enum_table_residual::climbing_model_bit();
                     let rappel = 1u128
                         << crate::game_logic::host_enum_table_residual::rappelling_model_bit();
                     let moving =

@@ -28,6 +28,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+mod behavior_interfaces;
+pub use behavior_interfaces::builtin_behavior_has_ai_update_interface;
+
 const fn mask_or(a: ModuleInterfaceType, b: ModuleInterfaceType) -> ModuleInterfaceType {
     ModuleInterfaceType(a.0 | b.0)
 }
