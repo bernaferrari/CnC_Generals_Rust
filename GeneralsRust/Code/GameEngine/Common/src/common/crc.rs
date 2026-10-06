@@ -8,6 +8,38 @@
 // A class encapsulating CRC calculation
 // Author: Matthew D. Campbell, October 2001
 
+mod sealed {
+    pub trait Sealed {}
+
+    impl Sealed for u32 {}
+    impl<T: super::CrcValue, const N: usize> Sealed for [T; N] {}
+}
+
+/// Values with an explicit CRC byte encoding matching the original x86 game.
+///
+/// Only `u32` and fixed arrays of supported values implement this sealed trait.
+/// Words use little-endian bytes; arrays concatenate element encodings without
+/// padding, lengths, or separators. Other types must encode their chosen fields
+/// explicitly and pass those bytes to [`Crc::compute_crc`].
+pub trait CrcValue: sealed::Sealed {
+    #[doc(hidden)]
+    fn update_crc(&self, crc: &mut Crc);
+}
+
+impl CrcValue for u32 {
+    fn update_crc(&self, crc: &mut Crc) {
+        crc.compute_crc(&self.to_le_bytes());
+    }
+}
+
+impl<T: CrcValue, const N: usize> CrcValue for [T; N] {
+    fn update_crc(&self, crc: &mut Crc) {
+        for value in self {
+            value.update_crc(crc);
+        }
+    }
+}
+
 /// CRC calculation class
 #[derive(Debug, Clone, Default)]
 pub struct Crc {
@@ -26,8 +58,8 @@ impl Crc {
         let hibit = if self.crc & 0x80000000 != 0 { 1 } else { 0 };
 
         self.crc <<= 1;
-        self.crc += val as u32;
-        self.crc += hibit;
+        self.crc = self.crc.wrapping_add(val as u32);
+        self.crc = self.crc.wrapping_add(hibit);
     }
 
     /// Compute the CRC for a buffer, added into current CRC (debug version)
@@ -84,18 +116,13 @@ impl Crc {
         self.crc = self.crc.wrapping_add(other_crc);
     }
 
-    /// Compute CRC of a single value
-    pub fn compute_single<T>(&mut self, value: &T) {
-        // SAFETY: reading any plain-old-data T as bytes; no padding is
-        // observed because size_of::<T>() bounds the read exactly.
-        let bytes = unsafe {
-            std::slice::from_raw_parts(value as *const T as *const u8, std::mem::size_of::<T>())
-        };
-        self.compute_crc(bytes);
+    /// Compute CRC of a single explicitly encoded value (see [`CrcValue`]).
+    pub fn compute_single<T: CrcValue>(&mut self, value: &T) {
+        value.update_crc(self);
     }
 
-    /// Compute CRC of multiple values
-    pub fn compute_multiple<T>(&mut self, values: &[T]) {
+    /// Compute CRC of explicitly encoded values, in slice order.
+    pub fn compute_multiple<T: CrcValue>(&mut self, values: &[T]) {
         for value in values {
             self.compute_single(value);
         }
@@ -152,8 +179,8 @@ pub fn compute_crc_of_string(s: &str) -> u32 {
     compute_crc_of_buffer(s.as_bytes())
 }
 
-/// Convenience function to compute CRC of a value
-pub fn compute_crc_of_value<T>(value: &T) -> u32 {
+/// Convenience function to compute CRC of an explicitly encoded value.
+pub fn compute_crc_of_value<T: CrcValue>(value: &T) -> u32 {
     let mut crc = Crc::new();
     crc.compute_single(value);
     crc.get()

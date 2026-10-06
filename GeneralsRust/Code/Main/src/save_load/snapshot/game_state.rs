@@ -55,7 +55,8 @@ pub struct DeathEventSnapshot {
     pub death_position: glam::Vec3,
 }
 
-/// Experience tracking snapshot
+/// Redundant experience summary retained in the Rust snapshot wire format.
+/// `ObjectSnapshot::experience` is authoritative; these are not replayable grants.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ExperienceTrackerSnapshot {
     pub experience_events: Vec<ExperienceEventSnapshot>,

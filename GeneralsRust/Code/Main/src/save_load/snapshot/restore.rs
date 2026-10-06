@@ -139,6 +139,9 @@ impl SnapshotBuilder {
         object.selected = snapshot.status.selected;
         object.health = snapshot.health.clone();
         object.movement = snapshot.movement.clone();
+        // C++ ExperienceTracker::xfer transfers XP/rank verbatim, and its
+        // loadPostProcess is empty. This required object record is authoritative,
+        // including zero XP; summary events/bonuses must not replay promotions.
         object.experience = snapshot.experience.clone();
 
         // Concrete WeaponSet layout: [0]=primary, [1]=secondary,
@@ -1042,55 +1045,6 @@ impl SnapshotBuilder {
             .host_upgrades_mut()
             .restore_from_snapshot(snapshot.next_id, snapshot.entries.clone());
         super::player_upgrade_persist::apply_from_live_registry(game_logic);
-        Ok(())
-    }
-
-    pub(super) fn restore_experience_tracker(
-        &self,
-        exp_tracker_snapshot: &ExperienceTrackerSnapshot,
-        game_logic: &mut GameLogic,
-    ) -> SaveLoadResult<()> {
-        // C++ ExperienceTracker::xfer (ExperienceTracker.cpp:222-245) restores
-        // m_currentLevel / m_currentExperience verbatim and replays nothing.
-        // The object snapshots already overlay the saved XP, so replaying the
-        // tracker events on top of an intact object tail double-counts: a unit
-        // saved at 180/Elite loaded at 360/Heroic. The event stream is only a
-        // recovery fallback for tails whose object XP is missing or stale
-        // (see snapshot_restore_recovers_veterancy_from_tracker_data): an
-        // object re-gains XP only when its restored experience differs from
-        // the tracker event total.
-        let mut event_totals: HashMap<ObjectId, f32> = HashMap::new();
-        for event in &exp_tracker_snapshot.experience_events {
-            if event.experience_gained <= 0.0 {
-                continue;
-            }
-            *event_totals.entry(event.object_id).or_insert(0.0) += event.experience_gained.max(0.0);
-        }
-
-        for (object_id, total) in &event_totals {
-            let Some(object) = game_logic.host_object_mut(*object_id) else {
-                continue;
-            };
-            // Capture writes experience_gained == the object's XP at save
-            // time, so an intact restore matches exactly and must not re-gain.
-            if object.experience.current == *total {
-                continue;
-            }
-            object.gain_experience(*total);
-        }
-
-        for (object_id, bonuses) in &exp_tracker_snapshot.veterancy_bonuses {
-            let Some(object) = game_logic.host_object_mut(*object_id) else {
-                continue;
-            };
-
-            let (_, min_experience) = Self::veterancy_level_from_bonus(bonuses.health_bonus);
-            if object.experience.current < min_experience {
-                object.experience.current = min_experience;
-                object.gain_experience(0.0);
-            }
-        }
-
         Ok(())
     }
 

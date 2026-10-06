@@ -15,6 +15,11 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::common::ascii_string::AsciiString;
+use crate::common::game_common::{
+    convert_acceleration_in_secs_to_frames,
+    convert_angular_velocity_in_degrees_per_sec_to_rads_per_frame,
+    convert_velocity_in_secs_to_frames,
+};
 use crate::common::name_key_generator::{NameKeyGenerator, NameKeyType};
 
 /// Result type for locomotor operations
@@ -193,7 +198,7 @@ pub struct LocomotorTemplate {
     pub acceleration_damaged: f32,          // Max acceleration when damaged
     pub lift: f32,                          // Max lifting acceleration (flying objects only)
     pub lift_damaged: f32,                  // Max lift when damaged
-    pub braking: f32,                       // Max braking (deceleration)
+    pub braking: f32,                       // Braking in distance/frame²
     pub min_turn_speed: f32,                // Must be going >= this speed to turn
 
     // Height and positioning
@@ -277,7 +282,8 @@ impl LocomotorTemplate {
             acceleration_damaged: -1.0, // -1 means "use acceleration"
             lift: 0.0,
             lift_damaged: -1.0, // -1 means "use lift"
-            braking: 0.0,
+            // C++ LocomotorTemplate ctor: BIGNUM, already in distance/frame².
+            braking: 99999.0,
             min_turn_speed: 0.0,
             preferred_height: 0.0,
             preferred_height_damping: 1.0,
@@ -515,55 +521,57 @@ pub fn parse_locomotor_template_definition(
                 let parsed: f32 = value
                     .parse()
                     .map_err(|e| LocomotorError::ParseError(format!("Speed: {}", e)))?;
-                template.max_speed = parsed / 30.0;
+                template.max_speed = convert_velocity_in_secs_to_frames(parsed);
             }
             "SpeedDamaged" => {
                 let parsed: f32 = value
                     .parse()
                     .map_err(|e| LocomotorError::ParseError(format!("SpeedDamaged: {}", e)))?;
-                template.max_speed_damaged = parsed / 30.0;
+                template.max_speed_damaged = convert_velocity_in_secs_to_frames(parsed);
             }
             "TurnRate" => {
                 let parsed: f32 = value
                     .parse()
                     .map_err(|e| LocomotorError::ParseError(format!("TurnRate: {}", e)))?;
-                template.max_turn_rate = parsed * std::f32::consts::PI / (180.0 * 30.0);
+                template.max_turn_rate =
+                    convert_angular_velocity_in_degrees_per_sec_to_rads_per_frame(parsed);
             }
             "TurnRateDamaged" => {
                 let parsed: f32 = value
                     .parse()
                     .map_err(|e| LocomotorError::ParseError(format!("TurnRateDamaged: {}", e)))?;
-                template.max_turn_rate_damaged = parsed * std::f32::consts::PI / (180.0 * 30.0);
+                template.max_turn_rate_damaged =
+                    convert_angular_velocity_in_degrees_per_sec_to_rads_per_frame(parsed);
             }
             "Acceleration" => {
                 let parsed: f32 = value
                     .parse()
                     .map_err(|e| LocomotorError::ParseError(format!("Acceleration: {}", e)))?;
-                template.acceleration = parsed / 900.0;
+                template.acceleration = convert_acceleration_in_secs_to_frames(parsed);
             }
             "AccelerationDamaged" => {
                 let parsed: f32 = value.parse().map_err(|e| {
                     LocomotorError::ParseError(format!("AccelerationDamaged: {}", e))
                 })?;
-                template.acceleration_damaged = parsed / 900.0;
+                template.acceleration_damaged = convert_acceleration_in_secs_to_frames(parsed);
             }
             "Lift" => {
                 let parsed: f32 = value
                     .parse()
                     .map_err(|e| LocomotorError::ParseError(format!("Lift: {}", e)))?;
-                template.lift = parsed / 900.0;
+                template.lift = convert_acceleration_in_secs_to_frames(parsed);
             }
             "LiftDamaged" => {
                 let parsed: f32 = value
                     .parse()
                     .map_err(|e| LocomotorError::ParseError(format!("LiftDamaged: {}", e)))?;
-                template.lift_damaged = parsed / 900.0;
+                template.lift_damaged = convert_acceleration_in_secs_to_frames(parsed);
             }
             "Braking" => {
                 let parsed: f32 = value
                     .parse()
                     .map_err(|e| LocomotorError::ParseError(format!("Braking: {}", e)))?;
-                template.braking = parsed / 900.0;
+                template.braking = convert_acceleration_in_secs_to_frames(parsed);
             }
             "MinSpeed" => {
                 template.min_speed = value

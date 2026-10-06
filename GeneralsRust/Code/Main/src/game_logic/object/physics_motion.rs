@@ -1362,10 +1362,15 @@ impl Object {
     ///
     /// - Wings: clear IS_BRAKING then floor to minSpeed via Other
     ///   (`Locomotor.cpp:1046-1050`, `:1859-1860`, `:2368-2374`).
-    /// - Legs/climber/other/hover/thrust: `calcSlowDownDist` → minSpeed, no IS_BRAKING
+    /// - Legs/climber/other/hover: `calcSlowDownDist` → minSpeed, no new IS_BRAKING
     ///   (`Locomotor.cpp:1648-1653`, `:2368-2374`). Only treads/wheels set the pose cheat.
     /// - Treads: `(actual/1.5)*(actual/braking)` + squared `braking_factor`.
     /// - Wheels: +1 frame, donut timer (40 units / 2.5s), then `braking_factor=1`.
+    ///
+    /// Inputs/outputs use host seconds; the original arithmetic uses frames.
+    /// Reconstruct frame inputs in the order below, retaining host scalars on
+    /// copy branches. This cannot recover rounding lost in the host binding.
+    /// The live caller owns the 2D-motive gate and dispatches Thrust separately.
     pub fn apply_cpp_approach_brake(
         &mut self,
         on_path_dist: f32,
@@ -1375,7 +1380,8 @@ impl Object {
     ) -> f32 {
         const MAX_BRAKING_FACTOR: f32 = 5.0;
         const DONUT_DISTANCE: f32 = 4.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
-        const DONUT_TIME_FRAMES: u32 = 75; // 2.5s * 30
+        const FRAMES: f32 = game_engine::common::game_common::LOGICFRAMES_PER_SECOND as f32;
+        const DONUT_TIME_FRAMES: f32 = 2.5 * FRAMES;
         let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
 
         if matches!(self.loco_appearance, LocomotorAppearance::Wings) {
@@ -1384,11 +1390,8 @@ impl Object {
             // floors to minSpeed (Locomotor.cpp:2368-2374).
             self.is_braking = false;
         }
-        if self.no_slow_down_as_approaching_dest {
-            return desired_speed;
-        }
-
-        let braking = self.braking.max(1.0e-3);
+        let actual_frame_speed = actual_speed / FRAMES;
+        let braking = self.braking / FRAMES / FRAMES;
         // Far-from-goal IS_BRAKING clear (Locomotor.cpp:941-946) lives in
         // locoUpdate *before* the 2× path-raise. Do not repeat it here on the
         // already-raised on_path or the latch is killed the same frame.
@@ -1396,58 +1399,77 @@ impl Object {
 
         match self.loco_appearance {
             LocomotorAppearance::Treads => {
-                let slow_down_time = actual_speed / braking;
-                let slow_down_dist = (actual_speed / 1.5) * slow_down_time;
-                if on_path_dist < slow_down_dist && !self.is_braking {
+                let slow_down_time = actual_frame_speed / braking;
+                let slow_down_dist = (actual_frame_speed / 1.5) * slow_down_time;
+                if on_path_dist < slow_down_dist
+                    && !self.is_braking
+                    && !self.no_slow_down_as_approaching_dest
+                {
                     self.is_braking = true;
                     self.braking_factor = 1.1;
                 }
-                if on_path_dist > cell && on_path_dist > 2.0 * slow_down_dist {
+                // Original 2.0 is a double literal, including at overflow edges.
+                if on_path_dist > cell && f64::from(on_path_dist) > 2.0 * f64::from(slow_down_dist)
+                {
                     self.is_braking = false;
                 }
                 if self.is_braking {
-                    if on_path_dist > 0.0 {
-                        self.braking_factor = slow_down_dist / on_path_dist;
-                    }
+                    self.braking_factor = slow_down_dist / on_path_dist;
                     self.braking_factor *= self.braking_factor;
                     if self.braking_factor > MAX_BRAKING_FACTOR {
                         self.braking_factor = MAX_BRAKING_FACTOR;
                     }
                     if slow_down_dist > on_path_dist {
-                        goal_speed = (actual_speed - braking).max(0.0);
+                        let mut frame_goal = actual_frame_speed - braking;
+                        if frame_goal < 0.0 {
+                            frame_goal = 0.0;
+                        }
+                        goal_speed = frame_goal * FRAMES;
                     } else if slow_down_dist > on_path_dist * 0.75 {
-                        goal_speed = (actual_speed - braking / 2.0).max(0.0);
+                        let mut frame_goal = actual_frame_speed - braking / 2.0;
+                        if frame_goal < 0.0 {
+                            frame_goal = 0.0;
+                        }
+                        goal_speed = frame_goal * FRAMES;
                     } else {
                         goal_speed = actual_speed;
                     }
                 }
             }
             LocomotorAppearance::WheelsFour | LocomotorAppearance::Motorcycle => {
-                let slow_down_time = actual_speed / braking + 1.0;
-                let slow_down_dist = (actual_speed / 1.5) * slow_down_time + actual_speed;
+                let slow_down_time = actual_frame_speed / braking + 1.0;
+                let slow_down_dist =
+                    (actual_frame_speed / 1.5) * slow_down_time + actual_frame_speed;
                 let mut effective = slow_down_dist;
                 if effective < cell {
                     effective = cell;
                 }
-                if on_path_dist < effective && !self.is_braking {
+                if on_path_dist < effective
+                    && !self.is_braking
+                    && !self.no_slow_down_as_approaching_dest
+                {
                     self.is_braking = true;
                     self.braking_factor = 1.1;
                 }
-                if on_path_dist > cell && on_path_dist > 2.0 * slow_down_dist {
+                if on_path_dist > cell && f64::from(on_path_dist) > 2.0 * f64::from(slow_down_dist)
+                {
                     self.is_braking = false;
                 }
                 if self.donut_timer == u32::MAX {
-                    self.donut_timer = logic_frame.saturating_add(DONUT_TIME_FRAMES);
+                    // Retained host lifecycle adaptation: C++ initializes at
+                    // construction/startMove, not at the first approach call.
+                    self.donut_timer = (logic_frame as f32 + DONUT_TIME_FRAMES) as u32;
                 }
                 if on_path_dist > DONUT_DISTANCE {
-                    self.donut_timer = logic_frame.saturating_add(DONUT_TIME_FRAMES);
+                    // C++ adds in float before conversion to UnsignedInt.
+                    // Rust saturates outside that conversion's defined C++
+                    // range; that fallback is not a portable parity claim.
+                    self.donut_timer = (logic_frame as f32 + DONUT_TIME_FRAMES) as u32;
                 } else if self.donut_timer < logic_frame {
                     self.is_braking = true;
                 }
                 if self.is_braking {
-                    if on_path_dist > 0.0 {
-                        self.braking_factor = slow_down_dist / on_path_dist;
-                    }
+                    self.braking_factor = slow_down_dist / on_path_dist;
                     self.braking_factor *= self.braking_factor;
                     if self.braking_factor > MAX_BRAKING_FACTOR {
                         self.braking_factor = MAX_BRAKING_FACTOR;
@@ -1455,21 +1477,34 @@ impl Object {
                     // C++ Locomotor.cpp:1420 overwrites braking_factor back to 1.0.
                     self.braking_factor = 1.0;
                     if slow_down_dist > on_path_dist {
-                        goal_speed = (actual_speed - braking).max(0.0);
+                        let mut frame_goal = actual_frame_speed - braking;
+                        if frame_goal < 0.0 {
+                            frame_goal = 0.0;
+                        }
+                        goal_speed = frame_goal * FRAMES;
                     } else if slow_down_dist > on_path_dist * 0.75 {
-                        goal_speed = (actual_speed - braking / 2.0).max(0.0);
+                        let mut frame_goal = actual_frame_speed - braking / 2.0;
+                        if frame_goal < 0.0 {
+                            frame_goal = 0.0;
+                        }
+                        goal_speed = frame_goal * FRAMES;
                     } else {
                         goal_speed = actual_speed;
                     }
                 }
             }
             _ => {
-                // Legs / climber / hover / other / thrust / wings: desired = minSpeed.
+                // Legs / climber / hover / other / wings: desired = minSpeed.
                 // C++ never sets IS_BRAKING here (Locomotor.cpp:1648-1653, 2368-2374).
-                let floor = self.min_speed.max(0.0);
-                let slow = crate::game_logic::calc_slow_down_dist(actual_speed, floor, braking);
-                if on_path_dist < slow {
-                    goal_speed = floor;
+                if !self.no_slow_down_as_approaching_dest {
+                    let slow = crate::game_logic::calc_slow_down_dist(
+                        actual_frame_speed,
+                        self.min_speed / FRAMES,
+                        braking,
+                    );
+                    if on_path_dist < slow {
+                        goal_speed = self.min_speed;
+                    }
                 }
             }
         }

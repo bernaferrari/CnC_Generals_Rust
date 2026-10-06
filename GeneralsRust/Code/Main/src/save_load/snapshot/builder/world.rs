@@ -299,7 +299,6 @@ impl SnapshotBuilder {
         self.restore_weather(&snapshot.weather, game_logic)?;
         self.restore_resource_manager(&snapshot.resource_manager, game_logic)?;
         self.restore_combat_tracker(&snapshot.combat_tracker, game_logic)?;
-        self.restore_experience_tracker(&snapshot.experience_tracker, game_logic)?;
         self.restore_global_ai_state(&snapshot.global_ai_state, game_logic)?;
         self.restore_ai_players(&snapshot.ai_players, game_logic)?;
         self.restore_special_power_strikes(&snapshot.special_power_strikes, game_logic)?;

@@ -547,7 +547,7 @@ fn snapshot_restore_rebuilds_resource_depots_and_harvesters() {
 }
 
 #[test]
-fn snapshot_restore_recovers_veterancy_from_tracker_data() {
+fn snapshot_restore_preserves_explicit_zero_over_tracker_summary() {
     let mut source = GameLogic::new();
     let mut tank_template = ThingTemplate::new("TestTank");
     tank_template
@@ -604,6 +604,9 @@ fn snapshot_restore_recovers_veterancy_from_tracker_data() {
         .objects
         .get_mut(&tank_id)
         .expect("tank snapshot should exist");
+    // XP/rank are mandatory even at zero/Rookie. This makes the redundant
+    // tracker summary conflict with an explicit object record, not a legacy
+    // missing field. C++ xfer preserves that record without a promotion replay.
     tank_snapshot.experience = Experience::default();
     tank_snapshot.health.current = tank_snapshot.health.maximum.min(100.0);
     tank_snapshot.health.maximum = 100.0;
@@ -617,13 +620,15 @@ fn snapshot_restore_recovers_veterancy_from_tracker_data() {
     let restored_tank = restored
         .host_object(tank_id)
         .expect("restored tank should exist");
-    assert_eq!(restored_tank.experience.level, VeterancyLevel::Elite);
-    assert!(restored_tank.health.maximum > 100.0);
+    assert_eq!(restored_tank.experience.level, VeterancyLevel::Rookie);
+    assert_eq!(restored_tank.experience.current, 0.0);
+    assert_eq!(restored_tank.health.maximum, 100.0);
+    assert_eq!(restored_tank.health.current, 100.0);
 
     let restored_truck = restored
         .host_object(truck_id)
         .expect("restored truck should exist");
-    // The tracker replay must not phantom-promote the untrainable control either.
+    // Loading must not phantom-promote the untrainable control either.
     assert_eq!(restored_truck.experience.level, VeterancyLevel::Rookie);
     assert_eq!(restored_truck.experience.current, 0.0);
 }

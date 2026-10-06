@@ -201,8 +201,7 @@ fn default_experience_scalar() -> f32 {
 }
 
 fn default_braking() -> f32 {
-    // C++ LocomotorTemplate::m_braking = BIGNUM (Locomotor.cpp:270).
-    99999.0
+    crate::game_logic::locomotor_bootstrap::DEFAULT_HOST_BRAKING
 }
 
 fn default_donut_timer() -> u32 {
@@ -240,7 +239,9 @@ pub fn calc_slow_down_dist(cur_speed: f32, desired_speed: f32, max_braking: f32)
     if delta <= 0.0 {
         return 0.0;
     }
-    let braking = max_braking.abs().max(1e-6);
+    // Locomotor.cpp:62-73 has no epsilon floor. Zero divides as authored;
+    // negative braking contributes its magnitude after the early return.
+    let braking = max_braking.abs();
     let dist = (delta * delta / braking) * 0.5;
     const FUDGE: f32 = 1.05;
     dist * FUDGE
@@ -808,7 +809,7 @@ pub struct Object {
     /// C++ Locomotor m_brakingFactor residual.
     #[serde(default = "default_one_f32")]
     pub braking_factor: f32,
-    /// C++ Locomotor braking deceleration residual (units/sec², host Movement space).
+    /// Effective Locomotor braking deceleration (units/sec², host Movement space).
     #[serde(default = "default_braking")]
     pub braking: f32,
     /// C++ Locomotor APPLY_2D_FRICTION_WHEN_AIRBORNE residual.

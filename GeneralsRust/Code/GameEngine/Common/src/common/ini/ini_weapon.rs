@@ -499,7 +499,7 @@ impl WeaponTemplate {
                 }
                 "WeaponSpeed" => {
                     // C++ Weapon.cpp:163 `INI::parseVelocityReal` stores dist/frame
-                    // (`ConvertVelocityInSecsToFrames`, divide by 30). The ctor
+                    // (`ConvertVelocityInSecsToFrames`, multiply by rounded 1/30). The ctor
                     // default 999999 is already in that unit and is not scaled.
                     let token = value.split_whitespace().next().unwrap_or(value);
                     self.projectile_speed = super::INI::parse_velocity_real(token).map_err(|_| {
@@ -1732,7 +1732,7 @@ mod tests {
         assert_eq!(template.damage_type_index, 6);
         assert_eq!(template.primary_damage, 75.0);
         assert_eq!(template.range, 200.0);
-        assert_eq!(template.projectile_speed, 400.0 / 30.0);
+        assert_eq!(template.projectile_speed.to_bits(), 0x4155_5556);
         assert_eq!(
             template.effects.projectile_object.as_str(),
             "TestProjectile"
@@ -1761,7 +1761,7 @@ mod tests {
         assert_eq!(template.damage_radius, 20.5);
         assert_eq!(template.range, 260.0);
         assert_eq!(template.min_range, 35.0);
-        assert_eq!(template.projectile_speed, 999.0 / 30.0);
+        assert_eq!(template.projectile_speed.to_bits(), 0x4205_3334);
         assert_eq!(
             template.effects.projectile_object.as_str(),
             "TestProjectile"

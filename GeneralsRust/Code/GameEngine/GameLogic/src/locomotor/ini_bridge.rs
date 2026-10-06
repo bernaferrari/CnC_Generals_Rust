@@ -92,11 +92,8 @@ pub fn from_common_ini_template(
     dest.acceleration_damaged = src.acceleration_damaged;
     dest.lift = src.lift;
     dest.lift_damaged = src.lift_damaged;
-    dest.braking = if src.braking == 0.0 {
-        dest.braking
-    } else {
-        src.braking
-    };
+    // Common preserves the original omitted default and authored zero in frame².
+    dest.braking = src.braking;
     dest.min_turn_speed = if src.min_turn_speed == 0.0 {
         dest.min_turn_speed
     } else {

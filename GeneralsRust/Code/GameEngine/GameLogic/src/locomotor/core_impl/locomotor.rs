@@ -99,7 +99,7 @@ impl Locomotor {
             max_turn_rate: template.max_turn_rate,
             max_accel: template.acceleration,
             max_lift: template.lift,
-            max_braking: template.braking,
+            max_braking: LOCO_BIGNUM,
             preferred_height: template.preferred_height,
             preferred_height_damping: template.preferred_height_damping,
             close_enough_dist: template.close_enough_dist,
@@ -194,7 +194,13 @@ impl Locomotor {
     /// Get braking
     /// Matches C++ Locomotor::getBraking (Locomotor.cpp:820-828)
     pub fn get_braking(&self) -> Real {
-        self.template.braking.min(self.max_braking)
+        // Keep C++'s ordered comparison: an unordered or equal pair returns
+        // the template value, including NaN and the template's signed zero.
+        if self.template.braking > self.max_braking {
+            self.max_braking
+        } else {
+            self.template.braking
+        }
     }
 
     /// Get appearance

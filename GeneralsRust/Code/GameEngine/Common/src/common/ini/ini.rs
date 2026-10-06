@@ -10,6 +10,7 @@ use std::sync::{LazyLock, OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::common::ascii_string::AsciiString;
+use crate::common::game_common;
 use crate::common::system::file::FileAccess;
 use crate::common::system::file_system::get_file_system;
 use crate::common::system::xfer::Xfer;
@@ -1678,20 +1679,25 @@ impl INI {
     /// Parse angle in degrees and convert to radians
     pub fn parse_angle_real(token: &str) -> INIResult<f32> {
         let degrees: f32 = token.parse().map_err(|_| INIError::InvalidData)?;
-        Ok(degrees * std::f32::consts::PI / 180.0)
+        // C++ rounds RADS_PER_DEGREE before multiplying the authored angle.
+        const RADS_PER_DEGREE: f32 = std::f32::consts::PI / 180.0;
+        Ok(degrees * RADS_PER_DEGREE)
     }
 
     /// Parse angular velocity in degrees per second and convert to radians per frame
     pub fn parse_angular_velocity_real(token: &str) -> INIResult<f32> {
         let degrees_per_sec: f32 = token.parse().map_err(|_| INIError::InvalidData)?;
-        // Assuming 30 FPS for frame conversion
-        Ok((degrees_per_sec * std::f32::consts::PI / 180.0) / 30.0)
+        Ok(
+            game_common::convert_angular_velocity_in_degrees_per_sec_to_rads_per_frame(
+                degrees_per_sec,
+            ),
+        )
     }
 
     /// Parse velocity in distance/second and convert to distance/frame.
     pub fn parse_velocity_real(token: &str) -> INIResult<f32> {
         let units_per_sec: f32 = token.parse().map_err(|_| INIError::InvalidData)?;
-        Ok(units_per_sec / 30.0)
+        Ok(Self::convert_velocity_secs_to_frames(units_per_sec))
     }
 
     /// Parse a color in R:100 G:114 B:245 format
@@ -1907,12 +1913,12 @@ impl INI {
 
     /// Convert velocity from units per second to units per frame (assuming 30 FPS)
     pub fn convert_velocity_secs_to_frames(velocity: f32) -> f32 {
-        velocity / 30.0
+        game_common::convert_velocity_in_secs_to_frames(velocity)
     }
 
     /// Convert acceleration from units per second squared to units per frame squared (assuming 30 FPS)
     pub fn convert_acceleration_secs_to_frames(acceleration: f32) -> f32 {
-        acceleration / (30.0 * 30.0)
+        game_common::convert_acceleration_in_secs_to_frames(acceleration)
     }
 
     // Getter methods

@@ -12,7 +12,11 @@ fn shared_fx_tracer_parser_preserves_cpp_units_and_defaults() {
     else {
         panic!("tracer rule expected")
     };
-    assert_eq!(speed, 30.0, "C++ INI::parseVelocityReal divides by30");
+    assert_eq!(
+        speed.to_bits(),
+        0x41f0_0001,
+        "original INI::parseVelocityReal multiplies 900 by the rounded 1/30 factor"
+    );
     assert_eq!(name.as_str(), "GenericTracer");
     assert_eq!(color, (1.0, 1.0, 1.0));
 }

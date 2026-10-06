@@ -414,7 +414,7 @@ pub struct LocomotorSetSwap {
     pub locomotor_surfaces: u32,
 }
 
-const LOCO_BIGNUM_BRAKE: f32 = 99999.0;
+const LOCO_BIGNUM_BRAKE: f32 = crate::game_logic::locomotor_bootstrap::DEFAULT_HOST_BRAKING;
 const DEG_TO_RAD: f32 = std::f32::consts::PI / 180.0;
 
 /// Retail SET_NORMAL / SET_NORMAL_UPGRADED / SET_PANIC / SET_TAXIING /

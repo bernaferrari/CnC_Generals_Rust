@@ -120,7 +120,7 @@ struct ObjectXferPersist {
     cur_locomotor_set: Option<String>,
     /// False on upgrades from versions that did not store Locomotor::xfer scalars.
     has_locomotor_motion: bool,
-    /// C++ `Locomotor::m_maxBraking`.
+    /// Main's effective braking in host sec²; preserve explicit saved values.
     braking: f32,
     /// C++ `Locomotor::m_maxLift`.
     max_lift: f32,

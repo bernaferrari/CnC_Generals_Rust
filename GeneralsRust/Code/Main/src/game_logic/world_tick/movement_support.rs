@@ -1592,7 +1592,10 @@ impl GameLogic {
                             // C++ moveTowardsPositionOther tests the slide against
                             // desiredSpeed before calcSlowDownDist lowers goalSpeed.
                             let slide_goal_speed = speed;
-                            if !obj.no_slow_down_as_approaching_dest {
+                            // Appearance braking shares the original 2D-motive gate.
+                            // NoSlowDown gates new choices inside the phase, not
+                            // inherited braking, local clears or wheel timers.
+                            if allow_2d_motive {
                                 // C++ getForwardSpeed2D stays signed. Wheels and climber
                                 // negate it when MOVING_BACKWARDS (Locomotor.cpp:1326, :1771).
                                 let mut actual_speed = obj.forward_speed_2d();
@@ -1692,7 +1695,7 @@ impl GameLogic {
                                     };
                                     let rate = if speeding_up { accel } else { brake_accel };
                                     let step = rate * dt;
-                                    let applied = if step > speed_delta.abs() {
+                                    let applied = if step.abs() > speed_delta.abs() {
                                         speed_delta
                                     } else if speed_delta > 0.0 {
                                         step

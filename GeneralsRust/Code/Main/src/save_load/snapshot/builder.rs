@@ -1701,18 +1701,6 @@ impl SnapshotBuilder {
         }
     }
 
-    pub(super) fn veterancy_level_from_bonus(health_bonus: f32) -> (VeterancyLevel, f32) {
-        if health_bonus >= 1.9 {
-            (VeterancyLevel::Heroic, 300.0)
-        } else if health_bonus >= 1.45 {
-            (VeterancyLevel::Elite, 150.0)
-        } else if health_bonus >= 1.2 {
-            (VeterancyLevel::Veteran, 60.0)
-        } else {
-            (VeterancyLevel::Rookie, 0.0)
-        }
-    }
-
     pub(super) fn difficulty_from_modifiers(
         modifiers: &DifficultyModifiers,
     ) -> crate::ai::AIDifficulty {

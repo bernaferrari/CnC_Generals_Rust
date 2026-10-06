@@ -181,6 +181,9 @@ pub const HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE: &[(&str, f32, f32, f32)] = &[
 
 /// Logic FPS used by C++ Locomotor.ini unit conversion (Speed / 30 → dist/frame).
 const LOGIC_FPS: f32 = 30.0;
+const LOCO_BIGNUM: f32 = 99999.0;
+/// Original omitted braking / initial cap in host distance/sec² units.
+pub(crate) const DEFAULT_HOST_BRAKING: f32 = LOCO_BIGNUM * LOGIC_FPS * LOGIC_FPS;
 
 static BOOTSTRAP_ATTEMPTED: AtomicBool = AtomicBool::new(false);
 static SEED_COMPLETE: AtomicBool = AtomicBool::new(false);
@@ -899,14 +902,15 @@ fn host_locomotor_binding_from_template(t: &LocomotorTemplate) -> Option<HostLoc
         acceleration_damaged: acceleration(t.acceleration_damaged),
         turn_rate_damaged: turn_rate(t.max_turn_rate_damaged),
         braking: {
-            // C++ omitted Braking stays BIGNUM (Locomotor.cpp:270). Common
-            // store uses 0.0 for that case; convert authored values only.
-            const LOCO_BIGNUM: f32 = 99999.0;
-            if t.braking <= 0.0 || t.braking >= LOCO_BIGNUM {
+            // C++ ctor/getBraking apply an independent BIGNUM cap in frame².
+            // Convert the effective value to host sec², including the default;
+            // authored zero/negative values retain their meaning and sign.
+            let braking = if t.braking > LOCO_BIGNUM {
                 LOCO_BIGNUM
             } else {
-                t.braking * FPS * FPS
-            }
+                t.braking
+            };
+            braking * FPS * FPS
         },
         min_speed: t.min_speed,
         min_turn_speed: t.min_turn_speed,

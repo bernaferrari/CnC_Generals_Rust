@@ -20,10 +20,6 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/GameEngine/Common/src/common/crc.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
     "Code/GameEngine/Common/src/common/game_lod.rs": {
       "constructs": 3,
       "undocumented": 0

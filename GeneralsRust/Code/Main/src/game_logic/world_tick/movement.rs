@@ -379,14 +379,14 @@ mod tests {
         );
     }
 
-    /// hq-hh1mu: default braking is BIGNUM, not 50.
+    /// Original BIGNUM is frame²; the host stores its sec² equivalent.
     #[test]
     fn object_default_braking_is_bignum() {
         let unit = ranger_at(9023, Vec3::ZERO);
-        assert!(
-            (unit.braking - 99999.0).abs() < 0.5,
-            "C++ BIGNUM default, got {}",
-            unit.braking
+        assert_eq!(
+            unit.braking.to_bits(),
+            crate::game_logic::locomotor_bootstrap::DEFAULT_HOST_BRAKING.to_bits(),
+            "C++ BIGNUM default in host sec²"
         );
     }
 
