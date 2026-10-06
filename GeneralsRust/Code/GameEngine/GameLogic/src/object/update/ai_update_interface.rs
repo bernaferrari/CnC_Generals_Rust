@@ -780,8 +780,8 @@ pub struct AIUpdateInterface {
     locomotor_goal_type: LocoGoalType,
     locomotor_goal_data: Coord3D,
 
-    // Turret AI handles
-    turret_ai: [Option<Arc<std::sync::Mutex<TurretAI>>>; MAX_TURRETS],
+    // Private turret state belongs to this AI; callers already borrow the AI.
+    turret_ai: [Option<TurretAI>; MAX_TURRETS],
     turret_sync_flag: WhichTurretType,
 
     // Attitude / mood
@@ -2408,15 +2408,13 @@ impl AIUpdateInterface {
             WhichTurretType::Alt => 1,
             _ => return,
         };
-        if let Some(ref turret) = self.turret_ai[idx] {
-            if let Ok(mut guard) = turret.lock() {
-                let target = if target_id == INVALID_ID {
-                    None
-                } else {
-                    Some(target_id)
-                };
-                guard.set_current_target(target);
-            }
+        if let Some(turret) = self.turret_ai[idx].as_mut() {
+            let target = if target_id == INVALID_ID {
+                None
+            } else {
+                Some(target_id)
+            };
+            turret.set_current_target(target);
         }
     }
 
@@ -2427,10 +2425,8 @@ impl AIUpdateInterface {
             WhichTurretType::Alt => 1,
             _ => return,
         };
-        if let Some(ref turret) = self.turret_ai[idx] {
-            if let Ok(mut guard) = turret.lock() {
-                guard.set_target_position(Some(pos));
-            }
+        if let Some(turret) = self.turret_ai[idx].as_mut() {
+            turret.set_target_position(Some(pos));
         }
     }
 
@@ -2441,10 +2437,8 @@ impl AIUpdateInterface {
             WhichTurretType::Alt => 1,
             _ => return,
         };
-        if let Some(ref turret) = self.turret_ai[idx] {
-            if let Ok(mut guard) = turret.lock() {
-                guard.set_turret_enabled(enabled);
-            }
+        if let Some(turret) = self.turret_ai[idx].as_mut() {
+            turret.set_turret_enabled(enabled);
         }
     }
 
@@ -2455,10 +2449,8 @@ impl AIUpdateInterface {
             WhichTurretType::Alt => 1,
             _ => return,
         };
-        if let Some(ref turret) = self.turret_ai[idx] {
-            if let Ok(mut guard) = turret.lock() {
-                guard.recenter_turret();
-            }
+        if let Some(turret) = self.turret_ai[idx].as_mut() {
+            turret.recenter_turret();
         }
     }
 
@@ -2469,12 +2461,10 @@ impl AIUpdateInterface {
             WhichTurretType::Alt => 1,
             _ => return false,
         };
-        if let Some(ref turret) = self.turret_ai[idx] {
-            if let Ok(guard) = turret.lock() {
-                let cur = guard.get_turret_angle();
-                let nat = guard.get_natural_angle();
-                return (cur - nat).abs() < 0.01;
-            }
+        if let Some(turret) = self.turret_ai[idx].as_ref() {
+            let cur = turret.get_turret_angle();
+            let nat = turret.get_natural_angle();
+            return (cur - nat).abs() < 0.01;
         }
         false
     }
@@ -2487,10 +2477,8 @@ impl AIUpdateInterface {
             WhichTurretType::Alt => 1,
             _ => return None,
         };
-        if let Some(ref turret) = self.turret_ai[idx] {
-            if let Ok(guard) = turret.lock() {
-                return Some((guard.get_turret_angle(), guard.get_turret_pitch()));
-            }
+        if let Some(turret) = self.turret_ai[idx].as_ref() {
+            return Some((turret.get_turret_angle(), turret.get_turret_pitch()));
         }
         None
     }
@@ -2843,6 +2831,10 @@ impl Snapshotable for AIUpdateInterfaceModule {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "ai_update_interface/turret_owner_tests.rs"]
+mod turret_owner_tests;
 
 #[cfg(test)]
 mod tests {
