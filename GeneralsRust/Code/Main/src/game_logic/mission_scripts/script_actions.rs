@@ -73,10 +73,6 @@ impl MissionScriptActionHandler {
 }
 
 impl ScriptActionHandler for MissionScriptActionHandler {
-    fn enable_script(&self, name: &str, enabled: bool) -> GameLogicResult<()> {
-        self.hooks.set_script_enabled(name, enabled)
-    }
-
     fn display_text(&self, text: &str) -> GameLogicResult<()> {
         self.hooks.push_message(text.to_string());
         Ok(())

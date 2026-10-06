@@ -1095,7 +1095,6 @@ fn live_script_tick_runs_one_script_engine_update() {
     let runtime = concat!(
         include_str!("../../mission_scripts/mod.rs"),
         include_str!("../../mission_scripts/script_requests.rs"),
-        include_str!("../../mission_scripts/script_engine.rs"),
         include_str!("../../mission_scripts/script_hooks.rs"),
         include_str!("../../mission_scripts/script_actions.rs"),
         include_str!("../../mission_scripts/tests.rs"),

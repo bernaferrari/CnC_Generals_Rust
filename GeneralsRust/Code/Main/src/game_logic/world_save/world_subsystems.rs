@@ -570,8 +570,6 @@ impl GameLogic {
                 next = script.get_next();
             }
         }
-        self.mission_scripts
-            .install_lists(&self.loaded_script_lists);
         if let Ok(mut engine_guard) = gamelogic::scripting::engine::get_script_engine().write() {
             if let Some(engine) = engine_guard.as_mut() {
                 for (idx, list) in self.loaded_script_lists.iter().enumerate() {

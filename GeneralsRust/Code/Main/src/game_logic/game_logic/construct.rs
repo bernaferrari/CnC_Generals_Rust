@@ -47,9 +47,7 @@ impl GameLogic {
         let world_max = Vec3::new(world_width * 0.5, 0.0, world_height * 0.5);
 
         let host_trigger_world = Arc::new(Mutex::new(Default::default()));
-        let mission_hooks =
-            MissionScriptHooks::new_with_host_trigger_world(Arc::clone(&host_trigger_world))
-                .expect("Mission script runtime init failed");
+        let mission_hooks = MissionScriptHooks::new();
         let team_factory = gamelogic::team::TeamFactoryHandle::new();
 
         let mut instance = Self {
@@ -1197,7 +1195,6 @@ impl GameLogic {
         self.script_event_pump_busy_frames = 0;
         self.loaded_script_lists.clear();
         self.script_source_path = None;
-        self.mission_scripts.install_lists(&[]);
         self.script_broadcasts.clear();
         self.new_script_messages.clear();
         self.cinematic_letterbox = false;

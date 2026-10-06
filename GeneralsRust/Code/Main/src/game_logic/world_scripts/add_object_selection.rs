@@ -1522,8 +1522,6 @@ impl GameLogic {
                 self.loaded_script_lists = result.script_lists;
                 self.script_source_path = Some(result.source_path);
                 self.scripts_loaded = true;
-                self.mission_scripts
-                    .install_lists(&self.loaded_script_lists);
                 self.script_broadcasts.clear();
                 self.new_script_messages.clear();
                 self.pending_popup_messages.clear();
@@ -1540,8 +1538,7 @@ impl GameLogic {
 
                 // Install decoded per-player lists into the crate ScriptEngine.
                 // Live once-per-frame walk is ScriptEngine::update (C++
-                // GameLogic.cpp:3600).  MissionScriptRuntime stays for
-                // CALL_SUBROUTINE / action-handler queues, not a second walk.
+                // GameLogic.cpp:3600), including immediate CALL_SUBROUTINE.
                 let _ = gamelogic::scripting::engine::initialize_script_engine();
                 if let Ok(mut engine_guard) =
                     gamelogic::scripting::engine::get_script_engine().write()
@@ -1568,7 +1565,6 @@ impl GameLogic {
                 self.loaded_script_lists.clear();
                 self.script_source_path = None;
                 self.scripts_loaded = true;
-                self.mission_scripts.install_lists(&[]);
                 self.script_broadcasts.clear();
                 self.new_script_messages.clear();
                 self.pending_popup_messages.clear();
@@ -1601,7 +1597,6 @@ impl GameLogic {
                     map_name,
                     err
                 );
-                self.mission_scripts.install_lists(&[]);
                 self.script_broadcasts.clear();
                 self.new_script_messages.clear();
                 self.pending_popup_messages.clear();

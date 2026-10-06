@@ -3,17 +3,16 @@
 //!
 //! The fragments are textual members of this module, so item visibility,
 //! action order, lookup semantics, frame timing, side effects, and the
-//! public API are unchanged.
+//! request interface are preserved. Script execution and active state live in
+//! the canonical GameLogic ScriptEngine; hooks do not own an interpreter.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::localization;
-use gamelogic::scripting::core::{Script, ScriptAction, ScriptActionType, ScriptList};
-use gamelogic::scripting::engine::{ScriptActionHandler, get_script_engine};
-use gamelogic::scripting::evaluator::ScriptEvaluator;
-use gamelogic::{GameLogicError, GameLogicResult};
+use gamelogic::GameLogicResult;
+use gamelogic::scripting::engine::ScriptActionHandler;
 use glam::Vec3;
 
 const SPEECH_SUBTITLE_DURATION_MS: i32 = 8000;
@@ -80,7 +79,6 @@ fn camera_coord3d_to_world(x: f32, y: f32, z: f32) -> Vec3 {
 }
 
 include!("script_requests.rs");
-include!("script_engine.rs");
 include!("script_hooks.rs");
 include!("script_actions.rs");
 

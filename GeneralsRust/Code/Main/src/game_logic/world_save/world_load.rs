@@ -69,7 +69,6 @@ impl GameLogic {
         self.script_event_pump_busy_frames = 0;
         self.loaded_script_lists.clear();
         self.script_source_path = None;
-        self.mission_scripts.install_lists(&[]);
         self.script_broadcasts.clear();
         self.new_script_messages.clear();
         self.pending_popup_messages.clear();

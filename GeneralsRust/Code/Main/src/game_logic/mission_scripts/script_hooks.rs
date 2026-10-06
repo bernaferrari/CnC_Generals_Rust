@@ -84,14 +84,10 @@ pub(crate) struct CameraFocusRequests {
 }
 
 pub struct MissionScriptHooks {
-    runtime: Mutex<MissionScriptRuntime>,
-    pending_script_enabled_updates: Arc<Mutex<Vec<(String, bool)>>>,
-    // The action handler uses `&self` while the script runtime is locked;
-    // defer this per-world value until the owning GameLogic tick drains it.
     /// Every script -> host notification queue behind a single guard.
     ///
     /// THREAD: both ends of these seams run on the game thread - the script
-    /// runtime and its action handler push, the GameClient tick drains. The
+    /// canonical engine's action handler pushes, the driving world drains. The
     /// guard survives only because `MissionScriptHooks` is handed out as an
     /// `Arc` shared by `GameLogic` and `MissionScriptActionHandler`, not
     /// because two threads ever contend. One guard also makes a whole drain
@@ -174,31 +170,15 @@ impl MissionScriptHooks {
         queue.pending_warehouse_set_values.clear();
     }
 
-    pub fn new() -> GameLogicResult<Arc<Self>> {
-        Self::new_with_host_trigger_world(Arc::new(Mutex::new(Default::default())))
-    }
-
-    pub(crate) fn new_with_host_trigger_world(
-        host_trigger_world: Arc<Mutex<gamelogic::scripting::HostTriggerWorld>>,
-    ) -> GameLogicResult<Arc<Self>> {
-        let pending_script_enabled_updates = Arc::new(Mutex::new(Vec::new()));
-        Ok(Arc::new(Self {
-            runtime: Mutex::new(mission_runtime_with_host_trigger_world(
-                Arc::clone(&pending_script_enabled_updates),
-                host_trigger_world,
-            )),
-            pending_script_enabled_updates,
+    /// Presentation requests and completion state only. Script activation and
+    /// execution belong to the canonical ScriptEngine, not these callbacks.
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
             notifications: Mutex::new(ScriptNotificationQueues::default()),
             completion: Mutex::new(AudioCompletionTracking::default()),
             camera_movement_finished: AtomicBool::new(true),
             frame_counter: AtomicU64::new(0),
-        }))
-    }
-
-    pub fn install_lists(&self, lists: &[ScriptList]) {
-        if let Ok(mut runtime) = self.runtime.lock() {
-            runtime.install_lists(lists);
-        }
+        })
     }
 
     /// C++ `ScriptEngine::newMap` fade-in from black (33-frame `FADE_MULTIPLY`).
@@ -220,31 +200,6 @@ impl MissionScriptHooks {
     /// stay frame-accurate after the second walker was removed (hq-fxq1).
     pub fn note_logic_frame(&self, frame: u64) {
         self.frame_counter.store(frame, Ordering::Relaxed);
-    }
-
-    pub fn update(&self, frame: u64) -> GameLogicResult<()> {
-        self.update_budgeted(frame, None)
-    }
-
-    pub fn update_budgeted(
-        &self,
-        frame: u64,
-        max_scripts_per_frame: Option<usize>,
-    ) -> GameLogicResult<()> {
-        self.frame_counter.store(frame, Ordering::Relaxed);
-        let mut runtime = self.runtime.lock().map_err(|_| {
-            GameLogicError::Configuration("Mission script runtime mutex poisoned".to_string())
-        })?;
-        runtime.update_budgeted(frame, max_scripts_per_frame)?;
-        Ok(())
-    }
-
-    pub fn set_script_enabled(&self, name: &str, enabled: bool) -> GameLogicResult<()> {
-        let mut queue = self.pending_script_enabled_updates.lock().map_err(|_| {
-            GameLogicError::Configuration("Mission script enable queue mutex poisoned".to_string())
-        })?;
-        queue.push((name.to_string(), enabled));
-        Ok(())
     }
 
     pub fn push_message(&self, text: String) {

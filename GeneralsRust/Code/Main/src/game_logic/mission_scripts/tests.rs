@@ -4,16 +4,16 @@
 mod tests {
     use super::*;
     use gamelogic::scripting::core::{
-        Condition, ConditionType, Coord3D, OrCondition, Parameter, ParameterType, ScriptActionType,
-        ScriptGroup,
+        Condition, ConditionType, Coord3D, OrCondition, Parameter, ParameterType, Script,
+        ScriptAction, ScriptActionType, ScriptGroup, ScriptList,
     };
     use gamelogic::scripting::engine::{
-        ScriptEngine, ScriptEngineHandle, initialize_script_engine,
+        ScriptEngine, ScriptEngineHandle, get_script_engine, initialize_script_engine,
     };
 
     #[test]
     fn poisoned_notification_queue_preserves_existing_and_next_handler_actions() {
-        let hooks = MissionScriptHooks::new().expect("hooks");
+        let hooks = MissionScriptHooks::new();
         let handler = MissionScriptActionHandler::new(hooks.clone());
         handler.set_radar_forced(true).unwrap();
         hooks.poison_notifications_for_test();
@@ -25,7 +25,7 @@ mod tests {
 
     #[test]
     fn poisoned_notification_queue_recovers_grouped_camera_drain_and_clear() {
-        let hooks = MissionScriptHooks::new().expect("hooks");
+        let hooks = MissionScriptHooks::new();
         hooks.push_camera_move(Vec3::new(1.0, 2.0, 3.0));
         hooks.push_camera_move_home();
         hooks.queue_warehouse_set_value("Depot", 700);
@@ -46,8 +46,8 @@ mod tests {
 
     #[test]
     fn poisoned_notification_queue_is_local_to_its_hooks() {
-        let first = MissionScriptHooks::new().expect("first hooks");
-        let second = MissionScriptHooks::new().expect("second hooks");
+        let first = MissionScriptHooks::new();
+        let second = MissionScriptHooks::new();
         first.queue_warehouse_set_value("Depot", 100);
         second.queue_warehouse_set_value("Depot", 200);
         first.poison_notifications_for_test();
@@ -64,7 +64,7 @@ mod tests {
 
     #[test]
     fn handler_forwards_camera_pitch_rotate_and_mod_requests() {
-        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let hooks = MissionScriptHooks::new();
         let handler = MissionScriptActionHandler::new(hooks.clone());
 
         handler
@@ -150,7 +150,7 @@ mod tests {
 
     #[test]
     fn handler_forwards_oversize_terrain_requests() {
-        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let hooks = MissionScriptHooks::new();
         let handler = MissionScriptActionHandler::new(hooks.clone());
 
         handler
@@ -166,7 +166,7 @@ mod tests {
 
     #[test]
     fn handler_forwards_border_shroud_requests() {
-        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let hooks = MissionScriptHooks::new();
         let handler = MissionScriptActionHandler::new(hooks.clone());
 
         handler
@@ -182,7 +182,7 @@ mod tests {
 
     #[test]
     fn handler_forwards_military_caption_duration_as_milliseconds() {
-        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let hooks = MissionScriptHooks::new();
         let handler = MissionScriptActionHandler::new(hooks.clone());
 
         handler
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn has_finished_speech_uses_audio_length_not_one_frame() {
-        let hooks = MissionScriptHooks::new().expect("hooks");
+        let hooks = MissionScriptHooks::new();
         hooks.note_logic_frame(10);
         assert!(
             !hooks.is_speech_complete("", false),
@@ -275,7 +275,7 @@ mod tests {
 
     #[test]
     fn has_finished_audio_uses_the_audio_length_not_one_frame() {
-        let hooks = MissionScriptHooks::new().expect("hooks");
+        let hooks = MissionScriptHooks::new();
         hooks.note_logic_frame(10);
         assert!(
             !hooks.is_audio_complete("", false),
@@ -315,7 +315,7 @@ mod tests {
         // Standalone video bookkeeping needs explicit engine startup; hook
         // construction must not install it as a hidden side effect.
         initialize_script_engine().unwrap();
-        let hooks = MissionScriptHooks::new().expect("hooks");
+        let hooks = MissionScriptHooks::new();
         let handler = MissionScriptActionHandler::new(hooks.clone());
 
         assert!(
@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn handler_forwards_radar_force_updates() {
-        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let hooks = MissionScriptHooks::new();
         let handler = MissionScriptActionHandler::new(hooks.clone());
 
         handler
@@ -361,7 +361,7 @@ mod tests {
 
     #[test]
     fn handler_forwards_radar_event_requests() {
-        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let hooks = MissionScriptHooks::new();
         let handler = MissionScriptActionHandler::new(hooks.clone());
 
         handler
@@ -376,7 +376,7 @@ mod tests {
 
     #[test]
     fn zoom_camera_preserves_script_ease_parameters() {
-        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let hooks = MissionScriptHooks::new();
         let handler = MissionScriptActionHandler::new(hooks.clone());
 
         handler
@@ -396,7 +396,6 @@ mod tests {
         let src = concat!(
             include_str!("mod.rs"),
             include_str!("script_requests.rs"),
-            include_str!("script_engine.rs"),
             include_str!("script_hooks.rs"),
             include_str!("script_actions.rs"),
             include_str!("tests.rs"),
@@ -410,7 +409,7 @@ mod tests {
 
     #[test]
     fn handler_forwards_setup_and_look_toward_requests() {
-        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let hooks = MissionScriptHooks::new();
         let handler = MissionScriptActionHandler::new(hooks.clone());
 
         handler
@@ -527,7 +526,7 @@ mod tests {
 
     #[test]
     fn music_track_completion_is_not_immediate_and_respects_flush() {
-        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let hooks = MissionScriptHooks::new();
         let handler = MissionScriptActionHandler::new(hooks.clone());
 
         assert!(
@@ -543,7 +542,7 @@ mod tests {
             "track should not complete on the next frame without Miles loop count"
         );
 
-        hooks.update(1).expect("frame advance should succeed");
+        hooks.note_logic_frame(1);
         assert!(
             !handler.has_music_track_completed("TrackA", 1),
             "one logic frame is not a Miles loop completion"
@@ -552,7 +551,7 @@ mod tests {
 
     #[test]
     fn stop_music_does_not_fail_open_music_complete() {
-        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let hooks = MissionScriptHooks::new();
         let handler = MissionScriptActionHandler::new(hooks.clone());
 
         handler
@@ -617,7 +616,7 @@ mod tests {
             }
         }
 
-        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let hooks = MissionScriptHooks::new();
         let handler = MissionScriptActionHandler::new(hooks);
         handler
             .music_set_track("ShellMapMusic", false, true)
@@ -643,7 +642,7 @@ mod tests {
     #[test]
     fn music_set_track_does_not_broadcast_track_name() {
         // C++ ScriptActions::doMusicTrackChange has no TheInGameUI->message.
-        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let hooks = MissionScriptHooks::new();
         let handler = MissionScriptActionHandler::new(hooks.clone());
         handler
             .music_set_track("ShellMapMusic", false, true)
@@ -657,7 +656,7 @@ mod tests {
 
     #[test]
     fn handler_forwards_weather_visibility_requests() {
-        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let hooks = MissionScriptHooks::new();
         let handler = MissionScriptActionHandler::new(hooks.clone());
 
         handler
@@ -684,11 +683,11 @@ mod tests {
 
         // A map load replaces GameLogic and its MissionScriptHooks. The
         // live-only token must therefore not restart at one per hook object.
-        let old_world = MissionScriptHooks::new().expect("old world hooks");
+        let old_world = MissionScriptHooks::new();
         old_world.push_popup_message(popup("old popup"));
         let old_generation = old_world.drain_popup_message_requests()[0].popup_generation;
 
-        let replacement_world = MissionScriptHooks::new().expect("replacement world hooks");
+        let replacement_world = MissionScriptHooks::new();
         replacement_world.push_popup_message(popup("replacement popup"));
         let replacement_generation =
             replacement_world.drain_popup_message_requests()[0].popup_generation;
@@ -703,7 +702,7 @@ mod tests {
 
     #[test]
     fn handler_forwards_popup_guardband_motion_blur_and_ui_display_requests() {
-        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let hooks = MissionScriptHooks::new();
         let handler = MissionScriptActionHandler::new(hooks.clone());
 
         handler
@@ -848,7 +847,7 @@ mod tests {
         // C++ ScriptActions.cpp:204/228 TheWindowManager->winCreateFromScript
         // ("Menus/Victorious.wnd" / "Menus/Defeat.wnd"). Live host handler must
         // not stay the ScriptActionHandler default no-op.
-        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let hooks = MissionScriptHooks::new();
         let handler = MissionScriptActionHandler::new(hooks);
         let _ = handler.destroy_win_lose_window();
 
@@ -885,7 +884,7 @@ mod tests {
     fn live_script_engine_victory_opens_victorious_wnd_via_host_handler() {
         // C++ ScriptActions::doVictory ScriptActions.cpp:191-209.
         initialize_script_engine().expect("script engine should initialize");
-        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let hooks = MissionScriptHooks::new();
         let handler: Arc<dyn ScriptActionHandler> =
             Arc::new(MissionScriptActionHandler::new(hooks));
         if let Ok(mut guard) = get_script_engine().write() {
@@ -915,7 +914,7 @@ mod tests {
         use gamelogic::scripting::evaluator::ScriptEvaluator;
 
         initialize_script_engine().expect("script engine should initialize");
-        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let hooks = MissionScriptHooks::new();
         let handler: Arc<dyn ScriptActionHandler> =
             Arc::new(MissionScriptActionHandler::new(hooks));
         {
@@ -969,7 +968,7 @@ mod tests {
 
     #[test]
     fn reset_camera_to_forwards_scripted_ease() {
-        let hooks = MissionScriptHooks::new().expect("hooks");
+        let hooks = MissionScriptHooks::new();
         let handler = MissionScriptActionHandler::new(hooks.clone());
         handler
             .reset_camera_to(10.0, 20.0, 3.0, 2.0, 0.4, 0.6)
