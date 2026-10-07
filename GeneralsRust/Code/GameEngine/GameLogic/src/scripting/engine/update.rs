@@ -471,7 +471,7 @@ impl ScriptEngine {
         let mut condition_true = false;
         if let Some(or_cond) = script.condition.as_deref_mut() {
             condition_true = condition_evaluator
-                .evaluate_or_condition(or_cond)
+                .evaluate_or_condition_with_driver(or_cond, execution.driver)
                 .map_err(|e| {
                     GameLogicError::Configuration(format!("Script condition error: {}", e))
                 })?;

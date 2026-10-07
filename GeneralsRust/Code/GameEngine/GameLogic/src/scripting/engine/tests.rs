@@ -1588,3 +1588,5 @@ mod borrowed_driver_tests;
 mod display_driver_tests;
 
 mod camera_driver_tests;
+
+mod completion_driver_tests;

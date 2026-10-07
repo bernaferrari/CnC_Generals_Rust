@@ -190,6 +190,13 @@ impl ScriptCameraRequest<'_> {
     }
 }
 
+/// Timed audio completion queries; flushing removes a completed timer only.
+#[derive(Debug, Clone, Copy)]
+pub enum ScriptCompletionQuery<'a> {
+    Speech { name: &'a str, flush: bool },
+    Audio { name: &'a str, flush: bool },
+}
+
 /// Synchronous effects and live queries of the actual execution owner.
 /// The driver is borrowed for execution only; it is never installed in the
 /// engine, dispatcher context, or a process-wide active slot.
@@ -205,6 +212,13 @@ pub trait ScriptExecutionDriver {
 
     /// Same authoritative/fallback contract as display; no retained foreign owner.
     fn camera(&mut self, _request: ScriptCameraRequest<'_>) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    /// Completion queries can remove a finished timer. The driving owner is
+    /// borrowed mutably for this operation; Some(false) is authoritative too.
+    /// None retains the standalone handler adapter.
+    fn completion(&mut self, _query: ScriptCompletionQuery<'_>) -> Option<bool> {
         None
     }
 

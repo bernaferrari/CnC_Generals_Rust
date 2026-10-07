@@ -178,6 +178,14 @@ impl ScriptConditionEvaluator {
         &mut self,
         condition: &mut Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
+        self.evaluate_condition_with_driver(condition, &mut CanonicalScriptExecutionDriver)
+    }
+
+    pub(crate) fn evaluate_condition_with_driver(
+        &mut self,
+        condition: &mut Condition,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<ScriptConditionResult, ScriptError> {
         let condition_type = condition.get_condition_type();
 
         // Dispatch to the appropriate handler based on condition type
@@ -371,8 +379,8 @@ impl ScriptConditionEvaluator {
             // MEDIA CONDITIONS
             // ============================================================================
             ConditionType::HasFinishedVideo => self.eval_has_finished_video(condition),
-            ConditionType::HasFinishedSpeech => self.eval_has_finished_speech(condition),
-            ConditionType::HasFinishedAudio => self.eval_has_finished_audio(condition),
+            ConditionType::HasFinishedSpeech => self.eval_has_finished_speech(condition, driver),
+            ConditionType::HasFinishedAudio => self.eval_has_finished_audio(condition, driver),
             ConditionType::MusicTrackHasCompleted => self.eval_music_track_has_completed(condition),
 
             // ============================================================================
@@ -460,12 +468,20 @@ impl ScriptConditionEvaluator {
         &mut self,
         or_condition: &mut OrCondition,
     ) -> Result<bool, ScriptError> {
+        self.evaluate_or_condition_with_driver(or_condition, &mut CanonicalScriptExecutionDriver)
+    }
+
+    pub(crate) fn evaluate_or_condition_with_driver(
+        &mut self,
+        or_condition: &mut OrCondition,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<bool, ScriptError> {
         // Iterate through all OR branches
         let mut current_or = Some(or_condition);
         while let Some(or_cond) = current_or {
             // Evaluate the AND chain for this OR branch
             if let Some(and_cond) = or_cond.first_and.as_deref_mut() {
-                if self.evaluate_and_chain(and_cond)? {
+                if self.evaluate_and_chain(and_cond, driver)? {
                     return Ok(true);
                 }
             }
@@ -478,10 +494,11 @@ impl ScriptConditionEvaluator {
     pub(crate) fn evaluate_and_chain(
         &mut self,
         condition: &mut Condition,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<bool, ScriptError> {
         let mut current = Some(condition);
         while let Some(cond) = current {
-            match self.evaluate_condition(cond)? {
+            match self.evaluate_condition_with_driver(cond, driver)? {
                 ScriptConditionResult::True => {
                     // Continue to next AND condition
                     current = cond.next_and_condition.as_deref_mut();

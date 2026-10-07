@@ -1,8 +1,8 @@
 //! Live synchronous Main owner for one ScriptEngine action walk.
 use super::*;
 use gamelogic::scripting::engine::{
-    ScriptCameraRequest, ScriptDisplayRequest, ScriptExecutionDriver, ScriptObjectStatus,
-    ScriptOwnerQuery, ScriptTeamStatus,
+    ScriptCameraRequest, ScriptCompletionQuery, ScriptDisplayRequest, ScriptExecutionDriver,
+    ScriptObjectStatus, ScriptOwnerQuery, ScriptTeamStatus,
 };
 
 pub(super) struct HostScriptExecutionDriver<'a> {
@@ -57,6 +57,17 @@ impl<'a> HostScriptExecutionDriver<'a> {
 }
 
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+    fn completion(&mut self, query: ScriptCompletionQuery<'_>) -> Option<bool> {
+        Some(match query {
+            ScriptCompletionQuery::Speech { name, flush } => {
+                self.world.mission_scripts.is_speech_complete(name, flush)
+            }
+            ScriptCompletionQuery::Audio { name, flush } => {
+                self.world.mission_scripts.is_audio_complete(name, flush)
+            }
+        })
+    }
+
     fn camera(
         &mut self,
         request: ScriptCameraRequest<'_>,

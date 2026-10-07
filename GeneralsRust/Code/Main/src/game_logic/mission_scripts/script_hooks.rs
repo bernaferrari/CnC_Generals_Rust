@@ -140,6 +140,30 @@ impl MissionScriptHooks {
         f(&mut state)
     }
 
+    #[cfg(test)]
+    pub(crate) fn seed_completion_frame_for_test(&self, speech: bool, name: &str, frame: u64) {
+        self.with_completion_tracking_for_test(|state| {
+            let timers = if speech {
+                &mut state.speech_complete_frame
+            } else {
+                &mut state.audio_complete_frame
+            };
+            timers.insert(name.into(), frame);
+        });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn completion_frame_for_test(&self, speech: bool, name: &str) -> Option<u64> {
+        self.with_completion_tracking_for_test(|state| {
+            let timers = if speech {
+                &state.speech_complete_frame
+            } else {
+                &state.audio_complete_frame
+            };
+            timers.get(name).copied()
+        })
+    }
+
     pub fn queue_warehouse_set_value(&self, name: &str, cash: i32) {
         if name.is_empty() {
             return;

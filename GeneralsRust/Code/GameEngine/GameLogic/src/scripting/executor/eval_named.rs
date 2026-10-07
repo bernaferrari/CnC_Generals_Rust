@@ -1650,9 +1650,20 @@ impl ScriptConditionEvaluator {
     pub(crate) fn eval_has_finished_speech(
         &self,
         _condition: &Condition,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptConditionResult, ScriptError> {
         let name = self.get_condition_string_param(_condition, 0)?;
         log::debug!("Evaluating if speech '{}' finished", name);
+        if let Some(finished) = driver.completion(ScriptCompletionQuery::Speech {
+            name: &name,
+            flush: true,
+        }) {
+            return Ok(if finished {
+                ScriptConditionResult::True
+            } else {
+                ScriptConditionResult::False
+            });
+        }
         if let Some(Some(finished)) = with_script_engine_ref(|script_engine| {
             script_engine
                 .action_handler()
@@ -1670,9 +1681,20 @@ impl ScriptConditionEvaluator {
     pub(crate) fn eval_has_finished_audio(
         &self,
         _condition: &Condition,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptConditionResult, ScriptError> {
         let name = self.get_condition_string_param(_condition, 0)?;
         log::debug!("Evaluating if audio '{}' finished", name);
+        if let Some(finished) = driver.completion(ScriptCompletionQuery::Audio {
+            name: &name,
+            flush: true,
+        }) {
+            return Ok(if finished {
+                ScriptConditionResult::True
+            } else {
+                ScriptConditionResult::False
+            });
+        }
         // C++ evaluateAudioHasCompleted → TheScriptEngine->isAudioComplete(name, true).
         // Live handler waits leftover TheAudio length on the live frame clock.
         if let Some(Some(finished)) = with_script_engine_ref(|script_engine| {
