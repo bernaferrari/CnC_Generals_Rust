@@ -201,21 +201,8 @@ impl ScriptEvaluator {
             return Ok(true);
         }
 
-        let player_name = player_arc
-            .read()
-            .ok()
-            .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
-            .filter(|n| !n.is_empty())
-            .unwrap_or_else(|| player_param.get_string().to_string());
-        if crate::scripting::host_query_player_has_science(&player_name, science_name)
-            .unwrap_or(false)
-        {
-            let _ = self.with_evaluation_engine_mut(|engine| {
-                engine.notify_of_acquired_science(player_index, science);
-                engine.is_science_acquired(player_index, science, true)
-            });
-            return Ok(true);
-        }
+        // C++ ScriptConditions.cpp:1543–1554 consumes pending acquisitions.
+        // The owning Player emits them when addScience/resetSciences runs.
         Ok(false)
     }
 
@@ -245,8 +232,7 @@ impl ScriptEvaluator {
             })
             .filter(|n| !n.is_empty())
             .unwrap_or_else(|| player_param.get_string().to_string());
-        if let Some(pts) =
-            crate::scripting::host_query_player_science_purchase_points(&player_name)
+        if let Some(pts) = crate::scripting::host_query_player_science_purchase_points(&player_name)
         {
             return Ok(pts >= points_needed);
         }

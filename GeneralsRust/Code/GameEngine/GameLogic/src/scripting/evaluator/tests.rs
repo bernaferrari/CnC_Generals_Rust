@@ -1483,3 +1483,6 @@ fn live_named_entered_exited_use_two_frame_host_flags() {
         "team standing outside the triangle is not entirely inside"
     );
 }
+
+#[path = "tests/science_edge_tests.rs"]
+mod science_edge_tests;

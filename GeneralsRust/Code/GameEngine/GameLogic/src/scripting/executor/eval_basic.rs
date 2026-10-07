@@ -949,28 +949,8 @@ impl ScriptConditionEvaluator {
             }
         }
 
-        // Live host rank-up leftover-notifies via addScience. If leftover
-        // PlayerList missed the notify, consume a one-shot host census edge.
-        if crate::scripting::host_query_player_has_science(&player_name, &science_name)
-            .unwrap_or(false)
-        {
-            if let Some(idx) = player_index {
-                let already = with_script_engine_mut(|engine| {
-                    engine.is_science_acquired(idx, science, false)
-                })
-                .unwrap_or(false);
-                if !already {
-                    let _ = with_script_engine_mut(|engine| {
-                        engine.notify_of_acquired_science(idx, science);
-                        engine.is_science_acquired(idx, science, true)
-                    });
-                    return Ok(ScriptConditionResult::True);
-                }
-            } else {
-                return Ok(ScriptConditionResult::True);
-            }
-        }
-
+        // C++ ScriptConditions.cpp:1543–1554 consumes pending acquisitions.
+        // The owning Player emits them when addScience/resetSciences runs.
         Ok(ScriptConditionResult::False)
     }
 

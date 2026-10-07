@@ -249,3 +249,6 @@ mod script_camera_owner_tests;
 
 #[cfg(test)]
 mod script_completion_owner_tests;
+
+#[cfg(test)]
+mod science_edge_tests;
