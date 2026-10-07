@@ -328,7 +328,7 @@ fn request_path_for_off_map_start_uses_direct_path_like_cpp() {
 
     let destination = Coord3D::new(-50.0, -25.0, 9.0);
     ai.request_path(&destination, true).unwrap();
-    assert!(ai.waiting_for_path);
+    assert!(ai.data.waiting_for_path);
     assert!(unit.read().unwrap().current_path.is_none());
     assert!(ai.do_queued_pathfind_now().unwrap());
 
@@ -339,7 +339,7 @@ fn request_path_for_off_map_start_uses_direct_path_like_cpp() {
         &vec![Coord2D::new(-100.0, -100.0), Coord2D::new(-50.0, -25.0)]
     );
     assert_eq!(unit_guard.target_position, Some(destination));
-    assert_eq!(ai.queue_for_path_frame, 0);
+    assert_eq!(ai.data.queue_for_path_frame, 0);
 }
 
 #[test]
@@ -388,16 +388,16 @@ fn request_path_for_exit_production_uses_direct_path_and_clears_unit_phasing_lik
         );
         configure_ai_locomotor(&mut ai, loco_template);
         ai.set_can_path_through_units(true).unwrap();
-        ai.current_command = Some(crate::ai::AiCommandType::FollowExitProductionPath);
+        ai.data.current_command = Some(crate::ai::AiCommandType::FollowExitProductionPath);
 
         let destination = Coord3D::new(10.0, 10.0, 6.0);
         ai.request_path(&destination, true).unwrap();
-        assert!(ai.waiting_for_path);
+        assert!(ai.data.waiting_for_path);
         assert!(unit.read().unwrap().current_path.is_none());
         assert!(ai.do_queued_pathfind_now().unwrap());
 
-        assert!(!ai.can_path_through_units);
-        assert_eq!(ai.queue_for_path_frame, 0);
+        assert!(!ai.data.can_path_through_units);
+        assert_eq!(ai.data.queue_for_path_frame, 0);
         let unit_guard = unit.read().unwrap();
         assert_eq!(
             unit_guard.current_path.as_ref().unwrap(),
@@ -454,14 +454,14 @@ fn request_path_for_non_final_line_passable_ground_move_uses_direct_path_like_cp
         configure_ai_locomotor(&mut ai, loco_template);
 
         let destination = Coord3D::new(16.0, 0.0, 3.0);
-        ai.retry_path = true;
+        ai.data.retry_path = true;
         ai.request_path(&destination, false).unwrap();
-        assert!(ai.waiting_for_path);
+        assert!(ai.data.waiting_for_path);
         assert!(unit.read().unwrap().current_path.is_none());
         assert!(ai.do_queued_pathfind_now().unwrap());
 
-        assert!(!ai.retry_path);
-        assert_eq!(ai.queue_for_path_frame, 0);
+        assert!(!ai.data.retry_path);
+        assert_eq!(ai.data.queue_for_path_frame, 0);
         let unit_guard = unit.read().unwrap();
         assert_eq!(
             unit_guard.current_path.as_ref().unwrap(),
@@ -518,10 +518,10 @@ fn line_passable_direct_path_requires_non_final_goal_like_cpp() {
         configure_ai_locomotor(&mut ai, loco_template);
         let destination = Coord3D::new(16.0, 0.0, 3.0);
 
-        ai.is_final_goal = true;
+        ai.data.is_final_goal = true;
         assert!(!ai.should_use_direct_path_for_line_passable_non_final_goal(&destination));
 
-        ai.is_final_goal = false;
+        ai.data.is_final_goal = false;
         assert!(ai.should_use_direct_path_for_line_passable_non_final_goal(&destination));
     });
 }
@@ -576,8 +576,8 @@ fn invalid_destination_without_ready_pathfinder_returns_failure_like_cpp() {
             .unwrap()
     );
 
-    assert!(ai.retry_path);
-    assert_eq!(ai.queue_for_path_frame, 0);
+    assert!(ai.data.retry_path);
+    assert_eq!(ai.data.queue_for_path_frame, 0);
     let unit_guard = unit.read().unwrap();
     assert!(unit_guard.current_path.is_none());
     assert!(unit_guard.target_position.is_none());
@@ -635,11 +635,11 @@ fn stuck_old_path_failure_stops_and_waits_like_cpp() {
         Coord3D::new(10.0, 0.0, 1.0),
         Coord3D::new(20.0, 0.0, 0.0),
     ]);
-    ai.is_blocked = true;
-    ai.blocked_and_stuck = true;
-    ai.blocked_frames = 12;
-    ai.locomotor_goal_type = 1;
-    ai.locomotor_goal_data = Coord3D::new(20.0, 0.0, 0.0);
+    ai.data.is_blocked = true;
+    ai.data.blocked_and_stuck = true;
+    ai.data.blocked_frames = 12;
+    ai.data.locomotor_goal_type = 1;
+    ai.data.locomotor_goal_data = Coord3D::new(20.0, 0.0, 0.0);
 
     assert!(
         ai.try_install_closest_path_for_invalid_destination(&Coord3D::new(-5.0, 0.0, 3.0))
@@ -647,15 +647,15 @@ fn stuck_old_path_failure_stops_and_waits_like_cpp() {
     );
 
     assert_eq!(
-        ai.queue_for_path_frame,
+        ai.data.queue_for_path_frame,
         TheGameLogic::get_frame().saturating_add(LOGICFRAMES_PER_SECOND)
     );
-    assert_eq!(ai.blocked_frames, 0);
-    assert!(!ai.is_blocked);
-    assert!(!ai.blocked_and_stuck);
-    assert_eq!(ai.locomotor_goal_type, 0);
-    assert_eq!(ai.locomotor_goal_data, Coord3D::new(20.0, 0.0, 0.0));
-    assert!(ai.current_path_snapshot.is_none());
+    assert_eq!(ai.data.blocked_frames, 0);
+    assert!(!ai.data.is_blocked);
+    assert!(!ai.data.blocked_and_stuck);
+    assert_eq!(ai.data.locomotor_goal_type, 0);
+    assert_eq!(ai.data.locomotor_goal_data, Coord3D::new(20.0, 0.0, 0.0));
+    assert!(ai.data.current_path_snapshot.is_none());
     let unit_guard = unit.read().unwrap();
     assert!(unit_guard.current_path.is_none());
     assert_eq!(unit_guard.path_index, 0);
@@ -746,12 +746,12 @@ fn set_path_from_waypoint_prepends_current_position_like_cpp() {
     assert_eq!(unit_guard.target_position, Some(expected_terminal));
     assert_eq!(unit_guard.movement_state, MovementState::Moving);
 
-    let snapshot = ai.current_path_snapshot.as_ref().unwrap();
+    let snapshot = ai.data.current_path_snapshot.as_ref().unwrap();
     assert_eq!(
         snapshot.get_first_node().unwrap().get_position(),
         &Coord3D::new(3.0, 4.0, 2.0)
     );
-    assert!(!ai.waiting_for_path);
+    assert!(!ai.data.waiting_for_path);
 }
 
 #[test]
@@ -832,11 +832,11 @@ fn unit_choose_locomotor_set_preserves_current_when_set_missing_like_cpp() {
         None,
     );
     configure_ai_locomotor(&mut ai, loco_template);
-    ai.locomotor_sets.clear();
+    ai.data.locomotor_sets.clear();
 
     ai.choose_locomotor_set(LocomotorSetType::Wander).unwrap();
 
-    assert_eq!(ai.current_locomotor_set, LocomotorSetType::Normal);
+    assert_eq!(ai.data.current_locomotor_set, LocomotorSetType::Normal);
     assert!(ai.get_locomotor_set_clone().unwrap().get_active().is_some());
 }
 
@@ -887,22 +887,22 @@ fn update_consumes_completed_movement_cleanup_like_cpp() {
         Coord3D::new(2.0, 2.0, 0.0),
     ]);
     ai.friend_starting_move();
-    assert!(ai.cpp_is_moving);
+    assert!(ai.data.cpp_is_moving);
     ai.friend_ending_move();
-    assert!(!ai.cpp_is_moving);
-    ai.queue_for_path_frame = TheGameLogic::get_frame().saturating_add(20);
-    ai.ignore_obstacle_id = 1234;
-    ai.locomotor_goal_type = 2;
-    ai.locomotor_goal_data = Coord3D::new(2.0, 2.0, 0.0);
+    assert!(!ai.data.cpp_is_moving);
+    ai.data.queue_for_path_frame = TheGameLogic::get_frame().saturating_add(20);
+    ai.data.ignore_obstacle_id = 1234;
+    ai.data.locomotor_goal_type = 2;
+    ai.data.locomotor_goal_data = Coord3D::new(2.0, 2.0, 0.0);
 
     ai.update().unwrap();
 
-    assert!(!ai.movement_complete);
-    assert_eq!(ai.queue_for_path_frame, 0);
-    assert_eq!(ai.ignore_obstacle_id, INVALID_ID);
-    assert_eq!(ai.locomotor_goal_type, 0);
-    assert_eq!(ai.locomotor_goal_data, Coord3D::new(2.0, 2.0, 0.0));
-    assert!(ai.current_path_snapshot.is_none());
+    assert!(!ai.data.movement_complete);
+    assert_eq!(ai.data.queue_for_path_frame, 0);
+    assert_eq!(ai.data.ignore_obstacle_id, INVALID_ID);
+    assert_eq!(ai.data.locomotor_goal_type, 0);
+    assert_eq!(ai.data.locomotor_goal_data, Coord3D::new(2.0, 2.0, 0.0));
+    assert!(ai.data.current_path_snapshot.is_none());
 
     let unit_guard = unit.read().unwrap();
     assert!(unit_guard.current_path.is_none());
@@ -963,13 +963,16 @@ fn queue_waypoint_does_not_append_past_cpp_limit() {
         ai.queue_waypoint(&Coord3D::new(idx as Real, 0.0, 0.0));
     }
 
-    assert_eq!(ai.planning_waypoint_count, AI_UPDATE_MAX_WAYPOINTS as Int);
+    assert_eq!(
+        ai.data.planning_waypoint_count,
+        AI_UPDATE_MAX_WAYPOINTS as Int
+    );
     assert_eq!(
         unit.read().unwrap().waypoint_queue.len(),
         AI_UPDATE_MAX_WAYPOINTS
     );
     assert_eq!(
-        ai.planning_waypoint_queue[AI_UPDATE_MAX_WAYPOINTS - 1],
+        ai.data.planning_waypoint_queue[AI_UPDATE_MAX_WAYPOINTS - 1],
         Coord3D::new((AI_UPDATE_MAX_WAYPOINTS - 1) as Real, 0.0, 0.0)
     );
 }
@@ -1010,10 +1013,10 @@ fn destroy_path_clears_attack_and_locomotor_goal_like_cpp() {
         None,
         None,
     );
-    ai.is_attack_path = true;
-    ai.waiting_for_path = true;
-    ai.locomotor_goal_type = 2;
-    ai.locomotor_goal_data = Coord3D::new(8.0, 0.0, 0.0);
+    ai.data.is_attack_path = true;
+    ai.data.waiting_for_path = true;
+    ai.data.locomotor_goal_type = 2;
+    ai.data.locomotor_goal_data = Coord3D::new(8.0, 0.0, 0.0);
     ai.set_current_path_snapshot_from_coords(&[
         Coord3D::new(0.0, 0.0, 0.0),
         Coord3D::new(8.0, 0.0, 0.0),
@@ -1021,11 +1024,11 @@ fn destroy_path_clears_attack_and_locomotor_goal_like_cpp() {
 
     ai.destroy_path();
 
-    assert!(ai.current_path_snapshot.is_none());
-    assert!(!ai.waiting_for_path);
-    assert!(!ai.is_attack_path);
-    assert_eq!(ai.locomotor_goal_type, 0);
-    assert_eq!(ai.locomotor_goal_data, Coord3D::new(8.0, 0.0, 0.0));
+    assert!(ai.data.current_path_snapshot.is_none());
+    assert!(!ai.data.waiting_for_path);
+    assert!(!ai.data.is_attack_path);
+    assert_eq!(ai.data.locomotor_goal_type, 0);
+    assert_eq!(ai.data.locomotor_goal_data, Coord3D::new(8.0, 0.0, 0.0));
 
     let unit_guard = unit.read().unwrap();
     assert!(unit_guard.current_path.is_none());
@@ -1082,7 +1085,7 @@ fn request_path_waits_until_queued_pathfind_installs_path_like_cpp() {
 
         ai.request_path(&destination, true).unwrap();
 
-        assert!(ai.waiting_for_path);
+        assert!(ai.data.waiting_for_path);
         assert!(ai.is_waiting_for_path());
         {
             let unit_guard = unit.read().unwrap();
@@ -1091,11 +1094,11 @@ fn request_path_waits_until_queued_pathfind_installs_path_like_cpp() {
         }
 
         ai.update().unwrap();
-        assert!(ai.waiting_for_path);
+        assert!(ai.data.waiting_for_path);
         // C++ AI::update/processPathfindQueue invokes doPathfind separately.
         assert!(ai.do_queued_pathfind_now().unwrap());
 
-        assert!(!ai.waiting_for_path);
+        assert!(!ai.data.waiting_for_path);
         assert!(!ai.is_waiting_for_path());
         let unit_guard = unit.read().unwrap();
         assert!(unit_guard.target_position.is_some());
@@ -1144,16 +1147,16 @@ fn request_attack_path_enters_wait_state_before_repath_delay_like_cpp() {
     );
     configure_ai_locomotor(&mut ai, loco_template);
     let now = TheGameLogic::get_frame();
-    ai.path_timestamp = now.saturating_add(1);
+    ai.data.path_timestamp = now.saturating_add(1);
     let destination = Coord3D::new(12.0, 4.0, 0.0);
 
     ai.request_attack_path(INVALID_ID, &destination).unwrap();
 
-    assert!(ai.is_attack_path);
-    assert!(ai.waiting_for_path);
+    assert!(ai.data.is_attack_path);
+    assert!(ai.data.waiting_for_path);
     assert!(ai.is_waiting_for_path());
     assert_eq!(
-        ai.queue_for_path_frame,
+        ai.data.queue_for_path_frame,
         now.saturating_add(LOGICFRAMES_PER_SECOND * 2)
     );
 }
@@ -1182,13 +1185,13 @@ fn queued_attack_path_object_in_range_finishes_without_move_path_like_cpp() {
         ai.request_attack_path(victim_id, &Coord3D::new(20.0, 0.0, 0.0))
             .unwrap();
         ai.update().unwrap();
-        assert!(ai.waiting_for_path);
+        assert!(ai.data.waiting_for_path);
         // C++ AI::update/processPathfindQueue invokes doPathfind separately.
         assert!(ai.do_queued_pathfind_now().unwrap());
 
-        assert!(!ai.is_attack_path);
-        assert!(!ai.waiting_for_path);
-        assert!(ai.current_path_snapshot.is_none());
+        assert!(!ai.data.is_attack_path);
+        assert!(!ai.data.waiting_for_path);
+        assert!(ai.data.current_path_snapshot.is_none());
         let unit_guard = unit.read().unwrap();
         assert!(unit_guard.target_position.is_none());
         assert!(unit_guard.current_path.is_none());
@@ -1216,13 +1219,13 @@ fn queued_attack_path_position_in_range_finishes_without_move_path_like_cpp() {
         ai.request_attack_path(INVALID_ID, &Coord3D::new(30.0, 0.0, 0.0))
             .unwrap();
         ai.update().unwrap();
-        assert!(ai.waiting_for_path);
+        assert!(ai.data.waiting_for_path);
         // C++ AI::update/processPathfindQueue invokes doPathfind separately.
         assert!(ai.do_queued_pathfind_now().unwrap());
 
-        assert!(!ai.is_attack_path);
-        assert!(!ai.waiting_for_path);
-        assert!(ai.current_path_snapshot.is_none());
+        assert!(!ai.data.is_attack_path);
+        assert!(!ai.data.waiting_for_path);
+        assert!(ai.data.current_path_snapshot.is_none());
         let unit_guard = unit.read().unwrap();
         assert!(unit_guard.target_position.is_none());
         assert!(unit_guard.current_path.is_none());
@@ -1293,18 +1296,18 @@ fn queued_attack_path_fallback_clears_attack_and_tracks_live_victim_like_cpp() {
         ai.request_attack_path(victim_id, &Coord3D::new(10.0, 0.0, 0.0))
             .unwrap();
 
-        assert!(ai.is_attack_path);
-        assert_eq!(ai.requested_destination, Coord3D::new(10.0, 0.0, 0.0));
+        assert!(ai.data.is_attack_path);
+        assert_eq!(ai.data.requested_destination, Coord3D::new(10.0, 0.0, 0.0));
 
         ai.update().unwrap();
-        assert!(ai.waiting_for_path);
+        assert!(ai.data.waiting_for_path);
         // C++ AI::update/processPathfindQueue invokes doPathfind separately.
         assert!(ai.do_queued_pathfind_now().unwrap());
 
-        assert!(!ai.is_attack_path);
-        assert!(!ai.waiting_for_path);
-        assert_eq!(ai.requested_destination, Coord3D::new(20.0, 0.0, 0.0));
-        assert_eq!(ai.ignore_obstacle_id, victim_id);
+        assert!(!ai.data.is_attack_path);
+        assert!(!ai.data.waiting_for_path);
+        assert_eq!(ai.data.requested_destination, Coord3D::new(20.0, 0.0, 0.0));
+        assert_eq!(ai.data.ignore_obstacle_id, victim_id);
         let unit_guard = unit.read().unwrap();
         assert_eq!(
             unit_guard.target_position,
@@ -1360,16 +1363,16 @@ fn request_approach_path_enters_wait_state_before_repath_delay_like_cpp() {
     );
     configure_ai_locomotor(&mut ai, loco_template);
     let now = TheGameLogic::get_frame();
-    ai.path_timestamp = now.saturating_add(1);
+    ai.data.path_timestamp = now.saturating_add(1);
     let destination = Coord3D::new(18.0, 6.0, 0.0);
 
     ai.request_approach_path(&destination).unwrap();
 
-    assert!(ai.is_approach_path);
-    assert!(ai.waiting_for_path);
+    assert!(ai.data.is_approach_path);
+    assert!(ai.data.waiting_for_path);
     assert!(ai.is_waiting_for_path());
     assert_eq!(
-        ai.queue_for_path_frame,
+        ai.data.queue_for_path_frame,
         now.saturating_add(LOGICFRAMES_PER_SECOND * 2)
     );
 }
@@ -1422,12 +1425,12 @@ fn request_approach_path_defers_closest_path_until_queued_update_like_cpp() {
         let old_destination = Coord3D::new(10.0, 0.0, 0.0);
         ai.set_path_from_coords(&[Coord3D::new(0.0, 0.0, 1.0), old_destination])
             .unwrap();
-        ai.path_timestamp = 0;
+        ai.data.path_timestamp = 0;
         let approach_destination = Coord3D::new(24.0, 0.0, 0.0);
 
         ai.request_approach_path(&approach_destination).unwrap();
 
-        assert!(ai.waiting_for_path);
+        assert!(ai.data.waiting_for_path);
         {
             let unit_guard = unit.read().unwrap();
             assert_eq!(unit_guard.target_position, Some(old_destination));
@@ -1435,11 +1438,11 @@ fn request_approach_path_defers_closest_path_until_queued_update_like_cpp() {
         }
 
         ai.update().unwrap();
-        assert!(ai.waiting_for_path);
+        assert!(ai.data.waiting_for_path);
         // C++ AI::update/processPathfindQueue invokes doPathfind separately.
         assert!(ai.do_queued_pathfind_now().unwrap());
 
-        assert!(!ai.waiting_for_path);
+        assert!(!ai.data.waiting_for_path);
         let unit_guard = unit.read().unwrap();
         assert!(unit_guard.current_path.is_some());
         assert_eq!(unit_guard.target_position, Some(approach_destination));
@@ -1451,22 +1454,22 @@ fn request_safe_path_enters_wait_state_before_repath_delay_like_cpp() {
     let mut ai = unit_ai_update_without_unit();
     let previous_repulsor = 71;
     let next_repulsor = 72;
-    ai.repulsor1 = previous_repulsor;
+    ai.data.repulsor1 = previous_repulsor;
     let now = TheGameLogic::get_frame();
-    ai.path_timestamp = now.saturating_add(1);
+    ai.data.path_timestamp = now.saturating_add(1);
 
     assert!(!ai.request_safe_path(next_repulsor).unwrap());
 
-    assert_eq!(ai.repulsor2, previous_repulsor);
-    assert_eq!(ai.repulsor1, next_repulsor);
-    assert!(ai.is_safe_path);
-    assert!(!ai.is_approach_path);
-    assert!(!ai.is_attack_path);
-    assert_eq!(ai.requested_victim_id, INVALID_ID);
-    assert!(ai.waiting_for_path);
+    assert_eq!(ai.data.repulsor2, previous_repulsor);
+    assert_eq!(ai.data.repulsor1, next_repulsor);
+    assert!(ai.data.is_safe_path);
+    assert!(!ai.data.is_approach_path);
+    assert!(!ai.data.is_attack_path);
+    assert_eq!(ai.data.requested_victim_id, INVALID_ID);
+    assert!(ai.data.waiting_for_path);
     assert!(ai.is_waiting_for_path());
     assert_eq!(
-        ai.queue_for_path_frame,
+        ai.data.queue_for_path_frame,
         now.saturating_add(LOGICFRAMES_PER_SECOND * 2)
     );
 }
@@ -1530,8 +1533,8 @@ fn request_safe_path_defers_safe_pathfind_until_queued_update_like_cpp() {
 
         assert!(ai.request_safe_path(repulsor_id).unwrap());
 
-        assert!(ai.waiting_for_path);
-        assert!(ai.pending_safe_path.is_none());
+        assert!(ai.data.waiting_for_path);
+        assert!(ai.data.pending_safe_path.is_none());
         {
             let unit_guard = unit.read().unwrap();
             assert!(unit_guard.current_path.is_none());
@@ -1539,11 +1542,11 @@ fn request_safe_path_defers_safe_pathfind_until_queued_update_like_cpp() {
         }
 
         ai.update().unwrap();
-        assert!(ai.waiting_for_path);
+        assert!(ai.data.waiting_for_path);
         // C++ AI::update/processPathfindQueue invokes doPathfind separately.
         assert!(ai.do_queued_pathfind_now().unwrap());
 
-        assert!(!ai.waiting_for_path);
+        assert!(!ai.data.waiting_for_path);
         let unit_guard = unit.read().unwrap();
         assert!(unit_guard.current_path.is_some());
         assert!(unit_guard.target_position.is_some());
@@ -1594,18 +1597,21 @@ fn installed_path_uses_exact_requested_destination_for_ultra_accurate_loco_like_
     );
     configure_ai_locomotor(&mut ai, loco_template);
     ai.set_ultra_accurate(true).unwrap();
-    ai.requested_destination = Coord3D::new(14.25, 2.5, 3.0);
+    ai.data.requested_destination = Coord3D::new(14.25, 2.5, 3.0);
 
     ai.set_path_from_coords(&[Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(14.0, 2.0, 0.0)])
         .unwrap();
 
     let unit_guard = unit.read().unwrap();
-    assert_eq!(unit_guard.target_position, Some(ai.requested_destination));
+    assert_eq!(
+        unit_guard.target_position,
+        Some(ai.data.requested_destination)
+    );
     assert_eq!(
         unit_guard.current_path.as_ref().unwrap().last(),
         Some(&Coord2D::new(14.25, 2.5))
     );
-    assert!(ai.current_path_snapshot.is_some());
+    assert!(ai.data.current_path_snapshot.is_some());
 }
 
 #[test]
@@ -1652,8 +1658,8 @@ fn final_ground_path_install_updates_goal_layer_like_cpp_do_pathfind() {
         None,
     );
     configure_ai_locomotor(&mut ai, loco_template);
-    ai.is_final_goal = true;
-    ai.requested_destination = Coord3D::new(32.0, 64.0, 0.0);
+    ai.data.is_final_goal = true;
+    ai.data.requested_destination = Coord3D::new(32.0, 64.0, 0.0);
 
     ai.set_path_from_coords(&[Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(32.0, 64.0, 0.0)])
         .unwrap();
@@ -1679,28 +1685,28 @@ fn save_unit_ai_update(ai: &mut UnitAIUpdate) -> Vec<u8> {
 #[test]
 fn unit_ai_update_blocked_speed_uses_cur_max_before_bump_decay() {
     let mut ai = unit_ai_update_without_unit();
-    ai.cur_max_blocked_speed = 10.0;
-    ai.bump_speed_limit = FAST_AS_POSSIBLE;
-    ai.blocked_frames = 3;
+    ai.data.cur_max_blocked_speed = 10.0;
+    ai.data.bump_speed_limit = FAST_AS_POSSIBLE;
+    ai.data.blocked_frames = 3;
 
     let speed = ai.apply_bump_speed_limit(25.0, true);
 
     assert!((speed - 9.5).abs() < 0.001);
-    assert!((ai.bump_speed_limit - 9.5).abs() < 0.001);
-    assert_eq!(ai.blocked_frames, 3);
+    assert!((ai.data.bump_speed_limit - 9.5).abs() < 0.001);
+    assert_eq!(ai.data.blocked_frames, 3);
 }
 
 #[test]
 fn unit_ai_update_bump_limit_recovers_and_caps_blocked_frames_when_unblocked() {
     let mut ai = unit_ai_update_without_unit();
-    ai.bump_speed_limit = 10.0;
-    ai.blocked_frames = 4;
+    ai.data.bump_speed_limit = 10.0;
+    ai.data.blocked_frames = 4;
 
     let speed = ai.apply_bump_speed_limit(20.0, false);
 
     assert!((speed - 10.5).abs() < 0.001);
-    assert!((ai.bump_speed_limit - 10.5).abs() < 0.001);
-    assert_eq!(ai.blocked_frames, 1);
+    assert!((ai.data.bump_speed_limit - 10.5).abs() < 0.001);
+    assert_eq!(ai.data.blocked_frames, 1);
 }
 
 #[test]
@@ -1741,12 +1747,12 @@ fn unit_ai_update_xfer_serializes_turret_ai_snapshots_before_sync_flag() {
     let without_turret_bytes = save_unit_ai_update(&mut without_turret);
 
     let mut with_primary = unit_ai_update_without_unit();
-    with_primary.turret_primary_machine = Some(test_turret_machine());
+    with_primary.data.turret_primary_machine = Some(test_turret_machine());
     let with_primary_bytes = save_unit_ai_update(&mut with_primary);
 
     let mut with_both = unit_ai_update_without_unit();
-    with_both.turret_primary_machine = Some(test_turret_machine());
-    with_both.turret_secondary_machine = Some(test_turret_machine());
+    with_both.data.turret_primary_machine = Some(test_turret_machine());
+    with_both.data.turret_secondary_machine = Some(test_turret_machine());
     let with_both_bytes = save_unit_ai_update(&mut with_both);
 
     assert!(with_primary_bytes.len() > without_turret_bytes.len());
@@ -1760,7 +1766,7 @@ fn unit_ai_update_xfer_serializes_turret_ai_snapshots_before_sync_flag() {
 #[test]
 fn unit_ai_update_xfer_roundtrips_next_enemy_scan_time() {
     let mut saved = unit_ai_update_without_unit();
-    saved.next_enemy_scan_time = 12_345;
+    saved.data.next_enemy_scan_time = 12_345;
     let bytes = save_unit_ai_update(&mut saved);
 
     let mut loaded = unit_ai_update_without_unit();
@@ -1769,7 +1775,7 @@ fn unit_ai_update_xfer_roundtrips_next_enemy_scan_time() {
         loaded.xfer_ai_update_state(&mut xfer).unwrap();
     }
 
-    assert_eq!(loaded.next_enemy_scan_time, 12_345);
+    assert_eq!(loaded.data.next_enemy_scan_time, 12_345);
 }
 
 #[test]
@@ -1780,17 +1786,17 @@ fn unit_ai_update_guard_target_slots_match_cpp_shift_semantics() {
     ai.push_guard_target_type(GuardTargetType::Object);
     ai.clear_guard_target_type();
 
-    assert_eq!(ai.guard_target_type[0], GuardTargetType::None_);
-    assert_eq!(ai.guard_target_type[1], GuardTargetType::Object);
+    assert_eq!(ai.data.guard_target_type[0], GuardTargetType::None_);
+    assert_eq!(ai.data.guard_target_type[1], GuardTargetType::Object);
 }
 
 #[test]
 fn unit_ai_update_xfer_roundtrips_guard_target_slots() {
     let mut saved = unit_ai_update_without_unit();
     saved.push_guard_target_type(GuardTargetType::Location);
-    saved.location_to_guard = Coord3D::new(11.0, 22.0, 3.0);
+    saved.data.location_to_guard = Coord3D::new(11.0, 22.0, 3.0);
     saved.push_guard_target_type(GuardTargetType::Object);
-    saved.object_to_guard = 91;
+    saved.data.object_to_guard = 91;
     let bytes = save_unit_ai_update(&mut saved);
 
     let mut loaded = unit_ai_update_without_unit();
@@ -1799,30 +1805,30 @@ fn unit_ai_update_xfer_roundtrips_guard_target_slots() {
         loaded.xfer_ai_update_state(&mut xfer).unwrap();
     }
 
-    assert_eq!(loaded.guard_target_type[0], GuardTargetType::Object);
-    assert_eq!(loaded.guard_target_type[1], GuardTargetType::Location);
-    assert_eq!(loaded.location_to_guard, Coord3D::new(11.0, 22.0, 3.0));
-    assert_eq!(loaded.object_to_guard, 91);
+    assert_eq!(loaded.data.guard_target_type[0], GuardTargetType::Object);
+    assert_eq!(loaded.data.guard_target_type[1], GuardTargetType::Location);
+    assert_eq!(loaded.data.location_to_guard, Coord3D::new(11.0, 22.0, 3.0));
+    assert_eq!(loaded.data.object_to_guard, 91);
 }
 
 #[test]
 fn unit_ai_update_xfer_roundtrips_requested_path_and_locomotor_slots() {
     let mut saved = unit_ai_update_without_unit();
-    saved.requested_victim_id = 77;
-    saved.requested_destination = Coord3D::new(10.0, 20.0, 3.0);
-    saved.requested_destination2 = Coord3D::new(30.0, 40.0, 5.0);
-    saved.pathfind_goal_cell = ICoord2D::new(11, 12);
-    saved.pathfind_cur_cell = ICoord2D::new(13, 14);
-    saved.final_position = Coord3D::new(50.0, 60.0, 7.0);
-    saved.do_final_position = true;
-    saved.is_attack_path = true;
-    saved.is_final_goal = true;
-    saved.is_approach_path = true;
-    saved.is_safe_path = true;
-    saved.movement_complete = true;
-    saved.current_locomotor_set = LocomotorSetType::Supersonic;
-    saved.locomotor_goal_type = 2;
-    saved.locomotor_goal_data = Coord3D::new(70.0, 80.0, 9.0);
+    saved.data.requested_victim_id = 77;
+    saved.data.requested_destination = Coord3D::new(10.0, 20.0, 3.0);
+    saved.data.requested_destination2 = Coord3D::new(30.0, 40.0, 5.0);
+    saved.data.pathfind_goal_cell = ICoord2D::new(11, 12);
+    saved.data.pathfind_cur_cell = ICoord2D::new(13, 14);
+    saved.data.final_position = Coord3D::new(50.0, 60.0, 7.0);
+    saved.data.do_final_position = true;
+    saved.data.is_attack_path = true;
+    saved.data.is_final_goal = true;
+    saved.data.is_approach_path = true;
+    saved.data.is_safe_path = true;
+    saved.data.movement_complete = true;
+    saved.data.current_locomotor_set = LocomotorSetType::Supersonic;
+    saved.data.locomotor_goal_type = 2;
+    saved.data.locomotor_goal_data = Coord3D::new(70.0, 80.0, 9.0);
     let bytes = save_unit_ai_update(&mut saved);
 
     let mut loaded = unit_ai_update_without_unit();
@@ -1831,21 +1837,33 @@ fn unit_ai_update_xfer_roundtrips_requested_path_and_locomotor_slots() {
         loaded.xfer_ai_update_state(&mut xfer).unwrap();
     }
 
-    assert_eq!(loaded.requested_victim_id, 77);
-    assert_eq!(loaded.requested_destination, Coord3D::new(10.0, 20.0, 3.0));
-    assert_eq!(loaded.requested_destination2, Coord3D::new(30.0, 40.0, 5.0));
-    assert_eq!(loaded.pathfind_goal_cell, ICoord2D::new(11, 12));
-    assert_eq!(loaded.pathfind_cur_cell, ICoord2D::new(13, 14));
-    assert_eq!(loaded.final_position, Coord3D::new(50.0, 60.0, 7.0));
-    assert!(loaded.do_final_position);
-    assert!(loaded.is_attack_path);
-    assert!(loaded.is_final_goal);
-    assert!(loaded.is_approach_path);
-    assert!(loaded.is_safe_path);
-    assert!(loaded.movement_complete);
-    assert_eq!(loaded.current_locomotor_set, LocomotorSetType::Supersonic);
-    assert_eq!(loaded.locomotor_goal_type, 2);
-    assert_eq!(loaded.locomotor_goal_data, Coord3D::new(70.0, 80.0, 9.0));
+    assert_eq!(loaded.data.requested_victim_id, 77);
+    assert_eq!(
+        loaded.data.requested_destination,
+        Coord3D::new(10.0, 20.0, 3.0)
+    );
+    assert_eq!(
+        loaded.data.requested_destination2,
+        Coord3D::new(30.0, 40.0, 5.0)
+    );
+    assert_eq!(loaded.data.pathfind_goal_cell, ICoord2D::new(11, 12));
+    assert_eq!(loaded.data.pathfind_cur_cell, ICoord2D::new(13, 14));
+    assert_eq!(loaded.data.final_position, Coord3D::new(50.0, 60.0, 7.0));
+    assert!(loaded.data.do_final_position);
+    assert!(loaded.data.is_attack_path);
+    assert!(loaded.data.is_final_goal);
+    assert!(loaded.data.is_approach_path);
+    assert!(loaded.data.is_safe_path);
+    assert!(loaded.data.movement_complete);
+    assert_eq!(
+        loaded.data.current_locomotor_set,
+        LocomotorSetType::Supersonic
+    );
+    assert_eq!(loaded.data.locomotor_goal_type, 2);
+    assert_eq!(
+        loaded.data.locomotor_goal_data,
+        Coord3D::new(70.0, 80.0, 9.0)
+    );
 }
 
 #[test]
@@ -1871,7 +1889,7 @@ fn unit_ai_update_xfer_roundtrips_current_path_snapshot() {
         loaded.xfer_ai_update_state(&mut xfer).unwrap();
     }
 
-    let path = loaded.current_path_snapshot.as_ref().unwrap();
+    let path = loaded.data.current_path_snapshot.as_ref().unwrap();
     assert_eq!(
         *path.get_first_node().unwrap().get_position(),
         Coord3D::new(1.0, 2.0, 3.0)
@@ -1892,15 +1910,15 @@ fn unit_ai_update_xfer_roundtrips_planning_waypoint_queue() {
         loaded.xfer_ai_update_state(&mut xfer).unwrap();
     }
 
-    assert_eq!(loaded.planning_waypoint_count, 2);
-    assert_eq!(loaded.planning_waypoint_index, 0);
-    assert!(loaded.executing_waypoint_queue);
+    assert_eq!(loaded.data.planning_waypoint_count, 2);
+    assert_eq!(loaded.data.planning_waypoint_index, 0);
+    assert!(loaded.data.executing_waypoint_queue);
     assert_eq!(
-        loaded.planning_waypoint_queue[0],
+        loaded.data.planning_waypoint_queue[0],
         Coord3D::new(1.0, 2.0, 3.0)
     );
     assert_eq!(
-        loaded.planning_waypoint_queue[1],
+        loaded.data.planning_waypoint_queue[1],
         Coord3D::new(4.0, 5.0, 6.0)
     );
 }
@@ -1908,7 +1926,7 @@ fn unit_ai_update_xfer_roundtrips_planning_waypoint_queue() {
 #[test]
 fn unit_ai_update_xfer_rejects_invalid_planning_waypoint_count() {
     let mut ai = unit_ai_update_without_unit();
-    ai.planning_waypoint_count = AI_UPDATE_MAX_WAYPOINTS as Int + 1;
+    ai.data.planning_waypoint_count = AI_UPDATE_MAX_WAYPOINTS as Int + 1;
     let mut bytes = Vec::new();
     let mut xfer = XferSave::new(Cursor::new(&mut bytes), 1);
 

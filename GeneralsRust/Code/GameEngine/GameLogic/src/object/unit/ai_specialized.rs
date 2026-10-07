@@ -98,13 +98,14 @@ impl UnitAIUpdate {
             return Ok(());
         }
 
-        let target_pos = crate::object::registry::OBJECT_REGISTRY.get_object(target_id)
+        let target_pos = crate::object::registry::OBJECT_REGISTRY
+            .get_object(target_id)
             .and_then(|arc| arc.read().ok().map(|g| *g.get_position()))
             .ok_or("guard target not found")?;
         let unit =
             get_unit_arc(self.unit_id).ok_or_else(|| "unit no longer available".to_string())?;
         self.push_guard_target_type(GuardTargetType::Object);
-        self.object_to_guard = target_id;
+        self.data.object_to_guard = target_id;
         let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
         guard.current_order = Some(UnitOrder::Guard {
             position: target_pos,

@@ -2,6 +2,7 @@
 
 #![allow(unused_imports)]
 
+use super::ai_data::UnitAiData;
 use super::ai_helpers::*;
 use super::identity::Unit;
 use super::imports::*;
@@ -54,100 +55,18 @@ pub struct UnitAIUpdate {
     pub(super) wander_ai: Option<WanderAIUpdate>,
     pub(super) dock_machine: Option<AIDockMachine>,
     pub(super) ai_state_machine: Option<Arc<Mutex<AIStateMachine>>>,
-    pub(super) can_path_through_units: bool,
-    pub(super) randomly_offset_mood_check: bool,
-    pub(super) next_mood_check_time: UnsignedInt,
-    pub(super) allow_chase: bool,
-    pub(super) attitude: AIAttitudeType,
-    pub(super) last_command_source: CommandSourceType,
-    pub(super) current_command: Option<crate::ai::AiCommandType>,
-    pub(super) pending_command: Option<crate::ai::AiCommandType>,
-    pub(super) surrendered_frames_left: UnsignedInt,
-    pub(super) surrendered_player_index: Option<PlayerIndex>,
-    pub(super) surrender_duration_frames: UnsignedInt,
-    pub(super) demoralized_frames_left: UnsignedInt,
-    pub(super) auto_acquire_enemies_when_idle: u32,
-    pub(super) mood_attack_check_rate_frames: UnsignedInt,
-    pub(super) forbid_player_commands: Bool,
-    pub(super) turrets_linked: Bool,
-    pub(super) turret_sync_flag: TurretType,
-    pub(super) turret_primary_data: Option<TurretAIData>,
-    pub(super) turret_secondary_data: Option<TurretAIData>,
-    pub(super) locomotor_upgraded: Bool,
-    pub(super) current_locomotor_set: LocomotorSetType,
-    pub(super) locomotor_set: LocomotorSet,
-    pub(super) locomotor_sets: HashMap<LocomotorSetType, Vec<AsciiString>>,
-    pub(super) turret_primary_enabled: Bool,
-    pub(super) turret_secondary_enabled: Bool,
-    pub(super) turret_primary_natural: Bool,
-    pub(super) turret_secondary_natural: Bool,
-    pub(super) turret_primary_machine: Option<TurretStateMachine>,
-    pub(super) turret_secondary_machine: Option<TurretStateMachine>,
-    pub(super) enter_target: Option<ObjectID>,
-    pub(super) desired_speed: Real,
-    pub(super) prior_waypoint_id: Option<crate::waypoint::WaypointId>,
-    pub(super) current_waypoint_id: Option<crate::waypoint::WaypointId>,
-    pub(super) completed_waypoint_id: Option<crate::waypoint::WaypointId>,
-    pub(super) current_goal_path_index: i32,
-    pub(super) rappel_state: Option<RappelState>,
-    pub(super) original_victim_pos: Option<Coord3D>,
-    pub(super) pending_safe_path: Option<Vec<Coord3D>>,
-    pub(super) guard_target_type: [GuardTargetType; 2],
-    pub(super) location_to_guard: Coord3D,
-    pub(super) object_to_guard: ObjectID,
-    pub(super) planning_waypoint_queue: [Coord3D; AI_UPDATE_MAX_WAYPOINTS],
-    pub(super) planning_waypoint_count: Int,
-    pub(super) planning_waypoint_index: Int,
-    pub(super) executing_waypoint_queue: Bool,
-    pub(super) requested_victim_id: ObjectID,
-    pub(super) requested_destination: Coord3D,
-    pub(super) requested_destination2: Coord3D,
-    pub(super) current_path_snapshot: Option<AiPath>,
-    pub(super) pathfind_goal_cell: ICoord2D,
-    pub(super) pathfind_cur_cell: ICoord2D,
-    pub(super) pathfind_goal_layer: ClassicPathLayer,
-    /// Astar ordinals zipped with the installed waypoints. Not xfer'd. Not `AiPath`.
-    pub(super) installed_path_layers: Vec<u8>,
-    pub(super) move_out_of_way_1: ObjectID,
-    pub(super) move_out_of_way_2: ObjectID,
-    pub(super) repulsor1: ObjectID,
-    pub(super) repulsor2: ObjectID,
-    pub(super) ignore_obstacle_id: ObjectID,
-    pub(super) ignore_collisions_until: UnsignedInt,
-    pub(super) waiting_for_path: Bool,
-    pub(super) queue_for_path_frame: UnsignedInt,
-    pub(super) path_timestamp: UnsignedInt,
-    pub(super) ai_dead: Bool,
-    pub(super) is_recruitable: Bool,
-    pub(super) next_enemy_scan_time: UnsignedInt,
-    pub(super) final_position: Coord3D,
-    pub(super) do_final_position: Bool,
-    pub(super) is_attack_path: Bool,
-    pub(super) is_final_goal: Bool,
-    pub(super) is_approach_path: Bool,
-    pub(super) is_safe_path: Bool,
-    pub(super) movement_complete: Bool,
-    /// C++ `m_isMoving`. Not derived from the path.
-    pub(super) cpp_is_moving: bool,
-    pub(super) locomotor_goal_type: u32,
-    pub(super) locomotor_goal_data: Coord3D,
-    pub(super) is_blocked: Bool,
-    pub(super) blocked_and_stuck: Bool,
-    pub(super) retry_path: Bool,
-    pub(super) blocked_frames: u32,
-    pub(super) cur_max_blocked_speed: Real,
-    pub(super) bump_speed_limit: Real,
+    pub(super) data: UnitAiData,
 }
 
 impl std::fmt::Debug for UnitAIUpdate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UnitAIUpdate")
-            .field("can_path_through_units", &self.can_path_through_units)
-            .field("allow_chase", &self.allow_chase)
-            .field("last_command_source", &self.last_command_source)
-            .field("current_command", &self.current_command)
-            .field("pending_command", &self.pending_command)
-            .field("ai_dead", &self.ai_dead)
+            .field("can_path_through_units", &self.data.can_path_through_units)
+            .field("allow_chase", &self.data.allow_chase)
+            .field("last_command_source", &self.data.last_command_source)
+            .field("current_command", &self.data.current_command)
+            .field("pending_command", &self.data.pending_command)
+            .field("ai_dead", &self.data.ai_dead)
             .finish()
     }
 }
@@ -238,87 +157,89 @@ impl UnitAIUpdate {
             wander_ai: components.wander_ai,
             dock_machine: None,
             ai_state_machine,
-            can_path_through_units: false,
-            randomly_offset_mood_check: false,
-            next_mood_check_time: 0,
-            allow_chase: false,
-            attitude: AIAttitudeType::Normal,
-            last_command_source: CommandSourceType::FromAi,
-            current_command: None,
-            pending_command: None,
-            surrendered_frames_left: 0,
-            surrendered_player_index: None,
-            surrender_duration_frames: LOGICFRAMES_PER_SECOND * 120,
-            demoralized_frames_left: 0,
-            auto_acquire_enemies_when_idle: 0,
-            mood_attack_check_rate_frames: LOGICFRAMES_PER_SECOND * 2,
-            forbid_player_commands: false,
-            turrets_linked: false,
-            turret_sync_flag: TurretType::Invalid,
-            turret_primary_data: None,
-            turret_secondary_data: None,
-            locomotor_upgraded: false,
-            current_locomotor_set: LocomotorSetType::Invalid,
-            locomotor_set: LocomotorSet::new(),
-            locomotor_sets: HashMap::new(),
-            turret_primary_enabled: true,
-            turret_secondary_enabled: true,
-            turret_primary_natural: true,
-            turret_secondary_natural: true,
-            turret_primary_machine: None,
-            turret_secondary_machine: None,
-            enter_target: None,
-            desired_speed: FAST_AS_POSSIBLE,
-            prior_waypoint_id: None,
-            current_waypoint_id: None,
-            completed_waypoint_id: None,
-            current_goal_path_index: -1,
-            rappel_state: None,
-            original_victim_pos: None,
-            pending_safe_path: None,
-            guard_target_type: [GuardTargetType::None_; 2],
-            location_to_guard: Coord3D::ZERO,
-            object_to_guard: INVALID_ID,
-            planning_waypoint_queue: [Coord3D::ZERO; AI_UPDATE_MAX_WAYPOINTS],
-            planning_waypoint_count: 0,
-            planning_waypoint_index: 0,
-            executing_waypoint_queue: false,
-            requested_victim_id: INVALID_ID,
-            requested_destination: Coord3D::ZERO,
-            requested_destination2: Coord3D::ZERO,
-            current_path_snapshot: None,
-            pathfind_goal_cell: ICoord2D::new(-1, -1),
-            pathfind_cur_cell: ICoord2D::new(-1, -1),
-            pathfind_goal_layer: ClassicPathLayer::Invalid,
-            installed_path_layers: Vec::new(),
-            move_out_of_way_1: INVALID_ID,
-            move_out_of_way_2: INVALID_ID,
-            repulsor1: INVALID_ID,
-            repulsor2: INVALID_ID,
-            ignore_obstacle_id: INVALID_ID,
-            ignore_collisions_until: 0,
-            waiting_for_path: false,
-            queue_for_path_frame: 0,
-            path_timestamp: 0,
-            ai_dead: false,
-            is_recruitable: true,
-            next_enemy_scan_time: 0,
-            final_position: Coord3D::ZERO,
-            do_final_position: false,
-            is_attack_path: false,
-            is_final_goal: false,
-            is_approach_path: false,
-            is_safe_path: false,
-            movement_complete: false,
-            cpp_is_moving: false,
-            locomotor_goal_type: 0,
-            locomotor_goal_data: Coord3D::ZERO,
-            is_blocked: false,
-            blocked_and_stuck: false,
-            retry_path: false,
-            blocked_frames: 0,
-            cur_max_blocked_speed: FAST_AS_POSSIBLE,
-            bump_speed_limit: FAST_AS_POSSIBLE,
+            data: UnitAiData {
+                can_path_through_units: false,
+                randomly_offset_mood_check: false,
+                next_mood_check_time: 0,
+                allow_chase: false,
+                attitude: AIAttitudeType::Normal,
+                last_command_source: CommandSourceType::FromAi,
+                current_command: None,
+                pending_command: None,
+                surrendered_frames_left: 0,
+                surrendered_player_index: None,
+                surrender_duration_frames: LOGICFRAMES_PER_SECOND * 120,
+                demoralized_frames_left: 0,
+                auto_acquire_enemies_when_idle: 0,
+                mood_attack_check_rate_frames: LOGICFRAMES_PER_SECOND * 2,
+                forbid_player_commands: false,
+                turrets_linked: false,
+                turret_sync_flag: TurretType::Invalid,
+                turret_primary_data: None,
+                turret_secondary_data: None,
+                locomotor_upgraded: false,
+                current_locomotor_set: LocomotorSetType::Invalid,
+                locomotor_set: LocomotorSet::new(),
+                locomotor_sets: HashMap::new(),
+                turret_primary_enabled: true,
+                turret_secondary_enabled: true,
+                turret_primary_natural: true,
+                turret_secondary_natural: true,
+                turret_primary_machine: None,
+                turret_secondary_machine: None,
+                enter_target: None,
+                desired_speed: FAST_AS_POSSIBLE,
+                prior_waypoint_id: None,
+                current_waypoint_id: None,
+                completed_waypoint_id: None,
+                current_goal_path_index: -1,
+                rappel_state: None,
+                original_victim_pos: None,
+                pending_safe_path: None,
+                guard_target_type: [GuardTargetType::None_; 2],
+                location_to_guard: Coord3D::ZERO,
+                object_to_guard: INVALID_ID,
+                planning_waypoint_queue: [Coord3D::ZERO; AI_UPDATE_MAX_WAYPOINTS],
+                planning_waypoint_count: 0,
+                planning_waypoint_index: 0,
+                executing_waypoint_queue: false,
+                requested_victim_id: INVALID_ID,
+                requested_destination: Coord3D::ZERO,
+                requested_destination2: Coord3D::ZERO,
+                current_path_snapshot: None,
+                pathfind_goal_cell: ICoord2D::new(-1, -1),
+                pathfind_cur_cell: ICoord2D::new(-1, -1),
+                pathfind_goal_layer: ClassicPathLayer::Invalid,
+                installed_path_layers: Vec::new(),
+                move_out_of_way_1: INVALID_ID,
+                move_out_of_way_2: INVALID_ID,
+                repulsor1: INVALID_ID,
+                repulsor2: INVALID_ID,
+                ignore_obstacle_id: INVALID_ID,
+                ignore_collisions_until: 0,
+                waiting_for_path: false,
+                queue_for_path_frame: 0,
+                path_timestamp: 0,
+                ai_dead: false,
+                is_recruitable: true,
+                next_enemy_scan_time: 0,
+                final_position: Coord3D::ZERO,
+                do_final_position: false,
+                is_attack_path: false,
+                is_final_goal: false,
+                is_approach_path: false,
+                is_safe_path: false,
+                movement_complete: false,
+                cpp_is_moving: false,
+                locomotor_goal_type: 0,
+                locomotor_goal_data: Coord3D::ZERO,
+                is_blocked: false,
+                blocked_and_stuck: false,
+                retry_path: false,
+                blocked_frames: 0,
+                cur_max_blocked_speed: FAST_AS_POSSIBLE,
+                bump_speed_limit: FAST_AS_POSSIBLE,
+            },
         }
     }
     /// Enter `state_id`. The machine stays on `self` so `on_enter` can see it.
@@ -332,21 +253,21 @@ impl UnitAIUpdate {
         let _ = guard.base.set_state_entering(state_id, Some(self));
     }
     pub(super) fn push_guard_target_type(&mut self, target_type: GuardTargetType) {
-        if self.guard_target_type[1] == GuardTargetType::None_ {
-            self.guard_target_type[1] = target_type;
+        if self.data.guard_target_type[1] == GuardTargetType::None_ {
+            self.data.guard_target_type[1] = target_type;
         } else {
-            self.guard_target_type[0] = target_type;
+            self.data.guard_target_type[0] = target_type;
         }
     }
     pub(super) fn clear_guard_target_type(&mut self) {
-        self.guard_target_type[1] = self.guard_target_type[0];
-        self.guard_target_type[0] = GuardTargetType::None_;
+        self.data.guard_target_type[1] = self.data.guard_target_type[0];
+        self.data.guard_target_type[0] = GuardTargetType::None_;
     }
     pub(super) fn friend_get_turret_sync(&self) -> TurretType {
-        self.turret_sync_flag
+        self.data.turret_sync_flag
     }
     pub(super) fn friend_set_turret_sync(&mut self, turret: TurretType) {
-        self.turret_sync_flag = turret;
+        self.data.turret_sync_flag = turret;
     }
     pub(super) fn owner_object_id(&self) -> Option<ObjectID> {
         if self.unit_id != INVALID_ID {
@@ -369,15 +290,16 @@ impl UnitAIUpdate {
     pub(super) fn xfer_locomotor_set_state(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         // C++ AIUpdate.cpp:5130-5145 clears only the receiving set before load.
         if xfer.is_loading() {
-            self.locomotor_set.clear();
+            self.data.locomotor_set.clear();
         }
-        let mut current_name = self.locomotor_set.active_name().map(str::to_owned);
-        self.locomotor_set
+        let mut current_name = self.data.locomotor_set.active_name().map(str::to_owned);
+        self.data
+            .locomotor_set
             .xfer_self_and_cur_loco_ptr(xfer, &mut current_name)?;
-        let mut current_set = self.current_locomotor_set as i32;
+        let mut current_set = self.data.current_locomotor_set as i32;
         xfer.xfer_int(&mut current_set).map_err(|e| e.to_string())?;
         if xfer.is_loading() {
-            self.current_locomotor_set = locomotor_set_type_from_i32(current_set)?;
+            self.data.current_locomotor_set = locomotor_set_type_from_i32(current_set)?;
         }
         Ok(())
     }
@@ -393,34 +315,36 @@ impl UnitAIUpdate {
     }
 
     fn apply_module_data(&mut self, data: &AIUpdateModuleData, legacy_unit: bool) {
-        self.surrender_duration_frames = data.surrender_duration_frames();
-        self.auto_acquire_enemies_when_idle = data.auto_acquire_enemies_when_idle();
-        self.mood_attack_check_rate_frames = data.mood_attack_check_rate();
-        self.forbid_player_commands = data.forbid_player_commands();
-        self.turrets_linked = data.turrets_linked();
-        self.turret_primary_data = data.turret_primary().cloned();
-        self.turret_secondary_data = data.turret_secondary().cloned();
-        self.locomotor_sets = data.locomotor_sets().clone();
+        self.data.surrender_duration_frames = data.surrender_duration_frames();
+        self.data.auto_acquire_enemies_when_idle = data.auto_acquire_enemies_when_idle();
+        self.data.mood_attack_check_rate_frames = data.mood_attack_check_rate();
+        self.data.forbid_player_commands = data.forbid_player_commands();
+        self.data.turrets_linked = data.turrets_linked();
+        self.data.turret_primary_data = data.turret_primary().cloned();
+        self.data.turret_secondary_data = data.turret_secondary().cloned();
+        self.data.locomotor_sets = data.locomotor_sets().clone();
 
         if legacy_unit {
             if let Some(unit) = get_unit_arc(self.unit_id) {
                 if let Ok(mut guard) = unit.write() {
-                    let allow = (self.auto_acquire_enemies_when_idle
+                    let allow = (self.data.auto_acquire_enemies_when_idle
                         & crate::object::update::AUTO_ACQUIRE_IDLE)
                         != 0;
-                    let deny = (self.auto_acquire_enemies_when_idle
+                    let deny = (self.data.auto_acquire_enemies_when_idle
                         & crate::object::update::AUTO_ACQUIRE_IDLE_NO)
                         != 0;
                     guard.auto_acquire_enemies = allow && !deny;
-                    guard.auto_acquire_while_stealthed = (self.auto_acquire_enemies_when_idle
+                    guard.auto_acquire_while_stealthed = (self.data.auto_acquire_enemies_when_idle
                         & crate::object::update::AUTO_ACQUIRE_IDLE_STEALTHED)
                         != 0;
-                    guard.auto_acquire_not_while_attacking = (self.auto_acquire_enemies_when_idle
-                        & crate::object::update::AUTO_ACQUIRE_IDLE_NOT_WHILE_ATTACKING)
-                        != 0;
-                    guard.auto_acquire_attack_buildings = (self.auto_acquire_enemies_when_idle
-                        & crate::object::update::AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS)
-                        != 0;
+                    guard.auto_acquire_not_while_attacking =
+                        (self.data.auto_acquire_enemies_when_idle
+                            & crate::object::update::AUTO_ACQUIRE_IDLE_NOT_WHILE_ATTACKING)
+                            != 0;
+                    guard.auto_acquire_attack_buildings =
+                        (self.data.auto_acquire_enemies_when_idle
+                            & crate::object::update::AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS)
+                            != 0;
                     guard.mood_attack_check_rate_frames = data.mood_attack_check_rate();
                 }
             }
@@ -430,10 +354,10 @@ impl UnitAIUpdate {
             self.jet_ai = Some(jet_ai);
         }
 
-        if self.turret_primary_data.is_some() {
+        if self.data.turret_primary_data.is_some() {
             let _ = self.ensure_turret_machine(TurretType::Primary);
         }
-        if self.turret_secondary_data.is_some() {
+        if self.data.turret_secondary_data.is_some() {
             let _ = self.ensure_turret_machine(TurretType::Secondary);
         }
 
@@ -445,17 +369,18 @@ impl UnitAIUpdate {
     ) -> Option<&mut TurretStateMachine> {
         match turret {
             TurretType::Primary => {
-                if self.turret_primary_machine.is_none() {
-                    self.turret_primary_machine = self.build_turret_machine(TurretType::Primary);
+                if self.data.turret_primary_machine.is_none() {
+                    self.data.turret_primary_machine =
+                        self.build_turret_machine(TurretType::Primary);
                 }
-                self.turret_primary_machine.as_mut()
+                self.data.turret_primary_machine.as_mut()
             }
             TurretType::Secondary => {
-                if self.turret_secondary_machine.is_none() {
-                    self.turret_secondary_machine =
+                if self.data.turret_secondary_machine.is_none() {
+                    self.data.turret_secondary_machine =
                         self.build_turret_machine(TurretType::Secondary);
                 }
-                self.turret_secondary_machine.as_mut()
+                self.data.turret_secondary_machine.as_mut()
             }
             TurretType::Invalid => None,
         }
@@ -484,8 +409,8 @@ impl UnitAIUpdate {
             WeaponSlotType::Tertiary => 1u32 << 2,
         };
         let data = match turret {
-            TurretType::Primary => self.turret_primary_data.as_ref(),
-            TurretType::Secondary => self.turret_secondary_data.as_ref(),
+            TurretType::Primary => self.data.turret_primary_data.as_ref(),
+            TurretType::Secondary => self.data.turret_secondary_data.as_ref(),
             TurretType::Invalid => None,
         };
 
@@ -558,8 +483,8 @@ impl UnitAIUpdate {
             obj.set_destination_layer(layer);
         }
         let max_rappel_rate = GRAVITY.abs() * (LOGICFRAMES_PER_SECOND as Real) * 2.5;
-        self.rappel_state = Some(RappelState {
-            rappel_rate: -self.desired_speed.min(max_rappel_rate),
+        self.data.rappel_state = Some(RappelState {
+            rappel_rate: -self.data.desired_speed.min(max_rappel_rate),
             dest_z,
             target_is_bldg: target.is_some(),
             target_id: target.map(|(id, _)| id),
@@ -573,14 +498,14 @@ impl UnitAIUpdate {
                 obj.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
             }
         }
-        self.desired_speed = FAST_AS_POSSIBLE;
-        self.rappel_state = None;
-        if self.current_command == Some(crate::ai::AiCommandType::RappelInto) {
-            self.current_command = None;
+        self.data.desired_speed = FAST_AS_POSSIBLE;
+        self.data.rappel_state = None;
+        if self.data.current_command == Some(crate::ai::AiCommandType::RappelInto) {
+            self.data.current_command = None;
         }
     }
     pub(super) fn update_rappel_state(&mut self) {
-        let Some(mut state) = self.rappel_state.take() else {
+        let Some(mut state) = self.data.rappel_state.take() else {
             return;
         };
         let Some(owner) = self.rappel_owner() else {
@@ -626,7 +551,7 @@ impl UnitAIUpdate {
             state.dest_z = terrain.get_layer_height(pos.x, pos.y, layer);
         }
         if pos.z > state.dest_z {
-            self.rappel_state = Some(state);
+            self.data.rappel_state = Some(state);
             return;
         }
 

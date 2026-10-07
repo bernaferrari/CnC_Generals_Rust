@@ -56,7 +56,7 @@ fn factory_busy_enters_actual_machine_and_clears_owned_path_timer() {
             .xfer_ai_update_state(&mut XferLoad::new(Cursor::new(bytes.into_inner()), 1))
             .unwrap()
     );
-    assert_eq!(loaded.queue_for_path_frame, 0);
+    assert_eq!(loaded.data.queue_for_path_frame, 0);
 }
 
 #[test]

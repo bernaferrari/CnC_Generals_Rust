@@ -17,7 +17,7 @@ impl UnitAIUpdate {
         &mut self,
         command: &crate::ai::AiCommandParams,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if self.forbid_player_commands
+        if self.data.forbid_player_commands
             && command.cmd_source == crate::ai::CommandSourceType::FromPlayer
         {
             return Ok(());
@@ -86,12 +86,12 @@ impl UnitAIUpdate {
             }
         }
 
-        self.last_command_source = command.cmd_source;
-        self.current_command = Some(command.cmd);
+        self.data.last_command_source = command.cmd_source;
+        self.data.current_command = Some(command.cmd);
         if self.jet_ai.is_some() {
-            self.pending_command = Some(command.cmd);
+            self.data.pending_command = Some(command.cmd);
         } else {
-            self.pending_command = None;
+            self.data.pending_command = None;
         }
         if let Some(supply_ai) = self.supply_truck_ai.as_mut() {
             if command.cmd == crate::ai::AiCommandType::Idle {
@@ -109,7 +109,7 @@ impl UnitAIUpdate {
             }
         }
         if command.cmd != crate::ai::AiCommandType::Enter {
-            self.enter_target = None;
+            self.data.enter_target = None;
         }
         if command.cmd == crate::ai::AiCommandType::RappelInto {
             // C++ AIUpdate.cpp:2981-2997 / AIStates.cpp:481-514: Rappel
@@ -179,7 +179,7 @@ impl UnitAIUpdate {
                     self.clip_goal_position(&guard.base_arc(), command.pos, command.cmd_source);
                 if let Some(state_machine) = self.ai_state_machine.clone() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = self.locomotor_set.get_active().is_some();
+                        let is_mobile = self.data.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }
@@ -187,9 +187,9 @@ impl UnitAIUpdate {
                             && !self.is_idle_in_machine(&machine)
                         {
                             machine.set_goal_position(clipped);
-                            self.blocked_frames = 0;
-                            self.is_blocked = false;
-                            self.blocked_and_stuck = false;
+                            self.data.blocked_frames = 0;
+                            self.data.is_blocked = false;
+                            self.data.blocked_and_stuck = false;
                             let _ = machine.set_temporary_state(
                                 AIStateType::MoveTo as u32,
                                 LOGICFRAMES_PER_SECOND * 20,
@@ -198,9 +198,9 @@ impl UnitAIUpdate {
                             let mut params = command.clone();
                             params.pos = clipped;
                             machine.clear_with_ai(self);
-                            self.blocked_frames = 0;
-                            self.is_blocked = false;
-                            self.blocked_and_stuck = false;
+                            self.data.blocked_frames = 0;
+                            self.data.is_blocked = false;
+                            self.data.blocked_and_stuck = false;
                             let _ = machine.ai_do_command_with_ai(&params, self);
                         }
                         return Ok(());
@@ -212,7 +212,7 @@ impl UnitAIUpdate {
                     .give_move_order(clipped, Vec::new(), false, false)?;
             }
             crate::ai::AiCommandType::TightenToPosition => {
-                let is_mobile = self.locomotor_set.get_active().is_some();
+                let is_mobile = self.data.locomotor_set.get_active().is_some();
                 if !is_mobile {
                     return Ok(());
                 }
@@ -234,16 +234,16 @@ impl UnitAIUpdate {
             }
             crate::ai::AiCommandType::MoveToObject => {
                 if let Some(state_machine) = self.ai_state_machine.clone() {
-                    if self.ai_dead || self.locomotor_set.get_active().is_none() {
+                    if self.data.ai_dead || self.data.locomotor_set.get_active().is_none() {
                         return Ok(());
                     }
                     let mut machine = state_machine
                         .lock()
                         .map_err(|_| "AI machine lock poisoned")?;
                     machine.clear_with_ai(self);
-                    self.blocked_frames = 0;
-                    self.is_blocked = false;
-                    self.blocked_and_stuck = false;
+                    self.data.blocked_frames = 0;
+                    self.data.is_blocked = false;
+                    self.data.blocked_and_stuck = false;
                     let _ = machine.ai_do_command_with_ai(command, self);
                     return Ok(());
                 }
@@ -267,19 +267,20 @@ impl UnitAIUpdate {
                 if self.is_ai_in_dead_state() {
                     return Ok(());
                 }
-                let is_mobile = self.locomotor_set.get_active().is_some();
+                let is_mobile = self.data.locomotor_set.get_active().is_some();
                 if !is_mobile {
                     return Ok(());
                 }
                 if let Some(target_id) = command.obj {
-                    if (target_id == self.move_out_of_way_1 || target_id == self.move_out_of_way_2)
+                    if (target_id == self.data.move_out_of_way_1
+                        || target_id == self.data.move_out_of_way_2)
                         && self.is_blocked_and_stuck()
                     {
                         self.set_ignore_collision_time(LOGICFRAMES_PER_SECOND * 2);
                         return Ok(());
                     }
-                    self.move_out_of_way_2 = self.move_out_of_way_1;
-                    self.move_out_of_way_1 = target_id;
+                    self.data.move_out_of_way_2 = self.data.move_out_of_way_1;
+                    self.data.move_out_of_way_1 = target_id;
                     if let Some(target_arc) = get_legacy_object(target_id) {
                         if let Ok(target_guard) = target_arc.read() {
                             let my_pos = guard.get_position()?;
@@ -324,7 +325,7 @@ impl UnitAIUpdate {
             crate::ai::AiCommandType::FollowPath
             | crate::ai::AiCommandType::FollowExitProductionPath
             | crate::ai::AiCommandType::FollowUserPath => {
-                let is_mobile = self.locomotor_set.get_active().is_some();
+                let is_mobile = self.data.locomotor_set.get_active().is_some();
                 if !is_mobile {
                     return Ok(());
                 }
@@ -350,7 +351,7 @@ impl UnitAIUpdate {
                     .give_move_order(first, waypoints, false, false)?;
             }
             crate::ai::AiCommandType::FollowPathAppend => {
-                let is_mobile = self.locomotor_set.get_active().is_some();
+                let is_mobile = self.data.locomotor_set.get_active().is_some();
                 if !is_mobile {
                     return Ok(());
                 }
@@ -389,7 +390,7 @@ impl UnitAIUpdate {
                 }
 
                 let effectively_moving = (!self.is_idle_in_legacy_unit(guard.legacy()?)
-                    && (self.locomotor_goal_type != 0 || self.cpp_is_moving))
+                    && (self.data.locomotor_goal_type != 0 || self.data.cpp_is_moving))
                     || self.is_waiting_for_path();
                 if effectively_moving {
                     let mut coords = Vec::new();
@@ -422,7 +423,7 @@ impl UnitAIUpdate {
                     self.clip_goal_position(&guard.base_arc(), command.pos, command.cmd_source);
                 if let Some(state_machine) = self.ai_state_machine.clone() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = self.locomotor_set.get_active().is_some();
+                        let is_mobile = self.data.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }
@@ -555,6 +556,7 @@ impl UnitAIUpdate {
                 if weapon_is_contact {
                     let mut path_available = true;
                     if let Some(capabilities) = self
+                        .data
                         .locomotor_set
                         .get_active()
                         .map(|loco| loco.to_movement_capabilities())
@@ -579,12 +581,13 @@ impl UnitAIUpdate {
                                         priority: 0,
                                         allow_partial: false,
                                         frame_requested: TheGameLogic::get_frame(),
-                                        move_allies: self.can_path_through_units,
-                                        ignore_obstacle_id: if self.ignore_obstacle_id == INVALID_ID
+                                        move_allies: self.data.can_path_through_units,
+                                        ignore_obstacle_id: if self.data.ignore_obstacle_id
+                                            == INVALID_ID
                                         {
                                             None
                                         } else {
-                                            Some(self.ignore_obstacle_id)
+                                            Some(self.data.ignore_obstacle_id)
                                         },
                                     };
                                     path_available = matches!(
@@ -790,7 +793,7 @@ impl UnitAIUpdate {
             crate::ai::AiCommandType::GuardPosition => {
                 if let Some(state_machine) = self.ai_state_machine.clone() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = self.locomotor_set.get_active().is_some();
+                        let is_mobile = self.data.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }
@@ -819,7 +822,7 @@ impl UnitAIUpdate {
             crate::ai::AiCommandType::GuardObject => {
                 if let Some(state_machine) = self.ai_state_machine.clone() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = self.locomotor_set.get_active().is_some();
+                        let is_mobile = self.data.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }
@@ -854,7 +857,7 @@ impl UnitAIUpdate {
             crate::ai::AiCommandType::GuardArea => {
                 if let Some(state_machine) = self.ai_state_machine.clone() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = self.locomotor_set.get_active().is_some();
+                        let is_mobile = self.data.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }
@@ -882,7 +885,7 @@ impl UnitAIUpdate {
             crate::ai::AiCommandType::GuardTunnelNetwork => {
                 if let Some(state_machine) = self.ai_state_machine.clone() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = self.locomotor_set.get_active().is_some();
+                        let is_mobile = self.data.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }
@@ -926,10 +929,10 @@ impl UnitAIUpdate {
                 }
             }
             crate::ai::AiCommandType::Enter => {
-                self.enter_target = command.obj;
+                self.data.enter_target = command.obj;
                 if let Some(state_machine) = self.ai_state_machine.clone() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = self.locomotor_set.get_active().is_some();
+                        let is_mobile = self.data.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }
@@ -1069,7 +1072,7 @@ impl UnitAIUpdate {
                 }
                 if let Some(state_machine) = self.ai_state_machine.clone() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = self.locomotor_set.get_active().is_some();
+                        let is_mobile = self.data.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }
@@ -1183,10 +1186,10 @@ impl UnitAIUpdate {
 
                     let mut enter_params = command.clone();
                     enter_params.cmd = crate::ai::AiCommandType::Enter;
-                    self.enter_target = enter_params.obj;
+                    self.data.enter_target = enter_params.obj;
                     if let Some(state_machine) = self.ai_state_machine.clone() {
                         if let Ok(mut machine) = state_machine.lock() {
-                            let is_mobile = self.locomotor_set.get_active().is_some();
+                            let is_mobile = self.data.locomotor_set.get_active().is_some();
                             if !is_mobile {
                                 return Ok(());
                             }
@@ -1261,7 +1264,7 @@ impl UnitAIUpdate {
                     }
                     if let Some(state_machine) = self.ai_state_machine.clone() {
                         if let Ok(mut machine) = state_machine.lock() {
-                            let is_mobile = self.locomotor_set.get_active().is_some();
+                            let is_mobile = self.data.locomotor_set.get_active().is_some();
                             if !is_mobile {
                                 return Ok(());
                             }
@@ -1356,7 +1359,7 @@ impl UnitAIUpdate {
             crate::ai::AiCommandType::Wander
             | crate::ai::AiCommandType::WanderInPlace
             | crate::ai::AiCommandType::Panic => {
-                if self.locomotor_set.get_active().is_none() {
+                if self.data.locomotor_set.get_active().is_none() {
                     return Ok(());
                 }
                 if let Some(state_machine) = self.ai_state_machine.clone() {
@@ -1370,7 +1373,7 @@ impl UnitAIUpdate {
             crate::ai::AiCommandType::Hunt => {
                 if let Some(state_machine) = self.ai_state_machine.clone() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = self.locomotor_set.get_active().is_some();
+                        let is_mobile = self.data.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }
@@ -1397,7 +1400,7 @@ impl UnitAIUpdate {
             crate::ai::AiCommandType::AttackArea => {
                 if let Some(state_machine) = self.ai_state_machine.clone() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = self.locomotor_set.get_active().is_some();
+                        let is_mobile = self.data.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }
@@ -1424,7 +1427,7 @@ impl UnitAIUpdate {
             | crate::ai::AiCommandType::AttackFollowWaypointPathAsTeam => {
                 if let Some(state_machine) = self.ai_state_machine.clone() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = self.locomotor_set.get_active().is_some();
+                        let is_mobile = self.data.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }

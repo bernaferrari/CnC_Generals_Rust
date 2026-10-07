@@ -52790,6 +52790,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_data.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_drop.rs"
             },
             {
@@ -188975,7 +188980,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "e696b1a92d46ca1ca061c38a7e536d8ad23ab1781e7edb3566ebce5384529de8",
+  "provenance_input_digest": "1b473218d5e5d08ae9ca43e900d482ea4cd4734eaaa9549f2c23714a0ca3f187",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

@@ -272,7 +272,7 @@ fn ai_body_restore_preserves_owned_victim_mood_and_serialized_jitter() {
     let mut saved = source.lock().unwrap();
     saved.set_current_victim(Some(647));
     saved.set_next_mood_check_time(241);
-    saved.randomly_offset_mood_check = true;
+    saved.data.randomly_offset_mood_check = true;
     let mut bytes = Cursor::new(Vec::new());
     assert!(
         saved

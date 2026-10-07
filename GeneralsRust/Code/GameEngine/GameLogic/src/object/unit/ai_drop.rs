@@ -34,7 +34,8 @@ impl Drop for UnitAIUpdate {
         let (radius, center_in_cell) = Self::compute_pathfind_radius_and_center(&guard);
         drop(guard);
 
-        let ai_store = the_ai(); if let Ok(ai_lock) = ai_store.read() {
+        let ai_store = the_ai();
+        if let Ok(ai_lock) = ai_store.read() {
             if let Some(pathfinder) = ai_lock.pathfinder() {
                 if let Ok(mut pf_guard) = pathfinder.write() {
                     self.remove_goal_cells(&mut pf_guard, owner_id, radius, center_in_cell);

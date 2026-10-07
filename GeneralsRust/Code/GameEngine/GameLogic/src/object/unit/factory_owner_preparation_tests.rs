@@ -118,7 +118,7 @@ fn foreign_same_id_unit_cannot_select_factory_owner_or_receive_its_module_flags(
         "foreign Unit mirrors are untouched"
     );
     assert_eq!(
-        ai.auto_acquire_enemies_when_idle,
+        ai.data.auto_acquire_enemies_when_idle,
         crate::object::update::AUTO_ACQUIRE_IDLE
     );
     assert!(

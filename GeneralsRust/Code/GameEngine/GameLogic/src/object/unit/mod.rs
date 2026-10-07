@@ -10,6 +10,7 @@ mod imports;
 mod ai_command_owner;
 mod ai_commands;
 mod ai_core;
+mod ai_data;
 mod ai_drop;
 mod ai_helpers;
 mod ai_interface;

@@ -68,28 +68,28 @@ pub fn leftover_compute_quick_path_coords(start: &Coord3D, destination: &Coord3D
 
 impl UnitAIUpdate {
     pub(super) fn set_current_path_snapshot_from_coords(&mut self, path: &[Coord3D]) {
-        self.installed_path_layers.clear();
+        self.data.installed_path_layers.clear();
         let mut snapshot = AiPath::new();
         for pos in path {
             snapshot.append_node(pos, AiPathLayer::Ground);
         }
-        self.current_path_snapshot = Some(snapshot);
+        self.data.current_path_snapshot = Some(snapshot);
     }
     pub(super) fn remember_result_layers(&mut self, waypoints: &[Coord3D], layers: &[u8]) {
         if layers.len() != waypoints.len() {
-            self.installed_path_layers.clear();
+            self.data.installed_path_layers.clear();
             return;
         }
-        self.installed_path_layers = layers.to_vec();
+        self.data.installed_path_layers = layers.to_vec();
     }
     pub(super) fn apply_final_ground_path_layer(
         &mut self,
         waypoints: &[Coord3D],
     ) -> Result<(), String> {
-        if !(self.is_final_goal && self.is_doing_ground_movement()) {
+        if !(self.data.is_final_goal && self.is_doing_ground_movement()) {
             return Ok(());
         }
-        let Some(ordinal) = self.installed_path_layers.last().copied() else {
+        let Some(ordinal) = self.data.installed_path_layers.last().copied() else {
             return Ok(());
         };
         let installed = self.path_with_cpp_final_node(waypoints)?;
@@ -102,11 +102,11 @@ impl UnitAIUpdate {
         )
     }
     pub(super) fn append_current_path_snapshot_goal(&mut self, goal: &Coord3D) {
-        match self.current_path_snapshot.as_mut() {
+        match self.data.current_path_snapshot.as_mut() {
             Some(path) => {
                 path.append_node(goal, AiPathLayer::Ground);
-                if !self.installed_path_layers.is_empty() {
-                    self.installed_path_layers.push(1);
+                if !self.data.installed_path_layers.is_empty() {
+                    self.data.installed_path_layers.push(1);
                 }
             }
             None => self.set_current_path_snapshot_from_coords(&[*goal]),
@@ -128,7 +128,7 @@ impl UnitAIUpdate {
         &self,
         destination: &Coord3D,
     ) -> bool {
-        if self.is_final_goal {
+        if self.data.is_final_goal {
             return false;
         }
 
@@ -139,11 +139,12 @@ impl UnitAIUpdate {
             return false;
         };
         let surfaces = {
-            let set_surfaces = self.locomotor_set.get_valid_surfaces();
+            let set_surfaces = self.data.locomotor_set.get_valid_surfaces();
             if set_surfaces != 0 {
                 set_surfaces
             } else {
-                self.locomotor_set
+                self.data
+                    .locomotor_set
                     .get_active()
                     .map(|loco| loco.get_legal_surfaces())
                     .unwrap_or(0)
@@ -155,13 +156,13 @@ impl UnitAIUpdate {
         let position = guard.get_position();
         drop(guard);
 
-        let ignore = if self.ignore_obstacle_id == INVALID_ID {
+        let ignore = if self.data.ignore_obstacle_id == INVALID_ID {
             None
         } else {
-            Some(self.ignore_obstacle_id)
+            Some(self.data.ignore_obstacle_id)
         };
         leftover_should_use_direct_path_for_line_passable_non_final_goal(
-            self.is_final_goal,
+            self.data.is_final_goal,
             &position,
             destination,
             surfaces,
@@ -169,7 +170,7 @@ impl UnitAIUpdate {
         )
     }
     pub(super) fn has_current_path(&self) -> bool {
-        if self.current_path_snapshot.is_some() {
+        if self.data.current_path_snapshot.is_some() {
             return true;
         }
         get_unit_arc(self.unit_id)
@@ -177,7 +178,8 @@ impl UnitAIUpdate {
             .unwrap_or(false)
     }
     pub(super) fn current_locomotor_is_ultra_accurate(&self) -> bool {
-        self.locomotor_set
+        self.data
+            .locomotor_set
             .get_active()
             .is_some_and(|loco| loco.is_ultra_accurate())
     }
@@ -192,7 +194,7 @@ impl UnitAIUpdate {
         let mut installed_path = path.to_vec();
         if self.current_locomotor_is_ultra_accurate() {
             if let Some(last) = installed_path.last_mut() {
-                *last = self.requested_destination;
+                *last = self.data.requested_destination;
             }
         }
         Ok(installed_path)
@@ -219,7 +221,7 @@ impl UnitAIUpdate {
                 return Ok(false);
             };
             if pf_guard.valid_movement_position(
-                &self.locomotor_set,
+                &self.data.locomotor_set,
                 request.is_crusher,
                 destination,
                 request.ignore_obstacle_id,
@@ -229,17 +231,17 @@ impl UnitAIUpdate {
             if self.has_current_path() {
                 None
             } else {
-                self.retry_path = true;
+                self.data.retry_path = true;
                 Some(pf_guard.find_closest_path_result(request))
             }
         };
         let Some(result) = result else {
-            if self.blocked_and_stuck {
+            if self.data.blocked_and_stuck {
                 self.stop_stuck_old_path_after_failed_path()?;
             } else {
-                self.path_timestamp = TheGameLogic::get_frame();
-                self.blocked_frames = 0;
-                self.blocked_and_stuck = false;
+                self.data.path_timestamp = TheGameLogic::get_frame();
+                self.data.blocked_frames = 0;
+                self.data.blocked_and_stuck = false;
             }
             return Ok(true);
         };
@@ -256,9 +258,9 @@ impl UnitAIUpdate {
             self.apply_final_ground_path_layer(&result.waypoints)?;
             Ok(true)
         } else {
-            self.path_timestamp = TheGameLogic::get_frame();
-            self.blocked_frames = 0;
-            self.blocked_and_stuck = false;
+            self.data.path_timestamp = TheGameLogic::get_frame();
+            self.data.blocked_frames = 0;
+            self.data.blocked_and_stuck = false;
             // C++ computePath returns failure when findClosestPath also
             // returns NULL. Do not turn an unreachable destination into a
             // successful no-op merely because its cell was invalid.
@@ -296,39 +298,39 @@ impl UnitAIUpdate {
             guard.movement_state = MovementState::Idle;
         }
         self.set_locomotor_goal_none();
-        self.path_timestamp = TheGameLogic::get_frame();
-        self.blocked_frames = 0;
-        self.is_blocked = false;
-        self.blocked_and_stuck = false;
+        self.data.path_timestamp = TheGameLogic::get_frame();
+        self.data.blocked_frames = 0;
+        self.data.is_blocked = false;
+        self.data.blocked_and_stuck = false;
         Ok(())
     }
     pub(super) fn do_queued_pathfind_now(&mut self) -> Result<bool, String> {
-        if !self.waiting_for_path {
+        if !self.data.waiting_for_path {
             return Ok(false);
         }
 
-        self.waiting_for_path = false;
+        self.data.waiting_for_path = false;
         self.set_queue_for_path_time(0);
-        self.retry_path = false;
-        let mut destination = self.requested_destination;
+        self.data.retry_path = false;
+        let mut destination = self.data.requested_destination;
 
-        if self.is_safe_path {
+        if self.data.is_safe_path {
             return self.do_queued_safe_pathfind_now();
         }
 
-        if self.is_approach_path && !self.is_doing_ground_movement() {
-            self.is_approach_path = false;
+        if self.data.is_approach_path && !self.is_doing_ground_movement() {
+            self.data.is_approach_path = false;
         }
-        if self.is_approach_path {
+        if self.data.is_approach_path {
             return self.do_queued_approach_pathfind_now(destination);
         }
 
-        if self.is_attack_path {
+        if self.data.is_attack_path {
             if self.try_finish_attack_path_if_already_in_range()? {
                 return Ok(true);
             }
             self.prepare_queued_attack_path_fallback()?;
-            destination = self.requested_destination;
+            destination = self.data.requested_destination;
         }
 
         // C++ AIUpdate.cpp:1648-1696: ground shortcuts belong to computePath,
@@ -339,8 +341,9 @@ impl UnitAIUpdate {
             return Ok(true);
         }
         if (self.get_current_state_id() == Some(u32::from(AIStateType::FollowExitProductionPath))
-            || self.current_command == Some(crate::ai::AiCommandType::FollowExitProductionPath))
-            && self.can_path_through_units
+            || self.data.current_command
+                == Some(crate::ai::AiCommandType::FollowExitProductionPath))
+            && self.data.can_path_through_units
             && self.install_direct_path_from_current_position(&destination)
         {
             let _ = self.set_can_path_through_units(false);
@@ -385,17 +388,17 @@ impl UnitAIUpdate {
         }
 
         if self.has_current_path() {
-            if self.blocked_and_stuck {
+            if self.data.blocked_and_stuck {
                 self.stop_stuck_old_path_after_failed_path()?;
             } else {
-                self.path_timestamp = TheGameLogic::get_frame();
-                self.blocked_frames = 0;
-                self.blocked_and_stuck = false;
+                self.data.path_timestamp = TheGameLogic::get_frame();
+                self.data.blocked_frames = 0;
+                self.data.blocked_and_stuck = false;
             }
             return Ok(true);
         }
 
-        self.retry_path = true;
+        self.data.retry_path = true;
         let ai_store = the_ai();
         let closest_result = ai_store
             .read()
@@ -423,9 +426,9 @@ impl UnitAIUpdate {
             }
         }
 
-        self.path_timestamp = TheGameLogic::get_frame();
-        self.blocked_frames = 0;
-        self.blocked_and_stuck = false;
+        self.data.path_timestamp = TheGameLogic::get_frame();
+        self.data.blocked_frames = 0;
+        self.data.blocked_and_stuck = false;
         Ok(false)
     }
     pub(super) fn try_finish_attack_path_if_already_in_range(&mut self) -> Result<bool, String> {
@@ -448,8 +451,8 @@ impl UnitAIUpdate {
             return Ok(false);
         };
 
-        let victim = if self.requested_victim_id != INVALID_ID {
-            get_legacy_object(self.requested_victim_id)
+        let victim = if self.data.requested_victim_id != INVALID_ID {
+            get_legacy_object(self.data.requested_victim_id)
         } else {
             None
         };
@@ -459,10 +462,10 @@ impl UnitAIUpdate {
                 .map_err(|_| "victim lock poisoned".to_string())?;
             *victim_guard.get_position()
         } else {
-            self.requested_destination
+            self.data.requested_destination
         };
         let in_range = if victim.is_some() {
-            weapon.is_within_attack_range(owner_id, Some(self.requested_victim_id), None)
+            weapon.is_within_attack_range(owner_id, Some(self.data.requested_victim_id), None)
         } else {
             weapon.is_within_attack_range(owner_id, None, Some(&target_pos))
         };
@@ -508,10 +511,10 @@ impl UnitAIUpdate {
         drop(owner_guard);
         drop(unit_guard);
         self.destroy_path();
-        self.path_timestamp = TheGameLogic::get_frame();
-        self.blocked_frames = 0;
-        self.is_blocked = false;
-        self.blocked_and_stuck = false;
+        self.data.path_timestamp = TheGameLogic::get_frame();
+        self.data.blocked_frames = 0;
+        self.data.is_blocked = false;
+        self.data.blocked_and_stuck = false;
         Ok(true)
     }
     pub(super) fn prepare_queued_attack_path_fallback(&mut self) -> Result<(), String> {
@@ -521,12 +524,12 @@ impl UnitAIUpdate {
             return Ok(());
         }
 
-        self.is_attack_path = false;
-        if self.requested_victim_id == INVALID_ID {
+        self.data.is_attack_path = false;
+        if self.data.requested_victim_id == INVALID_ID {
             return Ok(());
         }
 
-        let Some(victim) = get_legacy_object(self.requested_victim_id) else {
+        let Some(victim) = get_legacy_object(self.data.requested_victim_id) else {
             return Ok(());
         };
         let victim_pos = victim
@@ -534,7 +537,7 @@ impl UnitAIUpdate {
             .map_err(|_| "victim lock poisoned".to_string())?
             .get_position()
             .to_owned();
-        self.requested_destination = victim_pos;
+        self.data.requested_destination = victim_pos;
         let _ = self.ignore_obstacle(victim.read().ok().map(|g| g.get_id()));
         Ok(())
     }
@@ -596,7 +599,7 @@ impl UnitAIUpdate {
         drop(obj_guard);
         drop(guard);
 
-        let repulsor_pos1 = get_legacy_object(self.repulsor1)
+        let repulsor_pos1 = get_legacy_object(self.data.repulsor1)
             .and_then(|repulsor| {
                 repulsor
                     .read()
@@ -604,7 +607,7 @@ impl UnitAIUpdate {
                     .map(|repulsor_guard| *repulsor_guard.get_position())
             })
             .unwrap_or_else(|| Coord3D::new(-1000.0, -1000.0, 0.0));
-        let repulsor_pos2 = get_legacy_object(self.repulsor2)
+        let repulsor_pos2 = get_legacy_object(self.data.repulsor2)
             .and_then(|repulsor| {
                 repulsor
                     .read()
@@ -670,13 +673,13 @@ impl UnitAIUpdate {
         guard.target_position = Some(*destination);
         guard.movement_state = MovementState::Moving;
         guard.current_speed = 0.0;
-        self.blocked_frames = 0;
-        self.blocked_and_stuck = false;
-        self.waiting_for_path = false;
-        self.path_timestamp = TheGameLogic::get_frame();
-        self.movement_complete = false;
-        self.locomotor_goal_type = 1;
-        self.locomotor_goal_data = Coord3D::ZERO;
+        self.data.blocked_frames = 0;
+        self.data.blocked_and_stuck = false;
+        self.data.waiting_for_path = false;
+        self.data.path_timestamp = TheGameLogic::get_frame();
+        self.data.movement_complete = false;
+        self.data.locomotor_goal_type = 1;
+        self.data.locomotor_goal_data = Coord3D::ZERO;
         drop(guard);
         self.set_current_path_snapshot_from_coords(&[start, *destination]);
         true
@@ -694,6 +697,7 @@ impl UnitAIUpdate {
             .read()
             .map_err(|_| "unit base object lock poisoned".to_string())?;
         let surfaces = self
+            .data
             .locomotor_set
             .get_active()
             .map(|loco| loco.get_legal_surfaces())
@@ -706,11 +710,11 @@ impl UnitAIUpdate {
             is_crusher: obj_guard.get_crusher_level() > 0,
             unit_radius: obj_guard.get_geometry_info().get_major_radius(),
             allow_partial,
-            move_allies: self.can_path_through_units,
-            ignore_obstacle_id: if self.ignore_obstacle_id == INVALID_ID {
+            move_allies: self.data.can_path_through_units,
+            ignore_obstacle_id: if self.data.ignore_obstacle_id == INVALID_ID {
                 None
             } else {
-                Some(self.ignore_obstacle_id)
+                Some(self.data.ignore_obstacle_id)
             },
             is_human: false,
         })
@@ -745,6 +749,7 @@ impl UnitAIUpdate {
         if let Ok(object) = owner.read() {
             if object.is_kind_of(KindOf::Aircraft) && object.is_significantly_above_terrain() {
                 let preferred = self
+                    .data
                     .locomotor_set
                     .get_active()
                     .map(|loc| loc.preferred_height)
@@ -816,33 +821,33 @@ impl UnitAIUpdate {
         radius: i32,
         center_in_cell: bool,
     ) {
-        if self.pathfind_goal_cell.x < 0 || self.pathfind_goal_cell.y < 0 {
-            self.pathfind_goal_cell = ICoord2D::new(-1, -1);
-            self.pathfind_goal_layer = ClassicPathLayer::Invalid;
+        if self.data.pathfind_goal_cell.x < 0 || self.data.pathfind_goal_cell.y < 0 {
+            self.data.pathfind_goal_cell = ICoord2D::new(-1, -1);
+            self.data.pathfind_goal_layer = ClassicPathLayer::Invalid;
             return;
         }
 
         let clear_ground = true;
-        let clear_layer = self.pathfind_goal_layer != ClassicPathLayer::Ground
-            && self.pathfind_goal_layer != ClassicPathLayer::Invalid;
+        let clear_layer = self.data.pathfind_goal_layer != ClassicPathLayer::Ground
+            && self.data.pathfind_goal_layer != ClassicPathLayer::Invalid;
         pathfinder.clear_goal_cells(
             unit_id,
-            self.pathfind_goal_cell,
+            self.data.pathfind_goal_cell,
             radius,
             center_in_cell,
-            self.pathfind_goal_layer,
+            self.data.pathfind_goal_layer,
             clear_ground,
             clear_layer,
         );
         pathfinder.clear_aircraft_goal_cells(
             unit_id,
-            self.pathfind_goal_cell,
+            self.data.pathfind_goal_cell,
             radius,
             center_in_cell,
         );
 
-        self.pathfind_goal_cell = ICoord2D::new(-1, -1);
-        self.pathfind_goal_layer = ClassicPathLayer::Invalid;
+        self.data.pathfind_goal_cell = ICoord2D::new(-1, -1);
+        self.data.pathfind_goal_layer = ClassicPathLayer::Invalid;
     }
     pub(super) fn remove_stored_pathfinder_goal(&mut self) {
         let Some(unit) = get_unit_arc(self.unit_id) else {
@@ -883,18 +888,18 @@ impl UnitAIUpdate {
         center_in_cell: bool,
         interacts_with_bridge_end: bool,
     ) {
-        let layer_changed = self.pathfind_goal_layer != layer;
+        let layer_changed = self.data.pathfind_goal_layer != layer;
         if !layer_changed
-            && self.pathfind_goal_cell.x == new_cell.x
-            && self.pathfind_goal_cell.y == new_cell.y
+            && self.data.pathfind_goal_cell.x == new_cell.x
+            && self.data.pathfind_goal_cell.y == new_cell.y
         {
             return;
         }
 
         self.remove_goal_cells(pathfinder, unit_id, radius, center_in_cell);
 
-        self.pathfind_goal_cell = new_cell;
-        self.pathfind_goal_layer = layer;
+        self.data.pathfind_goal_cell = new_cell;
+        self.data.pathfind_goal_layer = layer;
 
         let mut do_ground = layer == ClassicPathLayer::Ground;
         let do_layer = layer != ClassicPathLayer::Ground;
@@ -926,13 +931,14 @@ impl UnitAIUpdate {
             return;
         }
 
-        self.pathfind_goal_cell = new_cell;
-        self.pathfind_goal_layer = ClassicPathLayer::Ground;
+        self.data.pathfind_goal_cell = new_cell;
+        self.data.pathfind_goal_layer = ClassicPathLayer::Ground;
 
         pathfinder.set_aircraft_goal_cells(unit_id, new_cell, radius, center_in_cell);
     }
     pub(super) fn has_valid_locomotor_surfaces(&self) -> bool {
-        self.locomotor_set
+        self.data
+            .locomotor_set
             .get_active()
             .is_some_and(|loco| loco.get_legal_surfaces() != 0)
     }
@@ -945,7 +951,7 @@ impl UnitAIUpdate {
             .unwrap_or(0.0)
     }
     pub(super) fn finish_completed_movement_like_cpp(&mut self) {
-        if !self.movement_complete {
+        if !self.data.movement_complete {
             return;
         }
 
@@ -999,8 +1005,8 @@ impl UnitAIUpdate {
                 Some(goal)
             });
             if let Some(goal) = found {
-                self.final_position = goal;
-                self.do_final_position = false;
+                self.data.final_position = goal;
+                self.data.do_final_position = false;
                 let _ = crate::ai::pathfind::update_goal_for_object(
                     id,
                     &goal,
@@ -1009,7 +1015,7 @@ impl UnitAIUpdate {
             }
         }
 
-        self.movement_complete = false;
-        self.ignore_obstacle_id = INVALID_ID;
+        self.data.movement_complete = false;
+        self.data.ignore_obstacle_id = INVALID_ID;
     }
 }

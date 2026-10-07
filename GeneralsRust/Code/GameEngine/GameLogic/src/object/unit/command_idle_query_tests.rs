@@ -116,13 +116,13 @@ fn ai_move_command_borrows_busy_machine_and_enters_temporary_move() {
             CommandSourceType::FromAi,
         );
         command.pos = Coord3D::new(80.0, 90.0, 0.0);
-        ai.blocked_frames = 123;
-        ai.is_blocked = true;
-        ai.blocked_and_stuck = true;
+        ai.data.blocked_frames = 123;
+        ai.data.is_blocked = true;
+        ai.data.blocked_and_stuck = true;
         ai.execute_command(&command).unwrap();
-        assert_eq!(ai.blocked_frames, 0);
-        assert!(!ai.is_blocked);
-        assert!(!ai.blocked_and_stuck);
+        assert_eq!(ai.data.blocked_frames, 0);
+        assert!(!ai.data.is_blocked);
+        assert!(!ai.data.blocked_and_stuck);
         let machine = ai.ai_state_machine.as_ref().unwrap().lock().unwrap();
         assert_eq!(
             machine.get_current_state_id(),
@@ -137,8 +137,8 @@ fn ai_move_command_borrows_busy_machine_and_enters_temporary_move() {
 }
 fn append(initial: AIStateType, moving: bool, waiting: bool, expected: &[Coord3D]) {
     let (_owner, _unit, mut ai) = fixture(initial, true);
-    ai.cpp_is_moving = moving;
-    ai.waiting_for_path = waiting;
+    ai.data.cpp_is_moving = moving;
+    ai.data.waiting_for_path = waiting;
     let mut command = crate::ai::AiCommandParams::new(
         crate::ai::AiCommandType::FollowPathAppend,
         CommandSourceType::FromPlayer,
@@ -209,14 +209,14 @@ fn waiting_query_reads_owned_flag_without_clock_or_unit_loans() {
     }
     let _serial = crate::test_sync::lock();
     let (_owner, unit, mut ai) = fixture(AIStateType::Busy, false);
-    ai.queue_for_path_frame = u32::MAX;
-    ai.waiting_for_path = false;
+    ai.data.queue_for_path_frame = u32::MAX;
+    ai.data.waiting_for_path = false;
     let _unit = unit.write().unwrap();
     let _clock = crate::system::game_logic::get_game_logic().lock().unwrap();
     assert!(
         !ai.is_waiting_for_path(),
         "C++ flag is independent of queue deadline"
     );
-    ai.waiting_for_path = true;
+    ai.data.waiting_for_path = true;
     assert!(ai.is_waiting_for_path());
 }

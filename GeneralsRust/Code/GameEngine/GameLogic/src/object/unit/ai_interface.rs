@@ -359,14 +359,14 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::get_path_last_node(self)
     }
     fn installed_path_last_layer(&self) -> Option<u8> {
-        self.installed_path_layers.last().copied()
+        self.data.installed_path_layers.last().copied()
     }
     fn get_retry_path(&self) -> bool {
-        self.retry_path
+        self.data.retry_path
     }
     fn set_locomotor_goal_position_on_path(&mut self) {
-        self.locomotor_goal_type = 1;
-        self.locomotor_goal_data = Coord3D::ZERO;
+        self.data.locomotor_goal_type = 1;
+        self.data.locomotor_goal_data = Coord3D::ZERO;
     }
     fn get_adjusts_destination(&self) -> bool {
         if !self.is_allowed_to_adjust_destination() {
@@ -517,7 +517,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn is_recruitable(&self) -> bool {
-        self.is_recruitable
+        self.data.is_recruitable
     }
 
     fn get_goal_object_id(&self) -> ObjectID {
