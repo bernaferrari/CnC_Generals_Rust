@@ -30599,6 +30599,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_selection.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_set.rs"
           },
           {
@@ -30683,6 +30690,13 @@
       "mapping": {
         "candidate_status": "reachable_implementation_candidate",
         "destinations": [
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_selection.rs"
+          },
           {
             "cargo_reachable": true,
             "classification": "implementation",
@@ -68912,6 +68926,7 @@
         "unreviewed_mapping",
         "unreviewed_symbol_ownership",
         "unreviewed_source_range_ownership",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_selection.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_set.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_set_able.rs"
       ],
@@ -69058,6 +69073,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_selection.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_set.rs"
           },
           {
@@ -69103,6 +69125,7 @@
         "unreviewed_mapping",
         "unreviewed_symbol_ownership",
         "unreviewed_source_range_ownership",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_selection.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_set.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_set_able.rs"
       ],
@@ -69111,6 +69134,13 @@
       "mapping": {
         "candidate_status": "reachable_implementation_candidate",
         "destinations": [
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_selection.rs"
+          },
           {
             "cargo_reachable": true,
             "classification": "implementation",
@@ -157606,7 +157636,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "e7b7a580c2b3c740c414667f31419d21ab5e9c32173019c617fb5035cdfe191e",
+  "input_digest": "a5045c8aeb9b51fd54ea6158584e9223657e9f7410089b1a93e6971bdeb7ac0b",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -207372,11 +207402,23 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1735,
+        "end_line": 194,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_selection.rs",
+      "sha256": "0d149cd1acf177618b787683a16e0f9f8b86551f0133d5cd0a8bd37cfc507e40",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 1548,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_set.rs",
-      "sha256": "345f6e2ec76ff148effa42085b893825882e2a5e02cd8075bd5b178112948ab0",
+      "sha256": "a8e55a9a3dbbdad950e7a5fd065ae0d12dbdce587e1343b401117b84f3f8dd83",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -220669,7 +220711,7 @@
     },
     "behavior_verified": 1,
     "blockers_by_kind": {
-      "duplicate_implementation_destination": 686,
+      "duplicate_implementation_destination": 688,
       "missing_mapping": 21,
       "no_reachable_implementation": 684,
       "ownership_symbol": 6,
@@ -220735,13 +220777,13 @@
       }
     },
     "deferred_network_translation_units": 47,
-    "duplicate_implementation_destinations": 313,
+    "duplicate_implementation_destinations": 314,
     "orphan_ownership_records": 0,
     "reachable_implementation_candidates": 705,
     "required_translation_units": 1389,
     "reviewed_path_implementations": 8,
     "source_range_ownership_reviewed": 3,
-    "strict_blockers": 4209,
+    "strict_blockers": 4211,
     "symbol_ownership_reviewed": 1,
     "translation_units": 1436
   }

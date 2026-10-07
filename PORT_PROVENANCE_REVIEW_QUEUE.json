@@ -70502,6 +70502,7 @@
             "unreviewed_mapping",
             "unreviewed_symbol_ownership",
             "unreviewed_source_range_ownership",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_selection.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_set.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_set_able.rs"
           ],
@@ -70600,6 +70601,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_range.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_selection.rs"
             },
             {
               "cargo_reachable": true,
@@ -71124,10 +71130,16 @@
             "unreviewed_mapping",
             "unreviewed_symbol_ownership",
             "unreviewed_source_range_ownership",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_selection.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_set.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_set_able.rs"
           ],
           "candidate_destinations": [
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/weapon/weapon_selection.rs"
+            },
             {
               "cargo_reachable": true,
               "classification": "implementation",
@@ -188998,7 +189010,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "e7b7a580c2b3c740c414667f31419d21ab5e9c32173019c617fb5035cdfe191e",
+  "provenance_input_digest": "a5045c8aeb9b51fd54ea6158584e9223657e9f7410089b1a93e6971bdeb7ac0b",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,
