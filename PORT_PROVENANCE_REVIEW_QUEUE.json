@@ -7311,6 +7311,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine/cpp_state.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_callback_change_tests.rs"
             },
@@ -7318,6 +7323,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_control.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_cpp_contract_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -188965,7 +188975,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "fcfad264292e28905a812584e882b5f2bdbc9d15977c6c5d51fa3e84b64e19b1",
+  "provenance_input_digest": "39a73cad94496720bf5734a24d2c54d800f0b3a9d402ad518bde479aaf289fb9",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

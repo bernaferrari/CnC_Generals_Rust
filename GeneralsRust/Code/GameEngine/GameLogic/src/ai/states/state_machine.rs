@@ -40,7 +40,6 @@ use crate::command_button::CommandButton;
 use crate::common::coord::*;
 use crate::common::xfer::XferExt;
 use crate::common::*;
-use crate::compat::{ClassicState, legacy_transition, register_classic_state};
 use crate::control_bar::get_control_bar_bridge;
 use crate::damage::DamageInfo;
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
@@ -57,6 +56,7 @@ use crate::physics::GRAVITY;
 use crate::player::PlayerType;
 use crate::polygon_trigger::PolygonTrigger;
 use crate::scripting::engine::get_script_engine;
+use crate::state_machine::cpp_state::{CppState, cpp_transition, register_cpp_state};
 use crate::state_machine::*;
 use crate::team::{Team, TeamID, TheTeamFactory};
 use crate::terrain::get_terrain_logic;
@@ -126,7 +126,7 @@ impl AIStateMachine {
     pub(crate) fn define_ai_states(&mut self) {
         // Define basic movement states
         let idle_state = AIIdleState::new(&self.base, true);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::Idle.into(),
             idle_state,
@@ -136,7 +136,7 @@ impl AIStateMachine {
         );
 
         let move_to_state = AIMoveToState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::MoveTo.into(),
             move_to_state,
@@ -146,7 +146,7 @@ impl AIStateMachine {
         );
 
         let move_out_state = AIMoveOutOfTheWayState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::MoveOutOfTheWay.into(),
             move_out_state,
@@ -156,7 +156,7 @@ impl AIStateMachine {
         );
 
         let tighten_state = AIMoveAndTightenState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::MoveAndTighten.into(),
             tighten_state,
@@ -166,7 +166,7 @@ impl AIStateMachine {
         );
 
         let move_away_state = AIMoveAwayFromRepulsorsState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::MoveAwayFromRepulsors.into(),
             move_away_state,
@@ -176,7 +176,7 @@ impl AIStateMachine {
         );
 
         let wander_in_place_state = AIWanderInPlaceState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::WanderInPlace.into(),
             wander_in_place_state,
@@ -186,7 +186,7 @@ impl AIStateMachine {
         );
 
         let follow_team_state = AIFollowWaypointPathAsTeamState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::FollowWaypointPathAsTeam.into(),
             follow_team_state,
@@ -196,7 +196,7 @@ impl AIStateMachine {
         );
 
         let follow_individuals_state = AIFollowWaypointPathAsIndividualsState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::FollowWaypointPathAsIndividuals.into(),
             follow_individuals_state,
@@ -206,7 +206,7 @@ impl AIStateMachine {
         );
 
         let follow_team_exact_state = AIFollowWaypointPathAsTeamExactState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::FollowWaypointPathAsTeamExact.into(),
             follow_team_exact_state,
@@ -217,7 +217,7 @@ impl AIStateMachine {
 
         let follow_individuals_exact_state =
             AIFollowWaypointPathAsIndividualsExactState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::FollowWaypointPathAsIndividualsExact.into(),
             follow_individuals_exact_state,
@@ -227,7 +227,7 @@ impl AIStateMachine {
         );
 
         let follow_path_state = AIFollowPathState::new(&self.base, false);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::FollowPath.into(),
             follow_path_state,
@@ -237,7 +237,7 @@ impl AIStateMachine {
         );
 
         let follow_exit_path_state = AIFollowExitProductionPathState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::FollowExitProductionPath.into(),
             follow_exit_path_state,
@@ -248,7 +248,7 @@ impl AIStateMachine {
 
         // Define attack states
         let attack_object_state = AIAttackObjectState::new(&self.base, false, false);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::AttackObject.into(),
             attack_object_state,
@@ -258,7 +258,7 @@ impl AIStateMachine {
         );
 
         let force_attack_state = AIAttackObjectState::new(&self.base, true, false);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::ForceAttackObject.into(),
             force_attack_state,
@@ -268,7 +268,7 @@ impl AIStateMachine {
         );
 
         let attack_follow_state = AIAttackObjectState::new(&self.base, false, true);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::AttackAndFollowObject.into(),
             attack_follow_state,
@@ -278,7 +278,7 @@ impl AIStateMachine {
         );
 
         let attack_position_state = AIAttackPositionState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::AttackPosition.into(),
             attack_position_state,
@@ -288,7 +288,7 @@ impl AIStateMachine {
         );
 
         let attack_squad_state = AIAttackSquadState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::AttackSquad.into(),
             attack_squad_state,
@@ -298,7 +298,7 @@ impl AIStateMachine {
         );
 
         let attack_area_state = AIAttackAreaState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::AttackArea.into(),
             attack_area_state,
@@ -308,7 +308,7 @@ impl AIStateMachine {
         );
 
         let attack_move_state = AIAttackMoveToState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::AttackMoveTo.into(),
             attack_move_state,
@@ -318,7 +318,7 @@ impl AIStateMachine {
         );
 
         let attack_follow_team_state = AIAttackFollowWaypointPathAsTeamState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::AttackFollowWaypointPathAsTeam.into(),
             attack_follow_team_state,
@@ -329,7 +329,7 @@ impl AIStateMachine {
 
         let attack_follow_individual_state =
             AIAttackFollowWaypointPathAsIndividualsState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::AttackFollowWaypointPathAsIndividuals.into(),
             attack_follow_individual_state,
@@ -339,7 +339,7 @@ impl AIStateMachine {
         );
 
         let guard_state = AIGuardState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::Guard.into(),
             guard_state,
@@ -349,7 +349,7 @@ impl AIStateMachine {
         );
 
         let guard_retaliate_state = AIGuardRetaliateState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::GuardRetaliate.into(),
             guard_retaliate_state,
@@ -359,7 +359,7 @@ impl AIStateMachine {
         );
 
         let guard_tunnel_state = AITunnelNetworkGuardState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::GuardTunnelNetwork.into(),
             guard_tunnel_state,
@@ -369,7 +369,7 @@ impl AIStateMachine {
         );
 
         let hunt_state = AIHuntState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::Hunt.into(),
             hunt_state,
@@ -380,7 +380,7 @@ impl AIStateMachine {
 
         // Define utility states
         let enter_state = AIEnterState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::Enter.into(),
             enter_state,
@@ -390,7 +390,7 @@ impl AIStateMachine {
         );
 
         let dock_state = AIDockState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::Dock.into(),
             dock_state,
@@ -400,7 +400,7 @@ impl AIStateMachine {
         );
 
         let move_evacuate_state = AIMoveAndEvacuateState::new(&self.base, "AIMoveAndEvacuate");
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::MoveAndEvacuate.into(),
             move_evacuate_state,
@@ -411,7 +411,7 @@ impl AIStateMachine {
 
         let move_evacuate_exit_state =
             AIMoveAndEvacuateState::new(&self.base, "AIMoveAndEvacuateAndExit");
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::MoveAndEvacuateAndExit.into(),
             move_evacuate_exit_state,
@@ -421,7 +421,7 @@ impl AIStateMachine {
         );
 
         let move_and_delete_state = AIMoveAndDeleteState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::MoveAndDelete.into(),
             move_and_delete_state,
@@ -431,7 +431,7 @@ impl AIStateMachine {
         );
 
         let wait_state = AIWaitState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::Wait.into(),
             wait_state,
@@ -441,7 +441,7 @@ impl AIStateMachine {
         );
 
         let exit_state = AIExitState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::Exit.into(),
             exit_state,
@@ -451,7 +451,7 @@ impl AIStateMachine {
         );
 
         let exit_instant_state = AIExitInstantlyState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::ExitInstantly.into(),
             exit_instant_state,
@@ -461,7 +461,7 @@ impl AIStateMachine {
         );
 
         let pick_up_crate_state = AIPickUpCrateState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::PickUpCrate.into(),
             pick_up_crate_state,
@@ -471,7 +471,7 @@ impl AIStateMachine {
         );
 
         let wander_state = AIWanderState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::Wander.into(),
             wander_state,
@@ -481,7 +481,7 @@ impl AIStateMachine {
         );
 
         let panic_state = AIPanicState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::Panic.into(),
             panic_state,
@@ -491,7 +491,7 @@ impl AIStateMachine {
         );
 
         let dead_state = AIDeadState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::Dead.into(),
             dead_state,
@@ -501,7 +501,7 @@ impl AIStateMachine {
         );
 
         let hack_internet_state = AIHackInternetState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::HackInternet.into(),
             hack_internet_state,
@@ -511,7 +511,7 @@ impl AIStateMachine {
         );
 
         let face_object_state = AIFaceObjectState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::FaceObject.into(),
             face_object_state,
@@ -521,7 +521,7 @@ impl AIStateMachine {
         );
 
         let face_position_state = AIFacePositionState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::FacePosition.into(),
             face_position_state,
@@ -531,7 +531,7 @@ impl AIStateMachine {
         );
 
         let rappel_state = AIRappelIntoState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::RappelInto.into(),
             rappel_state,
@@ -541,7 +541,7 @@ impl AIStateMachine {
         );
 
         let combat_drop_state = AICombatDropState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::CombatDrop.into(),
             combat_drop_state,
@@ -551,7 +551,7 @@ impl AIStateMachine {
         );
 
         let busy_state = AIBusyState::new(&self.base);
-        register_classic_state(
+        register_cpp_state(
             &mut self.base,
             AIStateType::Busy.into(),
             busy_state,

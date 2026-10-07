@@ -6,7 +6,8 @@
 //! Orthogonal to Wave 256 Team dual-world empty-gate residual.
 //!
 //! Sources:
-//! - `GameLogic/src/ai/states.rs` dual_world_registry_unavailable + early outs
+//! - `GameLogic/src/ai/states/{helpers,state_machine,attack,attack_machine}.rs`
+//!   dual_world_registry_unavailable + early outs
 //!
 //! Fail-closed:
 //! - Shell `playable_claim` stays false; network deferred
@@ -21,8 +22,8 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 pub const LIVE_AI_LEGACY_STATES_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE257: &[&str] = &[
     "dual_world_registry_unavailable",
     "get_goal_object",
-    "classic_on_enter",
-    "classic_on_update",
+    "cpp_on_enter",
+    "cpp_on_update",
     "choose_victim",
     "compute_path",
     "playable_claim = false",
@@ -99,6 +100,16 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
     None
 }
 
+// Check the real branch within the path function, independent of setup lines.
+// This is source evidence only; native path behavior has separate runtime gates.
+fn path_has_empty_registry_gate(src: &str) -> bool {
+    fn_body(src, "fn compute_path(&mut self) -> Result<bool, String>").is_some_and(|path| {
+        path.contains(
+            "if dual_world_registry_unavailable() {\n            return Ok(false);\n        }",
+        )
+    })
+}
+
 /// Source residual: legacy AI states empty dual-world short-circuits.
 pub fn honesty_ai_legacy_states_dual_world_empty_gate_source() -> bool {
     let g = concat!(
@@ -120,11 +131,8 @@ pub fn honesty_ai_legacy_states_dual_world_empty_gate_source() -> bool {
         return false;
     };
     // Attack-path compute_path variants take no AI arg and gate dual-world.
-    let path_gated = g.contains(
-        "fn compute_path(&mut self) -> Result<bool, String> {
-        // Wave 257: empty dual-world → Ok(false).",
-    );
-    // classic_on_enter with Failure return present
+    let path_gated = path_has_empty_registry_gate(g);
+    // cpp_on_enter with Failure return present
     goal.contains("dual_world_registry_unavailable")
         && choose.contains("dual_world_registry_unavailable")
         && path_gated
@@ -141,6 +149,36 @@ pub fn simulate_live_ai_legacy_states_dual_world_empty_gate_honesty() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn path_source_gate_accepts_explicit_context_setup_before_the_branch() {
+        let src = "fn compute_path(&mut self) -> Result<bool, String> {
+        let live_no_path = self.live_no_path.take();
+        let live_stuck = self.live_stuck.take();
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+        Ok(true)
+    }";
+        assert!(path_has_empty_registry_gate(src));
+    }
+
+    #[test]
+    fn path_source_gate_rejects_a_comment_or_branch_outside_the_function() {
+        let src = "fn compute_path(&mut self) -> Result<bool, String> {
+        // Wave 257: empty dual-world → Ok(false).
+        Ok(true)
+    }
+    fn other() {
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+    }";
+        assert!(!path_has_empty_registry_gate(src));
+        assert!(!path_has_empty_registry_gate(
+            "fn compute_path(&mut self) -> Result<bool, String> { Ok(true) }",
+        ));
+    }
 
     #[test]
     fn method_names_residual() {

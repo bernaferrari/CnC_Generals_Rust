@@ -31,16 +31,15 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers,
+    search_qualifiers, the_ai,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
 use crate::common::coord::*;
 use crate::common::xfer::XferExt;
 use crate::common::*;
-use crate::compat::{ClassicState, legacy_transition, register_classic_state};
 use crate::control_bar::get_control_bar_bridge;
 use crate::damage::DamageInfo;
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
@@ -57,6 +56,7 @@ use crate::physics::GRAVITY;
 use crate::player::PlayerType;
 use crate::polygon_trigger::PolygonTrigger;
 use crate::scripting::engine::get_script_engine;
+use crate::state_machine::cpp_state::{CppState, cpp_transition, register_cpp_state};
 use crate::state_machine::*;
 use crate::team::{Team, TeamID, TheTeamFactory};
 use crate::terrain::get_terrain_logic;
@@ -113,7 +113,7 @@ impl AIWanderState {
 
 impl StateImplementation for AIWanderState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
@@ -167,7 +167,7 @@ impl StateImplementation for AIWanderState {
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
 
     fn update_with_ai(
@@ -200,7 +200,10 @@ impl StateImplementation for AIWanderState {
             self.core.current_waypoint = self.core.get_next_waypoint(&self.base);
             if self.core.current_waypoint.is_none() {
                 ai.set_completed_waypoint_id(
-                    self.core.prior_waypoint.as_ref().map(|waypoint| waypoint.id),
+                    self.core
+                        .prior_waypoint
+                        .as_ref()
+                        .map(|waypoint| waypoint.id),
                 );
                 return StateReturnType::Success;
             }
@@ -222,7 +225,7 @@ impl StateImplementation for AIWanderState {
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
+        let _ = self.cpp_on_exit(_status);
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -230,7 +233,7 @@ impl StateImplementation for AIWanderState {
     }
 }
 
-impl ClassicState for AIWanderState {
+impl CppState for AIWanderState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -239,35 +242,35 @@ impl ClassicState for AIWanderState {
         &mut self.base
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         self.wander_enter(None)
     }
 
-    fn classic_on_enter_with_ai(
+    fn cpp_on_enter_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.wander_enter(Some(ai))
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         self.wander_update(None)
     }
 
-    fn classic_on_update_with_ai(
+    fn cpp_on_update_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.wander_update(Some(ai))
     }
 
-    fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
+    fn cpp_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
         // C++ AIWanderState::onExit → AIFollowWaypointPathState::onExit → InternalMoveTo
-        self.move_to.classic_on_exit(exit)
+        self.move_to.cpp_on_exit(exit)
     }
 }
 
@@ -319,9 +322,9 @@ impl AIWanderState {
         }
         let ret = if has_ai {
             self.move_to
-                .classic_on_enter_with_ai(borrowed.expect("wander ai"))?
+                .cpp_on_enter_with_ai(borrowed.expect("wander ai"))?
         } else {
-            self.move_to.classic_on_enter()?
+            self.move_to.cpp_on_enter()?
         };
         if let Ok(mut owner_guard) = owner.write() {
             owner_guard.ai_pending_path_extra = Some(self.core.calc_extra_path_distance());
@@ -335,9 +338,9 @@ impl AIWanderState {
     ) -> Result<StateReturnType, String> {
         let has_ai = borrowed.is_some();
         let status = if let Some(ai) = borrowed.as_mut() {
-            self.move_to.classic_on_update_with_ai(*ai)?
+            self.move_to.cpp_on_update_with_ai(*ai)?
         } else {
-            self.move_to.classic_on_update()?
+            self.move_to.cpp_on_update()?
         };
         let owner = self
             .base
@@ -348,28 +351,35 @@ impl AIWanderState {
             .map_err(|_| "wander owner lock poisoned".to_string())?;
         let ai_arc;
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
-        {
-            *ai
-        } else {
-            ai_arc = owner_guard
-                .get_ai_update_interface()
-                .ok_or_else(|| "wander missing AIUpdateInterface".to_string())?;
-            locked_ai = ai_arc
-                .lock()
-                .map_err(|_| "wander AI lock poisoned".to_string())?;
-            &mut *locked_ai
-        };
+        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+            if let Some(ai) = borrowed.as_mut() {
+                *ai
+            } else {
+                ai_arc = owner_guard
+                    .get_ai_update_interface()
+                    .ok_or_else(|| "wander missing AIUpdateInterface".to_string())?;
+                locked_ai = ai_arc
+                    .lock()
+                    .map_err(|_| "wander AI lock poisoned".to_string())?;
+                &mut *locked_ai
+            };
         let _ = has_ai;
         if owner_guard.is_kind_of(KindOf::CanBeRepulsed) {
             self.timer -= 1;
             if self.timer < 0 {
                 self.timer = self.wait_frames;
                 let ai_store = the_ai();
-                let enemy_id = ai_store.read().ok().and_then(|ai| {
-                    ai.find_closest_repulsor(owner_guard.get_id(), owner_guard.get_vision_range())
+                let enemy_id = ai_store
+                    .read()
+                    .ok()
+                    .and_then(|ai| {
+                        ai.find_closest_repulsor(
+                            owner_guard.get_id(),
+                            owner_guard.get_vision_range(),
+                        )
                         .ok()
-                }).flatten();
+                    })
+                    .flatten();
                 if enemy_id.is_some() {
                     return Ok(StateReturnType::Failure);
                 }
@@ -379,7 +389,10 @@ impl AIWanderState {
             self.core.current_waypoint = self.core.get_next_waypoint(&self.base);
             if self.core.current_waypoint.is_none() {
                 ai_guard.set_completed_waypoint_id(
-                    self.core.prior_waypoint.as_ref().map(|waypoint| waypoint.id),
+                    self.core
+                        .prior_waypoint
+                        .as_ref()
+                        .map(|waypoint| waypoint.id),
                 );
                 return Ok(StateReturnType::Success);
             }
@@ -434,7 +447,7 @@ impl AIPanicState {
 
 impl StateImplementation for AIPanicState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
@@ -489,7 +502,7 @@ impl StateImplementation for AIPanicState {
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
 
     fn update_with_ai(
@@ -507,7 +520,10 @@ impl StateImplementation for AIPanicState {
             self.core.current_waypoint = self.core.get_next_waypoint(&self.base);
             if self.core.current_waypoint.is_none() {
                 ai.set_completed_waypoint_id(
-                    self.core.prior_waypoint.as_ref().map(|waypoint| waypoint.id),
+                    self.core
+                        .prior_waypoint
+                        .as_ref()
+                        .map(|waypoint| waypoint.id),
                 );
                 return StateReturnType::Success;
             }
@@ -520,8 +536,7 @@ impl StateImplementation for AIPanicState {
                 return StateReturnType::Failure;
             }
             self.move_to.goal_position = self.core.goal_position;
-            if self.core.compute_path(ai).is_err()
-            {
+            if self.core.compute_path(ai).is_err() {
                 return StateReturnType::Failure;
             }
         }
@@ -529,7 +544,7 @@ impl StateImplementation for AIPanicState {
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
+        let _ = self.cpp_on_exit(_status);
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -537,7 +552,7 @@ impl StateImplementation for AIPanicState {
     }
 }
 
-impl ClassicState for AIPanicState {
+impl CppState for AIPanicState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -546,40 +561,40 @@ impl ClassicState for AIPanicState {
         &mut self.base
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         self.panic_enter(None)
     }
 
-    fn classic_on_enter_with_ai(
+    fn cpp_on_enter_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.panic_enter(Some(ai))
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         self.panic_update(None)
     }
 
-    fn classic_on_update_with_ai(
+    fn cpp_on_update_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.panic_update(Some(ai))
     }
 
-    fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
+    fn cpp_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
         if let Some(owner) = self.base.get_machine_owner() {
             if let Ok(mut owner_guard) = owner.write() {
                 owner_guard.clear_model_condition_state(ModelConditionFlags::PANICKING);
             }
         }
         // C++ AIPanicState::onExit: clear PANICKING then AIInternalMoveToState::onExit
-        self.move_to.classic_on_exit(exit)
+        self.move_to.cpp_on_exit(exit)
     }
 }
 
@@ -629,14 +644,18 @@ impl AIPanicState {
         }
         let ret = if has_ai {
             self.move_to
-                .classic_on_enter_with_ai(borrowed.expect("panic ai"))?
+                .cpp_on_enter_with_ai(borrowed.expect("panic ai"))?
         } else {
-            self.move_to.classic_on_enter()?
+            self.move_to.cpp_on_enter()?
         };
         self.timer = 0;
-        self.wait_frames = 10 + ((self.base.get_machine_owner().and_then(|owner| {
-            owner.read().ok().map(|guard| guard.get_id())
-        }).unwrap_or(0) & 0x7) as i32);
+        self.wait_frames = 10
+            + ((self
+                .base
+                .get_machine_owner()
+                .and_then(|owner| owner.read().ok().map(|guard| guard.get_id()))
+                .unwrap_or(0)
+                & 0x7) as i32);
         if let Ok(mut owner_guard) = owner.write() {
             owner_guard.ai_pending_path_extra = Some(self.core.calc_extra_path_distance());
         }
@@ -651,9 +670,9 @@ impl AIPanicState {
         mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
     ) -> Result<StateReturnType, String> {
         let status = if let Some(ai) = borrowed.as_mut() {
-            self.move_to.classic_on_update_with_ai(*ai)?
+            self.move_to.cpp_on_update_with_ai(*ai)?
         } else {
-            self.move_to.classic_on_update()?
+            self.move_to.cpp_on_update()?
         };
         let owner = self
             .base
@@ -664,27 +683,34 @@ impl AIPanicState {
             .map_err(|_| "panic owner lock poisoned".to_string())?;
         let ai_arc;
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
-        {
-            *ai
-        } else {
-            ai_arc = owner_guard
-                .get_ai_update_interface()
-                .ok_or_else(|| "panic missing AIUpdateInterface".to_string())?;
-            locked_ai = ai_arc
-                .lock()
-                .map_err(|_| "panic AI lock poisoned".to_string())?;
-            &mut *locked_ai
-        };
+        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+            if let Some(ai) = borrowed.as_mut() {
+                *ai
+            } else {
+                ai_arc = owner_guard
+                    .get_ai_update_interface()
+                    .ok_or_else(|| "panic missing AIUpdateInterface".to_string())?;
+                locked_ai = ai_arc
+                    .lock()
+                    .map_err(|_| "panic AI lock poisoned".to_string())?;
+                &mut *locked_ai
+            };
         if owner_guard.is_kind_of(KindOf::CanBeRepulsed) {
             self.timer -= 1;
             if self.timer < 0 {
                 self.timer = self.wait_frames;
                 let ai_store = the_ai();
-                let enemy_id = ai_store.read().ok().and_then(|ai| {
-                    ai.find_closest_repulsor(owner_guard.get_id(), owner_guard.get_vision_range())
+                let enemy_id = ai_store
+                    .read()
+                    .ok()
+                    .and_then(|ai| {
+                        ai.find_closest_repulsor(
+                            owner_guard.get_id(),
+                            owner_guard.get_vision_range(),
+                        )
                         .ok()
-                }).flatten();
+                    })
+                    .flatten();
                 if enemy_id.is_some() {
                     return Ok(StateReturnType::Failure);
                 }
@@ -694,7 +720,10 @@ impl AIPanicState {
             self.core.current_waypoint = self.core.get_next_waypoint(&self.base);
             if self.core.current_waypoint.is_none() {
                 ai_guard.set_completed_waypoint_id(
-                    self.core.prior_waypoint.as_ref().map(|waypoint| waypoint.id),
+                    self.core
+                        .prior_waypoint
+                        .as_ref()
+                        .map(|waypoint| waypoint.id),
                 );
                 return Ok(StateReturnType::Success);
             }

@@ -40,7 +40,6 @@ use crate::command_button::CommandButton;
 use crate::common::coord::*;
 use crate::common::xfer::XferExt;
 use crate::common::*;
-use crate::compat::{ClassicState, legacy_transition, register_classic_state};
 use crate::control_bar::get_control_bar_bridge;
 use crate::damage::DamageInfo;
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
@@ -57,6 +56,7 @@ use crate::physics::GRAVITY;
 use crate::player::PlayerType;
 use crate::polygon_trigger::PolygonTrigger;
 use crate::scripting::engine::get_script_engine;
+use crate::state_machine::cpp_state::{CppState, cpp_transition, register_cpp_state};
 use crate::state_machine::*;
 use crate::team::{Team, TeamID, TheTeamFactory};
 use crate::terrain::get_terrain_logic;
@@ -140,7 +140,7 @@ impl AIGuardState {
 
 impl StateImplementation for AIGuardState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
@@ -180,7 +180,7 @@ impl StateImplementation for AIGuardState {
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
     fn update_with_ai(
         &mut self,
@@ -190,7 +190,7 @@ impl StateImplementation for AIGuardState {
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
+        let _ = self.cpp_on_exit(_status);
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -198,7 +198,7 @@ impl StateImplementation for AIGuardState {
     }
 }
 
-impl ClassicState for AIGuardState {
+impl CppState for AIGuardState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -207,19 +207,19 @@ impl ClassicState for AIGuardState {
         &mut self.base
     }
 
-    fn classic_note_guard_enter(&mut self, mode: i32, polygon: Option<Arc<PolygonTrigger>>) {
+    fn cpp_note_guard_enter(&mut self, mode: i32, polygon: Option<Arc<PolygonTrigger>>) {
         self.enter_mode = mode;
         self.enter_polygon = polygon;
     }
 
-    fn classic_freezes_parent_during_update(&self) -> bool {
+    fn cpp_freezes_parent_during_update(&self) -> bool {
         true
     }
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
@@ -269,7 +269,7 @@ impl ClassicState for AIGuardState {
         Ok(result)
     }
 
-    fn classic_on_enter_with_ai(
+    fn cpp_on_enter_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
@@ -284,7 +284,7 @@ impl ClassicState for AIGuardState {
         Ok(self.enter_with_ai(ai, goal_id, goal_pos))
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         let Some(guard_machine) = self.guard_machine.as_mut() else {
             return Ok(StateReturnType::Failure);
         };
@@ -292,14 +292,14 @@ impl ClassicState for AIGuardState {
         Ok(guard_machine.update())
     }
 
-    fn classic_on_update_with_ai(
+    fn cpp_on_update_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         Ok(self.update_with_ai(ai))
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+    fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if let Some(mut machine) = self.guard_machine.take() {
             let _ = machine.halt();
         }
@@ -308,14 +308,14 @@ impl ClassicState for AIGuardState {
         Ok(())
     }
 
-    fn classic_is_guard_idle(&self) -> bool {
+    fn cpp_is_guard_idle(&self) -> bool {
         self.guard_machine
             .as_ref()
             .map(|machine| machine.is_in_guard_idle_state())
             .unwrap_or(false)
     }
 
-    fn classic_is_attack(&self) -> bool {
+    fn cpp_is_attack(&self) -> bool {
         self.guard_machine
             .as_ref()
             .map(|machine| machine.is_in_attack_state())
@@ -341,7 +341,7 @@ impl AIGuardRetaliateState {
 
 impl StateImplementation for AIGuardRetaliateState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn on_enter_with_ai(
@@ -350,7 +350,7 @@ impl StateImplementation for AIGuardRetaliateState {
         _goal_id: crate::common::ObjectID,
         _goal_pos: Coord3D,
     ) -> StateReturnType {
-        self.classic_on_enter_with_ai(ai)
+        self.cpp_on_enter_with_ai(ai)
             .unwrap_or(StateReturnType::Failure)
     }
 
@@ -358,7 +358,7 @@ impl StateImplementation for AIGuardRetaliateState {
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> StateReturnType {
-        self.classic_on_update_with_ai(ai)
+        self.cpp_on_update_with_ai(ai)
             .unwrap_or(StateReturnType::Failure)
     }
 
@@ -367,7 +367,7 @@ impl StateImplementation for AIGuardRetaliateState {
         exit: StateExitType,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) {
-        let _ = self.classic_on_exit_with_ai(exit, ai);
+        let _ = self.cpp_on_exit_with_ai(exit, ai);
     }
 
     fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
@@ -390,11 +390,11 @@ impl StateImplementation for AIGuardRetaliateState {
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
+        let _ = self.cpp_on_exit(_status);
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -402,7 +402,7 @@ impl StateImplementation for AIGuardRetaliateState {
     }
 }
 
-impl ClassicState for AIGuardRetaliateState {
+impl CppState for AIGuardRetaliateState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -411,22 +411,22 @@ impl ClassicState for AIGuardRetaliateState {
         &mut self.base
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         self.enter_retaliate(None)
     }
 
-    fn classic_on_enter_with_ai(
+    fn cpp_on_enter_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.enter_retaliate(Some(ai))
     }
 
-    fn classic_on_update_with_ai(
+    fn cpp_on_update_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
@@ -437,7 +437,7 @@ impl ClassicState for AIGuardRetaliateState {
             .unwrap_or(StateReturnType::Failure))
     }
 
-    fn classic_on_exit_with_ai(
+    fn cpp_on_exit_with_ai(
         &mut self,
         _exit: StateExitType,
         ai: &mut dyn crate::modules::AIUpdateInterface,
@@ -449,7 +449,7 @@ impl ClassicState for AIGuardRetaliateState {
         Ok(())
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         let Some(guard_machine) = self.guard_machine.as_mut() else {
             return Ok(StateReturnType::Failure);
         };
@@ -457,7 +457,7 @@ impl ClassicState for AIGuardRetaliateState {
         Ok(guard_machine.update())
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+    fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if let Some(mut machine) = self.guard_machine.take() {
             let _ = machine.halt();
         }
@@ -466,7 +466,7 @@ impl ClassicState for AIGuardRetaliateState {
         Ok(())
     }
 
-    fn classic_is_attack(&self) -> bool {
+    fn cpp_is_attack(&self) -> bool {
         self.guard_machine
             .as_ref()
             .map(|machine| machine.is_in_attack_state())
@@ -533,7 +533,7 @@ impl AITunnelNetworkGuardState {
 
 impl StateImplementation for AITunnelNetworkGuardState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
@@ -556,11 +556,11 @@ impl StateImplementation for AITunnelNetworkGuardState {
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
+        let _ = self.cpp_on_exit(_status);
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -568,7 +568,7 @@ impl StateImplementation for AITunnelNetworkGuardState {
     }
 }
 
-impl ClassicState for AITunnelNetworkGuardState {
+impl CppState for AITunnelNetworkGuardState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -577,11 +577,11 @@ impl ClassicState for AITunnelNetworkGuardState {
         &mut self.base
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         let owner = self
             .base
             .get_machine_owner()
@@ -606,7 +606,7 @@ impl ClassicState for AITunnelNetworkGuardState {
         Ok(result)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         let Some(guard_machine) = self.guard_machine.as_mut() else {
             return Ok(StateReturnType::Failure);
         };
@@ -614,7 +614,7 @@ impl ClassicState for AITunnelNetworkGuardState {
         Ok(guard_machine.update())
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+    fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if let Some(mut machine) = self.guard_machine.take() {
             let _ = machine.halt();
         }
@@ -623,7 +623,7 @@ impl ClassicState for AITunnelNetworkGuardState {
         Ok(())
     }
 
-    fn classic_is_attack(&self) -> bool {
+    fn cpp_is_attack(&self) -> bool {
         self.guard_machine
             .as_ref()
             .map(|machine| machine.is_in_attack_state())

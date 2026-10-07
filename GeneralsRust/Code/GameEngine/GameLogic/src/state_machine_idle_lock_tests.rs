@@ -43,7 +43,7 @@ fn exercise(classic: bool, held_ai: bool, locked: bool) {
     let mut core = StateMachine::new(Some(Arc::downgrade(&actual)), "idle locked parent");
     let state = AIIdleState::new(&core, true);
     if classic {
-        crate::compat::register_classic_state(&mut core, 5, state, None, None, &[]);
+        crate::state_machine::cpp_state::register_cpp_state(&mut core, 5, state, None, None, &[]);
     } else {
         core.define_state(5, Box::new(state), None, None, None);
     }

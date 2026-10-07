@@ -52,7 +52,6 @@ pub mod attack;
 pub mod build_list_info;
 pub mod command_button;
 pub mod commands;
-pub mod compat;
 pub mod contain_module;
 pub mod control_bar;
 pub mod damage;

@@ -512,8 +512,7 @@
 ../GeneralsRust/Code/GameEngine/GameLogic/src/common/vec_ext.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/common/vector_ext.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/common/xfer.rs
-../GeneralsRust/Code/GameEngine/GameLogic/src/compat/legacy_state.rs
-../GeneralsRust/Code/GameEngine/GameLogic/src/compat/mod.rs
+../GeneralsRust/Code/GameEngine/GameLogic/src/state_machine/cpp_state.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/crc_test.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/damage.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/disabled.rs

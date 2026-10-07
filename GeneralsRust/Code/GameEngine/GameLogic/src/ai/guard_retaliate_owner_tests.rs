@@ -256,7 +256,7 @@ fn native_parent_retaliation_forwards_held_ai_through_enter_update_and_exit() {
     assert_eq!(loan.commands.len(), 1);
     assert_eq!(loan.commands[0].pos, Coord3D::new(23.0, 31.0, 0.0));
     let _ = machine.base.update_with_ai(&mut *loan);
-    // Leave via the native registered ClassicState adapter. It must clear the
+    // Leave via the native registered CppState adapter. It must clear the
     // driving AI's guard target while its installed handle remains held.
     let _ = machine.set_state_with_ai(crate::state_machine::MACHINE_DONE_STATE_ID, &mut *loan);
     assert_eq!(loan.guard_clears, 1);

@@ -21,7 +21,6 @@ use crate::command_button::CommandButton;
 use crate::common::coord::*;
 use crate::common::xfer::XferExt;
 use crate::common::*;
-use crate::compat::{ClassicState, legacy_transition, register_classic_state};
 use crate::control_bar::get_control_bar_bridge;
 use crate::damage::DamageInfo;
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
@@ -38,6 +37,7 @@ use crate::physics::GRAVITY;
 use crate::player::PlayerType;
 use crate::polygon_trigger::PolygonTrigger;
 use crate::scripting::engine::get_script_engine;
+use crate::state_machine::cpp_state::{CppState, cpp_transition, register_cpp_state};
 use crate::state_machine::*;
 use crate::team::{Team, TeamID, TheTeamFactory};
 use crate::terrain::get_terrain_logic;
@@ -873,8 +873,8 @@ fn attack_on_exit_clears_leech_range_mode() {
     let machine = StateMachine::new(Some(Arc::downgrade(&object)), "leech-exit");
     let mut state = AIAttackObjectState::new(&machine, false, false);
     state
-        .classic_on_exit(StateExitType::Normal)
-        .expect("classic_on_exit");
+        .cpp_on_exit(StateExitType::Normal)
+        .expect("cpp_on_exit");
     {
         let owner = object.read().expect("owner read");
         let weapon = owner

@@ -40,7 +40,6 @@ use crate::command_button::CommandButton;
 use crate::common::coord::*;
 use crate::common::xfer::XferExt;
 use crate::common::*;
-use crate::compat::{ClassicState, legacy_transition, register_classic_state};
 use crate::control_bar::get_control_bar_bridge;
 use crate::damage::DamageInfo;
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
@@ -57,6 +56,7 @@ use crate::physics::GRAVITY;
 use crate::player::PlayerType;
 use crate::polygon_trigger::PolygonTrigger;
 use crate::scripting::engine::get_script_engine;
+use crate::state_machine::cpp_state::{CppState, cpp_transition, register_cpp_state};
 use crate::state_machine::*;
 use crate::team::{Team, TeamID, TheTeamFactory};
 use crate::terrain::get_terrain_logic;
@@ -98,7 +98,7 @@ impl AIAttackMoveToState {
 
 impl StateImplementation for AIAttackMoveToState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
@@ -213,11 +213,11 @@ impl StateImplementation for AIAttackMoveToState {
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
+        let _ = self.cpp_on_exit(_status);
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -225,7 +225,7 @@ impl StateImplementation for AIAttackMoveToState {
     }
 }
 
-impl ClassicState for AIAttackMoveToState {
+impl CppState for AIAttackMoveToState {
     fn base_state(&self) -> &State {
         &self.base.base
     }
@@ -234,12 +234,12 @@ impl ClassicState for AIAttackMoveToState {
         &mut self.base.base
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        let result = self.base.classic_on_enter()?;
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
+        let result = self.base.cpp_on_enter()?;
         let owner = self
             .base
             .base
@@ -260,25 +260,25 @@ impl ClassicState for AIAttackMoveToState {
         Ok(result)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         self.attack_move_update(None)
     }
 
-    fn classic_on_update_with_ai(
+    fn cpp_on_update_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.attack_move_update(Some(ai))
     }
 
-    fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
+    fn cpp_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
         if let Some(mut machine) = self.attack_move_machine.take() {
             let _ = machine.halt();
         }
-        self.base.classic_on_exit(exit)
+        self.base.cpp_on_exit(exit)
     }
 
-    fn classic_is_attack(&self) -> bool {
+    fn cpp_is_attack(&self) -> bool {
         self.attack_move_machine
             .as_ref()
             .map(|machine| machine.is_in_attack_state())
@@ -366,16 +366,16 @@ impl AIAttackMoveToState {
         }
         if should_repath_this_frame {
             if has_ai {
-                let _ = self.base.classic_on_enter_with_ai(ai_guard);
+                let _ = self.base.cpp_on_enter_with_ai(ai_guard);
             } else {
-                let _ = self.base.classic_on_enter();
+                let _ = self.base.cpp_on_enter();
             }
             self.base.force_repath();
         }
         let mut ret = if has_ai {
-            self.base.classic_on_update_with_ai(ai_guard)?
+            self.base.cpp_on_update_with_ai(ai_guard)?
         } else {
-            self.base.classic_on_update()?
+            self.base.cpp_on_update()?
         };
         if ret != StateReturnType::Continue {
             if self.retry_count < 1 {
@@ -424,7 +424,7 @@ impl AIAttackFollowWaypointPathAsTeamState {
 
 impl StateImplementation for AIAttackFollowWaypointPathAsTeamState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn on_enter_with_waypoint(
@@ -513,11 +513,11 @@ impl StateImplementation for AIAttackFollowWaypointPathAsTeamState {
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
+        let _ = self.cpp_on_exit(_status);
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -525,7 +525,7 @@ impl StateImplementation for AIAttackFollowWaypointPathAsTeamState {
     }
 }
 
-impl ClassicState for AIAttackFollowWaypointPathAsTeamState {
+impl CppState for AIAttackFollowWaypointPathAsTeamState {
     fn base_state(&self) -> &State {
         &self.base.base
     }
@@ -534,40 +534,40 @@ impl ClassicState for AIAttackFollowWaypointPathAsTeamState {
         &mut self.base.base
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        let result = self.base.classic_on_enter()?;
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
+        let result = self.base.cpp_on_enter()?;
         self.arm_attack_follow(result)
     }
 
-    fn classic_on_enter_with_ai(
+    fn cpp_on_enter_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
-        let result = self.base.classic_on_enter_with_ai(ai)?;
+        let result = self.base.cpp_on_enter_with_ai(ai)?;
         self.arm_attack_follow(result)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         self.attack_follow_team_update(None)
     }
 
-    fn classic_on_update_with_ai(
+    fn cpp_on_update_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.attack_follow_team_update(Some(ai))
     }
 
-    fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
+    fn cpp_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
         if let Some(mut machine) = self.attack_follow_machine.take() {
             let _ = machine.set_state(AIStateType::Idle);
             let _ = machine.halt();
         }
-        self.base.classic_on_exit(exit)
+        self.base.cpp_on_exit(exit)
     }
 }
 
@@ -666,9 +666,9 @@ impl AIAttackFollowWaypointPathAsTeamState {
             }
         }
         if has_ai {
-            self.base.classic_on_update_with_ai(ai_guard)
+            self.base.cpp_on_update_with_ai(ai_guard)
         } else {
-            self.base.classic_on_update()
+            self.base.cpp_on_update()
         }
     }
 }
@@ -694,7 +694,7 @@ impl AIAttackFollowWaypointPathAsIndividualsState {
 
 impl StateImplementation for AIAttackFollowWaypointPathAsIndividualsState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn on_enter_with_waypoint(
@@ -778,11 +778,11 @@ impl StateImplementation for AIAttackFollowWaypointPathAsIndividualsState {
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
+        let _ = self.cpp_on_exit(_status);
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -790,7 +790,7 @@ impl StateImplementation for AIAttackFollowWaypointPathAsIndividualsState {
     }
 }
 
-impl ClassicState for AIAttackFollowWaypointPathAsIndividualsState {
+impl CppState for AIAttackFollowWaypointPathAsIndividualsState {
     fn base_state(&self) -> &State {
         &self.base.base
     }
@@ -799,40 +799,40 @@ impl ClassicState for AIAttackFollowWaypointPathAsIndividualsState {
         &mut self.base.base
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        let result = self.base.classic_on_enter()?;
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
+        let result = self.base.cpp_on_enter()?;
         self.arm_attack_follow_individuals(result)
     }
 
-    fn classic_on_enter_with_ai(
+    fn cpp_on_enter_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
-        let result = self.base.classic_on_enter_with_ai(ai)?;
+        let result = self.base.cpp_on_enter_with_ai(ai)?;
         self.arm_attack_follow_individuals(result)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         self.attack_follow_individuals_update(None)
     }
 
-    fn classic_on_update_with_ai(
+    fn cpp_on_update_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.attack_follow_individuals_update(Some(ai))
     }
 
-    fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
+    fn cpp_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
         if let Some(mut machine) = self.attack_follow_machine.take() {
             let _ = machine.set_state(AIStateType::Idle);
             let _ = machine.halt();
         }
-        self.base.classic_on_exit(exit)
+        self.base.cpp_on_exit(exit)
     }
 }
 
@@ -934,9 +934,9 @@ impl AIAttackFollowWaypointPathAsIndividualsState {
             }
         }
         if has_ai {
-            self.base.classic_on_update_with_ai(ai_guard)
+            self.base.cpp_on_update_with_ai(ai_guard)
         } else {
-            self.base.classic_on_update()
+            self.base.cpp_on_update()
         }
     }
 }
@@ -1184,7 +1184,7 @@ impl AIAttackObjectState {
 
 impl StateImplementation for AIAttackObjectState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
@@ -1204,7 +1204,7 @@ impl StateImplementation for AIAttackObjectState {
         if goal_id != crate::common::INVALID_ID {
             self.preset_goal_id = goal_id;
         }
-        self.classic_on_enter_with_ai(ai)
+        self.cpp_on_enter_with_ai(ai)
             .unwrap_or(StateReturnType::Failure)
     }
 
@@ -1217,11 +1217,11 @@ impl StateImplementation for AIAttackObjectState {
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
+        let _ = self.cpp_on_exit(_status);
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -1229,7 +1229,7 @@ impl StateImplementation for AIAttackObjectState {
     }
 }
 
-impl ClassicState for AIAttackObjectState {
+impl CppState for AIAttackObjectState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -1238,33 +1238,33 @@ impl ClassicState for AIAttackObjectState {
         &mut self.base
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         self.classic_on_enter_with_optional_ai(None)
     }
 
-    fn classic_on_enter_with_ai(
+    fn cpp_on_enter_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.classic_on_enter_with_optional_ai(Some(ai))
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         self.attack_frame(None)
     }
 
-    fn classic_on_update_with_ai(
+    fn cpp_on_update_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.attack_frame(Some(ai))
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+    fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         self.target_id = INVALID_ID;
         self.issued_attack = false;
         if let Some(mut machine) = self.attack_machine.take() {
@@ -1293,7 +1293,7 @@ impl ClassicState for AIAttackObjectState {
         Ok(())
     }
 
-    fn classic_is_attack(&self) -> bool {
+    fn cpp_is_attack(&self) -> bool {
         true
     }
 }
@@ -1476,7 +1476,7 @@ impl AIAttackPositionState {
 
 impl StateImplementation for AIAttackPositionState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn bind_goal_position(&mut self, pos: Coord3D) {
@@ -1488,11 +1488,11 @@ impl StateImplementation for AIAttackPositionState {
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
+        let _ = self.cpp_on_exit(_status);
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -1500,7 +1500,7 @@ impl StateImplementation for AIAttackPositionState {
     }
 }
 
-impl ClassicState for AIAttackPositionState {
+impl CppState for AIAttackPositionState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -1509,11 +1509,11 @@ impl ClassicState for AIAttackPositionState {
         &mut self.base
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         let owner = self
             .base
             .get_machine_owner()
@@ -1616,7 +1616,7 @@ impl ClassicState for AIAttackPositionState {
         Ok(ret)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         let owner = self
             .base
             .get_machine_owner()
@@ -1681,7 +1681,7 @@ impl ClassicState for AIAttackPositionState {
         Ok(StateReturnType::Continue)
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+    fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         // Stop attacking — destroy attack machine (C++ AIAttackState::onExit)
         self.issued_attack = false;
         if let Some(mut machine) = self.attack_machine.take() {
@@ -1713,7 +1713,7 @@ impl ClassicState for AIAttackPositionState {
         Ok(())
     }
 
-    fn classic_is_attack(&self) -> bool {
+    fn cpp_is_attack(&self) -> bool {
         true
     }
 }
@@ -1733,7 +1733,7 @@ impl AIAttackThenIdleStateMachine {
         let attack_state = AIAttackObjectState::new(&base, false, false);
         let pickup_state = AIPickUpCrateState::new(&base);
         let idle_state = AIIdleState::new(&base, false);
-        register_classic_state(
+        register_cpp_state(
             &mut base,
             AIStateType::AttackObject as u32,
             attack_state,
@@ -1741,7 +1741,7 @@ impl AIAttackThenIdleStateMachine {
             Some(AIStateType::Idle as u32),
             &[],
         );
-        register_classic_state(
+        register_cpp_state(
             &mut base,
             AIStateType::PickUpCrate as u32,
             pickup_state,
@@ -1749,7 +1749,7 @@ impl AIAttackThenIdleStateMachine {
             Some(AIStateType::Idle as u32),
             &[],
         );
-        register_classic_state(
+        register_cpp_state(
             &mut base,
             AIStateType::Idle as u32,
             idle_state,
@@ -1813,24 +1813,24 @@ impl AIPickUpCrateState {
             self.delay_counter -= 1;
             if self.delay_counter == 0 {
                 return if let Some(ai) = ai.as_deref_mut() {
-                    self.base.classic_on_enter_with_ai(ai)
+                    self.base.cpp_on_enter_with_ai(ai)
                 } else {
-                    self.base.classic_on_enter()
+                    self.base.cpp_on_enter()
                 };
             }
             return Ok(StateReturnType::Continue);
         }
         if let Some(ai) = ai.as_deref_mut() {
-            self.base.classic_on_update_with_ai(ai)
+            self.base.cpp_on_update_with_ai(ai)
         } else {
-            self.base.classic_on_update()
+            self.base.cpp_on_update()
         }
     }
 }
 
 impl StateImplementation for AIPickUpCrateState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn on_enter_with_ai(
@@ -1839,7 +1839,7 @@ impl StateImplementation for AIPickUpCrateState {
         _goal_id: ObjectID,
         _goal_pos: Coord3D,
     ) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
@@ -1851,19 +1851,19 @@ impl StateImplementation for AIPickUpCrateState {
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
 
     fn update_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> StateReturnType {
-        self.classic_on_update_with_ai(ai)
+        self.cpp_on_update_with_ai(ai)
             .unwrap_or(StateReturnType::Failure)
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
+        let _ = self.cpp_on_exit(_status);
     }
 
     fn on_exit_with_ai(
@@ -1879,7 +1879,7 @@ impl StateImplementation for AIPickUpCrateState {
     }
 }
 
-impl ClassicState for AIPickUpCrateState {
+impl CppState for AIPickUpCrateState {
     fn base_state(&self) -> &State {
         &self.base.base
     }
@@ -1888,11 +1888,11 @@ impl ClassicState for AIPickUpCrateState {
         &mut self.base.base
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
@@ -1920,19 +1920,19 @@ impl ClassicState for AIPickUpCrateState {
         Ok(StateReturnType::Continue)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         self.update_with_optional_ai(None)
     }
 
-    fn classic_on_update_with_ai(
+    fn cpp_on_update_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.update_with_optional_ai(Some(ai))
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        self.base.classic_on_exit(_exit)?;
+    fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+        self.base.cpp_on_exit(_exit)?;
         Ok(())
     }
 }
@@ -2046,7 +2046,7 @@ impl AIAttackSquadState {
 
 impl StateImplementation for AIAttackSquadState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn bind_goal_squad(&mut self, squad: Option<std::sync::Arc<crate::ai::squad::Squad>>) {
@@ -2061,11 +2061,11 @@ impl StateImplementation for AIAttackSquadState {
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
+        let _ = self.cpp_on_exit(_status);
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -2073,7 +2073,7 @@ impl StateImplementation for AIAttackSquadState {
     }
 }
 
-impl ClassicState for AIAttackSquadState {
+impl CppState for AIAttackSquadState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -2082,11 +2082,11 @@ impl ClassicState for AIAttackSquadState {
         &mut self.base
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         let owner = self
             .base
             .get_machine_owner()
@@ -2104,7 +2104,7 @@ impl ClassicState for AIAttackSquadState {
         Ok(result)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         let attack_status = {
             let Some(attack_machine) = self.attack_squad_machine.as_mut() else {
                 return Ok(StateReturnType::Failure);
@@ -2148,14 +2148,14 @@ impl ClassicState for AIAttackSquadState {
         Ok(StateReturnType::Continue)
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+    fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if let Some(mut machine) = self.attack_squad_machine.take() {
             let _ = machine.halt();
         }
         Ok(())
     }
 
-    fn classic_is_attack(&self) -> bool {
+    fn cpp_is_attack(&self) -> bool {
         true
     }
 }
@@ -2224,7 +2224,7 @@ impl AIAttackAreaState {
 
 impl StateImplementation for AIAttackAreaState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn bind_goal_squad(&mut self, squad: Option<std::sync::Arc<crate::ai::squad::Squad>>) {
@@ -2239,11 +2239,11 @@ impl StateImplementation for AIAttackAreaState {
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
+        let _ = self.cpp_on_exit(_status);
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -2251,7 +2251,7 @@ impl StateImplementation for AIAttackAreaState {
     }
 }
 
-impl ClassicState for AIAttackAreaState {
+impl CppState for AIAttackAreaState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -2260,11 +2260,11 @@ impl ClassicState for AIAttackAreaState {
         &mut self.base
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         let owner = self
             .base
             .get_machine_owner()
@@ -2283,7 +2283,7 @@ impl ClassicState for AIAttackAreaState {
         Ok(result)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         let now = TheGameLogic::get_frame();
         if now >= self.next_enemy_scan_time {
             let owner = self
@@ -2335,14 +2335,14 @@ impl ClassicState for AIAttackAreaState {
         Ok(StateReturnType::Failure)
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+    fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if let Some(mut machine) = self.attack_machine.take() {
             let _ = machine.halt();
         }
         Ok(())
     }
 
-    fn classic_is_attack(&self) -> bool {
+    fn cpp_is_attack(&self) -> bool {
         true
     }
 }

@@ -31,16 +31,15 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers,
+    search_qualifiers, the_ai,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
 use crate::common::coord::*;
 use crate::common::xfer::XferExt;
 use crate::common::*;
-use crate::compat::{ClassicState, legacy_transition, register_classic_state};
 use crate::control_bar::get_control_bar_bridge;
 use crate::damage::DamageInfo;
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
@@ -57,6 +56,7 @@ use crate::physics::GRAVITY;
 use crate::player::PlayerType;
 use crate::polygon_trigger::PolygonTrigger;
 use crate::scripting::engine::get_script_engine;
+use crate::state_machine::cpp_state::{CppState, cpp_transition, register_cpp_state};
 use crate::state_machine::*;
 use crate::team::{Team, TeamID, TheTeamFactory};
 use crate::terrain::get_terrain_logic;
@@ -94,7 +94,7 @@ impl AIFaceObjectState {
 
 impl StateImplementation for AIFaceObjectState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
@@ -102,11 +102,11 @@ impl StateImplementation for AIFaceObjectState {
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
+        let _ = self.cpp_on_exit(_status);
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -114,7 +114,7 @@ impl StateImplementation for AIFaceObjectState {
     }
 }
 
-impl ClassicState for AIFaceObjectState {
+impl CppState for AIFaceObjectState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -123,7 +123,7 @@ impl ClassicState for AIFaceObjectState {
         &mut self.base
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
@@ -144,7 +144,7 @@ impl ClassicState for AIFaceObjectState {
         Ok(StateReturnType::Continue)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
         }
@@ -163,11 +163,11 @@ impl ClassicState for AIFaceObjectState {
         face_towards(&owner, goal_pos, self.can_turn_in_place)
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+    fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         Ok(())
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
 }
@@ -192,7 +192,7 @@ impl AIFacePositionState {
 
 impl StateImplementation for AIFacePositionState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn bind_goal_position(&mut self, pos: Coord3D) {
@@ -200,11 +200,11 @@ impl StateImplementation for AIFacePositionState {
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
+        let _ = self.cpp_on_exit(_status);
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -212,7 +212,7 @@ impl StateImplementation for AIFacePositionState {
     }
 }
 
-impl ClassicState for AIFacePositionState {
+impl CppState for AIFacePositionState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -221,7 +221,7 @@ impl ClassicState for AIFacePositionState {
         &mut self.base
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
         }
@@ -239,7 +239,7 @@ impl ClassicState for AIFacePositionState {
         Ok(StateReturnType::Continue)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
         }
@@ -253,11 +253,11 @@ impl ClassicState for AIFacePositionState {
         face_towards(&owner, goal, self.can_turn_in_place)
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+    fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         Ok(())
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
 }

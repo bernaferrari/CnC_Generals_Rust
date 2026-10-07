@@ -40,7 +40,6 @@ use crate::command_button::CommandButton;
 use crate::common::coord::*;
 use crate::common::xfer::XferExt;
 use crate::common::*;
-use crate::compat::{ClassicState, legacy_transition, register_classic_state};
 use crate::control_bar::get_control_bar_bridge;
 use crate::damage::DamageInfo;
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
@@ -57,6 +56,7 @@ use crate::physics::GRAVITY;
 use crate::player::PlayerType;
 use crate::polygon_trigger::PolygonTrigger;
 use crate::scripting::engine::get_script_engine;
+use crate::state_machine::cpp_state::{CppState, cpp_transition, register_cpp_state};
 use crate::state_machine::*;
 use crate::team::{Team, TeamID, TheTeamFactory};
 use crate::terrain::get_terrain_logic;
@@ -89,7 +89,7 @@ impl AIFollowWaypointPathAsTeamState {
 
 impl StateImplementation for AIFollowWaypointPathAsTeamState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn on_enter_with_waypoint(
@@ -177,7 +177,7 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
 
     fn update_with_ai(
@@ -315,7 +315,7 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
+        let _ = self.cpp_on_exit(_status);
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -323,7 +323,7 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
     }
 }
 
-impl ClassicState for AIFollowWaypointPathAsTeamState {
+impl CppState for AIFollowWaypointPathAsTeamState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -332,33 +332,33 @@ impl ClassicState for AIFollowWaypointPathAsTeamState {
         &mut self.base
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         self.waypoint_enter(None)
     }
 
-    fn classic_on_enter_with_ai(
+    fn cpp_on_enter_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.waypoint_enter(Some(ai))
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         self.waypoint_update(None)
     }
 
-    fn classic_on_update_with_ai(
+    fn cpp_on_update_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.waypoint_update(Some(ai))
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+    fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if let Some(owner) = self.base.get_machine_owner() {
             if let Ok(mut owner_guard) = owner.lock() {
                 owner_guard.ai_pending_precise_z = Some(false);
@@ -367,7 +367,7 @@ impl ClassicState for AIFollowWaypointPathAsTeamState {
         Ok(())
     }
 
-    fn classic_is_attack(&self) -> bool {
+    fn cpp_is_attack(&self) -> bool {
         false
     }
 }
@@ -678,7 +678,7 @@ impl AIFollowWaypointPathAsTeamExactState {
 
 impl StateImplementation for AIFollowWaypointPathAsTeamExactState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn on_enter_with_waypoint(
@@ -728,7 +728,7 @@ impl StateImplementation for AIFollowWaypointPathAsTeamExactState {
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
 
     fn update_with_ai(
@@ -749,7 +749,7 @@ impl StateImplementation for AIFollowWaypointPathAsTeamExactState {
     }
 
     fn on_exit(&mut self, status: StateExitType) {
-        let _ = self.classic_on_exit(status);
+        let _ = self.cpp_on_exit(status);
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -757,7 +757,7 @@ impl StateImplementation for AIFollowWaypointPathAsTeamExactState {
     }
 }
 
-impl ClassicState for AIFollowWaypointPathAsTeamExactState {
+impl CppState for AIFollowWaypointPathAsTeamExactState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -766,22 +766,22 @@ impl ClassicState for AIFollowWaypointPathAsTeamExactState {
         &mut self.base
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         self.exact_team_enter(None)
     }
 
-    fn classic_on_enter_with_ai(
+    fn cpp_on_enter_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.exact_team_enter(Some(ai))
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         let owner = self
             .base
             .get_machine_owner()
@@ -797,7 +797,7 @@ impl ClassicState for AIFollowWaypointPathAsTeamExactState {
         Ok(StateReturnType::Continue)
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+    fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if let Some(owner) = self.base.get_machine_owner() {
             if let Ok(mut owner_guard) = owner.lock() {
                 if let Some(last) = self.last_waypoint.as_ref() {
@@ -896,7 +896,7 @@ impl AIFollowWaypointPathAsIndividualsState {
 
 impl StateImplementation for AIFollowWaypointPathAsIndividualsState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn on_enter_with_waypoint(
@@ -951,7 +951,7 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsState {
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
 
     fn update_with_ai(
@@ -1046,7 +1046,7 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsState {
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
+        let _ = self.cpp_on_exit(_status);
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -1054,7 +1054,7 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsState {
     }
 }
 
-impl ClassicState for AIFollowWaypointPathAsIndividualsState {
+impl CppState for AIFollowWaypointPathAsIndividualsState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -1063,33 +1063,33 @@ impl ClassicState for AIFollowWaypointPathAsIndividualsState {
         &mut self.base
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         self.individuals_enter(None)
     }
 
-    fn classic_on_enter_with_ai(
+    fn cpp_on_enter_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.individuals_enter(Some(ai))
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         self.individuals_update(None)
     }
 
-    fn classic_on_update_with_ai(
+    fn cpp_on_update_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.individuals_update(Some(ai))
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+    fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if let Some(owner) = self.base.get_machine_owner() {
             if let Ok(mut owner_guard) = owner.lock() {
                 owner_guard.ai_pending_precise_z = Some(false);
@@ -1098,7 +1098,7 @@ impl ClassicState for AIFollowWaypointPathAsIndividualsState {
         Ok(())
     }
 
-    fn classic_is_attack(&self) -> bool {
+    fn cpp_is_attack(&self) -> bool {
         false
     }
 }
@@ -1287,7 +1287,7 @@ impl AIFollowWaypointPathAsIndividualsExactState {
 
 impl StateImplementation for AIFollowWaypointPathAsIndividualsExactState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn on_enter_with_waypoint(
@@ -1315,7 +1315,7 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsExactState {
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
 
     fn update_with_ai(
@@ -1336,7 +1336,7 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsExactState {
     }
 
     fn on_exit(&mut self, status: StateExitType) {
-        let _ = self.classic_on_exit(status);
+        let _ = self.cpp_on_exit(status);
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -1344,7 +1344,7 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsExactState {
     }
 }
 
-impl ClassicState for AIFollowWaypointPathAsIndividualsExactState {
+impl CppState for AIFollowWaypointPathAsIndividualsExactState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -1353,22 +1353,22 @@ impl ClassicState for AIFollowWaypointPathAsIndividualsExactState {
         &mut self.base
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         self.exact_individuals_enter(None)
     }
 
-    fn classic_on_enter_with_ai(
+    fn cpp_on_enter_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.exact_individuals_enter(Some(ai))
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         let owner = self
             .base
             .get_machine_owner()
@@ -1384,7 +1384,7 @@ impl ClassicState for AIFollowWaypointPathAsIndividualsExactState {
         Ok(StateReturnType::Continue)
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+    fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if let Some(owner) = self.base.get_machine_owner() {
             if let Ok(mut owner_guard) = owner.lock() {
                 if let Some(last) = self.last_waypoint.as_ref() {

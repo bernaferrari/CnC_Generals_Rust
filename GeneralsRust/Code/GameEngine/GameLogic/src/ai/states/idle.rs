@@ -40,7 +40,6 @@ use crate::command_button::CommandButton;
 use crate::common::coord::*;
 use crate::common::xfer::XferExt;
 use crate::common::*;
-use crate::compat::{ClassicState, legacy_transition, register_classic_state};
 use crate::control_bar::get_control_bar_bridge;
 use crate::damage::DamageInfo;
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
@@ -57,6 +56,7 @@ use crate::physics::GRAVITY;
 use crate::player::PlayerType;
 use crate::polygon_trigger::PolygonTrigger;
 use crate::scripting::engine::get_script_engine;
+use crate::state_machine::cpp_state::{CppState, cpp_transition, register_cpp_state};
 use crate::state_machine::*;
 use crate::team::{Team, TeamID, TheTeamFactory};
 use crate::terrain::get_terrain_logic;
@@ -297,11 +297,11 @@ impl AIIdleState {
 
 impl StateImplementation for AIIdleState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
 
     fn update_with_ai_held(
@@ -325,7 +325,7 @@ impl StateImplementation for AIIdleState {
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
+        let _ = self.cpp_on_exit(_status);
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -333,7 +333,7 @@ impl StateImplementation for AIIdleState {
     }
 }
 
-impl ClassicState for AIIdleState {
+impl CppState for AIIdleState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -342,11 +342,11 @@ impl ClassicState for AIIdleState {
         &mut self.base
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         // C++ AIIdleState::onEnter() from AIStates.cpp line 1290
         // Reset mood checking timers
         // Object *obj = getMachineOwner();
@@ -368,7 +368,7 @@ impl ClassicState for AIIdleState {
         Ok(StateReturnType::Continue)
     }
 
-    fn classic_on_update_with_control(
+    fn cpp_on_update_with_control(
         &mut self,
         control: &mut StateMachineControl,
         _ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
@@ -379,16 +379,16 @@ impl ClassicState for AIIdleState {
         self.update_idle(Some(control.is_locked()))
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         self.update_idle(None)
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+    fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         // Idle state has no cleanup
         Ok(())
     }
 
-    fn classic_is_idle(&self) -> bool {
+    fn cpp_is_idle(&self) -> bool {
         true
     }
 }

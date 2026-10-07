@@ -882,6 +882,8 @@ impl State {
     }
 }
 
+pub(crate) mod cpp_state;
+
 #[path = "state_machine_control.rs"]
 mod control;
 pub use control::StateMachineControl;
@@ -2491,3 +2493,7 @@ mod live_control_tests;
 #[cfg(test)]
 #[path = "state_machine_idle_lock_tests.rs"]
 mod idle_lock_tests;
+
+#[cfg(test)]
+#[path = "state_machine_cpp_contract_tests.rs"]
+mod cpp_contract_tests;

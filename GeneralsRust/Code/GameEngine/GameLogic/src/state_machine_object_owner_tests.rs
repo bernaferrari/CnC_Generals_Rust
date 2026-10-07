@@ -15,7 +15,7 @@ impl Drop for PreserveRng {
 fn idle_machine(owner: &Arc<RwLock<Object>>) -> StateMachine {
     let mut machine = StateMachine::new(Some(Arc::downgrade(owner)), "idle owner witness");
     let state = AIIdleState::new(&machine, true);
-    crate::compat::register_classic_state(
+    crate::state_machine::cpp_state::register_cpp_state(
         &mut machine,
         AIStateType::Idle as u32,
         state,

@@ -1,16 +1,16 @@
 //! AIStateMachine.h:324-326: Busy update always continues.
 use super::*;
 use crate::ai::states::AIBusyState;
-use crate::compat::legacy_state::LegacyStateAdapter;
+use crate::state_machine::cpp_state::CppStateAdapter;
 use crate::state_machine::{StateImplementation, StateMachine, StateReturnType};
 
-fn callback_bodies(actual: &FactoryRuntime) -> (AIBusyState, LegacyStateAdapter<AIBusyState>) {
+fn callback_bodies(actual: &FactoryRuntime) -> (AIBusyState, CppStateAdapter<AIBusyState>) {
     // Concrete callback fixtures use the factory's admitted Object. This
     // construction never replaces its cached AI or installed state machine.
     let context = StateMachine::new(Some(Arc::downgrade(&actual.owner)), "busy-callback-oracle");
     (
         AIBusyState::new(&context),
-        LegacyStateAdapter::new(AIBusyState::new(&context)),
+        CppStateAdapter::new(AIBusyState::new(&context)),
     )
 }
 

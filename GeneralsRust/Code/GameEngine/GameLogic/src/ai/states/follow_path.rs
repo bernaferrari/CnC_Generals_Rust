@@ -21,7 +21,6 @@ use super::wander_panic::*;
 use super::waypoint::*;
 use super::*;
 
-
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::dock::AIDockMachine;
 use crate::ai::group::AIGroup;
@@ -32,16 +31,15 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers,
+    search_qualifiers, the_ai,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
 use crate::common::coord::*;
 use crate::common::xfer::XferExt;
 use crate::common::*;
-use crate::compat::{ClassicState, legacy_transition, register_classic_state};
 use crate::control_bar::get_control_bar_bridge;
 use crate::damage::DamageInfo;
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
@@ -58,6 +56,7 @@ use crate::physics::GRAVITY;
 use crate::player::PlayerType;
 use crate::polygon_trigger::PolygonTrigger;
 use crate::scripting::engine::get_script_engine;
+use crate::state_machine::cpp_state::{CppState, cpp_transition, register_cpp_state};
 use crate::state_machine::*;
 use crate::team::{Team, TeamID, TheTeamFactory};
 use crate::terrain::get_terrain_logic;
@@ -239,7 +238,7 @@ impl AIFollowPathState {
 
 impl StateImplementation for AIFollowPathState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
@@ -301,7 +300,7 @@ impl StateImplementation for AIFollowPathState {
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
 
     fn update_with_ai(
@@ -348,7 +347,7 @@ impl StateImplementation for AIFollowPathState {
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
+        let _ = self.cpp_on_exit(_status);
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -356,7 +355,7 @@ impl StateImplementation for AIFollowPathState {
     }
 }
 
-impl ClassicState for AIFollowPathState {
+impl CppState for AIFollowPathState {
     fn base_state(&self) -> &State {
         &self.base.base
     }
@@ -365,11 +364,11 @@ impl ClassicState for AIFollowPathState {
         &mut self.base.base
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         let owner_ai_mutex_held = std::mem::replace(&mut self.owner_ai_mutex_held, false);
         if self.path.is_empty() {
             return Ok(StateReturnType::Failure);
@@ -410,7 +409,7 @@ impl ClassicState for AIFollowPathState {
             }
         }
 
-        let status = self.base.classic_on_enter()?;
+        let status = self.base.cpp_on_enter()?;
         if !owner_ai_mutex_held {
             if let Ok(owner_guard) = owner.read() {
                 if owner_guard.get_formation_id() != FormationID::NONE {
@@ -441,7 +440,7 @@ impl ClassicState for AIFollowPathState {
         Ok(status)
     }
 
-    fn classic_on_enter_with_ai(
+    fn cpp_on_enter_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
@@ -460,7 +459,7 @@ impl ClassicState for AIFollowPathState {
             let _ = ai.set_can_path_through_units(true);
             self.base.set_adjusts_destination(false);
         }
-        let status = self.base.classic_on_enter_with_ai(ai)?;
+        let status = self.base.cpp_on_enter_with_ai(ai)?;
         let owner = self
             .base
             .base
@@ -484,19 +483,19 @@ impl ClassicState for AIFollowPathState {
         Ok(status)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         self.follow_update(None)
     }
 
-    fn classic_on_update_with_ai(
+    fn cpp_on_update_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.follow_update(Some(ai))
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        self.base.classic_on_exit(_exit)?;
+    fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+        self.base.cpp_on_exit(_exit)?;
         if let Some(owner) = self.base.base.get_machine_owner() {
             if let Ok(mut owner_guard) = owner.write() {
                 owner_guard.ai_pending_path_through_units = Some(false);
@@ -520,9 +519,9 @@ impl AIFollowPathState {
             }
         }
         let status = if let Some(ai) = borrowed.as_mut() {
-            self.base.classic_on_update_with_ai(*ai)?
+            self.base.cpp_on_update_with_ai(*ai)?
         } else {
-            self.base.classic_on_update()?
+            self.base.cpp_on_update()?
         };
 
         if status == StateReturnType::Continue {
@@ -539,18 +538,18 @@ impl AIFollowPathState {
             .map_err(|_| "follow path owner lock poisoned".to_string())?;
         let ai_arc;
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
-        {
-            *ai
-        } else {
-            ai_arc = owner_guard
-                .get_ai_update_interface()
-                .ok_or_else(|| "follow path missing AIUpdateInterface".to_string())?;
-            locked_ai = ai_arc
-                .lock()
-                .map_err(|_| "follow path AI lock poisoned".to_string())?;
-            &mut *locked_ai
-        };
+        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+            if let Some(ai) = borrowed.as_mut() {
+                *ai
+            } else {
+                ai_arc = owner_guard
+                    .get_ai_update_interface()
+                    .ok_or_else(|| "follow path missing AIUpdateInterface".to_string())?;
+                locked_ai = ai_arc
+                    .lock()
+                    .map_err(|_| "follow path AI lock poisoned".to_string())?;
+                &mut *locked_ai
+            };
 
         if status == StateReturnType::Failure && self.retry_count > 0 {
             self.retry_count -= 1;
@@ -581,7 +580,6 @@ impl AIFollowPathState {
         self.base.compute_path(&mut *ai_guard)?;
         Ok(StateReturnType::Continue)
     }
-
 }
 
 /// Follow exit-production path state
@@ -648,7 +646,7 @@ impl StateImplementation for AIFollowExitProductionPathState {
     }
 }
 
-impl ClassicState for AIFollowExitProductionPathState {
+impl CppState for AIFollowExitProductionPathState {
     fn base_state(&self) -> &State {
         self.base.base_state()
     }
@@ -657,34 +655,34 @@ impl ClassicState for AIFollowExitProductionPathState {
         self.base.base_state_mut()
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         self.base.xfer_snapshot(xfer)
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        self.base.classic_on_enter()
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
+        self.base.cpp_on_enter()
     }
 
-    fn classic_on_enter_with_ai(
+    fn cpp_on_enter_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
-        self.base.classic_on_enter_with_ai(ai)
+        self.base.cpp_on_enter_with_ai(ai)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        self.base.classic_on_update()
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
+        self.base.cpp_on_update()
     }
 
-    fn classic_on_update_with_ai(
+    fn cpp_on_update_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
-        self.base.classic_on_update_with_ai(ai)
+        self.base.cpp_on_update_with_ai(ai)
     }
 
-    fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
-        self.base.classic_on_exit(exit)
+    fn cpp_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
+        self.base.cpp_on_exit(exit)
     }
 }
 
@@ -725,7 +723,7 @@ impl AIFollowState {
 
 impl StateImplementation for AIFollowState {
     fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
@@ -754,15 +752,15 @@ impl StateImplementation for AIFollowState {
     }
 
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        self.cpp_on_update().unwrap_or(StateReturnType::Failure)
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
+        let _ = self.cpp_on_exit(_status);
     }
 }
 
-impl ClassicState for AIFollowState {
+impl CppState for AIFollowState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -771,7 +769,7 @@ impl ClassicState for AIFollowState {
         &mut self.base
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
@@ -793,7 +791,7 @@ impl ClassicState for AIFollowState {
         Ok(StateReturnType::Continue)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
@@ -855,7 +853,7 @@ impl ClassicState for AIFollowState {
         Ok(StateReturnType::Continue)
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+    fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         self.target_id = INVALID_ID;
         self.issued_move = false;
         Ok(())
