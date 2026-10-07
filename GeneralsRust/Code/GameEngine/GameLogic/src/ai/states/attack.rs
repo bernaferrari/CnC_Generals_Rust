@@ -278,10 +278,6 @@ impl ClassicState for AIAttackMoveToState {
         self.base.classic_on_exit(exit)
     }
 
-    fn classic_is_busy(&self) -> bool {
-        true
-    }
-
     fn classic_is_attack(&self) -> bool {
         self.attack_move_machine
             .as_ref()
@@ -1299,10 +1295,6 @@ impl ClassicState for AIAttackObjectState {
 
     fn classic_is_attack(&self) -> bool {
         true
-    }
-
-    fn classic_is_busy(&self) -> bool {
-        self.target_id != INVALID_ID
     }
 }
 

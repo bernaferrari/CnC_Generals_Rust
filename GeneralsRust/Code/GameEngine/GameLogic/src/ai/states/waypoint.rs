@@ -31,9 +31,9 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers,
+    search_qualifiers, the_ai,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
@@ -198,8 +198,11 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
         {
             if let Some(owner) = self.base.get_machine_owner() {
                 if let Ok(mut owner_guard) = owner.write() {
-                    owner_guard.ai_pending_attack_follow_waypoint =
-                        self.core.current_waypoint.as_ref().map(|waypoint| waypoint.id);
+                    owner_guard.ai_pending_attack_follow_waypoint = self
+                        .core
+                        .current_waypoint
+                        .as_ref()
+                        .map(|waypoint| waypoint.id);
                     owner_guard.ai_pending_attack_follow_as_team = true;
                 }
             }
@@ -241,8 +244,10 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
                             return StateReturnType::Failure;
                         }
                         if ai.is_doing_ground_movement() {
-                            let _ = ai
-                                .update_goal_position(&self.core.goal_position, self.core.goal_layer);
+                            let _ = ai.update_goal_position(
+                                &self.core.goal_position,
+                                self.core.goal_layer,
+                            );
                         }
                     }
                 }
@@ -362,10 +367,6 @@ impl ClassicState for AIFollowWaypointPathAsTeamState {
         Ok(())
     }
 
-    fn classic_is_busy(&self) -> bool {
-        true
-    }
-
     fn classic_is_attack(&self) -> bool {
         false
     }
@@ -406,18 +407,18 @@ impl AIFollowWaypointPathAsTeamState {
             .map_err(|_| "follow waypoint owner lock poisoned".to_string())?;
         let ai_arc;
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
-        {
-            *ai
-        } else {
-            ai_arc = owner_guard
-                .get_ai_update_interface()
-                .ok_or_else(|| "follow waypoint path missing AIUpdateInterface".to_string())?;
-            locked_ai = ai_arc
-                .lock()
-                .map_err(|_| "follow waypoint path AI lock poisoned".to_string())?;
-            &mut *locked_ai
-        };
+        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+            if let Some(ai) = borrowed.as_mut() {
+                *ai
+            } else {
+                ai_arc = owner_guard
+                    .get_ai_update_interface()
+                    .ok_or_else(|| "follow waypoint path missing AIUpdateInterface".to_string())?;
+                locked_ai = ai_arc
+                    .lock()
+                    .map_err(|_| "follow waypoint path AI lock poisoned".to_string())?;
+                &mut *locked_ai
+            };
         let mut speed = FAST_AS_POSSIBLE;
         if self.core.move_as_group {
             if self.core.current_waypoint.is_none() {
@@ -494,18 +495,18 @@ impl AIFollowWaypointPathAsTeamState {
             .map_err(|_| "follow waypoint owner lock poisoned".to_string())?;
         let ai_arc;
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
-        {
-            *ai
-        } else {
-            ai_arc = owner_guard
-                .get_ai_update_interface()
-                .ok_or_else(|| "follow waypoint path missing AIUpdateInterface".to_string())?;
-            locked_ai = ai_arc
-                .lock()
-                .map_err(|_| "follow waypoint path AI lock poisoned".to_string())?;
-            &mut *locked_ai
-        };
+        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+            if let Some(ai) = borrowed.as_mut() {
+                *ai
+            } else {
+                ai_arc = owner_guard
+                    .get_ai_update_interface()
+                    .ok_or_else(|| "follow waypoint path missing AIUpdateInterface".to_string())?;
+                locked_ai = ai_arc
+                    .lock()
+                    .map_err(|_| "follow waypoint path AI lock poisoned".to_string())?;
+                &mut *locked_ai
+            };
 
         if let Some(current) = self.core.current_waypoint.as_ref() {
             if let Ok(machine) = self.base.get_machine() {
@@ -592,7 +593,8 @@ impl AIFollowWaypointPathAsTeamState {
                 .unwrap_or(false);
             if is_skirmish_ai {
                 if let Some(group_id) = owner_guard.get_group_id() {
-                    let ai_store = the_ai(); if let Ok(ai_lock) = ai_store.read() {
+                    let ai_store = the_ai();
+                    if let Ok(ai_lock) = ai_store.read() {
                         if let Some(group) = ai_lock.find_group(group_id) {
                             if let Ok(group_guard) = group.read() {
                                 if let Some(center) = group_guard.get_center() {
@@ -600,9 +602,7 @@ impl AIFollowWaypointPathAsTeamState {
                                     let dy = center.y - self.core.goal_position.y;
                                     let dist = (dx * dx + dy * dy).sqrt();
                                     let num = group_guard.get_count() as f32;
-                                    let fudge = ai_lock
-                                        .get_ai_data()
-                                        .skirmish_group_fudge_value;
+                                    let fudge = ai_lock.get_ai_data().skirmish_group_fudge_value;
                                     if dist <= num * fudge {
                                         status = StateReturnType::Success;
                                     }
@@ -656,7 +656,6 @@ impl AIFollowWaypointPathAsTeamState {
 
         Ok(status)
     }
-
 }
 
 /// Follow waypoint path exact as team (no pathfinding, follow waypoint links exactly).
@@ -810,10 +809,6 @@ impl ClassicState for AIFollowWaypointPathAsTeamExactState {
         }
         Ok(())
     }
-
-    fn classic_is_busy(&self) -> bool {
-        true
-    }
 }
 
 impl AIFollowWaypointPathAsTeamExactState {
@@ -842,18 +837,18 @@ impl AIFollowWaypointPathAsTeamExactState {
             .map_err(|_| "follow waypoint exact owner lock poisoned".to_string())?;
         let ai_arc;
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
-        {
-            *ai
-        } else {
-            ai_arc = owner_guard
-                .get_ai_update_interface()
-                .ok_or_else(|| "follow waypoint exact missing AIUpdateInterface".to_string())?;
-            locked_ai = ai_arc
-                .lock()
-                .map_err(|_| "follow waypoint exact AI lock poisoned".to_string())?;
-            &mut *locked_ai
-        };
+        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+            if let Some(ai) = borrowed.as_mut() {
+                *ai
+            } else {
+                ai_arc = owner_guard
+                    .get_ai_update_interface()
+                    .ok_or_else(|| "follow waypoint exact missing AIUpdateInterface".to_string())?;
+                locked_ai = ai_arc
+                    .lock()
+                    .map_err(|_| "follow waypoint exact AI lock poisoned".to_string())?;
+                &mut *locked_ai
+            };
         let mut speed = FAST_AS_POSSIBLE;
         let mut group_offset = Coord2D::new(0.0, 0.0);
         if self.move_as_group {
@@ -977,8 +972,11 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsState {
         {
             if let Some(owner) = self.base.get_machine_owner() {
                 if let Ok(mut owner_guard) = owner.write() {
-                    owner_guard.ai_pending_attack_follow_waypoint =
-                        self.core.current_waypoint.as_ref().map(|waypoint| waypoint.id);
+                    owner_guard.ai_pending_attack_follow_waypoint = self
+                        .core
+                        .current_waypoint
+                        .as_ref()
+                        .map(|waypoint| waypoint.id);
                     owner_guard.ai_pending_attack_follow_as_team = self.core.move_as_group;
                 }
             }
@@ -1100,10 +1098,6 @@ impl ClassicState for AIFollowWaypointPathAsIndividualsState {
         Ok(())
     }
 
-    fn classic_is_busy(&self) -> bool {
-        true
-    }
-
     fn classic_is_attack(&self) -> bool {
         false
     }
@@ -1143,18 +1137,18 @@ impl AIFollowWaypointPathAsIndividualsState {
             .map_err(|_| "follow waypoint owner lock poisoned".to_string())?;
         let ai_arc;
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
-        {
-            *ai
-        } else {
-            ai_arc = owner_guard
-                .get_ai_update_interface()
-                .ok_or_else(|| "follow waypoint path missing AIUpdateInterface".to_string())?;
-            locked_ai = ai_arc
-                .lock()
-                .map_err(|_| "follow waypoint path AI lock poisoned".to_string())?;
-            &mut *locked_ai
-        };
+        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+            if let Some(ai) = borrowed.as_mut() {
+                *ai
+            } else {
+                ai_arc = owner_guard
+                    .get_ai_update_interface()
+                    .ok_or_else(|| "follow waypoint path missing AIUpdateInterface".to_string())?;
+                locked_ai = ai_arc
+                    .lock()
+                    .map_err(|_| "follow waypoint path AI lock poisoned".to_string())?;
+                &mut *locked_ai
+            };
         self.core
             .compute_goal(&self.base, &owner_guard, &mut *ai_guard, false)?;
         if !self.core.has_next_waypoint() && ai_guard.is_doing_ground_movement() {
@@ -1190,18 +1184,18 @@ impl AIFollowWaypointPathAsIndividualsState {
             .map_err(|_| "follow waypoint owner lock poisoned".to_string())?;
         let ai_arc;
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
-        {
-            *ai
-        } else {
-            ai_arc = owner_guard
-                .get_ai_update_interface()
-                .ok_or_else(|| "follow waypoint path missing AIUpdateInterface".to_string())?;
-            locked_ai = ai_arc
-                .lock()
-                .map_err(|_| "follow waypoint path AI lock poisoned".to_string())?;
-            &mut *locked_ai
-        };
+        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+            if let Some(ai) = borrowed.as_mut() {
+                *ai
+            } else {
+                ai_arc = owner_guard
+                    .get_ai_update_interface()
+                    .ok_or_else(|| "follow waypoint path missing AIUpdateInterface".to_string())?;
+                locked_ai = ai_arc
+                    .lock()
+                    .map_err(|_| "follow waypoint path AI lock poisoned".to_string())?;
+                &mut *locked_ai
+            };
         if let Some(current) = self.core.current_waypoint.as_ref() {
             if let Ok(machine) = self.base.get_machine() {
                 if let Ok(mut guard) = machine.try_lock() {
@@ -1402,10 +1396,6 @@ impl ClassicState for AIFollowWaypointPathAsIndividualsExactState {
         }
         Ok(())
     }
-
-    fn classic_is_busy(&self) -> bool {
-        true
-    }
 }
 
 impl AIFollowWaypointPathAsIndividualsExactState {
@@ -1434,18 +1424,18 @@ impl AIFollowWaypointPathAsIndividualsExactState {
             .map_err(|_| "follow waypoint exact owner lock poisoned".to_string())?;
         let ai_arc;
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
-        {
-            *ai
-        } else {
-            ai_arc = owner_guard
-                .get_ai_update_interface()
-                .ok_or_else(|| "follow waypoint exact missing AIUpdateInterface".to_string())?;
-            locked_ai = ai_arc
-                .lock()
-                .map_err(|_| "follow waypoint exact AI lock poisoned".to_string())?;
-            &mut *locked_ai
-        };
+        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+            if let Some(ai) = borrowed.as_mut() {
+                *ai
+            } else {
+                ai_arc = owner_guard
+                    .get_ai_update_interface()
+                    .ok_or_else(|| "follow waypoint exact missing AIUpdateInterface".to_string())?;
+                locked_ai = ai_arc
+                    .lock()
+                    .map_err(|_| "follow waypoint exact AI lock poisoned".to_string())?;
+                &mut *locked_ai
+            };
         let group_offset = Coord2D::new(0.0, 0.0);
         let _ = ai_guard.set_can_path_through_units(true);
         ai_guard.set_adjusts_destination(false);

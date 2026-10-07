@@ -96,7 +96,7 @@ pub trait LegacyState: Send + Sync + Any + std::fmt::Debug {
         false
     }
 
-    /// Whether this state keeps the unit busy (used for heuristics).
+    /// C++ busy means the explicit Busy state; moving and attacking are not busy.
     fn is_busy(&self) -> bool {
         false
     }
@@ -465,7 +465,7 @@ pub trait ClassicState: std::fmt::Debug + Send + Sync {
     ) -> Result<(), String> {
         Ok(())
     }
-    /// Override when the state keeps the unit "busy".
+    /// Override only for the explicit Busy state (Common/StateMachine.h:136).
     fn classic_is_busy(&self) -> bool {
         false
     }

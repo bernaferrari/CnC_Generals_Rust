@@ -1778,10 +1778,6 @@ impl ClassicState for AIMoveToState {
         }
         Ok(())
     }
-
-    fn classic_is_busy(&self) -> bool {
-        true
-    }
 }
 
 impl AIMoveToState {
@@ -2098,10 +2094,6 @@ impl ClassicState for AIMoveAndEvacuateState {
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         Ok(())
-    }
-
-    fn classic_is_busy(&self) -> bool {
-        true
     }
 }
 
