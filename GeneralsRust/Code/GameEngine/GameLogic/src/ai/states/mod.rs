@@ -38,6 +38,9 @@ mod ai_state_machine_parity_tests;
 #[cfg(test)]
 mod machine_snapshot_tests;
 
+#[cfg(test)]
+mod construction_tests;
+
 pub use attack::{
     AIAttackAreaState, AIAttackFollowWaypointPathAsIndividualsState,
     AIAttackFollowWaypointPathAsTeamState, AIAttackMoveToState, AIAttackObjectState,

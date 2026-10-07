@@ -117,6 +117,7 @@ fn set_state_returns_base_state_machine_result() {
 fn clear_uses_base_clear_semantics() {
     let _guard = test_guard();
     let mut machine = AIStateMachine::new(Weak::<RwLock<Object>>::new(), "ai-clear");
+    assert_eq!(machine.base.init_default_state(), StateReturnType::Continue);
     assert!(machine.get_current_state_id().is_some());
 
     machine.clear();

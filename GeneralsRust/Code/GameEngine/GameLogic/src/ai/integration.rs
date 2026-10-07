@@ -516,10 +516,11 @@ impl AiIntegrationManager {
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
             return Err(AiError::InvalidObject);
         };
-        let state_machine = Arc::new(RwLock::new(AIStateMachine::new(
-            Arc::downgrade(&obj_arc),
-            name,
-        )));
+        let mut machine = AIStateMachine::new(Arc::downgrade(&obj_arc), name);
+        // This adapter creates an active machine for an already admitted
+        // Object; construction itself must not run the default state's entry.
+        let _ = machine.base.init_default_state();
+        let state_machine = Arc::new(RwLock::new(machine));
         self.attach_waypoint_graph(&state_machine);
         Ok(state_machine)
     }
@@ -670,7 +671,8 @@ impl AiIntegrationManager {
             }
         }
 
-        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+        let ai_store = the_ai();
+        if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(mut pf) = pathfinder.write() {
                     if let Ok(terrain) = get_terrain_logic().read() {
@@ -892,7 +894,8 @@ impl AiIntegrationManager {
         positions: &[Coord3D],
         is_fence: bool,
     ) -> Result<(), AiError> {
-        let ai_store = the_ai();let Some(ai) = ai_store.read().ok() else {
+        let ai_store = the_ai();
+        let Some(ai) = ai_store.read().ok() else {
             return Err(AiError::NoPathfinder);
         };
         let Some(pathfinder) = ai.pathfinder() else {
@@ -913,7 +916,8 @@ impl AiIntegrationManager {
         object_id: ObjectID,
         positions: &[Coord3D],
     ) -> Result<(), AiError> {
-        let ai_store = the_ai();let Some(ai) = ai_store.read().ok() else {
+        let ai_store = the_ai();
+        let Some(ai) = ai_store.read().ok() else {
             return Err(AiError::NoPathfinder);
         };
         let Some(pathfinder) = ai.pathfinder() else {
@@ -936,7 +940,8 @@ impl AiIntegrationManager {
         acceptable_surfaces: u32,
         is_crusher: bool,
     ) -> Result<Option<Vec<Coord3D>>, AiError> {
-        let ai_store = the_ai();let Some(ai) = ai_store.read().ok() else {
+        let ai_store = the_ai();
+        let Some(ai) = ai_store.read().ok() else {
             return Err(AiError::NoPathfinder);
         };
         let Some(pathfinder) = ai.pathfinder() else {
@@ -965,7 +970,8 @@ impl AiIntegrationManager {
         }
 
         if is_obstacle {
-            let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+            let ai_store = the_ai();
+            if let Ok(ai_guard) = ai_store.read() {
                 if let Some(pathfinder) = ai_guard.pathfinder() {
                     if let Ok(mut pf) = pathfinder.write() {
                         if OBJECT_REGISTRY
@@ -996,7 +1002,8 @@ impl AiIntegrationManager {
         self.object_state_machines.remove(&object_id);
 
         // Remove from pathfinding map
-        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+        let ai_store = the_ai();
+        if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(mut pf) = pathfinder.write() {
                     if OBJECT_REGISTRY
@@ -1164,7 +1171,8 @@ impl AiIntegrationManager {
 
     /// Submit a pathfinding request using the classic pathfinder.
     pub fn request_path(&mut self, request: PathRequest) -> Result<(), AiError> {
-        let ai_store = the_ai();let Some(ai) = ai_store.read().ok() else {
+        let ai_store = the_ai();
+        let Some(ai) = ai_store.read().ok() else {
             return Err(AiError::NoPathfinder);
         };
         let Some(pathfinder) = ai.pathfinder() else {
@@ -1183,7 +1191,8 @@ impl AiIntegrationManager {
 
     /// Force pathfinder reset (for map changes)
     pub fn reset_pathfinder(&mut self) -> Result<(), AiError> {
-        let ai_store = the_ai();let Some(ai) = ai_store.read().ok() else {
+        let ai_store = the_ai();
+        let Some(ai) = ai_store.read().ok() else {
             return Err(AiError::NoPathfinder);
         };
         let Some(pathfinder) = ai.pathfinder() else {
@@ -1275,7 +1284,8 @@ pub fn ai_execute(frame_time: Instant) -> Result<(), AiError> {
         .unwrap_or(Err(AiError::NotInitialized))?;
 
     // Update the legacy AI singleton after modern systems have produced orders.
-    let ai_store = the_ai();let mut ai = ai_store.write().map_err(|_| AiError::InvalidObject)?;
+    let ai_store = the_ai();
+    let mut ai = ai_store.write().map_err(|_| AiError::InvalidObject)?;
     ai.update(TheGameLogic::get_frame())?;
     Ok(())
 }

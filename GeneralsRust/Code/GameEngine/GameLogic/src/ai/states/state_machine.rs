@@ -560,8 +560,8 @@ impl AIStateMachine {
             &[],
         );
 
-        // Set default state
-        self.base.set_current_state(AIStateType::Idle.into());
+        // AIStates.cpp:660-714 only defines states; the first definition is
+        // the default. AIUpdate::onObjectCreated initializes it after install.
     }
 
     pub(crate) fn notify_state_machine_changed(&self) {
