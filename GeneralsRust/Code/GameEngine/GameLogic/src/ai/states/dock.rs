@@ -31,9 +31,9 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers,
+    search_qualifiers, the_ai,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
@@ -89,9 +89,85 @@ impl AIDockState {
     }
 }
 
+impl AIDockState {
+    fn enter(&mut self, ai: Option<&mut dyn AIUpdateInterface>) -> Result<StateReturnType, String> {
+        // Wave 257: empty dual-world → fail-closed state.
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+
+        let owner = self
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "dock state missing machine owner".to_string())?;
+
+        let Some(goal_id) = self.base.get_machine_goal_object_id() else {
+            return Ok(StateReturnType::Failure);
+        };
+
+        let has_dock = crate::object::registry::OBJECT_REGISTRY
+            .with_object(goal_id, |guard| guard.dock_update_handle().is_some())
+            .unwrap_or(false);
+        if !has_dock {
+            return Ok(StateReturnType::Failure);
+        }
+        let Some(goal) = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
+        else {
+            return Ok(StateReturnType::Failure);
+        };
+
+        if let Ok(mut owner_guard) = owner.write() {
+            owner_guard.ai_pending_ignore_id = Some(goal_id);
+        }
+
+        let mut dock_machine = AIDockMachine::new(owner)?;
+        let result = match ai {
+            Some(ai) => dock_machine.start_with_ai(goal_id, ai),
+            None => dock_machine.start(goal_id),
+        };
+        self.dock_machine = Some(dock_machine);
+        Ok(result)
+    }
+
+    fn step(&mut self, ai: Option<&mut dyn AIUpdateInterface>) -> Result<StateReturnType, String> {
+        let Some(dock_machine) = self.dock_machine.as_mut() else {
+            return Ok(StateReturnType::Failure);
+        };
+
+        if let Some(owner) = self.base.get_machine_owner() {
+            if let Ok(mut owner_guard) = owner.write() {
+                owner_guard.ai_pending_path_through_units = Some(true);
+            }
+        }
+
+        let result = match ai {
+            Some(ai) => dock_machine.update_with_ai(ai),
+            None => dock_machine.update(),
+        };
+
+        Ok(match result {
+            StateReturnType::Sleep(_) => StateReturnType::Continue,
+            other => other,
+        })
+    }
+}
+
 impl StateImplementation for AIDockState {
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+    }
+
+    fn on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn AIUpdateInterface,
+        _id: ObjectID,
+        _pos: Coord3D,
+    ) -> StateReturnType {
+        self.enter(Some(ai)).unwrap_or(StateReturnType::Failure)
+    }
+    fn update_with_ai(&mut self, ai: &mut dyn AIUpdateInterface) -> StateReturnType {
+        self.step(Some(ai)).unwrap_or(StateReturnType::Failure)
     }
 
     fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
@@ -129,74 +205,10 @@ impl ClassicState for AIDockState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        // Wave 257: empty dual-world → fail-closed state.
-        if dual_world_registry_unavailable() {
-            return Ok(StateReturnType::Failure);
-        }
-
-        let owner = self
-            .base
-            .get_machine_owner()
-            .ok_or_else(|| "dock state missing machine owner".to_string())?;
-
-        let Some(goal_id) = self.base.get_machine_goal_object_id() else {
-            return Ok(StateReturnType::Failure);
-        };
-
-        let has_dock = crate::object::registry::OBJECT_REGISTRY
-            .with_object(goal_id, |guard| {
-                guard.with_dock_update_interface(|_| true).unwrap_or(false)
-            })
-            .unwrap_or(false);
-        if !has_dock {
-            return Ok(StateReturnType::Failure);
-        }
-        let Some(goal) = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
-        else {
-            return Ok(StateReturnType::Failure);
-        };
-
-        if let Ok(mut owner_guard) = owner.write() {
-            owner_guard.ai_pending_ignore_id = Some(goal_id);
-        }
-
-        let dock_machine = AIDockMachine::new(owner.clone())?;
-        let init_result = if let Ok(mut machine) = dock_machine.state_machine.lock() {
-            machine.set_goal_object_by_id(Some(goal_id));
-            Some(machine.init_default_state())
-        } else {
-            None
-        };
-        if let Some(result) = init_result {
-            self.dock_machine = Some(dock_machine);
-            return Ok(result);
-        }
-
-        Ok(StateReturnType::Failure)
+        self.enter(None)
     }
-
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        let Some(dock_machine) = self.dock_machine.as_mut() else {
-            return Ok(StateReturnType::Failure);
-        };
-
-        if let Some(owner) = self.base.get_machine_owner() {
-            if let Ok(mut owner_guard) = owner.write() {
-                owner_guard.ai_pending_path_through_units = Some(true);
-            }
-        }
-
-        let result = dock_machine
-            .state_machine
-            .lock()
-            .map_err(|_| "dock state machine lock failed".to_string())?
-            .update();
-
-        Ok(match result {
-            StateReturnType::Sleep(_) => StateReturnType::Continue,
-            other => other,
-        })
+        self.step(None)
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {

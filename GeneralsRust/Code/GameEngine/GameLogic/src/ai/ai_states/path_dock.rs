@@ -231,7 +231,7 @@ impl AIState for AIDockState {
         };
         let has_dock = OBJECT_REGISTRY
             .with_object(goal_id, |goal_guard| {
-                goal_guard.with_dock_update_interface(|_| true).unwrap_or(false)
+                goal_guard.dock_update_handle().is_some()
             })
             .unwrap_or(false);
         if !has_dock {
@@ -246,13 +246,13 @@ impl AIState for AIDockState {
         };
 
         if let Some(ai) = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner_guard| owner_guard.get_ai_update_interface())
+            .with_object(context.owner_id, |owner_guard| {
+                owner_guard.get_ai_update_interface()
+            })
             .flatten()
         {
             if let Ok(mut ai_guard) = ai.lock() {
-                let _ = ai_guard.ignore_obstacle(
-                    goal_arc.read().ok().map(|g| g.get_id()),
-                );
+                let _ = ai_guard.ignore_obstacle(goal_arc.read().ok().map(|g| g.get_id()));
                 let _ = ai_guard.set_can_path_through_units(true);
             }
         }
@@ -261,10 +261,7 @@ impl AIState for AIDockState {
             Ok(machine) => machine,
             Err(_) => return StateReturnType::Failed,
         };
-        if let Ok(mut machine) = dock_machine.state_machine.lock() {
-            machine.set_goal_object(Some(Arc::downgrade(&goal_arc)));
-            let _ = machine.init_default_state();
-        }
+        let _ = dock_machine.start(goal_id);
         self.dock_machine = Some(dock_machine);
         StateReturnType::Continue
     }
@@ -273,10 +270,7 @@ impl AIState for AIDockState {
         let Some(machine) = self.dock_machine.as_mut() else {
             return StateReturnType::Failed;
         };
-        let Ok(mut state_machine) = machine.state_machine.lock() else {
-            return StateReturnType::Failed;
-        };
-        match state_machine.update() {
+        match machine.update() {
             StateReturnType::Sleep(_) => StateReturnType::Continue,
             result => result,
         }
@@ -306,4 +300,3 @@ impl AIState for AIDockState {
         AIStateType::Dock
     }
 }
-

@@ -1449,6 +1449,7 @@ pub struct ModuleEntry {
     interface_mask: ModuleInterfaceType,
     module_data: Arc<dyn ModuleData>,
     module: Mutex<Box<dyn Module>>,
+    has_dock_update: bool,
 }
 
 impl fmt::Debug for ModuleEntry {
@@ -1467,14 +1468,18 @@ impl ModuleEntry {
         tag: AsciiString,
         interface_mask: ModuleInterfaceType,
         module_data: Arc<dyn ModuleData>,
-        module: Box<dyn Module>,
+        mut module: Box<dyn Module>,
     ) -> Self {
+        // The concrete module type never changes after installation. This is
+        // immutable interface metadata, not another mutable dock runtime.
+        let has_dock_update = module_dock_update_kind(module.as_mut()).is_some();
         Self {
             name,
             tag,
             interface_mask,
             module_data,
             module: Mutex::new(module),
+            has_dock_update,
         }
     }
 

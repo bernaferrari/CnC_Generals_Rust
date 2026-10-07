@@ -5153,10 +5153,17 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/state_machine.rs"
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_owner_transition_tests.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -13173,6 +13180,27 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/dock_context.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/dock_owner_access_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/dock_owner_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/enhanced_player.rs"
           },
           {
@@ -14581,6 +14609,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/game_logic/ai_internal_move_to_state.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/game_logic/ai_internal_move_to_state_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -37740,10 +37775,17 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/state_machine.rs"
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_owner_transition_tests.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -50238,6 +50280,27 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/dock.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/dock_context.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/dock_owner_access_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/dock_owner_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -69242,6 +69305,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/game_logic/ai_internal_move_to_state.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/game_logic/ai_internal_move_to_state_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -157255,7 +157325,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "d7987c13e4af2b80877cedf073b8e94265298683b99b7102d8ba15181ddc5bdc",
+  "input_digest": "5e8c6b18b60fa64d4856ae097ee222c2c585cb1528eab5f083397607eff16b40",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -161404,18 +161474,6 @@
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/skirmish_battle_honors.rs",
       "sha256": "4dd042543f690fd059ef638498dfed8a65e6ea23572b06905b1b57d6c89d30a4",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 550,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/state_machine.rs",
-      "sha256": "aea5d035297e825081f58866af47de1741846232c3ba53cf5f5ac8550fa6f164",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -175581,11 +175639,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 310,
+        "end_line": 303,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/path_dock.rs",
-      "sha256": "9a93025032ebb3f990081a1005b8ff303af174373e1c993c70967303521d5067",
+      "sha256": "b9e477868464eb33d0809b24ea34df67e6ff71dc493b5ff94e77780dbaa85604",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -175730,17 +175788,17 @@
         },
         {
           "kind": "fn",
-          "line": 271,
+          "line": 268,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 284,
+          "line": 278,
           "name": "on_exit"
         },
         {
           "kind": "fn",
-          "line": 304,
+          "line": 298,
           "name": "get_state_type"
         }
       ]
@@ -176676,572 +176734,961 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1552,
+        "end_line": 1529,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/dock.rs",
-      "sha256": "9c3c3604f85e966b138e7f21133f351585e29037c96f7261d6d2ff92b6376cf4",
+      "sha256": "b8805a84fbf3a92f669bcfef6255ba9e141a1caa7689b6316b6365b66be7a9fd",
       "symbol_index_status": "indexed",
       "symbols": [
         {
           "kind": "fn",
-          "line": 26,
+          "line": 28,
           "name": "dual_world_registry_unavailable"
         },
         {
-          "kind": "struct",
-          "line": 31,
-          "name": "DockSharedState"
-        },
-        {
-          "kind": "fn",
-          "line": 36,
-          "name": "default"
-        },
-        {
-          "kind": "fn",
-          "line": 44,
-          "name": "set_approach_position"
-        },
-        {
-          "kind": "fn",
-          "line": 49,
-          "name": "clear_approach_position"
-        },
-        {
-          "kind": "fn",
-          "line": 55,
-          "name": "approach_position"
-        },
-        {
-          "kind": "fn",
-          "line": 64,
-          "name": "reset"
-        },
-        {
           "kind": "enum",
-          "line": 69,
+          "line": 34,
           "name": "AIDockState"
         },
         {
           "kind": "fn",
-          "line": 89,
+          "line": 54,
           "name": "from"
         },
         {
           "kind": "fn",
-          "line": 102,
+          "line": 67,
           "name": "resolve_dock_object"
         },
         {
           "kind": "fn",
-          "line": 113,
+          "line": 78,
+          "name": "with_dock"
+        },
+        {
+          "kind": "fn",
+          "line": 86,
           "name": "fetch_owner_and_goal_ids_from_move"
         },
         {
           "kind": "fn",
-          "line": 144,
+          "line": 115,
           "name": "fetch_owner_and_goal_from_move"
         },
         {
           "kind": "trait",
-          "line": 160,
+          "line": 127,
           "name": "DockResultExt"
         },
         {
           "kind": "fn",
-          "line": 162,
+          "line": 129,
           "name": "into_string_err"
         },
         {
           "kind": "fn",
-          "line": 166,
+          "line": 133,
           "name": "into_string_err"
         },
         {
           "kind": "struct",
-          "line": 173,
+          "line": 140,
           "name": "AIDockMachine"
         },
         {
           "kind": "fn",
-          "line": 182,
+          "line": 149,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 281,
+          "line": 237,
+          "name": "start_with_ai"
+        },
+        {
+          "kind": "fn",
+          "line": 246,
+          "name": "update_with_ai"
+        },
+        {
+          "kind": "fn",
+          "line": 253,
+          "name": "start"
+        },
+        {
+          "kind": "fn",
+          "line": 266,
+          "name": "update"
+        },
+        {
+          "kind": "fn",
+          "line": 276,
+          "name": "owner_ai"
+        },
+        {
+          "kind": "fn",
+          "line": 286,
           "name": "halt"
         },
         {
           "kind": "fn",
-          "line": 323,
+          "line": 314,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 332,
+          "line": 319,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 353,
+          "line": 336,
           "name": "load_post_process"
         },
         {
           "kind": "struct",
-          "line": 364,
+          "line": 345,
           "name": "AIDockApproachState"
         },
         {
           "kind": "fn",
-          "line": 371,
+          "line": 351,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 381,
+          "line": 364,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 394,
+          "line": 377,
           "name": "goal_owner"
         },
         {
           "kind": "fn",
-          "line": 406,
+          "line": 389,
           "name": "base_state"
         },
         {
           "kind": "fn",
-          "line": 409,
+          "line": 392,
           "name": "base_state_mut"
         },
         {
           "kind": "fn",
-          "line": 413,
-          "name": "classic_on_enter"
+          "line": 396,
+          "name": "move_helper"
         },
         {
           "kind": "fn",
-          "line": 468,
-          "name": "classic_on_update"
+          "line": 400,
+          "name": "dock_on_enter"
         },
         {
           "kind": "fn",
-          "line": 481,
-          "name": "classic_on_exit"
+          "line": 444,
+          "name": "dock_on_update"
         },
         {
           "kind": "fn",
-          "line": 505,
-          "name": "classic_xfer_snapshot"
+          "line": 462,
+          "name": "dock_on_exit"
         },
         {
           "kind": "fn",
-          "line": 509,
-          "name": "classic_is_busy"
+          "line": 488,
+          "name": "dock_xfer_snapshot"
         },
         {
           "kind": "struct",
-          "line": 517,
+          "line": 496,
           "name": "AIDockWaitForClearanceState"
         },
         {
           "kind": "fn",
-          "line": 524,
+          "line": 502,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 534,
+          "line": 512,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 550,
+          "line": 528,
           "name": "owner_and_goal"
         },
         {
           "kind": "fn",
-          "line": 575,
+          "line": 553,
           "name": "able_to_advance"
         },
         {
           "kind": "fn",
-          "line": 597,
+          "line": 567,
           "name": "base_state"
         },
         {
           "kind": "fn",
-          "line": 600,
+          "line": 570,
           "name": "base_state_mut"
         },
         {
           "kind": "fn",
-          "line": 604,
-          "name": "classic_on_enter"
+          "line": 574,
+          "name": "dock_on_enter"
         },
         {
           "kind": "fn",
-          "line": 609,
-          "name": "classic_on_update"
+          "line": 583,
+          "name": "dock_on_update"
         },
         {
           "kind": "fn",
-          "line": 647,
-          "name": "classic_on_exit"
+          "line": 620,
+          "name": "dock_on_exit"
         },
         {
           "kind": "fn",
-          "line": 667,
-          "name": "classic_xfer_snapshot"
-        },
-        {
-          "kind": "fn",
-          "line": 671,
-          "name": "classic_is_busy"
+          "line": 641,
+          "name": "dock_xfer_snapshot"
         },
         {
           "kind": "struct",
-          "line": 679,
+          "line": 649,
           "name": "AIDockAdvancePositionState"
         },
         {
           "kind": "fn",
-          "line": 686,
+          "line": 655,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 699,
+          "line": 668,
           "name": "goal_owner"
         },
         {
           "kind": "fn",
-          "line": 711,
+          "line": 680,
           "name": "base_state"
         },
         {
           "kind": "fn",
-          "line": 714,
+          "line": 683,
           "name": "base_state_mut"
         },
         {
           "kind": "fn",
-          "line": 718,
-          "name": "classic_on_enter"
+          "line": 687,
+          "name": "move_helper"
         },
         {
           "kind": "fn",
-          "line": 769,
-          "name": "classic_on_update"
+          "line": 691,
+          "name": "dock_on_enter"
         },
         {
           "kind": "fn",
-          "line": 782,
-          "name": "classic_on_exit"
+          "line": 732,
+          "name": "dock_on_update"
         },
         {
           "kind": "fn",
-          "line": 806,
-          "name": "classic_xfer_snapshot"
+          "line": 750,
+          "name": "dock_on_exit"
         },
         {
           "kind": "fn",
-          "line": 810,
-          "name": "classic_is_busy"
+          "line": 776,
+          "name": "dock_xfer_snapshot"
         },
         {
           "kind": "struct",
-          "line": 818,
+          "line": 784,
           "name": "AIDockMoveToEntryState"
         },
         {
           "kind": "fn",
-          "line": 825,
+          "line": 790,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 835,
+          "line": 803,
           "name": "goal_owner"
         },
         {
           "kind": "fn",
-          "line": 847,
+          "line": 815,
           "name": "base_state"
         },
         {
           "kind": "fn",
-          "line": 850,
+          "line": 818,
           "name": "base_state_mut"
         },
         {
           "kind": "fn",
-          "line": 854,
-          "name": "classic_on_enter"
+          "line": 822,
+          "name": "move_helper"
         },
         {
           "kind": "fn",
-          "line": 901,
-          "name": "classic_on_update"
+          "line": 826,
+          "name": "dock_on_enter"
         },
         {
           "kind": "fn",
-          "line": 914,
-          "name": "classic_on_exit"
+          "line": 866,
+          "name": "dock_on_update"
         },
         {
           "kind": "fn",
-          "line": 938,
-          "name": "classic_xfer_snapshot"
+          "line": 884,
+          "name": "dock_on_exit"
         },
         {
           "kind": "fn",
-          "line": 942,
-          "name": "classic_is_busy"
+          "line": 910,
+          "name": "dock_xfer_snapshot"
         },
         {
           "kind": "struct",
-          "line": 950,
+          "line": 918,
           "name": "AIDockMoveToDockState"
         },
         {
           "kind": "fn",
-          "line": 957,
+          "line": 924,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 967,
+          "line": 937,
           "name": "goal_owner"
         },
         {
           "kind": "fn",
-          "line": 976,
-          "name": "lock_machine"
-        },
-        {
-          "kind": "fn",
-          "line": 984,
-          "name": "unlock_machine"
-        },
-        {
-          "kind": "fn",
-          "line": 995,
+          "line": 949,
           "name": "base_state"
         },
         {
           "kind": "fn",
-          "line": 998,
+          "line": 952,
           "name": "base_state_mut"
         },
         {
           "kind": "fn",
-          "line": 1002,
-          "name": "classic_on_enter"
+          "line": 956,
+          "name": "move_helper"
         },
         {
           "kind": "fn",
-          "line": 1060,
-          "name": "classic_on_update"
+          "line": 960,
+          "name": "dock_on_enter"
         },
         {
           "kind": "fn",
-          "line": 1089,
-          "name": "classic_on_exit"
+          "line": 1010,
+          "name": "dock_on_update"
         },
         {
           "kind": "fn",
-          "line": 1115,
-          "name": "classic_xfer_snapshot"
+          "line": 1040,
+          "name": "dock_on_exit"
         },
         {
           "kind": "fn",
-          "line": 1119,
-          "name": "classic_is_busy"
+          "line": 1064,
+          "name": "dock_unlocks_on_exit"
         },
         {
           "kind": "fn",
-          "line": 1123,
-          "name": "classic_locks_machine"
+          "line": 1068,
+          "name": "dock_after_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 1076,
+          "name": "dock_xfer_snapshot"
+        },
+        {
+          "kind": "fn",
+          "line": 1080,
+          "name": "dock_locks_machine"
         },
         {
           "kind": "struct",
-          "line": 1131,
+          "line": 1088,
           "name": "AIDockProcessDockState"
         },
         {
           "kind": "fn",
-          "line": 1139,
+          "line": 1095,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 1150,
+          "line": 1106,
           "name": "owner_and_goal"
         },
         {
           "kind": "fn",
-          "line": 1175,
+          "line": 1131,
           "name": "set_next_dock_action_frame"
         },
         {
           "kind": "fn",
-          "line": 1198,
+          "line": 1148,
           "name": "find_my_drone_id"
         },
         {
           "kind": "fn",
-          "line": 1232,
+          "line": 1182,
           "name": "find_my_drone"
         },
         {
           "kind": "fn",
-          "line": 1243,
-          "name": "unlock_machine"
-        },
-        {
-          "kind": "fn",
-          "line": 1254,
+          "line": 1196,
           "name": "base_state"
         },
         {
           "kind": "fn",
-          "line": 1257,
+          "line": 1199,
           "name": "base_state_mut"
         },
         {
           "kind": "fn",
-          "line": 1261,
-          "name": "classic_on_enter"
+          "line": 1203,
+          "name": "dock_on_enter"
         },
         {
           "kind": "fn",
-          "line": 1271,
-          "name": "classic_on_update"
+          "line": 1217,
+          "name": "dock_on_update"
         },
         {
           "kind": "fn",
-          "line": 1305,
-          "name": "classic_on_exit"
+          "line": 1250,
+          "name": "dock_on_exit"
         },
         {
           "kind": "fn",
-          "line": 1309,
-          "name": "classic_is_busy"
+          "line": 1258,
+          "name": "dock_unlocks_on_exit"
         },
         {
           "kind": "struct",
-          "line": 1317,
+          "line": 1265,
           "name": "AIDockMoveToExitState"
         },
         {
           "kind": "fn",
-          "line": 1324,
+          "line": 1271,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 1334,
+          "line": 1284,
           "name": "goal_owner"
         },
         {
           "kind": "fn",
-          "line": 1346,
+          "line": 1296,
           "name": "base_state"
         },
         {
           "kind": "fn",
-          "line": 1349,
+          "line": 1299,
           "name": "base_state_mut"
         },
         {
           "kind": "fn",
-          "line": 1353,
-          "name": "classic_on_enter"
+          "line": 1303,
+          "name": "move_helper"
         },
         {
           "kind": "fn",
-          "line": 1397,
-          "name": "classic_on_update"
+          "line": 1307,
+          "name": "dock_on_enter"
         },
         {
           "kind": "fn",
-          "line": 1410,
-          "name": "classic_on_exit"
+          "line": 1344,
+          "name": "dock_on_update"
         },
         {
           "kind": "fn",
-          "line": 1435,
-          "name": "classic_xfer_snapshot"
+          "line": 1362,
+          "name": "dock_on_exit"
         },
         {
           "kind": "fn",
-          "line": 1439,
-          "name": "classic_is_busy"
+          "line": 1381,
+          "name": "dock_unlocks_on_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 1385,
+          "name": "dock_after_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 1393,
+          "name": "dock_xfer_snapshot"
         },
         {
           "kind": "struct",
-          "line": 1447,
+          "line": 1401,
           "name": "AIDockMoveToRallyState"
         },
         {
           "kind": "fn",
-          "line": 1453,
+          "line": 1407,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 1462,
+          "line": 1423,
           "name": "base_state"
         },
         {
           "kind": "fn",
-          "line": 1465,
+          "line": 1426,
           "name": "base_state_mut"
         },
         {
           "kind": "fn",
-          "line": 1469,
-          "name": "classic_on_enter"
+          "line": 1430,
+          "name": "move_helper"
         },
         {
           "kind": "fn",
-          "line": 1507,
-          "name": "classic_on_update"
+          "line": 1434,
+          "name": "dock_on_enter"
         },
         {
           "kind": "fn",
-          "line": 1511,
-          "name": "classic_on_exit"
+          "line": 1474,
+          "name": "dock_on_update"
         },
         {
           "kind": "fn",
-          "line": 1515,
-          "name": "classic_xfer_snapshot"
+          "line": 1483,
+          "name": "dock_on_exit"
         },
         {
           "kind": "fn",
-          "line": 1519,
-          "name": "classic_is_busy"
+          "line": 1492,
+          "name": "dock_xfer_snapshot"
         },
         {
           "kind": "struct",
-          "line": 1527,
+          "line": 1500,
           "name": "DroneInfo"
         },
         {
           "kind": "fn",
-          "line": 1534,
+          "line": 1507,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 1541,
+          "line": 1514,
           "name": "drone"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 222,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/dock_context.rs",
+      "sha256": "2ab442ef86c1397e8bb9f1ebf291adca4f36e6f5316d7133ce1aef0279d39498",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "struct",
+          "line": 11,
+          "name": "DockContext"
+        },
+        {
+          "kind": "fn",
+          "line": 16,
+          "name": "default"
+        },
+        {
+          "kind": "trait",
+          "line": 22,
+          "name": "DockState"
+        },
+        {
+          "kind": "fn",
+          "line": 24,
+          "name": "base_state"
+        },
+        {
+          "kind": "fn",
+          "line": 25,
+          "name": "base_state_mut"
+        },
+        {
+          "kind": "fn",
+          "line": 26,
+          "name": "move_helper"
+        },
+        {
+          "kind": "fn",
+          "line": 29,
+          "name": "dock_on_enter"
+        },
+        {
+          "kind": "fn",
+          "line": 34,
+          "name": "dock_on_update"
+        },
+        {
+          "kind": "fn",
+          "line": 39,
+          "name": "dock_on_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 44,
+          "name": "dock_after_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 51,
+          "name": "dock_unlocks_on_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 54,
+          "name": "dock_xfer_snapshot"
+        },
+        {
+          "kind": "fn",
+          "line": 57,
+          "name": "dock_locks_machine"
+        },
+        {
+          "kind": "struct",
+          "line": 63,
+          "name": "DockStateAdapter"
+        },
+        {
+          "kind": "fn",
+          "line": 66,
+          "name": "status"
+        },
+        {
+          "kind": "fn",
+          "line": 75,
+          "name": "update"
+        },
+        {
+          "kind": "fn",
+          "line": 78,
+          "name": "on_enter_with_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 84,
+          "name": "on_enter_with_ai_and_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 97,
+          "name": "update_with_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 103,
+          "name": "update_with_ai_and_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 114,
+          "name": "on_exit_with_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 119,
+          "name": "on_exit_with_ai_and_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 129,
+          "name": "unlocks_machine_on_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 132,
+          "name": "on_exit_after_unlock"
+        },
+        {
+          "kind": "fn",
+          "line": 142,
+          "name": "get_name"
+        },
+        {
+          "kind": "fn",
+          "line": 145,
+          "name": "get_id"
+        },
+        {
+          "kind": "fn",
+          "line": 148,
+          "name": "set_id"
+        },
+        {
+          "kind": "fn",
+          "line": 151,
+          "name": "is_busy"
+        },
+        {
+          "kind": "fn",
+          "line": 154,
+          "name": "locks_machine"
+        },
+        {
+          "kind": "fn",
+          "line": 157,
+          "name": "xfer_snapshot"
+        },
+        {
+          "kind": "fn",
+          "line": 160,
+          "name": "note_step_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 169,
+          "name": "bind_goal_object_id"
+        },
+        {
+          "kind": "fn",
+          "line": 174,
+          "name": "bind_goal_position"
+        },
+        {
+          "kind": "fn",
+          "line": 178,
+          "name": "register_dock_state"
+        },
+        {
+          "kind": "fn",
+          "line": 195,
+          "name": "clearance_without_context"
+        },
+        {
+          "kind": "fn",
+          "line": 202,
+          "name": "clearance_with_context"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 26,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/dock_owner_access_tests.rs",
+      "sha256": "60908abe106eaf59fba1501d512265be2262ac2baad7820f4187ba0520c8a60b",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "trait",
+          "line": 2,
+          "name": "DockTestAccess"
+        },
+        {
+          "kind": "fn",
+          "line": 3,
+          "name": "test_slot"
+        },
+        {
+          "kind": "fn",
+          "line": 4,
+          "name": "test_set_slot"
+        },
+        {
+          "kind": "fn",
+          "line": 5,
+          "name": "test_state"
+        },
+        {
+          "kind": "fn",
+          "line": 6,
+          "name": "test_locked"
+        },
+        {
+          "kind": "fn",
+          "line": 7,
+          "name": "test_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 10,
+          "name": "test_slot"
+        },
+        {
+          "kind": "fn",
+          "line": 13,
+          "name": "test_set_slot"
+        },
+        {
+          "kind": "fn",
+          "line": 16,
+          "name": "test_state"
+        },
+        {
+          "kind": "fn",
+          "line": 19,
+          "name": "test_locked"
+        },
+        {
+          "kind": "fn",
+          "line": 22,
+          "name": "test_owner"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 343,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/dock_owner_tests.rs",
+      "sha256": "d9740e3f904dfe2849eeefe8d25bac58353401a823d74e3b6d4f3af2a2ac61d5",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "struct",
+          "line": 17,
+          "name": "DockAI"
+        },
+        {
+          "kind": "fn",
+          "line": 24,
+          "name": "update"
+        },
+        {
+          "kind": "fn",
+          "line": 27,
+          "name": "is_moving"
+        },
+        {
+          "kind": "fn",
+          "line": 30,
+          "name": "is_idle"
+        },
+        {
+          "kind": "fn",
+          "line": 33,
+          "name": "set_movement_target"
+        },
+        {
+          "kind": "fn",
+          "line": 37,
+          "name": "get_locomotor_distance_to_goal"
+        },
+        {
+          "kind": "fn",
+          "line": 40,
+          "name": "get_supply_truck_ai_interface"
+        },
+        {
+          "kind": "fn",
+          "line": 43,
+          "name": "friend_ending_move"
+        },
+        {
+          "kind": "fn",
+          "line": 49,
+          "name": "get_upgraded_supply_boost"
+        },
+        {
+          "kind": "fn",
+          "line": 52,
+          "name": "get_action_delay_for_dock"
+        },
+        {
+          "kind": "struct",
+          "line": 59,
+          "name": "Fixture"
+        },
+        {
+          "kind": "fn",
+          "line": 65,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 101,
+          "name": "id"
+        },
+        {
+          "kind": "fn",
+          "line": 104,
+          "name": "dock"
+        },
+        {
+          "kind": "fn",
+          "line": 107,
+          "name": "update_dock"
+        },
+        {
+          "kind": "fn",
+          "line": 117,
+          "name": "occupy_front"
+        },
+        {
+          "kind": "fn",
+          "line": 130,
+          "name": "drop"
+        },
+        {
+          "kind": "fn",
+          "line": 137,
+          "name": "child"
+        },
+        {
+          "kind": "fn",
+          "line": 155,
+          "name": "save"
+        },
+        {
+          "kind": "fn",
+          "line": 162,
+          "name": "held_ai_approach_wait_advance_uses_current_slot_and_halt_cancels"
+        },
+        {
+          "kind": "fn",
+          "line": 218,
+          "name": "dock_snapshot_round_trip_retains_slot_state_and_continues_without_ai_relock"
+        },
+        {
+          "kind": "fn",
+          "line": 265,
+          "name": "equal_id_machine_contexts_keep_independent_queue_values_and_constructor_is_inert"
+        },
+        {
+          "kind": "fn",
+          "line": 287,
+          "name": "held_ai_complete_dock_obeys_action_delay_lock_phases_and_exit_cleanup"
         }
       ]
     },
@@ -191731,11 +192178,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 273,
+        "end_line": 285,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/dock.rs",
-      "sha256": "fb933273ed3178ee0836a1ffd1876d269f0f2133475863958b4f900d9e59fd44",
+      "sha256": "1474cd2262341ca3951cc271ed620374a55b0b0c6d261c4d4cc7ed73754d530e",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -191751,76 +192198,96 @@
         {
           "kind": "fn",
           "line": 93,
+          "name": "enter"
+        },
+        {
+          "kind": "fn",
+          "line": 132,
+          "name": "step"
+        },
+        {
+          "kind": "fn",
+          "line": 157,
           "name": "on_enter"
         },
         {
           "kind": "fn",
-          "line": 96,
+          "line": 160,
+          "name": "on_enter_with_ai"
+        },
+        {
+          "kind": "fn",
+          "line": 169,
+          "name": "update_with_ai"
+        },
+        {
+          "kind": "fn",
+          "line": 172,
           "name": "bind_goal_object_id"
         },
         {
           "kind": "fn",
-          "line": 100,
+          "line": 176,
           "name": "bind_goal_position"
         },
         {
           "kind": "fn",
-          "line": 104,
+          "line": 180,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 108,
+          "line": 184,
           "name": "on_exit"
         },
         {
           "kind": "fn",
-          "line": 112,
+          "line": 188,
           "name": "xfer_snapshot"
         },
         {
           "kind": "fn",
-          "line": 119,
+          "line": 195,
           "name": "base_state"
         },
         {
           "kind": "fn",
-          "line": 122,
+          "line": 198,
           "name": "base_state_mut"
         },
         {
           "kind": "fn",
-          "line": 126,
+          "line": 202,
           "name": "classic_xfer_snapshot"
         },
         {
           "kind": "fn",
-          "line": 130,
+          "line": 206,
           "name": "classic_on_enter"
         },
         {
           "kind": "fn",
-          "line": 178,
+          "line": 210,
           "name": "classic_on_update"
         },
         {
           "kind": "fn",
-          "line": 201,
+          "line": 213,
           "name": "classic_on_exit"
         },
         {
           "kind": "fn",
-          "line": 219,
+          "line": 231,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 238,
+          "line": 250,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 265,
+          "line": 277,
           "name": "load_post_process"
         }
       ]
@@ -197225,11 +197692,23 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 579,
+        "end_line": 652,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/game_logic/ai_internal_move_to_state.rs",
-      "sha256": "5f13b1d6c3b02b91882372e384554d66f87367560357ff13608c01ca2a654317",
+      "sha256": "195287db71f2a1b5b65bb4454a97c641885f23f07bc470cdb7b207618f0b6ff3",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 199,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/game_logic/ai_internal_move_to_state_tests.rs",
+      "sha256": "62dd061df487f36e1a776e822557d4768b4b11ac261b9d17adbb803144c27645",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200981,11 +201460,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2386,
+        "end_line": 2391,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/mod.rs",
-      "sha256": "4ab8199e044cf62879664417b77962fc5da25b466329f10be7f21d3d35c86a24",
+      "sha256": "f40c729c5a5936df544e5a67906c267760d99b9155b00254ab6bc41ca0f710a6",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -201149,11 +201628,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1323,
+        "end_line": 1350,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_modules.rs",
-      "sha256": "e89bb53a3467ef0be10596dbbee15447452a475a4c6181c07f9834dd2158b9b7",
+      "sha256": "3936bbf1384bf192518da8af0bc481daaf2596b69d977e1f32809847d0c46098",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -201401,11 +201880,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1762,
+        "end_line": 1789,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/production/dock_update.rs",
-      "sha256": "08f7a57b95bc5630cb6dd8b6b3f575de61be74adb61fdbb61a397bd6c6bca0ba",
+      "sha256": "d2a6c4f0299fe2d2fd939257dcac06c6a65dac7116669266bd4758a39d442632",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -201845,11 +202324,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1476,
+        "end_line": 1481,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_commands.rs",
-      "sha256": "377eb2a747bfadcff5a52ad4333ef39c14a82ae92d86da0ed93b238486227f10",
+      "sha256": "6955893364014719f5f649565a28cc05577bc44dce945a6546e73a59f0d560f5",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -201905,11 +202384,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1667,
+        "end_line": 1663,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_interface_update.rs",
-      "sha256": "c51f36e58a4cbdc4fe8e5a812174622db446f682100fc73ecb0b1f39b76faf04",
+      "sha256": "fa94283547b1cb1111f0abab8d9861c3cabd27b6edc89016341cfe8b997d411c",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204538,6 +205017,30 @@
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/special_power_module/types.rs",
       "sha256": "3b7fbb2ba066e34a4f85f059f48aa439b54277c465a2e833b6a036f2a153c30c",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 2327,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine.rs",
+      "sha256": "3fa2462d57046a1954706c758fce457e89297e8b58b2c24c2ec7a151fa43b639",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 245,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_owner_transition_tests.rs",
+      "sha256": "d9ddbebb2161cdac37598cc68cc4bdab198c2057a045654df14a95258ead06e1",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

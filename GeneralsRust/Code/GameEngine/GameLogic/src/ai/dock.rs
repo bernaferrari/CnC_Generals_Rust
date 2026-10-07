@@ -2,12 +2,13 @@
 //! Docking behavior implementation in Rust
 //! Converted from C++ implementation by Michael S. Booth, February 2002
 
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 use crate::common::LOGICFRAMES_PER_SECOND;
 use crate::common::xfer::{Xfer, XferVersion};
 use crate::common::*;
-use crate::compat::{ClassicState, legacy_transition, register_classic_state};
+#[path = "dock_context.rs"]
+mod execution;
 use crate::game_logic::ai_internal_move_to_state::AIInternalMoveToState;
 use crate::game_logic::game_logic::TheGameLogic;
 use crate::game_logic::interfaces::{
@@ -20,48 +21,12 @@ use crate::game_logic::state_machine::{
 };
 use crate::modules::ExitInterface;
 use crate::object::ObjectLockExt;
+use execution::*;
 
 /// Wave 397: host-only path has no dual-world factory objects.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
-
-#[derive(Debug)]
-pub struct DockSharedState {
-    approach_position: Mutex<i32>,
-}
-
-impl Default for DockSharedState {
-    fn default() -> Self {
-        Self {
-            approach_position: Mutex::new(-1),
-        }
-    }
-}
-
-impl DockSharedState {
-    fn set_approach_position(&self, position: i32) {
-        if let Ok(mut guard) = self.approach_position.lock() {
-            *guard = position;
-        }
-    }
-
-    fn clear_approach_position(&self) {
-        if let Ok(mut guard) = self.approach_position.lock() {
-            *guard = -1;
-        }
-    }
-
-    fn approach_position(&self) -> i32 {
-        self.approach_position
-            .lock()
-            .map(|guard| *guard)
-            .unwrap_or(-1)
-    }
-
-    #[allow(dead_code)]
-    fn reset(&self) {}
 }
 
 /// The states of the Docking state machine.
@@ -111,6 +76,14 @@ fn resolve_dock_object(id: ObjectID, label: &str) -> Result<Arc<RwLock<Object>>,
         .ok_or_else(|| format!("{label} object {id} not found"))
 }
 
+fn with_dock<R>(
+    object: &Arc<RwLock<Object>>,
+    f: impl FnOnce(&mut dyn DockUpdateInterface) -> R,
+) -> Option<R> {
+    let handle = object.read().ok()?.dock_update_handle()?;
+    handle.with_dock(f)
+}
+
 fn fetch_owner_and_goal_ids_from_move(
     helper: &AIInternalMoveToState,
     fallback_goal: Option<ObjectID>,
@@ -124,18 +97,16 @@ fn fetch_owner_and_goal_ids_from_move(
     let goal_obj = resolve_dock_object(goal_id, label)?;
 
     let has_dock = goal_obj
-        .lock()
+        .read()
         .map_err(|_| format!("{} goal object poisoned", label))?
-        .with_dock_update_interface(|_| true)
-        .unwrap_or(false);
+        .dock_update_handle()
+        .is_some();
 
     if !has_dock {
         return Err(format!("{} missing dock interface", label));
     }
 
-    let owner_id = helper
-        .get_machine_owner_id()
-        .unwrap_or(fallback_owner);
+    let owner_id = helper.get_machine_owner_id().unwrap_or(fallback_owner);
     if owner_id == crate::common::INVALID_ID {
         return Err(format!("{} missing owner", label));
     }
@@ -146,12 +117,8 @@ fn fetch_owner_and_goal_from_move(
     helper: &AIInternalMoveToState,
     label: &str,
 ) -> Result<(Arc<RwLock<Object>>, Arc<RwLock<Object>>), String> {
-    let (owner_id, goal_id) = fetch_owner_and_goal_ids_from_move(
-        helper,
-        None,
-        crate::common::INVALID_ID,
-        label,
-    )?;
+    let (owner_id, goal_id) =
+        fetch_owner_and_goal_ids_from_move(helper, None, crate::common::INVALID_ID, label)?;
     Ok((
         resolve_dock_object(owner_id, label)?,
         resolve_dock_object(goal_id, label)?,
@@ -172,109 +139,147 @@ impl<T> DockResultExt<T> for Result<T, Box<dyn std::error::Error + Send + Sync>>
 #[derive(Debug)]
 pub struct AIDockMachine {
     /// Base state machine functionality
-    pub state_machine: Arc<Mutex<StateMachine>>,
-    shared: Arc<DockSharedState>,
+    state_machine: StateMachine,
+    context: DockContext,
 }
 
 impl AIDockMachine {
     /// Create an AI state machine. Define all of the states the machine
     /// can possibly be in, and set the initial (default) state.
     pub fn new(owner: Arc<RwLock<Object>>) -> Result<Self, String> {
-        let owner_weak = Arc::downgrade(&owner);
-        let state_machine = Arc::new(Mutex::new(StateMachine::new(
-            Some(owner_weak),
-            "AIDockMachine",
-        )));
-        let shared = Arc::new(DockSharedState::default());
-
-        let wait_for_clearance_conditions = vec![legacy_transition(
-            AIDockWaitForClearanceState::able_to_advance,
+        let owner_id = owner.read().map_err(|_| "dock owner poisoned")?.get_id();
+        let mut machine = StateMachine::new_with_owner_id(owner_id, "AIDockMachine");
+        let wait_for_clearance_conditions = [StateConditionInfo::new(
+            clearance_without_context,
             AIDockState::AdvancePosition.into(),
             StateTransitionUserData::new(),
             "able_to_advance",
-        )];
-        {
-            let mut machine = state_machine
-                .lock()
-                .map_err(|_| "Failed to lock dock state machine while initialising".to_string())?;
+        )
+        .with_owner_test(clearance_with_context)];
+        register_dock_state(
+            &mut machine,
+            AIDockState::Approach.into(),
+            AIDockApproachState::new(owner_id),
+            Some(AIDockState::WaitForClearance.into()),
+            Some(StateMachine::EXIT_MACHINE_WITH_FAILURE),
+            &[],
+        );
 
-            register_classic_state(
-                &mut machine,
-                AIDockState::Approach.into(),
-                AIDockApproachState::new(&state_machine, shared.clone())?,
-                Some(AIDockState::WaitForClearance.into()),
-                Some(StateMachine::EXIT_MACHINE_WITH_FAILURE),
-                &[],
-            );
+        register_dock_state(
+            &mut machine,
+            AIDockState::WaitForClearance.into(),
+            AIDockWaitForClearanceState::new(owner_id),
+            Some(AIDockState::MoveToEntry.into()),
+            Some(StateMachine::EXIT_MACHINE_WITH_FAILURE),
+            &wait_for_clearance_conditions,
+        );
 
-            register_classic_state(
-                &mut machine,
-                AIDockState::WaitForClearance.into(),
-                AIDockWaitForClearanceState::new(&state_machine, shared.clone())?,
-                Some(AIDockState::MoveToEntry.into()),
-                Some(StateMachine::EXIT_MACHINE_WITH_FAILURE),
-                &wait_for_clearance_conditions,
-            );
+        register_dock_state(
+            &mut machine,
+            AIDockState::AdvancePosition.into(),
+            AIDockAdvancePositionState::new(owner_id),
+            Some(AIDockState::WaitForClearance.into()),
+            Some(StateMachine::EXIT_MACHINE_WITH_FAILURE),
+            &[],
+        );
 
-            register_classic_state(
-                &mut machine,
-                AIDockState::AdvancePosition.into(),
-                AIDockAdvancePositionState::new(&state_machine, shared.clone())?,
-                Some(AIDockState::WaitForClearance.into()),
-                Some(StateMachine::EXIT_MACHINE_WITH_FAILURE),
-                &[],
-            );
+        register_dock_state(
+            &mut machine,
+            AIDockState::MoveToEntry.into(),
+            AIDockMoveToEntryState::new(owner_id),
+            Some(AIDockState::MoveToDock.into()),
+            Some(AIDockState::MoveToExit.into()),
+            &[],
+        );
 
-            register_classic_state(
-                &mut machine,
-                AIDockState::MoveToEntry.into(),
-                AIDockMoveToEntryState::new(&state_machine, shared.clone())?,
-                Some(AIDockState::MoveToDock.into()),
-                Some(AIDockState::MoveToExit.into()),
-                &[],
-            );
+        register_dock_state(
+            &mut machine,
+            AIDockState::MoveToDock.into(),
+            AIDockMoveToDockState::new(owner_id),
+            Some(AIDockState::ProcessDock.into()),
+            Some(AIDockState::MoveToExit.into()),
+            &[],
+        );
 
-            register_classic_state(
-                &mut machine,
-                AIDockState::MoveToDock.into(),
-                AIDockMoveToDockState::new(&state_machine, shared.clone())?,
-                Some(AIDockState::ProcessDock.into()),
-                Some(AIDockState::MoveToExit.into()),
-                &[],
-            );
+        register_dock_state(
+            &mut machine,
+            AIDockState::ProcessDock.into(),
+            AIDockProcessDockState::new(owner_id),
+            Some(AIDockState::MoveToExit.into()),
+            Some(AIDockState::MoveToExit.into()),
+            &[],
+        );
 
-            register_classic_state(
-                &mut machine,
-                AIDockState::ProcessDock.into(),
-                AIDockProcessDockState::new(&state_machine, shared.clone())?,
-                Some(AIDockState::MoveToExit.into()),
-                Some(AIDockState::MoveToExit.into()),
-                &[],
-            );
+        register_dock_state(
+            &mut machine,
+            AIDockState::MoveToExit.into(),
+            AIDockMoveToExitState::new(owner_id),
+            Some(AIDockState::MoveToRally.into()),
+            Some(StateMachine::EXIT_MACHINE_WITH_FAILURE),
+            &[],
+        );
 
-            register_classic_state(
-                &mut machine,
-                AIDockState::MoveToExit.into(),
-                AIDockMoveToExitState::new(&state_machine, shared.clone())?,
-                Some(AIDockState::MoveToRally.into()),
-                Some(StateMachine::EXIT_MACHINE_WITH_FAILURE),
-                &[],
-            );
-
-            register_classic_state(
-                &mut machine,
-                AIDockState::MoveToRally.into(),
-                AIDockMoveToRallyState::new(&state_machine)?,
-                Some(StateMachine::EXIT_MACHINE_WITH_SUCCESS),
-                Some(StateMachine::EXIT_MACHINE_WITH_FAILURE),
-                &[],
-            );
-        }
-
+        register_dock_state(
+            &mut machine,
+            AIDockState::MoveToRally.into(),
+            AIDockMoveToRallyState::new(owner_id),
+            Some(StateMachine::EXIT_MACHINE_WITH_SUCCESS),
+            Some(StateMachine::EXIT_MACHINE_WITH_FAILURE),
+            &[],
+        );
         Ok(Self {
-            state_machine,
-            shared,
+            state_machine: machine,
+            context: DockContext::default(),
         })
+    }
+
+    /// Set the goal and enter Approach using the AI already held by the caller.
+    pub(crate) fn start_with_ai(
+        &mut self,
+        goal_id: ObjectID,
+        ai: &mut dyn AIUpdateInterface,
+    ) -> StateReturnType {
+        self.state_machine.set_goal_object_by_id(Some(goal_id));
+        self.state_machine
+            .init_default_state_with_ai_and_owner(ai, &mut self.context)
+    }
+
+    pub(crate) fn update_with_ai(&mut self, ai: &mut dyn AIUpdateInterface) -> StateReturnType {
+        self.state_machine
+            .update_with_ai_and_owner(ai, &mut self.context)
+    }
+
+    /// Standalone compatibility path. Installed unit AI callers use the borrow above.
+    pub(crate) fn start(&mut self, goal_id: ObjectID) -> StateReturnType {
+        self.state_machine.set_goal_object_by_id(Some(goal_id));
+        if let Some(ai) = self.owner_ai() {
+            if let Ok(mut ai) = ai.lock() {
+                return self
+                    .state_machine
+                    .init_default_state_with_ai_and_owner(&mut *ai, &mut self.context);
+            }
+            return StateReturnType::Failure;
+        }
+        self.state_machine
+            .init_default_state_with_owner(&mut self.context)
+    }
+
+    pub(crate) fn update(&mut self) -> StateReturnType {
+        if let Some(ai) = self.owner_ai() {
+            if let Ok(mut ai) = ai.lock() {
+                return self.update_with_ai(&mut *ai);
+            }
+            return StateReturnType::Failure;
+        }
+        self.state_machine.update_with_owner(&mut self.context)
+    }
+
+    fn owner_ai(&self) -> Option<Arc<std::sync::Mutex<dyn AIUpdateInterface>>> {
+        self.state_machine
+            .get_owner()?
+            .read()
+            .ok()?
+            .get_ai_update_interface()
     }
 
     /// Stops the state machine & disables it in preparation for deleting it.
@@ -284,48 +289,30 @@ impl AIDockMachine {
             return Ok(());
         }
 
-        let goal_object_id = self
-            .state_machine
-            .lock()
-            .map_err(|_| "Failed to lock dock state machine".to_string())?
-            .get_goal_object_id();
+        let goal_object_id = self.state_machine.get_goal_object_id();
 
         // Sanity check
         if goal_object_id != crate::common::INVALID_ID {
             let owner = self
                 .state_machine
-                .lock()
-                .map_err(|_| "Failed to lock dock state machine".to_string())?
                 .get_owner()
                 .ok_or_else(|| "Dock machine missing owner".to_string())?;
             let owner_id = owner.read().map(|g| g.get_id()).unwrap_or(0);
 
-            crate::object::registry::OBJECT_REGISTRY
-                .with_object(goal_object_id, |goal| {
-                    goal.with_dock_update_interface(|dock| {
-                        dock.cancel_dock(owner_id).into_string_err()
-                    })
-                    .unwrap_or(Ok(()))
-                })
-                .unwrap_or(Ok(()))?;
+            if let Ok(goal) = resolve_dock_object(goal_object_id, "dock halt") {
+                with_dock(&goal, |dock| dock.cancel_dock(owner_id).into_string_err())
+                    .unwrap_or(Ok(()))?;
+            }
         }
 
-        self.state_machine
-            .lock()
-            .map_err(|_| "Failed to lock dock state machine".to_string())?
-            .halt()
-            .map_err(|err| err.to_string())?;
+        self.state_machine.halt().map_err(|err| err.to_string())?;
 
         Ok(())
     }
 
     /// CRC calculation for state synchronization
     pub fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.state_machine
-            .lock()
-            .map_err(|_| "Failed to lock dock state machine".to_string())?
-            .crc(xfer)
-            .map_err(|err| err.to_string())
+        self.state_machine.crc(xfer).map_err(|err| err.to_string())
     }
 
     /// Xfer method for serialization
@@ -336,15 +323,11 @@ impl AIDockMachine {
             .map_err(|e| e.to_string())?;
 
         self.state_machine
-            .lock()
-            .map_err(|_| "Failed to lock dock state machine".to_string())?
             .xfer(xfer)
             .map_err(|err| err.to_string())?;
 
-        let mut approach_position = self.shared.approach_position();
-        xfer.xfer_int(&mut approach_position)
+        xfer.xfer_int(&mut self.context.approach_position)
             .map_err(|e| e.to_string())?;
-        self.shared.set_approach_position(approach_position);
 
         Ok(())
     }
@@ -352,8 +335,6 @@ impl AIDockMachine {
     /// Load post process
     pub fn load_post_process(&mut self) -> Result<(), String> {
         self.state_machine
-            .lock()
-            .map_err(|_| "Failed to lock dock state machine".to_string())?
             .load_post_process()
             .map_err(|err| err.to_string())
     }
@@ -364,19 +345,21 @@ impl AIDockMachine {
 pub struct AIDockApproachState {
     base: State,
     move_helper: AIInternalMoveToState,
-    shared: Arc<DockSharedState>,
 }
 
 impl AIDockApproachState {
-    pub fn new(
-        machine: &Arc<Mutex<StateMachine>>,
-        shared: Arc<DockSharedState>,
-    ) -> Result<Self, String> {
-        Ok(Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), "AIDockApproachState"),
-            move_helper: AIInternalMoveToState::new(machine, "AIDockApproachState".to_string())?,
-            shared,
-        })
+    pub(crate) fn new(owner_id: ObjectID) -> Self {
+        Self {
+            base: {
+                let mut base = State::with_machine(None, "AIDockApproachState");
+                base.owner_id = owner_id;
+                base
+            },
+            move_helper: AIInternalMoveToState::new_with_owner_id(
+                owner_id,
+                "AIDockApproachState".to_string(),
+            ),
+        }
     }
 
     pub fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -402,7 +385,7 @@ impl AIDockApproachState {
     }
 }
 
-impl ClassicState for AIDockApproachState {
+impl DockState for AIDockApproachState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -411,7 +394,16 @@ impl ClassicState for AIDockApproachState {
         &mut self.base
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn move_helper(&mut self) -> Option<&mut AIInternalMoveToState> {
+        Some(&mut self.move_helper)
+    }
+
+    fn dock_on_enter(
+        &mut self,
+        context: &mut DockContext,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
+        let ai = ai.ok_or("dock move missing borrowed AI")?;
         let (owner_id, goal_id) = match self.goal_owner() {
             Ok(result) => result,
             Err(_) => {
@@ -422,51 +414,39 @@ impl ClassicState for AIDockApproachState {
         let owner = resolve_dock_object(owner_id, "dock")?;
         let goal = resolve_dock_object(goal_id, "dock")?;
 
-        let goal_guard = goal
-            .lock()
-            .map_err(|_| "goal object poisoned".to_string())?;
+        with_dock(&goal, |dock| {
+            if !dock.is_dock_open().into_string_err()? {
+                dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    .into_string_err()?;
+                return Ok(StateReturnType::Failure);
+            }
 
-        goal_guard
-            .with_dock_update_interface(|dock| {
-                if !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
-                        .into_string_err()?;
-                    return Ok(StateReturnType::Failure);
-                }
+            let mut goal_position = Vec3D::default();
+            if !dock
+                .reserve_approach_position(
+                    owner.read().map(|g| g.get_id()).unwrap_or(0),
+                    &mut goal_position,
+                    &mut context.approach_position,
+                )
+                .into_string_err()?
+            {
+                return Ok(StateReturnType::Failure);
+            }
 
-                let mut goal_position = Vec3D::default();
-                let mut approach_position = 0;
-                if !dock
-                    .reserve_approach_position(
-                        owner.read().map(|g| g.get_id()).unwrap_or(0),
-                        &mut goal_position,
-                        &mut approach_position,
-                    )
-                    .into_string_err()?
-                {
-                    return Ok(StateReturnType::Failure);
-                }
+            self.move_helper.set_goal_position(goal_position);
 
-                self.shared.set_approach_position(approach_position);
+            ai.ignore_obstacle(None).map_err(|err| err.to_string())?;
 
-                self.move_helper.set_goal_position(goal_position);
-
-                if let Ok(owner_guard) = owner.read() {
-                    if let Some(ai) = owner_guard.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            ai_guard
-                                .ignore_obstacle(None)
-                                .map_err(|err| err.to_string())?;
-                        }
-                    }
-                }
-
-                self.move_helper.on_enter()
-            })
-            .ok_or_else(|| "Missing dock interface".to_string())?
+            self.move_helper.on_enter_with_ai(ai)
+        })
+        .ok_or_else(|| "Missing dock interface".to_string())?
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn dock_on_update(
+        &mut self,
+        _context: &mut DockContext,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
         if self
             .move_helper
             .get_machine_goal_object_id()?
@@ -476,18 +456,20 @@ impl ClassicState for AIDockApproachState {
             return Ok(StateReturnType::Failure);
         }
 
-        self.move_helper.update()
+        self.move_helper
+            .update_with_ai(ai.ok_or("dock move missing borrowed AI")?)
     }
 
-    fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
+    fn dock_on_exit(
+        &mut self,
+        exit: StateExitType,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.goal_owner() {
             let owner = resolve_dock_object(owner_id, "dock")?;
             let goal = resolve_dock_object(goal_id, "dock")?;
-            let goal_guard = goal
-                .lock()
-                .map_err(|_| "goal object poisoned".to_string())?;
 
-            goal_guard.with_dock_update_interface(|dock| {
+            with_dock(&goal, |dock| {
                 if exit == StateExitType::Reset || !dock.is_dock_open().into_string_err()? {
                     dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
                         .into_string_err()?;
@@ -499,16 +481,13 @@ impl ClassicState for AIDockApproachState {
             }); // Ignore error on exit if dock missing
         }
 
-        self.move_helper.on_exit(exit)?;
+        self.move_helper
+            .on_exit_with_ai(exit, ai.ok_or("dock move missing borrowed AI")?)?;
         Ok(())
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn dock_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         self.xfer(xfer)
-    }
-
-    fn classic_is_busy(&self) -> bool {
-        true
     }
 }
 
@@ -517,19 +496,18 @@ impl ClassicState for AIDockApproachState {
 pub struct AIDockWaitForClearanceState {
     base: State,
     enter_frame: u32,
-    shared: Arc<DockSharedState>,
 }
 
 impl AIDockWaitForClearanceState {
-    pub fn new(
-        machine: &Arc<Mutex<StateMachine>>,
-        shared: Arc<DockSharedState>,
-    ) -> Result<Self, String> {
-        Ok(Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), "AIDockWaitForClearanceState"),
+    pub(crate) fn new(owner_id: ObjectID) -> Self {
+        Self {
+            base: {
+                let mut base = State::with_machine(None, "AIDockWaitForClearanceState");
+                base.owner_id = owner_id;
+                base
+            },
             enter_frame: 0,
-            shared,
-        })
+        }
     }
 
     pub fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -558,8 +536,8 @@ impl AIDockWaitForClearanceState {
         let has_dock = goal_object
             .read()
             .map_err(|_| "goal object poisoned".to_string())?
-            .with_dock_update_interface(|_| true)
-            .unwrap_or(false);
+            .dock_update_handle()
+            .is_some();
 
         if !has_dock {
             return Err("dock wait missing dock interface".to_string());
@@ -573,27 +551,19 @@ impl AIDockWaitForClearanceState {
         Ok((owner_id, goal_id))
     }
 
-    pub fn able_to_advance(
-        state: &Self,
-        _user_data: &StateTransitionUserData,
-    ) -> Result<bool, String> {
-        let (owner_id, goal_id) = state.owner_and_goal()?;
+    fn able_to_advance(&self, approach_position: i32) -> Result<bool, String> {
+        let (owner_id, goal_id) = self.owner_and_goal()?;
         let goal = resolve_dock_object(goal_id, "dock")?;
-        let goal_guard = goal
-            .lock()
-            .map_err(|_| "goal object poisoned".to_string())?;
 
-        goal_guard
-            .with_dock_update_interface(|dock| {
-                let approach_position = state.shared.approach_position();
-                dock.is_clear_to_advance(owner_id, approach_position)
-                    .into_string_err()
-            })
-            .ok_or_else(|| "Missing dock interface".to_string())?
+        with_dock(&goal, |dock| {
+            dock.is_clear_to_advance(owner_id, approach_position)
+                .into_string_err()
+        })
+        .ok_or_else(|| "Missing dock interface".to_string())?
     }
 }
 
-impl ClassicState for AIDockWaitForClearanceState {
+impl DockState for AIDockWaitForClearanceState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -602,12 +572,20 @@ impl ClassicState for AIDockWaitForClearanceState {
         &mut self.base
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn dock_on_enter(
+        &mut self,
+        context: &mut DockContext,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
         self.enter_frame = TheGameLogic::try_get_frame()?;
         Ok(StateReturnType::Continue)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn dock_on_update(
+        &mut self,
+        _context: &mut DockContext,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
         let (owner_id, goal_id) = match self.owner_and_goal() {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
@@ -615,45 +593,41 @@ impl ClassicState for AIDockWaitForClearanceState {
         let owner = resolve_dock_object(owner_id, "dock")?;
         let goal = resolve_dock_object(goal_id, "dock")?;
 
-        let goal_guard = goal
-            .lock()
-            .map_err(|_| "goal object poisoned".to_string())?;
+        with_dock(&goal, |dock| {
+            if !dock.is_dock_open().into_string_err()? {
+                dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    .into_string_err()?;
+                return Ok::<StateReturnType, String>(StateReturnType::Failure);
+            }
 
-        goal_guard
-            .with_dock_update_interface(|dock| {
-                if !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
-                        .into_string_err()?;
-                    return Ok::<StateReturnType, String>(StateReturnType::Failure);
-                }
+            if dock
+                .is_clear_to_enter(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                .into_string_err()?
+            {
+                return Ok(StateReturnType::Success);
+            }
 
-                if dock
-                    .is_clear_to_enter(owner.read().map(|g| g.get_id()).unwrap_or(0))
-                    .into_string_err()?
-                {
-                    return Ok(StateReturnType::Success);
-                }
+            let current_frame = TheGameLogic::try_get_frame()?;
+            let timeout_frames = 30 * LOGICFRAMES_PER_SECOND;
+            if self.enter_frame + timeout_frames < current_frame {
+                return Ok(StateReturnType::Failure);
+            }
 
-                let current_frame = TheGameLogic::try_get_frame()?;
-                let timeout_frames = 30 * LOGICFRAMES_PER_SECOND;
-                if self.enter_frame + timeout_frames < current_frame {
-                    return Ok(StateReturnType::Failure);
-                }
-
-                Ok(StateReturnType::Continue)
-            })
-            .ok_or_else(|| "Missing dock interface".to_string())?
+            Ok(StateReturnType::Continue)
+        })
+        .ok_or_else(|| "Missing dock interface".to_string())?
     }
 
-    fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
+    fn dock_on_exit(
+        &mut self,
+        exit: StateExitType,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.owner_and_goal() {
             let owner = resolve_dock_object(owner_id, "dock")?;
             let goal = resolve_dock_object(goal_id, "dock")?;
-            let goal_guard = goal
-                .lock()
-                .map_err(|_| "goal object poisoned".to_string())?;
 
-            goal_guard.with_dock_update_interface(|dock| {
+            with_dock(&goal, |dock| {
                 if exit == StateExitType::Reset || !dock.is_dock_open().into_string_err()? {
                     dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
                         .into_string_err()?;
@@ -665,12 +639,8 @@ impl ClassicState for AIDockWaitForClearanceState {
         Ok(())
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn dock_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         self.xfer(xfer)
-    }
-
-    fn classic_is_busy(&self) -> bool {
-        true
     }
 }
 
@@ -679,22 +649,21 @@ impl ClassicState for AIDockWaitForClearanceState {
 pub struct AIDockAdvancePositionState {
     base: State,
     move_helper: AIInternalMoveToState,
-    shared: Arc<DockSharedState>,
 }
 
 impl AIDockAdvancePositionState {
-    pub fn new(
-        machine: &Arc<Mutex<StateMachine>>,
-        shared: Arc<DockSharedState>,
-    ) -> Result<Self, String> {
-        Ok(Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), "AIDockAdvancePositionState"),
-            move_helper: AIInternalMoveToState::new(
-                machine,
+    pub(crate) fn new(owner_id: ObjectID) -> Self {
+        Self {
+            base: {
+                let mut base = State::with_machine(None, "AIDockAdvancePositionState");
+                base.owner_id = owner_id;
+                base
+            },
+            move_helper: AIInternalMoveToState::new_with_owner_id(
+                owner_id,
                 "AIDockAdvancePositionState".to_string(),
-            )?,
-            shared,
-        })
+            ),
+        }
     }
 
     fn goal_owner(&self) -> Result<(ObjectID, ObjectID), String> {
@@ -707,7 +676,7 @@ impl AIDockAdvancePositionState {
     }
 }
 
-impl ClassicState for AIDockAdvancePositionState {
+impl DockState for AIDockAdvancePositionState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -716,7 +685,16 @@ impl ClassicState for AIDockAdvancePositionState {
         &mut self.base
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn move_helper(&mut self) -> Option<&mut AIInternalMoveToState> {
+        Some(&mut self.move_helper)
+    }
+
+    fn dock_on_enter(
+        &mut self,
+        context: &mut DockContext,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
+        let ai = ai.ok_or("dock move missing borrowed AI")?;
         let (owner_id, goal_id) = match self.goal_owner() {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
@@ -724,50 +702,39 @@ impl ClassicState for AIDockAdvancePositionState {
         let owner = resolve_dock_object(owner_id, "dock")?;
         let goal = resolve_dock_object(goal_id, "dock")?;
 
-        let goal_guard = goal
-            .lock()
-            .map_err(|_| "goal object poisoned".to_string())?;
+        with_dock(&goal, |dock| {
+            if !dock.is_dock_open().map_err(|err| err.to_string())? {
+                dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    .into_string_err()?;
+                return Ok::<StateReturnType, String>(StateReturnType::Failure);
+            }
 
-        goal_guard
-            .with_dock_update_interface(|dock| {
-                if !dock.is_dock_open().map_err(|err| err.to_string())? {
-                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
-                        .into_string_err()?;
-                    return Ok::<StateReturnType, String>(StateReturnType::Failure);
-                }
+            let mut goal_position = Vec3D::default();
+            if !dock
+                .advance_approach_position(
+                    owner.read().map(|g| g.get_id()).unwrap_or(0),
+                    &mut goal_position,
+                    &mut context.approach_position,
+                )
+                .into_string_err()?
+            {
+                return Ok(StateReturnType::Failure);
+            }
 
-                let mut goal_position = Vec3D::default();
-                let mut approach_position = 0;
-                if !dock
-                    .advance_approach_position(
-                        owner.read().map(|g| g.get_id()).unwrap_or(0),
-                        &mut goal_position,
-                        &mut approach_position,
-                    )
-                    .into_string_err()?
-                {
-                    return Ok(StateReturnType::Failure);
-                }
+            self.move_helper.set_goal_position(goal_position);
 
-                self.shared.set_approach_position(approach_position);
-                self.move_helper.set_goal_position(goal_position);
+            ai.ignore_obstacle(None).map_err(|err| err.to_string())?;
 
-                if let Ok(owner_guard) = owner.read() {
-                    if let Some(ai) = owner_guard.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            ai_guard
-                                .ignore_obstacle(None)
-                                .map_err(|err| err.to_string())?;
-                        }
-                    }
-                }
-
-                self.move_helper.on_enter()
-            })
-            .ok_or_else(|| "Missing dock interface".to_string())?
+            self.move_helper.on_enter_with_ai(ai)
+        })
+        .ok_or_else(|| "Missing dock interface".to_string())?
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn dock_on_update(
+        &mut self,
+        _context: &mut DockContext,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
         if self
             .move_helper
             .get_machine_goal_object_id()?
@@ -777,18 +744,20 @@ impl ClassicState for AIDockAdvancePositionState {
             return Ok(StateReturnType::Failure);
         }
 
-        self.move_helper.update()
+        self.move_helper
+            .update_with_ai(ai.ok_or("dock move missing borrowed AI")?)
     }
 
-    fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
+    fn dock_on_exit(
+        &mut self,
+        exit: StateExitType,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.goal_owner() {
             let owner = resolve_dock_object(owner_id, "dock")?;
             let goal = resolve_dock_object(goal_id, "dock")?;
-            let goal_guard = goal
-                .lock()
-                .map_err(|_| "goal object poisoned".to_string())?;
 
-            goal_guard.with_dock_update_interface(|dock| {
+            with_dock(&goal, |dock| {
                 if exit == StateExitType::Reset || !dock.is_dock_open().into_string_err()? {
                     dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
                         .into_string_err()?;
@@ -800,16 +769,13 @@ impl ClassicState for AIDockAdvancePositionState {
             });
         }
 
-        self.move_helper.on_exit(exit)?;
+        self.move_helper
+            .on_exit_with_ai(exit, ai.ok_or("dock move missing borrowed AI")?)?;
         Ok(())
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn dock_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         self.move_helper.xfer(xfer)
-    }
-
-    fn classic_is_busy(&self) -> bool {
-        true
     }
 }
 
@@ -818,19 +784,21 @@ impl ClassicState for AIDockAdvancePositionState {
 pub struct AIDockMoveToEntryState {
     base: State,
     move_helper: AIInternalMoveToState,
-    shared: Arc<DockSharedState>,
 }
 
 impl AIDockMoveToEntryState {
-    pub fn new(
-        machine: &Arc<Mutex<StateMachine>>,
-        shared: Arc<DockSharedState>,
-    ) -> Result<Self, String> {
-        Ok(Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), "AIDockMoveToEntryState"),
-            move_helper: AIInternalMoveToState::new(machine, "AIDockMoveToEntryState".to_string())?,
-            shared,
-        })
+    pub(crate) fn new(owner_id: ObjectID) -> Self {
+        Self {
+            base: {
+                let mut base = State::with_machine(None, "AIDockMoveToEntryState");
+                base.owner_id = owner_id;
+                base
+            },
+            move_helper: AIInternalMoveToState::new_with_owner_id(
+                owner_id,
+                "AIDockMoveToEntryState".to_string(),
+            ),
+        }
     }
 
     fn goal_owner(&self) -> Result<(ObjectID, ObjectID), String> {
@@ -843,7 +811,7 @@ impl AIDockMoveToEntryState {
     }
 }
 
-impl ClassicState for AIDockMoveToEntryState {
+impl DockState for AIDockMoveToEntryState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -852,7 +820,16 @@ impl ClassicState for AIDockMoveToEntryState {
         &mut self.base
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn move_helper(&mut self) -> Option<&mut AIInternalMoveToState> {
+        Some(&mut self.move_helper)
+    }
+
+    fn dock_on_enter(
+        &mut self,
+        context: &mut DockContext,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
+        let ai = ai.ok_or("dock move missing borrowed AI")?;
         let (owner_id, goal_id) = match self.goal_owner() {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
@@ -860,46 +837,38 @@ impl ClassicState for AIDockMoveToEntryState {
         let owner = resolve_dock_object(owner_id, "dock")?;
         let goal = resolve_dock_object(goal_id, "dock")?;
 
-        let goal_guard = goal
-            .lock()
-            .map_err(|_| "goal object poisoned".to_string())?;
+        with_dock(&goal, |dock| {
+            if !dock.is_dock_open().into_string_err()? {
+                dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    .into_string_err()?;
+                return Ok(StateReturnType::Failure);
+            }
 
-        goal_guard
-            .with_dock_update_interface(|dock| {
-                if !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
-                        .into_string_err()?;
-                    return Ok(StateReturnType::Failure);
-                }
+            if dock.is_allow_passthrough_type().into_string_err()? {
+                ai.ignore_obstacle(Some(goal_id))
+                    .map_err(|err| err.to_string())?;
+            }
 
-                if let Ok(owner_guard) = owner.read() {
-                    if let Some(ai) = owner_guard.get_ai_update_interface() {
-                        if dock.is_allow_passthrough_type().into_string_err()? {
-                            if let Ok(mut ai_guard) = ai.lock() {
-                                ai_guard
-                                    .ignore_obstacle(Some(goal_id))
-                                    .map_err(|err| err.to_string())?;
-                            }
-                        }
-                    }
-                }
+            let mut goal_position = Vec3D::default();
+            dock.get_enter_position(
+                owner.read().map(|g| g.get_id()).unwrap_or(0),
+                &mut goal_position,
+            )
+            .into_string_err()?;
+            self.move_helper.set_goal_position(goal_position);
 
-                let mut goal_position = Vec3D::default();
-                dock.get_enter_position(
-                    owner.read().map(|g| g.get_id()).unwrap_or(0),
-                    &mut goal_position,
-                )
-                .into_string_err()?;
-                self.move_helper.set_goal_position(goal_position);
+            context.approach_position = -1;
 
-                self.shared.clear_approach_position();
-
-                self.move_helper.on_enter()
-            })
-            .ok_or_else(|| "Missing dock interface".to_string())?
+            self.move_helper.on_enter_with_ai(ai)
+        })
+        .ok_or_else(|| "Missing dock interface".to_string())?
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn dock_on_update(
+        &mut self,
+        _context: &mut DockContext,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
         if self
             .move_helper
             .get_machine_goal_object_id()?
@@ -909,18 +878,20 @@ impl ClassicState for AIDockMoveToEntryState {
             return Ok(StateReturnType::Failure);
         }
 
-        self.move_helper.update()
+        self.move_helper
+            .update_with_ai(ai.ok_or("dock move missing borrowed AI")?)
     }
 
-    fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
+    fn dock_on_exit(
+        &mut self,
+        exit: StateExitType,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.goal_owner() {
             let owner = resolve_dock_object(owner_id, "dock")?;
             let goal = resolve_dock_object(goal_id, "dock")?;
-            let goal_guard = goal
-                .lock()
-                .map_err(|_| "goal object poisoned".to_string())?;
 
-            goal_guard.with_dock_update_interface(|dock| {
+            with_dock(&goal, |dock| {
                 if exit == StateExitType::Reset || !dock.is_dock_open().into_string_err()? {
                     dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
                         .into_string_err()?;
@@ -932,16 +903,13 @@ impl ClassicState for AIDockMoveToEntryState {
             });
         }
 
-        self.move_helper.on_exit(exit)?;
+        self.move_helper
+            .on_exit_with_ai(exit, ai.ok_or("dock move missing borrowed AI")?)?;
         Ok(())
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn dock_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         self.move_helper.xfer(xfer)
-    }
-
-    fn classic_is_busy(&self) -> bool {
-        true
     }
 }
 
@@ -950,19 +918,21 @@ impl ClassicState for AIDockMoveToEntryState {
 pub struct AIDockMoveToDockState {
     base: State,
     move_helper: AIInternalMoveToState,
-    shared: Arc<DockSharedState>,
 }
 
 impl AIDockMoveToDockState {
-    pub fn new(
-        machine: &Arc<Mutex<StateMachine>>,
-        shared: Arc<DockSharedState>,
-    ) -> Result<Self, String> {
-        Ok(Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), "AIDockMoveToDockState"),
-            move_helper: AIInternalMoveToState::new(machine, "AIDockMoveToDockState".to_string())?,
-            shared,
-        })
+    pub(crate) fn new(owner_id: ObjectID) -> Self {
+        Self {
+            base: {
+                let mut base = State::with_machine(None, "AIDockMoveToDockState");
+                base.owner_id = owner_id;
+                base
+            },
+            move_helper: AIInternalMoveToState::new_with_owner_id(
+                owner_id,
+                "AIDockMoveToDockState".to_string(),
+            ),
+        }
     }
 
     fn goal_owner(&self) -> Result<(ObjectID, ObjectID), String> {
@@ -973,25 +943,9 @@ impl AIDockMoveToDockState {
             "AIDockMoveToDockState",
         )
     }
-
-    fn lock_machine(&self) -> Result<(), String> {
-        let machine = self.move_helper.get_machine()?;
-        if let Ok(mut guard) = machine.try_lock() {
-            guard.lock();
-        }
-        Ok(())
-    }
-
-    fn unlock_machine(&self) -> Result<(), String> {
-        let machine = self.move_helper.get_machine()?;
-        if let Ok(mut guard) = machine.try_lock() {
-            guard.unlock();
-        }
-        Ok(())
-    }
 }
 
-impl ClassicState for AIDockMoveToDockState {
+impl DockState for AIDockMoveToDockState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -1000,7 +954,16 @@ impl ClassicState for AIDockMoveToDockState {
         &mut self.base
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn move_helper(&mut self) -> Option<&mut AIInternalMoveToState> {
+        Some(&mut self.move_helper)
+    }
+
+    fn dock_on_enter(
+        &mut self,
+        context: &mut DockContext,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
+        let ai = ai.ok_or("dock move missing borrowed AI")?;
         let (owner_id, goal_id) = match self.goal_owner() {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
@@ -1008,44 +971,32 @@ impl ClassicState for AIDockMoveToDockState {
         let owner = resolve_dock_object(owner_id, "dock")?;
         let goal = resolve_dock_object(goal_id, "dock")?;
 
-        let goal_guard = goal
-            .lock()
-            .map_err(|_| "goal object poisoned".to_string())?;
+        with_dock(&goal, |dock| {
+            if !dock.is_dock_open().into_string_err()? {
+                dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    .into_string_err()?;
+                return Ok(StateReturnType::Failure);
+            }
 
-        goal_guard
-            .with_dock_update_interface(|dock| {
-                if !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
-                        .into_string_err()?;
-                    return Ok(StateReturnType::Failure);
-                }
+            let mut goal_position = Vec3D::default();
+            dock.get_dock_position(
+                owner.read().map(|g| g.get_id()).unwrap_or(0),
+                &mut goal_position,
+            )
+            .into_string_err()?;
+            self.move_helper.set_goal_position(goal_position);
 
-                let mut goal_position = Vec3D::default();
-                dock.get_dock_position(
-                    owner.read().map(|g| g.get_id()).unwrap_or(0),
-                    &mut goal_position,
-                )
-                .into_string_err()?;
-                self.move_helper.set_goal_position(goal_position);
-
-                if dock
-                    .is_allow_passthrough_type()
-                    .map_err(|err| err.to_string())?
-                {
-                    if let Ok(owner_guard) = owner.read() {
-                        if let Some(ai) = owner_guard.get_ai_update_interface() {
-                            if let Ok(mut ai_guard) = ai.lock() {
-                                ai_guard
-                                    .ignore_obstacle(Some(goal_id))
-                                    .map_err(|err| err.to_string())?;
-                            }
-                            self.move_helper.set_adjusts_destination(false);
-                        }
-                    }
-                }
-                Ok::<StateReturnType, String>(StateReturnType::Continue)
-            })
-            .ok_or_else(|| "Missing dock interface".to_string())??;
+            if dock
+                .is_allow_passthrough_type()
+                .map_err(|err| err.to_string())?
+            {
+                ai.ignore_obstacle(Some(goal_id))
+                    .map_err(|err| err.to_string())?;
+                self.move_helper.set_adjusts_destination(false);
+            }
+            Ok::<StateReturnType, String>(StateReturnType::Continue)
+        })
+        .ok_or_else(|| "Missing dock interface".to_string())??;
 
         if let Ok(Some(id)) = self.move_helper.get_machine_goal_object_id() {
             self.move_helper.note_goal_object_id(id);
@@ -1053,12 +1004,15 @@ impl ClassicState for AIDockMoveToDockState {
         if let Ok(id) = self.move_helper.get_machine_owner_id() {
             self.move_helper.note_owner_id(id);
         }
-        self.lock_machine()?;
 
-        self.move_helper.on_enter()
+        self.move_helper.on_enter_with_ai(ai)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn dock_on_update(
+        &mut self,
+        _context: &mut DockContext,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
         if self
             .move_helper
             .get_machine_goal_object_id()?
@@ -1070,32 +1024,30 @@ impl ClassicState for AIDockMoveToDockState {
 
         if let Ok((_, goal_id)) = self.goal_owner() {
             let goal = resolve_dock_object(goal_id, "dock")?;
-            let goal_guard = goal
-                .lock()
-                .map_err(|_| "goal object poisoned".to_string())?;
 
-            goal_guard
-                .with_dock_update_interface(|dock| {
-                    if !dock.is_dock_open().map_err(|err| err.to_string())? {
-                        return Ok::<StateReturnType, String>(StateReturnType::Failure);
-                    }
-                    Ok::<StateReturnType, String>(StateReturnType::Continue)
-                })
-                .ok_or_else(|| "Missing dock interface".to_string())??;
+            with_dock(&goal, |dock| {
+                if !dock.is_dock_open().map_err(|err| err.to_string())? {
+                    return Ok::<StateReturnType, String>(StateReturnType::Failure);
+                }
+                Ok::<StateReturnType, String>(StateReturnType::Continue)
+            })
+            .ok_or_else(|| "Missing dock interface".to_string())??;
         }
 
-        self.move_helper.update()
+        self.move_helper
+            .update_with_ai(ai.ok_or("dock move missing borrowed AI")?)
     }
 
-    fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
+    fn dock_on_exit(
+        &mut self,
+        exit: StateExitType,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.goal_owner() {
             let owner = resolve_dock_object(owner_id, "dock")?;
             let goal = resolve_dock_object(goal_id, "dock")?;
-            let goal_guard = goal
-                .lock()
-                .map_err(|_| "goal object poisoned".to_string())?;
 
-            goal_guard.with_dock_update_interface(|dock| {
+            with_dock(&goal, |dock| {
                 if exit == StateExitType::Reset || !dock.is_dock_open().into_string_err()? {
                     dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
                         .into_string_err()?;
@@ -1107,21 +1059,26 @@ impl ClassicState for AIDockMoveToDockState {
             });
         }
 
-        self.unlock_machine()?;
-
-        self.move_helper.on_exit(exit)?;
         Ok(())
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn dock_unlocks_on_exit(&self) -> bool {
+        true
+    }
+    fn dock_after_exit(
+        &mut self,
+        exit: StateExitType,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<(), String> {
+        self.move_helper
+            .on_exit_with_ai(exit, ai.ok_or("dock move missing borrowed AI")?)
+    }
+
+    fn dock_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         self.move_helper.xfer(xfer)
     }
 
-    fn classic_is_busy(&self) -> bool {
-        true
-    }
-
-    fn classic_locks_machine(&self) -> bool {
+    fn dock_locks_machine(&self) -> bool {
         true
     }
 }
@@ -1132,20 +1089,19 @@ pub struct AIDockProcessDockState {
     base: State,
     next_dock_action_frame: u32,
     drone_id: Option<ObjectID>,
-    shared: Arc<DockSharedState>,
 }
 
 impl AIDockProcessDockState {
-    pub fn new(
-        machine: &Arc<Mutex<StateMachine>>,
-        shared: Arc<DockSharedState>,
-    ) -> Result<Self, String> {
-        Ok(Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), "AIDockProcessDockState"),
+    pub(crate) fn new(owner_id: ObjectID) -> Self {
+        Self {
+            base: {
+                let mut base = State::with_machine(None, "AIDockProcessDockState");
+                base.owner_id = owner_id;
+                base
+            },
             next_dock_action_frame: 0,
             drone_id: None,
-            shared,
-        })
+        }
     }
 
     fn owner_and_goal(&self) -> Result<(ObjectID, ObjectID), String> {
@@ -1156,10 +1112,10 @@ impl AIDockProcessDockState {
         let goal_object = resolve_dock_object(goal_id, "dock process")?;
 
         let has_dock = goal_object
-            .lock()
+            .read()
             .map_err(|_| "goal object poisoned".to_string())?
-            .with_dock_update_interface(|_| true)
-            .unwrap_or(false);
+            .dock_update_handle()
+            .is_some();
 
         if !has_dock {
             return Err("dock process missing dock interface".to_string());
@@ -1173,26 +1129,20 @@ impl AIDockProcessDockState {
         Ok((owner_id, goal_id))
     }
 
-    fn set_next_dock_action_frame(&mut self) -> Result<(), String> {
-        let (owner_id, goal_id) = self.owner_and_goal()?;
-        let owner = resolve_dock_object(owner_id, "dock")?;
-        let goal_object = resolve_dock_object(goal_id, "dock")?;
-
-        if let Ok(owner_guard) = owner.read() {
-            if let Some(ai) = owner_guard.get_ai() {
-                if let Ok(ai_guard) = ai.lock() {
-                    if let Some(supply_truck) = ai_guard.get_supply_truck_ai_interface() {
-                        self.next_dock_action_frame = TheGameLogic::try_get_frame()?
-                            + supply_truck
-                                .get_action_delay_for_dock(goal_id)
-                                .map_err(|err| err.to_string())?;
-                        return Ok(());
-                    }
-                }
+    fn set_next_dock_action_frame(
+        &mut self,
+        goal_id: ObjectID,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<(), String> {
+        let now = TheGameLogic::try_get_frame()?;
+        self.next_dock_action_frame = match ai.and_then(|ai| ai.get_supply_truck_ai_interface()) {
+            Some(truck) => {
+                now + truck
+                    .get_action_delay_for_dock(goal_id)
+                    .map_err(|err| err.to_string())?
             }
-        }
-
-        self.next_dock_action_frame = TheGameLogic::try_get_frame()?;
+            None => now,
+        };
         Ok(())
     }
 
@@ -1240,17 +1190,9 @@ impl AIDockProcessDockState {
             .find_my_drone_id()?
             .and_then(|id| crate::object::registry::OBJECT_REGISTRY.get_object(id)))
     }
-
-    fn unlock_machine(&self) -> Result<(), String> {
-        let machine = self.base.get_machine()?;
-        if let Ok(mut guard) = machine.try_lock() {
-            guard.unlock();
-        }
-        Ok(())
-    }
 }
 
-impl ClassicState for AIDockProcessDockState {
+impl DockState for AIDockProcessDockState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -1259,17 +1201,25 @@ impl ClassicState for AIDockProcessDockState {
         &mut self.base
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn dock_on_enter(
+        &mut self,
+        context: &mut DockContext,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
         // Ensure dock exists
         if self.owner_and_goal().is_err() {
             return Ok(StateReturnType::Failure);
         }
 
-        self.set_next_dock_action_frame()?;
+        self.set_next_dock_action_frame(self.base.goal_object_id, ai)?;
         Ok(StateReturnType::Continue)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn dock_on_update(
+        &mut self,
+        _context: &mut DockContext,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
         let (owner_id, goal_id) = match self.owner_and_goal() {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
@@ -1277,37 +1227,35 @@ impl ClassicState for AIDockProcessDockState {
         let owner = resolve_dock_object(owner_id, "dock")?;
         let goal = resolve_dock_object(goal_id, "dock")?;
 
-        let goal_guard = goal
-            .write()
-            .map_err(|_| "goal object poisoned".to_string())?;
+        with_dock(&goal, |dock| {
+            if TheGameLogic::try_get_frame()? < self.next_dock_action_frame {
+                return Ok(StateReturnType::Continue);
+            }
 
-        goal_guard
-            .with_dock_update_interface(|dock| {
-                if TheGameLogic::try_get_frame()? < self.next_dock_action_frame {
-                    return Ok(StateReturnType::Continue);
-                }
+            self.set_next_dock_action_frame(self.base.goal_object_id, ai)?;
 
-                self.set_next_dock_action_frame()?;
+            let drone_id = self.find_my_drone_id()?;
+            let owner_id = owner.read().map(|g| g.get_id()).unwrap_or(0);
 
-                let drone_id = self.find_my_drone_id()?;
-                let owner_id = owner.read().map(|g| g.get_id()).unwrap_or(0);
+            if !dock.is_dock_open().into_string_err()?
+                || !dock.action(owner_id, drone_id).into_string_err()?
+            {
+                return Ok(StateReturnType::Success);
+            }
 
-                if !dock.is_dock_open().into_string_err()?
-                    || !dock.action(owner_id, drone_id).into_string_err()?
-                {
-                    return Ok(StateReturnType::Success);
-                }
-
-                Ok(StateReturnType::Continue)
-            })
-            .ok_or_else(|| "Missing dock interface".to_string())?
+            Ok(StateReturnType::Continue)
+        })
+        .ok_or_else(|| "Missing dock interface".to_string())?
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        self.unlock_machine()
+    fn dock_on_exit(
+        &mut self,
+        _exit: StateExitType,
+        _ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<(), String> {
+        Ok(())
     }
-
-    fn classic_is_busy(&self) -> bool {
+    fn dock_unlocks_on_exit(&self) -> bool {
         true
     }
 }
@@ -1317,19 +1265,21 @@ impl ClassicState for AIDockProcessDockState {
 pub struct AIDockMoveToExitState {
     base: State,
     move_helper: AIInternalMoveToState,
-    shared: Arc<DockSharedState>,
 }
 
 impl AIDockMoveToExitState {
-    pub fn new(
-        machine: &Arc<Mutex<StateMachine>>,
-        shared: Arc<DockSharedState>,
-    ) -> Result<Self, String> {
-        Ok(Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), "AIDockMoveToExitState"),
-            move_helper: AIInternalMoveToState::new(machine, "AIDockMoveToExitState".to_string())?,
-            shared,
-        })
+    pub(crate) fn new(owner_id: ObjectID) -> Self {
+        Self {
+            base: {
+                let mut base = State::with_machine(None, "AIDockMoveToExitState");
+                base.owner_id = owner_id;
+                base
+            },
+            move_helper: AIInternalMoveToState::new_with_owner_id(
+                owner_id,
+                "AIDockMoveToExitState".to_string(),
+            ),
+        }
     }
 
     fn goal_owner(&self) -> Result<(ObjectID, ObjectID), String> {
@@ -1342,7 +1292,7 @@ impl AIDockMoveToExitState {
     }
 }
 
-impl ClassicState for AIDockMoveToExitState {
+impl DockState for AIDockMoveToExitState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -1351,7 +1301,16 @@ impl ClassicState for AIDockMoveToExitState {
         &mut self.base
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn move_helper(&mut self) -> Option<&mut AIInternalMoveToState> {
+        Some(&mut self.move_helper)
+    }
+
+    fn dock_on_enter(
+        &mut self,
+        context: &mut DockContext,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
+        let ai = ai.ok_or("dock move missing borrowed AI")?;
         let (owner_id, goal_id) = match self.goal_owner() {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
@@ -1359,43 +1318,35 @@ impl ClassicState for AIDockMoveToExitState {
         let owner = resolve_dock_object(owner_id, "dock")?;
         let goal = resolve_dock_object(goal_id, "dock")?;
 
-        let goal_guard = goal
-            .lock()
-            .map_err(|_| "goal object poisoned".to_string())?;
+        with_dock(&goal, |dock| {
+            let mut goal_position = Vec3D::default();
+            dock.get_exit_position(
+                owner.read().map(|g| g.get_id()).unwrap_or(0),
+                &mut goal_position,
+            )
+            .into_string_err()?;
+            self.move_helper.set_goal_position(goal_position);
 
-        goal_guard
-            .with_dock_update_interface(|dock| {
-                let mut goal_position = Vec3D::default();
-                dock.get_exit_position(
-                    owner.read().map(|g| g.get_id()).unwrap_or(0),
-                    &mut goal_position,
-                )
-                .into_string_err()?;
-                self.move_helper.set_goal_position(goal_position);
+            if dock
+                .is_allow_passthrough_type()
+                .map_err(|err| err.to_string())?
+            {
+                ai.ignore_obstacle(Some(goal_id))
+                    .map_err(|err| err.to_string())?;
+                self.move_helper.set_adjusts_destination(false);
+            }
+            Ok::<StateReturnType, String>(StateReturnType::Continue)
+        })
+        .ok_or_else(|| "Missing dock interface".to_string())??;
 
-                if dock
-                    .is_allow_passthrough_type()
-                    .map_err(|err| err.to_string())?
-                {
-                    if let Ok(owner_guard) = owner.read() {
-                        if let Some(ai) = owner_guard.get_ai_update_interface() {
-                            if let Ok(mut ai_guard) = ai.lock() {
-                                ai_guard
-                                    .ignore_obstacle(Some(goal_id))
-                                    .map_err(|err| err.to_string())?;
-                            }
-                            self.move_helper.set_adjusts_destination(false);
-                        }
-                    }
-                }
-                Ok::<StateReturnType, String>(StateReturnType::Continue)
-            })
-            .ok_or_else(|| "Missing dock interface".to_string())??;
-
-        self.move_helper.on_enter()
+        self.move_helper.on_enter_with_ai(ai)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn dock_on_update(
+        &mut self,
+        _context: &mut DockContext,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
         if self
             .move_helper
             .get_machine_goal_object_id()?
@@ -1405,40 +1356,43 @@ impl ClassicState for AIDockMoveToExitState {
             return Ok(StateReturnType::Failure);
         }
 
-        self.move_helper.update()
+        self.move_helper
+            .update_with_ai(ai.ok_or("dock move missing borrowed AI")?)
     }
 
-    fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
+    fn dock_on_exit(
+        &mut self,
+        exit: StateExitType,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.goal_owner() {
             let owner = resolve_dock_object(owner_id, "dock")?;
             let goal = resolve_dock_object(goal_id, "dock")?;
-            let goal_guard = goal
-                .lock()
-                .map_err(|_| "goal object poisoned".to_string())?;
 
-            goal_guard.with_dock_update_interface(|dock| {
+            with_dock(&goal, |dock| {
                 dock.on_exit_reached(owner.read().map(|g| g.get_id()).unwrap_or(0))
                     .into_string_err()?;
                 Ok::<_, String>(())
             });
         }
 
-        if let Ok(machine) = self.move_helper.get_machine() {
-            if let Ok(mut guard) = machine.try_lock() {
-                guard.unlock();
-            }
-        }
-
-        self.move_helper.on_exit(exit)?;
         Ok(())
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.move_helper.xfer(xfer)
+    fn dock_unlocks_on_exit(&self) -> bool {
+        true
+    }
+    fn dock_after_exit(
+        &mut self,
+        exit: StateExitType,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<(), String> {
+        self.move_helper
+            .on_exit_with_ai(exit, ai.ok_or("dock move missing borrowed AI")?)
     }
 
-    fn classic_is_busy(&self) -> bool {
-        true
+    fn dock_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.move_helper.xfer(xfer)
     }
 }
 
@@ -1450,15 +1404,22 @@ pub struct AIDockMoveToRallyState {
 }
 
 impl AIDockMoveToRallyState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>) -> Result<Self, String> {
-        Ok(Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), "AIDockMoveToRallyState"),
-            move_helper: AIInternalMoveToState::new(machine, "AIDockMoveToRallyState".to_string())?,
-        })
+    pub(crate) fn new(owner_id: ObjectID) -> Self {
+        Self {
+            base: {
+                let mut base = State::with_machine(None, "AIDockMoveToRallyState");
+                base.owner_id = owner_id;
+                base
+            },
+            move_helper: AIInternalMoveToState::new_with_owner_id(
+                owner_id,
+                "AIDockMoveToRallyState".to_string(),
+            ),
+        }
     }
 }
 
-impl ClassicState for AIDockMoveToRallyState {
+impl DockState for AIDockMoveToRallyState {
     fn base_state(&self) -> &State {
         &self.base
     }
@@ -1467,7 +1428,16 @@ impl ClassicState for AIDockMoveToRallyState {
         &mut self.base
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn move_helper(&mut self) -> Option<&mut AIInternalMoveToState> {
+        Some(&mut self.move_helper)
+    }
+
+    fn dock_on_enter(
+        &mut self,
+        context: &mut DockContext,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
+        let ai = ai.ok_or("dock move missing borrowed AI")?;
         let Some(goal_id) = self
             .move_helper
             .get_machine_goal_object_id()?
@@ -1477,12 +1447,9 @@ impl ClassicState for AIDockMoveToRallyState {
         };
         let goal_object = resolve_dock_object(goal_id, "dock")?;
 
-        let is_rally_type = match goal_object
-            .lock()
-            .map_err(|_| "goal object poisoned".to_string())?
-            .with_dock_update_interface(|dock| {
-                dock.is_rally_point_after_dock_type().into_string_err()
-            }) {
+        let is_rally_type = match with_dock(&goal_object, |dock| {
+            dock.is_rally_point_after_dock_type().into_string_err()
+        }) {
             Some(result) => result?,
             None => return Ok(StateReturnType::Failure),
         };
@@ -1499,26 +1466,32 @@ impl ClassicState for AIDockMoveToRallyState {
 
         if let Some(rally_point) = rally_point_opt {
             self.move_helper.set_goal_position(rally_point);
-            return self.move_helper.on_enter();
+            return self.move_helper.on_enter_with_ai(ai);
         }
 
         Ok(StateReturnType::Success)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        self.move_helper.update()
+    fn dock_on_update(
+        &mut self,
+        _context: &mut DockContext,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
+        self.move_helper
+            .update_with_ai(ai.ok_or("dock move missing borrowed AI")?)
     }
 
-    fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
-        self.move_helper.on_exit(exit)
+    fn dock_on_exit(
+        &mut self,
+        exit: StateExitType,
+        ai: Option<&mut dyn AIUpdateInterface>,
+    ) -> Result<(), String> {
+        self.move_helper
+            .on_exit_with_ai(exit, ai.ok_or("dock move missing borrowed AI")?)
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn dock_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         self.move_helper.xfer(xfer)
-    }
-
-    fn classic_is_busy(&self) -> bool {
-        true
     }
 }
 
@@ -1549,3 +1522,7 @@ impl DroneInfo {
             .and_then(|id| crate::object::registry::OBJECT_REGISTRY.get_object(id))
     }
 }
+
+#[cfg(test)]
+#[path = "dock_owner_tests.rs"]
+mod owner_tests;

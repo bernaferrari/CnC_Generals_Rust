@@ -178,6 +178,8 @@ impl StateTransitionUserData {
 #[derive(Debug, Clone)]
 pub struct StateConditionInfo {
     pub test: StateTransFuncPtr,
+    owner_test:
+        Option<fn(&dyn StateImplementation, &StateTransitionUserData, &mut dyn Any) -> bool>,
     pub to_state_id: StateId,
     pub user_data: StateTransitionUserData,
     pub description: String,
@@ -192,9 +194,25 @@ impl StateConditionInfo {
     ) -> Self {
         Self {
             test,
+            owner_test: None,
             to_state_id,
             user_data,
             description: description.to_string(),
+        }
+    }
+    /// Conditional transition reading the owner loaned to this same step.
+    pub(crate) fn with_owner_test(
+        mut self,
+        test: fn(&dyn StateImplementation, &StateTransitionUserData, &mut dyn Any) -> bool,
+    ) -> Self {
+        self.owner_test = Some(test);
+        self
+    }
+
+    fn evaluate(&self, state: &dyn StateImplementation, owner: &mut dyn Any) -> bool {
+        match self.owner_test {
+            Some(test) => test(state, &self.user_data, owner),
+            None => (self.test)(state, &self.user_data),
         }
     }
 }
@@ -242,6 +260,20 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
     /// Evacuate freezes transitions. The step already holds this machine.
     fn locks_machine(&self) -> bool {
         false
+    }
+
+    /// A state may release a transition lock even if it did not acquire it.
+    fn unlocks_machine_on_exit(&self) -> bool {
+        self.locks_machine()
+    }
+
+    /// C++ docking exits notify the dock, unlock, then finish movement.
+    fn on_exit_after_unlock(
+        &mut self,
+        _status: StateExitType,
+        _ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        _owner: &mut dyn Any,
+    ) {
     }
 
     /// Goal to restore when a locked state exits. `None` leaves the machine alone.
@@ -302,6 +334,41 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
         _machine_locked: bool,
     ) -> StateReturnType {
         self.update_with_ai(ai)
+    }
+
+    /// Combined borrow for an AI-owned child machine with additional local state.
+    /// Defaults preserve existing AI-only dispatch, including waypoint handling.
+    fn update_with_ai_and_owner(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        machine_locked: bool,
+        _owner: &mut dyn Any,
+    ) -> StateReturnType {
+        self.update_with_ai_held(ai, machine_locked)
+    }
+
+    fn on_enter_with_ai_and_owner(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        goal_id: crate::common::ObjectID,
+        goal_pos: Coord3D,
+        waypoint: Option<WaypointId>,
+        _owner: &mut dyn Any,
+    ) -> StateReturnType {
+        self.on_enter_with_waypoint(ai, goal_id, goal_pos, waypoint)
+    }
+
+    fn on_exit_with_owner(&mut self, status: StateExitType, _owner: &mut dyn Any) {
+        self.on_exit(status);
+    }
+
+    fn on_exit_with_ai_and_owner(
+        &mut self,
+        status: StateExitType,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        _owner: &mut dyn Any,
+    ) {
+        self.on_exit_with_ai(status, ai);
     }
 
     /// Owner already known because this step holds the machine.
@@ -581,7 +648,11 @@ impl State {
             .machine
             .as_ref()
             .and_then(|weak| weak.upgrade())
-            .and_then(|arc| arc.try_lock().ok().and_then(|guard| guard.get_goal_polygon()))
+            .and_then(|arc| {
+                arc.try_lock()
+                    .ok()
+                    .and_then(|guard| guard.get_goal_polygon())
+            })
         {
             return Some(polygon);
         }
@@ -911,6 +982,14 @@ impl StateMachine {
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> StateReturnType {
+        self.update_with_ai_and_owner(ai, &mut ())
+    }
+
+    pub(crate) fn update_with_ai_and_owner(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        owner: &mut dyn Any,
+    ) -> StateReturnType {
         let now = self.get_current_frame();
         if self.sleep_till != 0 && now < self.sleep_till {
             if self.current_state_id.is_none() {
@@ -920,7 +999,7 @@ impl StateMachine {
             return self.check_for_sleep_transitions_ai(
                 StateReturnType::Sleep(self.sleep_till.wrapping_sub(now)),
                 Some(ai),
-                &mut (),
+                owner,
             );
         }
 
@@ -957,7 +1036,7 @@ impl StateMachine {
                 state.bind_goal_squad(goal_squad);
                 state.bind_goal_polygon(goal_polygon);
                 state.bind_goal_waypoint(goal_waypoint);
-                state.update_with_ai_held(ai, machine_locked)
+                state.update_with_ai_and_owner(ai, machine_locked, owner)
             };
             if let Some(state_id) = self.current_state_id {
                 if let Some((pos, clear_object)) = self
@@ -988,11 +1067,11 @@ impl StateMachine {
                 return self.check_for_sleep_transitions_ai(
                     StateReturnType::Sleep(self.sleep_till.wrapping_sub(now)),
                     Some(ai),
-                    &mut (),
+                    owner,
                 );
             }
 
-            return self.check_for_transitions_ai(status, Some(ai), &mut ());
+            return self.check_for_transitions_ai(status, Some(ai), owner);
         }
 
         StateReturnType::Failure
@@ -1077,7 +1156,10 @@ impl StateMachine {
     /// [`init_default_state`](Self::init_default_state) with the owner AI loaned
     /// to the entering default state (see
     /// [`StateImplementation::on_enter_with_owner`]).
-    pub fn init_default_state_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
+    pub fn init_default_state_with_owner(
+        &mut self,
+        owner: &mut dyn std::any::Any,
+    ) -> StateReturnType {
         if self.default_state_inited {
             return StateReturnType::Failure;
         }
@@ -1088,6 +1170,18 @@ impl StateMachine {
 
         self.default_state_inited = true;
         self.set_state_entering_with_owner(self.default_state_id, owner)
+    }
+
+    pub(crate) fn init_default_state_with_ai_and_owner(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        owner: &mut dyn Any,
+    ) -> StateReturnType {
+        if self.default_state_inited || self.default_state_id == INVALID_STATE_ID {
+            return StateReturnType::Failure;
+        }
+        self.default_state_inited = true;
+        self.set_state_entering_impl(self.default_state_id, Some(ai), owner)
     }
 
     /// Change the current state of the machine
@@ -1166,20 +1260,34 @@ impl StateMachine {
             let outgoing_locks = self
                 .state_map
                 .get(&current_id)
-                .is_some_and(|state| state.locks_machine());
+                .is_some_and(|state| state.unlocks_machine_on_exit());
             let restore = self
                 .state_map
                 .get(&current_id)
                 .and_then(|state| state.exit_restore_goal());
             if let Some(current_state) = self.state_map.get_mut(&current_id) {
                 if let Some(ref mut ai_ref) = ai {
-                    current_state.on_exit_with_ai(StateExitType::Normal, &mut **ai_ref);
+                    current_state.on_exit_with_ai_and_owner(
+                        StateExitType::Normal,
+                        &mut **ai_ref,
+                        owner,
+                    );
                 } else {
-                    current_state.on_exit(StateExitType::Normal);
+                    current_state.on_exit_with_owner(StateExitType::Normal, owner);
                 }
             }
             if outgoing_locks {
                 self.unlock();
+            }
+            if let Some(current_state) = self.state_map.get_mut(&current_id) {
+                match ai.as_mut() {
+                    Some(ai) => current_state.on_exit_after_unlock(
+                        StateExitType::Normal,
+                        Some(&mut **ai),
+                        owner,
+                    ),
+                    None => current_state.on_exit_after_unlock(StateExitType::Normal, None, owner),
+                }
             }
             if let Some(origin) = restore {
                 self.unlock();
@@ -1231,7 +1339,13 @@ impl StateMachine {
                 new_state.bind_goal_polygon(goal_polygon);
                 new_state.bind_goal_waypoint(waypoint);
                 if let Some(ref mut ai_ref) = ai {
-                    new_state.on_enter_with_waypoint(&mut **ai_ref, goal_id, goal_pos, waypoint)
+                    new_state.on_enter_with_ai_and_owner(
+                        &mut **ai_ref,
+                        goal_id,
+                        goal_pos,
+                        waypoint,
+                        owner,
+                    )
                 } else {
                     new_state.on_enter_with_owner(owner)
                 }
@@ -1324,11 +1438,11 @@ impl StateMachine {
             StateReturnType::Continue => self.check_condition_transitions_ai(&meta, ai, owner),
             _ if status.is_success() => match meta.success_state_id {
                 EXIT_MACHINE_WITH_SUCCESS => {
-                    let _ = self.internal_set_state(MACHINE_DONE_STATE_ID);
+                    let _ = self.set_state_entering_impl(MACHINE_DONE_STATE_ID, ai, owner);
                     StateReturnType::Success
                 }
                 EXIT_MACHINE_WITH_FAILURE => {
-                    let _ = self.internal_set_state(MACHINE_DONE_STATE_ID);
+                    let _ = self.set_state_entering_impl(MACHINE_DONE_STATE_ID, ai, owner);
                     StateReturnType::Failure
                 }
                 INVALID_STATE_ID => status,
@@ -1336,11 +1450,11 @@ impl StateMachine {
             },
             _ if status.is_failure() => match meta.failure_state_id {
                 EXIT_MACHINE_WITH_SUCCESS => {
-                    let _ = self.internal_set_state(MACHINE_DONE_STATE_ID);
+                    let _ = self.set_state_entering_impl(MACHINE_DONE_STATE_ID, ai, owner);
                     StateReturnType::Success
                 }
                 EXIT_MACHINE_WITH_FAILURE => {
-                    let _ = self.internal_set_state(MACHINE_DONE_STATE_ID);
+                    let _ = self.set_state_entering_impl(MACHINE_DONE_STATE_ID, ai, owner);
                     StateReturnType::Failure
                 }
                 INVALID_STATE_ID => status,
@@ -1413,7 +1527,7 @@ impl StateMachine {
             return StateReturnType::Failure;
         };
         for transition in &meta.transitions {
-            if (transition.test)(state.as_ref(), &transition.user_data) {
+            if transition.evaluate(state.as_ref(), owner) {
                 return match transition.to_state_id {
                     EXIT_MACHINE_WITH_SUCCESS => StateReturnType::Success,
                     EXIT_MACHINE_WITH_FAILURE => StateReturnType::Failure,
@@ -1439,7 +1553,7 @@ impl StateMachine {
         };
 
         for transition in &meta.transitions {
-            if (transition.test)(state.as_ref(), &transition.user_data) {
+            if transition.evaluate(state.as_ref(), owner) {
                 return match transition.to_state_id {
                     EXIT_MACHINE_WITH_SUCCESS => StateReturnType::Success,
                     EXIT_MACHINE_WITH_FAILURE => StateReturnType::Failure,
@@ -2206,3 +2320,7 @@ mod tests {
         assert_eq!(result, StateReturnType::Failure);
     }
 }
+
+#[cfg(test)]
+#[path = "state_machine_owner_transition_tests.rs"]
+mod owner_transition_tests;

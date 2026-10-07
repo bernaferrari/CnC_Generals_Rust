@@ -22,6 +22,24 @@ mod body_rubble_tests;
 #[cfg(test)]
 mod authored_armor_tests;
 
+/// Retains the one installed module while its callback releases the Object
+/// borrow. No dock state is copied or reconstructed.
+#[derive(Clone)]
+pub(crate) struct DockUpdateHandle {
+    entry: Arc<ModuleEntry>,
+}
+
+impl DockUpdateHandle {
+    pub(crate) fn with_dock<R>(
+        &self,
+        f: impl FnOnce(&mut dyn DockUpdateInterface) -> R,
+    ) -> Option<R> {
+        self.entry.with_module(|module| {
+            module_dock_update_kind(module).map(|kind| f(kind.into_dock_interface()))
+        })
+    }
+}
+
 impl Object {
     // Module access
     pub fn get_body_module(&self) -> Option<Arc<Mutex<dyn BodyModuleInterface>>> {
@@ -133,6 +151,15 @@ impl Object {
                 }
             });
         }
+    }
+
+    pub(crate) fn dock_update_handle(&self) -> Option<DockUpdateHandle> {
+        self.modules
+            .iter()
+            .find(|entry| entry.has_dock_update)
+            .map(|entry| DockUpdateHandle {
+                entry: Arc::clone(entry),
+            })
     }
 
     /// Invoke a callback with the first dock update interface found.

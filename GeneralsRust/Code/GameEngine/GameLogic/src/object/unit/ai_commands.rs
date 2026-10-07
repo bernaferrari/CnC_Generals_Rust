@@ -1066,14 +1066,17 @@ impl UnitAIUpdate {
                     }
 
                     let owner_object = guard.base_arc();
-                    let dock_machine =
-                        AIDockMachine::new(owner_object.clone()).map_err(|err| err.to_string())?;
-                    if let Ok(mut machine) = dock_machine.state_machine.lock() {
-                        machine.set_goal_object_by_id(target_arc.read().ok().map(|g| g.get_id()));
-                        let _ = machine.init_default_state();
+                    drop(guard);
+                    let mut dock_machine =
+                        AIDockMachine::new(owner_object).map_err(|err| err.to_string())?;
+                    let goal_id = target_arc.read().ok().map(|goal| goal.get_id());
+                    if let Some(goal_id) = goal_id {
+                        let _ = dock_machine.start_with_ai(goal_id, self);
                     }
                     let _ = self.set_can_path_through_units(true);
                     self.dock_machine = Some(dock_machine);
+                    self.finish_command_worker_side_effects();
+                    return Ok(());
                 }
             }
             crate::ai::AiCommandType::ExecuteRailedTransport => {
@@ -1261,15 +1264,17 @@ impl UnitAIUpdate {
                         }
 
                         let owner_object = guard.base_arc();
-                        let dock_machine = AIDockMachine::new(owner_object.clone())
-                            .map_err(|err| err.to_string())?;
-                        if let Ok(mut machine) = dock_machine.state_machine.lock() {
-                            machine
-                                .set_goal_object_by_id(target_arc.read().ok().map(|g| g.get_id()));
-                            let _ = machine.init_default_state();
+                        drop(guard);
+                        let mut dock_machine =
+                            AIDockMachine::new(owner_object).map_err(|err| err.to_string())?;
+                        let goal_id = target_arc.read().ok().map(|goal| goal.get_id());
+                        if let Some(goal_id) = goal_id {
+                            let _ = dock_machine.start_with_ai(goal_id, self);
                         }
                         let _ = self.set_can_path_through_units(true);
                         self.dock_machine = Some(dock_machine);
+                        self.finish_command_worker_side_effects();
+                        return Ok(());
                     }
                 }
             }

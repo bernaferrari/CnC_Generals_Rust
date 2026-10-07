@@ -1032,11 +1032,7 @@ impl UnitAIUpdate {
         }
 
         if let Some(mut dock_machine) = self.dock_machine.take() {
-            let update_result = dock_machine
-                .state_machine
-                .lock()
-                .map(|mut machine| machine.update())
-                .unwrap_or(crate::state_machine::StateReturnType::Failure);
+            let update_result = dock_machine.update_with_ai(self);
 
             match update_result.convert_sleep_to_continue() {
                 crate::state_machine::StateReturnType::Continue
