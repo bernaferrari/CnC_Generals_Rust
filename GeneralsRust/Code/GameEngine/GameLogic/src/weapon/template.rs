@@ -1386,11 +1386,31 @@ impl WeaponTemplate {
             return primary_damage;
         };
 
+        self.estimate_weapon_template_damage_for_object(source_id, &victim_guard, bonus)
+    }
+
+    pub(crate) fn estimate_weapon_template_damage_for_objects(
+        &self,
+        source_id: crate::common::ObjectID,
+        victim: &crate::object::Object,
+        bonus: &WeaponBonus,
+    ) -> f32 {
+        self.estimate_weapon_template_damage_for_object(source_id, victim, bonus)
+    }
+
+    fn estimate_weapon_template_damage_for_object(
+        &self,
+        source_id: crate::common::ObjectID,
+        victim_guard: &crate::object::Object,
+        bonus: &WeaponBonus,
+    ) -> f32 {
+        let primary_damage = self.get_primary_damage(bonus);
+
         if let Some(special) = estimate_weapon_targetability_specials(
             self.damage_type,
             self.death_type,
             self.allow_attack_garrisoned_bldgs,
-            &*victim_guard,
+            victim_guard,
         ) {
             return special;
         }

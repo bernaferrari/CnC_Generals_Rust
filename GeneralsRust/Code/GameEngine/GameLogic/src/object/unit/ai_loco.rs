@@ -2027,13 +2027,9 @@ impl UnitAIUpdate {
             return 0;
         }
 
-        let Some(unit_arc) = get_unit_arc(self.unit_id) else {
+        let Some(owner_arc) = self.owner.as_ref().and_then(Weak::upgrade) else {
             return 0;
         };
-        let Ok(unit_guard) = unit_arc.read() else {
-            return 0;
-        };
-        let owner_arc = unit_guard.base_arc();
         let Ok(owner_guard) = owner_arc.read() else {
             return 0;
         };
@@ -2072,20 +2068,15 @@ impl UnitAIUpdate {
         value
     }
     pub(super) fn get_mood_matrix_action_adjustment(&mut self, action: MoodMatrixAction) -> u32 {
-        let Some(unit_arc) = get_unit_arc(self.unit_id) else {
+        let Some(owner_arc) = self.owner.as_ref().and_then(Weak::upgrade) else {
             return mood_matrix_adjustment::ACTION_OK;
         };
-        let Ok(unit_guard) = unit_arc.read() else {
-            return mood_matrix_adjustment::ACTION_OK;
-        };
-        let owner_arc = unit_guard.base_arc();
-        let Ok(owner_guard) = owner_arc.read() else {
-            return mood_matrix_adjustment::ACTION_OK;
-        };
-
-        // Mirror C++ mob-member special case that ignores mood conversions.
-        if owner_guard.is_kind_of(KindOf::Infantry) && owner_guard.is_kind_of(KindOf::IgnoredInGui)
-        {
+        // C++ mob-member special case. Release this read before calculating
+        // controller/mood through the same bound Object.
+        let is_mob_member = owner_arc.read().ok().is_some_and(|owner| {
+            owner.is_kind_of(KindOf::Infantry) && owner.is_kind_of(KindOf::IgnoredInGui)
+        });
+        if is_mob_member {
             return mood_matrix_adjustment::ACTION_OK;
         }
 

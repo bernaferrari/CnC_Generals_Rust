@@ -587,15 +587,31 @@ impl AIStateMachine {
 
     /// Clear the state machine
     pub fn clear(&mut self) {
+        self.clear_impl(None);
+    }
+
+    pub(crate) fn clear_with_ai(&mut self, ai: &mut dyn crate::modules::AIUpdateInterface) {
+        self.clear_impl(Some(ai));
+    }
+
+    fn clear_impl(&mut self, mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>) {
         // C++ AIStateMachine::clear() calls StateMachine::clear(), not reset().
-        self.base.clear();
+        if let Some(ai) = ai.as_deref_mut() {
+            self.base.clear_with_ai(ai);
+        } else {
+            self.base.clear();
+        }
         self.goal_path.clear();
         self.goal_waypoint = None;
         self.goal_squad = None;
         self.goal_polygon = None;
         self.base.set_goal_squad(None);
         self.base.set_goal_polygon(None);
-        self.notify_state_machine_changed();
+        if let Some(ai) = ai {
+            ai.set_queue_for_path_time(0);
+        } else {
+            self.notify_state_machine_changed();
+        }
     }
 
     /// Reset to default state

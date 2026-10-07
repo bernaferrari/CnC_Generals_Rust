@@ -1182,6 +1182,21 @@ impl Object {
         self.choose_best_weapon_for_target_id(target.get_id(), criteria, cmd_source)
     }
 
+    /// Command entry already holds this Object and its AI runtime. Select
+    /// through those exact borrows, then change only the chosen weapon slot.
+    pub(crate) fn choose_best_weapon_for_target_with_ai(
+        &mut self,
+        target: &Object,
+        criteria: WeaponChoiceCriteria,
+        cmd_source: CommandSourceType,
+        ai: &dyn crate::modules::AIUpdateInterface,
+    ) -> bool {
+        let selection =
+            self.weapon_set
+                .select_weapon_for_objects(self, target, criteria, cmd_source, Some(ai));
+        self.weapon_set.apply_weapon_selection(selection)
+    }
+
     pub fn choose_best_weapon_for_target_id(
         &mut self,
         target_id: ObjectID,
@@ -1362,6 +1377,24 @@ impl Object {
             cmd_source,
             None,
         )
+    }
+
+    /// Evaluate eligibility on the Objects already held by an AI transition.
+    /// C++ WeaponSet takes these same Object pointers throughout the query.
+    pub(crate) fn get_able_to_attack_specific_object_for_objects(
+        &self,
+        attack_type: AbleToAttackType,
+        target: &Object,
+        cmd_source: CommandSourceType,
+    ) -> CanAttackResult {
+        self.weapon_set
+            .get_able_to_attack_specific_object_for_objects(
+                attack_type,
+                self,
+                target,
+                cmd_source,
+                None,
+            )
     }
 
     pub fn get_able_to_use_weapon_against_target(

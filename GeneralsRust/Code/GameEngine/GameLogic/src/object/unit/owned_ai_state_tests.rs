@@ -17,6 +17,12 @@ use std::sync::{Arc, Mutex, RwLock};
 #[path = "owned_ai_reset_tests.rs"]
 mod reset_tests;
 
+#[path = "factory_command_owner_tests.rs"]
+mod factory_command_owner_tests;
+
+#[path = "expired_command_owner_tests.rs"]
+mod expired_command_owner_tests;
+
 fn child(name: &str) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {

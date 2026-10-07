@@ -304,6 +304,31 @@ impl Weapon {
             || (min_pitch <= min_target && max_pitch >= max_target)
     }
 
+    pub(crate) fn is_within_target_pitch_for_objects(
+        &self,
+        source: &crate::object::Object,
+        target: &crate::object::Object,
+    ) -> bool {
+        if self.is_contact_weapon() || !self.pitch_limited {
+            return true;
+        }
+        let source_pos = source.get_position();
+        let target_pos = target.get_position();
+        if (target_pos.z - source_pos.z).abs() < 10.0 {
+            return true;
+        }
+        let (min_pitch, max_pitch) = source.get_geometry_info().calc_pitches(
+            source_pos,
+            target.get_geometry_info(),
+            target_pos,
+        );
+        let min_target = self.template.min_target_pitch;
+        let max_target = self.template.max_target_pitch;
+        (min_pitch >= min_target && min_pitch <= max_target)
+            || (max_pitch >= min_target && max_pitch <= max_target)
+            || (min_pitch <= min_target && max_pitch >= max_target)
+    }
+
     /// Fire weapon at target object
     pub fn fire_weapon_at_object(
         &mut self,
@@ -711,6 +736,32 @@ impl Weapon {
         )
     }
 
+    pub(crate) fn estimate_weapon_damage_for_objects(
+        &self,
+        source: &crate::object::Object,
+        target: &crate::object::Object,
+    ) -> f32 {
+        if self.get_status() == WeaponStatus::OutOfAmmo && !self.template.get_auto_reloads_clip() {
+            return 0.0;
+        }
+        let bonus = self.compute_bonus_for_object(source);
+        self.template
+            .estimate_weapon_template_damage_for_objects(source.get_id(), target, &bonus)
+    }
+
+    pub(crate) fn get_attack_range_for_object(&self, source: &crate::object::Object) -> f32 {
+        self.template
+            .get_attack_range(&self.compute_bonus_for_object(source))
+    }
+
+    pub(crate) fn compute_bonus_for_object(&self, source: &crate::object::Object) -> WeaponBonus {
+        let mut flags = map_common_bonus_flags(source.get_weapon_bonus_condition());
+        let inherited =
+            super::weapon_bonus::container_passenger_bonus_flags(source.get_contained_by());
+        flags.union(map_common_bonus_flags(inherited));
+        self.bonus_from_flags(flags)
+    }
+
     /// Get the attack distance including object bounding radii.
     ///
     /// Matches C++ Weapon::getAttackDistance() from Weapon.cpp line 2352.
@@ -800,6 +851,41 @@ impl Weapon {
             return false;
         }
 
+        dist_sqr <= attack_range * attack_range
+    }
+
+    /// Goal-position range test using the Objects already borrowed by the
+    /// synchronous caller. Mirrors the ID form without reacquiring either one.
+    pub(crate) fn is_source_object_with_goal_position_within_attack_range_for_objects(
+        &self,
+        source: &crate::object::Object,
+        goal_pos: &Coord3D,
+        target: Option<&crate::object::Object>,
+        target_pos: Option<&Coord3D>,
+    ) -> bool {
+        let source_radius = source.get_geometry_info().get_bounding_circle_radius();
+        let (target_position, target_radius) = if let Some(target) = target {
+            (
+                *target.get_position(),
+                target.get_geometry_info().get_bounding_circle_radius(),
+            )
+        } else if let Some(pos) = target_pos {
+            (*pos, 0.0)
+        } else {
+            return false;
+        };
+
+        let dx = goal_pos.x - target_position.x;
+        let dy = goal_pos.y - target_position.y;
+        let center_dist = (dx * dx + dy * dy).sqrt();
+        let boundary_dist = (center_dist - source_radius - target_radius).max(0.0);
+        let dist_sqr = boundary_dist * boundary_dist;
+        let bonus = self.compute_bonus_for_object(source);
+        let attack_range = self.template.get_attack_range(&bonus);
+        let min_attack_range = self.template.get_minimum_attack_range();
+        if dist_sqr < min_attack_range * min_attack_range {
+            return false;
+        }
         dist_sqr <= attack_range * attack_range
     }
 

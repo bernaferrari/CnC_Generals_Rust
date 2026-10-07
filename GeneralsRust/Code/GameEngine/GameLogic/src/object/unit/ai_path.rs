@@ -733,7 +733,7 @@ impl UnitAIUpdate {
     }
     pub(super) fn clip_goal_position(
         &self,
-        guard: &Unit,
+        owner: &Arc<RwLock<crate::object::Object>>,
         mut pos: Coord3D,
         cmd_source: CommandSourceType,
     ) -> Coord3D {
@@ -742,20 +742,8 @@ impl UnitAIUpdate {
         }
 
         let mut fudge = PATHFIND_CELL_SIZE_F * 0.5;
-        let is_aircraft = guard
-            .base_arc()
-            .read()
-            .ok()
-            .map(|obj| obj.is_kind_of(KindOf::Aircraft))
-            .unwrap_or(false);
-        if is_aircraft {
-            let above_terrain = guard
-                .base_arc()
-                .read()
-                .ok()
-                .map(|obj| obj.is_significantly_above_terrain())
-                .unwrap_or(false);
-            if above_terrain {
+        if let Ok(object) = owner.read() {
+            if object.is_kind_of(KindOf::Aircraft) && object.is_significantly_above_terrain() {
                 let preferred = self
                     .locomotor_set
                     .get_active()

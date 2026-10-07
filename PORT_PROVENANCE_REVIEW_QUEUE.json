@@ -52830,6 +52830,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_command_owner.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_commands.rs"
             },
             {
@@ -52881,6 +52886,16 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/command_idle_query_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/expired_command_owner_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_command_owner_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -188983,7 +188998,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "b622beb0f133844b3bb4ba07a3dfdb40a7362dc348077a6b48a8ed9ea02154e8",
+  "provenance_input_digest": "e7b7a580c2b3c740c414667f31419d21ab5e9c32173019c617fb5035cdfe191e",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

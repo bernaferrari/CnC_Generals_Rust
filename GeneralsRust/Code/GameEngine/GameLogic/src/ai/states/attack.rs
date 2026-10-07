@@ -1033,10 +1033,23 @@ impl AIAttackObjectState {
                 .ok_or_else(|| "attack object state missing machine owner".to_string())?
         };
 
-        // C++ lines 5474-5478: Mood matrix sleep mode check
+        // C++ lines 5474-5478 read the live AI mood during command entry.
+        let attack_ok = match ai.as_deref_mut() {
+            Some(ai) => {
+                (ai.get_mood_matrix_action_adjustment(MoodMatrixAction::Attack)
+                    & crate::ai::mood_matrix_adjustment::ACTION_OK)
+                    != 0
+            }
+            None => {
+                owner
+                    .read()
+                    .map_err(|_| "lock poisoned".to_string())?
+                    .ai_fire_attack_ok
+            }
+        };
         {
             let owner_guard = owner.read().map_err(|_| "lock poisoned".to_string())?;
-            if !owner_guard.ai_fire_attack_ok {
+            if !attack_ok {
                 return Ok(StateReturnType::Success);
             }
 
@@ -1081,26 +1094,39 @@ impl AIAttackObjectState {
         }
 
         // Set original victim pos on AI
-        if let Ok(mut owner_guard) = owner.write() {
+        if let Some(ai) = ai.as_deref_mut() {
+            ai.set_original_victim_pos(Some(self.original_victim_pos));
+        } else if let Ok(mut owner_guard) = owner.write() {
             owner_guard.ai_pending_original_victim_pos = Some(Some(self.original_victim_pos));
         }
 
         // C++ lines 5525-5527: Choose weapon
-        let cmd_source = {
-            let Ok(owner_guard) = owner.read() else {
-                return Ok(StateReturnType::Failure);
-            };
-            owner_guard.ai_fire_last_command_source
+        let cmd_source = match ai.as_deref_mut() {
+            Some(ai) => ai.get_last_command_source(),
+            None => {
+                let Ok(owner_guard) = owner.read() else {
+                    return Ok(StateReturnType::Failure);
+                };
+                owner_guard.ai_fire_last_command_source
+            }
         };
 
         {
             let target_guard = target.read().map_err(|_| "lock poisoned".to_string())?;
             let mut owner_guard = owner.write().map_err(|_| "lock poisoned".to_string())?;
-            let weapon_found = owner_guard.choose_best_weapon_for_target(
-                &*target_guard,
-                WeaponChoiceCriteria::PreferMostDamage,
-                cmd_source,
-            );
+            let weapon_found = match ai.as_deref_mut() {
+                Some(ai) => owner_guard.choose_best_weapon_for_target_with_ai(
+                    &target_guard,
+                    WeaponChoiceCriteria::PreferMostDamage,
+                    cmd_source,
+                    ai,
+                ),
+                None => owner_guard.choose_best_weapon_for_target(
+                    &target_guard,
+                    WeaponChoiceCriteria::PreferMostDamage,
+                    cmd_source,
+                ),
+            };
             if !weapon_found {
                 return Ok(StateReturnType::Failure);
             }

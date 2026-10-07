@@ -14,30 +14,32 @@ use crate::damage::DamageType;
 /// Exclusive victim anti-mask. Do not reuse `Object::get_anti_mask`.
 pub fn get_victim_anti_mask(victim_id: ObjectID) -> u32 {
     crate::object::registry::OBJECT_REGISTRY
-        .with_object(victim_id, |victim| {
-            if victim.is_kind_of(KindOf::SmallMissile) {
-                WeaponAntiMask::SMALL_MISSILE
-            } else if victim.is_kind_of(KindOf::BallisticMissile) {
-                WeaponAntiMask::BALLISTIC_MISSILE
-            } else if victim.is_kind_of(KindOf::Projectile) {
-                WeaponAntiMask::PROJECTILE
-            } else if victim.is_kind_of(KindOf::Mine) || victim.is_kind_of(KindOf::Demotrap) {
-                WeaponAntiMask::MINE | WeaponAntiMask::GROUND
-            } else if victim.is_airborne_target() {
-                if victim.is_kind_of(KindOf::Vehicle) {
-                    WeaponAntiMask::AIRBORNE_VEHICLE
-                } else if victim.is_kind_of(KindOf::Infantry) {
-                    WeaponAntiMask::AIRBORNE_INFANTRY
-                } else if victim.is_kind_of(KindOf::Parachute) {
-                    WeaponAntiMask::PARACHUTE
-                } else {
-                    0
-                }
-            } else {
-                WeaponAntiMask::GROUND
-            }
-        })
+        .with_object(victim_id, get_victim_anti_mask_for_object)
         .unwrap_or(WeaponAntiMask::GROUND)
+}
+
+pub(super) fn get_victim_anti_mask_for_object(victim: &crate::object::Object) -> u32 {
+    if victim.is_kind_of(KindOf::SmallMissile) {
+        WeaponAntiMask::SMALL_MISSILE
+    } else if victim.is_kind_of(KindOf::BallisticMissile) {
+        WeaponAntiMask::BALLISTIC_MISSILE
+    } else if victim.is_kind_of(KindOf::Projectile) {
+        WeaponAntiMask::PROJECTILE
+    } else if victim.is_kind_of(KindOf::Mine) || victim.is_kind_of(KindOf::Demotrap) {
+        WeaponAntiMask::MINE | WeaponAntiMask::GROUND
+    } else if victim.is_airborne_target() {
+        if victim.is_kind_of(KindOf::Vehicle) {
+            WeaponAntiMask::AIRBORNE_VEHICLE
+        } else if victim.is_kind_of(KindOf::Infantry) {
+            WeaponAntiMask::AIRBORNE_INFANTRY
+        } else if victim.is_kind_of(KindOf::Parachute) {
+            WeaponAntiMask::PARACHUTE
+        } else {
+            0
+        }
+    } else {
+        WeaponAntiMask::GROUND
+    }
 }
 
 impl WeaponSet {
@@ -59,7 +61,7 @@ impl WeaponSet {
         let Some(legality) =
             crate::object::registry::OBJECT_REGISTRY.with_object(source_obj, |source| {
                 crate::object::registry::OBJECT_REGISTRY.with_object(target_obj, |victim| {
-                    attack_object_legality(source, victim, attack_type, command_source)
+                    attack_object_legality(source, victim, attack_type, command_source, None)
                 })
             })
         else {
@@ -74,14 +76,67 @@ impl WeaponSet {
 
         let victim_pos =
             crate::object::registry::OBJECT_REGISTRY.with_object(target_obj, |v| *v.get_position());
-        self.get_able_to_use_weapon_against_target(
+        self.get_able_to_use_weapon_against_target_inner(
             attack_type,
             source_obj,
             Some(target_obj),
             victim_pos.as_ref(),
             command_source,
             specific_slot,
+            None,
         )
+    }
+
+    /// C++ pointer overload with the source and victim already borrowed by
+    /// the calling state transition. No owner/target registry reacquisition.
+    pub(crate) fn get_able_to_attack_specific_object_for_objects(
+        &self,
+        attack_type: AbleToAttackType,
+        source: &crate::object::Object,
+        target: &crate::object::Object,
+        command_source: CommandSourceType,
+        specific_slot: Option<WeaponSlotType>,
+    ) -> CanAttackResult {
+        if dual_world_registry_unavailable() {
+            return CanAttackResult::NotPossible;
+        }
+        if source.get_id() == 0 || target.get_id() == 0 || source.get_id() == target.get_id() {
+            return CanAttackResult::NotPossible;
+        }
+        let legality = attack_object_legality(
+            source,
+            target,
+            attack_type,
+            command_source,
+            Some((source, target)),
+        );
+        if legality != CanAttackResult::Possible {
+            return legality;
+        }
+
+        self.get_able_to_use_weapon_against_target_inner(
+            attack_type,
+            source.get_id(),
+            Some(target.get_id()),
+            Some(target.get_position()),
+            command_source,
+            specific_slot,
+            Some((source, target)),
+        )
+    }
+
+    fn is_any_within_target_pitch_for_objects(
+        &self,
+        source: &crate::object::Object,
+        target: &crate::object::Object,
+    ) -> bool {
+        if !self.has_pitch_limit {
+            return true;
+        }
+        self.weapons
+            .iter()
+            .flatten()
+            .any(|weapon| weapon.is_within_target_pitch_for_objects(source, target))
     }
 
     pub fn get_able_to_use_weapon_against_target(
@@ -93,15 +148,43 @@ impl WeaponSet {
         command_source: CommandSourceType,
         specific_slot: Option<WeaponSlotType>,
     ) -> CanAttackResult {
+        self.get_able_to_use_weapon_against_target_inner(
+            attack_type,
+            source_obj,
+            target_obj,
+            target_pos,
+            command_source,
+            specific_slot,
+            None,
+        )
+    }
+
+    fn get_able_to_use_weapon_against_target_inner(
+        &self,
+        attack_type: AbleToAttackType,
+        source_obj: ObjectID,
+        target_obj: Option<ObjectID>,
+        target_pos: Option<&Coord3D>,
+        command_source: CommandSourceType,
+        specific_slot: Option<WeaponSlotType>,
+        objects: Option<(&crate::object::Object, &crate::object::Object)>,
+    ) -> CanAttackResult {
         if dual_world_registry_unavailable() {
             return CanAttackResult::NotPossible;
         }
 
         let (target_anti_mask, resolved_pos) = if let Some(target_id) = target_obj {
-            let pos = crate::object::registry::OBJECT_REGISTRY
-                .with_object(target_id, |obj| *obj.get_position())
-                .or_else(|| target_pos.copied());
-            (get_victim_anti_mask(target_id), pos)
+            if let Some((_, target)) = objects {
+                (
+                    get_victim_anti_mask_for_object(target),
+                    Some(*target.get_position()),
+                )
+            } else {
+                let pos = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(target_id, |obj| *obj.get_position())
+                    .or_else(|| target_pos.copied());
+                (get_victim_anti_mask(target_id), pos)
+            }
         } else {
             (WeaponAntiMask::GROUND, target_pos.copied())
         };
@@ -109,9 +192,14 @@ impl WeaponSet {
             return CanAttackResult::NotPossible;
         };
 
-        let contained_by = crate::object::registry::OBJECT_REGISTRY
-            .with_object(source_obj, |src| src.get_contained_by())
-            .flatten();
+        let contained_by = objects.map_or_else(
+            || {
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(source_obj, |src| src.get_contained_by())
+                    .flatten()
+            },
+            |(source, _)| source.get_contained_by(),
+        );
 
         let mut within_attack_range = false;
         let mut has_a_weapon = false;
@@ -125,26 +213,46 @@ impl WeaponSet {
                 // failed. C++ WeaponSet.cpp:631-647 does not fall through.
                 // Some(Some): fake-move range from that fire point.
                 match contained_by.and_then(|container_id| {
-                    garrison_fire_goal(container_id, source_obj, &resolved_pos)
+                    if let Some((source, target)) = objects {
+                        garrison_fire_goal_for_objects(container_id, source, target, &resolved_pos)
+                    } else {
+                        garrison_fire_goal(container_id, source_obj, &resolved_pos)
+                    }
                 }) {
                     Some(Some(goal)) => {
-                        within_attack_range = weapon
-                            .is_source_object_with_goal_position_within_attack_range(
+                        within_attack_range = if let Some((source, target)) = objects {
+                            weapon.is_source_object_with_goal_position_within_attack_range_for_objects(
+                                source,
+                                &goal,
+                                Some(target),
+                                Some(&resolved_pos),
+                            )
+                        } else {
+                            weapon.is_source_object_with_goal_position_within_attack_range(
                                 source_obj,
                                 &goal,
                                 target_obj,
                                 Some(&resolved_pos),
-                            );
+                            )
+                        };
                     }
                     Some(None) => {
                         within_attack_range = false;
                     }
                     None => {
-                        within_attack_range = weapon.is_within_attack_range(
-                            source_obj,
-                            target_obj,
-                            Some(&resolved_pos),
-                        );
+                        within_attack_range = if let Some((source, target)) = objects {
+                            weapon.is_within_attack_range_for_objects(
+                                source,
+                                Some(target),
+                                Some(&resolved_pos),
+                            )
+                        } else {
+                            weapon.is_within_attack_range(
+                                source_obj,
+                                target_obj,
+                                Some(&resolved_pos),
+                            )
+                        };
                     }
                 }
                 if within_attack_range {
@@ -153,13 +261,22 @@ impl WeaponSet {
             }
         }
 
-        let immobile_or_spawn_or_contained = crate::object::registry::OBJECT_REGISTRY
-            .with_object(source_obj, |src| {
-                src.is_kind_of(KindOf::Immobile)
-                    || src.is_kind_of(KindOf::SpawnsAreTheWeapons)
-                    || src.get_contained_by().is_some()
-            })
-            .unwrap_or(false);
+        let immobile_or_spawn_or_contained = objects.map_or_else(
+            || {
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(source_obj, |src| {
+                        src.is_kind_of(KindOf::Immobile)
+                            || src.is_kind_of(KindOf::SpawnsAreTheWeapons)
+                            || src.get_contained_by().is_some()
+                    })
+                    .unwrap_or(false)
+            },
+            |(source, _)| {
+                source.is_kind_of(KindOf::Immobile)
+                    || source.is_kind_of(KindOf::SpawnsAreTheWeapons)
+                    || source.get_contained_by().is_some()
+            },
+        );
         if immobile_or_spawn_or_contained
             && has_a_weapon
             && !has_a_weapon_in_range
@@ -182,7 +299,11 @@ impl WeaponSet {
                 return ok_result;
             }
             let victim_id = target_obj.unwrap();
-            if !self.is_any_within_target_pitch(source_obj, victim_id) {
+            let within_pitch = objects.map_or_else(
+                || self.is_any_within_target_pitch(source_obj, victim_id),
+                |(source, target)| self.is_any_within_target_pitch_for_objects(source, target),
+            );
+            if !within_pitch {
                 return CanAttackResult::InvalidShot;
             }
 
@@ -205,13 +326,28 @@ impl WeaponSet {
                     _ => WeaponSlotType::Tertiary,
                 };
                 if let Some(weapon) = self.get_weapon_in_slot(slot) {
-                    let damage =
-                        weapon.estimate_weapon_damage(source_obj, target_obj, Some(&resolved_pos));
+                    let damage = objects.map_or_else(
+                        || {
+                            weapon.estimate_weapon_damage(
+                                source_obj,
+                                target_obj,
+                                Some(&resolved_pos),
+                            )
+                        },
+                        |(source, target)| {
+                            weapon.estimate_weapon_damage_for_objects(source, target)
+                        },
+                    );
                     if damage != 0.0 {
                         if weapon.get_damage_type() == DamageType::KillPilot
-                            && crate::object::registry::OBJECT_REGISTRY
-                                .with_object(source_obj, |src| src.is_kind_of(KindOf::Hero))
-                                .unwrap_or(false)
+                            && objects.map_or_else(
+                                || {
+                                    crate::object::registry::OBJECT_REGISTRY
+                                        .with_object(source_obj, |src| src.is_kind_of(KindOf::Hero))
+                                        .unwrap_or(false)
+                                },
+                                |(source, _)| source.is_kind_of(KindOf::Hero),
+                            )
                             && self.current_weapon == WeaponSlotType::Primary
                             && specific_slot.is_none()
                         {
@@ -225,33 +361,68 @@ impl WeaponSet {
             }
         }
 
-        if let Some(passenger_result) = passenger_fire_result(
-            source_obj,
-            attack_type,
-            target_obj,
-            &resolved_pos,
-            command_source,
-        ) {
+        let passenger_result = objects.map_or_else(
+            || {
+                passenger_fire_result(
+                    source_obj,
+                    attack_type,
+                    target_obj,
+                    &resolved_pos,
+                    command_source,
+                )
+            },
+            |(source, target)| {
+                passenger_fire_result_for_objects(
+                    source,
+                    target,
+                    attack_type,
+                    &resolved_pos,
+                    command_source,
+                )
+            },
+        );
+        if let Some(passenger_result) = passenger_result {
             return passenger_result;
         }
 
-        if let Some(slave_result) = spawn_slave_result(
-            source_obj,
-            attack_type,
-            target_obj,
-            &resolved_pos,
-            command_source,
-        ) {
+        let slave_result = objects.map_or_else(
+            || {
+                spawn_slave_result(
+                    source_obj,
+                    attack_type,
+                    target_obj,
+                    &resolved_pos,
+                    command_source,
+                )
+            },
+            |(source, target)| {
+                spawn_slave_result_for_objects(
+                    source,
+                    target,
+                    attack_type,
+                    &resolved_pos,
+                    command_source,
+                )
+            },
+        );
+        if let Some(slave_result) = slave_result {
             // C++ WeaponSet.cpp:744 enters only when slaves return POSSIBLE.
             if slave_result == CanAttackResult::Possible {
-                if crate::object::registry::OBJECT_REGISTRY
-                    .with_object(source_obj, |src| {
-                        src.is_kind_of(KindOf::Immobile)
-                            && src.is_kind_of(KindOf::SpawnsAreTheWeapons)
-                            && ok_result == CanAttackResult::PossibleAfterMoving
-                    })
-                    .unwrap_or(false)
-                {
+                let source_is_immobile_spawn = objects.map_or_else(
+                    || {
+                        crate::object::registry::OBJECT_REGISTRY
+                            .with_object(source_obj, |src| {
+                                src.is_kind_of(KindOf::Immobile)
+                                    && src.is_kind_of(KindOf::SpawnsAreTheWeapons)
+                            })
+                            .unwrap_or(false)
+                    },
+                    |(source, _)| {
+                        source.is_kind_of(KindOf::Immobile)
+                            && source.is_kind_of(KindOf::SpawnsAreTheWeapons)
+                    },
+                );
+                if source_is_immobile_spawn && ok_result == CanAttackResult::PossibleAfterMoving {
                     ok_result = CanAttackResult::Possible;
                 }
                 return ok_result;
@@ -267,6 +438,7 @@ fn attack_object_legality(
     victim: &crate::object::Object,
     attack_type: AbleToAttackType,
     command_source: CommandSourceType,
+    objects: Option<(&crate::object::Object, &crate::object::Object)>,
 ) -> CanAttackResult {
     use crate::common::ObjectStatusTypes;
 
@@ -331,7 +503,7 @@ fn attack_object_legality(
     }
 
     if let Some(container_id) = victim.get_contained_by() {
-        if container_encloses(container_id, victim) {
+        if container_encloses(container_id, victim, objects) {
             return CanAttackResult::NotPossible;
         }
     }
@@ -394,18 +566,37 @@ fn disguised_as_non_enemy(source: &crate::object::Object, victim: &crate::object
     our_guard.get_relationship_with_team(&team_guard) != Relationship::Enemies
 }
 
-fn container_encloses(container_id: ObjectID, victim: &crate::object::Object) -> bool {
+fn container_encloses(
+    container_id: ObjectID,
+    victim: &crate::object::Object,
+    objects: Option<(&crate::object::Object, &crate::object::Object)>,
+) -> bool {
+    if let Some((source, target)) = objects {
+        if source.get_id() == container_id {
+            return container_encloses_with_object(source, victim);
+        }
+        if target.get_id() == container_id {
+            return container_encloses_with_object(target, victim);
+        }
+    }
     crate::object::registry::OBJECT_REGISTRY
         .with_object(container_id, |container| {
-            let Some(contain) = container.get_contain() else {
-                return false;
-            };
-            let Ok(contain_guard) = contain.try_lock() else {
-                return false;
-            };
-            contain_guard.is_enclosing_container_for(victim)
+            container_encloses_with_object(container, victim)
         })
         .unwrap_or(false)
+}
+
+fn container_encloses_with_object(
+    container: &crate::object::Object,
+    victim: &crate::object::Object,
+) -> bool {
+    let Some(contain) = container.get_contain() else {
+        return false;
+    };
+    let Ok(contain_guard) = contain.try_lock() else {
+        return false;
+    };
+    contain_guard.is_enclosing_container_for(victim)
 }
 
 /// C++ `WeaponSet.cpp:552-571` — non-force FROM_PLAYER attack is
@@ -509,6 +700,47 @@ fn garrison_fire_goal(
         })
         .flatten()
 }
+
+fn garrison_fire_goal_for_objects(
+    container_id: ObjectID,
+    source: &crate::object::Object,
+    target: &crate::object::Object,
+    target_pos: &Coord3D,
+) -> Option<Option<Coord3D>> {
+    if source.get_id() == container_id {
+        return garrison_fire_goal_for_container(source, source, target_pos);
+    }
+    if target.get_id() == container_id {
+        return garrison_fire_goal_for_container(target, source, target_pos);
+    }
+    crate::object::registry::OBJECT_REGISTRY
+        .with_object(container_id, |container| {
+            garrison_fire_goal_for_container(container, source, target_pos)
+        })
+        .flatten()
+}
+
+fn garrison_fire_goal_for_container(
+    container: &crate::object::Object,
+    source: &crate::object::Object,
+    target_pos: &Coord3D,
+) -> Option<Option<Coord3D>> {
+    let Some(contain) = container.get_contain() else {
+        return None;
+    };
+    let Ok(contain_guard) = contain.try_lock() else {
+        return None;
+    };
+    if !contain_guard.is_garrisonable() || !contain_guard.is_enclosing_container_for(source) {
+        return None;
+    }
+    let mut goal = *container.get_position();
+    if contain_guard.calc_best_garrison_position(&mut goal, target_pos) {
+        Some(Some(goal))
+    } else {
+        Some(None)
+    }
+}
 fn passenger_fire_result(
     source_obj: ObjectID,
     attack_type: AbleToAttackType,
@@ -549,6 +781,62 @@ fn passenger_fire_result(
     None
 }
 
+fn passenger_fire_result_for_objects(
+    source: &crate::object::Object,
+    target: &crate::object::Object,
+    attack_type: AbleToAttackType,
+    pos: &Coord3D,
+    command_source: CommandSourceType,
+) -> Option<CanAttackResult> {
+    let contain = source.get_contain()?;
+    let contain_guard = contain.try_lock().ok()?;
+    if !contain_guard.is_passenger_allowed_to_fire(None) {
+        return None;
+    }
+    let members = contain_guard.get_contained_objects().into_owned();
+    drop(contain_guard);
+
+    for member_id in members {
+        let result = if member_id == target.get_id() {
+            use_weapon_with_objects(target, target, attack_type, pos, command_source)
+        } else {
+            crate::object::registry::OBJECT_REGISTRY.with_object(member_id, |member| {
+                use_weapon_with_objects(member, target, attack_type, pos, command_source)
+            })?
+        };
+        if matches!(
+            result,
+            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+        ) {
+            return Some(result);
+        }
+    }
+    None
+}
+
+fn use_weapon_with_objects(
+    source: &crate::object::Object,
+    target: &crate::object::Object,
+    attack_type: AbleToAttackType,
+    pos: &Coord3D,
+    command_source: CommandSourceType,
+) -> CanAttackResult {
+    if !source.is_able_to_attack() {
+        return CanAttackResult::NotPossible;
+    }
+    source
+        .weapon_set
+        .get_able_to_use_weapon_against_target_inner(
+            attack_type,
+            source.get_id(),
+            Some(target.get_id()),
+            Some(pos),
+            command_source,
+            None,
+            Some((source, target)),
+        )
+}
+
 fn spawn_slave_result(
     source_obj: ObjectID,
     attack_type: AbleToAttackType,
@@ -579,6 +867,24 @@ fn spawn_slave_result(
     Some(spawn.get_can_any_slaves_use_weapon_against_target(
         attack_type,
         &victim_guard,
+        pos,
+        command_source,
+    ))
+}
+
+fn spawn_slave_result_for_objects(
+    source: &crate::object::Object,
+    target: &crate::object::Object,
+    attack_type: AbleToAttackType,
+    pos: &Coord3D,
+    command_source: CommandSourceType,
+) -> Option<CanAttackResult> {
+    let mut spawn_mod = source.get_spawn_behavior_interface_public()?;
+    let mut spawn_guard = spawn_mod.access().ok()?;
+    let spawn = spawn_guard.get_spawn_behavior_full_interface()?;
+    Some(spawn.get_can_any_slaves_use_weapon_against_target(
+        attack_type,
+        target,
         pos,
         command_source,
     ))

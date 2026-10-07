@@ -33,6 +33,8 @@ pub struct UnitAIUpdate {
     /// Owning Object ID. Legacy order/pose paths still use UNIT_REGISTRY;
     /// locomotors, current victim and mood timer belong to this runtime.
     pub(super) unit_id: ObjectID,
+    /// Constructor-bound identity, never reselected by a global ID lookup.
+    pub(super) owner: Option<Weak<RwLock<Object>>>,
     /// C++ AIUpdateInterface::m_currentVictimID; owned by this AI runtime.
     pub(super) current_victim_id: ObjectID,
     pub(super) crate_created: ObjectID,
@@ -208,11 +210,16 @@ impl UnitAIUpdate {
         owner: Option<Weak<RwLock<Object>>>,
         components: UnitAiComponents,
     ) -> Self {
-        let ai_state_machine =
-            owner.map(|owner| Arc::new(Mutex::new(AIStateMachine::new(owner, "AIStateMachine"))));
+        let ai_state_machine = owner.as_ref().map(|owner| {
+            Arc::new(Mutex::new(AIStateMachine::new(
+                owner.clone(),
+                "AIStateMachine",
+            )))
+        });
 
         Self {
             unit_id,
+            owner,
             current_victim_id: INVALID_ID,
             crate_created: crate::common::INVALID_ID,
             supply_truck_ai: components.supply_truck_ai,
@@ -502,6 +509,10 @@ impl UnitAIUpdate {
     /// Resolve the existing admitted owner; legacy Unit test fixtures retain
     /// their actual base Object, rather than constructing a second owner.
     pub(super) fn rappel_owner(&self) -> Option<Arc<RwLock<Object>>> {
+        if let Some(owner) = self.owner.as_ref() {
+            // Expired native identity cannot select another world's same ID.
+            return owner.upgrade();
+        }
         OBJECT_REGISTRY.get_object(self.unit_id).or_else(|| {
             get_unit_arc(self.unit_id).and_then(|unit| unit.read().ok().map(|unit| unit.base_arc()))
         })

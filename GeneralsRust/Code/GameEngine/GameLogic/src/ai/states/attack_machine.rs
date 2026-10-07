@@ -135,7 +135,13 @@ pub(crate) fn out_of_weapon_range_object_state(base: &State) -> Result<bool, Str
     if weapon.has_leech_range() {
         return Ok(false);
     }
-    Ok(!weapon.is_within_attack_range(owner_guard.get_id(), Some(target_id), None))
+    // The condition already holds the source Object. C++ passes that pointer
+    // directly; resolving it through the registry would reacquire this guard.
+    Ok(!attack_range_for_borrowed_owner(
+        weapon,
+        &owner_guard,
+        target_id,
+    ))
 }
 
 pub(crate) fn out_of_weapon_range_position_state(base: &State) -> Result<bool, String> {
@@ -151,7 +157,20 @@ pub(crate) fn out_of_weapon_range_position_state(base: &State) -> Result<bool, S
     let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
         return Ok(false);
     };
-    Ok(!weapon.is_within_attack_range(owner_guard.get_id(), None, Some(&pos)))
+    Ok(!weapon.is_within_attack_range_for_objects(&owner_guard, None, Some(&pos)))
+}
+
+/// Resolve only the goal; the source is the Object already held by the state.
+/// Self-target range uses the same borrow, preserving Object identity.
+fn attack_range_for_borrowed_owner(weapon: &Weapon, owner: &Object, target_id: ObjectID) -> bool {
+    if target_id == owner.get_id() {
+        return weapon.is_within_attack_range_for_objects(owner, Some(owner), None);
+    }
+    OBJECT_REGISTRY
+        .with_object(target_id, |target| {
+            weapon.is_within_attack_range_for_objects(owner, Some(target), None)
+        })
+        .unwrap_or(false)
 }
 
 pub(crate) fn want_to_squish_target_state(base: &State) -> Result<bool, String> {
@@ -243,8 +262,11 @@ pub(crate) fn cannot_possibly_attack_object_state(
 
     let cmd_source = owner_guard.ai_fire_last_command_source;
 
-    let result =
-        owner_guard.get_able_to_attack_specific_object(attack_type, &target_guard, cmd_source);
+    let result = owner_guard.get_able_to_attack_specific_object_for_objects(
+        attack_type,
+        &target_guard,
+        cmd_source,
+    );
     Ok(!matches!(
         result,
         CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
@@ -743,9 +765,9 @@ impl ClassicState for AIAttackAimAtTargetState {
                 .lock()
                 .map_err(|_| "attack aim target lock poisoned".to_string())?;
             if !used_contain {
-                in_range = weapon.is_within_attack_range(
-                    owner_guard.get_id(),
-                    Some(target_guard.get_id()),
+                in_range = weapon.is_within_attack_range_for_objects(
+                    &owner_guard,
+                    Some(&target_guard),
                     None,
                 );
             }
@@ -784,9 +806,14 @@ impl ClassicState for AIAttackAimAtTargetState {
                         .and_then(|target| target.read().ok().map(|guard| guard.get_id()))
                 });
                 in_range = if let Some(goal_id) = goal_id {
-                    weapon.is_within_attack_range(owner_guard.get_id(), Some(goal_id), None)
+                    let target = TheGameLogic::find_object_by_id(goal_id)
+                        .ok_or_else(|| "attack aim missing target".to_string())?;
+                    let target = target
+                        .read()
+                        .map_err(|_| "attack aim target lock poisoned".to_string())?;
+                    weapon.is_within_attack_range_for_objects(&owner_guard, Some(&target), None)
                 } else {
-                    weapon.is_within_attack_range(owner_guard.get_id(), None, Some(&pos))
+                    weapon.is_within_attack_range_for_objects(&owner_guard, None, Some(&pos))
                 };
             }
             if let Some(target) = self.base.get_machine_goal_object_id().and_then(|id| {
@@ -939,7 +966,6 @@ impl ClassicState for AIAttackAimAtTargetState {
         }
 
         if owner_guard.is_disabled_by_type(DisabledType::Held) {
-            let owner_id = owner_guard.get_id();
             let target_id = if self.attacking_object {
                 self.base.get_machine_goal_object_id().and_then(|id| {
                     crate::helpers::TheGameLogic::find_object_by_id(id)
@@ -956,10 +982,14 @@ impl ClassicState for AIAttackAimAtTargetState {
                 .is_some_and(|(weapon, _slot)| {
                     if self.attacking_object {
                         target_id.is_some_and(|id| {
-                            weapon.is_within_attack_range(owner_id, Some(id), None)
+                            attack_range_for_borrowed_owner(weapon, &owner_guard, id)
                         })
                     } else {
-                        weapon.is_within_attack_range(owner_id, None, Some(&target_pos))
+                        weapon.is_within_attack_range_for_objects(
+                            &owner_guard,
+                            None,
+                            Some(&target_pos),
+                        )
                     }
                 });
             if !in_range {
@@ -1567,7 +1597,7 @@ impl AIAttackPursueTargetState {
         );
         let victim_id = victim_guard.get_id();
         if !view_blocked
-            && weapon.is_within_attack_range(owner_guard.get_id(), Some(victim_id), None)
+            && weapon.is_within_attack_range_for_objects(&owner_guard, Some(&victim_guard), None)
         {
             owner_guard.ai_pending_turret_objects.push((
                 turret,
@@ -1987,18 +2017,18 @@ impl AIAttackApproachTargetState {
 
                 if let Some((weapon, _slot)) = owner_guard.get_current_weapon() {
                     if weapon.is_contact_weapon()
-                        && weapon.is_within_attack_range(
-                            owner_guard.get_id(),
-                            Some(victim_guard.get_id()),
+                        && weapon.is_within_attack_range_for_objects(
+                            &owner_guard,
+                            Some(&victim_guard),
                             None,
                         )
                     {
                         return Ok(StateReturnType::Success);
                     }
                     if self.stop_if_in_range
-                        && weapon.is_within_attack_range(
-                            owner_guard.get_id(),
-                            Some(victim_guard.get_id()),
+                        && weapon.is_within_attack_range_for_objects(
+                            &owner_guard,
+                            Some(&victim_guard),
                             None,
                         )
                         && !attack_view_blocked(
@@ -2028,8 +2058,8 @@ impl AIAttackApproachTargetState {
                 .map_err(|_| "attack approach owner lock poisoned".to_string())?;
             if self.stop_if_in_range {
                 if let Some((weapon, _slot)) = owner_guard.get_current_weapon() {
-                    if weapon.is_within_attack_range(
-                        owner_guard.get_id(),
+                    if weapon.is_within_attack_range_for_objects(
+                        &owner_guard,
                         None,
                         Some(&self.base.goal_position),
                     ) && !attack_view_blocked(&owner_guard, None, &self.base.goal_position)
@@ -2194,15 +2224,13 @@ impl ClassicState for AIAttackApproachTargetState {
             let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
                 return Ok(StateReturnType::Failure);
             };
-            if weapon.is_within_attack_range(
-                owner_guard.get_id(),
-                Some(victim_guard.get_id()),
-                None,
-            ) && !attack_view_blocked(
-                &owner_guard,
-                Some(&victim_guard),
-                victim_guard.get_position(),
-            ) {
+            if weapon.is_within_attack_range_for_objects(&owner_guard, Some(&victim_guard), None)
+                && !attack_view_blocked(
+                    &owner_guard,
+                    Some(&victim_guard),
+                    victim_guard.get_position(),
+                )
+            {
                 return Ok(StateReturnType::Success);
             }
 

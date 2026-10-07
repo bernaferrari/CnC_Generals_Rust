@@ -1108,13 +1108,25 @@ impl StateMachine {
 
     /// Clear the machine's internals to a known, initialized state
     pub fn clear(&mut self) {
+        self.clear_impl(None);
+    }
+
+    pub(crate) fn clear_with_ai(&mut self, ai: &mut dyn crate::modules::AIUpdateInterface) {
+        self.clear_impl(Some(ai));
+    }
+
+    fn clear_impl(&mut self, ai: Option<&mut dyn crate::modules::AIUpdateInterface>) {
         if self.control.locked {
             return;
         }
 
         if let Some(current_id) = self.control.current_state_id {
             if let Some(current_state) = self.state_map.get_mut(&current_id) {
-                current_state.on_exit(StateExitType::Reset);
+                if let Some(ai) = ai {
+                    current_state.on_exit_with_ai_and_owner(StateExitType::Reset, ai, &mut ());
+                } else {
+                    current_state.on_exit(StateExitType::Reset);
+                }
             }
         }
 

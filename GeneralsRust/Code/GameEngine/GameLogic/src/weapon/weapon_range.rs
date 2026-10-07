@@ -41,12 +41,11 @@ impl Weapon {
         target_obj: Option<ObjectId>,
         target_pos: Option<&Coord3D>,
     ) -> bool {
-        let max_range = self.template.get_attack_range(&bonus);
-        let min_range = self.template.get_minimum_attack_range();
-        let attack_range_sqr = max_range * max_range;
-        let min_range_sqr = min_range * min_range;
-
         if let Some(pos) = target_pos {
+            let max_range = self.template.get_attack_range(bonus);
+            let min_range = self.template.get_minimum_attack_range();
+            let attack_range_sqr = max_range * max_range;
+            let min_range_sqr = min_range * min_range;
             let dist_sqr = boundary_dist_sqr(&source_pos, source_radius, pos, 0.0);
             // C++ Weapon.cpp:2140-2141 (RATIONALIZE_ATTACK_RANGE): no -0.5 fudge.
             if dist_sqr < min_range_sqr {
@@ -65,19 +64,100 @@ impl Weapon {
             return false;
         };
 
+        self.is_within_attack_range_from_target_data(
+            &source_pos,
+            source_radius,
+            &source_geom,
+            &bonus,
+            target_id,
+            target_pos,
+            target_radius,
+            is_bridge,
+            is_structure,
+            self.caller_held_source
+                .as_ref()
+                .map(|source| (source.id, source.position)),
+        )
+    }
+
+    /// C++ `Weapon::isWithinAttackRange(source, target)` with both Objects
+    /// already borrowed by the synchronous caller.
+    pub(crate) fn is_within_attack_range_for_objects(
+        &self,
+        source: &crate::object::Object,
+        target: Option<&crate::object::Object>,
+        target_pos: Option<&Coord3D>,
+    ) -> bool {
+        let source_pos = *source.get_position();
+        let source_geom = *source.get_geometry_info();
+        let bonus = self.compute_bonus_for_object(source);
+        if target_pos.is_some() {
+            return self.is_within_attack_range_from_source(
+                &source_pos,
+                source_geom.get_bounding_circle_radius(),
+                &source_geom,
+                &bonus,
+                None,
+                target_pos,
+            );
+        }
+        if let Some(target) = target {
+            self.is_within_attack_range_from_target_data(
+                &source_pos,
+                source_geom.get_bounding_circle_radius(),
+                &source_geom,
+                &bonus,
+                target.get_id(),
+                *target.get_position(),
+                target.get_geometry_info().get_bounding_circle_radius(),
+                target.is_kind_of(KindOf::Bridge),
+                target.is_kind_of(KindOf::Structure),
+                Some((source.get_id(), source_pos)),
+            )
+        } else {
+            self.is_within_attack_range_from_source(
+                &source_pos,
+                source_geom.get_bounding_circle_radius(),
+                &source_geom,
+                &bonus,
+                None,
+                target_pos,
+            )
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn is_within_attack_range_from_target_data(
+        &self,
+        source_pos: &Coord3D,
+        source_radius: f32,
+        source_geom: &GeometryInfo,
+        bonus: &WeaponBonus,
+        target_id: ObjectId,
+        target_pos: Coord3D,
+        target_radius: f32,
+        is_bridge: bool,
+        is_structure: bool,
+        borrowed_source: Option<(ObjectId, Coord3D)>,
+    ) -> bool {
+        let max_range = self.template.get_attack_range(bonus);
+        let min_range = self.template.get_minimum_attack_range();
+        let attack_range_sqr = max_range * max_range;
+        let min_range_sqr = min_range * min_range;
+
         let dist_sqr = if is_bridge {
             let mut info = BridgeAttackInfo::new();
             if let Ok(guard) = crate::terrain::get_terrain_logic().try_read() {
                 guard.get_bridge_attack_points(target_id, &mut info);
             }
-            let d1 = boundary_dist_sqr(&source_pos, source_radius, &info.attack_point1, 0.0);
+            let d1 = boundary_dist_sqr(source_pos, source_radius, &info.attack_point1, 0.0);
             if d1 <= attack_range_sqr {
                 d1
             } else {
-                boundary_dist_sqr(&source_pos, source_radius, &info.attack_point2, 0.0)
+                boundary_dist_sqr(source_pos, source_radius, &info.attack_point2, 0.0)
             }
         } else {
-            boundary_dist_sqr(&source_pos, source_radius, &target_pos, target_radius)
+            boundary_dist_sqr(source_pos, source_radius, &target_pos, target_radius)
         };
 
         // C++ Weapon.cpp:2175-2176 (RATIONALIZE_ATTACK_RANGE): contact distance,
@@ -93,13 +173,9 @@ impl Weapon {
             let Some(partition) = ThePartitionManager::get() else {
                 return false;
             };
-            let borrowed_source = self
-                .caller_held_source
-                .as_ref()
-                .map(|source| (source.id, source.position));
             let hits = partition.iterate_potential_collisions_with_source(
-                &source_pos,
-                &source_geom,
+                source_pos,
+                source_geom,
                 0.0,
                 borrowed_source,
             );

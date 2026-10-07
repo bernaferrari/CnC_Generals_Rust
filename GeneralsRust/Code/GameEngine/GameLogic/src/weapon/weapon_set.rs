@@ -3,6 +3,7 @@
 //! This module provides weapon set management functionality matching the C++ implementation,
 //! including weapon selection, locking, bonus coordination, and multi-weapon targeting logic.
 
+use self::weapon_set_able::get_victim_anti_mask_for_object;
 use super::{
     DamageType, Weapon, WeaponBonus, WeaponBonusConditionFlags, WeaponSlotType, WeaponStatus,
     WeaponTemplate,
@@ -12,6 +13,7 @@ use crate::common::{
     CommandSourceType, Coord3D, KindOf, ModelConditionFlags, ObjectID, WEAPONSLOT_COUNT, Xfer,
     XferMode, XferVersion,
 };
+use crate::object::Object;
 use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::system::Snapshotable;
@@ -674,15 +676,7 @@ impl WeaponSet {
         }
     }
 
-    /// Choose best weapon for target
-    ///
-    /// Matches C++ WeaponSet::chooseBestWeaponForTarget() from WeaponSet.cpp lines 764-948
-    ///
-    /// The selection algorithm considers:
-    /// 1. Weapon fitness - can the weapon hit the target?
-    /// 2. Weapon readiness - is the weapon ready to fire?
-    /// 3. Damage potential - how much damage would it do?
-    /// 4. "Preferred against" bonuses - does this weapon prefer this target type?
+    /// Choose best weapon for target using the shared borrowed/registry selector.
     pub fn choose_best_weapon_for_target(
         &mut self,
         source_obj: ObjectID,
@@ -690,191 +684,13 @@ impl WeaponSet {
         criteria: WeaponChoiceCriteria,
         command_source: CommandSourceType,
     ) -> GameLogicResult<bool> {
-        // Wave 419: empty dual-world → Ok(false).
         if dual_world_registry_unavailable() {
             return Ok(false);
         }
 
-        // C++ line 782-783: If weapon is locked, return true immediately
-        if self.is_current_weapon_locked() {
-            return Ok(true);
-        }
-
-        // C++ line 785-791: If no target, default to primary weapon
-        if target_obj == 0 {
-            self.current_weapon = WeaponSlotType::Primary;
-            return Ok(true);
-        }
-
-        let mut found = false; // A ready weapon has been found
-        let mut found_backup = false; // An unready but valid weapon has been found
-
-        let mut longest_range: f32 = 0.0;
-        let mut best_damage: f32 = 0.0;
-        let mut longest_range_backup: f32 = 0.0;
-        let mut best_damage_backup: f32 = 0.0;
-
-        let mut current_decision = WeaponSlotType::Primary;
-        let mut current_decision_backup = WeaponSlotType::Primary;
-
-        // C++ line 804-805: Go backwards so primary is preferred in case of ties
-        for slot_idx in (0..=2).rev() {
-            let slot = match slot_idx {
-                0 => WeaponSlotType::Primary,
-                1 => WeaponSlotType::Secondary,
-                _ => WeaponSlotType::Tertiary,
-            };
-
-            // C++ line 812: No weapon in this slot
-            let weapon = match self.get_weapon_in_slot(slot) {
-                Some(w) => w,
-                None => continue,
-            };
-
-            // C++ line 816-823: Check if weapon is allowed for this command source
-            if let Some(template_set) = &self.current_weapon_template_set {
-                let ok_srcs = template_set.get_auto_choose_mask(slot);
-                let source_bit = 1u32 << (command_source as i32);
-                if (ok_srcs & source_bit) == 0 {
-                    // C++ WeaponSet.cpp:819 tests `okSrcs & CMD_DEFAULT_SWITCH_WEAPON`.
-                    // That enum value is 4, not 1<<4 and not the high bit. The parsed
-                    // DEFAULT_SWITCH_WEAPON name is bit 4, but the live check is the
-                    // enum constant, which is the FROM_AI bit.
-                    const CMD_DEFAULT_SWITCH_WEAPON: u32 = 4;
-                    if (ok_srcs & CMD_DEFAULT_SWITCH_WEAPON) == 0 {
-                        continue;
-                    }
-                }
-            }
-
-            // C++ line 834-835: Weapon out of ammo and doesn't auto-reload
-            if weapon.get_status() == WeaponStatus::OutOfAmmo
-                && !weapon.get_template().get_auto_reloads_clip()
-            {
-                continue;
-            }
-
-            // C++ line 838-840: exclusive victim anti-mask.
-            let victim_anti_mask = get_victim_anti_mask(target_obj);
-            if (weapon.get_template().anti_mask.0 & victim_anti_mask) == 0 {
-                continue;
-            }
-
-            // C++ line 842-843: Check target pitch limits
-            if !weapon.is_within_target_pitch(source_obj, target_obj) {
-                continue;
-            }
-
-            let damage = weapon.estimate_weapon_damage(source_obj, Some(target_obj), None);
-            // C++ WeaponSet::chooseBestWeaponForTarget (WeaponSet.cpp:764-948)
-            // does not skip DAMAGE_KILLPILOT. The hero/Jarmen-Kell cursor skip
-            // lives only in getAbleToUseWeaponAgainstTarget (WeaponSet.cpp:706).
-            // C++ line 847: Check if weapon is ready to fire
-            let mut weapon_is_ready = weapon.get_status() == WeaponStatus::ReadyToFire;
-
-            // C++ line 849-851: Check if weapon is on turret and aiming at target
-            if crate::object::registry::OBJECT_REGISTRY
-                .with_object(source_obj, |source_guard| {
-                    let Some(ai) = source_guard.get_ai() else {
-                        return false;
-                    };
-                    ai.lock()
-                        .ok()
-                        .map(|ai_guard| {
-                            ai_guard.is_weapon_slot_on_turret_and_aiming_at_target(slot, target_obj)
-                        })
-                        .unwrap_or(false)
-                })
-                .unwrap_or(false)
-            {
-                weapon_is_ready = false;
-            }
-
-            // C++ line 853-856: Weapon would do no damage (unless DAMAGE_UNRESISTABLE)
-            if damage <= 0.0 && weapon.get_damage_type() != DamageType::Unresistable {
-                continue;
-            }
-
-            // C++ lines 869-878: Check "preferred against" bonuses
-            // If weapon is preferred against this target type, boost its score massively
-            let mut damage = damage;
-            let mut attack_range = weapon.get_attack_range(source_obj);
-            if let Some(template_set) = &self.current_weapon_template_set {
-                let preferred_mask = template_set.get_preferred_against_mask(slot);
-                if !preferred_mask.is_empty() {
-                    // C++ isKindOfMulti(preferred, KINDOFMASK_NONE): every preferred bit
-                    // must be set. Any-bit would pick the Comanche cannon against a
-                    // target that only shares one KindOf with the mask.
-                    if crate::object::registry::OBJECT_REGISTRY
-                        .with_object(target_obj, |target_guard| {
-                            let kinds = target_guard.get_kind_of();
-                            let required = preferred_mask.bits();
-                            (kinds & required) == required
-                        })
-                        .unwrap_or(false)
-                    {
-                        // C++ lines 872-878: Boost damage/range massively for preferred targets
-                        const HUGE_DAMAGE: f32 = 1e10;
-                        const HUGE_RANGE: f32 = 1e10;
-                        damage = HUGE_DAMAGE;
-                        attack_range = HUGE_RANGE;
-                        // Preferred weapons are kept if merely reloading (not out of ammo)
-                        weapon_is_ready = weapon.get_status() != WeaponStatus::OutOfAmmo;
-                    }
-                }
-            }
-
-            // C++ lines 880-925: Apply selection criteria
-            match criteria {
-                WeaponChoiceCriteria::PreferMostDamage => {
-                    if !weapon_is_ready {
-                        // Backup choice
-                        if damage >= best_damage_backup {
-                            best_damage_backup = damage;
-                            current_decision_backup = slot;
-                            found_backup = true;
-                        }
-                    } else {
-                        // Ready choice
-                        if damage >= best_damage {
-                            best_damage = damage;
-                            current_decision = slot;
-                            found = true;
-                        }
-                    }
-                }
-                WeaponChoiceCriteria::PreferLongestRange => {
-                    if !weapon_is_ready {
-                        if attack_range > longest_range_backup {
-                            longest_range_backup = attack_range;
-                            current_decision_backup = slot;
-                            found_backup = true;
-                        }
-                    } else {
-                        if attack_range > longest_range {
-                            longest_range = attack_range;
-                            current_decision = slot;
-                            found = true;
-                        }
-                    }
-                }
-            }
-        }
-
-        // C++ lines 928-943: Select final weapon
-        if found {
-            // Found a good ready weapon
-            self.current_weapon = current_decision;
-        } else if found_backup {
-            // No ready weapon, use the best unready one
-            self.current_weapon = current_decision_backup;
-            found = true;
-        } else {
-            // No weapon at all, go back to primary
-            self.current_weapon = WeaponSlotType::Primary;
-        }
-
-        Ok(found)
+        let selection =
+            self.select_weapon_inner(source_obj, target_obj, criteria, command_source, None, None);
+        Ok(self.apply_weapon_selection(selection))
     }
 
     pub fn get_model_condition_for_weapon_slot(
@@ -1727,5 +1543,192 @@ mod tests {
         assert_eq!(choose_best_ground_attack_slot(false, 1), 0);
         assert_eq!(choose_best_ground_attack_slot(true, 1), 1);
         assert_eq!(choose_best_ground_attack_slot(true, 2), 2);
+    }
+}
+
+impl WeaponSet {
+    /// Select against Objects the caller already owns. The result is separate
+    /// from mutation so an Object can release its immutable WeaponSet borrow
+    /// before applying the selected slot.
+    pub(crate) fn select_weapon_for_objects(
+        &self,
+        source: &Object,
+        target: &Object,
+        criteria: WeaponChoiceCriteria,
+        command_source: CommandSourceType,
+        ai: Option<&dyn crate::modules::AIUpdateInterface>,
+    ) -> (WeaponSlotType, bool) {
+        self.select_weapon_inner(
+            source.get_id(),
+            target.get_id(),
+            criteria,
+            command_source,
+            Some((source, target)),
+            ai,
+        )
+    }
+
+    /// Apply the pure selector's result after the caller's immutable borrow ends.
+    pub(crate) fn apply_weapon_selection(&mut self, selection: (WeaponSlotType, bool)) -> bool {
+        self.current_weapon = selection.0;
+        selection.1
+    }
+
+    pub(super) fn select_weapon_inner(
+        &self,
+        source_obj: ObjectID,
+        target_obj: ObjectID,
+        criteria: WeaponChoiceCriteria,
+        command_source: CommandSourceType,
+        objects: Option<(&Object, &Object)>,
+        ai: Option<&dyn crate::modules::AIUpdateInterface>,
+    ) -> (WeaponSlotType, bool) {
+        if self.is_current_weapon_locked() {
+            return (self.current_weapon, true);
+        }
+        if target_obj == 0 && objects.is_none() {
+            return (WeaponSlotType::Primary, true);
+        }
+
+        let mut found = false;
+        let mut found_backup = false;
+        let mut longest_range = 0.0_f32;
+        let mut best_damage = 0.0_f32;
+        let mut longest_range_backup = 0.0_f32;
+        let mut best_damage_backup = 0.0_f32;
+        let mut current_decision = WeaponSlotType::Primary;
+        let mut current_decision_backup = WeaponSlotType::Primary;
+
+        // C++ iterates backward, so Primary wins ties under the >= damage rule.
+        for slot_idx in (0..=2).rev() {
+            let slot = match slot_idx {
+                0 => WeaponSlotType::Primary,
+                1 => WeaponSlotType::Secondary,
+                _ => WeaponSlotType::Tertiary,
+            };
+            let Some(weapon) = self.get_weapon_in_slot(slot) else {
+                continue;
+            };
+
+            if let Some(template_set) = &self.current_weapon_template_set {
+                let ok_sources = template_set.get_auto_choose_mask(slot);
+                let source_bit = 1_u32 << (command_source as i32);
+                if (ok_sources & source_bit) == 0 && (ok_sources & 4) == 0 {
+                    continue;
+                }
+            }
+            if weapon.get_status() == WeaponStatus::OutOfAmmo
+                && !weapon.get_template().get_auto_reloads_clip()
+            {
+                continue;
+            }
+
+            let victim_anti_mask = objects
+                .map(|(_, target)| get_victim_anti_mask_for_object(target))
+                .unwrap_or_else(|| get_victim_anti_mask(target_obj));
+            if weapon.get_template().anti_mask.0 & victim_anti_mask == 0 {
+                continue;
+            }
+            let within_pitch = objects.map_or_else(
+                || weapon.is_within_target_pitch(source_obj, target_obj),
+                |(source, target)| weapon.is_within_target_pitch_for_objects(source, target),
+            );
+            if !within_pitch {
+                continue;
+            }
+
+            let damage = objects.map_or_else(
+                || weapon.estimate_weapon_damage(source_obj, Some(target_obj), None),
+                |(source, target)| weapon.estimate_weapon_damage_for_objects(source, target),
+            );
+
+            let mut weapon_is_ready = weapon.get_status() == WeaponStatus::ReadyToFire;
+            let turret_aiming = if objects.is_some() {
+                ai.is_some_and(|ai| {
+                    ai.is_weapon_slot_on_turret_and_aiming_at_target(slot, target_obj)
+                })
+            } else {
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(source_obj, |source| {
+                        source.get_ai().is_some_and(|ai| {
+                            ai.lock().ok().is_some_and(|ai| {
+                                ai.is_weapon_slot_on_turret_and_aiming_at_target(slot, target_obj)
+                            })
+                        })
+                    })
+                    .unwrap_or(false)
+            };
+            if turret_aiming {
+                weapon_is_ready = false;
+            }
+            if damage <= 0.0 && weapon.get_damage_type() != crate::damage::DamageType::Unresistable
+            {
+                continue;
+            }
+
+            let mut attack_range = objects.map_or_else(
+                || weapon.get_attack_range(source_obj),
+                |(source, _)| weapon.get_attack_range_for_object(source),
+            );
+            let mut damage = damage;
+            let preferred = self
+                .current_weapon_template_set
+                .as_ref()
+                .map(|set| set.get_preferred_against_mask(slot).bits())
+                .unwrap_or_default();
+            let preferred_matches = if preferred == 0 {
+                false
+            } else if let Some((_, target)) = objects {
+                target.get_kind_of() & preferred == preferred
+            } else {
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(target_obj, |target| {
+                        target.get_kind_of() & preferred == preferred
+                    })
+                    .unwrap_or(false)
+            };
+            if preferred_matches {
+                damage = 1.0e10;
+                attack_range = 1.0e10;
+                weapon_is_ready = weapon.get_status() != WeaponStatus::OutOfAmmo;
+            }
+
+            match criteria {
+                WeaponChoiceCriteria::PreferMostDamage => {
+                    if !weapon_is_ready {
+                        if damage >= best_damage_backup {
+                            best_damage_backup = damage;
+                            current_decision_backup = slot;
+                            found_backup = true;
+                        }
+                    } else if damage >= best_damage {
+                        best_damage = damage;
+                        current_decision = slot;
+                        found = true;
+                    }
+                }
+                WeaponChoiceCriteria::PreferLongestRange => {
+                    if !weapon_is_ready {
+                        if attack_range > longest_range_backup {
+                            longest_range_backup = attack_range;
+                            current_decision_backup = slot;
+                            found_backup = true;
+                        }
+                    } else if attack_range > longest_range {
+                        longest_range = attack_range;
+                        current_decision = slot;
+                        found = true;
+                    }
+                }
+            }
+        }
+
+        if found {
+            (current_decision, true)
+        } else if found_backup {
+            (current_decision_backup, true)
+        } else {
+            (WeaponSlotType::Primary, false)
+        }
     }
 }
