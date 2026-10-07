@@ -154,21 +154,6 @@ pub(super) fn assert_waves_244_304(r: &ShellSmokeResult) {
         r.detail
     );
     assert!(
-        r.live_ai_states_dual_world_empty_gate_method_names_wave254_ok,
-        "live ai states dual-world empty gate method names residual pack wave254: {}",
-        r.detail
-    );
-    assert!(
-        r.live_ai_states_dual_world_empty_gate_nav_commands_wave254_ok,
-        "live ai states dual-world empty gate nav commands residual pack wave254: {}",
-        r.detail
-    );
-    assert!(
-        r.live_ai_states_dual_world_empty_gate_live_wave254_ok,
-        "live ai states dual-world empty gate live residual wave254: {}",
-        r.detail
-    );
-    assert!(
         r.live_ai_player_dual_world_empty_gate_method_names_wave255_ok,
         "live ai player dual-world empty gate method names residual pack wave255: {}",
         r.detail

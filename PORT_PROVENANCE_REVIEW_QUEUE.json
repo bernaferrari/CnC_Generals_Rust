@@ -39323,77 +39323,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
+            "no_reachable_implementation",
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "unreviewed_source_range_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/combat.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/enter_hack.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/face_special.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/hunt.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/mod.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/move_states.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/path_dock.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/state_machine.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/types.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/wander.rs"
+            "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/combat.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/enter_hack.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/face_special.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/hunt.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/mod.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/move_states.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/path_dock.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/state_machine.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "test",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/tests.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/types.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_states/wander.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "game_engine:Source/GameLogic/AI/AIStates.cpp",
           "source": {
             "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/AI/AIStates.cpp",
@@ -189030,7 +188965,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "5cc3bc20a105cb21f41ce9c3c84aad3490784416f3b2a31e1800af1e7224eb53",
+  "provenance_input_digest": "fcfad264292e28905a812584e882b5f2bdbc9d15977c6c5d51fa3e84b64e19b1",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

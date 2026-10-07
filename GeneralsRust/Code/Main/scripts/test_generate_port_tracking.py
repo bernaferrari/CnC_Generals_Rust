@@ -43,6 +43,14 @@ class GeneratePortTrackingTests(unittest.TestCase):
             EXPECTED_GUI_HINTS,
         )
 
+    def test_ai_states_hint_targets_the_canonical_runtime_module(self) -> None:
+        key = ("Source", "GameLogic/AI/AIStates.cpp")
+        destination = "GameLogic/src/ai/states/mod.rs"
+        self.assertEqual(tracking.MANUAL_CPP_TO_RUST[key], destination)
+        engine_root = SCRIPT_DIR.parents[2] / "Code/GameEngine"
+        self.assertTrue((engine_root / destination).is_file())
+        self.assertFalse((engine_root / "GameLogic/src/ai/ai_states").exists())
+
     def test_production_hint_destinations_exist_in_repository(self) -> None:
         engine_root = SCRIPT_DIR.parents[2] / "Code/GameEngine"
         for hint in EXPECTED_GUI_HINTS.values():

@@ -781,10 +781,6 @@ fn main() {
         && r.live_ai_group_dual_world_empty_gate_method_names_wave253_ok
         && r.live_ai_group_dual_world_empty_gate_nav_commands_wave253_ok
         && r.live_ai_group_dual_world_empty_gate_live_wave253_ok
-        // Wave 254 residual honesty (AIStates dual-world empty gates).
-        && r.live_ai_states_dual_world_empty_gate_method_names_wave254_ok
-        && r.live_ai_states_dual_world_empty_gate_nav_commands_wave254_ok
-        && r.live_ai_states_dual_world_empty_gate_live_wave254_ok
         // Wave 255 residual honesty (AIPlayer dual-world empty gates).
         && r.live_ai_player_dual_world_empty_gate_method_names_wave255_ok
         && r.live_ai_player_dual_world_empty_gate_nav_commands_wave255_ok
@@ -1428,10 +1424,6 @@ fn main() {
         && r.live_ai_targeting_dual_world_empty_gate_method_names_wave421_ok
         && r.live_ai_targeting_dual_world_empty_gate_nav_commands_wave421_ok
         && r.live_ai_targeting_dual_world_empty_gate_live_wave421_ok
-        // Wave 422 residual honesty (move-to state dual-world empty gates).
-        && r.live_move_to_state_dual_world_empty_gate_method_names_wave422_ok
-        && r.live_move_to_state_dual_world_empty_gate_nav_commands_wave422_ok
-        && r.live_move_to_state_dual_world_empty_gate_live_wave422_ok
         // Wave 423 residual honesty (locomotor core dual-world empty gates).
         && r.live_locomotor_core_dual_world_empty_gate_method_names_wave423_ok
         && r.live_locomotor_core_dual_world_empty_gate_nav_commands_wave423_ok

@@ -47,9 +47,6 @@ pub(super) struct Waves241280 {
     pub live_ai_group_dual_world_empty_gate_method_names_wave253_ok: bool,
     pub live_ai_group_dual_world_empty_gate_nav_commands_wave253_ok: bool,
     pub live_ai_group_dual_world_empty_gate_live_wave253_ok: bool,
-    pub live_ai_states_dual_world_empty_gate_method_names_wave254_ok: bool,
-    pub live_ai_states_dual_world_empty_gate_nav_commands_wave254_ok: bool,
-    pub live_ai_states_dual_world_empty_gate_live_wave254_ok: bool,
     pub live_ai_player_dual_world_empty_gate_method_names_wave255_ok: bool,
     pub live_ai_player_dual_world_empty_gate_nav_commands_wave255_ok: bool,
     pub live_ai_player_dual_world_empty_gate_live_wave255_ok: bool,
@@ -209,12 +206,6 @@ pub(super) fn evaluate(
             honesty_live_ai_group_dual_world_empty_gate_nav_commands_residual_wave253(),
         live_ai_group_dual_world_empty_gate_live_wave253_ok:
             simulate_live_ai_group_dual_world_empty_gate_honesty(),
-        live_ai_states_dual_world_empty_gate_method_names_wave254_ok:
-            honesty_live_ai_states_dual_world_empty_gate_method_names_residual_wave254(),
-        live_ai_states_dual_world_empty_gate_nav_commands_wave254_ok:
-            honesty_live_ai_states_dual_world_empty_gate_nav_commands_residual_wave254(),
-        live_ai_states_dual_world_empty_gate_live_wave254_ok:
-            simulate_live_ai_states_dual_world_empty_gate_honesty(),
         live_ai_player_dual_world_empty_gate_method_names_wave255_ok:
             honesty_live_ai_player_dual_world_empty_gate_method_names_residual_wave255(),
         live_ai_player_dual_world_empty_gate_nav_commands_wave255_ok:

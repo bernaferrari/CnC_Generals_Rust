@@ -587,13 +587,6 @@ pub use super::host_live_mouse_input_presentation_only_residual_wave236::{
     simulate_live_mouse_input_presentation_only_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_move_to_state_dual_world_empty_gate_residual_wave422::{
-    honesty_live_move_to_state_dual_world_empty_gate_method_names_residual_wave422,
-    honesty_live_move_to_state_dual_world_empty_gate_nav_commands_residual_wave422,
-    honesty_live_move_to_state_dual_world_empty_gate_residual_pack_wave422,
-    simulate_live_move_to_state_dual_world_empty_gate_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_named_shell_host_only_tracker_residual_wave476::{
     honesty_named_shell_host_only_tracker_method_names_residual_wave476,
     honesty_named_shell_host_only_tracker_nav_commands_residual_wave476,

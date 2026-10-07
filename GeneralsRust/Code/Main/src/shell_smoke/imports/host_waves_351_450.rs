@@ -350,11 +350,6 @@ pub use crate::game_logic::host_live_ai_targeting_dual_world_empty_gate_residual
     honesty_live_ai_targeting_dual_world_empty_gate_nav_commands_residual_wave421,
     simulate_live_ai_targeting_dual_world_empty_gate_honesty,
 };
-pub use crate::game_logic::host_live_move_to_state_dual_world_empty_gate_residual_wave422::{
-    honesty_live_move_to_state_dual_world_empty_gate_method_names_residual_wave422,
-    honesty_live_move_to_state_dual_world_empty_gate_nav_commands_residual_wave422,
-    simulate_live_move_to_state_dual_world_empty_gate_honesty,
-};
 pub use crate::game_logic::host_live_locomotor_core_dual_world_empty_gate_residual_wave423::{
     honesty_live_locomotor_core_dual_world_empty_gate_method_names_residual_wave423,
     honesty_live_locomotor_core_dual_world_empty_gate_nav_commands_residual_wave423,

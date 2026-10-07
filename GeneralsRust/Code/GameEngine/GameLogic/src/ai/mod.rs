@@ -3413,8 +3413,6 @@ pub mod pathfind_complete; // Complete system (all features integrated) // Group
 #[cfg(test)]
 mod pathfinding_tests;
 
-// Legacy AIPlayer implementation superseded by ai_player.
-pub mod ai_states;
 pub mod squad;
 #[path = "states/mod.rs"]
 pub mod states;
