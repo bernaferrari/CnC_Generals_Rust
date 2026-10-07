@@ -760,7 +760,8 @@ mod tests {
         assert!(popups[0].pause);
         assert!(!popups[0].pause_music);
 
-        let guardbands = hooks.drain_view_guardband_requests();
+        let view = hooks.take_camera_view_requests();
+        let guardbands = view.guardbands;
         assert_eq!(
             guardbands,
             vec![ViewGuardbandRequest {
@@ -769,7 +770,7 @@ mod tests {
             }]
         );
 
-        let bw = hooks.drain_camera_bw_mode_requests();
+        let bw = view.bw_modes;
         assert_eq!(
             bw,
             vec![CameraBwModeRequest {
@@ -778,9 +779,9 @@ mod tests {
             }]
         );
 
-        assert_eq!(hooks.drain_skybox_enabled_updates(), vec![false]);
+        assert_eq!(view.skybox_enabled, vec![false]);
 
-        let blur = hooks.drain_camera_motion_blur_requests();
+        let blur = view.motion_blur;
         assert_eq!(blur.len(), 4);
         assert_eq!(
             blur[0],

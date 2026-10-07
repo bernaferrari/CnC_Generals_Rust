@@ -71,6 +71,16 @@ struct AudioCompletionTracking {
     audio_complete_frame: HashMap<String, u64>,
 }
 
+/// Owned requests for the contiguous late view phase of one action flush.
+/// Consumers mutate concrete presentation state and cannot produce these queues.
+#[derive(Default)]
+pub(crate) struct CameraViewRequests {
+    pub(crate) guardbands: Vec<ViewGuardbandRequest>,
+    pub(crate) bw_modes: Vec<CameraBwModeRequest>,
+    pub(crate) skybox_enabled: Vec<bool>,
+    pub(crate) motion_blur: Vec<CameraMotionBlurRequest>,
+}
+
 /// Notifications consumed together at one existing synchronous camera-focus boundary.
 /// This value owns requests; no notification guard survives into camera/view effects.
 #[derive(Default)]
@@ -97,9 +107,17 @@ pub struct MissionScriptHooks {
     completion: Mutex<AudioCompletionTracking>,
     camera_movement_finished: AtomicBool,
     frame_counter: AtomicU64,
+    /// Test-only count at the actual contiguous view drain acquisitions.
+    #[cfg(test)]
+    view_drain_acquisitions: AtomicUsize,
 }
 
 impl MissionScriptHooks {
+    #[cfg(test)]
+    pub(crate) fn view_drain_acquisitions_for_test(&self) -> usize {
+        self.view_drain_acquisitions.load(Ordering::Relaxed)
+    }
+
     /// Requests contain plain owned values; a producer unwind can leave an
     /// earlier request queued but does not invalidate the remaining vectors.
     /// Recover those values, report the interruption once, and let the existing
@@ -201,6 +219,8 @@ impl MissionScriptHooks {
             completion: Mutex::new(AudioCompletionTracking::default()),
             camera_movement_finished: AtomicBool::new(true),
             frame_counter: AtomicU64::new(0),
+            #[cfg(test)]
+            view_drain_acquisitions: AtomicUsize::new(0),
         })
     }
 
@@ -1213,36 +1233,22 @@ impl MissionScriptHooks {
         q.popup_message_requests.drain(..).collect()
     }
 
-    pub fn drain_view_guardband_requests(&self) -> Vec<ViewGuardbandRequest> {
+    /// Take only the four consecutive view queues at their existing late phase.
+    /// Release the guard before the concrete View/global-data setters run.
+    /// Unlike a whole-flush snapshot, earlier host/UI callbacks remain visible.
+    pub(crate) fn take_camera_view_requests(&self) -> CameraViewRequests {
         let mut q = self
             .notifications
             .lock()
             .unwrap_or_else(|e| self.recover_notifications(e));
-        q.view_guardband_requests.drain(..).collect()
-    }
-
-    pub fn drain_camera_bw_mode_requests(&self) -> Vec<CameraBwModeRequest> {
-        let mut q = self
-            .notifications
-            .lock()
-            .unwrap_or_else(|e| self.recover_notifications(e));
-        q.camera_bw_mode_requests.drain(..).collect()
-    }
-
-    pub fn drain_skybox_enabled_updates(&self) -> Vec<bool> {
-        let mut q = self
-            .notifications
-            .lock()
-            .unwrap_or_else(|e| self.recover_notifications(e));
-        q.skybox_enabled_updates.drain(..).collect()
-    }
-
-    pub fn drain_camera_motion_blur_requests(&self) -> Vec<CameraMotionBlurRequest> {
-        let mut q = self
-            .notifications
-            .lock()
-            .unwrap_or_else(|e| self.recover_notifications(e));
-        q.camera_motion_blur_requests.drain(..).collect()
+        #[cfg(test)]
+        self.view_drain_acquisitions.fetch_add(1, Ordering::Relaxed);
+        CameraViewRequests {
+            guardbands: q.view_guardband_requests.drain(..).collect(),
+            bw_modes: q.camera_bw_mode_requests.drain(..).collect(),
+            skybox_enabled: q.skybox_enabled_updates.drain(..).collect(),
+            motion_blur: q.camera_motion_blur_requests.drain(..).collect(),
+        }
     }
 
     pub fn drain_cameo_flash_requests(&self) -> Vec<CameoFlashRequest> {

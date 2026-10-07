@@ -633,12 +633,11 @@ impl GameLogic {
             }
         }
 
-        if let Some(last) = self
-            .mission_scripts
-            .drain_view_guardband_requests()
-            .into_iter()
-            .last()
-        {
+        // These consecutive consumers only mutate concrete view/presentation
+        // values; none reenter the hook producers. Preserve the original late
+        // capture boundary and guardband -> BW -> skybox -> blur effect order.
+        let camera_view = self.mission_scripts.take_camera_view_requests();
+        if let Some(last) = camera_view.guardbands.into_iter().last() {
             #[cfg(feature = "game_client")]
             game_client::core::script_action_handler::script_resize_view_guardband(
                 last.x_bias,
@@ -647,12 +646,7 @@ impl GameLogic {
             self.pending_view_guardband = Some(last);
         }
 
-        if let Some(last) = self
-            .mission_scripts
-            .drain_camera_bw_mode_requests()
-            .into_iter()
-            .last()
-        {
+        if let Some(last) = camera_view.bw_modes.into_iter().last() {
             #[cfg(feature = "game_client")]
             game_client::core::script_action_handler::script_set_camera_bw_mode(
                 last.enabled,
@@ -661,12 +655,7 @@ impl GameLogic {
             self.pending_camera_bw_mode = Some(last);
         }
 
-        if let Some(enabled) = self
-            .mission_scripts
-            .drain_skybox_enabled_updates()
-            .into_iter()
-            .last()
-        {
+        if let Some(enabled) = camera_view.skybox_enabled.into_iter().last() {
             self.script_skybox_enabled = enabled;
             {
                 let mut global = game_engine::common::global_data::write();
@@ -676,7 +665,7 @@ impl GameLogic {
             game_client::core::script_action_handler::script_set_skybox_enabled(enabled);
         }
 
-        for request in self.mission_scripts.drain_camera_motion_blur_requests() {
+        for request in camera_view.motion_blur {
             #[cfg(feature = "game_client")]
             match &request {
                 CameraMotionBlurRequest::Basic { zoom_in, saturate } => {

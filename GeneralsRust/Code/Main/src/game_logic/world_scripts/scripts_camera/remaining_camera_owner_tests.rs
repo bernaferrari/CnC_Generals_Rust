@@ -182,10 +182,11 @@ fn assert_camera_queues_empty(hooks: &MissionScriptHooks) {
     assert!(hooks.drain_letterbox_events().is_empty());
     assert!(hooks.drain_camera_add_shaker_requests().is_empty());
     assert!(hooks.drain_screen_shake_requests().is_empty());
-    assert!(hooks.drain_view_guardband_requests().is_empty());
-    assert!(hooks.drain_camera_bw_mode_requests().is_empty());
-    assert!(hooks.drain_skybox_enabled_updates().is_empty());
-    assert!(hooks.drain_camera_motion_blur_requests().is_empty());
+    let view = hooks.take_camera_view_requests();
+    assert!(view.guardbands.is_empty());
+    assert!(view.bw_modes.is_empty());
+    assert!(view.skybox_enabled.is_empty());
+    assert!(view.motion_blur.is_empty());
 }
 
 fn remaining_camera_actions(x: f32) -> Vec<Box<ScriptAction>> {
