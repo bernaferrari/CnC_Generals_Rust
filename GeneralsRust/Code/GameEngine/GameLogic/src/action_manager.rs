@@ -1919,8 +1919,11 @@ impl TheActionManager {
             return ATTACKRESULT_NOT_POSSIBLE;
         }
 
-        let result =
-            obj.get_able_to_attack_specific_object(attack_type, object_to_attack, command_source);
+        let result = obj.get_able_to_attack_specific_object_for_objects(
+            attack_type,
+            object_to_attack,
+            command_source,
+        );
         if result != ATTACKRESULT_NOT_POSSIBLE {
             if command_source == CommandSourceType::FromPlayer && !obj.has_any_damage_weapon() {
                 return ATTACKRESULT_NOT_POSSIBLE;

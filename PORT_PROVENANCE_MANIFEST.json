@@ -28504,6 +28504,13 @@
             "classification": "test",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_attack_query_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_busy_classification_tests.rs"
           },
           {
@@ -60926,6 +60933,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/expired_command_owner_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_attack_query_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -157518,7 +157532,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "46061756321ebbed85ffd7c474d864b7daa9fba8be89ef32d3c30e18e8a62698",
+  "input_digest": "2be978e7ae52003bc74a9e4e39df8daa577fe7d84d92ea4ba8b2f23a9790589d",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -192005,11 +192019,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 843,
+        "end_line": 844,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/enter.rs",
-      "sha256": "14220e2295394be13e2287de95b85d2c0fdd271a6560ea244c8ed8cc33be3b22",
+      "sha256": "b6a6a9afce8d74890d2e0404f030165e1be288e56efc1507f1917696b095bf3f",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -192039,272 +192053,272 @@
         },
         {
           "kind": "fn",
-          "line": 336,
+          "line": 337,
           "name": "on_enter"
         },
         {
           "kind": "fn",
-          "line": 339,
+          "line": 340,
           "name": "on_enter_with_ai"
         },
         {
           "kind": "fn",
-          "line": 349,
+          "line": 350,
           "name": "bind_goal_object_id"
         },
         {
           "kind": "fn",
-          "line": 353,
+          "line": 354,
           "name": "bind_goal_position"
         },
         {
           "kind": "fn",
-          "line": 357,
+          "line": 358,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 361,
+          "line": 362,
           "name": "update_with_ai"
         },
         {
           "kind": "fn",
-          "line": 369,
+          "line": 370,
           "name": "on_exit"
         },
         {
           "kind": "fn",
-          "line": 373,
+          "line": 374,
           "name": "on_exit_with_ai"
         },
         {
           "kind": "fn",
-          "line": 381,
+          "line": 382,
           "name": "xfer_snapshot"
         },
         {
           "kind": "fn",
-          "line": 388,
+          "line": 389,
           "name": "base_state"
         },
         {
           "kind": "fn",
-          "line": 391,
+          "line": 392,
           "name": "base_state_mut"
         },
         {
           "kind": "fn",
-          "line": 395,
+          "line": 396,
           "name": "cpp_xfer_snapshot"
         },
         {
           "kind": "fn",
-          "line": 399,
+          "line": 400,
           "name": "cpp_on_enter"
         },
         {
           "kind": "fn",
-          "line": 403,
+          "line": 404,
           "name": "cpp_on_enter_with_ai"
         },
         {
           "kind": "fn",
-          "line": 410,
+          "line": 411,
           "name": "cpp_on_update"
         },
         {
           "kind": "fn",
-          "line": 414,
+          "line": 415,
           "name": "cpp_on_update_with_ai"
         },
         {
           "kind": "fn",
-          "line": 421,
+          "line": 422,
           "name": "cpp_on_exit"
         },
         {
           "kind": "struct",
-          "line": 429,
+          "line": 430,
           "name": "AIExitState"
         },
         {
           "kind": "fn",
-          "line": 435,
+          "line": 436,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 444,
+          "line": 445,
           "name": "on_enter"
         },
         {
           "kind": "fn",
-          "line": 447,
+          "line": 448,
           "name": "bind_goal_object_id"
         },
         {
           "kind": "fn",
-          "line": 451,
+          "line": 452,
           "name": "bind_goal_position"
         },
         {
           "kind": "fn",
-          "line": 455,
+          "line": 456,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 459,
+          "line": 460,
           "name": "on_exit"
         },
         {
           "kind": "fn",
-          "line": 463,
+          "line": 464,
           "name": "xfer_snapshot"
         },
         {
           "kind": "fn",
-          "line": 470,
+          "line": 471,
           "name": "base_state"
         },
         {
           "kind": "fn",
-          "line": 473,
+          "line": 474,
           "name": "base_state_mut"
         },
         {
           "kind": "fn",
-          "line": 477,
+          "line": 478,
           "name": "cpp_xfer_snapshot"
         },
         {
           "kind": "fn",
-          "line": 481,
+          "line": 482,
           "name": "cpp_on_enter"
         },
         {
           "kind": "fn",
-          "line": 516,
+          "line": 517,
           "name": "cpp_on_update"
         },
         {
           "kind": "fn",
-          "line": 579,
+          "line": 580,
           "name": "cpp_on_exit"
         },
         {
           "kind": "struct",
-          "line": 610,
+          "line": 611,
           "name": "AIExitInstantlyState"
         },
         {
           "kind": "fn",
-          "line": 616,
+          "line": 617,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 625,
+          "line": 626,
           "name": "on_enter"
         },
         {
           "kind": "fn",
-          "line": 628,
+          "line": 629,
           "name": "bind_goal_object_id"
         },
         {
           "kind": "fn",
-          "line": 632,
+          "line": 633,
           "name": "bind_goal_position"
         },
         {
           "kind": "fn",
-          "line": 636,
+          "line": 637,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 640,
+          "line": 641,
           "name": "on_exit"
         },
         {
           "kind": "fn",
-          "line": 644,
+          "line": 645,
           "name": "xfer_snapshot"
         },
         {
           "kind": "fn",
-          "line": 651,
+          "line": 652,
           "name": "base_state"
         },
         {
           "kind": "fn",
-          "line": 654,
+          "line": 655,
           "name": "base_state_mut"
         },
         {
           "kind": "fn",
-          "line": 658,
+          "line": 659,
           "name": "cpp_xfer_snapshot"
         },
         {
           "kind": "fn",
-          "line": 662,
+          "line": 663,
           "name": "cpp_on_enter"
         },
         {
           "kind": "fn",
-          "line": 707,
+          "line": 708,
           "name": "cpp_on_update"
         },
         {
           "kind": "fn",
-          "line": 718,
+          "line": 719,
           "name": "cpp_on_exit"
         },
         {
           "kind": "fn",
-          "line": 748,
+          "line": 749,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 758,
+          "line": 759,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 768,
+          "line": 769,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 775,
+          "line": 776,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 785,
+          "line": 786,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 795,
+          "line": 796,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 802,
+          "line": 803,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 819,
+          "line": 820,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 838,
+          "line": 839,
           "name": "load_post_process"
         }
       ]
@@ -202790,6 +202804,18 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
+        "end_line": 378,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_attack_query_tests.rs",
+      "sha256": "e911bd54eaddfdd4515fd8abf13738466f65421fdfffb66e2f5b73d9fb41ee86",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
         "end_line": 99,
         "start_line": 1
       },
@@ -202922,11 +202948,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 405,
+        "end_line": 408,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/owned_ai_state_tests.rs",
-      "sha256": "c2b9436dd42f0b8b6d3731155ae8618f404220cdbd82f75d171a2492096952e2",
+      "sha256": "039e02f9a2b6367a8c0d70ff8aafe25a397c8beee0979ac8b2d18a2e06017d60",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

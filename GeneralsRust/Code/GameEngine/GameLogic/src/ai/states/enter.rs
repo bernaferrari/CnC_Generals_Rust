@@ -263,10 +263,11 @@ impl AIEnterState {
                 CanEnterType::CheckCapacity,
             ) {
                 if owner_guard.relationship_to(&goal_guard) == Relationship::Enemies {
-                    let can_attack = owner_guard.get_able_to_attack_specific_object(
-                        AbleToAttackType::NewTarget,
+                    let can_attack = TheActionManager::get_can_attack_object(
+                        &owner_guard,
                         &goal_guard,
                         cmd_source,
+                        AbleToAttackType::NewTarget,
                     );
                     if matches!(
                         can_attack,
