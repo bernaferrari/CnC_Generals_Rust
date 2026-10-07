@@ -377,12 +377,10 @@ impl Object {
             } else {
                 super::combat::DamageType::Bullet
             }
-        } else if weapon_speed <= 0.0 || weapon_speed >= 999_000.0 {
-            super::combat::DamageType::Laser
-        } else if weapon_splash > 0.0 {
-            super::combat::DamageType::Explosive
         } else {
-            super::combat::DamageType::Bullet
+            // C++ WeaponTemplate::WeaponTemplate defaults to DAMAGE_EXPLOSION.
+            // Travel speed and radius do not classify an unnamed weapon.
+            super::combat::DamageType::Explosive
         };
         let at_self = name
             .map(crate::game_logic::weapon_bootstrap::host_damage_dealt_at_self_position_for_weapon_name)
@@ -414,10 +412,15 @@ impl Object {
                 splash_radius: weapon_splash,
                 is_homing: weapon_homing,
                 damage_type: weapon_dtype,
-                death_type: crate::game_logic::host_armor_residual::resolve_host_death_type(
-                    name,
-                    weapon_dtype,
-                ),
+                death_type: if name.is_none() {
+                    // C++ initializes DEATH_NORMAL independently of DamageType.
+                    crate::game_logic::host_usa_pilot::HostDeathType::Normal
+                } else {
+                    crate::game_logic::host_armor_residual::resolve_host_death_type(
+                        name,
+                        weapon_dtype,
+                    )
+                },
                 projectile_object_name,
                 projectile_lifecycle: None,
                 fire_fx_name,

@@ -256,9 +256,9 @@ fn missing_or_invalid_experience_is_not_a_recovery_sentinel() {
         );
     }
 
-    // Current Rust snapshots support only schema 23. Legacy records never
+    // Rust schemas 23/24 are readable. Unsupported schema 22 records never
     // enter restore, so they cannot justify inventing XP from bonus values.
-    snapshot.version -= 1;
+    snapshot.version = 22;
     let mut restored = world([10.0, 100.0, 1000.0]);
     assert!(matches!(
         builder.restore_from_snapshot(&snapshot, &mut restored),

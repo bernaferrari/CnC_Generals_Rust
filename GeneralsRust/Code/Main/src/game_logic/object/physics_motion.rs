@@ -808,9 +808,11 @@ impl Object {
     }
 
     fn current_airborne_targeting_height(&self) -> i32 {
-        if self.airborne_targeting_height != 0 && self.airborne_targeting_height != i32::MAX {
+        if self.airborne_targeting_height != i32::MAX {
             return self.airborne_targeting_height;
         }
+        // Standalone Object::new retains MAX until admission binds its name.
+        // Keep that fallback; zero is an authored threshold, not a sentinel.
         if let Some(name) = self.cur_locomotor_name.as_deref() {
             if !name.is_empty() {
                 if let Some(tmpl) = gamelogic::locomotor::ini_bridge::convert_named(name) {
@@ -818,11 +820,7 @@ impl Object {
                 }
             }
         }
-        if self.airborne_targeting_height != 0 {
-            self.airborne_targeting_height
-        } else {
-            i32::MAX
-        }
+        self.airborne_targeting_height
     }
 
     /// C++ PhysicsBehavior position integrate + ground clamp residual (one frame).

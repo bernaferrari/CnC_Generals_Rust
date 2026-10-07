@@ -934,11 +934,7 @@ fn host_locomotor_binding_from_template(t: &LocomotorTemplate) -> Option<HostLoc
         apply_2d_friction_when_airborne: t.apply_2d_friction_when_airborne,
         allow_motive_force_while_airborne: t.allow_motive_force_while_airborne,
         locomotor_works_when_dead: t.locomotor_works_when_dead,
-        airborne_targeting_height: if t.airborne_targeting_height == 0 {
-            i32::MAX
-        } else {
-            t.airborne_targeting_height
-        },
+        airborne_targeting_height: t.airborne_targeting_height,
         can_move_backward: t.can_move_backward,
         downhill_only: t.downhill_only,
         // Common already stored Lift/LiftDamaged as parseAccelerationReal (/900).

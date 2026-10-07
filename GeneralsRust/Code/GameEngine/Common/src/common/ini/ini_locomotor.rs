@@ -312,7 +312,8 @@ impl LocomotorTemplate {
             lateral_accel_coef: 0.0,
             uniform_axial_damping: 0.0,
             turn_pivot_offset: 0.0,
-            airborne_targeting_height: 0,
+            // C++ LocomotorTemplate ctor uses INT_MAX; authored zero is literal.
+            airborne_targeting_height: i32::MAX,
             close_enough_dist: 1.0,
             is_close_enough_dist_3d: false,
             ultra_accurate_slide_into_place_factor: 0.0,

@@ -5,7 +5,7 @@ use super::*;
 fn direct_xfer_rejects_old_rust_outer_versions() {
     use crate::save_load::{SaveLoadError, Xfer, XferLoad, XferSave};
     use std::io::Cursor;
-    for version in 1..WORLD_SNAPSHOT_DIRECT_XFER_VERSION {
+    for version in 1..23 {
         let mut source = WorldSnapshot::default();
         source.version = version;
         let mut output = Cursor::new(Vec::new());
@@ -27,6 +27,39 @@ fn direct_xfer_rejects_old_rust_outer_versions() {
         reader.xfer_u32(&mut following).unwrap();
         assert_eq!(following, sentinel);
     }
+}
+
+#[test]
+fn direct_xfer_accepts_v23_nonempty_body_and_following_sentinel() {
+    use crate::save_load::{Snapshot, Xfer, XferLoad, XferSave};
+    use std::io::Cursor;
+    let mut source = WorldSnapshot::default();
+    source.version = 23;
+    let mut player = super::super::xfer_helpers::default_player_snapshot();
+    player.id = 7;
+    player.name = "LegacyHost".into();
+    source.players.push(player);
+    let mut object = super::super::xfer_helpers::default_object_snapshot();
+    object.id = ObjectId(17);
+    source.objects.insert(object.id, object);
+    let mut bytes = Cursor::new(Vec::new());
+    {
+        let mut writer = XferSave::new(&mut bytes);
+        source.xfer(&mut writer).unwrap();
+        writer.xfer_u32(&mut 0x71AF_91C0).unwrap();
+    }
+    let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
+    let mut destination = WorldSnapshot::default();
+    destination.xfer(&mut reader).unwrap();
+    let mut following = 0;
+    reader.xfer_u32(&mut following).unwrap();
+    assert_eq!(following, 0x71AF_91C0);
+    assert_eq!(destination.version, 23);
+    assert_eq!(destination.players.len(), 1);
+    assert_eq!(destination.players[0].id, 7);
+    assert_eq!(destination.players[0].name, "LegacyHost");
+    assert_eq!(destination.objects.len(), 1);
+    assert_eq!(destination.objects[&ObjectId(17)].id, ObjectId(17));
 }
 
 #[test]

@@ -2,8 +2,8 @@ use generals_main::command_system::{
     CommandType, GameCommand, ModifierKeys, PowerTarget, SpecialPowerType,
 };
 use generals_main::game_logic::{
-    AIState, GameLogic, GameMode, KindOf, ObjectId, Player, Team, ThingTemplate, VictoryCondition,
-    Weapon,
+    AIState, AbleToAttackType, CanAttackResult, GameLogic, GameMode, KindOf, ObjectId, Player,
+    Team, ThingTemplate, VictoryCondition, Weapon,
 };
 use generals_main::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
 use glam::Vec3;
@@ -102,9 +102,103 @@ fn install_smoke_templates(game_logic: &mut GameLogic) {
         ),
     ];
 
-    for template in templates {
+    for mut template in templates {
+        if template.name == "SmokeRanger" {
+            template.set_primary_weapon(smoke_ranger_weapon());
+        }
         game_logic.templates.insert(template.name.clone(), template);
     }
+}
+
+fn smoke_ranger_weapon() -> Weapon {
+    Weapon {
+        damage: 60.0,
+        range: 200.0,
+        reload_time: 0.0,
+        projectile_speed: 0.0,
+        ..Weapon::default()
+    }
+}
+
+fn assert_smoke_enemies(game_logic: &GameLogic, target: ObjectId) {
+    use gamelogic::common::Relationship;
+    assert_eq!(
+        game_logic.get_object(target).unwrap().owner_player_id,
+        Some(1)
+    );
+    assert_eq!(game_logic.player_relationship(0, 1), Relationship::Enemies);
+    assert_eq!(game_logic.player_relationship(1, 0), Relationship::Enemies);
+}
+
+fn assert_ranger_admission(game_logic: &GameLogic, ranger_id: ObjectId) {
+    let ranger = game_logic
+        .get_object(ranger_id)
+        .expect("produced ranger exists");
+    assert_eq!(ranger.owner_player_id, Some(0));
+    assert_eq!(ranger.weapon_name_for_slot(0), None);
+    let weapon = ranger.weapon.as_ref().expect("authored weapon is admitted");
+    let expected = smoke_ranger_weapon();
+    assert_eq!(
+        serde_json::to_value(weapon).unwrap(),
+        serde_json::to_value(&expected).unwrap()
+    );
+    assert_eq!(weapon.suspend_fx_frame, expected.suspend_fx_frame);
+    assert_eq!(ranger.health.current, 120.0);
+    assert_eq!(ranger.fire_intent_count, 0);
+    assert_eq!(ranger.weapon_discharge_marker().sequence, 0);
+}
+
+fn assert_smoke_attack_legal(game_logic: &GameLogic, ranger: ObjectId, target: ObjectId) {
+    assert_smoke_enemies(game_logic, target);
+    assert_eq!(
+        game_logic.get_object(ranger).unwrap().owner_player_id,
+        Some(0)
+    );
+    assert_eq!(
+        game_logic.get_able_to_attack_specific_object(
+            ranger,
+            target,
+            AbleToAttackType::NewTarget,
+            true,
+        ),
+        CanAttackResult::Possible
+    );
+}
+
+fn assert_fresh_smoke_discharge(
+    game_logic: &GameLogic,
+    ranger: ObjectId,
+    target: ObjectId,
+    first_processed_frame: u32,
+    prior_shots: u32,
+    prior_sequence: u64,
+) {
+    let ranger = game_logic
+        .get_object(ranger)
+        .expect("shooter remains admitted");
+    let marker = ranger.weapon_discharge_marker();
+    assert!(
+        ranger.fire_intent_count > prior_shots,
+        "command window must produce a fresh shot"
+    );
+    assert!(
+        marker.sequence > prior_sequence,
+        "shot must be an accepted discharge"
+    );
+    assert_eq!(ranger.last_fire_victim_host, target.0);
+    assert_eq!(ranger.last_fire_slot, 0);
+    assert_eq!(ranger.last_fire_damage, 60.0);
+    assert_eq!(marker.weapon_slot, 0);
+    assert_eq!(ranger.last_fire_frame, marker.logic_frame);
+    assert!((first_processed_frame..game_logic.get_frame()).contains(&marker.logic_frame));
+    println!(
+        "smoke combat: team={:?} processed={} post_update={} shots={} marker={marker:?} target_health={}",
+        ranger.team,
+        marker.logic_frame,
+        game_logic.get_frame(),
+        ranger.fire_intent_count,
+        game_logic.get_object(target).unwrap().health.current,
+    );
 }
 
 fn run_until<F>(game_logic: &mut GameLogic, max_frames: usize, mut condition: F) -> bool
@@ -151,8 +245,12 @@ fn run_basic_faction_flow(human_team: Team) {
     game_logic.start_new_game(GameMode::Skirmish);
     game_logic.clear_all_players();
     install_smoke_templates(&mut game_logic);
-    game_logic.add_player(Player::new(0, human_team, human_team.get_name(), true));
-    game_logic.add_player(Player::new(1, enemy_team, enemy_team.get_name(), false));
+    let mut human = Player::new(0, human_team, human_team.get_name(), true);
+    let mut enemy = Player::new(1, enemy_team, enemy_team.get_name(), false);
+    human.alliance_team = 0;
+    enemy.alliance_team = 1;
+    game_logic.add_player(human);
+    game_logic.add_player(enemy);
 
     let _command_center = game_logic
         .create_object("SmokeCommandCenter", human_team, Vec3::ZERO)
@@ -169,6 +267,15 @@ fn run_basic_faction_flow(human_team: Team) {
     let enemy_command_center = game_logic
         .create_object("SmokeCommandCenter", enemy_team, Vec3::new(160.0, 0.0, 0.0))
         .expect("enemy command center should spawn");
+    assert_smoke_enemies(&game_logic, enemy_command_center);
+    assert_eq!(
+        game_logic
+            .get_object(enemy_command_center)
+            .unwrap()
+            .health
+            .current,
+        2000.0
+    );
 
     game_logic.queue_command(command(
         10,
@@ -260,18 +367,7 @@ fn run_basic_faction_flow(human_team: Team) {
         .find(|object| object.template_name == "SmokeRanger" && object.team == human_team)
         .map(|object| object.id)
         .expect("barracks production should spawn faction-owned infantry");
-    {
-        let ranger = game_logic
-            .get_object_mut(ranger_id)
-            .expect("infantry should exist before attack");
-        ranger.weapon = Some(Weapon {
-            damage: 60.0,
-            range: 200.0,
-            reload_time: 0.0,
-            projectile_speed: 0.0,
-            ..Weapon::default()
-        });
-    }
+    assert_ranger_admission(&game_logic, ranger_id);
 
     let supplies_before_sell = game_logic
         .get_player(0)
@@ -299,6 +395,11 @@ fn run_basic_faction_flow(human_team: Team) {
         human_team.get_name()
     );
 
+    assert_smoke_attack_legal(&game_logic, ranger_id, enemy_command_center);
+    let first_processed_frame = game_logic.get_frame();
+    let ranger_before = game_logic.get_object(ranger_id).unwrap();
+    let prior_shots = ranger_before.fire_intent_count;
+    let prior_sequence = ranger_before.weapon_discharge_marker().sequence;
     let enemy_health_before = game_logic
         .get_object(enemy_command_center)
         .expect("enemy command center should exist")
@@ -321,6 +422,14 @@ fn run_basic_faction_flow(human_team: Team) {
         "{} infantry should damage the enemy command center",
         human_team.get_name()
     );
+    assert_fresh_smoke_discharge(
+        &game_logic,
+        ranger_id,
+        enemy_command_center,
+        first_processed_frame,
+        prior_shots,
+        prior_sequence,
+    );
 
     game_logic
         .get_object_mut(enemy_command_center)
@@ -342,8 +451,12 @@ fn mini_skirmish_playable_flow_smoke() {
     game_logic.start_new_game(GameMode::Skirmish);
     game_logic.clear_all_players();
     install_smoke_templates(&mut game_logic);
-    game_logic.add_player(Player::new(0, Team::USA, "USA", true));
-    game_logic.add_player(Player::new(1, Team::China, "China", false));
+    let mut human = Player::new(0, Team::USA, "USA", true);
+    let mut enemy = Player::new(1, Team::China, "China", false);
+    human.alliance_team = 0;
+    enemy.alliance_team = 1;
+    game_logic.add_player(human);
+    game_logic.add_player(enemy);
 
     let command_center = game_logic
         .create_object("SmokeCommandCenter", Team::USA, Vec3::ZERO)
@@ -364,6 +477,15 @@ fn mini_skirmish_playable_flow_smoke() {
             Vec3::new(160.0, 0.0, 0.0),
         )
         .expect("China command center should spawn");
+    assert_smoke_enemies(&game_logic, enemy_command_center);
+    assert_eq!(
+        game_logic
+            .get_object(enemy_command_center)
+            .unwrap()
+            .health
+            .current,
+        2000.0
+    );
 
     let starting_supplies = game_logic
         .get_player(0)
@@ -428,6 +550,7 @@ fn mini_skirmish_playable_flow_smoke() {
         .find(|object| object.template_name == "SmokeRanger" && object.team == Team::USA)
         .map(|object| object.id)
         .expect("barracks production should spawn a ranger");
+    assert_ranger_admission(&game_logic, ranger_id);
     let after_ranger_supplies = game_logic
         .get_player(0)
         .expect("USA player should exist")
@@ -495,19 +618,6 @@ fn mini_skirmish_playable_flow_smoke() {
     assert_eq!(command_center_state.ai_state, AIState::SpecialAbility);
     assert!(!command_center_state.special_power_ready);
 
-    {
-        let ranger = game_logic
-            .get_object_mut(ranger_id)
-            .expect("ranger should exist before attack");
-        ranger.weapon = Some(Weapon {
-            damage: 60.0,
-            range: 200.0,
-            reload_time: 0.0,
-            projectile_speed: 0.0,
-            ..Weapon::default()
-        });
-    }
-
     let save_dir = TempDir::new().expect("smoke save temp dir should be created");
     let mut save_manager = SaveFileManager::with_save_directory(save_dir.path());
     save_manager
@@ -524,6 +634,14 @@ fn mini_skirmish_playable_flow_smoke() {
         .load_game("mini_skirmish_smoke", &mut loaded_game_logic)
         .expect("mini skirmish should load");
     assert_eq!(loaded_info.display_name, save_info.display_name);
+    assert_smoke_enemies(&loaded_game_logic, enemy_command_center);
+    assert_eq!(
+        loaded_game_logic
+            .get_object(ranger_id)
+            .unwrap()
+            .owner_player_id,
+        Some(0)
+    );
     assert_eq!(
         loaded_game_logic
             .get_player(0)
@@ -559,6 +677,11 @@ fn mini_skirmish_playable_flow_smoke() {
     // intentional single-CC defeat path (AI depth is covered by ai_skirmish_gate).
     game_logic.set_ai_active(1, false);
 
+    assert_smoke_attack_legal(&game_logic, ranger_id, enemy_command_center);
+    let first_processed_frame = game_logic.get_frame();
+    let ranger_before = game_logic.get_object(ranger_id).unwrap();
+    let prior_shots = ranger_before.fire_intent_count;
+    let prior_sequence = ranger_before.weapon_discharge_marker().sequence;
     let enemy_health_before = game_logic
         .get_object(enemy_command_center)
         .expect("enemy command center should exist")
@@ -580,6 +703,14 @@ fn mini_skirmish_playable_flow_smoke() {
                 .unwrap_or(false)
         }),
         "post-load ranger attack should damage enemy CC"
+    );
+    assert_fresh_smoke_discharge(
+        &game_logic,
+        ranger_id,
+        enemy_command_center,
+        first_processed_frame,
+        prior_shots,
+        prior_sequence,
     );
 
     // Eliminate every living China object (fail-closed if AI left residuals).

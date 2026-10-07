@@ -16,16 +16,16 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::SystemTime;
 
-/// Current positional Rust world schema. Earlier Rust layouts are unsupported.
-/// Schema 23 freezes both host combat queues as typed records, outside the
-/// opaque module lifecycle bytes. Original C++ module Xfer versions remain
-/// independently defined by their module implementations.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 23;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 23;
+/// World body schema 23 remains unchanged. Version 24 advertises required
+/// host alliances in the sibling Players v4 file chunk, so older builds reject
+/// new bundles before host restore. Only these two Rust schemas are readable;
+/// original C++ module Xfer versions remain independently defined.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 24;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 24;
 
 /// Validate the Rust outer envelope before consuming or restoring its body.
 pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadResult<()> {
-    if version == WORLD_SNAPSHOT_DIRECT_XFER_VERSION {
+    if matches!(version, 23 | 24) {
         Ok(())
     } else {
         Err(crate::save_load::SaveLoadError::VersionMismatch {

@@ -942,6 +942,7 @@ impl SaveFileManager {
         &self,
         filename: &str,
     ) -> SaveLoadResult<(WorldSnapshot, SaveGameInfo)> {
+        clear_pending_player_team_chunks()?;
         let save_path = self.get_save_path(filename);
         if !save_path.exists() {
             return Err(SaveLoadError::FileNotFound(filename.to_string()));
@@ -1198,6 +1199,9 @@ impl SaveFileManager {
         logic_payload: Vec<u8>,
         game_client_bytes: &[u8],
     ) -> SaveLoadResult<Vec<u8>> {
+        if save_info.save_type != SaveFileType::Mission {
+            validate_pending_host_alliances(world_snapshot)?;
+        }
         let ghost_bytes = capture_w3d_ghost_xfer_bytes().unwrap_or_default();
         let particle_system_bytes = capture_particle_system_xfer_bytes().unwrap_or_default();
         let terrain_visual_bytes = capture_terrain_visual_xfer_bytes().unwrap_or_default();
@@ -1360,6 +1364,7 @@ impl SaveFileManager {
         data: &[u8],
         save_dir: &Path,
     ) -> SaveLoadResult<(WorldSnapshot, SaveGameInfo)> {
+        clear_pending_player_team_chunks()?;
         discard_stashed_campaign_state();
         store_loaded_game_state_map_mode(None);
         let blocks = walk_named_chunks(data)?;
@@ -1448,19 +1453,11 @@ impl SaveFileManager {
             } else if token.eq_ignore_ascii_case(CHUNK_RADAR) {
                 radar_payload = Some(payload);
             } else if token.eq_ignore_ascii_case(CHUNK_PLAYERS) {
-                if payload.len() > 1 {
-                    players_payload = Some(payload);
-                }
+                players_payload = Some(payload);
             } else if token.eq_ignore_ascii_case(CHUNK_TEAM_FACTORY) {
-                if payload.len() > 1 {
-                    team_factory_payload = Some(payload);
-                }
+                team_factory_payload = Some(payload);
             }
         }
-        stash_loaded_player_team_chunks(
-            players_payload.as_deref(),
-            team_factory_payload.as_deref(),
-        );
         if !saw_game_state {
             return Err(SaveLoadError::Corrupted(
                 "CHUNK_GameState missing from named-chunk save".to_string(),
@@ -1476,6 +1473,11 @@ impl SaveFileManager {
                 ));
             }
         };
+        stash_player_team_chunks_for_world(
+            players_payload.as_deref(),
+            team_factory_payload.as_deref(),
+            Some(&world_snapshot),
+        )?;
         apply_persist_chunks(
             &mut world_snapshot,
             ingame_ui_payload.as_deref(),

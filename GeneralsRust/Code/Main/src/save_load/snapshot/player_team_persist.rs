@@ -7,20 +7,21 @@
 //! `attack_priority_name`, and leftover TeamTemplateInfo::xfer
 //! `production_priority` reset after load.
 //!
-//! No WorldSnapshot version bump: pending bytes ride the named chunks.
+//! Players v4 carries canonical host alliance inputs in this sibling chunk.
+//! WorldSnapshot 24 is the save-bundle capability gate; its body is unchanged.
 
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use game_engine::common::system::xfer::Xfer as CommonXfer;
 use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
 use game_engine::common::system::xfer_save::XferSave as CommonXferSave;
-use std::io::{Cursor, Seek, Write};
+use std::io::{Cursor, Read, Seek, Write};
 use std::sync::Mutex;
 
 pub const CHUNK_PLAYERS: &str = "CHUNK_Players";
 pub const CHUNK_TEAM_FACTORY: &str = "CHUNK_TeamFactory";
 
-const PLAYERS_CHUNK_VERSION: u8 = 3;
+const PLAYERS_CHUNK_VERSION: u8 = 4;
 const TEAM_FACTORY_CHUNK_VERSION: u8 = 4;
 const MAX_ATTACKED_BY: usize = 16;
 const MAX_GENERIC_SCRIPTS: usize = 16;
@@ -69,6 +70,8 @@ pub struct PlayerRuntimePersist {
     pub units_should_hunt: bool,
     pub current_selection: Vec<u32>,
     pub did_preorder: bool,
+    /// None for legacy/native-only rows; Some(-1) is explicit host authoring.
+    pub host_alliance_team: Option<i32>,
 }
 
 impl Default for PlayerRuntimePersist {
@@ -95,6 +98,7 @@ impl Default for PlayerRuntimePersist {
             units_should_hunt: false,
             current_selection: Vec::new(),
             did_preorder: false,
+            host_alliance_team: None,
         }
     }
 }
@@ -242,7 +246,7 @@ fn xfer_string_list<W: Write + Seek>(
     Ok(())
 }
 
-fn parse_string_list(xfer: &mut CommonXferLoad<Cursor<&[u8]>>) -> SaveLoadResult<Vec<String>> {
+fn parse_string_list<R: Read>(xfer: &mut CommonXferLoad<R>) -> SaveLoadResult<Vec<String>> {
     let mut count = 0u16;
     map_xfer(xfer.xfer_unsigned_short(&mut count))?;
     let mut out = Vec::with_capacity(count as usize);
@@ -331,11 +335,16 @@ fn write_player_entry<W: Write + Seek>(
     }
     let mut did_preorder = player.did_preorder;
     map_xfer(xfer.xfer_bool(&mut did_preorder))?;
+    let mut has_host_alliance = u8::from(player.host_alliance_team.is_some());
+    map_xfer(xfer.xfer_unsigned_byte(&mut has_host_alliance))?;
+    if let Some(mut alliance) = player.host_alliance_team {
+        map_xfer(xfer.xfer_int(&mut alliance))?;
+    }
     Ok(())
 }
 
-fn parse_player_entry(
-    xfer: &mut CommonXferLoad<Cursor<&[u8]>>,
+fn parse_player_entry<R: Read>(
+    xfer: &mut CommonXferLoad<R>,
     version: u8,
 ) -> SaveLoadResult<PlayerRuntimePersist> {
     let mut player = PlayerRuntimePersist::default();
@@ -417,6 +426,23 @@ fn parse_player_entry(
     if version >= 3 {
         map_xfer(xfer.xfer_bool(&mut player.did_preorder))?;
     }
+    if version >= 4 {
+        let mut present = 0u8;
+        map_xfer(xfer.xfer_unsigned_byte(&mut present))?;
+        player.host_alliance_team = match present {
+            0 => None,
+            1 => {
+                let mut alliance = 0i32;
+                map_xfer(xfer.xfer_int(&mut alliance))?;
+                Some(alliance)
+            }
+            _ => {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "CHUNK_Players invalid host alliance tag {present}"
+                )));
+            }
+        };
+    }
     Ok(player)
 }
 
@@ -433,20 +459,28 @@ pub fn write_players_block<W: Write + Seek>(xfer: &mut CommonXferSave<W>) -> Sav
 }
 
 pub fn parse_players_block(payload: &[u8]) -> SaveLoadResult<PlayersChunkPersist> {
-    if payload.is_empty() {
-        return Ok(PlayersChunkPersist::default());
-    }
-    let mut xfer = CommonXferLoad::new(Cursor::new(payload), 1);
+    let mut cursor = Cursor::new(payload);
+    let mut xfer = CommonXferLoad::new(&mut cursor, 1);
     let mut version = 0u8;
-    map_xfer(xfer.xfer_version(&mut version, PLAYERS_CHUNK_VERSION))?;
-    if version < 1 {
-        return Ok(PlayersChunkPersist::default());
+    map_xfer(xfer.xfer_unsigned_byte(&mut version))?;
+    if !(1..=PLAYERS_CHUNK_VERSION).contains(&version) {
+        return Err(SaveLoadError::VersionMismatch {
+            expected: u32::from(PLAYERS_CHUNK_VERSION),
+            actual: u32::from(version),
+        });
     }
     let mut count = 0u16;
     map_xfer(xfer.xfer_unsigned_short(&mut count))?;
     let mut players = Vec::with_capacity(count as usize);
     for _ in 0..count {
         players.push(parse_player_entry(&mut xfer, version)?);
+    }
+    // Common Xfer's byte counter omits string payloads. The cursor measures
+    // the complete wire record, including those payloads.
+    if cursor.position() != payload.len() as u64 {
+        return Err(SaveLoadError::Corrupted(
+            "CHUNK_Players trailing bytes".into(),
+        ));
     }
     Ok(PlayersChunkPersist { players })
 }
@@ -534,14 +568,15 @@ pub fn write_team_factory_block<W: Write + Seek>(
 }
 
 pub fn parse_team_factory_block(payload: &[u8]) -> SaveLoadResult<TeamFactoryChunkPersist> {
-    if payload.is_empty() {
-        return Ok(TeamFactoryChunkPersist::default());
-    }
-    let mut xfer = CommonXferLoad::new(Cursor::new(payload), 1);
+    let mut cursor = Cursor::new(payload);
+    let mut xfer = CommonXferLoad::new(&mut cursor, 1);
     let mut version = 0u8;
-    map_xfer(xfer.xfer_version(&mut version, TEAM_FACTORY_CHUNK_VERSION))?;
-    if version < 1 {
-        return Ok(TeamFactoryChunkPersist::default());
+    map_xfer(xfer.xfer_unsigned_byte(&mut version))?;
+    if !(1..=TEAM_FACTORY_CHUNK_VERSION).contains(&version) {
+        return Err(SaveLoadError::VersionMismatch {
+            expected: u32::from(TEAM_FACTORY_CHUNK_VERSION),
+            actual: u32::from(version),
+        });
     }
     let mut unique_team_id = 0u32;
     map_xfer(xfer.xfer_unsigned_int(&mut unique_team_id))?;
@@ -621,6 +656,11 @@ pub fn parse_team_factory_block(payload: &[u8]) -> SaveLoadResult<TeamFactoryChu
             map_xfer(xfer.xfer_int(&mut proto.production_priority))?;
             prototypes.push(proto);
         }
+    }
+    if cursor.position() != payload.len() as u64 {
+        return Err(SaveLoadError::Corrupted(
+            "CHUNK_TeamFactory trailing bytes".into(),
+        ));
     }
     Ok(TeamFactoryChunkPersist {
         unique_team_id,
@@ -777,6 +817,7 @@ fn capture_players_chunk(game_logic: Option<&GameLogic>) -> PlayersChunkPersist 
             });
             persist.players.last_mut().expect("just pushed")
         };
+        slot.host_alliance_team = Some(player.alliance_team);
         slot.sciences = player.unlocked_sciences.iter().cloned().collect();
         slot.sciences_disabled = player.sciences_disabled.iter().cloned().collect();
         slot.sciences_hidden = player.sciences_hidden.iter().cloned().collect();
@@ -905,25 +946,79 @@ pub fn stamp_from_live(game_logic: &GameLogic) {
     }
 }
 
-pub fn stash_loaded_chunks(players: Option<&[u8]>, teams: Option<&[u8]>) {
-    if let Some(payload) = players {
-        if payload.len() > 1 {
-            if let Ok(parsed) = parse_players_block(payload) {
-                if let Ok(mut guard) = PENDING_PLAYERS.lock() {
-                    *guard = Some(parsed);
-                }
-            }
+/// Clear this legacy staging pair; other save globals are outside this boundary.
+pub(crate) fn clear_pending_chunks() -> SaveLoadResult<()> {
+    publish_pending_chunks(None, None)
+}
+
+fn publish_pending_chunks(
+    players: Option<PlayersChunkPersist>,
+    teams: Option<TeamFactoryChunkPersist>,
+) -> SaveLoadResult<()> {
+    let mut player_slot = PENDING_PLAYERS
+        .lock()
+        .map_err(|_| SaveLoadError::Unknown("Players staging lock poisoned".into()))?;
+    let mut team_slot = PENDING_TEAMS
+        .lock()
+        .map_err(|_| SaveLoadError::Unknown("Teams staging lock poisoned".into()))?;
+    *player_slot = players;
+    *team_slot = teams;
+    Ok(())
+}
+
+/// Legacy/direct chunk caller: no enclosing file capability requirement.
+pub fn stash_loaded_chunks(players: Option<&[u8]>, teams: Option<&[u8]>) -> SaveLoadResult<()> {
+    stash_chunks_for_world(players, teams, None)
+}
+
+pub(crate) fn stash_chunks_for_world(
+    players: Option<&[u8]>,
+    teams: Option<&[u8]>,
+    world: Option<&super::WorldSnapshot>,
+) -> SaveLoadResult<()> {
+    clear_pending_chunks()?;
+    // Only [1] is the historical NullSnapshot, not an arbitrary short payload.
+    // Decode both candidates before publishing either. This is not whole-load
+    // atomicity: the pair remains process-global and other chunks have owners.
+    let players = match players {
+        None | Some([1]) => None,
+        Some(bytes) => Some(parse_players_block(bytes)?),
+    };
+    let teams = match teams {
+        None | Some([1]) => None,
+        Some(bytes) => Some(parse_team_factory_block(bytes)?),
+    };
+    if let Some(world) = world {
+        validate_host_alliance_coverage(world, players.as_ref())?;
+    }
+    publish_pending_chunks(players, teams)
+}
+
+fn validate_host_alliance_coverage(
+    world: &super::WorldSnapshot,
+    players: Option<&PlayersChunkPersist>,
+) -> SaveLoadResult<()> {
+    if world.version != 24 {
+        return Ok(());
+    }
+    for host in &world.players {
+        let mut matching = players
+            .into_iter()
+            .flat_map(|p| &p.players)
+            .filter(|p| p.player_id == host.id);
+        if matching.next().and_then(|p| p.host_alliance_team).is_none() || matching.next().is_some()
+        {
+            return Err(SaveLoadError::Corrupted(format!(
+                "WorldSnapshot 24 requires one CHUNK_Players host alliance for player {}",
+                host.id,
+            )));
         }
     }
-    if let Some(payload) = teams {
-        if payload.len() > 1 {
-            if let Ok(parsed) = parse_team_factory_block(payload) {
-                if let Ok(mut guard) = PENDING_TEAMS.lock() {
-                    *guard = Some(parsed);
-                }
-            }
-        }
-    }
+    Ok(())
+}
+
+pub(crate) fn validate_pending_host_alliances(world: &super::WorldSnapshot) -> SaveLoadResult<()> {
+    validate_host_alliance_coverage(world, peek_pending_players().as_ref())
 }
 
 fn peek_pending_players() -> Option<PlayersChunkPersist> {
@@ -949,6 +1044,9 @@ fn apply_player_to_live(game_logic: &mut GameLogic, persist: &PlayerRuntimePersi
     let Some(player) = game_logic.get_player_mut(persist.player_id) else {
         return;
     };
+    if let Some(alliance) = persist.host_alliance_team {
+        player.alliance_team = alliance;
+    }
     player.sciences_disabled = persist.sciences_disabled.iter().cloned().collect();
     player.sciences_hidden = persist.sciences_hidden.iter().cloned().collect();
     for name in &persist.sciences {
@@ -1282,6 +1380,9 @@ mod tests {
         let player_bytes = players_only.into_inner();
         assert!(player_bytes.len() > 2, "must not be NullSnapshot");
         let parsed_players = parse_players_block(&player_bytes).expect("parse players");
+        let mut trailing_players = player_bytes.clone();
+        trailing_players.push(0);
+        assert!(parse_players_block(&trailing_players).is_err());
         assert_eq!(
             parsed_players.players[0].sciences_disabled,
             ["SCIENCE_PaladinTank"]
@@ -1402,7 +1503,11 @@ mod tests {
             let mut xfer = CommonXferSave::new(&mut bytes, 1);
             write_team_factory_block(&mut xfer).expect("write source factory chunk");
         }
-        let parsed = parse_team_factory_block(&bytes.into_inner()).expect("parse factory chunk");
+        let team_bytes = bytes.into_inner();
+        let parsed = parse_team_factory_block(&team_bytes).expect("parse factory chunk");
+        let mut trailing_teams = team_bytes.clone();
+        trailing_teams.push(0);
+        assert!(parse_team_factory_block(&trailing_teams).is_err());
         assert_eq!(parsed.prototypes[0].production_priority, 42);
         assert_eq!(parsed.teams[0].state, "SourceState");
         let source_team_id = parsed.teams[0].team_id;

@@ -150,11 +150,7 @@ pub fn from_common_ini_template(
         src.uniform_axial_damping
     };
     dest.turn_pivot_offset = src.turn_pivot_offset;
-    dest.airborne_targeting_height = if src.airborne_targeting_height == 0 {
-        dest.airborne_targeting_height
-    } else {
-        src.airborne_targeting_height
-    };
+    dest.airborne_targeting_height = src.airborne_targeting_height;
     dest.close_enough_dist = src.close_enough_dist;
     dest.is_close_enough_dist_3d = src.is_close_enough_dist_3d;
     dest.ultra_accurate_slide_factor =

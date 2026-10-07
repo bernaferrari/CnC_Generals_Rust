@@ -164,6 +164,10 @@ pub use persist_v18::{
     peek_pending_camera, set_pending_camera, take_pending_camera, CameraPersist, WorldPersistV18,
 };
 pub use player::*;
+pub(crate) use player_team_persist::{
+    clear_pending_chunks as clear_pending_player_team_chunks,
+    stash_chunks_for_world as stash_player_team_chunks_for_world, validate_pending_host_alliances,
+};
 pub use player_team_persist::{
     apply_pending as apply_pending_player_team_chunks, stamp_from_live as stamp_player_team_chunks,
     stash_loaded_chunks as stash_loaded_player_team_chunks, write_players_block,

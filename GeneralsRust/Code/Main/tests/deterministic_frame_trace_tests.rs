@@ -4,7 +4,10 @@ use generals_main::deterministic_trace::{
     calculate_frame_crc, compare_frame_traces, first_trace_difference,
     first_trace_field_difference, run_trace_scenario,
 };
-use generals_main::game_logic::{GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate, Weapon};
+use generals_main::game_logic::{
+    AbleToAttackType, CanAttackResult, GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate,
+    Weapon,
+};
 use glam::Vec3;
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -139,12 +142,25 @@ fn test_template(name: &str, max_health: f32) -> ThingTemplate {
 
 fn traced_game_logic() -> (GameLogic, ObjectId, ObjectId) {
     let mut game_logic = GameLogic::new();
-    game_logic.add_player(Player::new(0, Team::USA, "USA", true));
-    game_logic.add_player(Player::new(1, Team::GLA, "GLA", false));
-    game_logic.templates.insert(
-        "TraceHumvee".to_string(),
-        test_template("TraceHumvee", 360.0),
-    );
+    let mut source_player = Player::new(0, Team::USA, "USA", true);
+    let mut target_player = Player::new(1, Team::GLA, "GLA", false);
+    // Distinct factions alone do not declare enemies for owner-admitted units.
+    source_player.alliance_team = 0;
+    target_player.alliance_team = 1;
+    game_logic.add_player(source_player);
+    game_logic.add_player(target_player);
+    let humvee_weapon = Weapon {
+        damage: 25.0,
+        range: 100.0,
+        reload_time: 0.0,
+        projectile_speed: 0.0,
+        ..Weapon::default()
+    };
+    let mut humvee_template = test_template("TraceHumvee", 360.0);
+    humvee_template.set_primary_weapon(humvee_weapon.clone());
+    game_logic
+        .templates
+        .insert("TraceHumvee".to_string(), humvee_template);
     game_logic.templates.insert(
         "TraceTechnical".to_string(),
         test_template("TraceTechnical", 240.0),
@@ -160,20 +176,76 @@ fn traced_game_logic() -> (GameLogic, ObjectId, ObjectId) {
         .create_object("TraceTechnical", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
         .expect("technical should spawn");
 
-    let humvee_weapon = Some(Weapon {
-        damage: 25.0,
-        range: 100.0,
-        reload_time: 0.0,
-        projectile_speed: 0.0,
-        ..Weapon::default()
-    });
-    game_logic
-        .get_objects_mut()
-        .get_mut(&humvee)
-        .expect("humvee exists")
-        .weapon = humvee_weapon;
+    let source = game_logic.get_object(humvee).expect("humvee exists");
+    let target = game_logic.get_object(technical).expect("technical exists");
+    assert_eq!(source.owner_player_id, Some(0));
+    assert_eq!(target.owner_player_id, Some(1));
+    assert_eq!(source.weapon_name_for_slot(0), None);
+    let admitted_weapon = source.weapon.as_ref().expect("authored weapon is admitted");
+    assert_eq!(
+        serde_json::to_value(admitted_weapon).unwrap(),
+        serde_json::to_value(&humvee_weapon).unwrap()
+    );
+    assert_eq!(
+        admitted_weapon.suspend_fx_frame,
+        humvee_weapon.suspend_fx_frame
+    );
+    assert_eq!(source.fire_intent_count, 0);
+    assert_eq!(source.weapon_discharge_marker().sequence, 0);
+    assert_eq!(source.health.current, 360.0);
+    assert_eq!(target.health.current, 240.0);
+    assert_trace_attack_legal(&game_logic, humvee, technical);
 
     (game_logic, humvee, technical)
+}
+
+fn assert_trace_attack_legal(game_logic: &GameLogic, source: ObjectId, target: ObjectId) {
+    use gamelogic::common::Relationship;
+    assert_eq!(game_logic.player_relationship(0, 1), Relationship::Enemies);
+    assert_eq!(game_logic.player_relationship(1, 0), Relationship::Enemies);
+    assert_eq!(
+        game_logic.get_able_to_attack_specific_object(
+            source,
+            target,
+            AbleToAttackType::NewTarget,
+            true,
+        ),
+        CanAttackResult::Possible
+    );
+}
+
+fn assert_trace_discharge(
+    game_logic: &GameLogic,
+    source: ObjectId,
+    target: ObjectId,
+    first_processed_frame: u32,
+    traces: &[&FrameTrace],
+) {
+    let source = game_logic
+        .get_object(source)
+        .expect("shooter remains admitted");
+    let marker = source.weapon_discharge_marker();
+    assert!(source.fire_intent_count > 0, "attack must produce a shot");
+    assert!(marker.sequence > 0, "shot must be an accepted discharge");
+    assert_eq!(source.last_fire_victim_host, target.0);
+    assert_eq!(source.last_fire_slot, 0);
+    assert_eq!(source.last_fire_damage, 25.0);
+    assert_eq!(marker.weapon_slot, 0);
+    assert_eq!(source.last_fire_frame, marker.logic_frame);
+    assert!((first_processed_frame..game_logic.get_frame()).contains(&marker.logic_frame));
+    // The shot is stamped during simulation; captures use the incremented frame.
+    assert!(
+        traces
+            .iter()
+            .any(|trace| trace.frame == marker.logic_frame + 1)
+    );
+    println!(
+        "trace combat: processed={} capture={} shots={} marker={marker:?} target_health={}",
+        marker.logic_frame,
+        marker.logic_frame + 1,
+        source.fire_intent_count,
+        game_logic.get_object(target).unwrap().health.current,
+    );
 }
 
 #[test]
@@ -299,6 +371,8 @@ fn frame_trace_captures_real_game_logic_command_and_damage_frames() {
         vec![humvee],
     );
 
+    assert_trace_attack_legal(&game_logic, humvee, technical);
+    let first_processed_frame = game_logic.get_frame();
     game_logic.queue_command(attack.clone());
     game_logic.update();
     let frame_1 = FrameTrace::from_game_logic(&game_logic, seed(), vec![attack], None);
@@ -316,6 +390,13 @@ fn frame_trace_captures_real_game_logic_command_and_damage_frames() {
         .find(|object| object.id == technical)
         .expect("technical should be traced");
     assert!(traced_technical.health < 240.0);
+    assert_trace_discharge(
+        &game_logic,
+        humvee,
+        technical,
+        first_processed_frame,
+        &[&frame_1, &frame_2],
+    );
 }
 
 #[test]
@@ -332,6 +413,8 @@ fn trace_scenario_runs_scheduled_commands_before_each_frame_capture() {
         )],
     );
 
+    assert_trace_attack_legal(&game_logic, humvee, technical);
+    let first_processed_frame = game_logic.get_frame();
     let trace = run_trace_scenario(&mut game_logic, &scenario);
 
     assert_eq!(trace.len(), 3);
@@ -347,6 +430,13 @@ fn trace_scenario_runs_scheduled_commands_before_each_frame_capture() {
         .find(|object| object.id == technical)
         .expect("technical should be traced");
     assert!(final_technical.health < 240.0);
+    assert_trace_discharge(
+        &game_logic,
+        humvee,
+        technical,
+        first_processed_frame,
+        &trace.iter().collect::<Vec<_>>(),
+    );
 }
 
 #[test]

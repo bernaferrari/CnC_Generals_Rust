@@ -326,7 +326,8 @@ impl GameLogic {
                 let viewer = me.owner_player_id;
                 let clear = viewer
                     .and_then(|pid| {
-                        std::sync::Arc::clone(self.engine_stores.shroud())
+                        self.engine_stores
+                            .shroud()
                             .lock()
                             .ok()
                             .and_then(|mgr| mgr.get_host_object_shroud_status(pid, oid.0))

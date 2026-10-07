@@ -1,0 +1,89 @@
+{
+  "limit": "Partial original-source extraction of defaults and type copy; no complete constructor, parser, runtime, armor or save comparison.",
+  "extracted": [
+    {
+      "path": "GeneralsMD/Code/GameEngine/Include/GameLogic/Damage.h",
+      "source_sha256": "7d7d7ba2718b856ae510640fb6a3db84729844849b670df927dc9ffeed8a0385",
+      "start_line": 26,
+      "end_line": 70,
+      "text": "enum DamageType\n{\t\n\tDAMAGE_EXPLOSION\t\t\t\t\t\t\t= 0,\t\t\t\n\tDAMAGE_CRUSH\t\t\t\t\t\t\t\t\t= 1,\t\t\t\t\t\n\tDAMAGE_ARMOR_PIERCING\t\t\t\t\t= 2,\n\tDAMAGE_SMALL_ARMS\t\t\t\t\t\t\t= 3,\t\t\n\tDAMAGE_GATTLING\t\t\t\t\t\t\t\t= 4,\t\t\t\t\n\tDAMAGE_RADIATION\t\t\t\t\t\t\t= 5,\t\t\t\n\tDAMAGE_FLAME\t\t\t\t\t\t\t\t\t= 6,\t\t\t\t\t\n\tDAMAGE_LASER\t\t\t\t\t\t\t\t\t= 7,\t\t\t\t\t\n\tDAMAGE_SNIPER\t\t\t\t\t\t\t\t\t= 8,\t\t\t\t\n\tDAMAGE_POISON\t\t\t\t\t\t\t\t\t= 9,\t\t\t\n\tDAMAGE_HEALING\t\t\t\t\t\t\t\t= 10,\t\n\tDAMAGE_UNRESISTABLE\t\t\t\t\t\t= 11,\t\t// this is for scripting to cause 'armorproof' damage\n\tDAMAGE_WATER\t\t\t\t\t\t\t\t\t= 12,\t\n\tDAMAGE_DEPLOY\t\t\t\t\t\t\t\t\t= 13,\t\t\t\t\t// for transports to deploy units and order them to all attack.\n\tDAMAGE_SURRENDER\t\t\t\t\t\t\t= 14,\t\t\t\t// if something \"dies\" to surrender damage, they surrender.... duh!\n\tDAMAGE_HACK\t\t\t\t\t\t\t\t\t\t= 15,\n\tDAMAGE_KILLPILOT\t\t\t\t\t\t\t= 16,\t\t\t\t// special snipe attack that kills the pilot and renders a vehicle unmanned.\n\tDAMAGE_PENALTY\t\t\t\t\t\t\t\t= 17,\t\t\t\t\t// from game penalty (you won't receive radar warnings BTW)\n\tDAMAGE_FALLING\t\t\t\t\t\t\t\t= 18,\n\tDAMAGE_MELEE\t\t\t\t\t\t\t\t\t= 19,\t\t\t\t\t\t// Blades, clubs...\n\tDAMAGE_DISARM\t\t\t\t\t\t\t\t\t= 20,\t// \"special\" damage type used for disarming mines, bombs, etc (NOT for \"disarming\" an opponent!)\n\tDAMAGE_HAZARD_CLEANUP\t\t\t\t\t= 21,\t// special damage type for cleaning up hazards like radiation or bio-poison.\n\tDAMAGE_PARTICLE_BEAM\t\t\t\t\t= 22,\t// Incinerates virtually everything (insanely powerful orbital beam)\n\tDAMAGE_TOPPLING\t\t\t\t\t\t\t\t= 23,\t// damage from getting toppled.\n\tDAMAGE_INFANTRY_MISSILE\t\t\t\t= 24,\t\n\tDAMAGE_AURORA_BOMB\t\t\t\t\t\t= 25,\t\n\tDAMAGE_LAND_MINE\t\t\t\t\t\t\t= 26,\t\n\tDAMAGE_JET_MISSILES\t\t\t\t\t\t= 27,\t\n\tDAMAGE_STEALTHJET_MISSILES\t\t= 28,\t\n\tDAMAGE_MOLOTOV_COCKTAIL\t\t\t\t= 29,\t\n\tDAMAGE_COMANCHE_VULCAN\t\t\t\t= 30,\t\n\tDAMAGE_SUBDUAL_MISSILE\t\t\t\t= 31,\t///< Damage that does not kill you, but produces some special effect based on your Body Module. Seperate HP from normal damage.\n\tDAMAGE_SUBDUAL_VEHICLE\t\t\t\t= 32,\n\tDAMAGE_SUBDUAL_BUILDING\t\t\t\t= 33,\n\tDAMAGE_SUBDUAL_UNRESISTABLE\t\t= 34,\n\tDAMAGE_MICROWAVE\t\t\t\t\t\t\t= 35, ///< Radiation that only affects infantry\n\tDAMAGE_KILL_GARRISONED\t\t\t\t= 36, ///< Kills Passengers up to the number specified in Damage\n\tDAMAGE_STATUS\t\t\t\t\t\t\t\t\t= 37, ///< Damage that gives a status condition, not that does hitpoint damage\n\n\t// Please note: There is a string array DamageTypeFlags::s_bitNameList[]\n\n\tDAMAGE_NUM_TYPES\t\t\t// keep this last\n};"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Include/GameLogic/Damage.h",
+      "source_sha256": "7d7d7ba2718b856ae510640fb6a3db84729844849b670df927dc9ffeed8a0385",
+      "start_line": 143,
+      "end_line": 175,
+      "text": "enum DeathType\n{\t\n\t// note that these DELIBERATELY have (slightly) different names from the damage names,\n\t// since there isn't necessarily a one-to-one correspondence. e.g., DEATH_BURNED\n\t// can come from DAMAGE_FLAME but also from DAMAGE_PARTICLE_BEAM.\n\tDEATH_NORMAL\t\t= 0,\n\tDEATH_NONE\t\t\t= 1,\t\t\t\t\t///< this is a \"special case\" that can't normally cause death\t\t\t\n  DEATH_CRUSHED\t\t= 2,\n  DEATH_BURNED\t\t= 3,\n  DEATH_EXPLODED\t= 4,\n\tDEATH_POISONED\t= 5,\n\tDEATH_TOPPLED\t\t= 6,\n\tDEATH_FLOODED\t\t= 7,\n\tDEATH_SUICIDED\t= 8,\n\tDEATH_LASERED\t\t= 9,\n\tDEATH_DETONATED\t= 10,\t\t/**< this is the \"death\" that occurs when a missile/warhead/etc detonates normally,\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tas opposed to being shot down, etc */\n\tDEATH_SPLATTED\t= 11,\t\t/**< the death that results from DAMAGE_FALLING */\n\tDEATH_POISONED_BETA\t= 12,\t\n\n\t// these are the \"extra\" types for yet-to-be-defined stuff. Don't bother renaming or adding\n\t// or removing these; they are reserved for modders :-)\n\tDEATH_EXTRA_2\t\t= 13,\t\n\tDEATH_EXTRA_3\t\t= 14,\t\n\tDEATH_EXTRA_4\t\t= 15,\t\n\tDEATH_EXTRA_5\t\t= 16,\t\n\tDEATH_EXTRA_6\t\t= 17,\t\n\tDEATH_EXTRA_7\t\t= 18,\t\n\tDEATH_EXTRA_8\t\t= 19,\t\n\tDEATH_POISONED_GAMMA = 20,\n\t\n\tDEATH_NUM_TYPES\t\t\t// keep this last\n};"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Weapon.cpp",
+      "source_sha256": "1e0cd5d73d6a0640e5231b129b98413ee953cfd7fbeb9e6119e783c2317978c8",
+      "start_line": 237,
+      "end_line": 237,
+      "text": "\tm_primaryDamageRadius\t\t\t\t\t\t= 0.0f;"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Weapon.cpp",
+      "source_sha256": "1e0cd5d73d6a0640e5231b129b98413ee953cfd7fbeb9e6119e783c2317978c8",
+      "start_line": 249,
+      "end_line": 249,
+      "text": "\tm_damageType\t\t\t\t\t\t\t\t\t\t= DAMAGE_EXPLOSION;"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Weapon.cpp",
+      "source_sha256": "1e0cd5d73d6a0640e5231b129b98413ee953cfd7fbeb9e6119e783c2317978c8",
+      "start_line": 250,
+      "end_line": 250,
+      "text": "\tm_deathType\t\t\t\t\t\t\t\t\t\t\t= DEATH_NORMAL;"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Weapon.cpp",
+      "source_sha256": "1e0cd5d73d6a0640e5231b129b98413ee953cfd7fbeb9e6119e783c2317978c8",
+      "start_line": 251,
+      "end_line": 251,
+      "text": "\tm_weaponSpeed\t\t\t\t\t\t\t\t\t\t= 999999.0f;\t// effectively instant"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Include/GameLogic/Weapon.h",
+      "source_sha256": "5cf2471d7960e606788e52744f2932571a9319b439ec07d1e70d8cd02ba4a3d2",
+      "start_line": 399,
+      "end_line": 399,
+      "text": "\tinline DamageType getDamageType() const { return m_damageType; }"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Include/GameLogic/Weapon.h",
+      "source_sha256": "5cf2471d7960e606788e52744f2932571a9319b439ec07d1e70d8cd02ba4a3d2",
+      "start_line": 401,
+      "end_line": 401,
+      "text": "\tinline DeathType getDeathType() const { return m_deathType; }"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Weapon.cpp",
+      "source_sha256": "1e0cd5d73d6a0640e5231b129b98413ee953cfd7fbeb9e6119e783c2317978c8",
+      "start_line": 1262,
+      "end_line": 1262,
+      "text": "\tDamageType damageType = getDamageType();"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Weapon.cpp",
+      "source_sha256": "1e0cd5d73d6a0640e5231b129b98413ee953cfd7fbeb9e6119e783c2317978c8",
+      "start_line": 1263,
+      "end_line": 1263,
+      "text": "\tDeathType deathType = getDeathType();"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Weapon.cpp",
+      "source_sha256": "1e0cd5d73d6a0640e5231b129b98413ee953cfd7fbeb9e6119e783c2317978c8",
+      "start_line": 1379,
+      "end_line": 1379,
+      "text": "\t\t\tdamageInfo.in.m_damageType = damageType;"
+    },
+    {
+      "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Weapon.cpp",
+      "source_sha256": "1e0cd5d73d6a0640e5231b129b98413ee953cfd7fbeb9e6119e783c2317978c8",
+      "start_line": 1380,
+      "end_line": 1380,
+      "text": "\t\t\tdamageInfo.in.m_deathType = deathType;"
+    }
+  ]
+}
