@@ -912,8 +912,13 @@ impl AIStateMachine {
             self.temporary_state_id = None;
         }
 
-        // Update main state machine
-        self.base.update_with_ai(ai)
+        // The state-table borrow ends before the driver completes this step.
+        // This is where synchronous terminal commands can acquire a loan of
+        // this machine without reentering the outgoing state's callback.
+        let mut owner = ();
+        let step = self.base.begin_update_with_ai_and_owner(ai, &mut owner);
+        self.base
+            .finish_update_with_ai_and_owner(step, ai, &mut owner)
     }
 
     /// Get current state name (for debugging)

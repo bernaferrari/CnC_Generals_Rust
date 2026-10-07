@@ -26,6 +26,9 @@ mod expired_command_owner_tests;
 #[path = "contact_attack_owner_tests.rs"]
 mod contact_attack_owner_tests;
 
+#[path = "native_fsm_step_tests.rs"]
+mod native_fsm_step_tests;
+
 fn child(name: &str) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {

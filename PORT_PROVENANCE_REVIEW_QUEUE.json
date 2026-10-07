@@ -52929,6 +52929,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/native_fsm_step_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/orders.rs"
             },
@@ -189015,7 +189020,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "ec2822f73f63b3221b92c81d093225a30c6529b9fc3de64d3823e25f04cc996d",
+  "provenance_input_digest": "65f454987e586f04b2612c4389e93917c31e4933bf18c02092f3d20fde288cd2",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

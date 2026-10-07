@@ -51,6 +51,21 @@ pub enum StateReturnType {
     Exit,
 }
 
+/// The state body has released its borrow before the driver receives this
+/// result. Finish a body on the same machine before starting another update.
+#[must_use]
+pub(crate) enum StateUpdate {
+    Complete(StateReturnType),
+    Body(StateStep),
+}
+
+/// Operation-local continuation, never part of machine storage or Xfer.
+pub(crate) struct StateStep {
+    now: UnsignedInt,
+    state_before_update: StateId,
+    status: StateReturnType,
+}
+
 impl StateReturnType {
     /// Create a sleep return value
     pub fn sleep(num_frames: u32) -> Self {
@@ -988,17 +1003,28 @@ impl StateMachine {
         ai: &mut dyn crate::modules::AIUpdateInterface,
         owner: &mut dyn Any,
     ) -> StateReturnType {
+        let step = self.begin_update_with_ai_and_owner(ai, owner);
+        self.finish_update_with_ai_and_owner(step, ai, owner)
+    }
+
+    /// Run only the body when awake. The driver can then perform synchronous
+    /// terminal operations without borrowing an entry in the state table.
+    pub(crate) fn begin_update_with_ai_and_owner(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        owner: &mut dyn Any,
+    ) -> StateUpdate {
         let now = self.get_current_frame();
         if self.control.sleep_till != 0 && now < self.control.sleep_till {
             if self.control.current_state_id.is_none() {
-                return StateReturnType::Failure;
+                return StateUpdate::Complete(StateReturnType::Failure);
             }
 
-            return self.check_for_sleep_transitions_ai(
+            return StateUpdate::Complete(self.check_for_sleep_transitions_ai(
                 StateReturnType::Sleep(self.control.sleep_till.wrapping_sub(now)),
                 Some(ai),
                 owner,
-            );
+            ));
         }
 
         self.control.sleep_till = 0;
@@ -1019,12 +1045,12 @@ impl StateMachine {
             if freeze_parent {
                 self.control.locked = true;
             }
-            let mut status = {
+            let status = {
                 let Some(state) = self.state_map.get_mut(&state_id) else {
                     if freeze_parent {
                         self.control.locked = machine_locked;
                     }
-                    return StateReturnType::Failure;
+                    return StateUpdate::Complete(StateReturnType::Failure);
                 };
                 if let Some(owner) = step_owner {
                     state.note_step_owner(owner);
@@ -1051,35 +1077,55 @@ impl StateMachine {
             if freeze_parent {
                 self.control.locked = machine_locked;
             }
-            if let Some(next) = self
-                .state_map
-                .get_mut(&state_before_update)
-                .and_then(|state| state.take_requested_state_change())
-            {
-                let _ = self.set_current_state_with_ai_and_owner(next, ai, owner);
-            }
-            self.apply_pending_victim_goal();
-            if self.control.current_state_id.is_none() {
-                return StateReturnType::Failure;
-            }
-
-            if self.control.current_state_id != Some(state_before_update) {
-                status = StateReturnType::Continue;
-            }
-
-            if let StateReturnType::Sleep(frames) = status {
-                self.control.sleep_till = now.wrapping_add(frames);
-                return self.check_for_sleep_transitions_ai(
-                    StateReturnType::Sleep(self.control.sleep_till.wrapping_sub(now)),
-                    Some(ai),
-                    owner,
-                );
-            }
-
-            return self.check_for_transitions_ai(status, Some(ai), owner);
+            return StateUpdate::Body(StateStep {
+                now,
+                state_before_update,
+                status,
+            });
         }
 
-        StateReturnType::Failure
+        StateUpdate::Complete(StateReturnType::Failure)
+    }
+
+    /// Complete the same step after the driver has released any command loan.
+    /// C++ StateMachine.cpp:413-435 checks changed state before using Sleep.
+    pub(crate) fn finish_update_with_ai_and_owner(
+        &mut self,
+        step: StateUpdate,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        owner: &mut dyn Any,
+    ) -> StateReturnType {
+        let StateStep {
+            now,
+            state_before_update,
+            mut status,
+        } = match step {
+            StateUpdate::Complete(result) => return result,
+            StateUpdate::Body(body) => body,
+        };
+        if let Some(next) = self
+            .state_map
+            .get_mut(&state_before_update)
+            .and_then(|state| state.take_requested_state_change())
+        {
+            let _ = self.set_current_state_with_ai_and_owner(next, ai, owner);
+        }
+        self.apply_pending_victim_goal();
+        if self.control.current_state_id.is_none() {
+            return StateReturnType::Failure;
+        }
+        if self.control.current_state_id != Some(state_before_update) {
+            status = StateReturnType::Continue;
+        }
+        if let StateReturnType::Sleep(frames) = status {
+            self.control.sleep_till = now.wrapping_add(frames);
+            return self.check_for_sleep_transitions_ai(
+                StateReturnType::Sleep(self.control.sleep_till.wrapping_sub(now)),
+                Some(ai),
+                owner,
+            );
+        }
+        self.check_for_transitions_ai(status, Some(ai), owner)
     }
 
     fn apply_pending_victim_goal(&mut self) {
