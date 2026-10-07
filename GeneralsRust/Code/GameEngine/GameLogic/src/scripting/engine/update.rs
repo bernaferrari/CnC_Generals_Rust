@@ -186,7 +186,7 @@ impl ScriptEngine {
 
     /// Notify the script engine that objects were created or destroyed.
     /// Mirrors C++ ScriptEngine::notifyOfObjectCreationOrDestruction().
-    pub fn notify_of_object_creation_or_destruction(&mut self) {
+    pub fn notify_of_object_creation_or_destruction(&self) {
         // ScriptEngine.cpp:7785-7788 records the frame only. Scanning live
         // objects here both changes cache timing and re-enters initializing
         // objects; createNamedCache belongs to the first script update.

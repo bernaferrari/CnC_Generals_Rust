@@ -283,8 +283,8 @@ impl ScriptEngine {
         inner.condition_team = saved.1;
     }
 
-    pub fn set_frame_object_count_changed(&mut self, frame: u32) {
-        let inner = self.inner.get_mut();
+    pub fn set_frame_object_count_changed(&self, frame: u32) {
+        let mut inner = self.lock_inner_mut();
         inner.frame_object_count_changed = frame;
     }
 

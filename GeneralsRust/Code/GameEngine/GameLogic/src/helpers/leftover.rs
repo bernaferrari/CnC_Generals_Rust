@@ -892,19 +892,22 @@ impl TheEva {
 }
 
 /// TheScriptEngine singleton facade for minimal global script state.
+/// Legacy callbacks follow the engine driving the synchronous operation.
+/// Outside that scope, standalone callers retain the process-slot fallback.
 pub struct TheScriptEngine;
 
 impl TheScriptEngine {
     pub fn is_game_ending() -> Bool {
-        crate::scripting::engine::get_script_engine()
-            .read()
-            .ok()
-            .and_then(|engine| engine.as_ref().map(|engine| engine.is_game_ending()))
+        crate::scripting::engine::with_script_engine_ref(|engine| engine.is_game_ending())
             .unwrap_or(false)
     }
 
     pub fn set_global_difficulty(difficulty: Int) {
-        GLOBAL_DIFFICULTY.store(difficulty, Ordering::Relaxed);
+        // This atomic is the standalone bootstrap adapter. A live callback
+        // changes only its driving engine, never another game's bootstrap.
+        if !crate::scripting::engine::is_script_engine_active() {
+            GLOBAL_DIFFICULTY.store(difficulty, Ordering::Relaxed);
+        }
         let mapped = match difficulty {
             0 => crate::player::GameDifficulty::Easy,
             1 => crate::player::GameDifficulty::Normal,
@@ -912,84 +915,66 @@ impl TheScriptEngine {
             3 => crate::player::GameDifficulty::Brutal,
             _ => crate::player::GameDifficulty::Normal,
         };
-        if let Ok(mut guard) = crate::scripting::engine::get_script_engine().write() {
-            if let Some(engine) = guard.as_mut() {
-                engine.set_global_difficulty(mapped);
-            }
-        }
+        let _ = crate::scripting::engine::with_script_engine_mut(|engine| {
+            engine.set_global_difficulty(mapped);
+        });
     }
 
     pub fn get_global_difficulty() -> Int {
+        if crate::scripting::engine::is_script_engine_active() {
+            return crate::scripting::engine::with_script_engine_ref(|engine| {
+                engine.get_global_difficulty() as Int
+            })
+            .unwrap_or(crate::player::GameDifficulty::Normal as Int);
+        }
         GLOBAL_DIFFICULTY.load(Ordering::Relaxed)
     }
 
     pub fn signal_ui_interact(hook_name: &str) {
-        if let Ok(mut guard) = crate::scripting::engine::get_script_engine().write() {
-            if let Some(engine) = guard.as_mut() {
-                engine.signal_ui_interact(hook_name);
-            }
-        }
+        let _ = crate::scripting::engine::with_script_engine_mut(|engine| {
+            engine.signal_ui_interact(hook_name);
+        });
     }
 
     pub fn notify_of_object_creation_or_destruction() {
-        if let Ok(mut guard) = crate::scripting::engine::get_script_engine().write() {
-            if let Some(engine) = guard.as_mut() {
-                engine.notify_of_object_creation_or_destruction();
-            }
-        }
+        let _ = crate::scripting::engine::with_script_engine_mut(|engine| {
+            engine.notify_of_object_creation_or_destruction();
+        });
     }
 
     /// The driving GameLogic already owns the frame; do not discover and
     /// lock an ambient GameLogic while that owner's destruction borrow is live.
     pub(crate) fn notify_of_object_count_changed_at_frame(frame: u32) {
-        if let Ok(mut guard) = crate::scripting::engine::get_script_engine().write() {
-            if let Some(engine) = guard.as_mut() {
-                engine.set_frame_object_count_changed(frame);
-            }
-        }
+        let _ = crate::scripting::engine::with_script_engine_mut(|engine| {
+            engine.set_frame_object_count_changed(frame);
+        });
     }
 
     pub fn notify_of_completed_video(video_name: &str) {
-        if let Ok(mut guard) = crate::scripting::engine::get_script_engine().write() {
-            if let Some(engine) = guard.as_mut() {
-                engine.notify_of_completed_video(video_name);
-            }
-        }
+        let _ = crate::scripting::engine::with_script_engine_mut(|engine| {
+            engine.notify_of_completed_video(video_name);
+        });
     }
 
     pub fn is_video_complete(video_name: &str, remove_from_list: bool) -> bool {
-        crate::scripting::engine::get_script_engine()
-            .write()
-            .ok()
-            .and_then(|mut guard| {
-                guard
-                    .as_mut()
-                    .map(|engine| engine.is_video_complete(video_name, remove_from_list))
-            })
-            .unwrap_or(false)
+        crate::scripting::engine::with_script_engine_mut(|engine| {
+            engine.is_video_complete(video_name, remove_from_list)
+        })
+        .unwrap_or(false)
     }
 
     pub fn is_time_frozen_script() -> Bool {
-        crate::scripting::engine::get_script_engine()
-            .read()
-            .ok()
-            .and_then(|engine| engine.as_ref().map(|engine| engine.is_time_frozen_script()))
+        crate::scripting::engine::with_script_engine_ref(|engine| engine.is_time_frozen_script())
             .unwrap_or(false)
     }
 
     pub fn is_time_frozen_debug() -> Bool {
-        crate::scripting::engine::get_script_engine()
-            .read()
-            .ok()
-            .and_then(|engine| engine.as_ref().map(|engine| engine.is_time_frozen_debug()))
+        crate::scripting::engine::with_script_engine_ref(|engine| engine.is_time_frozen_debug())
             .unwrap_or(false)
     }
 
     pub fn is_time_frozen() -> Bool {
-        crate::scripting::engine::get_script_engine()
-            .read()
-            .ok()
-            .and_then(|engine| engine.as_ref().map(|engine| engine.is_time_frozen()))
+        crate::scripting::engine::with_script_engine_ref(|engine| engine.is_time_frozen())
             .unwrap_or(false)
     }
 }

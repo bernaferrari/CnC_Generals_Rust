@@ -193,14 +193,14 @@ impl ScriptEngine {
             script.dont_advance_instruction = snap.dont_advance_instruction;
             script.team_to_exec_on = Self::sequential_team_name(snap.team_id);
             if !snap.script_name.is_empty() {
-                script.script_to_execute_sequentially =
-                    Some(Box::new(self.find_script_clone_by_name(&snap.script_name).unwrap_or_else(
-                        || {
+                script.script_to_execute_sequentially = Some(Box::new(
+                    self.find_script_clone_by_name(&snap.script_name)
+                        .unwrap_or_else(|| {
                             let mut stub = Script::new();
                             stub.script_name = snap.script_name.clone();
                             stub
-                        },
-                    )));
+                        }),
+                ));
             }
 
             let mut inner = self.lock_inner_mut();
@@ -233,8 +233,6 @@ impl ScriptEngine {
             .find_team_by_id(team_id)
             .and_then(|team| team.read().ok().map(|guard| guard.get_name().to_string()))
     }
-
-
 
     /// Increment a named counter by `amount`.
     /// C++ `ScriptEngine::addCounter`: param0 is the INT amount.
@@ -433,7 +431,6 @@ impl ScriptEngine {
         !local_is_observer
     }
 
-
     /// Set whether the multiplayer local defeat window has been shown.
     pub fn set_shown_mp_local_defeat_window(&self, shown: bool) {
         let mut inner = self.lock_inner_mut();
@@ -467,13 +464,14 @@ impl ScriptEngine {
         &self,
         area_name: &str,
     ) -> Option<crate::polygon_trigger::PolygonTrigger> {
-        qualify_trigger_area_name(area_name, self.get_current_player_name().as_deref())
-            .and_then(|resolved| {
+        qualify_trigger_area_name(area_name, self.get_current_player_name().as_deref()).and_then(
+            |resolved| {
                 crate::terrain::get_terrain_logic()
                     .read()
                     .ok()
                     .and_then(|terrain| terrain.get_trigger_area_by_name(&resolved).cloned())
-            })
+            },
+        )
     }
 
     /// Check if game is ending
@@ -600,8 +598,8 @@ impl ScriptEngine {
         inner.current_track_name = name;
     }
 
-    pub fn set_global_difficulty(&mut self, difficulty: crate::player::GameDifficulty) {
-        let inner = self.inner.get_mut();
+    pub fn set_global_difficulty(&self, difficulty: crate::player::GameDifficulty) {
+        let mut inner = self.lock_inner_mut();
         inner.game_difficulty = difficulty;
     }
 
@@ -818,8 +816,8 @@ impl ScriptEngine {
     }
 
     /// Notify of completed video
-    pub fn notify_of_completed_video(&mut self, video_name: &str) {
-        let inner = self.inner.get_mut();
+    pub fn notify_of_completed_video(&self, video_name: &str) {
+        let mut inner = self.lock_inner_mut();
         inner.completed_video.push(video_name.to_string());
         log::debug!("Video completed: {}", video_name);
     }
@@ -1034,8 +1032,8 @@ impl ScriptEngine {
     }
 
     /// Signal UI interaction
-    pub fn signal_ui_interact(&mut self, hook_name: &str) {
-        let inner = self.inner.get_mut();
+    pub fn signal_ui_interact(&self, hook_name: &str) {
+        let mut inner = self.lock_inner_mut();
         inner.ui_interactions.push(hook_name.to_string());
         log::debug!("UI interaction: {}", hook_name);
     }
@@ -1222,7 +1220,6 @@ impl ScriptEngine {
         }
     }
 
-
     /// Set or clear a named topple direction for scripted objects.
     /// Matches C++ ScriptEngine::setToppleDirection.
     pub fn set_topple_direction(
@@ -1305,7 +1302,6 @@ impl ScriptEngine {
                 })
         })
     }
-
 
     /// Get statistics string
     #[cfg(feature = "script_profiling")]
@@ -1747,11 +1743,7 @@ impl ScriptEngine {
                         .map(|(name, priority)| (name.clone(), *priority))
                         .collect();
                     entries.sort_by(|a, b| a.0.cmp(&b.0));
-                    (
-                        info.name.clone(),
-                        info.default_priority,
-                        entries,
-                    )
+                    (info.name.clone(), info.default_priority, entries)
                 })
                 .collect();
             let mut object_attack_priority_sets: Vec<(ObjectID, String)> = inner
@@ -1766,7 +1758,9 @@ impl ScriptEngine {
                 .map(|(name, list)| {
                     (
                         name.clone(),
-                        list.iter().map(|entry| entry.as_str().to_string()).collect(),
+                        list.iter()
+                            .map(|entry| entry.as_str().to_string())
+                            .collect(),
                     )
                 })
                 .collect();
@@ -1874,14 +1868,23 @@ impl ScriptEngine {
             inner.testing_audio = tail.testing_audio.clone();
             inner.ui_interactions = tail.ui_interactions.clone();
             let player_count = Self::MAX_PLAYER_COUNT;
-            inner.triggered_special_powers = pad_player_pairs(&tail.triggered_special_powers, player_count);
-            inner.midway_special_powers = pad_player_pairs(&tail.midway_special_powers, player_count);
-            inner.finished_special_powers = pad_player_pairs(&tail.finished_special_powers, player_count);
+            inner.triggered_special_powers =
+                pad_player_pairs(&tail.triggered_special_powers, player_count);
+            inner.midway_special_powers =
+                pad_player_pairs(&tail.midway_special_powers, player_count);
+            inner.finished_special_powers =
+                pad_player_pairs(&tail.finished_special_powers, player_count);
             inner.completed_upgrades = pad_player_pairs(&tail.completed_upgrades, player_count);
             inner.acquired_sciences = {
                 let mut lists = vec![Vec::new(); player_count];
-                for (index, sciences) in tail.acquired_sciences.iter().take(player_count).enumerate() {
-                    lists[index] = sciences.iter().copied().map(|value| value as ScienceType).collect();
+                for (index, sciences) in
+                    tail.acquired_sciences.iter().take(player_count).enumerate()
+                {
+                    lists[index] = sciences
+                        .iter()
+                        .copied()
+                        .map(|value| value as ScienceType)
+                        .collect();
                 }
                 lists
             };
@@ -1928,10 +1931,7 @@ impl ScriptEngine {
     }
 }
 
-fn pad_player_pairs(
-    lists: &[Vec<(String, u32)>],
-    player_count: usize,
-) -> Vec<Vec<(String, u32)>> {
+fn pad_player_pairs(lists: &[Vec<(String, u32)>], player_count: usize) -> Vec<Vec<(String, u32)>> {
     let mut padded = vec![Vec::new(); player_count];
     for (index, list) in lists.iter().take(player_count).enumerate() {
         padded[index] = list.clone();
@@ -2025,5 +2025,3 @@ impl Default for ScriptEngineXferTail {
         }
     }
 }
-
-
