@@ -5168,6 +5168,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_owner_transition_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_snapshot_contract_tests.rs"
           }
         ],
         "mode": "split_inferred",
@@ -37832,6 +37839,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_owner_transition_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_snapshot_contract_tests.rs"
           }
         ],
         "mode": "split_inferred",
@@ -157409,7 +157423,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "20604cd6c5da6a7ac71d36f6180b9015f87b910359710dcc3f3d967ed8f45bdf",
+  "input_digest": "782facb267e3f6004c885acf3cf704610b19507291b6f036bcc3e0936216ee26",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -205857,11 +205871,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2375,
+        "end_line": 2420,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine.rs",
-      "sha256": "8b5b024f0a40d3afd41ec8ec0db6591bcc8990346e6dbd29ba4dd56894aaa021",
+      "sha256": "86f9ff466c4ba585b4da982fc265ca0911f797ec67e00358108884b080780c63",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205886,6 +205900,18 @@
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_owner_transition_tests.rs",
       "sha256": "42357b67e84f382e92f5f5642c4f4bfffb2d4989f246e7ea78a8670a8404e055",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 361,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_snapshot_contract_tests.rs",
+      "sha256": "3a7c11d7877e7c4ec96b3fe40d4547704cd20883b2f0ce56a437becc3904d769",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

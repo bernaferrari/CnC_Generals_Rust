@@ -1917,12 +1917,6 @@ impl StateMachine {
         // On load, restore the current state reference
         // C++ lines 811-815: We jump directly into the saved state without
         // calling onEnter/onExit since the state was already active when saved
-        self.current_state_id = if cur_state_id == INVALID_STATE_ID {
-            None
-        } else {
-            Some(cur_state_id)
-        };
-
         if xfer.get_xfer_mode() == game_engine::system::XferMode::Load {
             let preferred_state_id = if cur_state_id == INVALID_STATE_ID {
                 self.default_state_id
@@ -1935,7 +1929,13 @@ impl StateMachine {
             } else if self.state_map.contains_key(&self.default_state_id) {
                 Some(self.default_state_id)
             } else {
-                None
+                // C++ internalGetState throws when neither saved nor default
+                // state exists, before reading the snapshot selector.
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "StateMachine::xfer has no current/default state to restore",
+                )
+                .into());
             };
         }
 
@@ -1946,15 +1946,56 @@ impl StateMachine {
         game_engine::system::Xfer::xfer_bool(xfer, &mut snapshot_all_states)?;
 
         if snapshot_all_states {
-            // Debug mode: transfer all states (not typically used)
-            // C++ lines 822-851
-            // For now, we skip this as it's only used in C++ debug builds
-            // and requires implementing Snapshot trait for all state types
+            // C++ uses std::map order, even when states were defined in a
+            // different order. Read and validate the signed count before any
+            // state payload; a malformed count never controls allocation.
+            let mut state_ids: Vec<_> = self.state_map.keys().copied().collect();
+            state_ids.sort_unstable();
+            let expected_count = i32::try_from(state_ids.len()).map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "StateMachine::xfer state count exceeds signed Int",
+                )
+            })?;
+            let mut saved_count = expected_count;
+            game_engine::system::Xfer::xfer_int(xfer, &mut saved_count)?;
+            if saved_count != expected_count {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "StateMachine::xfer state count mismatch: expected {expected_count}, read {saved_count}"
+                    ),
+                ).into());
+            }
+            for map_id in state_ids {
+                let state = self.state_map.get_mut(&map_id).ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("StateMachine::xfer missing state {map_id}"),
+                    )
+                })?;
+                let expected_id = state.get_id();
+                let mut saved_id = expected_id;
+                game_engine::system::Xfer::xfer_unsigned_int(xfer, &mut saved_id)?;
+                if saved_id != expected_id {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!(
+                            "StateMachine::xfer state ID mismatch: expected {expected_id}, read {saved_id}"
+                        ),
+                    ).into());
+                }
+                state.xfer_snapshot(xfer).map_err(|error| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("StateMachine::xfer state {expected_id} snapshot failed: {error}"),
+                    )
+                })?;
+            }
         } else {
             // Normal mode: only transfer current state
             // C++ lines 852-860
-            // Note: Individual states must implement their own xfer methods
-            // We cannot xfer Box<dyn StateImplementation> directly as it lacks Snapshot trait
+            // StateImplementation dispatches the concrete state's payload.
             let current_id = if let Some(current_id) = self.current_state_id {
                 current_id
             } else if self.state_map.contains_key(&self.default_state_id) {
@@ -2372,3 +2413,7 @@ mod owner_transition_tests;
 #[cfg(test)]
 #[path = "state_machine_object_owner_tests.rs"]
 mod object_owner_tests;
+
+#[cfg(test)]
+#[path = "state_machine_snapshot_contract_tests.rs"]
+mod snapshot_contract_tests;
