@@ -633,19 +633,6 @@ impl UnitAIUpdate {
             if let Some(Some(index)) = path_index {
                 let _ = self.set_current_goal_path_index(index);
             }
-            let busy =
-                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                    let busy = owner.ai_pending_busy;
-                    owner.ai_pending_busy = false;
-                    busy
-                });
-            if busy == Some(true) {
-                let params = crate::ai::AiCommandParams::new(
-                    crate::ai::AiCommandType::Busy,
-                    crate::common::CommandSourceType::FromAi,
-                );
-                let _ = self.execute_command(&params);
-            }
             let drop =
                 crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
                     let drop = owner.ai_pending_combat_drop;

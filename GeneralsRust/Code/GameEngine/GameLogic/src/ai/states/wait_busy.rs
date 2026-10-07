@@ -161,14 +161,7 @@ impl CppState for AIBusyState {
     }
 
     fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
-        let owner = self
-            .base
-            .get_machine_owner()
-            .ok_or_else(|| "busy missing owner".to_string())?;
-        let mut owner_guard = owner
-            .write()
-            .map_err(|_| "busy owner lock poisoned".to_string())?;
-        owner_guard.ai_pending_busy = true;
+        // C++ AIStateMachine.h:324: entry has no owner access or side effects.
         Ok(StateReturnType::Continue)
     }
 

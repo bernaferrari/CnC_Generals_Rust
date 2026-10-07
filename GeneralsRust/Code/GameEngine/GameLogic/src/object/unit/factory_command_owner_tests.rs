@@ -27,7 +27,6 @@ fn factory_busy_enters_actual_machine_and_clears_owned_path_timer() {
     assert_eq!(ai.get_current_state_id(), Some(AIStateType::Busy as u32));
     assert_eq!(ai.get_last_command_source(), CommandSourceType::FromPlayer);
     assert_eq!(ai.get_current_command(), Some(AiCommandType::Busy));
-    assert!(actual.owner.read().unwrap().ai_pending_busy);
     assert!(super::super::registry::get_unit_arc(actual.id).is_none());
     assert!(Arc::ptr_eq(
         &actual.ai,
@@ -88,8 +87,14 @@ fn factory_command_ignores_locked_foreign_same_id_unit() {
     ))
     .unwrap();
     assert_eq!(ai.get_current_state_id(), Some(AIStateType::Busy as u32));
-    assert!(actual.owner.read().unwrap().ai_pending_busy);
-    assert!(!foreign_owner.read().unwrap().ai_pending_busy);
+    assert_eq!(ai.get_last_command_source(), CommandSourceType::FromPlayer);
+    assert_eq!(ai.get_current_command(), Some(AiCommandType::Busy));
+    assert!(Arc::ptr_eq(
+        &foreign_owner,
+        &crate::object::registry::OBJECT_REGISTRY
+            .get_object(actual.id)
+            .unwrap(),
+    ));
     assert!(Arc::ptr_eq(
         &actual.ai,
         &actual

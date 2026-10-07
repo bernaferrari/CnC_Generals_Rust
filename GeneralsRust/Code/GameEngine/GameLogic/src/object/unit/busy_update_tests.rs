@@ -77,6 +77,21 @@ fn factory_busy_remains_busy_across_ordinary_updates() {
             Some(crate::ai::states::AIStateType::Busy as u32)
         );
         assert!(ai.is_busy());
+        // CPP privateBusy sets the incoming source once; Busy OnEnter has
+        // no effect that can replay this command during ordinary update.
+        assert_eq!(
+            ai.get_last_command_source(),
+            crate::ai::CommandSourceType::FromPlayer,
+        );
+        assert!(Arc::ptr_eq(
+            &actual.ai,
+            &actual
+                .owner
+                .read()
+                .unwrap()
+                .get_ai_update_interface()
+                .unwrap(),
+        ));
     }
     assert!(super::super::registry::get_unit_arc(actual.id).is_none());
     assert!(Arc::ptr_eq(
@@ -88,4 +103,39 @@ fn factory_busy_remains_busy_across_ordinary_updates() {
             .get_ai_update_interface()
             .unwrap()
     ));
+}
+
+#[test]
+fn busy_callback_enter_does_not_borrow_owner() {
+    if !child(concat!(
+        module_path!(),
+        "::busy_callback_enter_does_not_borrow_owner"
+    )) {
+        return;
+    }
+    let _serial = crate::test_sync::lock();
+    definitions();
+    let actual = FactoryRuntime::new();
+    let (mut direct, mut registered) = callback_bodies(&actual);
+    let _held = actual.owner.write().unwrap();
+    // AIStateMachine.h:324: onEnter is constant Continue, even while the
+    // driving Object is already borrowed. The bounded child catches reentry.
+    assert_eq!(direct.on_enter(), StateReturnType::Continue);
+    assert_eq!(registered.on_enter(), StateReturnType::Continue);
+}
+
+#[test]
+fn busy_callback_enter_needs_no_owner() {
+    if !child(concat!(
+        module_path!(),
+        "::busy_callback_enter_needs_no_owner"
+    )) {
+        return;
+    }
+    let _serial = crate::test_sync::lock();
+    let context = StateMachine::new(None::<std::sync::Weak<RwLock<Object>>>, "busy-enter-oracle");
+    let mut direct = AIBusyState::new(&context);
+    let mut registered = CppStateAdapter::new(AIBusyState::new(&context));
+    assert_eq!(direct.on_enter(), StateReturnType::Continue);
+    assert_eq!(registered.on_enter(), StateReturnType::Continue);
 }

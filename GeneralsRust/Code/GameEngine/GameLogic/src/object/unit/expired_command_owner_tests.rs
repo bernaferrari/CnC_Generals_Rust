@@ -42,5 +42,10 @@ fn expired_native_command_owner_never_falls_back_to_foreign_unit() {
         result.is_err(),
         "native expiration cannot become a successful foreign Unit command"
     );
-    assert!(!foreign_owner.read().unwrap().ai_pending_busy);
+    assert!(Arc::ptr_eq(
+        &foreign_owner,
+        &crate::object::registry::OBJECT_REGISTRY
+            .get_object(id)
+            .unwrap(),
+    ));
 }

@@ -189,7 +189,6 @@ impl Object {
             ai_pending_completed_waypoint: None,
             ai_pending_precise_z: None,
             ai_pending_goal_path_index: None,
-            ai_pending_busy: false,
             ai_fire_in_rappel: false,
             ai_pending_combat_drop: false,
             ai_pending_hack: false,

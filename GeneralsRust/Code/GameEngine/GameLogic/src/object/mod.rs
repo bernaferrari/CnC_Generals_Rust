@@ -2078,7 +2078,6 @@ pub struct Object {
     pub(crate) ai_pending_completed_waypoint: Option<crate::waypoint::WaypointId>,
     pub(crate) ai_pending_precise_z: Option<bool>,
     pub(crate) ai_pending_goal_path_index: Option<i32>,
-    pub(crate) ai_pending_busy: bool,
     pub(crate) ai_fire_in_rappel: bool,
     pub(crate) ai_pending_combat_drop: bool,
     pub(crate) ai_pending_hack: bool,
