@@ -71,36 +71,78 @@ use crate::common::INVALID_ID;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
+fn notify_state_machine_changed_for_base(base: &StateMachine) {
+    let Some(owner) = base.get_owner() else {
+        return;
+    };
+    let ai = {
+        let Ok(owner_guard) = owner.read() else {
+            return;
+        };
+        owner_guard.get_ai_update_interface()
+    };
+    if let Some(ai) = ai {
+        if let Ok(mut ai_guard) = ai.try_lock() {
+            ai_guard.set_queue_for_path_time(0);
+            return;
+        }
+    }
+    if let Ok(mut owner_guard) = owner.write() {
+        owner_guard.ai_pending_wake_path = true;
+    }
+}
+/// Existing Rust AIStateMachine non-base fields; this is not a claim of exact C++ field layout.
+pub(super) struct AIStateMachineData {
+    /// C++ m_goalPath counterpart.
+    pub(super) goal_path: Vec<Coord3D>,
+    /// C++ m_goalWaypoint counterpart.
+    pub(super) goal_waypoint: Option<Arc<Waypoint>>,
+    /// C++ m_goalSquad counterpart.
+    pub(super) goal_squad: Option<Arc<Squad>>,
+    /// Rust extension; no direct C++ field counterpart.
+    pub(super) goal_polygon: Option<Arc<PolygonTrigger>>,
+    /// C++ temporary-state ID counterpart.
+    pub(super) temporary_state_id: Option<u32>,
+    /// C++ temporary-state end-frame counterpart.
+    pub(super) temporary_state_frame_end: u32,
+    /// Rust bridge marker; no direct C++ field counterpart.
+    pub(super) owner_ai_mutex_held_for_next_enter: bool,
+}
+
 /// The AI state machine - implements all AI commands
 pub struct AIStateMachine {
     /// Base state machine
     pub(crate) base: StateMachine,
-    /// C++ `m_goalPath`: authored goal coordinates, separate from a computed `Path`.
-    pub(crate) goal_path: Vec<Coord3D>,
-    /// Goal waypoint
-    pub(crate) goal_waypoint: Option<Arc<Waypoint>>,
-    /// Goal squad to attack
-    pub(crate) goal_squad: Option<Arc<Squad>>,
-    /// Goal polygon area
-    pub(crate) goal_polygon: Option<Arc<PolygonTrigger>>,
-    /// Temporary state for short interruptions
-    pub(crate) temporary_state_id: Option<u32>,
-    /// Frame when temporary state ends
-    pub(crate) temporary_state_frame_end: u32,
-    /// Consumed by the next `set_temporary_state`. Set by `do_quick_exit`, which already holds the AI mutex.
-    pub(crate) owner_ai_mutex_held_for_next_enter: bool,
+    /// Owned Rust non-base runtime values; retains the prior Rust and Xfer order.
+    pub(super) data: AIStateMachineData,
 }
 
 impl std::fmt::Debug for AIStateMachine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AIStateMachine")
-            .field("goal_path_len", &self.goal_path.len())
-            .field("has_goal_waypoint", &self.goal_waypoint.is_some())
-            .field("has_goal_squad", &self.goal_squad.is_some())
-            .field("has_goal_polygon", &self.goal_polygon.is_some())
-            .field("temporary_state_id", &self.temporary_state_id)
-            .field("temporary_state_frame_end", &self.temporary_state_frame_end)
+            .field("goal_path_len", &self.data.goal_path.len())
+            .field("has_goal_waypoint", &self.data.goal_waypoint.is_some())
+            .field("has_goal_squad", &self.data.goal_squad.is_some())
+            .field("has_goal_polygon", &self.data.goal_polygon.is_some())
+            .field("temporary_state_id", &self.data.temporary_state_id)
+            .field(
+                "temporary_state_frame_end",
+                &self.data.temporary_state_frame_end,
+            )
             .finish()
+    }
+}
+
+#[path = "state_machine_driver.rs"]
+mod driver;
+use driver::AIStateMachineDriver;
+
+impl AIStateMachine {
+    fn driver(&mut self) -> AIStateMachineDriver<'_> {
+        AIStateMachineDriver::new(&mut self.base, &mut self.data)
+    }
+    pub(crate) fn note_owner_ai_mutex_held_for_next_enter(&mut self) {
+        self.data.owner_ai_mutex_held_for_next_enter = true;
     }
 }
 
@@ -108,13 +150,15 @@ impl AIStateMachine {
     pub fn new(owner: Weak<RwLock<Object>>, name: &str) -> Self {
         let mut machine = Self {
             base: StateMachine::new(Some(owner), name),
-            goal_path: Vec::new(),
-            goal_waypoint: None,
-            goal_squad: None,
-            goal_polygon: None,
-            temporary_state_id: None,
-            temporary_state_frame_end: 0,
-            owner_ai_mutex_held_for_next_enter: false,
+            data: AIStateMachineData {
+                goal_path: Vec::new(),
+                goal_waypoint: None,
+                goal_squad: None,
+                goal_polygon: None,
+                temporary_state_id: None,
+                temporary_state_frame_end: 0,
+                owner_ai_mutex_held_for_next_enter: false,
+            },
         };
 
         // Define all AI states
@@ -565,60 +609,21 @@ impl AIStateMachine {
     }
 
     pub(crate) fn notify_state_machine_changed(&self) {
-        let Some(owner) = self.base.get_owner() else {
-            return;
-        };
-        let ai = {
-            let Ok(owner_guard) = owner.read() else {
-                return;
-            };
-            owner_guard.get_ai_update_interface()
-        };
-        if let Some(ai) = ai {
-            if let Ok(mut ai_guard) = ai.try_lock() {
-                ai_guard.set_queue_for_path_time(0);
-                return;
-            }
-        }
-        if let Ok(mut owner_guard) = owner.write() {
-            owner_guard.ai_pending_wake_path = true;
-        }
+        notify_state_machine_changed_for_base(&self.base)
     }
 
     /// Clear the state machine
     pub fn clear(&mut self) {
-        self.clear_impl(None);
+        self.driver().clear()
     }
 
     pub(crate) fn clear_with_ai(&mut self, ai: &mut dyn crate::modules::AIUpdateInterface) {
-        self.clear_impl(Some(ai));
-    }
-
-    fn clear_impl(&mut self, mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>) {
-        // C++ AIStateMachine::clear() calls StateMachine::clear(), not reset().
-        if let Some(ai) = ai.as_deref_mut() {
-            self.base.clear_with_ai(ai);
-        } else {
-            self.base.clear();
-        }
-        self.goal_path.clear();
-        self.goal_waypoint = None;
-        self.goal_squad = None;
-        self.goal_polygon = None;
-        self.base.set_goal_squad(None);
-        self.base.set_goal_polygon(None);
-        if let Some(ai) = ai {
-            ai.set_queue_for_path_time(0);
-        } else {
-            self.notify_state_machine_changed();
-        }
+        self.driver().clear_with_ai(ai)
     }
 
     /// Reset to default state
     pub fn reset_to_default_state(&mut self) -> StateReturnType {
-        let ret = self.base.reset_to_default_state();
-        self.notify_state_machine_changed();
-        ret
+        self.driver().reset_to_default_state()
     }
 
     pub fn get_current_state_id(&self) -> Option<u32> {
@@ -631,14 +636,7 @@ impl AIStateMachine {
 
     /// Set state
     pub fn set_state(&mut self, new_state_id: u32) -> StateReturnType {
-        let old_id = self.base.get_current_state_id();
-        let ret = self.base.set_current_state(new_state_id);
-
-        if old_id != Some(new_state_id) {
-            self.notify_state_machine_changed();
-        }
-
-        ret
+        self.driver().set_state(new_state_id)
     }
 
     /// Enter a state while reusing the AI loan held by UnitAIUpdate's command callback.
@@ -647,18 +645,7 @@ impl AIStateMachine {
         new_state_id: u32,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> StateReturnType {
-        let old_id = self.base.get_current_state_id();
-        let ret = self
-            .base
-            .set_current_state_with_ai_and_owner(new_state_id, ai, &mut ());
-
-        if old_id != Some(new_state_id) {
-            // C++ AIStateMachine::setState calls onStateMachineChanged synchronously.
-            // The caller already owns this AI, so do not try-lock the installed handle.
-            ai.set_queue_for_path_time(0);
-        }
-
-        ret
+        self.driver().set_state_with_ai(new_state_id, ai)
     }
 
     pub fn lock(&mut self) {
@@ -674,11 +661,11 @@ impl AIStateMachine {
     }
 
     pub fn set_goal_object(&mut self, obj_id: ObjectID) {
-        self.base.set_goal_object_by_id(Some(obj_id));
+        self.driver().set_goal_object(obj_id)
     }
 
     pub fn set_goal_position(&mut self, pos: Coord3D) {
-        self.base.set_goal_position(pos);
+        self.driver().set_goal_position(pos)
     }
 
     pub fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>> {
@@ -721,176 +708,81 @@ impl AIStateMachine {
 
     /// Set goal path
     pub fn set_goal_path(&mut self, path: &[Coord3D]) {
-        self.goal_path = path.to_vec();
+        self.driver().set_goal_path(path)
     }
     /// Stamp a path onto FollowExitProduction before its onEnter.
     /// C++ reads friend_getGoalPathPosition; Rust onEnter reads self.path.
     pub fn install_follow_exit_path(&mut self, path: &[Coord3D]) {
-        let id = AIStateType::FollowExitProductionPath as u32;
-        if let Some(state) = self.base.get_state_mut(id) {
-            if let Some(follow) =
-                crate::ai::states::follow_path::state_follow_path_kind(state.as_mut())
-            {
-                follow.set_path(path.to_vec(), None);
-            }
-        }
+        self.driver().install_follow_exit_path(path)
     }
 
     /// Add to goal path
     pub fn add_to_goal_path(&mut self, path_point: &Coord3D) {
-        if self.goal_path.is_empty() {
-            self.goal_path.push(*path_point);
-            return;
-        }
-
-        if let Some(final_point) = self.goal_path.last() {
-            if final_point.x == path_point.x
-                && final_point.y == path_point.y
-                && final_point.z == path_point.z
-            {
-                return;
-            }
-        }
-
-        self.goal_path.push(*path_point);
+        self.driver().add_to_goal_path(path_point)
     }
 
     /// Get goal path position at index
     pub fn get_goal_path_position(&self, i: usize) -> Option<&Coord3D> {
-        self.goal_path.get(i)
+        self.data.goal_path.get(i)
     }
 
     /// Get goal path size
     pub fn get_goal_path_size(&self) -> usize {
-        self.goal_path.len()
+        self.data.goal_path.len()
     }
 
     /// Set goal waypoint
     pub fn set_goal_waypoint(&mut self, waypoint: Option<Arc<Waypoint>>) {
-        self.goal_waypoint = waypoint;
-        let waypoint_id = self.goal_waypoint.as_ref().map(|w| w.id);
-        self.base.set_goal_waypoint(waypoint_id);
+        self.driver().set_goal_waypoint(waypoint)
     }
 
     /// Get goal waypoint
     pub fn get_goal_waypoint(&self) -> Option<&Arc<Waypoint>> {
-        self.goal_waypoint.as_ref()
+        self.data.goal_waypoint.as_ref()
     }
 
     /// C++ AIStates.cpp:1040-1071 owns a private membership copy. States
     /// receive immutable membership for their synchronous step; mutations
     /// refresh the base weak handle before another state can observe it.
     pub fn set_goal_team(&mut self, team: &Arc<RwLock<Team>>) {
-        let squad = self
-            .goal_squad
-            .get_or_insert_with(|| Arc::new(Squad::new()));
-        if let Ok(team_guard) = team.read() {
-            Arc::make_mut(squad).squad_from_team(&team_guard, true);
-        }
-        self.base
-            .set_goal_squad(self.goal_squad.as_ref().map(Arc::downgrade));
+        self.driver().set_goal_team(team)
     }
 
     /// Copy a caller's squad; retained handles are immutable membership values.
     pub fn set_goal_squad(&mut self, squad: Option<Arc<Squad>>) {
-        match squad {
-            Some(source) => {
-                let target = self
-                    .goal_squad
-                    .get_or_insert_with(|| Arc::new(Squad::new()));
-                if !Arc::ptr_eq(target, &source) {
-                    *Arc::make_mut(target) = source.as_ref().clone();
-                }
-            }
-            None => self.goal_squad = None,
-        }
-        self.base
-            .set_goal_squad(self.goal_squad.as_ref().map(Arc::downgrade));
+        self.driver().set_goal_squad(squad)
     }
 
     pub fn set_goal_polygon(&mut self, polygon: Option<Arc<PolygonTrigger>>) {
-        self.goal_polygon = polygon.clone();
-        self.base
-            .set_goal_polygon(polygon.map(|value| Arc::downgrade(&value)));
+        self.driver().set_goal_polygon(polygon)
     }
 
     /// C++ copies group membership into this machine's private squad.
     pub fn set_goal_ai_group(&mut self, group: &AIGroup) {
-        let squad = self
-            .goal_squad
-            .get_or_insert_with(|| Arc::new(Squad::new()));
-        Arc::make_mut(squad).squad_from_ai_group(group, true);
-        self.base
-            .set_goal_squad(self.goal_squad.as_ref().map(Arc::downgrade));
+        self.driver().set_goal_ai_group(group)
     }
 
     pub fn get_goal_squad(&self) -> Option<&Arc<Squad>> {
-        self.goal_squad.as_ref()
+        self.data.goal_squad.as_ref()
     }
 
     /// Set temporary state
     pub fn set_temporary_state(&mut self, new_state_id: u32, frame_limit: u32) -> StateReturnType {
-        let owner_ai_mutex_held =
-            std::mem::replace(&mut self.owner_ai_mutex_held_for_next_enter, false);
-        if let Some(current_id) = self.temporary_state_id.take() {
-            if let Some(state) = self.base.get_state_mut(current_id) {
-                state.on_exit(StateExitType::Reset);
-            }
-        }
-
-        let goal_id = self.base.get_goal_object_id();
-        let goal_pos = self.base.get_goal_position();
-        let goal_squad = self.base.get_goal_squad();
-        let goal_polygon = self.base.get_goal_polygon();
-        let goal_waypoint = self.base.get_goal_waypoint();
-        if let Some(state) = self.base.get_state_mut(new_state_id) {
-            state.bind_goal_object_id(goal_id);
-            state.bind_goal_position(goal_pos);
-            state.bind_goal_squad(goal_squad);
-            state.bind_goal_polygon(goal_polygon);
-            state.bind_goal_waypoint(goal_waypoint);
-            if owner_ai_mutex_held {
-                if let Some(kind) =
-                    crate::ai::states::follow_path::state_follow_path_kind(state.as_mut())
-                {
-                    kind.note_owner_ai_mutex_held(true);
-                }
-            }
-            let ret = state.on_enter();
-            if owner_ai_mutex_held {
-                if let Some(kind) =
-                    crate::ai::states::follow_path::state_follow_path_kind(state.as_mut())
-                {
-                    kind.note_owner_ai_mutex_held(false);
-                }
-            }
-            if ret != StateReturnType::Continue {
-                state.on_exit(StateExitType::Normal);
-                return ret;
-            }
-
-            let max_limit = 60 * LOGICFRAMES_PER_SECOND;
-            let capped_limit = frame_limit.min(max_limit);
-            self.temporary_state_frame_end = TheGameLogic::get_frame().saturating_add(capped_limit);
-            self.temporary_state_id = Some(new_state_id);
-            return ret;
-        }
-
-        StateReturnType::Failure
+        self.driver().set_temporary_state(new_state_id, frame_limit)
     }
 
     /// Get temporary state ID
     pub fn get_temporary_state(&self) -> Option<u32> {
-        self.temporary_state_id
+        self.data.temporary_state_id
     }
 
     /// Native driver retains its concrete AI borrow through body completion.
     pub(crate) fn update_state_machine<A: StateMachineAI + ?Sized>(
         &mut self,
         ai: &mut A,
-        after_body: impl FnOnce(&mut StateMachine, &mut A, &mut dyn std::any::Any),
+        after_body: impl FnOnce(&mut AIStateMachineDriver<'_>, &mut A, &mut dyn std::any::Any),
     ) -> StateReturnType {
-        if let Some(temp_state_id) = self.temporary_state_id {
+        if let Some(temp_state_id) = self.data.temporary_state_id {
             let goal_id = self.base.get_goal_object_id();
             let goal_pos = self.base.get_goal_position();
             let goal_squad = self.base.get_goal_squad();
@@ -903,7 +795,7 @@ impl AIStateMachine {
                 state.bind_goal_polygon(goal_polygon);
                 state.bind_goal_waypoint(goal_waypoint);
                 let mut status = state.update_with_ai(ai.as_ai_update());
-                if self.temporary_state_frame_end < TheGameLogic::get_frame() {
+                if self.data.temporary_state_frame_end < TheGameLogic::get_frame() {
                     if status == StateReturnType::Continue {
                         status = StateReturnType::Success;
                     }
@@ -913,16 +805,20 @@ impl AIStateMachine {
                 }
                 state.on_exit(StateExitType::Normal);
             }
-            self.temporary_state_id = None;
+            self.data.temporary_state_id = None;
         }
 
         // The state-table borrow ends before the driver completes this step.
         // This is where synchronous terminal commands can acquire a loan of
         // this machine without reentering the outgoing state's callback.
         let mut owner = ();
+        let data = &mut self.data;
         let mut update = self.base.begin_update_with_ai_and_owner(ai, &mut owner);
         if let StateUpdate::Body(step) = &mut update {
-            step.with_driver(after_body);
+            step.with_driver(|base, ai, owner| {
+                let mut driver = AIStateMachineDriver::new(base, data);
+                after_body(&mut driver, ai, owner);
+            });
         }
         update.finish()
     }
@@ -931,7 +827,7 @@ impl AIStateMachine {
     pub fn get_current_state_name(&self) -> String {
         let mut name = self.base.get_current_state_name();
 
-        if let Some(temp_state_id) = self.temporary_state_id {
+        if let Some(temp_state_id) = self.data.temporary_state_id {
             if let Some(temp_name) = self.base.get_state_name_by_id(temp_state_id) {
                 name.push_str(" /T/");
                 name.push_str(temp_name);
@@ -944,7 +840,7 @@ impl AIStateMachine {
 
 impl AiCommandInterface for AIStateMachine {
     fn ai_do_command(&mut self, params: &AiCommandParams) -> Result<(), crate::ai::AiError> {
-        self.ai_do_command_impl(params, None)
+        self.driver().ai_do_command(params)
     }
 }
 
@@ -954,184 +850,7 @@ impl AIStateMachine {
         params: &AiCommandParams,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<(), crate::ai::AiError> {
-        self.ai_do_command_impl(params, Some(ai))
-    }
-
-    fn ai_do_command_impl(
-        &mut self,
-        params: &AiCommandParams,
-        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
-    ) -> Result<(), crate::ai::AiError> {
-        let is_follow_path_cmd = matches!(
-            params.cmd,
-            AiCommandType::FollowPath
-                | AiCommandType::FollowExitProductionPath
-                | AiCommandType::FollowUserPath
-                | AiCommandType::FollowPathAppend
-        );
-        if !is_follow_path_cmd {
-            if let Some(obj_id) = params.obj {
-                self.base.set_goal_object_by_id(Some(obj_id));
-            } else {
-                self.base.set_goal_object_by_id(None);
-            }
-        } else {
-            self.base.set_goal_object_by_id(None);
-        }
-
-        if params.pos != Coord3D::new(0.0, 0.0, 0.0) {
-            self.base.set_goal_position(params.pos);
-        }
-
-        if let Some(team_name) = params.team.as_ref() {
-            if let Ok(mut factory) = TheTeamFactory().lock() {
-                if let Some(team) = factory.find_team(team_name) {
-                    self.set_goal_team(&team);
-                }
-            }
-        }
-
-        if let Some(trigger_id) = params.polygon {
-            if let Ok(terrain_guard) = get_terrain_logic().read() {
-                if let Some(trigger) = terrain_guard.get_trigger_areas().get_by_id(trigger_id) {
-                    let trigger_arc = Arc::new(trigger.clone());
-                    self.set_goal_polygon(Some(trigger_arc));
-                }
-            }
-        }
-
-        if let Some(waypoint_id) = params.waypoint {
-            if let Ok(terrain_guard) = get_terrain_logic().read() {
-                if let Some(waypoint) = terrain_guard.get_waypoint_by_id(waypoint_id) {
-                    let arc = Arc::new(Waypoint::from_terrain(waypoint));
-                    self.set_goal_waypoint(Some(arc));
-                } else {
-                    self.set_goal_waypoint(None);
-                }
-            }
-        }
-
-        if matches!(
-            params.cmd,
-            AiCommandType::FollowPath
-                | AiCommandType::FollowExitProductionPath
-                | AiCommandType::FollowUserPath
-        ) {
-            self.set_goal_path(&params.coords);
-            let target_state = if matches!(params.cmd, AiCommandType::FollowExitProductionPath) {
-                AIStateType::FollowExitProductionPath
-            } else {
-                AIStateType::FollowPath
-            };
-            if let Some(state) = self.base.get_state_mut(target_state as u32) {
-                if let Some(path_state) = state_follow_path_kind(state.as_mut()) {
-                    path_state.set_path(params.coords.clone(), params.obj);
-                }
-            }
-        } else if matches!(params.cmd, AiCommandType::FollowPathAppend) {
-            let append_pos = params.pos;
-            self.add_to_goal_path(&append_pos);
-            if let Some(state_id) = self.base.get_current_state_id() {
-                if let Some(state) = self.base.get_state_mut(state_id) {
-                    if let Some(path_state) = state_follow_path_kind(state.as_mut()) {
-                        path_state.append_path(append_pos);
-                    }
-                }
-            } else if let Some(state) = self.base.get_state_mut(AIStateType::FollowPath as u32) {
-                if let Some(path_state) = state_follow_path_kind(state.as_mut()) {
-                    path_state.append_path(append_pos);
-                }
-            }
-        }
-
-        let state = match params.cmd {
-            AiCommandType::Idle => AIStateType::Idle,
-            AiCommandType::MoveToPosition
-            | AiCommandType::MoveToObject
-            | AiCommandType::MoveToPositionEvenIfSleeping => AIStateType::MoveTo,
-            AiCommandType::FollowWaypointPath => AIStateType::FollowWaypointPathAsIndividuals,
-            AiCommandType::FollowWaypointPathAsTeam => AIStateType::FollowWaypointPathAsTeam,
-            AiCommandType::FollowWaypointPathExact => {
-                AIStateType::FollowWaypointPathAsIndividualsExact
-            }
-            AiCommandType::FollowWaypointPathAsTeamExact => {
-                AIStateType::FollowWaypointPathAsTeamExact
-            }
-            AiCommandType::FollowPath => AIStateType::FollowPath,
-            AiCommandType::FollowExitProductionPath => AIStateType::FollowExitProductionPath,
-            AiCommandType::FollowUserPath => AIStateType::FollowPath,
-            AiCommandType::FollowPathAppend => AIStateType::FollowPath,
-            AiCommandType::MoveToPositionAndEvacuate => AIStateType::MoveAndEvacuate,
-            AiCommandType::MoveToPositionAndEvacuateAndExit => AIStateType::MoveAndEvacuateAndExit,
-            AiCommandType::AttackObject => AIStateType::AttackObject,
-            AiCommandType::ForceAttackObject => AIStateType::ForceAttackObject,
-            AiCommandType::AttackPosition => AIStateType::AttackPosition,
-            AiCommandType::AttackMoveToPosition => AIStateType::AttackMoveTo,
-            AiCommandType::AttackFollowWaypointPath => {
-                AIStateType::AttackFollowWaypointPathAsIndividuals
-            }
-            AiCommandType::AttackFollowWaypointPathAsTeam => {
-                AIStateType::AttackFollowWaypointPathAsTeam
-            }
-            AiCommandType::AttackTeam => AIStateType::AttackSquad,
-            AiCommandType::Hunt => AIStateType::Hunt,
-            AiCommandType::AttackArea => AIStateType::AttackArea,
-            AiCommandType::Repair => AIStateType::Busy,
-            AiCommandType::ResumeConstruction => AIStateType::Busy,
-            AiCommandType::GetHealed => AIStateType::Enter,
-            AiCommandType::GetRepaired => AIStateType::Dock,
-            AiCommandType::Enter => AIStateType::Enter,
-            AiCommandType::Dock => AIStateType::Dock,
-            AiCommandType::Exit => AIStateType::Exit,
-            AiCommandType::ExitInstantly => AIStateType::ExitInstantly,
-            AiCommandType::Evacuate => AIStateType::Exit,
-            AiCommandType::EvacuateInstantly => AIStateType::ExitInstantly,
-            AiCommandType::ExecuteRailedTransport => AIStateType::Busy,
-            AiCommandType::GoProne => AIStateType::Busy,
-            AiCommandType::GuardPosition => AIStateType::Guard,
-            AiCommandType::GuardObject => AIStateType::Guard,
-            AiCommandType::GuardArea => AIStateType::Guard,
-            AiCommandType::GuardTunnelNetwork => AIStateType::GuardTunnelNetwork,
-            AiCommandType::GuardRetaliate => AIStateType::GuardRetaliate,
-            AiCommandType::HackInternet => AIStateType::HackInternet,
-            AiCommandType::FaceObject => AIStateType::FaceObject,
-            AiCommandType::FacePosition => AIStateType::FacePosition,
-            AiCommandType::RappelInto => AIStateType::RappelInto,
-            AiCommandType::CombatDrop => AIStateType::CombatDrop,
-            AiCommandType::PickUpPrisoner => AIStateType::PickUpCrate,
-            AiCommandType::Wander => AIStateType::Wander,
-            AiCommandType::WanderInPlace => AIStateType::WanderInPlace,
-            AiCommandType::Panic => AIStateType::Panic,
-            AiCommandType::Busy => AIStateType::Busy,
-            AiCommandType::MoveAwayFromUnit => AIStateType::MoveOutOfTheWay,
-            AiCommandType::TightenToPosition => AIStateType::MoveAndTighten,
-            AiCommandType::ReturnPrisoners => AIStateType::Busy,
-            AiCommandType::DoSpecialPower => AIStateType::Busy,
-            AiCommandType::DoSpecialPowerAtObject => AIStateType::Busy,
-            AiCommandType::DoSpecialPowerAtLocation => AIStateType::Busy,
-            AiCommandType::Sell => AIStateType::Busy,
-            AiCommandType::ToggleOvercharge => AIStateType::Busy,
-            AiCommandType::Surrender => AIStateType::Busy,
-            AiCommandType::Cheer => AIStateType::Busy,
-            _ => AIStateType::Idle,
-        };
-
-        if matches!(
-            params.cmd,
-            AiCommandType::GuardPosition
-                | AiCommandType::GuardObject
-                | AiCommandType::GuardArea
-                | AiCommandType::GuardTunnelNetwork
-        ) {
-            self.base.set_guard_mode_raw(params.int_value);
-        }
-
-        if let Some(ai) = ai.as_deref_mut() {
-            self.set_state_with_ai(state as u32, ai);
-        } else {
-            self.set_state(state as u32);
-        }
-        Ok(())
+        self.driver().ai_do_command_with_ai(params, ai)
     }
 }
 
@@ -1152,18 +871,19 @@ impl Snapshotable for AIStateMachine {
             .xfer(xfer)
             .map_err(|e| format!("Failed to xfer AIStateMachine base: {}", e))?;
 
-        let mut count = self.goal_path.len() as i32;
+        let mut count = self.data.goal_path.len() as i32;
         xfer.xfer_int(&mut count)
             .map_err(|e| format!("Failed to xfer AIStateMachine goal path size: {:?}", e))?;
         if xfer.is_loading() {
-            self.goal_path.clear();
+            self.data.goal_path.clear();
         }
 
         for i in 0..count.max(0) {
             let mut pos = if xfer.is_loading() {
                 Coord3D::new(0.0, 0.0, 0.0)
             } else {
-                self.goal_path
+                self.data
+                    .goal_path
                     .get(i as usize)
                     .copied()
                     .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0))
@@ -1175,11 +895,12 @@ impl Snapshotable for AIStateMachine {
             xfer.xfer_real(&mut pos.z)
                 .map_err(|e| format!("Failed to xfer goal_path[{i}].z: {:?}", e))?;
             if xfer.is_loading() {
-                self.goal_path.push(pos);
+                self.data.goal_path.push(pos);
             }
         }
 
         let mut waypoint_name = self
+            .data
             .goal_waypoint
             .as_ref()
             .map(|waypoint| waypoint.name.clone())
@@ -1200,37 +921,41 @@ impl Snapshotable for AIStateMachine {
                     )));
                 }
             }
-            self.goal_waypoint = loaded_waypoint;
+            self.data.goal_waypoint = loaded_waypoint;
         }
-        let waypoint_id = self.goal_waypoint.as_ref().map(|waypoint| waypoint.id);
+        let waypoint_id = self.data.goal_waypoint.as_ref().map(|waypoint| waypoint.id);
         self.base.set_goal_waypoint(waypoint_id);
 
-        let mut has_squad = self.goal_squad.is_some();
+        let mut has_squad = self.data.goal_squad.is_some();
         xfer.xfer_bool(&mut has_squad)
             .map_err(|e| format!("Failed to xfer has_squad: {:?}", e))?;
 
         if xfer.is_loading() {
-            if has_squad && self.goal_squad.is_none() {
-                self.goal_squad = Some(Arc::new(Squad::new()));
+            if has_squad && self.data.goal_squad.is_none() {
+                self.data.goal_squad = Some(Arc::new(Squad::new()));
             }
         }
 
         if has_squad {
-            if let Some(squad) = self.goal_squad.as_mut() {
+            if let Some(squad) = self.data.goal_squad.as_mut() {
                 Arc::make_mut(squad).xfer(xfer)?;
             }
         }
 
-        self.base
-            .set_goal_squad(self.goal_squad.as_ref().map(|value| Arc::downgrade(value)));
+        self.base.set_goal_squad(
+            self.data
+                .goal_squad
+                .as_ref()
+                .map(|value| Arc::downgrade(value)),
+        );
 
-        let mut temp_state_id = self.temporary_state_id.unwrap_or(INVALID_STATE_ID);
+        let mut temp_state_id = self.data.temporary_state_id.unwrap_or(INVALID_STATE_ID);
 
         xfer.xfer_unsigned_int(&mut temp_state_id)
             .map_err(|e| format!("Failed to xfer temporary_state_id: {:?}", e))?;
 
         if xfer.is_loading() && temp_state_id != INVALID_STATE_ID {
-            self.temporary_state_id = self
+            self.data.temporary_state_id = self
                 .base
                 .get_state_name_by_id(temp_state_id)
                 .map(|_| temp_state_id);
@@ -1242,7 +967,7 @@ impl Snapshotable for AIStateMachine {
             }
         }
 
-        xfer.xfer_unsigned_int(&mut self.temporary_state_frame_end)
+        xfer.xfer_unsigned_int(&mut self.data.temporary_state_frame_end)
             .map_err(|e| format!("Failed to xfer temporary_state_frame_end: {:?}", e))?;
 
         Ok(())

@@ -25,7 +25,16 @@ PUBLIC_DECL_RE = re.compile(
     r"(?:unsafe\s+)?(?:fn|struct|enum|trait|type|const|static|mod)\s+"
     r"([A-Za-z_][A-Za-z0-9_]*)"
 )
+PUBLIC_DECL_OCCURRENCE_RE = re.compile(
+    r"(?m)^\s*(?P<visibility>pub(?:\((?P<restricted>[^)]*)\))?)\s+"
+    r"(?:async\s+)?(?:unsafe\s+)?"
+    r"(?P<kind>fn|struct|enum|trait|type|const|static|mod)\s+"
+    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b"
+)
 PUBLIC_USE_RE = re.compile(r"(?m)^\s*pub\s+use\s+([^;]+);")
+PUBLIC_USE_OCCURRENCE_RE = re.compile(
+    r"(?m)^\s*(?P<visibility>pub(?:\((?P<restricted>[^)]*)\))?)\s+use\s+([^;]+);"
+)
 TEST_RE = re.compile(r"#\s*\[\s*(?:(?:tokio|async_std)::)?test(?:\s*\([^]]*\))?\s*\]")
 LITERAL_INCLUDE_RE = re.compile(r'include_str!\(\s*"([^"]+)"\s*\)')
 PATH_MOD_RE = re.compile(
@@ -81,6 +90,101 @@ def public_names(text: str) -> set[str]:
             if name and name != "*":
                 names.add(name)
     return names
+
+
+def public_occurrences(text: str) -> list[dict[str, str]]:
+    """Return public declaration and re-export name occurrences with visibility."""
+    occurrences = [
+        {
+            "name": match.group("name"),
+            "visibility": match.group("restricted") or "public",
+            "kind": match.group("kind"),
+            "form": "declaration",
+        }
+        for match in PUBLIC_DECL_OCCURRENCE_RE.finditer(text)
+    ]
+    for match in PUBLIC_USE_OCCURRENCE_RE.finditer(text):
+        visibility = match.group("restricted") or "public"
+        expression = match.group(3).strip()
+        if "{" in expression and "}" in expression:
+            body = expression.split("{", 1)[1].rsplit("}", 1)[0]
+            names = [item.strip().split(" as ")[-1].strip() for item in body.split(",")]
+        else:
+            names = [expression.split(" as ")[-1].rsplit("::", 1)[-1].strip()]
+        for name in names:
+            if name and name != "self" and "*" not in name:
+                occurrences.append(
+                    {"name": name, "visibility": visibility, "kind": "use", "form": "re-export"}
+                )
+    return occurrences
+
+
+def expected_crate_api_report(
+    repo: Path,
+    api_paths: set[Path],
+    before_public: set[str],
+    added_public: list[str],
+    requested: list[tuple[Path, str]],
+) -> tuple[list[dict[str, object]], list[str], set[str]]:
+    """Validate narrowly allowed pub(crate) additions in explicitly named fragments."""
+    reports: list[dict[str, object]] = []
+    problems: list[str] = []
+    accepted: set[str] = set()
+    requested_keys: set[tuple[Path, str]] = set()
+    for raw_path, name in requested:
+        path = raw_path
+        report: dict[str, object] = {"path": path.as_posix(), "name": name, "accepted": False}
+        reports.append(report)
+        key = (path, name)
+        if key in requested_keys:
+            problems.append(f"duplicate expected crate API request: {path.as_posix()}:{name}")
+            continue
+        requested_keys.add(key)
+        if path.is_absolute():
+            problems.append(f"expected crate API path must be repository-relative: {path}")
+            continue
+        resolved = (repo / path).resolve()
+        try:
+            resolved.relative_to(repo)
+        except ValueError:
+            problems.append(f"expected crate API path escapes repository: {path.as_posix()}")
+            continue
+        if resolved not in api_paths or not resolved.is_file():
+            problems.append(
+                f"expected crate API path is not an in-scope current fragment: {path.as_posix()}"
+            )
+            continue
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            problems.append(f"invalid expected crate API name: {name}")
+            continue
+        if name in before_public:
+            problems.append(f"expected crate API is stale, already present before split: {name}")
+            continue
+        if name not in added_public:
+            problems.append(f"expected crate API declaration is missing: {path.as_posix()}:{name}")
+            continue
+
+        by_path: list[dict[str, str]] = []
+        all_occurrences: list[tuple[Path, dict[str, str]]] = []
+        for candidate in api_paths:
+            for occurrence in public_occurrences(candidate.read_text(encoding="utf-8")):
+                if occurrence["name"] == name:
+                    all_occurrences.append((candidate, occurrence))
+                    if candidate == resolved:
+                        by_path.append(occurrence)
+        exact = [
+            item for item in by_path
+            if item["form"] == "declaration" and item["visibility"] == "crate"
+        ]
+        if len(exact) != 1 or len(by_path) != 1 or len(all_occurrences) != 1:
+            problems.append(
+                f"expected crate API must be one unique pub(crate) declaration in its named fragment: {path.as_posix()}:{name}"
+            )
+            continue
+        accepted.add(name)
+        report["accepted"] = True
+
+    return reports, problems, accepted
 
 
 def current_fragments(repo: Path, source: Path) -> list[Path]:
@@ -271,6 +375,7 @@ def validate(
     source: Path,
     before_ref: str,
     extracted_sources: list[Path] | None = None,
+    expected_crate_api: list[tuple[Path, str]] | None = None,
 ) -> dict[str, object]:
     # macOS may spell the same temporary directory as /var/... and
     # /private/var/.... Canonicalize both anchors before relative-path checks.
@@ -352,8 +457,13 @@ def validate(
     for path in api_paths:
         after_public.update(public_names(path.read_text(encoding="utf-8")))
     added_public = sorted(after_public - before_public)
-    if added_public:
-        problems.append("new public API names: " + ", ".join(added_public))
+    expected_reports, expected_problems, accepted_crate_api = expected_crate_api_report(
+        repo, api_paths, before_public, added_public, expected_crate_api or []
+    )
+    problems.extend(expected_problems)
+    unaccepted_public = sorted(set(added_public) - accepted_crate_api)
+    if unaccepted_public:
+        problems.append("new public API names: " + ", ".join(unaccepted_public))
 
     commands = []
     if package:
@@ -383,6 +493,18 @@ def validate(
             "before": sorted(before_public),
             "after": sorted(after_public),
             "added": added_public,
+            "expected_crate_api": {
+                "requested": [
+                    {"path": path.as_posix(), "name": name}
+                    for path, name in (expected_crate_api or [])
+                ],
+                "accepted": [
+                    item
+                    for item in expected_reports
+                    if item["accepted"]
+                ],
+                "checks": expected_reports,
+            },
         },
         "package": package,
         "manifest": manifest.relative_to(repo).as_posix() if manifest else None,
@@ -390,6 +512,13 @@ def validate(
         "problems": problems,
         "passed": not problems,
     }
+
+
+def parse_expected_crate_api(value: str) -> tuple[Path, str]:
+    path_text, separator, name = value.rpartition(":")
+    if not separator or not path_text or not name:
+        raise argparse.ArgumentTypeError("expected PATH:NAME")
+    return Path(path_text), name
 
 
 def parse_args() -> argparse.Namespace:
@@ -407,6 +536,14 @@ def parse_args() -> argparse.Namespace:
         metavar="PATH",
         help="repo-relative Rust source moved into a reachable local path dependency; repeatable",
     )
+    parser.add_argument(
+        "--expected-crate-api",
+        action="append",
+        type=parse_expected_crate_api,
+        default=[],
+        metavar="PATH:NAME",
+        help="allow one exact new pub(crate) declaration in this in-scope fragment; repeatable",
+    )
     parser.add_argument("--json", action="store_true")
     return parser.parse_args()
 
@@ -416,7 +553,12 @@ def main() -> int:
     repo = args.repo_root.resolve()
     rust_root = repo / "GeneralsRust"
     report = validate(
-        repo, rust_root, args.source, args.before_ref, args.extracted_source
+        repo,
+        rust_root,
+        args.source,
+        args.before_ref,
+        args.extracted_source,
+        args.expected_crate_api,
     )
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))

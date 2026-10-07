@@ -150,7 +150,14 @@ fn append(initial: AIStateType, moving: bool, waiting: bool, expected: &[Coord3D
         machine.get_current_state_id(),
         Some(AIStateType::FollowPath as u32)
     );
-    assert_eq!(machine.goal_path, expected);
+    let actual: Vec<_> = (0..machine.get_goal_path_size())
+        .map(|i| {
+            *machine
+                .get_goal_path_position(i)
+                .expect("authored goal path index")
+        })
+        .collect();
+    assert_eq!(actual, expected);
     assert_eq!(machine.get_goal_position(), Some(command.pos));
 }
 #[test]

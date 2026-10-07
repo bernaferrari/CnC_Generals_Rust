@@ -168,6 +168,168 @@ class ValidateRustSplitTests(unittest.TestCase):
         )
         self.assertIn("test attributes decreased: 1 -> 0", report["problems"])
 
+    def test_expected_crate_api_accepts_exact_internal_declaration(self) -> None:
+        self.assertEqual(
+            (Path("GeneralsRust/Code/Main/src/large/driver.rs"), "Driver"),
+            validate_rust_split.parse_expected_crate_api(
+                "GeneralsRust/Code/Main/src/large/driver.rs:Driver"
+            ),
+        )
+        root = self.make_repo()
+        source = self.commit_source(root, "pub struct Stable;\n#[test]\nfn behavior() {}\n")
+        (root / source).unlink()
+        module = (root / source).with_suffix("")
+        module.mkdir()
+        (module / "mod.rs").write_text("mod driver;\npub struct Stable;\n")
+        (module / "driver.rs").write_text(
+            "pub(crate) struct Driver;\n#[test]\nfn behavior() {}\n"
+        )
+
+        strict = validate_rust_split.validate(root, root / "GeneralsRust", source, "HEAD")
+        self.assertFalse(strict["passed"])
+        self.assertIn("new public API names: Driver", strict["problems"])
+
+        report = validate_rust_split.validate(
+            root,
+            root / "GeneralsRust",
+            source,
+            "HEAD",
+            expected_crate_api=[(Path("GeneralsRust/Code/Main/src/large/driver.rs"), "Driver")],
+        )
+
+        self.assertTrue(report["passed"], report["problems"])
+        self.assertEqual(["Driver"], report["public_api"]["added"])
+        self.assertEqual(
+            [{"path": "GeneralsRust/Code/Main/src/large/driver.rs", "name": "Driver", "accepted": True}],
+            report["public_api"]["expected_crate_api"]["accepted"],
+        )
+
+    def test_expected_crate_api_rejects_external_declaration_and_reexport(self) -> None:
+        for declaration, root_module in (
+            ("pub struct Driver;", "mod driver;\npub struct Stable;\n"),
+            ("pub(crate) struct Driver;", "mod driver;\npub struct Stable;\npub use driver::Driver;\n"),
+        ):
+            with self.subTest(declaration=declaration, root_module=root_module):
+                root = self.make_repo()
+                source = self.commit_source(
+                    root, "pub struct Stable;\n#[test]\nfn behavior() {}\n"
+                )
+                (root / source).unlink()
+                module = (root / source).with_suffix("")
+                module.mkdir()
+                (module / "mod.rs").write_text(root_module)
+                (module / "driver.rs").write_text(
+                    f"{declaration}\n#[test]\nfn behavior() {{}}\n"
+                )
+
+                report = validate_rust_split.validate(
+                    root,
+                    root / "GeneralsRust",
+                    source,
+                    "HEAD",
+                    expected_crate_api=[
+                        (Path("GeneralsRust/Code/Main/src/large/driver.rs"), "Driver")
+                    ],
+                )
+
+                self.assertFalse(report["passed"])
+                self.assertIn("new public API names: Driver", report["problems"])
+                self.assertTrue(report["public_api"]["added"])
+                self.assertFalse(report["public_api"]["expected_crate_api"]["accepted"])
+                self.assertTrue(
+                    any("one unique pub(crate) declaration" in p for p in report["problems"])
+                )
+
+    def test_expected_crate_api_rejects_stale_wrongfile_and_unknown_path(self) -> None:
+        root = self.make_repo()
+        source = self.commit_source(
+            root, "pub struct Stable;\n#[test]\nfn behavior() {}\n"
+        )
+        (root / source).unlink()
+        module = (root / source).with_suffix("")
+        module.mkdir()
+        (module / "mod.rs").write_text("mod driver;\nmod other;\npub struct Stable;\n")
+        (module / "driver.rs").write_text(
+            "pub(crate) struct Driver;\n#[test]\nfn behavior() {}\n"
+        )
+        (module / "other.rs").write_text("\n")
+        unrelated = root / "GeneralsRust/Code/Main/src/unreachable.rs"
+        unrelated.write_text("pub(crate) struct Driver;\n")
+        driver = Path("GeneralsRust/Code/Main/src/large/driver.rs")
+        other = Path("GeneralsRust/Code/Main/src/large/other.rs")
+        unknown = Path("GeneralsRust/Code/Main/src/unreachable.rs")
+
+        stale_root = self.make_repo()
+        stale_source = self.commit_source(
+            stale_root,
+            "pub struct Stable;\npub(crate) struct Driver;\n#[test]\nfn behavior() {}\n",
+        )
+        (stale_root / stale_source).unlink()
+        stale_module = (stale_root / stale_source).with_suffix("")
+        stale_module.mkdir()
+        (stale_module / "mod.rs").write_text("mod driver;\npub struct Stable;\n")
+        (stale_module / "driver.rs").write_text(
+            "pub(crate) struct Driver;\n#[test]\nfn behavior() {}\n"
+        )
+        stale = validate_rust_split.validate(
+            stale_root,
+            stale_root / "GeneralsRust",
+            stale_source,
+            "HEAD",
+            expected_crate_api=[(driver, "Driver")],
+        )
+        self.assertFalse(stale["passed"])
+        self.assertIn("stale, already present before split", "\n".join(stale["problems"]))
+
+        wrong_file = validate_rust_split.validate(
+            root, root / "GeneralsRust", source, "HEAD", expected_crate_api=[(other, "Driver")]
+        )
+        self.assertFalse(wrong_file["passed"])
+        self.assertIn("named fragment", "\n".join(wrong_file["problems"]))
+
+        unknown_path = validate_rust_split.validate(
+            root, root / "GeneralsRust", source, "HEAD", expected_crate_api=[(unknown, "Driver")]
+        )
+        self.assertFalse(unknown_path["passed"])
+        self.assertIn("not an in-scope current fragment", "\n".join(unknown_path["problems"]))
+
+        missing = validate_rust_split.validate(
+            root, root / "GeneralsRust", source, "HEAD", expected_crate_api=[(driver, "Missing")]
+        )
+        self.assertFalse(missing["passed"])
+        self.assertIn("declaration is missing", "\n".join(missing["problems"]))
+
+        duplicate_request = validate_rust_split.validate(
+            root, root / "GeneralsRust", source, "HEAD",
+            expected_crate_api=[(driver, "Driver"), (driver, "Driver")],
+        )
+        self.assertFalse(duplicate_request["passed"])
+        self.assertIn("duplicate expected crate API request", "\n".join(duplicate_request["problems"]))
+
+    def test_expected_crate_api_rejects_duplicate_shadow_names(self) -> None:
+        root = self.make_repo()
+        source = self.commit_source(root, "pub struct Stable;\n#[test]\nfn behavior() {}\n")
+        (root / source).unlink()
+        module = (root / source).with_suffix("")
+        module.mkdir()
+        (module / "mod.rs").write_text("mod driver;\nmod shadow;\npub struct Stable;\n")
+        (module / "driver.rs").write_text(
+            "pub(crate) struct Driver;\n#[test]\nfn behavior() {}\n"
+        )
+        (module / "shadow.rs").write_text("pub(crate) struct Driver;\n")
+
+        report = validate_rust_split.validate(
+            root,
+            root / "GeneralsRust",
+            source,
+            "HEAD",
+            expected_crate_api=[(Path("GeneralsRust/Code/Main/src/large/driver.rs"), "Driver")],
+        )
+
+        self.assertFalse(report["passed"])
+        self.assertIn("one unique pub(crate) declaration", "\n".join(report["problems"]))
+        self.assertFalse(report["public_api"]["expected_crate_api"]["accepted"])
+
 
 if __name__ == "__main__":
     unittest.main()

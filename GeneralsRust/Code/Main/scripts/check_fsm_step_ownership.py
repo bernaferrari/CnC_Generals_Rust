@@ -59,9 +59,19 @@ fn concrete_driver_context(core: &mut StateMachine, ai: &mut crate::object::unit
     let _ = update.finish();
 }
 
+fn escaped_native_goal(machine: &mut crate::ai::states::AIStateMachine, ai: &mut crate::object::unit::UnitAIUpdate) {
+    let mut leaked_goal = None;
+    let _ = machine.update_state_machine(ai, |driver, _ai, _owner| {
+        leaked_goal = driver.get_goal_path_position(0);
+    });
+    let _ = leaked_goal.map(|goal| goal.x);
+}
+
 fn concrete_native_driver(machine: &mut crate::ai::states::AIStateMachine, ai: &mut crate::object::unit::UnitAIUpdate) {
-    let _ = machine.update_state_machine(ai, |_core, ai, _owner| {
+    let _ = machine.update_state_machine(ai, |driver, ai, _owner| {
         let _: &mut crate::object::unit::UnitAIUpdate = ai;
+        driver.set_goal_path(&[]);
+        let _: Option<&crate::common::Coord3D> = driver.get_goal_path_position(0);
     });
 }
 """
@@ -136,6 +146,7 @@ def main() -> int:
         "ai": ("E0499", "cannot borrow `*ai`"),
         "owner": ("E0499", "cannot borrow `*owner`"),
         "escape": (None, "lifetime may not live long enough"),
+        "native_goal_escape": ("E0521", "borrowed data escapes outside of closure"),
     }
     matched = {}
     for name, (code, text) in expected.items():

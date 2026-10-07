@@ -5153,70 +5153,14 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine.rs"
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/state_machine.rs"
           },
           {
             "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine/cpp_state.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_callback_change_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_control.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_cpp_contract_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_idle_lock_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_live_control_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_object_owner_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_owner_transition_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_snapshot_contract_tests.rs"
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/state_machine_driver.rs"
           }
         ],
         "mode": "split_inferred",
@@ -13762,6 +13706,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/state_machine.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/state_machine_driver.rs"
           },
           {
             "cargo_reachable": true,
@@ -37932,7 +37883,9 @@
       "blockers": [
         "unreviewed_mapping",
         "unreviewed_symbol_ownership",
-        "unreviewed_source_range_ownership"
+        "unreviewed_source_range_ownership",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/state_machine.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/state_machine_driver.rs"
       ],
       "id": "game_engine:Source/Common/StateMachine.cpp",
       "inventory_class": "required_runtime",
@@ -37944,70 +37897,14 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine.rs"
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/state_machine.rs"
           },
           {
             "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine/cpp_state.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_callback_change_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_control.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_cpp_contract_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_idle_lock_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_live_control_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_object_owner_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_owner_transition_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_snapshot_contract_tests.rs"
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/state_machine_driver.rs"
           }
         ],
         "mode": "split_inferred",
@@ -50237,7 +50134,9 @@
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/types.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/work_order.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/modules/turret_ai.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/squad.rs"
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/squad.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/state_machine.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/state_machine_driver.rs"
       ],
       "id": "game_engine:Source/GameLogic/AI/AI.cpp",
       "inventory_class": "required_runtime",
@@ -51027,6 +50926,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/state_machine.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/state_machine_driver.rs"
           },
           {
             "cargo_reachable": true,
@@ -157567,7 +157473,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "1f8f24883964b0e7c9f31c8d5548771fc32ff398187f840bd2e80c2dbce63135",
+  "input_digest": "2ed4290333ec2de0e517201f3ad851eeaa061813114c5a8a53dc300e71fa2109",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -194102,247 +194008,475 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1257,
+        "end_line": 982,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/state_machine.rs",
-      "sha256": "c382f1e220c7d626a698ae8c6f646437f843d5daeab5089e5b81ede46162672a",
+      "sha256": "75978bb5232ebec225ab137ab5ded7ea3ebd04aef95034f189dc9f87fc2480ff",
       "symbol_index_status": "indexed",
       "symbols": [
         {
+          "kind": "fn",
+          "line": 73,
+          "name": "notify_state_machine_changed_for_base"
+        },
+        {
           "kind": "struct",
-          "line": 75,
+          "line": 95,
+          "name": "AIStateMachineData"
+        },
+        {
+          "kind": "struct",
+          "line": 113,
           "name": "AIStateMachine"
         },
         {
           "kind": "fn",
-          "line": 95,
+          "line": 121,
           "name": "fmt"
         },
         {
           "kind": "fn",
-          "line": 108,
+          "line": 141,
+          "name": "driver"
+        },
+        {
+          "kind": "fn",
+          "line": 144,
+          "name": "note_owner_ai_mutex_held_for_next_enter"
+        },
+        {
+          "kind": "fn",
+          "line": 150,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 126,
+          "line": 170,
           "name": "define_ai_states"
         },
         {
           "kind": "fn",
-          "line": 566,
+          "line": 610,
           "name": "notify_state_machine_changed"
         },
         {
           "kind": "fn",
-          "line": 589,
+          "line": 616,
           "name": "clear"
         },
         {
           "kind": "fn",
-          "line": 592,
+          "line": 619,
           "name": "clear_with_ai"
         },
         {
           "kind": "fn",
-          "line": 596,
-          "name": "clear_impl"
-        },
-        {
-          "kind": "fn",
-          "line": 618,
+          "line": 625,
           "name": "reset_to_default_state"
         },
         {
           "kind": "fn",
-          "line": 623,
+          "line": 628,
           "name": "get_current_state_id"
         },
         {
           "kind": "fn",
-          "line": 627,
+          "line": 632,
           "name": "get_goal_position"
         },
         {
           "kind": "fn",
-          "line": 633,
+          "line": 638,
           "name": "set_state"
         },
         {
           "kind": "fn",
-          "line": 645,
+          "line": 643,
           "name": "set_state_with_ai"
         },
         {
           "kind": "fn",
-          "line": 663,
+          "line": 650,
           "name": "lock"
         },
         {
           "kind": "fn",
-          "line": 667,
+          "line": 654,
           "name": "unlock"
         },
         {
           "kind": "fn",
-          "line": 671,
+          "line": 658,
           "name": "is_locked"
         },
         {
           "kind": "fn",
-          "line": 675,
+          "line": 662,
           "name": "set_goal_object"
         },
         {
           "kind": "fn",
-          "line": 679,
+          "line": 666,
           "name": "set_goal_position"
         },
         {
           "kind": "fn",
-          "line": 683,
+          "line": 670,
           "name": "get_goal_object"
         },
         {
           "kind": "fn",
-          "line": 697,
+          "line": 684,
           "name": "get_goal_object_id"
         },
         {
           "kind": "fn",
-          "line": 701,
+          "line": 688,
           "name": "is_idle"
         },
         {
           "kind": "fn",
-          "line": 705,
+          "line": 692,
           "name": "is_busy"
         },
         {
           "kind": "fn",
-          "line": 709,
+          "line": 696,
           "name": "is_attack_state"
         },
         {
           "kind": "fn",
-          "line": 713,
+          "line": 700,
           "name": "is_in_attack_state"
         },
         {
           "kind": "fn",
-          "line": 717,
+          "line": 704,
           "name": "is_in_guard_idle_state"
         },
         {
           "kind": "fn",
-          "line": 723,
+          "line": 710,
           "name": "set_goal_path"
         },
         {
           "kind": "fn",
-          "line": 728,
+          "line": 715,
           "name": "install_follow_exit_path"
         },
         {
           "kind": "fn",
-          "line": 740,
+          "line": 720,
           "name": "add_to_goal_path"
         },
         {
           "kind": "fn",
-          "line": 759,
+          "line": 725,
           "name": "get_goal_path_position"
         },
         {
           "kind": "fn",
-          "line": 764,
+          "line": 730,
           "name": "get_goal_path_size"
         },
         {
           "kind": "fn",
-          "line": 769,
+          "line": 735,
           "name": "set_goal_waypoint"
         },
         {
           "kind": "fn",
-          "line": 776,
+          "line": 740,
           "name": "get_goal_waypoint"
         },
         {
           "kind": "fn",
-          "line": 783,
+          "line": 747,
           "name": "set_goal_team"
         },
         {
           "kind": "fn",
-          "line": 795,
+          "line": 752,
           "name": "set_goal_squad"
         },
         {
           "kind": "fn",
-          "line": 810,
+          "line": 755,
           "name": "set_goal_polygon"
         },
         {
           "kind": "fn",
-          "line": 818,
+          "line": 761,
           "name": "set_goal_ai_group"
         },
         {
           "kind": "fn",
-          "line": 826,
+          "line": 764,
           "name": "get_goal_squad"
         },
         {
           "kind": "fn",
-          "line": 832,
+          "line": 770,
           "name": "set_temporary_state"
         },
         {
           "kind": "fn",
-          "line": 883,
+          "line": 775,
           "name": "get_temporary_state"
         },
         {
           "kind": "fn",
-          "line": 888,
+          "line": 780,
           "name": "update_state_machine"
         },
         {
           "kind": "fn",
-          "line": 931,
+          "line": 827,
           "name": "get_current_state_name"
         },
         {
           "kind": "fn",
-          "line": 946,
+          "line": 842,
           "name": "ai_do_command"
         },
         {
           "kind": "fn",
-          "line": 952,
+          "line": 848,
           "name": "ai_do_command_with_ai"
         },
         {
           "kind": "fn",
-          "line": 959,
-          "name": "ai_do_command_impl"
-        },
-        {
-          "kind": "fn",
-          "line": 1139,
+          "line": 858,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 1144,
+          "line": 863,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 1250,
+          "line": 975,
           "name": "load_post_process"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 475,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/state_machine_driver.rs",
+      "sha256": "3a24666d1fa518babd137b7e5a6423a0fd8f8cb64693c2bdc9af1513daed3d93",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "struct",
+          "line": 2,
+          "name": "AIStateMachineDriver"
+        },
+        {
+          "kind": "fn",
+          "line": 9,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 15,
+          "name": "clear"
+        },
+        {
+          "kind": "fn",
+          "line": 18,
+          "name": "clear_with_ai"
+        },
+        {
+          "kind": "fn",
+          "line": 21,
+          "name": "clear_impl"
+        },
+        {
+          "kind": "fn",
+          "line": 40,
+          "name": "reset_to_default_state"
+        },
+        {
+          "kind": "fn",
+          "line": 45,
+          "name": "set_state"
+        },
+        {
+          "kind": "fn",
+          "line": 55,
+          "name": "set_state_with_ai"
+        },
+        {
+          "kind": "fn",
+          "line": 73,
+          "name": "set_goal_object"
+        },
+        {
+          "kind": "fn",
+          "line": 76,
+          "name": "set_goal_position"
+        },
+        {
+          "kind": "fn",
+          "line": 79,
+          "name": "set_goal_path"
+        },
+        {
+          "kind": "fn",
+          "line": 82,
+          "name": "install_follow_exit_path"
+        },
+        {
+          "kind": "fn",
+          "line": 92,
+          "name": "add_to_goal_path"
+        },
+        {
+          "kind": "fn",
+          "line": 109,
+          "name": "set_goal_waypoint"
+        },
+        {
+          "kind": "fn",
+          "line": 114,
+          "name": "set_goal_team"
+        },
+        {
+          "kind": "fn",
+          "line": 125,
+          "name": "set_goal_squad"
+        },
+        {
+          "kind": "fn",
+          "line": 141,
+          "name": "set_goal_polygon"
+        },
+        {
+          "kind": "fn",
+          "line": 146,
+          "name": "set_goal_ai_group"
+        },
+        {
+          "kind": "fn",
+          "line": 155,
+          "name": "set_temporary_state"
+        },
+        {
+          "kind": "fn",
+          "line": 209,
+          "name": "ai_do_command_with_ai"
+        },
+        {
+          "kind": "fn",
+          "line": 216,
+          "name": "ai_do_command_impl"
+        },
+        {
+          "kind": "fn",
+          "line": 392,
+          "name": "get_current_state_id"
+        },
+        {
+          "kind": "fn",
+          "line": 395,
+          "name": "get_current_state_name"
+        },
+        {
+          "kind": "fn",
+          "line": 407,
+          "name": "get_goal_object"
+        },
+        {
+          "kind": "fn",
+          "line": 420,
+          "name": "get_goal_object_id"
+        },
+        {
+          "kind": "fn",
+          "line": 423,
+          "name": "get_goal_path_size"
+        },
+        {
+          "kind": "fn",
+          "line": 426,
+          "name": "get_goal_position"
+        },
+        {
+          "kind": "fn",
+          "line": 429,
+          "name": "get_temporary_state"
+        },
+        {
+          "kind": "fn",
+          "line": 432,
+          "name": "is_attack_state"
+        },
+        {
+          "kind": "fn",
+          "line": 435,
+          "name": "is_busy"
+        },
+        {
+          "kind": "fn",
+          "line": 438,
+          "name": "is_idle"
+        },
+        {
+          "kind": "fn",
+          "line": 441,
+          "name": "is_in_attack_state"
+        },
+        {
+          "kind": "fn",
+          "line": 444,
+          "name": "is_in_guard_idle_state"
+        },
+        {
+          "kind": "fn",
+          "line": 447,
+          "name": "is_locked"
+        },
+        {
+          "kind": "fn",
+          "line": 450,
+          "name": "lock"
+        },
+        {
+          "kind": "fn",
+          "line": 453,
+          "name": "unlock"
+        },
+        {
+          "kind": "fn",
+          "line": 456,
+          "name": "get_goal_path_position"
+        },
+        {
+          "kind": "fn",
+          "line": 459,
+          "name": "get_goal_squad"
+        },
+        {
+          "kind": "fn",
+          "line": 462,
+          "name": "get_goal_waypoint"
+        },
+        {
+          "kind": "fn",
+          "line": 465,
+          "name": "notify_state_machine_changed"
+        },
+        {
+          "kind": "fn",
+          "line": 468,
+          "name": "ai_do_command"
         }
       ]
     },
@@ -194350,11 +194484,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 891,
+        "end_line": 892,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/tests.rs",
-      "sha256": "6360f3f7029e8bfc02e103c46b5fab5c10758603ecf7e71bb25d2c4e08b88030",
+      "sha256": "0f3db959bb01765ca26704156649b92b1bec397ccfe6346034ef851758c5ca5b",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -194424,102 +194558,102 @@
         },
         {
           "kind": "fn",
-          "line": 229,
+          "line": 230,
           "name": "xfer_roundtrip_preserves_path_squad_temp_and_waypoint_lookup_rules"
         },
         {
           "kind": "fn",
-          "line": 274,
+          "line": 275,
           "name": "follow_path_state_snapshot_roundtrip_preserves_runtime_fields"
         },
         {
           "kind": "fn",
-          "line": 315,
+          "line": 316,
           "name": "follow_exit_production_path_snapshot_delegates_to_base_state"
         },
         {
           "kind": "fn",
-          "line": 348,
+          "line": 349,
           "name": "pick_up_crate_state_snapshot_roundtrip_preserves_delay_and_goal"
         },
         {
           "kind": "fn",
-          "line": 379,
+          "line": 380,
           "name": "attack_pursue_state_snapshot_roundtrip_preserves_base_and_runtime_fields"
         },
         {
           "kind": "fn",
-          "line": 432,
+          "line": 433,
           "name": "attack_approach_state_snapshot_roundtrip_preserves_base_and_runtime_fields"
         },
         {
           "kind": "fn",
-          "line": 485,
+          "line": 486,
           "name": "attack_aim_state_snapshot_roundtrip_preserves_runtime_flags"
         },
         {
           "kind": "fn",
-          "line": 514,
+          "line": 515,
           "name": "idle_state_snapshot_roundtrip_preserves_runtime_flags"
         },
         {
           "kind": "fn",
-          "line": 543,
+          "line": 544,
           "name": "wander_and_panic_state_snapshot_roundtrip_preserves_runtime_fields"
         },
         {
           "kind": "fn",
-          "line": 609,
+          "line": 610,
           "name": "exit_states_snapshot_roundtrip_preserves_entry_to_clear"
         },
         {
           "kind": "fn",
-          "line": 648,
+          "line": 649,
           "name": "hunt_state_snapshot_roundtrip_preserves_scan_time_without_machine"
         },
         {
           "kind": "fn",
-          "line": 675,
+          "line": 676,
           "name": "enter_state_snapshot_roundtrip_preserves_base_and_entry_runtime_fields"
         },
         {
           "kind": "fn",
-          "line": 719,
+          "line": 720,
           "name": "rappel_into_state_snapshot_roundtrip_preserves_runtime_fields"
         },
         {
           "kind": "fn",
-          "line": 748,
+          "line": 749,
           "name": "combat_drop_state_snapshot_roundtrip_preserves_issued_command"
         },
         {
           "kind": "fn",
-          "line": 773,
+          "line": 774,
           "name": "temporary_state_frame_end_uses_saturating_add"
         },
         {
           "kind": "fn",
-          "line": 785,
+          "line": 786,
           "name": "idle_restake_plan_runs_for_ultra_accurate_and_loco_less"
         },
         {
           "kind": "fn",
-          "line": 809,
+          "line": 810,
           "name": "fire_weapon_seeds_attack_common_target_only_when_empty"
         },
         {
           "kind": "fn",
-          "line": 818,
+          "line": 819,
           "name": "team_change_abort_clears_matching_team_target"
         },
         {
           "kind": "fn",
-          "line": 830,
+          "line": 831,
           "name": "nested_attack_machine_picks_up_parent_goal_change"
         },
         {
           "kind": "fn",
-          "line": 844,
+          "line": 845,
           "name": "attack_on_exit_clears_leech_range_mode"
         }
       ]
@@ -202507,7 +202641,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_loco.rs",
-      "sha256": "36abae76b4621941a95d8f11957d33d0c6b5d8259bbddac746d48986b27db6ad",
+      "sha256": "f7c360fbe2f6afe222fabc8355c626309298819b65e63223d44ae7b8edbfb098",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -202563,11 +202697,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 223,
+        "end_line": 230,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/command_idle_query_tests.rs",
-      "sha256": "c7dc1cc72598e6a13b991a31808b4fd4b65aea6a3bf5756d0a68efc1e66d5a87",
+      "sha256": "b08dad8a7a95b5290f54a452ffdfff0b30aa4df443147221d7c4a260f2eb722d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -202623,11 +202757,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 259,
+        "end_line": 410,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_owner_preparation_tests.rs",
-      "sha256": "0a7b974fd1064444157a40a3682308138fb7a595221b78f2cb8e535137d39883",
+      "sha256": "12fec69a68e0c980d1967aeb96e91ed1fcd9e004ffb6cf4db5d57404894f70f4",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205220,126 +205354,6 @@
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/special_power_module/types.rs",
       "sha256": "3b7fbb2ba066e34a4f85f059f48aa439b54277c465a2e833b6a036f2a153c30c",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 434,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine/cpp_state.rs",
-      "sha256": "58b265acf5e2082331db57f9c81a33e1061d042fa266762f2d2767b316cbbcd7",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 2500,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine.rs",
-      "sha256": "3cf0a99cc66e382c29a7acd4e5a31c7450981dee2c02def3d45fdabf2a7cf8a8",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "test",
-      "file_range": {
-        "end_line": 167,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_callback_change_tests.rs",
-      "sha256": "4ff96fee6c59100bd6befe475d79e1a7cd9682425876e7de4f6ee9ee7442eae4",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 221,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_control.rs",
-      "sha256": "a2d3849c193ccae9549448900ec80d3f072119aff10bb5656524916d602c37ac",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "test",
-      "file_range": {
-        "end_line": 301,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_cpp_contract_tests.rs",
-      "sha256": "c5744e3ec51a17ca4e7c4d6010fe5c6991fe5cd99874f2165ecbe3d35f785ffc",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "test",
-      "file_range": {
-        "end_line": 89,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_idle_lock_tests.rs",
-      "sha256": "9dd0cf2c476c6f22122bfee64dfa5bf8658301e661501166f7ee1c0ce373ddf9",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "test",
-      "file_range": {
-        "end_line": 142,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_live_control_tests.rs",
-      "sha256": "5370af4d805d37e95490a0b5c3acaa7b5b43f8b3d2a020bf86b4411afc27d55b",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "test",
-      "file_range": {
-        "end_line": 170,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_object_owner_tests.rs",
-      "sha256": "e04e3d679fc41f27499124b95d05c232a315a4d77f935069219783e04264f658",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "test",
-      "file_range": {
-        "end_line": 298,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_owner_transition_tests.rs",
-      "sha256": "42357b67e84f382e92f5f5642c4f4bfffb2d4989f246e7ea78a8670a8404e055",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "test",
-      "file_range": {
-        "end_line": 361,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_snapshot_contract_tests.rs",
-      "sha256": "3a7c11d7877e7c4ec96b3fe40d4547704cd20883b2f0ce56a437becc3904d769",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -219172,7 +219186,7 @@
     },
     "behavior_verified": 1,
     "blockers_by_kind": {
-      "duplicate_implementation_destination": 668,
+      "duplicate_implementation_destination": 672,
       "missing_mapping": 22,
       "no_reachable_implementation": 685,
       "ownership_symbol": 6,
@@ -219238,13 +219252,13 @@
       }
     },
     "deferred_network_translation_units": 47,
-    "duplicate_implementation_destinations": 304,
+    "duplicate_implementation_destinations": 306,
     "orphan_ownership_records": 0,
     "reachable_implementation_candidates": 704,
     "required_translation_units": 1389,
     "reviewed_path_implementations": 8,
     "source_range_ownership_reviewed": 3,
-    "strict_blockers": 4192,
+    "strict_blockers": 4196,
     "symbol_ownership_reviewed": 1,
     "translation_units": 1436
   }

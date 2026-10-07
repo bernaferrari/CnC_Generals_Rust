@@ -2215,7 +2215,7 @@ impl UnitAIUpdate {
         self.set_desired_speed(crate::modules::FAST_AS_POSSIBLE);
         self.friend_starting_move();
         self.with_cur_locomotor_mut(&mut |loco| loco.start_move());
-        guard.owner_ai_mutex_held_for_next_enter = true;
+        guard.note_owner_ai_mutex_held_for_next_enter();
         let _ = guard.set_temporary_state(
             AIStateType::FollowExitProductionPath as u32,
             10 * crate::common::LOGICFRAMES_PER_SECOND as UnsignedInt,

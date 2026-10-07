@@ -256,3 +256,154 @@ fn prepared_data_loans_the_actual_locomotor_member_with_parent_held() {
     assert_eq!(data.locomotor_set.active_name(), Some(name));
     assert!(super::registry::get_unit_arc(id).is_none());
 }
+
+#[test]
+fn prepared_native_driver_changes_real_goals_and_state_before_idle_sleep_finishes() {
+    let _serial = crate::test_sync::lock();
+    let id = 0xA1_F0_28;
+    let first = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
+    let second = Arc::new(RwLock::new(crate::object::Object::new_test(id, 200.0)));
+    let first_ai = prepare(&first);
+    let second_ai = prepare(&second);
+    for (owner, handle, target, goal) in [
+        (&first, &first_ai, 0xA1_F0_30, Coord3D::new(3.0, 5.0, 7.0)),
+        (
+            &second,
+            &second_ai,
+            0xA1_F0_31,
+            Coord3D::new(11.0, 13.0, 17.0),
+        ),
+    ] {
+        let mut ai = handle.lock().unwrap();
+        let parent = ai.ai_state_machine.as_ref().unwrap().clone();
+        let mut machine = parent.lock().unwrap();
+        assert!(Arc::ptr_eq(&machine.base.get_owner().unwrap(), owner));
+        assert_eq!(
+            machine.set_state_with_ai(crate::ai::states::AIStateType::Idle as u32, &mut *ai),
+            crate::state_machine::StateReturnType::Continue
+        );
+        ai.set_queue_for_path_time(123);
+        let mut called = false;
+        let result = machine.update_state_machine(&mut *ai, |driver, ai, _owner| {
+            called = true;
+            // Hold the exact Object only while the post-body operations run.
+            // Completion may read it once this callback has returned.
+            let _held_owner = owner.write().unwrap();
+            let mut command = crate::ai::AiCommandParams::new(
+                crate::ai::AiCommandType::Busy,
+                CommandSourceType::FromPlayer,
+            );
+            command.obj = Some(target);
+            command.pos = goal;
+            driver.ai_do_command_with_ai(&command, ai).unwrap();
+            driver.set_goal_path(&[goal]);
+            driver.add_to_goal_path(&goal);
+            let end = Coord3D::new(goal.x + 1.0, goal.y, goal.z);
+            driver.add_to_goal_path(&end);
+            assert_eq!(driver.get_goal_path_size(), 2);
+            assert_eq!(driver.get_goal_path_position(0), Some(&goal));
+            assert_eq!(driver.get_goal_path_position(1), Some(&end));
+            assert_eq!(driver.get_goal_object_id(), target);
+            assert_eq!(driver.get_goal_position().unwrap(), goal);
+            assert!(driver.is_busy());
+            assert!(!driver.is_idle());
+            assert_eq!(ai.data.queue_for_path_frame, 0);
+        });
+        assert!(
+            called,
+            "the real native body reached its operation-local driver"
+        );
+        // StateMachine.cpp:413-435: changed state overrides outgoing Idle Sleep.
+        assert_eq!(result, crate::state_machine::StateReturnType::Continue);
+        assert_eq!(
+            machine.get_current_state_id(),
+            Some(crate::ai::states::AIStateType::Busy as u32)
+        );
+        assert_eq!(machine.get_goal_object_id(), target);
+        assert_eq!(machine.get_goal_position(), Some(goal));
+        assert_eq!(machine.get_goal_path_position(0), Some(&goal));
+        assert_eq!(machine.get_goal_path_size(), 2);
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        machine
+            .base
+            .xfer(&mut game_engine::common::system::xfer_save::XferSave::new(
+                &mut bytes, 1,
+            ))
+            .unwrap();
+        let wire = bytes.into_inner();
+        assert_eq!(wire[0], 1);
+        assert_eq!(
+            u32::from_le_bytes(wire[1..5].try_into().unwrap()),
+            0,
+            "outgoing Idle did not leave a sleep deadline on Busy"
+        );
+        assert!(Arc::ptr_eq(ai.ai_state_machine.as_ref().unwrap(), &parent));
+    }
+    assert_eq!(
+        first_ai
+            .lock()
+            .unwrap()
+            .ai_state_machine
+            .as_ref()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .get_goal_object_id(),
+        0xA1_F0_30
+    );
+    assert_eq!(
+        second_ai
+            .lock()
+            .unwrap()
+            .ai_state_machine
+            .as_ref()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .get_goal_object_id(),
+        0xA1_F0_31
+    );
+    assert!(super::registry::get_unit_arc(id).is_none());
+}
+
+#[test]
+fn prepared_native_driver_preserves_cpp_logical_lock_during_commands() {
+    let _serial = crate::test_sync::lock();
+    let id = 0xA1_F0_29;
+    let owner = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
+    let handle = prepare(&owner);
+    let mut ai = handle.lock().unwrap();
+    let parent = ai.ai_state_machine.as_ref().unwrap().clone();
+    let mut machine = parent.lock().unwrap();
+    machine.set_state_with_ai(crate::ai::states::AIStateType::Wait as u32, &mut *ai);
+    let result = machine.update_state_machine(&mut *ai, |driver, ai, _owner| {
+        let _held_owner = owner.write().unwrap();
+        let command = crate::ai::AiCommandParams::new(
+            crate::ai::AiCommandType::Busy,
+            CommandSourceType::FromAI,
+        );
+        driver.lock();
+        driver.ai_do_command_with_ai(&command, ai).unwrap();
+        assert!(driver.is_locked());
+        assert_eq!(
+            driver.get_current_state_id(),
+            Some(crate::ai::states::AIStateType::Wait as u32)
+        );
+        assert!(!driver.is_busy());
+        driver.unlock();
+        driver.ai_do_command_with_ai(&command, ai).unwrap();
+        assert!(!driver.is_locked());
+        assert_eq!(
+            driver.get_current_state_id(),
+            Some(crate::ai::states::AIStateType::Busy as u32)
+        );
+        assert!(driver.is_busy());
+    });
+    assert_eq!(result, crate::state_machine::StateReturnType::Continue);
+    assert_eq!(
+        machine.get_current_state_id(),
+        Some(crate::ai::states::AIStateType::Busy as u32)
+    );
+    assert!(!machine.is_locked());
+    assert!(Arc::ptr_eq(ai.ai_state_machine.as_ref().unwrap(), &parent));
+}

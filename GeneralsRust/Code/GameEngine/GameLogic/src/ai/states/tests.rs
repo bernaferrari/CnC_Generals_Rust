@@ -210,6 +210,7 @@ fn ai_do_command_polygon_updates_machine_goal_polygon() {
 
     assert_eq!(
         machine
+            .data
             .goal_polygon
             .as_ref()
             .map(|polygon| polygon.get_id()),
@@ -243,7 +244,7 @@ fn xfer_roundtrip_preserves_path_squad_temp_and_waypoint_lookup_rules() {
 
     let temp_ret = source.set_temporary_state(AIStateType::Idle as u32, 45);
     assert_eq!(temp_ret, StateReturnType::Continue);
-    let expected_temp_end = source.temporary_state_frame_end;
+    let expected_temp_end = source.data.temporary_state_frame_end;
 
     let mut save_cursor = Cursor::new(Vec::<u8>::new());
     {
@@ -265,7 +266,7 @@ fn xfer_roundtrip_preserves_path_squad_temp_and_waypoint_lookup_rules() {
     assert!(loaded.get_goal_squad().is_some());
     assert!(loaded.base.get_goal_squad().is_some());
     assert_eq!(loaded.get_temporary_state(), Some(AIStateType::Idle as u32));
-    assert_eq!(loaded.temporary_state_frame_end, expected_temp_end);
+    assert_eq!(loaded.data.temporary_state_frame_end, expected_temp_end);
     assert!(loaded.get_goal_waypoint().is_none());
     assert_eq!(loaded.base.get_goal_waypoint(), None);
 }
@@ -778,7 +779,7 @@ fn temporary_state_frame_end_uses_saturating_add() {
     let ret = machine.set_temporary_state(AIStateType::Idle as u32, u32::MAX);
 
     assert_eq!(ret, StateReturnType::Continue);
-    assert_eq!(machine.temporary_state_frame_end, u32::MAX);
+    assert_eq!(machine.data.temporary_state_frame_end, u32::MAX);
 }
 
 #[test]
