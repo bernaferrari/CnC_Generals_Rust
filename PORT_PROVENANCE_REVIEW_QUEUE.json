@@ -52879,6 +52879,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_worker_owner_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/identity.rs"
             },
@@ -188990,7 +188995,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "092b9f7ce65e024bc625beee843159fb985a479144b698b3a79a677de5322192",
+  "provenance_input_digest": "feb980ca949de393dcf31734fe7c7c8318c15fd8a52f6508bfcb86874163bdb5",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

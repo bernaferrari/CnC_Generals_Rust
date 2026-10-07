@@ -15,7 +15,13 @@ pub(crate) fn run_bounded(test_name: &str, child_marker: &str) -> TestProcess {
     }
 
     let mut child = Command::new(std::env::current_exe().expect("current test executable"))
-        .args([test_name, "--exact", "--test-threads=1", "--nocapture"])
+        .args([
+            test_name,
+            "--exact",
+            "--test-threads=1",
+            "--nocapture",
+            "--include-ignored",
+        ])
         .env(child_marker, "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

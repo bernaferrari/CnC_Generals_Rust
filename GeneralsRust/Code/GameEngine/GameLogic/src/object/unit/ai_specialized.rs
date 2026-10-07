@@ -17,10 +17,10 @@ impl UnitAIUpdate {
     ) -> Option<&dyn crate::modules::SupplyTruckAIInterface> {
         if let Some(ai) = self.chinook_ai.as_ref() {
             Some(ai as &dyn crate::modules::SupplyTruckAIInterface)
-        } else if let Some(ai) = self.supply_truck_ai.as_ref() {
+        } else if let Some(ai) = self.worker_ai.as_ref() {
             Some(ai as &dyn crate::modules::SupplyTruckAIInterface)
         } else {
-            self.worker_ai
+            self.supply_truck_ai
                 .as_ref()
                 .map(|ai| ai as &dyn crate::modules::SupplyTruckAIInterface)
         }
@@ -30,10 +30,10 @@ impl UnitAIUpdate {
     ) -> Option<&mut dyn crate::modules::SupplyTruckAIInterface> {
         if let Some(ai) = self.chinook_ai.as_mut() {
             Some(ai as &mut dyn crate::modules::SupplyTruckAIInterface)
-        } else if let Some(ai) = self.supply_truck_ai.as_mut() {
+        } else if let Some(ai) = self.worker_ai.as_mut() {
             Some(ai as &mut dyn crate::modules::SupplyTruckAIInterface)
         } else {
-            self.worker_ai
+            self.supply_truck_ai
                 .as_mut()
                 .map(|ai| ai as &mut dyn crate::modules::SupplyTruckAIInterface)
         }

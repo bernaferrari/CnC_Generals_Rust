@@ -843,6 +843,17 @@ impl UnitAIUpdate {
             .unwrap_or(false)
     }
     pub(super) fn is_clearing_mines(&self) -> bool {
+        if let Some(owner) = self.owner.as_ref() {
+            // C++ getObject() identifies this AI's owner, even beside another
+            // world's same-ID Unit. An expired native owner never falls back.
+            let Some(obj) = owner.upgrade() else {
+                return false;
+            };
+            let Ok(obj_guard) = obj.read() else {
+                return false;
+            };
+            return Self::object_is_clearing_mines(&obj_guard);
+        }
         let Some(unit) = get_unit_arc(self.unit_id) else {
             return false;
         };
@@ -853,10 +864,14 @@ impl UnitAIUpdate {
         let Ok(obj_guard) = obj.read() else {
             return false;
         };
-        if !obj_guard.test_status(ObjectStatusTypes::OBJECT_STATUS_IS_ATTACKING) {
+        Self::object_is_clearing_mines(&obj_guard)
+    }
+
+    fn object_is_clearing_mines(obj: &Object) -> bool {
+        if !obj.test_status(ObjectStatusTypes::OBJECT_STATUS_IS_ATTACKING) {
             return false;
         }
-        let Some((weapon, _slot)) = obj_guard.get_current_weapon() else {
+        let Some((weapon, _slot)) = obj.get_current_weapon() else {
             return false;
         };
         (weapon.get_anti_mask() & WeaponAntiMask::MINE) != 0
