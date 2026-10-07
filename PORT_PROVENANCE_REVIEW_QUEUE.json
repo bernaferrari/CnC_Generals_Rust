@@ -52890,6 +52890,11 @@
             {
               "cargo_reachable": true,
               "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/contact_attack_owner_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/expired_command_owner_tests.rs"
             },
             {
@@ -189010,7 +189015,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "a5045c8aeb9b51fd54ea6158584e9223657e9f7410089b1a93e6971bdeb7ac0b",
+  "provenance_input_digest": "ec2822f73f63b3221b92c81d093225a30c6529b9fc3de64d3823e25f04cc996d",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

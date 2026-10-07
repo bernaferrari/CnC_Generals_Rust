@@ -23,6 +23,9 @@ mod factory_command_owner_tests;
 #[path = "expired_command_owner_tests.rs"]
 mod expired_command_owner_tests;
 
+#[path = "contact_attack_owner_tests.rs"]
+mod contact_attack_owner_tests;
+
 fn child(name: &str) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {

@@ -63,14 +63,14 @@ impl ThePartitionManager {
         pos: &Coord3D,
         radius: Real,
     ) -> Vec<crate::common::ObjectID> {
-        self.get_objects_in_range_with_source(pos, radius, None)
+        self.get_objects_in_range_with_borrowed_positions(pos, radius, &[])
     }
 
-    fn get_objects_in_range_with_source(
+    fn get_objects_in_range_with_borrowed_positions(
         &self,
         pos: &Coord3D,
         radius: Real,
-        borrowed_source: Option<(crate::common::ObjectID, Coord3D)>,
+        borrowed_positions: &[(crate::common::ObjectID, Coord3D)],
     ) -> Vec<crate::common::ObjectID> {
         // Wave 281: empty dual-world → no objects.
         if dual_world_registry_unavailable() {
@@ -93,12 +93,13 @@ impl ThePartitionManager {
         candidate_ids
             .into_iter()
             .filter_map(|id| {
-                if let Some((source_id, source_pos)) = borrowed_source {
-                    if id == source_id {
-                        let dx = source_pos.x - pos.x;
-                        let dy = source_pos.y - pos.y;
-                        return (dx * dx + dy * dy <= radius_sqr).then_some(id);
-                    }
+                if let Some((_, object_pos)) = borrowed_positions
+                    .iter()
+                    .find(|(held_id, _)| *held_id == id)
+                {
+                    let dx = object_pos.x - pos.x;
+                    let dy = object_pos.y - pos.y;
+                    return (dx * dx + dy * dy <= radius_sqr).then_some(id);
                 }
                 OBJECT_REGISTRY
                     .with_object(id, |obj_guard| {
@@ -124,20 +125,21 @@ impl ThePartitionManager {
         geometry: &GeometryInfo,
         _orientation: Real,
     ) -> Vec<crate::common::ObjectID> {
-        self.iterate_potential_collisions_with_source(pos, geometry, _orientation, None)
+        self.iterate_potential_collisions_with_borrowed_positions(pos, geometry, _orientation, &[])
     }
 
-    /// Same ordered candidate/filter query while the caller already borrows
-    /// one source Object. Only its matching ID uses that supplied position.
-    pub(crate) fn iterate_potential_collisions_with_source(
+    /// Same ordered candidate/filter query for Objects the caller already
+    /// borrows. Positions apply only to IDs admitted by the partition; this
+    /// operation-local input neither adds candidates nor changes their order.
+    pub(crate) fn iterate_potential_collisions_with_borrowed_positions(
         &self,
         pos: &Coord3D,
         geometry: &GeometryInfo,
         _orientation: Real,
-        borrowed_source: Option<(crate::common::ObjectID, Coord3D)>,
+        borrowed_positions: &[(crate::common::ObjectID, Coord3D)],
     ) -> Vec<crate::common::ObjectID> {
         let radius = geometry.get_bounding_circle_radius().max(1.0);
-        self.get_objects_in_range_with_source(pos, radius, borrowed_source)
+        self.get_objects_in_range_with_borrowed_positions(pos, radius, borrowed_positions)
     }
 
     /// Find a legal position around a point (matching C++ PartitionManager::findPositionAround).

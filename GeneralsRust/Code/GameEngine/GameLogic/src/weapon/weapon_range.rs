@@ -76,7 +76,8 @@ impl Weapon {
             is_structure,
             self.caller_held_source
                 .as_ref()
-                .map(|source| (source.id, source.position)),
+                .map(|source| (source.id, source.position))
+                .as_slice(),
         )
     }
 
@@ -112,7 +113,10 @@ impl Weapon {
                 target.get_geometry_info().get_bounding_circle_radius(),
                 target.is_kind_of(KindOf::Bridge),
                 target.is_kind_of(KindOf::Structure),
-                Some((source.get_id(), source_pos)),
+                &[
+                    (source.get_id(), source_pos),
+                    (target.get_id(), *target.get_position()),
+                ],
             )
         } else {
             self.is_within_attack_range_from_source(
@@ -138,7 +142,7 @@ impl Weapon {
         target_radius: f32,
         is_bridge: bool,
         is_structure: bool,
-        borrowed_source: Option<(ObjectId, Coord3D)>,
+        borrowed_positions: &[(ObjectId, Coord3D)],
     ) -> bool {
         let max_range = self.template.get_attack_range(bonus);
         let min_range = self.template.get_minimum_attack_range();
@@ -173,11 +177,11 @@ impl Weapon {
             let Some(partition) = ThePartitionManager::get() else {
                 return false;
             };
-            let hits = partition.iterate_potential_collisions_with_source(
+            let hits = partition.iterate_potential_collisions_with_borrowed_positions(
                 source_pos,
                 source_geom,
                 0.0,
-                borrowed_source,
+                borrowed_positions,
             );
             return hits.iter().any(|&id| id == target_id);
         }
