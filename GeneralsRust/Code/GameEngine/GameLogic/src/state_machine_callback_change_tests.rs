@@ -102,12 +102,17 @@ fn body_returns_before_requested_transition_and_sleep_processing() {
     let _serial = crate::test_sync::lock();
     let (mut core, enters) = machine();
     let mut ai = TestAI;
-    let step = core.begin_update_with_ai_and_owner(&mut ai, &mut ());
-    assert!(matches!(step, StateUpdate::Body(_)));
-    assert_eq!(core.get_current_state_id(), Some(5));
-    assert_eq!(enters.load(Ordering::SeqCst), 0);
-    assert_eq!(core.control.sleep_till, 0);
-    let result = core.finish_update_with_ai_and_owner(step, &mut ai, &mut ());
+    let mut owner = ();
+    let mut step = core.begin_update_with_ai_and_owner(&mut ai, &mut owner);
+    let StateUpdate::Body(body) = &mut step else {
+        panic!("awake state must return a body continuation");
+    };
+    body.with_driver(|core, _ai, _owner| {
+        assert_eq!(core.get_current_state_id(), Some(5));
+        assert_eq!(enters.load(Ordering::SeqCst), 0);
+        assert_eq!(core.control.sleep_till, 0);
+    });
+    let result = step.finish();
     assert_changed(&core, &enters, result);
 }
 
@@ -125,14 +130,20 @@ fn driver_changes_state_after_body_before_outgoing_sleep() {
     // the single terminal operation. Two requests would correctly reenter.
     let (mut core, enters) = machine_with_body(Box::new(SleepState));
     let mut ai = TestAI;
-    let step = core.begin_update_with_ai_and_owner(&mut ai, &mut ());
+    let mut owner = ();
+    let mut step = core.begin_update_with_ai_and_owner(&mut ai, &mut owner);
     // This synchronous entry is possible because the body no longer borrows
     // the state table. It is a generic FSM test, not a native AI command proof.
+    let StateUpdate::Body(body) = &mut step else {
+        panic!("awake state must return a body continuation");
+    };
     assert_eq!(
-        core.set_current_state_with_ai_and_owner(7, &mut ai, &mut ()),
+        body.with_driver(|core, ai, owner| {
+            core.set_current_state_with_ai_and_owner(7, ai, owner)
+        }),
         StateReturnType::Continue
     );
-    let result = core.finish_update_with_ai_and_owner(step, &mut ai, &mut ());
+    let result = step.finish();
     assert_changed(&core, &enters, result);
 }
 
@@ -143,15 +154,13 @@ fn sleeping_step_has_no_body_to_resume() {
     core.lock();
     let mut ai = TestAI;
     assert_eq!(core.update_with_ai(&mut ai), StateReturnType::Sleep(2000));
-    let step = core.begin_update_with_ai_and_owner(&mut ai, &mut ());
+    let mut owner = ();
+    let step = core.begin_update_with_ai_and_owner(&mut ai, &mut owner);
     assert!(matches!(
-        step,
+        &step,
         StateUpdate::Complete(StateReturnType::Sleep(2000))
     ));
-    assert_eq!(
-        core.finish_update_with_ai_and_owner(step, &mut ai, &mut ()),
-        StateReturnType::Sleep(2000)
-    );
+    assert_eq!(step.finish(), StateReturnType::Sleep(2000));
     assert_eq!(core.get_current_state_id(), Some(5));
     assert_eq!(enters.load(Ordering::SeqCst), 0);
 }

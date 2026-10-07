@@ -51,19 +51,75 @@ pub enum StateReturnType {
     Exit,
 }
 
-/// The state body has released its borrow before the driver receives this
-/// result. Finish a body on the same machine before starting another update.
-#[must_use]
-pub(crate) enum StateUpdate {
-    Complete(StateReturnType),
-    Body(StateStep),
+/// Preserve the driver's concrete AI type while loaning its existing
+/// interface to state callbacks. Trait objects use the same protocol.
+pub(crate) trait StateMachineAI: crate::modules::AIUpdateInterface {
+    fn as_ai_update(&mut self) -> &mut dyn crate::modules::AIUpdateInterface;
 }
 
-/// Operation-local continuation, never part of machine storage or Xfer.
-pub(crate) struct StateStep {
+impl<A: crate::modules::AIUpdateInterface> StateMachineAI for A {
+    fn as_ai_update(&mut self) -> &mut dyn crate::modules::AIUpdateInterface {
+        self
+    }
+}
+
+impl StateMachineAI for dyn crate::modules::AIUpdateInterface + '_ {
+    fn as_ai_update(&mut self) -> &mut dyn crate::modules::AIUpdateInterface {
+        self
+    }
+}
+
+/// A completed result or a body continuation tied to its driving context.
+#[must_use]
+pub(crate) enum StateUpdate<'step, A: StateMachineAI + ?Sized> {
+    Complete(StateReturnType),
+    Body(StateStep<'step, A>),
+}
+
+/// The body has returned; the machine, AI and owner stay exclusively borrowed
+/// until completion. This context is operation-local, never stored or xferred.
+#[must_use]
+pub(crate) struct StateStep<'step, A: StateMachineAI + ?Sized> {
+    machine: &'step mut StateMachine,
+    ai: &'step mut A,
+    owner: &'step mut dyn Any,
     now: UnsignedInt,
     state_before_update: StateId,
     status: StateReturnType,
+}
+
+impl<A: StateMachineAI + ?Sized> StateUpdate<'_, A> {
+    /// Consume the result using the context borrowed when the body ran.
+    pub(crate) fn finish(self) -> StateReturnType {
+        match self {
+            Self::Complete(result) => result,
+            Self::Body(step) => step.finish(),
+        }
+    }
+}
+
+impl<A: StateMachineAI + ?Sized> StateStep<'_, A> {
+    /// Loan the original context for synchronous terminal driver operations.
+    /// The state-table body borrow has ended; these short reborrows cannot
+    /// escape the operation or replace the context used by completion.
+    pub(crate) fn with_driver<R>(
+        &mut self,
+        operation: impl FnOnce(&mut StateMachine, &mut A, &mut dyn Any) -> R,
+    ) -> R {
+        operation(&mut *self.machine, &mut *self.ai, &mut *self.owner)
+    }
+
+    fn finish(self) -> StateReturnType {
+        let Self {
+            machine,
+            ai,
+            owner,
+            now,
+            state_before_update,
+            status,
+        } = self;
+        machine.finish_state_body(now, state_before_update, status, ai.as_ai_update(), owner)
+    }
 }
 
 impl StateReturnType {
@@ -1003,17 +1059,16 @@ impl StateMachine {
         ai: &mut dyn crate::modules::AIUpdateInterface,
         owner: &mut dyn Any,
     ) -> StateReturnType {
-        let step = self.begin_update_with_ai_and_owner(ai, owner);
-        self.finish_update_with_ai_and_owner(step, ai, owner)
+        self.begin_update_with_ai_and_owner(ai, owner).finish()
     }
 
     /// Run only the body when awake. The driver can then perform synchronous
     /// terminal operations without borrowing an entry in the state table.
-    pub(crate) fn begin_update_with_ai_and_owner(
-        &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
-        owner: &mut dyn Any,
-    ) -> StateUpdate {
+    pub(crate) fn begin_update_with_ai_and_owner<'step, A: StateMachineAI + ?Sized>(
+        &'step mut self,
+        ai: &'step mut A,
+        owner: &'step mut dyn Any,
+    ) -> StateUpdate<'step, A> {
         let now = self.get_current_frame();
         if self.control.sleep_till != 0 && now < self.control.sleep_till {
             if self.control.current_state_id.is_none() {
@@ -1022,7 +1077,7 @@ impl StateMachine {
 
             return StateUpdate::Complete(self.check_for_sleep_transitions_ai(
                 StateReturnType::Sleep(self.control.sleep_till.wrapping_sub(now)),
-                Some(ai),
+                Some(ai.as_ai_update()),
                 owner,
             ));
         }
@@ -1060,7 +1115,12 @@ impl StateMachine {
                 state.bind_goal_squad(goal_squad);
                 state.bind_goal_polygon(goal_polygon);
                 state.bind_goal_waypoint(goal_waypoint);
-                state.update_with_control(&mut self.control, Some(ai), machine_locked, owner)
+                state.update_with_control(
+                    &mut self.control,
+                    Some(ai.as_ai_update()),
+                    machine_locked,
+                    owner,
+                )
             };
             if let Some(state_id) = self.control.current_state_id {
                 if let Some((pos, clear_object)) = self
@@ -1078,6 +1138,9 @@ impl StateMachine {
                 self.control.locked = machine_locked;
             }
             return StateUpdate::Body(StateStep {
+                machine: self,
+                ai,
+                owner,
                 now,
                 state_before_update,
                 status,
@@ -1089,20 +1152,14 @@ impl StateMachine {
 
     /// Complete the same step after the driver has released any command loan.
     /// C++ StateMachine.cpp:413-435 checks changed state before using Sleep.
-    pub(crate) fn finish_update_with_ai_and_owner(
+    fn finish_state_body(
         &mut self,
-        step: StateUpdate,
+        now: UnsignedInt,
+        state_before_update: StateId,
+        mut status: StateReturnType,
         ai: &mut dyn crate::modules::AIUpdateInterface,
         owner: &mut dyn Any,
     ) -> StateReturnType {
-        let StateStep {
-            now,
-            state_before_update,
-            mut status,
-        } = match step {
-            StateUpdate::Complete(result) => return result,
-            StateUpdate::Body(body) => body,
-        };
         if let Some(next) = self
             .state_map
             .get_mut(&state_before_update)

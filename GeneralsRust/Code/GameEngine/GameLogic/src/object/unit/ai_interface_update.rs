@@ -546,7 +546,7 @@ impl UnitAIUpdate {
                     let _ = machine.set_state(AIStateType::Dead as u32);
                     machine.lock();
                 }
-                let _ = machine.update_state_machine(self);
+                let _ = machine.update_state_machine(self, |_, _, _| {});
             }
         }
         if let Some(owner_id) = self.owner_object_id() {

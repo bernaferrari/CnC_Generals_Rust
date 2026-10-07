@@ -884,8 +884,12 @@ impl AIStateMachine {
         self.temporary_state_id
     }
 
-    /// Update state machine
-    pub fn update_state_machine(&mut self, ai: &mut dyn AIUpdateInterface) -> StateReturnType {
+    /// Native driver retains its concrete AI borrow through body completion.
+    pub(crate) fn update_state_machine<A: StateMachineAI + ?Sized>(
+        &mut self,
+        ai: &mut A,
+        after_body: impl FnOnce(&mut StateMachine, &mut A, &mut dyn std::any::Any),
+    ) -> StateReturnType {
         if let Some(temp_state_id) = self.temporary_state_id {
             let goal_id = self.base.get_goal_object_id();
             let goal_pos = self.base.get_goal_position();
@@ -898,7 +902,7 @@ impl AIStateMachine {
                 state.bind_goal_squad(goal_squad);
                 state.bind_goal_polygon(goal_polygon);
                 state.bind_goal_waypoint(goal_waypoint);
-                let mut status = state.update_with_ai(ai);
+                let mut status = state.update_with_ai(ai.as_ai_update());
                 if self.temporary_state_frame_end < TheGameLogic::get_frame() {
                     if status == StateReturnType::Continue {
                         status = StateReturnType::Success;
@@ -916,9 +920,11 @@ impl AIStateMachine {
         // This is where synchronous terminal commands can acquire a loan of
         // this machine without reentering the outgoing state's callback.
         let mut owner = ();
-        let step = self.base.begin_update_with_ai_and_owner(ai, &mut owner);
-        self.base
-            .finish_update_with_ai_and_owner(step, ai, &mut owner)
+        let mut update = self.base.begin_update_with_ai_and_owner(ai, &mut owner);
+        if let StateUpdate::Body(step) = &mut update {
+            step.with_driver(after_body);
+        }
+        update.finish()
     }
 
     /// Get current state name (for debugging)
