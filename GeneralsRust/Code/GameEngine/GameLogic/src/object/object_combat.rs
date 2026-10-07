@@ -1337,7 +1337,7 @@ impl Object {
             WeaponSlotType::Tertiary,
         ] {
             if let Some(weapon) = self.weapon_set.get_weapon_in_slot(slot) {
-                let range = weapon.get_attack_range(self.id);
+                let range = weapon.get_attack_range_for_object(self);
                 if range > max_range {
                     max_range = range;
                 }

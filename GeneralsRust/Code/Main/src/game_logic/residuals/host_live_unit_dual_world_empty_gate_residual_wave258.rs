@@ -99,12 +99,15 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
     None
 }
 
-/// Source residual: Unit empty dual-world short-circuits.
+/// Source residual: standalone Unit empty dual-world short-circuits.
+/// The native mood query uses its constructor-bound Object; this receipt
+/// covers the explicit legacy adapter, not native query parity.
 pub fn honesty_unit_dual_world_empty_gate_source() -> bool {
     let g = concat!(
         include_str!("../../../../GameEngine/GameLogic/src/object/unit/registry.rs"),
         include_str!("../../../../GameEngine/GameLogic/src/object/unit/combat.rs"),
         include_str!("../../../../GameEngine/GameLogic/src/object/unit/ai_loco.rs"),
+        include_str!("../../../../GameEngine/GameLogic/src/object/unit/ai_acquisition.rs"),
     );
     if !(g.contains("Wave 258")
         && g.contains("fn dual_world_registry_unavailable")
@@ -118,7 +121,7 @@ pub fn honesty_unit_dual_world_empty_gate_source() -> bool {
     let Some(scan) = fn_body(g, "fn should_scan_for_targets(") else {
         return false;
     };
-    let Some(mood) = fn_body(g, "fn get_next_mood_target_id(") else {
+    let Some(mood) = fn_body(g, "fn get_legacy_mood_target(") else {
         return false;
     };
     engage.contains("dual_world_registry_unavailable")

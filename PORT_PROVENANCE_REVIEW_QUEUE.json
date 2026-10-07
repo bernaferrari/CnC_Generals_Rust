@@ -52750,6 +52750,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_acquisition.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_command_owner.rs"
             },
             {
@@ -52876,6 +52881,11 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_enter_command_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_mood_query_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -189000,7 +189010,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "742d45250692c86bfbc07818ee979289e44d042cb7616a5739637827859e941e",
+  "provenance_input_digest": "294c50f9b34b8f7338f461e15ac9803364fa9326ab18371fc39e2822eaa7627b",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

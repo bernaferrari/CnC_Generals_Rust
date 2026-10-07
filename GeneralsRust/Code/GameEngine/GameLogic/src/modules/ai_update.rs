@@ -615,6 +615,16 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
         }
     }
+    /// Same-call query from the active State body, which already owns the FSM.
+    /// The classifier is the State's virtual result, never a cached enum guess.
+    fn get_next_mood_target_with_attack_state(
+        &mut self,
+        called_by_ai: bool,
+        called_during_idle: bool,
+        _is_attacking: bool,
+    ) -> Option<Arc<RwLock<Object>>> {
+        self.get_next_mood_target(called_by_ai, called_during_idle)
+    }
     /// Get next mood check time (matching C++ AIUpdateInterface::getNextMoodCheckTime)
     fn get_next_mood_check_time(&self) -> u32 {
         TheGameLogic::get_frame()

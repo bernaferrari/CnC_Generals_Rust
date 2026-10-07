@@ -20,6 +20,9 @@ use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_fa
 use std::io::Cursor;
 use std::sync::{Arc, Mutex, RwLock};
 
+#[path = "factory_mood_query_tests.rs"]
+mod factory_mood_query_tests;
+
 fn child(name: &str) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {

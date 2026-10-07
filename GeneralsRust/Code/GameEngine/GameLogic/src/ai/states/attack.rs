@@ -162,6 +162,7 @@ impl StateImplementation for AIAttackMoveToState {
                 }
             }
         }
+        let is_attacking = self.cpp_is_attack();
         if let Some(machine) = self.attack_move_machine.as_mut() {
             if machine.is_in_idle_state() {
                 if crate_id != crate::common::INVALID_ID {
@@ -169,7 +170,11 @@ impl StateImplementation for AIAttackMoveToState {
                     let _ = machine.set_state(AIStateType::PickUpCrate);
                     return StateReturnType::Continue;
                 }
-                if let Some(target) = ai.get_next_mood_target(!force_retarget_this_frame, false) {
+                if let Some(target) = ai.get_next_mood_target_with_attack_state(
+                    !force_retarget_this_frame,
+                    false,
+                    is_attacking,
+                ) {
                     ai.friend_ending_move();
                     machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()));
                     let _ = machine.set_state(AIStateType::AttackObject);
@@ -340,6 +345,7 @@ impl AIAttackMoveToState {
                 }
             }
         }
+        let is_attacking = self.cpp_is_attack();
         if let Some(machine) = self.attack_move_machine.as_mut() {
             if machine.is_in_idle_state() {
                 if crate_id != crate::common::INVALID_ID {
@@ -347,9 +353,11 @@ impl AIAttackMoveToState {
                     let _ = machine.set_state(AIStateType::PickUpCrate);
                     return Ok(StateReturnType::Continue);
                 }
-                if let Some(target) =
-                    ai_guard.get_next_mood_target(!force_retarget_this_frame, false)
-                {
+                if let Some(target) = ai_guard.get_next_mood_target_with_attack_state(
+                    !force_retarget_this_frame,
+                    false,
+                    is_attacking,
+                ) {
                     ai_guard.friend_ending_move();
                     machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()));
                     let _ = machine.set_state(AIStateType::AttackObject);
@@ -477,6 +485,7 @@ impl StateImplementation for AIAttackFollowWaypointPathAsTeamState {
                 }
             }
         }
+        let is_attacking = self.cpp_is_attack();
         if let Some(machine) = self.attack_follow_machine.as_mut() {
             if machine.is_in_idle_state() {
                 if crate_id != crate::common::INVALID_ID {
@@ -484,7 +493,11 @@ impl StateImplementation for AIAttackFollowWaypointPathAsTeamState {
                     let _ = machine.set_state(AIStateType::PickUpCrate);
                     return StateReturnType::Continue;
                 }
-                if let Some(target) = ai.get_next_mood_target(!force_retarget_this_frame, false) {
+                if let Some(target) = ai.get_next_mood_target_with_attack_state(
+                    !force_retarget_this_frame,
+                    false,
+                    is_attacking,
+                ) {
                     machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()));
                     let _ = machine.set_state(AIStateType::AttackObject);
                     return StateReturnType::Continue;
@@ -569,6 +582,11 @@ impl CppState for AIAttackFollowWaypointPathAsTeamState {
         }
         self.base.cpp_on_exit(exit)
     }
+    fn cpp_is_attack(&self) -> bool {
+        self.attack_follow_machine
+            .as_ref()
+            .is_some_and(|machine| machine.is_in_attack_state())
+    }
 }
 
 impl AIAttackFollowWaypointPathAsTeamState {
@@ -638,6 +656,7 @@ impl AIAttackFollowWaypointPathAsTeamState {
                 }
             }
         }
+        let is_attacking = self.cpp_is_attack();
         if let Some(machine) = self.attack_follow_machine.as_mut() {
             if machine.is_in_idle_state() {
                 if crate_id != crate::common::INVALID_ID {
@@ -645,9 +664,11 @@ impl AIAttackFollowWaypointPathAsTeamState {
                     let _ = machine.set_state(AIStateType::PickUpCrate);
                     return Ok(StateReturnType::Continue);
                 }
-                if let Some(target) =
-                    ai_guard.get_next_mood_target(!force_retarget_this_frame, false)
-                {
+                if let Some(target) = ai_guard.get_next_mood_target_with_attack_state(
+                    !force_retarget_this_frame,
+                    false,
+                    is_attacking,
+                ) {
                     machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()));
                     let _ = machine.set_state(AIStateType::AttackObject);
                     return Ok(StateReturnType::Continue);
@@ -747,6 +768,7 @@ impl StateImplementation for AIAttackFollowWaypointPathAsIndividualsState {
                 }
             }
         }
+        let is_attacking = self.cpp_is_attack();
         if let Some(machine) = self.attack_follow_machine.as_mut() {
             if machine.is_in_idle_state() {
                 if crate_id != crate::common::INVALID_ID {
@@ -754,7 +776,11 @@ impl StateImplementation for AIAttackFollowWaypointPathAsIndividualsState {
                     let _ = machine.set_state(AIStateType::PickUpCrate);
                     return StateReturnType::Continue;
                 }
-                if let Some(target) = ai.get_next_mood_target(!force_retarget_this_frame, false) {
+                if let Some(target) = ai.get_next_mood_target_with_attack_state(
+                    !force_retarget_this_frame,
+                    false,
+                    is_attacking,
+                ) {
                     machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()));
                     let _ = machine.set_state(AIStateType::AttackObject);
                     return StateReturnType::Continue;
@@ -834,6 +860,11 @@ impl CppState for AIAttackFollowWaypointPathAsIndividualsState {
         }
         self.base.cpp_on_exit(exit)
     }
+    fn cpp_is_attack(&self) -> bool {
+        self.attack_follow_machine
+            .as_ref()
+            .is_some_and(|machine| machine.is_in_attack_state())
+    }
 }
 
 impl AIAttackFollowWaypointPathAsIndividualsState {
@@ -906,6 +937,7 @@ impl AIAttackFollowWaypointPathAsIndividualsState {
                 }
             }
         }
+        let is_attacking = self.cpp_is_attack();
         if let Some(machine) = self.attack_follow_machine.as_mut() {
             if machine.is_in_idle_state() {
                 if crate_id != crate::common::INVALID_ID {
@@ -913,9 +945,11 @@ impl AIAttackFollowWaypointPathAsIndividualsState {
                     let _ = machine.set_state(AIStateType::PickUpCrate);
                     return Ok(StateReturnType::Continue);
                 }
-                if let Some(target) =
-                    ai_guard.get_next_mood_target(!force_retarget_this_frame, false)
-                {
+                if let Some(target) = ai_guard.get_next_mood_target_with_attack_state(
+                    !force_retarget_this_frame,
+                    false,
+                    is_attacking,
+                ) {
                     machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()));
                     let _ = machine.set_state(AIStateType::AttackObject);
                     return Ok(StateReturnType::Continue);

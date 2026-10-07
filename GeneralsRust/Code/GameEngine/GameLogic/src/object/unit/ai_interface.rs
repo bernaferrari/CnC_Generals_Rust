@@ -706,10 +706,29 @@ impl AIUpdateInterface for UnitAIUpdate {
 
     fn get_next_mood_target_id(
         &mut self,
-        use_existing_target: bool,
-        _ignore_attacked: bool,
+        called_by_ai: bool,
+        called_during_idle: bool,
     ) -> ObjectID {
-        UnitAIUpdate::get_next_mood_target_id(self, use_existing_target, _ignore_attacked)
+        UnitAIUpdate::get_next_mood_target_id(self, called_by_ai, called_during_idle)
+    }
+
+    fn get_next_mood_target_with_attack_state(
+        &mut self,
+        called_by_ai: bool,
+        called_during_idle: bool,
+        is_attacking: bool,
+    ) -> Option<Arc<RwLock<Object>>> {
+        let id = UnitAIUpdate::get_next_mood_target_for_state(
+            self,
+            called_by_ai,
+            called_during_idle,
+            Some(is_attacking),
+        );
+        if id == INVALID_ID {
+            None
+        } else {
+            TheGameLogic::find_object_by_id(id)
+        }
     }
 
     fn get_next_mood_check_time(&self) -> u32 {

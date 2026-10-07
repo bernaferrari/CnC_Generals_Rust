@@ -7,6 +7,7 @@
 
 mod imports;
 
+mod ai_acquisition;
 mod ai_command_owner;
 mod ai_commands;
 mod ai_core;

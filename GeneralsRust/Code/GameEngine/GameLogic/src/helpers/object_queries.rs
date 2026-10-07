@@ -66,7 +66,7 @@ impl ThePartitionManager {
         self.get_objects_in_range_with_borrowed_positions(pos, radius, &[])
     }
 
-    fn get_objects_in_range_with_borrowed_positions(
+    pub(crate) fn get_objects_in_range_with_borrowed_positions(
         &self,
         pos: &Coord3D,
         radius: Real,

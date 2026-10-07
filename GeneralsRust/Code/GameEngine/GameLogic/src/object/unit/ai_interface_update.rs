@@ -1154,10 +1154,14 @@ impl UnitAIUpdate {
     pub(super) fn is_attacking(&self) -> bool {
         if let Some(machine) = self.ai_state_machine.as_ref() {
             if let Ok(guard) = machine.lock() {
-                if guard.is_attack_state() {
-                    return true;
+                let attacking = guard.is_in_attack_state();
+                if self.owner.is_some() || attacking {
+                    return attacking;
                 }
             }
+        }
+        if self.owner.is_some() {
+            return false;
         }
         let Some(unit) = get_unit_arc(self.unit_id) else {
             return false;
@@ -1471,6 +1475,9 @@ impl UnitAIUpdate {
     }
     pub(super) fn is_blocked_and_stuck(&self) -> bool {
         const BLOCKED_RECOMPUTE_THRESHOLD: u32 = 60;
+        if self.owner.is_some() {
+            return self.data.blocked_and_stuck;
+        }
         if self.data.blocked_and_stuck {
             return true;
         }
@@ -1492,6 +1499,9 @@ impl UnitAIUpdate {
     }
     pub(super) fn get_num_frames_blocked(&self) -> u32 {
         let mut frames = self.data.blocked_frames;
+        if self.owner.is_some() {
+            return frames;
+        }
         let Some(unit) = get_unit_arc(self.unit_id) else {
             return frames;
         };
