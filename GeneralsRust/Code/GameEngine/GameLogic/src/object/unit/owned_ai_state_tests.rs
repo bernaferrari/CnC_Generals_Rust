@@ -29,6 +29,9 @@ mod contact_attack_owner_tests;
 #[path = "factory_busy_classification_tests.rs"]
 mod factory_busy_classification_tests;
 
+#[path = "busy_update_tests.rs"]
+mod busy_update_tests;
+
 #[path = "native_fsm_step_tests.rs"]
 mod native_fsm_step_tests;
 

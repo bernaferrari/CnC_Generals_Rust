@@ -39,6 +39,9 @@ mod ai_state_machine_parity_tests;
 mod machine_snapshot_tests;
 
 #[cfg(test)]
+mod busy_update_tests;
+
+#[cfg(test)]
 mod busy_classification_tests;
 
 #[cfg(test)]

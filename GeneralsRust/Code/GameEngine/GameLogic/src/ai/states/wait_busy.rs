@@ -31,9 +31,9 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers,
+    search_qualifiers, the_ai,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
@@ -119,7 +119,7 @@ impl ClassicState for AIWaitState {
     }
 }
 
-/// Busy state - remain busy until AI reports idle.
+/// Busy state - continue until an explicit command changes the state.
 #[derive(Debug)]
 pub struct AIBusyState {
     pub(crate) base: State,
@@ -173,18 +173,8 @@ impl ClassicState for AIBusyState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        let owner = self
-            .base
-            .get_machine_owner()
-            .ok_or_else(|| "busy missing owner".to_string())?;
-        let owner_guard = owner
-            .read()
-            .map_err(|_| "busy owner lock poisoned".to_string())?;
-        if owner_guard.ai_fire_is_idle {
-            Ok(StateReturnType::Success)
-        } else {
-            Ok(StateReturnType::Continue)
-        }
+        // C++ AIStateMachine.h:326: Busy never polls or finishes itself.
+        Ok(StateReturnType::Continue)
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
