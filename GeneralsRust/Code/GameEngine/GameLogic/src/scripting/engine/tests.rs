@@ -1586,3 +1586,5 @@ fn live_host_take_engine_update_flag_ui_pulse_like_cxx() {
 
 mod borrowed_driver_tests;
 mod display_driver_tests;
+
+mod camera_driver_tests;

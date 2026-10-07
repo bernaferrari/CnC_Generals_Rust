@@ -266,7 +266,7 @@ impl ScriptActionDispatcher {
             ScriptActionType::ShowMilitaryCaption => self.do_military_caption(action, driver),
 
             // Camera actions
-            ScriptActionType::MoveCameraTo => self.do_move_camera_to(action),
+            ScriptActionType::MoveCameraTo => self.do_move_camera_to(action, driver),
             ScriptActionType::CameraFollowNamed => self.do_camera_follow_named(action),
             ScriptActionType::CameraStopFollow => self.do_stop_camera_follow(),
             ScriptActionType::ResetCamera => self.do_reset_camera(action),
@@ -617,16 +617,18 @@ impl ScriptActionDispatcher {
             // ADDITIONAL CAMERA ACTIONS
             // ============================================================================
             ScriptActionType::MoveCameraAlongWaypointPath => {
-                self.do_move_camera_along_waypoint_path(action)
+                self.do_move_camera_along_waypoint_path(action, driver)
             }
-            ScriptActionType::RotateCamera => self.do_rotate_camera(action),
-            ScriptActionType::MoveCameraToSelection => self.do_move_camera_to_selection(action),
-            ScriptActionType::CameraMoveHome => self.do_camera_move_home(action),
+            ScriptActionType::RotateCamera => self.do_rotate_camera(action, driver),
+            ScriptActionType::MoveCameraToSelection => {
+                self.do_move_camera_to_selection(action, driver)
+            }
+            ScriptActionType::CameraMoveHome => self.do_camera_move_home(action, driver),
             ScriptActionType::SetupCamera => self.do_setup_camera(action),
             ScriptActionType::CameraLetterboxBegin => self.do_camera_letterbox_begin(action),
             ScriptActionType::CameraLetterboxEnd => self.do_camera_letterbox_end(),
-            ScriptActionType::ZoomCamera => self.do_zoom_camera(action),
-            ScriptActionType::PitchCamera => self.do_pitch_camera(action),
+            ScriptActionType::ZoomCamera => self.do_zoom_camera(action, driver),
+            ScriptActionType::PitchCamera => self.do_pitch_camera(action, driver),
             ScriptActionType::OversizeTerrain => self.do_oversize_terrain(action),
             ScriptActionType::CameraFadeAdd => self.do_camera_fade_add(action),
             ScriptActionType::CameraFadeSubtract => self.do_camera_fade_subtract(action),
@@ -650,15 +652,19 @@ impl ScriptActionDispatcher {
             ScriptActionType::CameraLookTowardWaypoint => {
                 self.do_camera_look_toward_waypoint(action)
             }
-            ScriptActionType::CameraModFreezeTime => self.do_camera_mod_freeze_time(),
-            ScriptActionType::CameraModSetFinalZoom => self.do_camera_mod_set_final_zoom(action),
-            ScriptActionType::CameraModSetFinalPitch => self.do_camera_mod_set_final_pitch(action),
-            ScriptActionType::CameraModFreezeAngle => self.do_camera_mod_freeze_angle(),
+            ScriptActionType::CameraModFreezeTime => self.do_camera_mod_freeze_time(driver),
+            ScriptActionType::CameraModSetFinalZoom => {
+                self.do_camera_mod_set_final_zoom(action, driver)
+            }
+            ScriptActionType::CameraModSetFinalPitch => {
+                self.do_camera_mod_set_final_pitch(action, driver)
+            }
+            ScriptActionType::CameraModFreezeAngle => self.do_camera_mod_freeze_angle(driver),
             ScriptActionType::CameraModSetFinalSpeedMultiplier => {
-                self.do_camera_mod_set_final_speed_multiplier(action)
+                self.do_camera_mod_set_final_speed_multiplier(action, driver)
             }
             ScriptActionType::CameraModSetRollingAverage => {
-                self.do_camera_mod_set_rolling_average(action)
+                self.do_camera_mod_set_rolling_average(action, driver)
             }
             ScriptActionType::CameraModFinalLookToward => {
                 self.do_camera_mod_final_look_toward(action)

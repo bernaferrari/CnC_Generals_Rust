@@ -145,25 +145,16 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         ease_in_seconds: f32,
         ease_out_seconds: f32,
     ) -> GameLogicResult<()> {
-        static DEBUG_CAMERA_MOVE_TO_LOGS: AtomicUsize = AtomicUsize::new(0);
-        let position = camera_coord3d_to_world(x, y, z);
-        if DEBUG_CAMERA_MOVE_TO_LOGS.fetch_add(1, Ordering::Relaxed) < 16 {
-            eprintln!(
-                "DEBUG_SHELL_CAMERA_ACTION: move_camera_to raw=({x:.3}, {y:.3}, {z:.3}) world={position:?} seconds={seconds:.3}"
-            );
-        }
-        if seconds <= 0.0 {
-            self.hooks.push_camera_move(position);
-            return Ok(());
-        }
-        self.hooks.push_camera_move_to(CameraMoveToRequest {
-            position,
-            seconds,
-            camera_stutter_seconds,
-            ease_in_seconds,
-            ease_out_seconds,
-        });
-        Ok(())
+        self.hooks
+            .apply_camera_request(ScriptCameraRequest::MoveTo {
+                x,
+                y,
+                z,
+                seconds,
+                camera_stutter_seconds,
+                ease_in_seconds,
+                ease_out_seconds,
+            })
     }
 
     fn move_camera_along_waypoint_path(
@@ -174,24 +165,24 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         ease_in_seconds: f32,
         ease_out_seconds: f32,
     ) -> GameLogicResult<()> {
-        self.hooks.push_camera_path_move(CameraPathRequest {
-            waypoint: waypoint_path.to_string(),
-            seconds,
-            camera_stutter_seconds,
-            ease_in_seconds,
-            ease_out_seconds,
-        });
-        Ok(())
+        self.hooks
+            .apply_camera_request(ScriptCameraRequest::WaypointPath {
+                waypoint_path,
+                seconds,
+                camera_stutter_seconds,
+                ease_in_seconds,
+                ease_out_seconds,
+            })
     }
 
     fn move_camera_to_selection(&self) -> GameLogicResult<()> {
-        self.hooks.push_camera_move_to_selection();
-        Ok(())
+        self.hooks
+            .apply_camera_request(ScriptCameraRequest::MoveToSelection)
     }
 
     fn camera_move_home(&self) -> GameLogicResult<()> {
-        self.hooks.push_camera_move_home();
-        Ok(())
+        self.hooks
+            .apply_camera_request(ScriptCameraRequest::MoveHome)
     }
 
     fn is_camera_movement_finished(&self) -> bool {
@@ -267,13 +258,12 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         ease_in_seconds: f32,
         ease_out_seconds: f32,
     ) -> GameLogicResult<()> {
-        self.hooks.push_camera_zoom(CameraZoomRequest {
+        self.hooks.apply_camera_request(ScriptCameraRequest::Zoom {
             zoom,
-            duration_seconds: seconds,
+            seconds,
             ease_in_seconds,
             ease_out_seconds,
-        });
-        Ok(())
+        })
     }
 
     fn set_camera_pitch(
@@ -283,13 +273,12 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         ease_in_seconds: f32,
         ease_out_seconds: f32,
     ) -> GameLogicResult<()> {
-        self.hooks.push_camera_pitch(CameraPitchRequest {
+        self.hooks.apply_camera_request(ScriptCameraRequest::Pitch {
             pitch,
-            duration_seconds: seconds,
+            seconds,
             ease_in_seconds,
             ease_out_seconds,
-        });
-        Ok(())
+        })
     }
 
     fn rotate_camera(
@@ -299,13 +288,13 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         ease_in_seconds: f32,
         ease_out_seconds: f32,
     ) -> GameLogicResult<()> {
-        self.hooks.push_camera_rotate(CameraRotateRequest {
-            rotations,
-            duration_seconds: seconds,
-            ease_in_seconds,
-            ease_out_seconds,
-        });
-        Ok(())
+        self.hooks
+            .apply_camera_request(ScriptCameraRequest::Rotate {
+                rotations,
+                seconds,
+                ease_in_seconds,
+                ease_out_seconds,
+            })
     }
 
     fn camera_mod_set_final_zoom(
@@ -315,12 +304,11 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         ease_out: f32,
     ) -> GameLogicResult<()> {
         self.hooks
-            .push_camera_mod_final_zoom(CameraModFinalZoomRequest {
+            .apply_camera_request(ScriptCameraRequest::FinalZoom {
                 zoom,
                 ease_in,
                 ease_out,
-            });
-        Ok(())
+            })
     }
 
     fn camera_mod_set_final_pitch(
@@ -330,36 +318,31 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         ease_out: f32,
     ) -> GameLogicResult<()> {
         self.hooks
-            .push_camera_mod_final_pitch(CameraModFinalPitchRequest {
+            .apply_camera_request(ScriptCameraRequest::FinalPitch {
                 pitch,
                 ease_in,
                 ease_out,
-            });
-        Ok(())
+            })
     }
 
     fn camera_mod_freeze_time(&self) -> GameLogicResult<()> {
-        self.hooks.push_camera_mod_freeze_time();
-        Ok(())
+        self.hooks
+            .apply_camera_request(ScriptCameraRequest::FreezeTime)
     }
 
     fn camera_mod_freeze_angle(&self) -> GameLogicResult<()> {
-        self.hooks.push_camera_mod_freeze_angle();
-        Ok(())
+        self.hooks
+            .apply_camera_request(ScriptCameraRequest::FreezeAngle)
     }
 
     fn camera_mod_set_final_speed_multiplier(&self, multiplier: i32) -> GameLogicResult<()> {
         self.hooks
-            .push_camera_mod_final_speed_multiplier(CameraModFinalSpeedMultiplierRequest {
-                multiplier,
-            });
-        Ok(())
+            .apply_camera_request(ScriptCameraRequest::FinalSpeedMultiplier { multiplier })
     }
 
     fn camera_mod_set_rolling_average(&self, frames: i32) -> GameLogicResult<()> {
         self.hooks
-            .push_camera_mod_rolling_average(CameraModRollingAverageRequest { frames });
-        Ok(())
+            .apply_camera_request(ScriptCameraRequest::RollingAverage { frames })
     }
 
     fn set_visual_speed_multiplier(&self, multiplier: i32) -> GameLogicResult<()> {

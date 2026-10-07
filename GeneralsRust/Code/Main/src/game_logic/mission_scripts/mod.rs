@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::localization;
 use gamelogic::GameLogicResult;
-use gamelogic::scripting::engine::ScriptActionHandler;
+use gamelogic::scripting::engine::{ScriptActionHandler, ScriptCameraRequest};
 use glam::Vec3;
 
 const SPEECH_SUBTITLE_DURATION_MS: i32 = 8000;
@@ -80,6 +80,7 @@ fn camera_coord3d_to_world(x: f32, y: f32, z: f32) -> Vec3 {
 
 include!("script_requests.rs");
 include!("script_hooks.rs");
+include!("script_camera_actions.rs");
 include!("script_actions.rs");
 
 #[cfg(test)]

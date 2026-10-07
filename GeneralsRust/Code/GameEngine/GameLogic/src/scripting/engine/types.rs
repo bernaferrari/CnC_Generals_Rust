@@ -55,6 +55,141 @@ pub enum ScriptDisplayRequest<'a> {
     },
 }
 
+/// Parsed camera movement or animation modifier for the driving game.
+/// Coordinates retain engine Coord3D axes; the host translates at its boundary.
+/// A request is synchronous and must be flushed before the next instruction.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ScriptCameraRequest<'a> {
+    MoveTo {
+        x: f32,
+        y: f32,
+        z: f32,
+        seconds: f32,
+        camera_stutter_seconds: f32,
+        ease_in_seconds: f32,
+        ease_out_seconds: f32,
+    },
+    WaypointPath {
+        waypoint_path: &'a str,
+        seconds: f32,
+        camera_stutter_seconds: f32,
+        ease_in_seconds: f32,
+        ease_out_seconds: f32,
+    },
+    Rotate {
+        rotations: f32,
+        seconds: f32,
+        ease_in_seconds: f32,
+        ease_out_seconds: f32,
+    },
+    MoveToSelection,
+    MoveHome,
+    Zoom {
+        zoom: f32,
+        seconds: f32,
+        ease_in_seconds: f32,
+        ease_out_seconds: f32,
+    },
+    Pitch {
+        pitch: f32,
+        seconds: f32,
+        ease_in_seconds: f32,
+        ease_out_seconds: f32,
+    },
+    FreezeTime,
+    FreezeAngle,
+    FinalZoom {
+        zoom: f32,
+        ease_in: f32,
+        ease_out: f32,
+    },
+    FinalPitch {
+        pitch: f32,
+        ease_in: f32,
+        ease_out: f32,
+    },
+    FinalSpeedMultiplier {
+        multiplier: i32,
+    },
+    RollingAverage {
+        frames: i32,
+    },
+}
+
+impl ScriptCameraRequest<'_> {
+    /// Compatibility adapter for standalone engines, after releasing engine borrows.
+    pub(crate) fn dispatch_to(self, handler: &dyn ScriptActionHandler) -> GameLogicResult<()> {
+        match self {
+            Self::MoveTo {
+                x,
+                y,
+                z,
+                seconds,
+                camera_stutter_seconds,
+                ease_in_seconds,
+                ease_out_seconds,
+            } => handler.move_camera_to(
+                x,
+                y,
+                z,
+                seconds,
+                camera_stutter_seconds,
+                ease_in_seconds,
+                ease_out_seconds,
+            ),
+            Self::WaypointPath {
+                waypoint_path,
+                seconds,
+                camera_stutter_seconds,
+                ease_in_seconds,
+                ease_out_seconds,
+            } => handler.move_camera_along_waypoint_path(
+                waypoint_path,
+                seconds,
+                camera_stutter_seconds,
+                ease_in_seconds,
+                ease_out_seconds,
+            ),
+            Self::Rotate {
+                rotations,
+                seconds,
+                ease_in_seconds,
+                ease_out_seconds,
+            } => handler.rotate_camera(rotations, seconds, ease_in_seconds, ease_out_seconds),
+            Self::MoveToSelection => handler.move_camera_to_selection(),
+            Self::MoveHome => handler.camera_move_home(),
+            Self::Zoom {
+                zoom,
+                seconds,
+                ease_in_seconds,
+                ease_out_seconds,
+            } => handler.zoom_camera(zoom, seconds, ease_in_seconds, ease_out_seconds),
+            Self::Pitch {
+                pitch,
+                seconds,
+                ease_in_seconds,
+                ease_out_seconds,
+            } => handler.set_camera_pitch(pitch, seconds, ease_in_seconds, ease_out_seconds),
+            Self::FreezeTime => handler.camera_mod_freeze_time(),
+            Self::FreezeAngle => handler.camera_mod_freeze_angle(),
+            Self::FinalZoom {
+                zoom,
+                ease_in,
+                ease_out,
+            } => handler.camera_mod_set_final_zoom(zoom, ease_in, ease_out),
+            Self::FinalPitch {
+                pitch,
+                ease_in,
+                ease_out,
+            } => handler.camera_mod_set_final_pitch(pitch, ease_in, ease_out),
+            Self::FinalSpeedMultiplier { multiplier } => {
+                handler.camera_mod_set_final_speed_multiplier(multiplier)
+            }
+            Self::RollingAverage { frames } => handler.camera_mod_set_rolling_average(frames),
+        }
+    }
+}
+
 /// Synchronous effects and live queries of the actual execution owner.
 /// The driver is borrowed for execution only; it is never installed in the
 /// engine, dispatcher context, or a process-wide active slot.
@@ -65,6 +200,11 @@ pub trait ScriptExecutionDriver {
     /// authoritative, including a failed callback: never retry on another
     /// owner's handler. Effects are flushed by after_action, as before.
     fn display(&mut self, _request: ScriptDisplayRequest<'_>) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    /// Same authoritative/fallback contract as display; no retained foreign owner.
+    fn camera(&mut self, _request: ScriptCameraRequest<'_>) -> Option<GameLogicResult<()>> {
         None
     }
 

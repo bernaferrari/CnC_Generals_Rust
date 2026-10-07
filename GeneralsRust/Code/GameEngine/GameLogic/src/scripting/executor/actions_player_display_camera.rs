@@ -4,7 +4,7 @@
 //! Observable script behavior is unchanged.
 
 use super::*;
-use crate::scripting::engine::{ScriptDisplayRequest, ScriptExecutionDriver};
+use crate::scripting::engine::{ScriptCameraRequest, ScriptDisplayRequest, ScriptExecutionDriver};
 
 impl ScriptActionDispatcher {
     // ============================================================================
@@ -303,6 +303,7 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_move_camera_to(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         // Ini scripts can call this with either:
         // - `MOVE_CAMERA_TO X:.. Y:.. Z:..` (coordinate)
@@ -349,19 +350,18 @@ impl ScriptActionDispatcher {
             ease_out_seconds
         );
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.move_camera_to(
-                target.x,
-                target.y,
-                target.z,
-                duration_seconds,
+        self.dispatch_camera_request(
+            ScriptCameraRequest::MoveTo {
+                x: target.x,
+                y: target.y,
+                z: target.z,
+                seconds: duration_seconds,
                 camera_stutter_seconds,
                 ease_in_seconds,
                 ease_out_seconds,
-            ) {
-                log::warn!("Script action handler move_camera_to failed: {}", err);
-            }
-        }
+            },
+            driver,
+        );
 
         Ok(ScriptActionResult::Success)
     }

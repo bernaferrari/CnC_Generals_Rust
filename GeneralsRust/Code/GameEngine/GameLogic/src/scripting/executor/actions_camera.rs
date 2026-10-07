@@ -4,8 +4,23 @@
 //! Observable script behavior is unchanged.
 
 use super::*;
+use crate::scripting::engine::{ScriptCameraRequest, ScriptExecutionDriver};
 
 impl ScriptActionDispatcher {
+    pub(super) fn dispatch_camera_request(
+        &mut self,
+        request: ScriptCameraRequest<'_>,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) {
+        let result = driver.camera(request).or_else(|| {
+            current_script_action_handler().map(|handler| request.dispatch_to(handler.as_ref()))
+        });
+        if let Some(Err(err)) = result {
+            log::warn!("Script camera action {:?} failed: {}", request, err);
+        }
+        // Retain legacy callback-error continuation, including after_action.
+    }
+
     // ============================================================================
     // ADDITIONAL CAMERA ACTION IMPLEMENTATIONS
     // ============================================================================
@@ -13,6 +28,7 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_move_camera_along_waypoint_path(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint_path = self.get_string_param(action, 0)?;
         let seconds = action.get_parameter(1).map(|p| p.get_real()).unwrap_or(0.0);
@@ -28,27 +44,23 @@ impl ScriptActionDispatcher {
             ease_out_seconds
         );
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.move_camera_along_waypoint_path(
-                &waypoint_path,
+        self.dispatch_camera_request(
+            ScriptCameraRequest::WaypointPath {
+                waypoint_path: &waypoint_path,
                 seconds,
                 camera_stutter_seconds,
                 ease_in_seconds,
                 ease_out_seconds,
-            ) {
-                log::warn!(
-                    "Script action handler move_camera_along_waypoint_path failed: {}",
-                    err
-                );
-            }
-            return Ok(ScriptActionResult::Success);
-        }
+            },
+            driver,
+        );
         Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_rotate_camera(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         // C++: doRotateCamera(rotations, sec, easeIn, easeOut)
         let rotations = self.get_real_param(action, 0)?;
@@ -64,23 +76,36 @@ impl ScriptActionDispatcher {
             ease_out_seconds
         );
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) =
-                handler.rotate_camera(rotations, seconds, ease_in_seconds, ease_out_seconds)
-            {
-                log::warn!("Script action handler rotate_camera failed: {}", err);
-            }
-        }
+        self.dispatch_camera_request(
+            ScriptCameraRequest::Rotate {
+                rotations,
+                seconds,
+                ease_in_seconds,
+                ease_out_seconds,
+            },
+            driver,
+        );
         Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_move_camera_to_selection(
         &mut self,
         _action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Retargeting active camera movement to selection");
 
         // Prefer host-integrated selection center (Main runtime queue) when available.
+        if let Some(result) = driver.camera(ScriptCameraRequest::MoveToSelection) {
+            if let Err(err) = result {
+                log::warn!(
+                    "Script action handler move_camera_to_selection failed: {}",
+                    err
+                );
+            }
+            return Ok(ScriptActionResult::Success);
+        }
+
         if let Some(handler) = current_script_action_handler() {
             if let Err(err) = handler.move_camera_to_selection() {
                 log::warn!(
@@ -138,14 +163,11 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_camera_move_home(
         &mut self,
         _action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Moving camera home");
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.camera_move_home() {
-                log::warn!("Script action handler camera_move_home failed: {}", err);
-            }
-        }
+        self.dispatch_camera_request(ScriptCameraRequest::MoveHome, driver);
 
         Ok(ScriptActionResult::Success)
     }
@@ -224,6 +246,7 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_zoom_camera(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let zoom = self.get_real_param(action, 0)?;
         let seconds = action.get_parameter(1).map(|p| p.get_real()).unwrap_or(0.0);
@@ -237,18 +260,22 @@ impl ScriptActionDispatcher {
             ease_out_seconds
         );
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.zoom_camera(zoom, seconds, ease_in_seconds, ease_out_seconds)
-            {
-                log::warn!("Script action handler zoom_camera failed: {}", err);
-            }
-        }
+        self.dispatch_camera_request(
+            ScriptCameraRequest::Zoom {
+                zoom,
+                seconds,
+                ease_in_seconds,
+                ease_out_seconds,
+            },
+            driver,
+        );
         Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_pitch_camera(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let pitch = self.get_real_param(action, 0)?;
         let seconds = action.get_parameter(1).map(|p| p.get_real()).unwrap_or(0.0);
@@ -263,13 +290,15 @@ impl ScriptActionDispatcher {
             ease_out_seconds
         );
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) =
-                handler.set_camera_pitch(pitch, seconds, ease_in_seconds, ease_out_seconds)
-            {
-                log::warn!("Script action handler set_camera_pitch failed: {}", err);
-            }
-        }
+        self.dispatch_camera_request(
+            ScriptCameraRequest::Pitch {
+                pitch,
+                seconds,
+                ease_in_seconds,
+                ease_out_seconds,
+            },
+            driver,
+        );
         Ok(ScriptActionResult::Success)
     }
 
@@ -790,22 +819,19 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_camera_mod_freeze_time(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_camera_mod_freeze_time(
+        &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Camera mod freeze time");
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.camera_mod_freeze_time() {
-                log::warn!(
-                    "Script action handler camera_mod_freeze_time failed: {}",
-                    err
-                );
-            }
-        }
+        self.dispatch_camera_request(ScriptCameraRequest::FreezeTime, driver);
         Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_camera_mod_set_final_zoom(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let zoom = self.get_real_param(action, 0)?;
         let ease_in = action.get_parameter(1).map(|p| p.get_real()).unwrap_or(0.0);
@@ -817,20 +843,21 @@ impl ScriptActionDispatcher {
             ease_out
         );
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.camera_mod_set_final_zoom(zoom, ease_in, ease_out) {
-                log::warn!(
-                    "Script action handler camera_mod_set_final_zoom failed: {}",
-                    err
-                );
-            }
-        }
+        self.dispatch_camera_request(
+            ScriptCameraRequest::FinalZoom {
+                zoom,
+                ease_in,
+                ease_out,
+            },
+            driver,
+        );
         Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_camera_mod_set_final_pitch(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let pitch = self.get_real_param(action, 0)?;
         let ease_in = action.get_parameter(1).map(|p| p.get_real()).unwrap_or(0.0);
@@ -842,61 +869,48 @@ impl ScriptActionDispatcher {
             ease_out
         );
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.camera_mod_set_final_pitch(pitch, ease_in, ease_out) {
-                log::warn!(
-                    "Script action handler camera_mod_set_final_pitch failed: {}",
-                    err
-                );
-            }
-        }
+        self.dispatch_camera_request(
+            ScriptCameraRequest::FinalPitch {
+                pitch,
+                ease_in,
+                ease_out,
+            },
+            driver,
+        );
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_camera_mod_freeze_angle(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_camera_mod_freeze_angle(
+        &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Camera mod freeze angle");
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.camera_mod_freeze_angle() {
-                log::warn!(
-                    "Script action handler camera_mod_freeze_angle failed: {}",
-                    err
-                );
-            }
-        }
+        self.dispatch_camera_request(ScriptCameraRequest::FreezeAngle, driver);
         Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_camera_mod_set_final_speed_multiplier(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let multiplier = self.get_int_param(action, 0)?;
         log::debug!("Camera mod set final speed multiplier to {}", multiplier);
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.camera_mod_set_final_speed_multiplier(multiplier) {
-                log::warn!(
-                    "Script action handler camera_mod_set_final_speed_multiplier failed: {}",
-                    err
-                );
-            }
-        }
+        self.dispatch_camera_request(
+            ScriptCameraRequest::FinalSpeedMultiplier { multiplier },
+            driver,
+        );
         Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_camera_mod_set_rolling_average(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let frames = self.get_int_param(action, 0)?;
         log::debug!("Camera mod set rolling average to {} frames", frames);
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.camera_mod_set_rolling_average(frames) {
-                log::warn!(
-                    "Script action handler camera_mod_set_rolling_average failed: {}",
-                    err
-                );
-            }
-        }
+        self.dispatch_camera_request(ScriptCameraRequest::RollingAverage { frames }, driver);
         Ok(ScriptActionResult::Success)
     }
 
