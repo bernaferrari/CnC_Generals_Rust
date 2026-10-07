@@ -1351,6 +1351,151 @@ impl SupplyCenterDockUpdate {
             data,
         }
     }
+    fn perform_supply_delivery(
+        &mut self,
+        obj: &Arc<RwLock<Object>>,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let legacy_ai = if ai.is_none() {
+            let Some(handle) = obj.read().unwrap().get_ai_update_interface() else {
+                return Ok(false);
+            };
+            Some(handle)
+        } else {
+            None
+        };
+
+        let Some(owner_player) =
+            crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id)
+                .and_then(|owner| owner.read().ok()?.get_controlling_player())
+        else {
+            return Ok(false);
+        };
+        let supply_box_value = owner_player
+            .read()
+            .map(|player| player.get_supply_box_value())
+            .unwrap_or(0);
+
+        let unload = |ai: &mut dyn crate::modules::AIUpdateInterface| {
+            let truck = ai.get_supply_truck_ai_interface_mut()?;
+            let mut value: u32 = 0;
+            while truck.lose_one_box() {
+                value = value.saturating_add(supply_box_value);
+            }
+            Some(value.saturating_add(truck.get_upgraded_supply_boost()))
+        };
+        let value = if let Some(ai) = ai {
+            let Some(value) = unload(ai) else {
+                return Ok(false);
+            };
+            value
+        } else if let Some(handle) = legacy_ai {
+            match handle.lock() {
+                Ok(mut guard) => {
+                    let Some(value) = unload(&mut *guard) else {
+                        return Ok(false);
+                    };
+                    value
+                }
+                // Preserve the standalone adapter's existing poisoned-lock result.
+                Err(_) => 0,
+            }
+        } else {
+            return Ok(false);
+        };
+
+        if value > 0 {
+            if let Ok(mut player_guard) = owner_player.write() {
+                let _ = player_guard.get_money_mut().deposit(value);
+                player_guard.get_score_keeper_mut().add_money_earned(value);
+            }
+
+            if self.data.grant_temporary_stealth_frames > 0 {
+                if let Some(owner) =
+                    crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id)
+                {
+                    if let Ok(owner_guard) = owner.read() {
+                        if owner_guard.test_status(ObjectStatusTypes::Stealthed) {
+                            let (can_stealth, stealth) = {
+                                let docker = obj.read().unwrap();
+                                (
+                                    docker.test_status(ObjectStatusTypes::CanStealth),
+                                    docker.get_stealth(),
+                                )
+                            };
+                            if let Some(stealth) = stealth {
+                                if let Ok(mut stealth_guard) = stealth.lock() {
+                                    // GPS / innate stealth wins unless the existing grant is temporary.
+                                    if stealth_guard.is_temporary_grant() || !can_stealth {
+                                        let _ = stealth_guard.receive_grant(
+                                            true,
+                                            self.data.grant_temporary_stealth_frames,
+                                            crate::helpers::TheGameLogic::get_frame(),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            let mut display_money = true;
+            if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id)
+            {
+                if let Ok(owner_guard) = owner.read() {
+                    if owner_guard.test_status(ObjectStatusTypes::Stealthed) {
+                        if !owner_guard.is_locally_controlled()
+                            && !owner_guard.test_status(ObjectStatusTypes::Detected)
+                        {
+                            display_money = false;
+                        }
+                    }
+                }
+            }
+
+            if display_money {
+                let mut pos = *obj.read().unwrap().get_position();
+                pos.z = TheTerrainLogic::get()
+                    .map(|terrain| terrain.get_ground_height(pos.x, pos.y, None))
+                    .unwrap_or(pos.z);
+                let template = TheGameText::fetch("GUI:AddCash");
+                let text = if template.contains("%d") {
+                    template.replace("%d", &value.to_string())
+                } else if template.contains("%i") {
+                    template.replace("%i", &value.to_string())
+                } else if template.is_empty() || template == "GUI:AddCash" {
+                    format!("+${}", value)
+                } else {
+                    format!("{}{}", template, value)
+                };
+                let color = if let Some(owner) =
+                    crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id)
+                {
+                    if let Ok(owner_guard) = owner.read() {
+                        if let Some(player) = owner_guard.get_controlling_player() {
+                            if let Ok(player_guard) = player.read() {
+                                let base = player_guard.get_player_color();
+                                Color::new(base.r, base.g, base.b, 230)
+                            } else {
+                                Color::white()
+                            }
+                        } else {
+                            Color::white()
+                        }
+                    } else {
+                        Color::white()
+                    }
+                } else {
+                    Color::white()
+                };
+
+                let _ = TheInGameUI::add_floating_text(&text, &pos, color);
+            }
+        }
+
+        Ok(false)
+    }
 }
 
 // Similar delegate pattern for SupplyCenterDockUpdate...
@@ -1485,121 +1630,16 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
         let Some(obj) = resolve_dock_object(obj_id) else {
             return Ok(false);
         };
-        let docker_guard = obj.write().unwrap();
-        let Some(ai) = docker_guard.get_ai_update_interface() else {
-            return Ok(false);
-        };
+        self.perform_supply_delivery(&obj, None)
+    }
 
-        let Some(owner_player) =
-            crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id)
-                .and_then(|owner| owner.read().ok()?.get_controlling_player())
-        else {
-            return Ok(false);
-        };
-        let supply_box_value = owner_player
-            .read()
-            .map(|player| player.get_supply_box_value())
-            .unwrap_or(0);
-
-        let mut value: u32 = 0;
-        if let Ok(mut ai_guard) = ai.lock() {
-            if let Some(truck) = ai_guard.get_supply_truck_ai_interface_mut() {
-                while truck.lose_one_box() {
-                    value = value.saturating_add(supply_box_value);
-                }
-                value = value.saturating_add(truck.get_upgraded_supply_boost());
-            } else {
-                return Ok(false);
-            }
-        }
-
-        if value > 0 {
-            if let Ok(mut player_guard) = owner_player.write() {
-                let _ = player_guard.get_money_mut().deposit(value);
-                player_guard.get_score_keeper_mut().add_money_earned(value);
-            }
-
-            if self.data.grant_temporary_stealth_frames > 0 {
-                if let Some(owner) =
-                    crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id)
-                {
-                    if let Ok(owner_guard) = owner.read() {
-                        if owner_guard.test_status(ObjectStatusTypes::Stealthed) {
-                            let can_stealth =
-                                docker_guard.test_status(ObjectStatusTypes::CanStealth);
-                            if let Some(stealth) = docker_guard.get_stealth() {
-                                if let Ok(mut stealth_guard) = stealth.lock() {
-                                    // GPS / innate stealth wins unless the existing grant is temporary.
-                                    if stealth_guard.is_temporary_grant() || !can_stealth {
-                                        let _ = stealth_guard.receive_grant(
-                                            true,
-                                            self.data.grant_temporary_stealth_frames,
-                                            crate::helpers::TheGameLogic::get_frame(),
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            let mut display_money = true;
-            if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id)
-            {
-                if let Ok(owner_guard) = owner.read() {
-                    if owner_guard.test_status(ObjectStatusTypes::Stealthed) {
-                        if !owner_guard.is_locally_controlled()
-                            && !owner_guard.test_status(ObjectStatusTypes::Detected)
-                        {
-                            display_money = false;
-                        }
-                    }
-                }
-            }
-
-            if display_money {
-                let docker_pos = docker_guard.get_position();
-                let mut pos = *docker_pos;
-                pos.z = TheTerrainLogic::get()
-                    .map(|terrain| terrain.get_ground_height(pos.x, pos.y, None))
-                    .unwrap_or(pos.z);
-                let template = TheGameText::fetch("GUI:AddCash");
-                let text = if template.contains("%d") {
-                    template.replace("%d", &value.to_string())
-                } else if template.contains("%i") {
-                    template.replace("%i", &value.to_string())
-                } else if template.is_empty() || template == "GUI:AddCash" {
-                    format!("+${}", value)
-                } else {
-                    format!("{}{}", template, value)
-                };
-                let color = if let Some(owner) =
-                    crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id)
-                {
-                    if let Ok(owner_guard) = owner.read() {
-                        if let Some(player) = owner_guard.get_controlling_player() {
-                            if let Ok(player_guard) = player.read() {
-                                let base = player_guard.get_player_color();
-                                Color::new(base.r, base.g, base.b, 230)
-                            } else {
-                                Color::white()
-                            }
-                        } else {
-                            Color::white()
-                        }
-                    } else {
-                        Color::white()
-                    }
-                } else {
-                    Color::white()
-                };
-
-                let _ = TheInGameUI::add_floating_text(&text, &pos, color);
-            }
-        }
-
-        Ok(false)
+    fn action_with_ai(
+        &mut self,
+        docker: &Arc<RwLock<Object>>,
+        _drone_id: Option<ObjectID>,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        self.perform_supply_delivery(docker, Some(ai))
     }
 
     fn get_exit_position(

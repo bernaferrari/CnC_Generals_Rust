@@ -574,6 +574,17 @@ impl AttackStateMachine {
         self.update()
     }
 
+    pub(crate) fn update_with_exit_conditions_and_ai(
+        &mut self,
+        conditions: &dyn AttackExitConditionsInterface,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> StateReturnType {
+        if conditions.should_exit(&self.base) {
+            return StateReturnType::Success;
+        }
+        self.update_with_ai(ai)
+    }
+
     pub fn update_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,

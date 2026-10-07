@@ -13,10 +13,9 @@ use crate::helpers::{TheGameLogic, ThePartitionManager, game_logic_random_value}
 use crate::modules::AIUpdateInterfaceExt;
 use crate::object::*;
 use crate::state_machine::*;
+use crate::waypoint::WaypointId;
 
-#[cfg(test)]
-use std::sync::Mutex;
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 
 /// Wave 429: host-only path has no dual-world factory objects.
 #[inline]
@@ -71,6 +70,15 @@ fn get_guard_enemy_return_scan_rate() -> u32 {
     };
     let data = ai_guard.get_ai_data();
     data.guard_enemy_return_scan_rate
+}
+
+fn issue_retaliate_return_move(ai: &mut dyn crate::modules::AIUpdateInterface, position: &Coord3D) {
+    let mut params = crate::ai::AiCommandParams::new(
+        crate::ai::AiCommandType::MoveToPosition,
+        CommandSourceType::FromAi,
+    );
+    params.pos = *position;
+    let _ = ai.execute_command(&params);
 }
 
 fn scan_guard_retaliate_inner_target(
@@ -341,48 +349,41 @@ mod tests {
 pub struct AIGuardRetaliateMachine {
     /// The retaliate guard's own state machine. Owned, not shared.
     state_machine: StateMachine,
+    /// State callback data is separate from the state machine so both can be
+    /// borrowed at once during synchronous enter/update/exit callbacks.
+    context: GuardRetaliateContext,
+}
+
+#[derive(Debug)]
+struct GuardRetaliateContext {
     /// Exact weak owner retained from construction; no registry rebinding.
     owner: Weak<RwLock<Object>>,
-    owner_id: ObjectID,
     /// Position to guard
     position_to_guard: Coord3D,
     /// Nemesis to attack
     nemesis_to_attack: ObjectID,
-    /// Transition a state requested while the machine was loaned out; applied
-    /// by [`AIGuardRetaliateMachine::update`] after the step returns.
-    pending_state: Option<u32>,
+    pending_goal_object: Option<ObjectID>,
 }
 
 impl AIGuardRetaliateMachine {
     pub fn new(owner: Weak<RwLock<Object>>) -> Self {
-        let mut machine = Self {
-            state_machine: StateMachine::empty(),
+        let mut state_machine = StateMachine::new(Some(owner.clone()), "AIGuardRetaliateMachine");
+        let context = GuardRetaliateContext {
             owner: owner.clone(),
-            owner_id: crate::common::INVALID_ID,
             position_to_guard: Coord3D::new(0.0, 0.0, 0.0),
             nemesis_to_attack: crate::common::INVALID_ID,
-            pending_state: None,
+            pending_goal_object: None,
         };
-        machine.build_state_machine();
-        machine
-    }
-
-    /// Defines the six retaliate states and enters the default one (C++
-    /// `AIGuardRetaliateMachine` ctor tail + `initDefaultState()`).
-    fn build_state_machine(&mut self) {
-        if !self.state_machine.is_empty() {
-            return;
+        Self::define_guard_retaliate_states(&mut state_machine);
+        Self {
+            state_machine,
+            context,
         }
-        let mut machine = StateMachine::new(Some(self.owner.clone()), "AIGuardRetaliateMachine");
-        self.owner_id = machine.get_owner_id();
-        self.define_guard_retaliate_states(&mut machine);
-        let _ = machine.init_default_state_with_owner(self);
-        self.state_machine = machine;
     }
 
     /// C++ state definitions. Order matters: the first defined state
     /// (ATTACK_AGGRESSOR) becomes the default.
-    fn define_guard_retaliate_states(&self, machine: &mut StateMachine) {
+    fn define_guard_retaliate_states(machine: &mut StateMachine) {
         let aggressor_id = GuardRetaliateStateType::AttackAggressor as u32;
         let return_id = GuardRetaliateStateType::Return as u32;
         let idle_id = GuardRetaliateStateType::Idle as u32;
@@ -447,172 +448,198 @@ impl AIGuardRetaliateMachine {
     }
 
     // ---- loan-safe accessors (never touch `state_machine`) -------------------
+}
 
-    fn friend_request_state(&mut self, state: u32) {
-        self.pending_state = Some(state);
-    }
-
+impl GuardRetaliateContext {
     fn friend_owner_arc(&self) -> Option<Arc<RwLock<Object>>> {
         self.owner.upgrade()
     }
-
     fn friend_position_to_guard(&self) -> Coord3D {
         self.position_to_guard
     }
-
     fn friend_nemesis_to_attack(&self) -> ObjectID {
         self.nemesis_to_attack
     }
-
     fn friend_set_nemesis_to_attack(&mut self, id: ObjectID) {
         self.nemesis_to_attack = id;
     }
+    fn friend_set_goal_object(&mut self, id: ObjectID) {
+        self.pending_goal_object = Some(id);
+    }
+}
 
-    // ---- public API ----------------------------------------------------------
-
+impl AIGuardRetaliateMachine {
     pub fn is_idle(&self) -> bool {
-        // C++ AIGuardRetaliate.cpp:181 compares to AI_IDLE (0), not the retaliate idle state.
+        // C++ AIGuardRetaliate.cpp:181 compares to AI_IDLE (0), not retaliate idle.
         self.state_machine.get_current_state_id() == Some(0)
     }
-
     pub fn get_position_to_guard(&self) -> &Coord3D {
-        &self.position_to_guard
+        &self.context.position_to_guard
     }
-
     pub fn set_target_position_to_guard(&mut self, pos: &Coord3D) {
-        self.position_to_guard = *pos;
+        self.context.position_to_guard = *pos;
     }
-
     pub fn set_nemesis_id(&mut self, id: ObjectID) {
-        self.nemesis_to_attack = id;
+        self.context.nemesis_to_attack = id;
     }
-
     pub fn get_nemesis_id(&self) -> ObjectID {
-        self.nemesis_to_attack
+        self.context.nemesis_to_attack
     }
-
+    fn owner_ai_handle(&self) -> Option<Arc<Mutex<dyn crate::modules::AIUpdateInterface>>> {
+        let owner = self.context.owner.upgrade()?;
+        let owner = owner.read().ok()?;
+        owner.get_ai_update_interface()
+    }
     pub fn init_default_state(&mut self) -> StateReturnType {
-        if self.state_machine.is_empty() {
-            return StateReturnType::Failure;
+        if let Some(ai) = self.owner_ai_handle() {
+            if let Ok(mut ai) = ai.lock() {
+                let result = self.init_default_state_with_ai(&mut *ai);
+                self.apply_pending_goal_object();
+                return result;
+            }
         }
-        let mut machine = std::mem::replace(&mut self.state_machine, StateMachine::empty());
-        let result = machine.init_default_state_with_owner(self);
-        self.state_machine = machine;
+        let result = self
+            .state_machine
+            .init_default_state_with_owner(&mut self.context);
+        self.apply_pending_goal_object();
         result
     }
-
+    pub(crate) fn init_default_state_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> StateReturnType {
+        let result = self
+            .state_machine
+            .init_default_state_with_ai_and_owner(ai, &mut self.context);
+        self.apply_pending_goal_object();
+        result
+    }
     pub fn set_state(&mut self, state: GuardRetaliateStateType) -> StateReturnType {
-        if self.state_machine.is_empty() {
-            return StateReturnType::Failure;
+        if let Some(ai) = self.owner_ai_handle() {
+            if let Ok(mut ai) = ai.lock() {
+                let result = self.set_state_with_ai(state, &mut *ai);
+                self.apply_pending_goal_object();
+                return result;
+            }
         }
-        let mut machine = std::mem::replace(&mut self.state_machine, StateMachine::empty());
-        let result = machine.set_current_state_with_owner(state as u32, self);
-        self.state_machine = machine;
+        let result = self
+            .state_machine
+            .set_current_state_with_owner(state as u32, &mut self.context);
+        self.apply_pending_goal_object();
         result
     }
-
+    pub(crate) fn set_state_with_ai(
+        &mut self,
+        state: GuardRetaliateStateType,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> StateReturnType {
+        let result = self.state_machine.set_current_state_with_ai_and_owner(
+            state as u32,
+            ai,
+            &mut self.context,
+        );
+        self.apply_pending_goal_object();
+        result
+    }
     pub fn halt(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.state_machine.halt()
     }
-
     pub fn is_in_attack_state(&self) -> bool {
         self.state_machine.is_in_attack_state()
     }
-
     pub fn update(&mut self) -> StateReturnType {
-        if self.state_machine.is_empty() {
-            return StateReturnType::Failure;
+        if let Some(ai) = self.owner_ai_handle() {
+            if let Ok(mut ai) = ai.lock() {
+                return self.update_with_ai(&mut *ai);
+            }
         }
-        let mut machine = std::mem::replace(&mut self.state_machine, StateMachine::empty());
-        let result = machine.update_with_owner(self);
-        if let Some(state_id) = self.pending_state.take() {
-            let _ = machine.set_current_state_with_owner(state_id, self);
-        }
-        self.state_machine = machine;
+        let result = self.state_machine.update_with_owner(&mut self.context);
+        self.apply_pending_goal_object();
         result
     }
-
+    pub(crate) fn update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> StateReturnType {
+        let result = self
+            .state_machine
+            .update_with_ai_and_owner(ai, &mut self.context);
+        self.apply_pending_goal_object();
+        result
+    }
+    fn apply_pending_goal_object(&mut self) {
+        if let Some(id) = self.context.pending_goal_object.take() {
+            self.state_machine.set_goal_object_by_id(Some(id));
+        }
+    }
     pub fn look_for_inner_target(&mut self) -> bool {
-        let Some(owner_arc) = self.friend_owner_arc() else {
+        let Some(owner_arc) = self.context.friend_owner_arc() else {
             return false;
         };
         let Ok(owner_guard) = owner_arc.read() else {
             return false;
         };
-
         if !owner_guard.is_able_to_attack() {
             return false;
         }
-
         if let Some(team_arc) = owner_guard.get_team() {
             if let Ok(team_guard) = team_arc.read() {
                 if team_guard.attack_common_target() {
                     let team_target = team_guard.get_team_target_object();
                     if team_target != crate::common::INVALID_ID {
-                        self.set_nemesis_id(team_target);
+                        self.context.friend_set_nemesis_to_attack(team_target);
                         return true;
                     }
                 }
             }
         }
-
-        let pos = *self.get_position_to_guard();
+        let pos = self.context.position_to_guard;
         if let Some(target_id) = scan_guard_retaliate_inner_target(&owner_arc, &pos) {
-            self.set_nemesis_id(target_id);
+            self.context.friend_set_nemesis_to_attack(target_id);
             return true;
         }
-
         false
     }
-
     pub fn get_std_guard_range(obj_id: ObjectID) -> f32 {
         let ai_store = the_ai();
-        let ai = ai_store.read().ok();
-        ai.and_then(|ai| {
-            ai.get_adjusted_vision_range_for_object(
-                obj_id,
-                vision_factors::OWNER_TYPE | vision_factors::MOOD | vision_factors::GUARD_INNER,
-            )
+        ai_store
+            .read()
             .ok()
-        })
-        .unwrap_or(100.0)
+            .and_then(|ai| {
+                ai.get_adjusted_vision_range_for_object(
+                    obj_id,
+                    vision_factors::OWNER_TYPE | vision_factors::MOOD | vision_factors::GUARD_INNER,
+                )
+                .ok()
+            })
+            .unwrap_or(100.0)
     }
-
     pub fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        // C++ AIGuardRetaliateMachine::crc is empty.
         Ok(())
     }
-
     pub fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: XferVersion = 2;
         xfer.xfer_version(&mut version, 2)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
-
         if version >= 2 {
             self.state_machine.xfer(xfer).map_err(|e| e.to_string())?;
         }
-
-        xfer.xfer_object_id(&mut self.nemesis_to_attack)
+        xfer.xfer_object_id(&mut self.context.nemesis_to_attack)
             .map_err(|e| format!("Failed to xfer nemesis_to_attack: {:?}", e))?;
-        xfer.xfer_real(&mut self.position_to_guard.x)
+        xfer.xfer_real(&mut self.context.position_to_guard.x)
             .map_err(|e| format!("Failed to xfer position_to_guard.x: {:?}", e))?;
-        xfer.xfer_real(&mut self.position_to_guard.y)
+        xfer.xfer_real(&mut self.context.position_to_guard.y)
             .map_err(|e| format!("Failed to xfer position_to_guard.y: {:?}", e))?;
-        xfer.xfer_real(&mut self.position_to_guard.z)
+        xfer.xfer_real(&mut self.context.position_to_guard.z)
             .map_err(|e| format!("Failed to xfer position_to_guard.z: {:?}", e))?;
-
         Ok(())
     }
-
     pub fn load_post_process(&mut self) -> Result<(), String> {
-        if self.state_machine.is_empty() {
-            return Ok(());
-        }
-        let mut machine = std::mem::replace(&mut self.state_machine, StateMachine::empty());
-        let result = machine
-            .load_post_process_with_owner(self)
+        let result = self
+            .state_machine
+            .load_post_process_with_owner(&mut self.context)
             .map_err(|e| format!("guard retaliate load_post_process: {e}"));
-        self.state_machine = machine;
+        self.apply_pending_goal_object();
         result
     }
 }
@@ -648,8 +675,8 @@ impl GuardRetaliateState {
         self.base.get_machine_owner()
     }
 
-    fn downcast_machine(owner: &mut dyn std::any::Any) -> Option<&mut AIGuardRetaliateMachine> {
-        owner.downcast_mut::<AIGuardRetaliateMachine>()
+    fn downcast_machine(owner: &mut dyn std::any::Any) -> Option<&mut GuardRetaliateContext> {
+        owner.downcast_mut::<GuardRetaliateContext>()
     }
 }
 
@@ -678,7 +705,21 @@ impl AIGuardRetaliateInnerState {
         self.is_attacking
     }
 
+    #[cfg(test)]
     fn classic_on_enter(&mut self, machine: &mut AIGuardRetaliateMachine) -> StateReturnType {
+        self.classic_on_enter_with_ai(&mut machine.context, None)
+    }
+
+    #[cfg(test)]
+    fn classic_update(&mut self) -> StateReturnType {
+        self.classic_update_with_ai(None)
+    }
+
+    fn classic_on_enter_with_ai(
+        &mut self,
+        machine: &mut GuardRetaliateContext,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> StateReturnType {
         let Some(owner) = machine.friend_owner_arc() else {
             return StateReturnType::Failure;
         };
@@ -713,7 +754,12 @@ impl AIGuardRetaliateInnerState {
             self.attack_machine = None;
             self.enter_state = Some(enter_state);
             if let Some(enter_state) = self.enter_state.as_mut() {
-                let result = enter_state.on_enter();
+                let result = match ai {
+                    Some(ai) => {
+                        enter_state.on_enter_with_ai(ai, nemesis_id, Coord3D::new(0.0, 0.0, 0.0))
+                    }
+                    None => enter_state.on_enter(),
+                };
                 if result == StateReturnType::Continue {
                     return StateReturnType::Continue;
                 }
@@ -747,7 +793,10 @@ impl AIGuardRetaliateInnerState {
         );
         attack_machine.set_goal_object(nemesis.read().ok().map(|g| g.get_id()));
 
-        let result = attack_machine.init_default_state();
+        let result = match ai {
+            Some(ai) => attack_machine.init_default_state_with_ai(ai),
+            None => attack_machine.init_default_state(),
+        };
         self.is_attacking = matches!(result, StateReturnType::Continue);
         self.attack_machine = Some(attack_machine);
         self.enter_state = None;
@@ -759,22 +808,45 @@ impl AIGuardRetaliateInnerState {
         }
     }
 
-    fn classic_update(&mut self) -> StateReturnType {
+    fn classic_update_with_ai(
+        &mut self,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> StateReturnType {
         if let Some(attack_machine) = self.attack_machine.as_mut() {
-            return attack_machine.update_with_exit_conditions(&self.exit_conditions);
+            return match ai {
+                Some(ai) => {
+                    attack_machine.update_with_exit_conditions_and_ai(&self.exit_conditions, ai)
+                }
+                None => attack_machine.update_with_exit_conditions(&self.exit_conditions),
+            };
         }
         if let Some(enter_state) = self.enter_state.as_mut() {
-            return enter_state.update();
+            return match ai {
+                Some(ai) => enter_state.update_with_ai(ai),
+                None => enter_state.update(),
+            };
         }
         StateReturnType::Success
     }
 
-    fn classic_on_exit(&mut self, _status: StateExitType) {
+    #[cfg(test)]
+    fn classic_on_exit(&mut self, status: StateExitType) {
+        self.classic_on_exit_with_ai(status, None);
+    }
+
+    fn classic_on_exit_with_ai(
+        &mut self,
+        _status: StateExitType,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) {
         if let Some(mut machine) = self.attack_machine.take() {
             let _ = machine.halt();
         }
         if let Some(mut enter_state) = self.enter_state.take() {
-            enter_state.on_exit(_status);
+            match ai {
+                Some(ai) => enter_state.on_exit_with_ai(_status, ai),
+                None => enter_state.on_exit(_status),
+            }
         }
         self.is_attacking = false;
 
@@ -797,22 +869,59 @@ impl StateImplementation for AIGuardRetaliateInnerState {
         StateReturnType::Failure
     }
 
+    fn on_enter(&mut self) -> StateReturnType {
+        StateReturnType::Failure
+    }
+
     fn on_enter_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
         match GuardRetaliateState::downcast_machine(owner) {
-            Some(machine) => self.classic_on_enter(machine),
+            Some(machine) => self.classic_on_enter_with_ai(machine, None),
             None => StateReturnType::Failure,
         }
     }
 
     fn update_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
         match GuardRetaliateState::downcast_machine(owner) {
-            Some(_) => self.classic_update(),
+            Some(_) => self.classic_update_with_ai(None),
             None => StateReturnType::Failure,
         }
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
-        self.classic_on_exit(_status);
+        self.classic_on_exit_with_ai(_status, None);
+    }
+
+    fn on_enter_with_ai_and_owner(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        _goal_id: ObjectID,
+        _goal_pos: Coord3D,
+        _waypoint: Option<WaypointId>,
+        owner: &mut dyn std::any::Any,
+    ) -> StateReturnType {
+        GuardRetaliateState::downcast_machine(owner).map_or(StateReturnType::Failure, |machine| {
+            self.classic_on_enter_with_ai(machine, Some(ai))
+        })
+    }
+
+    fn update_with_ai_and_owner(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        _machine_locked: bool,
+        owner: &mut dyn std::any::Any,
+    ) -> StateReturnType {
+        GuardRetaliateState::downcast_machine(owner).map_or(StateReturnType::Failure, |_| {
+            self.classic_update_with_ai(Some(ai))
+        })
+    }
+
+    fn on_exit_with_ai_and_owner(
+        &mut self,
+        status: StateExitType,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        _owner: &mut dyn std::any::Any,
+    ) {
+        self.classic_on_exit_with_ai(status, Some(ai));
     }
 
     /// C++ `loadPostProcess` re-runs `onEnter` to rebuild the attack child.
@@ -821,7 +930,7 @@ impl StateImplementation for AIGuardRetaliateInnerState {
         owner: &mut dyn std::any::Any,
     ) -> Result<(), String> {
         if let Some(machine) = GuardRetaliateState::downcast_machine(owner) {
-            let _ = self.classic_on_enter(machine);
+            let _ = self.classic_on_enter_with_ai(machine, None);
         }
         Ok(())
     }
@@ -875,6 +984,7 @@ impl StateImplementation for AIGuardRetaliateInnerState {
 pub struct AIGuardRetaliateIdleState {
     base: GuardRetaliateState,
     next_enemy_scan_time: u32,
+    requested_state: Option<u32>,
 }
 
 impl AIGuardRetaliateIdleState {
@@ -882,6 +992,7 @@ impl AIGuardRetaliateIdleState {
         Self {
             base: GuardRetaliateState::new(machine, "AIGuardRetaliateIdleState"),
             next_enemy_scan_time: 0,
+            requested_state: None,
         }
     }
 
@@ -889,14 +1000,18 @@ impl AIGuardRetaliateIdleState {
         true
     }
 
-    fn classic_on_enter(&mut self, _machine: &mut AIGuardRetaliateMachine) -> StateReturnType {
+    fn classic_on_enter(&mut self, _machine: &mut GuardRetaliateContext) -> StateReturnType {
         let now = TheGameLogic::get_frame();
         let scan_rate = get_guard_enemy_scan_rate();
         self.next_enemy_scan_time = now.saturating_add(game_logic_random_value(0, scan_rate));
         StateReturnType::Continue
     }
 
-    fn classic_update(&mut self, machine: &mut AIGuardRetaliateMachine) -> StateReturnType {
+    fn classic_update_with_ai(
+        &mut self,
+        machine: &mut GuardRetaliateContext,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> StateReturnType {
         let now = TheGameLogic::get_frame();
         if now < self.next_enemy_scan_time {
             return StateReturnType::Sleep(self.next_enemy_scan_time - now);
@@ -910,13 +1025,16 @@ impl AIGuardRetaliateIdleState {
         let Ok(owner_guard) = owner.read() else {
             return StateReturnType::Failure;
         };
-        if let Some(ai) = owner_guard.get_ai_update_interface() {
-            if let Ok(ai_guard) = ai.lock() {
-                if ai_guard.get_crate_id() != crate::common::INVALID_ID {
-                    machine.friend_request_state(GuardRetaliateStateType::GetCrate as u32);
-                    return StateReturnType::Sleep(self.next_enemy_scan_time.saturating_sub(now));
-                }
-            }
+        let has_crate = match ai {
+            Some(ai) => ai.get_crate_id() != crate::common::INVALID_ID,
+            None => owner_guard.get_ai_update_interface().is_some_and(|ai| {
+                ai.lock()
+                    .is_ok_and(|a| a.get_crate_id() != crate::common::INVALID_ID)
+            }),
+        };
+        if has_crate {
+            self.requested_state = Some(GuardRetaliateStateType::GetCrate as u32);
+            return StateReturnType::Sleep(self.next_enemy_scan_time.saturating_sub(now));
         }
 
         if let Some(team_arc) = owner_guard.get_team() {
@@ -944,6 +1062,10 @@ impl AIGuardRetaliateIdleState {
 }
 
 impl StateImplementation for AIGuardRetaliateIdleState {
+    fn take_requested_state_change(&mut self) -> Option<u32> {
+        self.requested_state.take()
+    }
+
     fn update(&mut self) -> StateReturnType {
         StateReturnType::Failure
     }
@@ -955,15 +1077,39 @@ impl StateImplementation for AIGuardRetaliateIdleState {
         }
     }
 
+    fn on_enter_with_ai_and_owner(
+        &mut self,
+        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        _goal_id: ObjectID,
+        _goal_pos: Coord3D,
+        _waypoint: Option<WaypointId>,
+        owner: &mut dyn std::any::Any,
+    ) -> StateReturnType {
+        GuardRetaliateState::downcast_machine(owner).map_or(StateReturnType::Failure, |machine| {
+            self.classic_on_enter(machine)
+        })
+    }
+
     fn update_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
         match GuardRetaliateState::downcast_machine(owner) {
-            Some(machine) => self.classic_update(machine),
+            Some(machine) => self.classic_update_with_ai(machine, None),
             None => StateReturnType::Failure,
         }
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
         // Cleanup when exiting idle guard retaliate state
+    }
+
+    fn update_with_ai_and_owner(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        _machine_locked: bool,
+        owner: &mut dyn std::any::Any,
+    ) -> StateReturnType {
+        GuardRetaliateState::downcast_machine(owner).map_or(StateReturnType::Failure, |machine| {
+            self.classic_update_with_ai(machine, Some(ai))
+        })
     }
 
     fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<Object>>) {
@@ -1029,7 +1175,21 @@ impl AIGuardRetaliateOuterState {
         self.is_attacking
     }
 
+    #[cfg(test)]
     fn classic_on_enter(&mut self, machine: &mut AIGuardRetaliateMachine) -> StateReturnType {
+        self.classic_on_enter_with_ai(&mut machine.context, None)
+    }
+
+    #[cfg(test)]
+    fn classic_update(&mut self) -> StateReturnType {
+        self.classic_update_with_ai(None)
+    }
+
+    fn classic_on_enter_with_ai(
+        &mut self,
+        machine: &mut GuardRetaliateContext,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> StateReturnType {
         let Some(owner) = machine.friend_owner_arc() else {
             return StateReturnType::Failure;
         };
@@ -1099,7 +1259,10 @@ impl AIGuardRetaliateOuterState {
             false,
         );
         attack_machine.set_goal_object(nemesis.read().ok().map(|g| g.get_id()));
-        let result = attack_machine.init_default_state();
+        let result = match ai {
+            Some(ai) => attack_machine.init_default_state_with_ai(ai),
+            None => attack_machine.init_default_state(),
+        };
 
         self.is_attacking = matches!(result, StateReturnType::Continue);
         self.attack_machine = Some(attack_machine);
@@ -1111,7 +1274,10 @@ impl AIGuardRetaliateOuterState {
         }
     }
 
-    fn classic_update(&mut self) -> StateReturnType {
+    fn classic_update_with_ai(
+        &mut self,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> StateReturnType {
         // Wave 429: empty dual-world → Continue.
         if dual_world_registry_unavailable() {
             return StateReturnType::Continue;
@@ -1150,7 +1316,12 @@ impl AIGuardRetaliateOuterState {
             }
         }
 
-        attack_machine.update_with_exit_conditions(&self.exit_conditions)
+        match ai {
+            Some(ai) => {
+                attack_machine.update_with_exit_conditions_and_ai(&self.exit_conditions, ai)
+            }
+            None => attack_machine.update_with_exit_conditions(&self.exit_conditions),
+        }
     }
 
     fn classic_on_exit(&mut self, _status: StateExitType) {
@@ -1168,14 +1339,14 @@ impl StateImplementation for AIGuardRetaliateOuterState {
 
     fn on_enter_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
         match GuardRetaliateState::downcast_machine(owner) {
-            Some(machine) => self.classic_on_enter(machine),
+            Some(machine) => self.classic_on_enter_with_ai(machine, None),
             None => StateReturnType::Failure,
         }
     }
 
     fn update_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
         match GuardRetaliateState::downcast_machine(owner) {
-            Some(_) => self.classic_update(),
+            Some(_) => self.classic_update_with_ai(None),
             None => StateReturnType::Failure,
         }
     }
@@ -1184,13 +1355,37 @@ impl StateImplementation for AIGuardRetaliateOuterState {
         self.classic_on_exit(_status);
     }
 
+    fn on_enter_with_ai_and_owner(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        _goal_id: ObjectID,
+        _goal_pos: Coord3D,
+        _waypoint: Option<WaypointId>,
+        owner: &mut dyn std::any::Any,
+    ) -> StateReturnType {
+        GuardRetaliateState::downcast_machine(owner).map_or(StateReturnType::Failure, |machine| {
+            self.classic_on_enter_with_ai(machine, Some(ai))
+        })
+    }
+
+    fn update_with_ai_and_owner(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        _machine_locked: bool,
+        owner: &mut dyn std::any::Any,
+    ) -> StateReturnType {
+        GuardRetaliateState::downcast_machine(owner).map_or(StateReturnType::Failure, |_| {
+            self.classic_update_with_ai(Some(ai))
+        })
+    }
+
     /// C++ `loadPostProcess` re-runs `onEnter`.
     fn load_post_process_with_owner(
         &mut self,
         owner: &mut dyn std::any::Any,
     ) -> Result<(), String> {
         if let Some(machine) = GuardRetaliateState::downcast_machine(owner) {
-            let _ = self.classic_on_enter(machine);
+            let _ = self.classic_on_enter_with_ai(machine, None);
         }
         Ok(())
     }
@@ -1256,7 +1451,11 @@ impl AIGuardRetaliateReturnState {
         }
     }
 
-    fn classic_on_enter(&mut self, machine: &mut AIGuardRetaliateMachine) -> StateReturnType {
+    fn classic_on_enter_with_ai(
+        &mut self,
+        machine: &mut GuardRetaliateContext,
+        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> StateReturnType {
         let now = TheGameLogic::get_frame();
         let scan_rate = get_guard_enemy_return_scan_rate();
         self.next_return_scan_time = now.saturating_add(game_logic_random_value(0, scan_rate));
@@ -1265,7 +1464,12 @@ impl AIGuardRetaliateReturnState {
         let Some(owner) = machine.friend_owner_arc() else {
             return StateReturnType::Failure;
         };
-        if let Ok(owner_guard) = owner.try_read() {
+        if let Some(ai) = ai.as_deref_mut() {
+            if ai.is_doing_ground_movement() {
+                let _ = ai.adjust_destination(&mut self.goal_position);
+            }
+            issue_retaliate_return_move(ai, &self.goal_position);
+        } else if let Ok(owner_guard) = owner.try_read() {
             if let Some(ai) = owner_guard.get_ai_update_interface() {
                 if let Ok(mut ai_guard) = ai.lock() {
                     if ai_guard.is_doing_ground_movement() {
@@ -1278,7 +1482,7 @@ impl AIGuardRetaliateReturnState {
         StateReturnType::Continue
     }
 
-    fn classic_update(&mut self, machine: &mut AIGuardRetaliateMachine) -> StateReturnType {
+    fn classic_update(&mut self, machine: &mut GuardRetaliateContext) -> StateReturnType {
         let now = TheGameLogic::get_frame();
         if now >= self.next_return_scan_time {
             self.next_return_scan_time = now.saturating_add(get_guard_enemy_return_scan_rate());
@@ -1317,7 +1521,7 @@ impl StateImplementation for AIGuardRetaliateReturnState {
 
     fn on_enter_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
         match GuardRetaliateState::downcast_machine(owner) {
-            Some(machine) => self.classic_on_enter(machine),
+            Some(machine) => self.classic_on_enter_with_ai(machine, None),
             None => StateReturnType::Failure,
         }
     }
@@ -1331,6 +1535,30 @@ impl StateImplementation for AIGuardRetaliateReturnState {
 
     fn on_exit(&mut self, _status: StateExitType) {
         // Nothing to clean up.
+    }
+
+    fn on_enter_with_ai_and_owner(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        _goal_id: ObjectID,
+        _goal_pos: Coord3D,
+        _waypoint: Option<WaypointId>,
+        owner: &mut dyn std::any::Any,
+    ) -> StateReturnType {
+        GuardRetaliateState::downcast_machine(owner).map_or(StateReturnType::Failure, |machine| {
+            self.classic_on_enter_with_ai(machine, Some(ai))
+        })
+    }
+
+    fn update_with_ai_and_owner(
+        &mut self,
+        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        _machine_locked: bool,
+        owner: &mut dyn std::any::Any,
+    ) -> StateReturnType {
+        GuardRetaliateState::downcast_machine(owner).map_or(StateReturnType::Failure, |machine| {
+            self.classic_update(machine)
+        })
     }
 
     fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<Object>>) {
@@ -1388,7 +1616,11 @@ impl AIGuardRetaliatePickUpCrateState {
         }
     }
 
-    fn classic_on_enter(&mut self, machine: &mut AIGuardRetaliateMachine) -> StateReturnType {
+    fn classic_on_enter_with_ai(
+        &mut self,
+        machine: &mut GuardRetaliateContext,
+        _ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> StateReturnType {
         let Some(owner) = machine.friend_owner_arc() else {
             return StateReturnType::Failure;
         };
@@ -1399,6 +1631,7 @@ impl AIGuardRetaliatePickUpCrateState {
         if crate_id == crate::common::INVALID_ID {
             return StateReturnType::Success;
         }
+        machine.friend_set_goal_object(crate_id);
         let crate_pos = TheGameLogic::find_object_by_id(crate_id)
             .and_then(|crate_obj| crate_obj.read().ok().map(|goal| *goal.get_position()));
         drop(owner_guard);
@@ -1411,16 +1644,29 @@ impl AIGuardRetaliatePickUpCrateState {
             pickup.goal_position = pos;
             pickup.base.goal_position = pos;
         }
-        let result = pickup.on_enter();
+        let result = match _ai {
+            Some(ai) => pickup.on_enter_with_ai(
+                ai,
+                crate_id,
+                crate_pos.unwrap_or(Coord3D::new(0.0, 0.0, 0.0)),
+            ),
+            None => pickup.on_enter(),
+        };
         self.pickup = Some(pickup);
         result
     }
 
-    fn classic_update(&mut self) -> StateReturnType {
+    fn classic_update_with_ai(
+        &mut self,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> StateReturnType {
         let Some(pickup) = self.pickup.as_mut() else {
             return StateReturnType::Success;
         };
-        pickup.update()
+        match ai {
+            Some(ai) => pickup.update_with_ai(ai),
+            None => pickup.update(),
+        }
     }
 
     fn classic_on_exit(&mut self, _status: StateExitType) {
@@ -1436,20 +1682,44 @@ impl StateImplementation for AIGuardRetaliatePickUpCrateState {
 
     fn on_enter_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
         match GuardRetaliateState::downcast_machine(owner) {
-            Some(machine) => self.classic_on_enter(machine),
+            Some(machine) => self.classic_on_enter_with_ai(machine, None),
             None => StateReturnType::Failure,
         }
     }
 
+    fn on_enter_with_ai_and_owner(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        _goal_id: ObjectID,
+        _goal_pos: Coord3D,
+        _waypoint: Option<WaypointId>,
+        owner: &mut dyn std::any::Any,
+    ) -> StateReturnType {
+        GuardRetaliateState::downcast_machine(owner).map_or(StateReturnType::Failure, |machine| {
+            self.classic_on_enter_with_ai(machine, Some(ai))
+        })
+    }
+
     fn update_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
         match GuardRetaliateState::downcast_machine(owner) {
-            Some(_) => self.classic_update(),
+            Some(_) => self.classic_update_with_ai(None),
             None => StateReturnType::Failure,
         }
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
         self.classic_on_exit(_status);
+    }
+
+    fn update_with_ai_and_owner(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        _machine_locked: bool,
+        owner: &mut dyn std::any::Any,
+    ) -> StateReturnType {
+        GuardRetaliateState::downcast_machine(owner).map_or(StateReturnType::Failure, |_| {
+            self.classic_update_with_ai(Some(ai))
+        })
     }
 
     fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<Object>>) {
@@ -1515,7 +1785,21 @@ impl AIGuardRetaliateAttackAggressorState {
         self.is_attacking
     }
 
+    #[cfg(test)]
     fn classic_on_enter(&mut self, machine: &mut AIGuardRetaliateMachine) -> StateReturnType {
+        self.classic_on_enter_with_ai(&mut machine.context, None)
+    }
+
+    #[cfg(test)]
+    fn classic_update(&mut self) -> StateReturnType {
+        self.classic_update_with_ai(None)
+    }
+
+    fn classic_on_enter_with_ai(
+        &mut self,
+        machine: &mut GuardRetaliateContext,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> StateReturnType {
         let Some(owner) = machine.friend_owner_arc() else {
             return StateReturnType::Failure;
         };
@@ -1605,7 +1889,10 @@ impl AIGuardRetaliateAttackAggressorState {
             false,
         );
         attack_machine.set_goal_object(nemesis.read().ok().map(|g| g.get_id()));
-        let result = attack_machine.init_default_state();
+        let result = match ai {
+            Some(ai) => attack_machine.init_default_state_with_ai(ai),
+            None => attack_machine.init_default_state(),
+        };
 
         self.is_attacking = matches!(result, StateReturnType::Continue);
         self.attack_machine = Some(attack_machine);
@@ -1617,11 +1904,19 @@ impl AIGuardRetaliateAttackAggressorState {
         }
     }
 
-    fn classic_update(&mut self) -> StateReturnType {
+    fn classic_update_with_ai(
+        &mut self,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> StateReturnType {
         let Some(attack_machine) = self.attack_machine.as_mut() else {
             return StateReturnType::Success;
         };
-        attack_machine.update_with_exit_conditions(&self.exit_conditions)
+        match ai {
+            Some(ai) => {
+                attack_machine.update_with_exit_conditions_and_ai(&self.exit_conditions, ai)
+            }
+            None => attack_machine.update_with_exit_conditions(&self.exit_conditions),
+        }
     }
 
     fn classic_on_exit(&mut self, _status: StateExitType) {
@@ -1649,14 +1944,14 @@ impl StateImplementation for AIGuardRetaliateAttackAggressorState {
 
     fn on_enter_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
         match GuardRetaliateState::downcast_machine(owner) {
-            Some(machine) => self.classic_on_enter(machine),
+            Some(machine) => self.classic_on_enter_with_ai(machine, None),
             None => StateReturnType::Failure,
         }
     }
 
     fn update_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
         match GuardRetaliateState::downcast_machine(owner) {
-            Some(_) => self.classic_update(),
+            Some(_) => self.classic_update_with_ai(None),
             None => StateReturnType::Failure,
         }
     }
@@ -1665,13 +1960,37 @@ impl StateImplementation for AIGuardRetaliateAttackAggressorState {
         self.classic_on_exit(_status);
     }
 
+    fn on_enter_with_ai_and_owner(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        _goal_id: ObjectID,
+        _goal_pos: Coord3D,
+        _waypoint: Option<WaypointId>,
+        owner: &mut dyn std::any::Any,
+    ) -> StateReturnType {
+        GuardRetaliateState::downcast_machine(owner).map_or(StateReturnType::Failure, |machine| {
+            self.classic_on_enter_with_ai(machine, Some(ai))
+        })
+    }
+
+    fn update_with_ai_and_owner(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        _machine_locked: bool,
+        owner: &mut dyn std::any::Any,
+    ) -> StateReturnType {
+        GuardRetaliateState::downcast_machine(owner).map_or(StateReturnType::Failure, |_| {
+            self.classic_update_with_ai(Some(ai))
+        })
+    }
+
     /// C++ `loadPostProcess` re-runs `onEnter`.
     fn load_post_process_with_owner(
         &mut self,
         owner: &mut dyn std::any::Any,
     ) -> Result<(), String> {
         if let Some(machine) = GuardRetaliateState::downcast_machine(owner) {
-            let _ = self.classic_on_enter(machine);
+            let _ = self.classic_on_enter_with_ai(machine, None);
         }
         Ok(())
     }
@@ -1727,6 +2046,10 @@ pub fn has_attacked_me_and_i_can_return_fire_retaliate(machine: &StateMachine) -
         .as_ref()
         .is_some_and(has_attacked_me_from_owner)
 }
+
+#[cfg(test)]
+#[path = "guard_retaliate_owner_tests.rs"]
+mod owner_tests;
 
 fn has_attacked_me_from_owner(owner: &Arc<RwLock<Object>>) -> bool {
     if let Ok(owner_ref) = owner.try_read() {

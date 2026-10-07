@@ -213,7 +213,11 @@ impl SupplyWarehouseDockUpdate {
         drawable_guard.update_supply_status(self.data.starting_boxes, self.boxes_stored);
     }
 
-    fn perform_supply_transfer(&mut self, docker: &Arc<RwLock<Object>>) -> Result<bool, String> {
+    fn perform_supply_transfer(
+        &mut self,
+        docker: &Arc<RwLock<Object>>,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> Result<bool, String> {
         // Resolve owner/docker via TheGameLogic even when OBJECT_REGISTRY is empty.
 
         if self.boxes_stored == 0 {
@@ -257,8 +261,16 @@ impl SupplyWarehouseDockUpdate {
         self.boxes_stored -= 1;
 
         let mut gained = false;
-        if let Ok(docker_write) = docker.write() {
-            if let Some(ai) = docker_write.get_ai_update_interface() {
+        if let Some(ai) = ai {
+            if let Some(truck) = ai.get_supply_truck_ai_interface_mut() {
+                gained = truck.gain_one_box(self.boxes_stored);
+            }
+        } else {
+            let legacy_ai = docker
+                .read()
+                .ok()
+                .and_then(|docker| docker.get_ai_update_interface());
+            if let Some(ai) = legacy_ai {
                 if let Ok(mut ai_guard) = ai.lock() {
                     if let Some(truck) = ai_guard.get_supply_truck_ai_interface_mut() {
                         gained = truck.gain_one_box(self.boxes_stored);
@@ -426,13 +438,22 @@ impl DockUpdateInterface for SupplyWarehouseDockUpdate {
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         // Perform supply transfer to truck
         {
-            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-            else {
+            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
                 return Ok(false);
             };
-            self.perform_supply_transfer(&obj)
+            self.perform_supply_transfer(&obj, None)
         }
         .map_err(|e| e.into())
+    }
+
+    fn action_with_ai(
+        &mut self,
+        docker: &Arc<RwLock<Object>>,
+        _drone_id: Option<ObjectID>,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        self.perform_supply_transfer(docker, Some(ai))
+            .map_err(Into::into)
     }
 
     fn get_exit_position(
@@ -470,20 +491,23 @@ impl DockUpdateInterface for SupplyWarehouseDockUpdate {
         if crippled {
             let active_id = self.base.active_docker_id();
             if active_id != INVALID_ID {
-                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(active_id, |victim_guard| {
-                    if self.base.docker_inside() {
-                        if !victim_guard.is_using_airborne_locomotor() {
-                            victim_guard.kill(None, None);
-                        }
-                    } else if let Some(ai) = victim_guard.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            if let Some(truck) = ai_guard.get_supply_truck_ai_interface_mut() {
-                                victim_guard.ai_idle();
-                                truck.set_force_wanting_state(true);
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    active_id,
+                    |victim_guard| {
+                        if self.base.docker_inside() {
+                            if !victim_guard.is_using_airborne_locomotor() {
+                                victim_guard.kill(None, None);
+                            }
+                        } else if let Some(ai) = victim_guard.get_ai_update_interface() {
+                            if let Ok(mut ai_guard) = ai.lock() {
+                                if let Some(truck) = ai_guard.get_supply_truck_ai_interface_mut() {
+                                    victim_guard.ai_idle();
+                                    truck.set_force_wanting_state(true);
+                                }
                             }
                         }
-                    }
-                    });
+                    },
+                );
             }
         }
 

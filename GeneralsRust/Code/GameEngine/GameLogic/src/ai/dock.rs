@@ -1218,7 +1218,7 @@ impl DockState for AIDockProcessDockState {
     fn dock_on_update(
         &mut self,
         _context: &mut DockContext,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        mut ai: Option<&mut dyn AIUpdateInterface>,
     ) -> Result<StateReturnType, String> {
         let (owner_id, goal_id) = match self.owner_and_goal() {
             Ok(values) => values,
@@ -1232,14 +1232,25 @@ impl DockState for AIDockProcessDockState {
                 return Ok(StateReturnType::Continue);
             }
 
-            self.set_next_dock_action_frame(self.base.goal_object_id, ai)?;
+            match ai.as_mut() {
+                Some(ai) => {
+                    self.set_next_dock_action_frame(self.base.goal_object_id, Some(&mut **ai))?
+                }
+                None => self.set_next_dock_action_frame(self.base.goal_object_id, None)?,
+            }
 
             let drone_id = self.find_my_drone_id()?;
             let owner_id = owner.read().map(|g| g.get_id()).unwrap_or(0);
 
-            if !dock.is_dock_open().into_string_err()?
-                || !dock.action(owner_id, drone_id).into_string_err()?
-            {
+            if !dock.is_dock_open().into_string_err()? {
+                return Ok(StateReturnType::Success);
+            }
+            let continuing = match ai {
+                Some(ai) => dock.action_with_ai(&owner, drone_id, ai),
+                None => dock.action(owner_id, drone_id),
+            }
+            .into_string_err()?;
+            if !continuing {
                 return Ok(StateReturnType::Success);
             }
 
@@ -1526,6 +1537,10 @@ impl DroneInfo {
 #[cfg(test)]
 #[path = "dock_owner_tests.rs"]
 mod owner_tests;
+
+#[cfg(test)]
+#[path = "dock_supply_action_tests.rs"]
+mod dock_supply_action_tests;
 
 #[cfg(test)]
 pub(crate) fn with_started_test_machines(f: impl FnOnce(AIDockMachine, AIDockMachine)) {

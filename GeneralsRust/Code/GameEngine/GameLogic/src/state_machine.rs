@@ -302,6 +302,14 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
     /// Implements this state's behavior, decides when to change state
     fn update(&mut self) -> StateReturnType;
 
+    /// A callback that requests a state change as its final operation can hand
+    /// it back here. The core enters that state before processing the callback's
+    /// status, preserving C++'s changed-state override of Sleep/Success/Failure.
+    /// This is synchronous within this update, never a command for the next tick.
+    fn take_requested_state_change(&mut self) -> Option<StateId> {
+        None
+    }
+
     /// Step for a machine that its AI owns outright (no `Arc<Mutex<_>>`).
     /// C++ states reach their owner through the machine pointer
     /// (`TurretAI.h:75` — `((TurretStateMachine*)getMachine())->getTurretAI()`).
@@ -974,6 +982,13 @@ impl StateMachine {
                 state.bind_goal_waypoint(goal_waypoint);
                 state.update_with_owner(owner)
             };
+            if let Some(next) = self
+                .state_map
+                .get_mut(&state_before_update)
+                .and_then(|state| state.take_requested_state_change())
+            {
+                let _ = self.set_current_state_with_owner(next, owner);
+            }
             self.apply_pending_victim_goal();
             if self.current_state_id.is_none() {
                 return StateReturnType::Failure;
@@ -1073,6 +1088,13 @@ impl StateMachine {
             }
             if freeze_parent {
                 self.locked = machine_locked;
+            }
+            if let Some(next) = self
+                .state_map
+                .get_mut(&state_before_update)
+                .and_then(|state| state.take_requested_state_change())
+            {
+                let _ = self.set_current_state_with_ai_and_owner(next, ai, owner);
             }
             self.apply_pending_victim_goal();
             if self.current_state_id.is_none() {
@@ -2417,3 +2439,7 @@ mod object_owner_tests;
 #[cfg(test)]
 #[path = "state_machine_snapshot_contract_tests.rs"]
 mod snapshot_contract_tests;
+
+#[cfg(test)]
+#[path = "state_machine_callback_change_tests.rs"]
+mod callback_change_tests;

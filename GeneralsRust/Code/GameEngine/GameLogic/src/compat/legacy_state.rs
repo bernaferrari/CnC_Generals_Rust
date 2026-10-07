@@ -41,6 +41,14 @@ pub trait LegacyState: Send + Sync + Any + std::fmt::Debug {
     ) -> Result<StateReturnType, String> {
         self.on_update()
     }
+    fn on_exit_with_ai(
+        &mut self,
+        exit: StateExitType,
+        _ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<StateReturnType, String> {
+        self.on_exit(exit)
+    }
+
     /// Debug-friendly state name.
     fn state_name(&self) -> &str;
     /// Unique state identifier assigned by the machine.
@@ -178,6 +186,15 @@ impl<S: LegacyState + 'static> core::StateImplementation for LegacyStateAdapter<
     fn on_exit(&mut self, exit: StateExitType) {
         let state_name = self.inner.state_name().to_string();
         let _ = Self::map_result(state_name.as_str(), self.inner.on_exit(exit));
+    }
+
+    fn on_exit_with_ai(
+        &mut self,
+        exit: StateExitType,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) {
+        let name = self.inner.state_name().to_string();
+        let _ = Self::map_result(&name, self.inner.on_exit_with_ai(exit, ai));
     }
 
     fn update(&mut self) -> StateReturnType {
@@ -379,6 +396,14 @@ pub trait ClassicState: std::fmt::Debug + Send + Sync {
     /// Original `OnExit` callback.
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String>;
 
+    fn classic_on_exit_with_ai(
+        &mut self,
+        exit: StateExitType,
+        _ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<(), String> {
+        self.classic_on_exit(exit)
+    }
+
     /// Override when the state should be considered idle.
     fn classic_is_idle(&self) -> bool {
         false
@@ -454,6 +479,15 @@ where
 
     fn on_exit(&mut self, exit: StateExitType) -> Result<StateReturnType, String> {
         self.classic_on_exit(exit)
+            .map(|_| StateReturnType::Continue)
+    }
+
+    fn on_exit_with_ai(
+        &mut self,
+        exit: StateExitType,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<StateReturnType, String> {
+        self.classic_on_exit_with_ai(exit, ai)
             .map(|_| StateReturnType::Continue)
     }
 

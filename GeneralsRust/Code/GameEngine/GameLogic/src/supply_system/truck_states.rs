@@ -29,7 +29,8 @@ fn supply_owner_ai(owner_id: ObjectID) -> Option<Arc<Mutex<dyn AIUpdateInterface
     ai
 }
 
-/// Owned state-machine fields. The five C++ states have no snapshot payload.
+/// Owned state-machine fields. Busy/Idle have empty snapshots; the other three
+/// C++ states transfer their payload version without additional fields.
 /// No callback stores an AI handle or independently lockable module state.
 #[derive(Debug)]
 struct SupplyTruckStateMachine {
@@ -282,8 +283,17 @@ impl SupplyTruckStateMachine {
         }
     }
 
-    /// Existing initialized Rust StateMachine.xfer envelope, byte for byte.
-    /// Supply states' C++ snapshot payloads are empty. No callbacks run on load.
+    fn xfer_state_payload(id: u32, xfer: &mut dyn Xfer) -> Result<(), String> {
+        if matches!(id, ST_WANTING | ST_REGROUPING | ST_DOCKING) {
+            let mut version = 1;
+            xfer.xfer_version(&mut version, 1)
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    /// C++ StateMachine.cpp799-868 and SupplyTruckAIUpdate.h44/62/79 wire.
+    /// Restore the state reference and payload without executing callbacks.
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version = 1;
         xfer.xfer_version(&mut version, 1)
@@ -300,18 +310,42 @@ impl SupplyTruckStateMachine {
         if xfer.get_xfer_mode() == game_engine::common::system::XferMode::Load {
             // Preserve the generic serializer's fallback to the default state
             // before either current-state or debug-all-state payload handling.
-            self.state =
-                Self::state_from_id(current).or_else(|| Self::state_from_id(self.default_state_id));
+            let restored = Self::state_from_id(current)
+                .or_else(|| Self::state_from_id(self.default_state_id))
+                .ok_or_else(|| "SupplyTruck current/default state missing".to_string())?;
+            self.state = Some(restored);
         }
         let mut snapshot_all = false;
         xfer.xfer_bool(&mut snapshot_all)
             .map_err(|e| e.to_string())?;
-        // The prior generic Rust envelope also omitted debug all-state payloads.
-        if !snapshot_all && self.state.is_none() {
-            self.state = Self::state_from_id(self.default_state_id);
-            if self.state.is_none() {
-                return Err("SupplyTruck current/default state missing".into());
+        if snapshot_all {
+            let mut count = 5i32;
+            xfer.xfer_int(&mut count).map_err(|e| e.to_string())?;
+            if count != 5 {
+                return Err(format!(
+                    "SupplyTruck state count mismatch: expected 5, read {count}"
+                ));
             }
+            // C++ std::map visits numeric IDs, rather than definition order.
+            for expected in [ST_IDLE, ST_BUSY, ST_WANTING, ST_REGROUPING, ST_DOCKING] {
+                let mut saved = expected;
+                xfer.xfer_unsigned_int(&mut saved)
+                    .map_err(|e| e.to_string())?;
+                if saved != expected {
+                    return Err(format!(
+                        "SupplyTruck state ID mismatch: expected {expected}, read {saved}"
+                    ));
+                }
+                Self::xfer_state_payload(expected, xfer)?;
+            }
+        } else {
+            if self.state.is_none() {
+                self.state = Self::state_from_id(self.default_state_id);
+            }
+            let state = self
+                .state
+                .ok_or_else(|| "SupplyTruck current/default state missing".to_string())?;
+            Self::xfer_state_payload(state as u32, xfer)?;
         }
         xfer.xfer_object_id(&mut self.goal_object_id)
             .map_err(|e| e.to_string())?;

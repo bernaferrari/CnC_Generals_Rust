@@ -125,10 +125,24 @@ fn supply_ordered_forced_busy_precedes_wanting_and_idle_precedes_docking() {
 }
 
 #[derive(Debug)]
-struct EmptyState;
+struct EmptyState(u32);
 impl crate::state_machine::StateImplementation for EmptyState {
+    fn get_id(&self) -> u32 {
+        self.0
+    }
+    fn set_id(&mut self, id: u32) {
+        self.0 = id;
+    }
     fn update(&mut self) -> StateReturnType {
         StateReturnType::Continue
+    }
+    fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        if matches!(self.0, ST_WANTING | ST_REGROUPING | ST_DOCKING) {
+            let mut version = 1;
+            xfer.xfer_version(&mut version, 1)
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(())
     }
 }
 
@@ -140,7 +154,13 @@ fn owned_supply_xfer_matches_real_generic_machine_and_restores_without_callbacks
         "SupplyTruckStateMachine",
     );
     for id in [ST_BUSY, ST_IDLE, ST_WANTING, ST_REGROUPING, ST_DOCKING] {
-        old.define_state(id, Box::new(EmptyState), Some(ST_BUSY), Some(ST_BUSY), None);
+        old.define_state(
+            id,
+            Box::new(EmptyState(id)),
+            Some(ST_BUSY),
+            Some(ST_BUSY),
+            None,
+        );
     }
     old.init_default_state();
     let mut old_bytes = Vec::new();
@@ -182,6 +202,12 @@ fn owned_supply_xfer_matches_real_generic_machine_and_restores_without_callbacks
             let mut input = bytes.clone();
             input[9..13].copy_from_slice(&id.to_le_bytes());
             input[13] = u8::from(snapshot_all);
+            if snapshot_all {
+                input.splice(14..14, all_states_table());
+            } else if matches!(id, ST_WANTING | ST_REGROUPING | ST_DOCKING) {
+                // These three C++ states have a one-byte v1 payload (header44,62,79).
+                input.insert(14, 1);
+            }
             old.xfer(&mut XferLoad::new(Cursor::new(input.as_slice()), 1))
                 .unwrap();
             restored
@@ -197,5 +223,139 @@ fn owned_supply_xfer_matches_real_generic_machine_and_restores_without_callbacks
                 .unwrap();
             assert_eq!(owned_restored, old_restored);
         }
+    }
+}
+
+// C++ StateMachine.cpp799-868; SupplyTruckAIUpdate.h44,62,79 has v1
+// payloads for Wanting/Regrouping/Docking. Busy/Idle .cpp278,322 are empty.
+fn all_states_table() -> Vec<u8> {
+    let mut table = 5i32.to_le_bytes().to_vec();
+    for id in [ST_IDLE, ST_BUSY, ST_WANTING, ST_REGROUPING, ST_DOCKING] {
+        table.extend(id.to_le_bytes());
+        if matches!(id, ST_WANTING | ST_REGROUPING | ST_DOCKING) {
+            table.push(1);
+        }
+    }
+    table
+}
+fn all_states_packet() -> Vec<u8> {
+    let mut bytes = vec![1];
+    for value in [37u32, ST_BUSY, ST_WANTING] {
+        bytes.extend(value.to_le_bytes());
+    }
+    bytes.push(1);
+    bytes.extend(all_states_table());
+    bytes.extend(0x1234ABCDu32.to_le_bytes());
+    for value in [2.5f32, -3.5, 7.0] {
+        bytes.extend(value.to_le_bytes());
+    }
+    bytes.extend([1, 1]);
+    assert_eq!(bytes.len(), 59);
+    bytes
+}
+#[test]
+fn all_state_table_loads_before_supply_tail_and_resaves_retail_without_callbacks() {
+    let input = all_states_packet();
+    let mut owned = SupplyTruckStateMachine::new(INVALID_ID);
+    owned
+        .xfer(&mut XferLoad::new(Cursor::new(input.as_slice()), 1))
+        .unwrap();
+    assert_eq!(owned.current_state_id(), Some(ST_WANTING));
+    assert_eq!(owned.sleep_till, 37);
+    assert_eq!(owned.goal_object_id, 0x1234ABCD);
+    assert_eq!(owned.goal_position, Coord3D::new(2.5, -3.5, 7.0));
+    assert!(owned.locked);
+    assert!(owned.default_state_inited);
+    let mut saved = Vec::new();
+    owned
+        .xfer(&mut XferSave::new(Cursor::new(&mut saved), 1))
+        .unwrap();
+    let mut retail = input.clone();
+    retail[13] = 0;
+    retail.drain(14..41);
+    retail.insert(14, 1);
+    assert_eq!(
+        saved, retail,
+        "retail save disables all-state mode but preserves the loaded tail exactly"
+    );
+}
+#[test]
+fn supply_all_state_count_mismatch_fails_before_tail() {
+    for count in [-1i32, 0, 4, 6] {
+        let mut input = all_states_packet();
+        input[14..18].copy_from_slice(&count.to_le_bytes());
+        let mut cursor = Cursor::new(input);
+        let mut owned = SupplyTruckStateMachine::new(INVALID_ID);
+        let result = owned.xfer(&mut XferLoad::new(&mut cursor, 1));
+        assert!(result.is_err(), "must reject signed count {count}");
+        assert_eq!(cursor.position(), 18);
+    }
+}
+#[test]
+fn supply_all_state_id_mismatch_fails_at_exact_id() {
+    for (index, start) in [18, 22, 26, 31, 36].into_iter().enumerate() {
+        let mut input = all_states_packet();
+        input[start..start + 4].copy_from_slice(&0xDEAD_BEEFu32.to_le_bytes());
+        let mut cursor = Cursor::new(input);
+        let mut owned = SupplyTruckStateMachine::new(INVALID_ID);
+        let result = owned.xfer(&mut XferLoad::new(&mut cursor, 1));
+        assert!(
+            result.is_err(),
+            "must reject mismatched table index {index}"
+        );
+        assert_eq!(cursor.position(), (start + 4) as u64);
+    }
+}
+#[test]
+fn supply_missing_current_and_default_fails_before_selector_without_erasing_state() {
+    let mut input = all_states_packet();
+    input[5..9].copy_from_slice(&0xDEAD_BEEFu32.to_le_bytes());
+    input[9..13].copy_from_slice(&0xDEAD_BEEFu32.to_le_bytes());
+    let mut cursor = Cursor::new(input);
+    let mut owned = SupplyTruckStateMachine::new(INVALID_ID);
+    owned.state = Some(SupplyTruckState::Busy);
+    assert!(owned.xfer(&mut XferLoad::new(&mut cursor, 1)).is_err());
+    assert_eq!(
+        cursor.position(),
+        13,
+        "C++ internalGetState throws before reading snapshotAllStates"
+    );
+    assert_eq!(owned.current_state_id(), Some(ST_BUSY));
+}
+#[test]
+fn supply_null_retail_save_writes_invalid_then_heals_default_without_entry() {
+    let mut owned = SupplyTruckStateMachine::new(INVALID_ID);
+    let mut first = Vec::new();
+    owned
+        .xfer(&mut XferSave::new(Cursor::new(&mut first), 1))
+        .unwrap();
+    assert_eq!(
+        &first[9..13],
+        &crate::state_machine::INVALID_STATE_ID.to_le_bytes()
+    );
+    assert_eq!(owned.current_state_id(), Some(ST_BUSY));
+    assert!(
+        !owned.default_state_inited,
+        "healing the state reference is not onEnter"
+    );
+    let mut second = Vec::new();
+    owned
+        .xfer(&mut XferSave::new(Cursor::new(&mut second), 1))
+        .unwrap();
+    assert_eq!(&second[9..13], &ST_BUSY.to_le_bytes());
+    assert_eq!(first.len(), 32);
+    assert_eq!(second.len(), 32);
+    assert_eq!(&first[13..], &second[13..]);
+}
+
+#[test]
+fn supply_all_state_future_payload_version_fails_at_exact_state() {
+    for offset in [30, 35, 40] {
+        let mut input = all_states_packet();
+        input[offset] = 2;
+        let mut cursor = Cursor::new(input);
+        let mut owned = SupplyTruckStateMachine::new(INVALID_ID);
+        assert!(owned.xfer(&mut XferLoad::new(&mut cursor, 1)).is_err());
+        assert_eq!(cursor.position(), (offset + 1) as u64);
     }
 }

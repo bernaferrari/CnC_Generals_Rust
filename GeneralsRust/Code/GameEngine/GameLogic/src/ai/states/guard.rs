@@ -344,6 +344,32 @@ impl StateImplementation for AIGuardRetaliateState {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
+    fn on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        _goal_id: crate::common::ObjectID,
+        _goal_pos: Coord3D,
+    ) -> StateReturnType {
+        self.classic_on_enter_with_ai(ai)
+            .unwrap_or(StateReturnType::Failure)
+    }
+
+    fn update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> StateReturnType {
+        self.classic_on_update_with_ai(ai)
+            .unwrap_or(StateReturnType::Failure)
+    }
+
+    fn on_exit_with_ai(
+        &mut self,
+        exit: StateExitType,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) {
+        let _ = self.classic_on_exit_with_ai(exit, ai);
+    }
+
     fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
         self.base.goal_object_id = id;
     }
@@ -390,6 +416,69 @@ impl ClassicState for AIGuardRetaliateState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        self.enter_retaliate(None)
+    }
+
+    fn classic_on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<StateReturnType, String> {
+        self.enter_retaliate(Some(ai))
+    }
+
+    fn classic_on_update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<StateReturnType, String> {
+        Ok(self
+            .guard_machine
+            .as_mut()
+            .map(|machine| machine.update_with_ai(ai))
+            .unwrap_or(StateReturnType::Failure))
+    }
+
+    fn classic_on_exit_with_ai(
+        &mut self,
+        _exit: StateExitType,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<(), String> {
+        if let Some(mut machine) = self.guard_machine.take() {
+            let _ = machine.halt();
+        }
+        ai.clear_guard_target_type();
+        Ok(())
+    }
+
+    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        let Some(guard_machine) = self.guard_machine.as_mut() else {
+            return Ok(StateReturnType::Failure);
+        };
+
+        Ok(guard_machine.update())
+    }
+
+    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+        if let Some(mut machine) = self.guard_machine.take() {
+            let _ = machine.halt();
+        }
+        // C++ AIGuardRetaliateState::onExit: obj->getAI()->clearGuardTargetType()
+        clear_owner_guard_target_type(&self.base);
+        Ok(())
+    }
+
+    fn classic_is_attack(&self) -> bool {
+        self.guard_machine
+            .as_ref()
+            .map(|machine| machine.is_in_attack_state())
+            .unwrap_or(false)
+    }
+}
+
+impl AIGuardRetaliateState {
+    fn enter_retaliate(
+        &mut self,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
@@ -417,33 +506,12 @@ impl ClassicState for AIGuardRetaliateState {
             }
         }
 
-        let result = guard_machine.init_default_state();
+        let result = match ai {
+            Some(ai) => guard_machine.init_default_state_with_ai(ai),
+            None => guard_machine.init_default_state(),
+        };
         self.guard_machine = Some(guard_machine);
         Ok(result)
-    }
-
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        let Some(guard_machine) = self.guard_machine.as_mut() else {
-            return Ok(StateReturnType::Failure);
-        };
-
-        Ok(guard_machine.update())
-    }
-
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        if let Some(mut machine) = self.guard_machine.take() {
-            let _ = machine.halt();
-        }
-        // C++ AIGuardRetaliateState::onExit: obj->getAI()->clearGuardTargetType()
-        clear_owner_guard_target_type(&self.base);
-        Ok(())
-    }
-
-    fn classic_is_attack(&self) -> bool {
-        self.guard_machine
-            .as_ref()
-            .map(|machine| machine.is_in_attack_state())
-            .unwrap_or(false)
     }
 }
 

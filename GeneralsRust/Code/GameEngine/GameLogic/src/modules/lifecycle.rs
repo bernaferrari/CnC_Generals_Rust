@@ -198,6 +198,22 @@ pub trait DockUpdateInterface: Send + Sync {
         drone_id: Option<ObjectID>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>;
 
+    /// Perform the action with the exact docker and its already borrowed AI.
+    /// Supply docks override this to avoid acquiring the driving AI again.
+    /// The caller must supply the AI belonging to `docker`.
+    fn action_with_ai(
+        &mut self,
+        docker: &std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
+        drone_id: Option<ObjectID>,
+        _ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let id = docker
+            .read()
+            .map_err(|_| "dock docker lock poisoned")?
+            .get_id();
+        self.action(id, drone_id)
+    }
+
     /// Get exit position coordinates
     fn get_exit_position(
         &self,
@@ -260,8 +276,7 @@ pub trait ProductionUpdateInterface: Send + Sync {
     /// C++ `ProductionUpdateInterface::isUpgradeInQueue`.
     fn is_upgrade_in_queue(&self, upgrade_name: &str) -> bool {
         self.get_queue_entries().iter().any(|entry| {
-            entry.production_type
-                == crate::object::production::queue::ProductionType::Upgrade
+            entry.production_type == crate::object::production::queue::ProductionType::Upgrade
                 && entry.template_name.eq_ignore_ascii_case(upgrade_name)
         })
     }
@@ -313,4 +328,3 @@ pub trait ProjectileUpdateInterface {
 /// `DynamicInterfaceCast(ModuleInterfaceType::UPDATE)` interface query. The
 /// `crate::modules::UpdateModuleInterface` path is unchanged for callers.
 pub use game_engine::common::thing::update_module::UpdateModuleInterface;
-
