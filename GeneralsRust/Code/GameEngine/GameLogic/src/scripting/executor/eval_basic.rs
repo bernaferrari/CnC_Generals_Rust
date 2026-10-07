@@ -320,7 +320,9 @@ impl ScriptConditionEvaluator {
             // ============================================================================
             // CAMERA CONDITIONS
             // ============================================================================
-            ConditionType::CameraMovementFinished => self.eval_camera_movement_finished(condition),
+            ConditionType::CameraMovementFinished => {
+                self.eval_camera_movement_finished(condition, driver)
+            }
 
             // ============================================================================
             // BUILDING CONDITIONS

@@ -175,6 +175,7 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_setup_camera(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint = self.get_string_param(action, 0)?;
         let zoom = self.get_real_param(action, 1)?;
@@ -205,41 +206,38 @@ impl ScriptActionDispatcher {
             look_at_waypoint
         );
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.setup_camera(
-                position.x, position.y, position.z, zoom, pitch, look_at.x, look_at.y, look_at.z,
-            ) {
-                log::warn!("Script action handler setup_camera failed: {}", err);
-            }
-        }
+        self.dispatch_camera_request(
+            ScriptCameraRequest::Setup {
+                x: position.x,
+                y: position.y,
+                z: position.z,
+                zoom,
+                pitch,
+                look_toward_x: look_at.x,
+                look_toward_y: look_at.y,
+                look_toward_z: look_at.z,
+            },
+            driver,
+        );
         Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_camera_letterbox_begin(
         &mut self,
         _action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Beginning camera letterbox");
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.camera_letterbox_begin() {
-                log::warn!(
-                    "Script action handler camera_letterbox_begin failed: {}",
-                    err
-                );
-            }
-            return Ok(ScriptActionResult::Success);
-        }
+        self.dispatch_camera_request(ScriptCameraRequest::LetterboxBegin, driver);
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_camera_letterbox_end(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_camera_letterbox_end(
+        &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Ending camera letterbox");
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.camera_letterbox_end() {
-                log::warn!("Script action handler camera_letterbox_end failed: {}", err);
-            }
-            return Ok(ScriptActionResult::Success);
-        }
+        self.dispatch_camera_request(ScriptCameraRequest::LetterboxEnd, driver);
         Ok(ScriptActionResult::Success)
     }
 
@@ -449,18 +447,18 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_camera_bw_mode_begin(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let frames = action.get_parameter(0).map(|p| p.get_int()).unwrap_or(0);
         log::debug!("Beginning camera B&W mode over {} frames", frames);
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.set_camera_bw_mode(true, frames) {
-                log::warn!(
-                    "Script action handler set_camera_bw_mode(true) failed: {}",
-                    err
-                );
-            }
-        }
+        self.dispatch_camera_request(
+            ScriptCameraRequest::BwMode {
+                enabled: true,
+                frames,
+            },
+            driver,
+        );
 
         Ok(ScriptActionResult::Success)
     }
@@ -468,48 +466,43 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_camera_bw_mode_end(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let frames = action.get_parameter(0).map(|p| p.get_int()).unwrap_or(0);
         log::debug!("Ending camera B&W mode over {} frames", frames);
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.set_camera_bw_mode(false, frames) {
-                log::warn!(
-                    "Script action handler set_camera_bw_mode(false) failed: {}",
-                    err
-                );
-            }
-        }
+        self.dispatch_camera_request(
+            ScriptCameraRequest::BwMode {
+                enabled: false,
+                frames,
+            },
+            driver,
+        );
 
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_draw_skybox_begin(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_draw_skybox_begin(
+        &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Beginning skybox draw");
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.set_skybox_enabled(true) {
-                log::warn!(
-                    "Script action handler set_skybox_enabled(true) failed: {}",
-                    err
-                );
-            }
-        }
+        self.dispatch_camera_request(ScriptCameraRequest::SkyboxEnabled { enabled: true }, driver);
 
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_draw_skybox_end(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_draw_skybox_end(
+        &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Ending skybox draw");
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.set_skybox_enabled(false) {
-                log::warn!(
-                    "Script action handler set_skybox_enabled(false) failed: {}",
-                    err
-                );
-            }
-        }
+        self.dispatch_camera_request(
+            ScriptCameraRequest::SkyboxEnabled { enabled: false },
+            driver,
+        );
 
         Ok(ScriptActionResult::Success)
     }
@@ -517,6 +510,7 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_camera_motion_blur(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let zoom_in = self.get_bool_param_optional(action, 0).unwrap_or(false);
         let saturate = self.get_bool_param_optional(action, 1).unwrap_or(false);
@@ -526,11 +520,10 @@ impl ScriptActionDispatcher {
             saturate
         );
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.camera_motion_blur(zoom_in, saturate) {
-                log::warn!("Script action handler camera_motion_blur failed: {}", err);
-            }
-        }
+        self.dispatch_camera_request(
+            ScriptCameraRequest::MotionBlur { zoom_in, saturate },
+            driver,
+        );
 
         Ok(ScriptActionResult::Success)
     }
@@ -538,6 +531,7 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_camera_motion_blur_jump(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint_name = self.get_string_param(action, 0)?;
         let saturate = self.get_bool_param_optional(action, 1).unwrap_or(false);
@@ -562,17 +556,15 @@ impl ScriptActionDispatcher {
             saturate
         );
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) =
-                handler.camera_motion_blur_jump(target.x, target.y, target.z, saturate)
-            {
-                log::warn!(
-                    "Script action handler camera_motion_blur_jump failed: {}",
-                    err
-                );
-                let _ = handler.move_camera_to(target.x, target.y, target.z, 0.0, 0.0, 0.0, 0.0);
-            }
-        }
+        self.dispatch_camera_request(
+            ScriptCameraRequest::MotionBlurJump {
+                x: target.x,
+                y: target.y,
+                z: target.z,
+                saturate,
+            },
+            driver,
+        );
 
         Ok(ScriptActionResult::Success)
     }
@@ -580,35 +572,23 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_camera_motion_blur_follow(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let amount = self.get_int_param(action, 0)?;
         log::debug!("Camera motion blur follow amount {}", amount);
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.camera_motion_blur_follow(amount) {
-                log::warn!(
-                    "Script action handler camera_motion_blur_follow failed: {}",
-                    err
-                );
-            }
-        }
+        self.dispatch_camera_request(ScriptCameraRequest::MotionBlurFollow { amount }, driver);
 
         Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_camera_motion_blur_end_follow(
         &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Ending camera motion blur follow");
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.camera_motion_blur_end_follow() {
-                log::warn!(
-                    "Script action handler camera_motion_blur_end_follow failed: {}",
-                    err
-                );
-            }
-        }
+        self.dispatch_camera_request(ScriptCameraRequest::MotionBlurEndFollow, driver);
 
         Ok(ScriptActionResult::Success)
     }
@@ -625,6 +605,7 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_camera_tether_named(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let snap_to_unit = self.get_bool_param_optional(action, 1).unwrap_or(false);
@@ -663,24 +644,24 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.camera_tether_object(object_id, snap_to_unit, play) {
-                log::warn!("Script action handler camera_tether_object failed: {}", err);
-            }
-        }
+        self.dispatch_camera_request(
+            ScriptCameraRequest::TetherObject {
+                object_id,
+                snap_to_unit,
+                play,
+            },
+            driver,
+        );
         Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_camera_stop_tether_named(
         &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Stopping camera tether");
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.stop_camera_follow() {
-                log::warn!("Script action handler stop_camera_follow failed: {}", err);
-            }
-        }
+        self.dispatch_camera_request(ScriptCameraRequest::StopFollow, driver);
 
         Ok(ScriptActionResult::Success)
     }
@@ -688,6 +669,7 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_camera_set_default(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let pitch = self.get_real_param(action, 0)?;
         let angle = self.get_real_param(action, 1)?;
@@ -700,11 +682,14 @@ impl ScriptActionDispatcher {
             max_height
         );
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.camera_set_default(pitch, angle, max_height) {
-                log::warn!("Script action handler camera_set_default failed: {}", err);
-            }
-        }
+        self.dispatch_camera_request(
+            ScriptCameraRequest::SetDefault {
+                pitch,
+                angle,
+                max_height,
+            },
+            driver,
+        );
 
         Ok(ScriptActionResult::Success)
     }
@@ -712,6 +697,7 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_camera_look_toward_object(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let object_name = self.get_string_param(action, 0)?;
         let seconds = action.get_parameter(1).map(|p| p.get_real()).unwrap_or(0.0);
@@ -750,20 +736,16 @@ impl ScriptActionDispatcher {
         );
 
         if let Some(object_id) = object_id {
-            if let Some(handler) = current_script_action_handler() {
-                if let Err(err) = handler.camera_look_toward_object(
+            self.dispatch_camera_request(
+                ScriptCameraRequest::LookTowardObject {
                     object_id,
                     seconds,
                     hold_seconds,
                     ease_in_seconds,
                     ease_out_seconds,
-                ) {
-                    log::warn!(
-                        "Script action handler camera_look_toward_object failed: {}",
-                        err
-                    );
-                }
-            }
+                },
+                driver,
+            );
         } else {
             log::warn!("Camera look toward object '{}' not found", object_name);
         }
@@ -773,6 +755,7 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_camera_look_toward_waypoint(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint = self.get_string_param(action, 0)?;
         let seconds = action.get_parameter(1).map(|p| p.get_real()).unwrap_or(0.0);
@@ -797,22 +780,18 @@ impl ScriptActionDispatcher {
         );
 
         if let Some(target) = target {
-            if let Some(handler) = current_script_action_handler() {
-                if let Err(err) = handler.camera_look_toward_waypoint(
-                    target.x,
-                    target.y,
-                    target.z,
+            self.dispatch_camera_request(
+                ScriptCameraRequest::LookTowardWaypoint {
+                    x: target.x,
+                    y: target.y,
+                    z: target.z,
                     seconds,
                     ease_in_seconds,
                     ease_out_seconds,
                     reverse_rotation,
-                ) {
-                    log::warn!(
-                        "Script action handler camera_look_toward_waypoint failed: {}",
-                        err
-                    );
-                }
-            }
+                },
+                driver,
+            );
         } else {
             log::warn!("Camera look toward waypoint '{}' not found", waypoint);
         }
@@ -917,6 +896,7 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_camera_mod_final_look_toward(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint = self.get_string_param(action, 0)?;
         let waypoint_ascii = AsciiString::from(waypoint.as_str());
@@ -928,15 +908,14 @@ impl ScriptActionDispatcher {
         log::debug!("Camera mod final look toward '{}'", waypoint);
 
         if let Some(target) = target {
-            if let Some(handler) = current_script_action_handler() {
-                if let Err(err) = handler.camera_mod_final_look_toward(target.x, target.y, target.z)
-                {
-                    log::warn!(
-                        "Script action handler camera_mod_final_look_toward failed: {}",
-                        err
-                    );
-                }
-            }
+            self.dispatch_camera_request(
+                ScriptCameraRequest::FinalLookToward {
+                    x: target.x,
+                    y: target.y,
+                    z: target.z,
+                },
+                driver,
+            );
         } else {
             log::warn!(
                 "Camera mod final look toward waypoint '{}' not found",
@@ -949,6 +928,7 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_camera_mod_look_toward(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint = self.get_string_param(action, 0)?;
         let waypoint_ascii = AsciiString::from(waypoint.as_str());
@@ -960,14 +940,14 @@ impl ScriptActionDispatcher {
         log::debug!("Camera mod look toward '{}'", waypoint);
 
         if let Some(target) = target {
-            if let Some(handler) = current_script_action_handler() {
-                if let Err(err) = handler.camera_mod_look_toward(target.x, target.y, target.z) {
-                    log::warn!(
-                        "Script action handler camera_mod_look_toward failed: {}",
-                        err
-                    );
-                }
-            }
+            self.dispatch_camera_request(
+                ScriptCameraRequest::LookToward {
+                    x: target.x,
+                    y: target.y,
+                    z: target.z,
+                },
+                driver,
+            );
         } else {
             log::warn!("Camera mod look toward waypoint '{}' not found", waypoint);
         }
@@ -977,6 +957,7 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_camera_enable_slave_mode(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let thing_template_name = self.get_string_param(action, 0)?;
         let bone_name = self.get_string_param(action, 1)?;
@@ -986,36 +967,30 @@ impl ScriptActionDispatcher {
             bone_name
         );
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.camera_enable_slave_mode(&thing_template_name, &bone_name) {
-                log::warn!(
-                    "Script action handler camera_enable_slave_mode failed: {}",
-                    err
-                );
-            }
-        }
+        self.dispatch_camera_request(
+            ScriptCameraRequest::EnableSlaveMode {
+                thing_template_name: &thing_template_name,
+                bone_name: &bone_name,
+            },
+            driver,
+        );
         Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_camera_disable_slave_mode(
         &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Disabling camera slave mode");
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.camera_disable_slave_mode() {
-                log::warn!(
-                    "Script action handler camera_disable_slave_mode failed: {}",
-                    err
-                );
-            }
-        }
+        self.dispatch_camera_request(ScriptCameraRequest::DisableSlaveMode, driver);
         Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_camera_add_shaker_at(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint = self.get_string_param(action, 0)?;
         let amplitude = self.get_real_param(action, 1)?;
@@ -1038,18 +1013,17 @@ impl ScriptActionDispatcher {
         );
 
         if let Some(target) = target {
-            if let Some(handler) = current_script_action_handler() {
-                if let Err(err) = handler.camera_add_shaker_at(
-                    target.x,
-                    target.y,
-                    target.z,
+            self.dispatch_camera_request(
+                ScriptCameraRequest::AddShakerAt {
+                    x: target.x,
+                    y: target.y,
+                    z: target.z,
                     amplitude,
                     duration_seconds,
                     radius,
-                ) {
-                    log::warn!("Script action handler camera_add_shaker_at failed: {}", err);
-                }
-            }
+                },
+                driver,
+            );
         } else {
             log::warn!("Camera shaker waypoint '{}' not found", waypoint);
         }
@@ -1059,15 +1033,12 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_screen_shake(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let intensity = self.get_int_param(action, 0)?;
         log::debug!("Screen shake intensity {}", intensity);
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.screen_shake(intensity) {
-                log::warn!("Script action handler screen_shake failed: {}", err);
-            }
-        }
+        self.dispatch_camera_request(ScriptCameraRequest::ScreenShake { intensity }, driver);
         Ok(ScriptActionResult::Success)
     }
 }

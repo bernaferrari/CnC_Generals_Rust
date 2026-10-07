@@ -1592,3 +1592,5 @@ mod camera_driver_tests;
 mod completion_driver_tests;
 mod facade_owner_tests;
 mod science_callback_owner_tests;
+
+mod remaining_camera_driver_tests;

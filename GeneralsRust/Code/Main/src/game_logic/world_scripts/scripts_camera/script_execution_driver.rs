@@ -68,6 +68,10 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         })
     }
 
+    fn camera_movement_finished(&mut self) -> Option<bool> {
+        Some(self.world.mission_scripts.is_camera_movement_finished())
+    }
+
     fn camera(
         &mut self,
         request: ScriptCameraRequest<'_>,

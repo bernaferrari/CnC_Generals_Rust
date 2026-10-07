@@ -194,11 +194,11 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         object_id: gamelogic::common::ObjectID,
         snap_to_unit: bool,
     ) -> GameLogicResult<()> {
-        self.hooks.push_camera_follow(CameraFollowRequest {
-            object_id,
-            snap_to_unit,
-        });
-        Ok(())
+        self.hooks
+            .apply_camera_request(ScriptCameraRequest::FollowObject {
+                object_id,
+                snap_to_unit,
+            })
     }
 
     fn camera_tether_object(
@@ -207,20 +207,17 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         snap_to_unit: bool,
         play: f32,
     ) -> GameLogicResult<()> {
-        self.hooks.push_camera_tether(CameraTetherRequest {
-            object_id,
-            snap_to_unit,
-            play,
-        });
-        Ok(())
+        self.hooks
+            .apply_camera_request(ScriptCameraRequest::TetherObject {
+                object_id,
+                snap_to_unit,
+                play,
+            })
     }
 
     fn stop_camera_follow(&self) -> GameLogicResult<()> {
-        self.hooks.push_camera_follow(CameraFollowRequest {
-            object_id: 0,
-            snap_to_unit: false,
-        });
-        Ok(())
+        self.hooks
+            .apply_camera_request(ScriptCameraRequest::StopFollow)
     }
 
     fn reset_camera_to(
@@ -232,13 +229,15 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         ease_in_seconds: f32,
         ease_out_seconds: f32,
     ) -> GameLogicResult<()> {
-        self.hooks.push_camera_reset(CameraResetRequest {
-            position: camera_coord3d_to_world(x, y, z),
-            duration_seconds,
-            ease_in_seconds,
-            ease_out_seconds,
-        });
-        Ok(())
+        self.hooks
+            .apply_camera_request(ScriptCameraRequest::ResetTo {
+                x,
+                y,
+                z,
+                duration_seconds,
+                ease_in_seconds,
+                ease_out_seconds,
+            })
     }
 
     fn set_camera_zoom(&self, zoom: f32, duration_seconds: f32) -> GameLogicResult<()> {
@@ -388,28 +387,23 @@ impl ScriptActionHandler for MissionScriptActionHandler {
     }
 
     fn resize_view_guardband(&self, gbx: f32, gby: f32) -> GameLogicResult<()> {
-        self.hooks.push_view_guardband(ViewGuardbandRequest {
-            x_bias: gbx,
-            y_bias: gby,
-        });
-        Ok(())
+        self.hooks
+            .apply_camera_request(ScriptCameraRequest::ViewGuardband { gbx, gby })
     }
 
     fn set_camera_bw_mode(&self, enabled: bool, frames: i32) -> GameLogicResult<()> {
         self.hooks
-            .push_camera_bw_mode(CameraBwModeRequest { enabled, frames });
-        Ok(())
+            .apply_camera_request(ScriptCameraRequest::BwMode { enabled, frames })
     }
 
     fn set_skybox_enabled(&self, enabled: bool) -> GameLogicResult<()> {
-        self.hooks.push_skybox_enabled(enabled);
-        Ok(())
+        self.hooks
+            .apply_camera_request(ScriptCameraRequest::SkyboxEnabled { enabled })
     }
 
     fn camera_motion_blur(&self, zoom_in: bool, saturate: bool) -> GameLogicResult<()> {
         self.hooks
-            .push_camera_motion_blur(CameraMotionBlurRequest::Basic { zoom_in, saturate });
-        Ok(())
+            .apply_camera_request(ScriptCameraRequest::MotionBlur { zoom_in, saturate })
     }
 
     fn camera_motion_blur_jump(
@@ -420,23 +414,17 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         saturate: bool,
     ) -> GameLogicResult<()> {
         self.hooks
-            .push_camera_motion_blur(CameraMotionBlurRequest::Jump {
-                position: camera_coord3d_to_world(x, y, z),
-                saturate,
-            });
-        Ok(())
+            .apply_camera_request(ScriptCameraRequest::MotionBlurJump { x, y, z, saturate })
     }
 
     fn camera_motion_blur_follow(&self, amount: i32) -> GameLogicResult<()> {
         self.hooks
-            .push_camera_motion_blur(CameraMotionBlurRequest::Follow { amount });
-        Ok(())
+            .apply_camera_request(ScriptCameraRequest::MotionBlurFollow { amount })
     }
 
     fn camera_motion_blur_end_follow(&self) -> GameLogicResult<()> {
         self.hooks
-            .push_camera_motion_blur(CameraMotionBlurRequest::EndFollow);
-        Ok(())
+            .apply_camera_request(ScriptCameraRequest::MotionBlurEndFollow)
     }
 
     fn cameo_flash(&self, command_button_name: &str, flash_count: i32) -> GameLogicResult<()> {
@@ -561,13 +549,16 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         look_toward_y: f32,
         look_toward_z: f32,
     ) -> GameLogicResult<()> {
-        self.hooks.push_camera_setup(CameraSetupRequest {
-            position: camera_coord3d_to_world(x, y, z),
+        self.hooks.apply_camera_request(ScriptCameraRequest::Setup {
+            x,
+            y,
+            z,
             zoom,
             pitch,
-            look_toward: camera_coord3d_to_world(look_toward_x, look_toward_y, look_toward_z),
-        });
-        Ok(())
+            look_toward_x,
+            look_toward_y,
+            look_toward_z,
+        })
     }
 
     fn camera_look_toward_object(
@@ -579,14 +570,13 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         ease_out_seconds: f32,
     ) -> GameLogicResult<()> {
         self.hooks
-            .push_camera_look_toward_object(CameraLookTowardObjectRequest {
+            .apply_camera_request(ScriptCameraRequest::LookTowardObject {
                 object_id,
-                duration_seconds: seconds,
+                seconds,
                 hold_seconds,
                 ease_in_seconds,
                 ease_out_seconds,
-            });
-        Ok(())
+            })
     }
 
     fn camera_look_toward_waypoint(
@@ -600,49 +590,44 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         reverse_rotation: bool,
     ) -> GameLogicResult<()> {
         self.hooks
-            .push_camera_look_toward_waypoint(CameraLookTowardWaypointRequest {
-                position: camera_coord3d_to_world(x, y, z),
-                duration_seconds: seconds,
+            .apply_camera_request(ScriptCameraRequest::LookTowardWaypoint {
+                x,
+                y,
+                z,
+                seconds,
                 ease_in_seconds,
                 ease_out_seconds,
                 reverse_rotation,
-            });
-        Ok(())
+            })
     }
 
     fn camera_mod_look_toward(&self, x: f32, y: f32, z: f32) -> GameLogicResult<()> {
         self.hooks
-            .push_camera_mod_look_toward(CameraModLookTowardRequest {
-                position: camera_coord3d_to_world(x, y, z),
-            });
-        Ok(())
+            .apply_camera_request(ScriptCameraRequest::LookToward { x, y, z })
     }
 
     fn camera_mod_final_look_toward(&self, x: f32, y: f32, z: f32) -> GameLogicResult<()> {
         self.hooks
-            .push_camera_mod_final_look_toward(CameraModFinalLookTowardRequest {
-                position: camera_coord3d_to_world(x, y, z),
-            });
-        Ok(())
+            .apply_camera_request(ScriptCameraRequest::FinalLookToward { x, y, z })
     }
 
     fn camera_letterbox_begin(&self) -> GameLogicResult<()> {
-        self.hooks.push_letterbox(true);
-        Ok(())
+        self.hooks
+            .apply_camera_request(ScriptCameraRequest::LetterboxBegin)
     }
 
     fn camera_letterbox_end(&self) -> GameLogicResult<()> {
-        self.hooks.push_letterbox(false);
-        Ok(())
+        self.hooks
+            .apply_camera_request(ScriptCameraRequest::LetterboxEnd)
     }
 
     fn camera_set_default(&self, pitch: f32, angle: f32, max_height: f32) -> GameLogicResult<()> {
-        self.hooks.push_camera_set_default(CameraSetDefaultRequest {
-            pitch,
-            angle,
-            max_height,
-        });
-        Ok(())
+        self.hooks
+            .apply_camera_request(ScriptCameraRequest::SetDefault {
+                pitch,
+                angle,
+                max_height,
+            })
     }
 
     fn camera_enable_slave_mode(
@@ -651,22 +636,20 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         bone_name: &str,
     ) -> GameLogicResult<()> {
         self.hooks
-            .push_camera_slave_mode_enable(CameraSlaveModeRequest {
-                thing_template_name: thing_template_name.to_string(),
-                bone_name: bone_name.to_string(),
-            });
-        Ok(())
+            .apply_camera_request(ScriptCameraRequest::EnableSlaveMode {
+                thing_template_name,
+                bone_name,
+            })
     }
 
     fn camera_disable_slave_mode(&self) -> GameLogicResult<()> {
-        self.hooks.push_camera_slave_mode_disable();
-        Ok(())
+        self.hooks
+            .apply_camera_request(ScriptCameraRequest::DisableSlaveMode)
     }
 
     fn screen_shake(&self, intensity: i32) -> GameLogicResult<()> {
         self.hooks
-            .push_screen_shake(ScreenShakeRequest { intensity });
-        Ok(())
+            .apply_camera_request(ScriptCameraRequest::ScreenShake { intensity })
     }
 
     fn camera_add_shaker_at(
@@ -678,13 +661,15 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         duration_seconds: f32,
         radius: f32,
     ) -> GameLogicResult<()> {
-        self.hooks.push_camera_add_shaker(CameraAddShakerRequest {
-            position: camera_coord3d_to_world(x, y, z),
-            amplitude,
-            duration_seconds,
-            radius,
-        });
-        Ok(())
+        self.hooks
+            .apply_camera_request(ScriptCameraRequest::AddShakerAt {
+                x,
+                y,
+                z,
+                amplitude,
+                duration_seconds,
+                radius,
+            })
     }
 
     fn movie_play_fullscreen(&self, filename: &str) -> GameLogicResult<()> {

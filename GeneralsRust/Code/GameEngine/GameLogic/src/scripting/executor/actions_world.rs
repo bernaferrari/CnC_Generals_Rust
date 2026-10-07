@@ -4,6 +4,7 @@
 //! Observable script behavior is unchanged.
 
 use super::*;
+use crate::scripting::engine::{ScriptCameraRequest, ScriptExecutionDriver};
 
 fn resolve_script_named_object_id(unit_name: &str) -> Option<u32> {
     get_named_object_tracker()
@@ -648,19 +649,13 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_resize_view_guardband(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let gbx = self.get_real_param(action, 0)?;
         let gby = self.get_real_param(action, 1)?;
         log::debug!("Resizing view guardband to ({}, {})", gbx, gby);
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.resize_view_guardband(gbx, gby) {
-                log::warn!(
-                    "Script action handler resize_view_guardband failed: {}",
-                    err
-                );
-            }
-        }
+        self.dispatch_camera_request(ScriptCameraRequest::ViewGuardband { gbx, gby }, driver);
 
         Ok(ScriptActionResult::Success)
     }

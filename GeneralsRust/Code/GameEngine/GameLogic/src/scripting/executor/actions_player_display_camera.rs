@@ -370,6 +370,7 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_camera_follow_named(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let snap_to_unit = self.get_bool_param_optional(action, 1).unwrap_or(false);
@@ -407,24 +408,25 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.camera_follow_object(object_id, snap_to_unit) {
-                log::warn!("Script action handler camera_follow_object failed: {}", err);
-            }
-        }
+        self.dispatch_camera_request(
+            ScriptCameraRequest::FollowObject {
+                object_id,
+                snap_to_unit,
+            },
+            driver,
+        );
 
         Ok(ScriptActionResult::Success)
     }
 
     /// C++ Reference: ScriptActions::doStopCameraFollowUnit() line 484
-    pub(crate) fn do_stop_camera_follow(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_stop_camera_follow(
+        &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::info!("Stopping camera follow");
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.stop_camera_follow() {
-                log::warn!("Script action handler stop_camera_follow failed: {}", err);
-            }
-        }
+        self.dispatch_camera_request(ScriptCameraRequest::StopFollow, driver);
 
         Ok(ScriptActionResult::Success)
     }
@@ -432,6 +434,7 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_reset_camera(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint_name = self.get_string_param(action, 0)?;
         let duration_seconds = self.get_real_param(action, 1)?;
@@ -457,18 +460,17 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.reset_camera_to(
-                target.x,
-                target.y,
-                target.z,
+        self.dispatch_camera_request(
+            ScriptCameraRequest::ResetTo {
+                x: target.x,
+                y: target.y,
+                z: target.z,
                 duration_seconds,
                 ease_in_seconds,
                 ease_out_seconds,
-            ) {
-                log::warn!("Script action handler reset_camera_to failed: {}", err);
-            }
-        }
+            },
+            driver,
+        );
 
         Ok(ScriptActionResult::Success)
     }

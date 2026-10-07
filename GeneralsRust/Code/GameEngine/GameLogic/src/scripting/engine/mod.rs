@@ -51,5 +51,6 @@ pub const SCRIPT_ENGINE_SRC: &str = concat!(
     include_str!("leftover.rs"),
     include_str!("named_trackers.rs"),
     include_str!("types.rs"),
+    include_str!("camera_requests.rs"),
     include_str!("update.rs"),
 );

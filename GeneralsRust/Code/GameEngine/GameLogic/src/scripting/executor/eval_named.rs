@@ -1036,8 +1036,16 @@ impl ScriptConditionEvaluator {
     pub(crate) fn eval_camera_movement_finished(
         &self,
         _condition: &Condition,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptConditionResult, ScriptError> {
         log::debug!("Evaluating if camera movement finished");
+        if let Some(finished) = driver.camera_movement_finished() {
+            return Ok(if finished {
+                ScriptConditionResult::True
+            } else {
+                ScriptConditionResult::False
+            });
+        }
         if let Some(Some(finished)) = with_script_engine_ref(|script_engine| {
             script_engine
                 .action_handler()
