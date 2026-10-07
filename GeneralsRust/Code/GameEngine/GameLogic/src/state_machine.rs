@@ -520,6 +520,9 @@ pub struct State {
     pub failure_state_id: StateId,
     pub transitions: Vec<TransitionInfo>,
     pub machine: Option<Weak<Mutex<StateMachine>>>,
+    /// Exact non-owning Object identity. An expired bound owner is never
+    /// replaced by an unrelated object with the same numeric ID.
+    owner: Option<Weak<RwLock<Object>>>,
     /// Copied from [`StateMachine::owner_id`] at construction. No second mutex.
     pub owner_id: crate::common::ObjectID,
     /// Victim id copied from the machine that owns this state. `machine` is often `None`.
@@ -540,6 +543,7 @@ impl State {
     pub fn new(machine: &StateMachine, name: &str) -> Self {
         let mut state = Self::with_machine(None, name);
         state.owner_id = machine.get_owner_id();
+        state.owner = machine.owner.clone();
         state
     }
 
@@ -552,6 +556,7 @@ impl State {
             failure_state_id: INVALID_STATE_ID,
             transitions: Vec::new(),
             machine,
+            owner: None,
             owner_id: crate::common::INVALID_ID,
             goal_object_id: crate::common::INVALID_ID,
             goal_position_copied: None,
@@ -573,8 +578,17 @@ impl State {
         self.id = id;
     }
 
+    /// Bind the owner already known by the driving machine. This does not
+    /// lock or publish the Object, and does not change serialized state.
+    pub(crate) fn bind_owner(&mut self, owner: &Arc<RwLock<Object>>) {
+        self.owner = Some(Arc::downgrade(owner));
+    }
+
     /// Get the machine owner object
     pub fn get_machine_owner(&self) -> Option<Arc<RwLock<Object>>> {
+        if let Some(owner) = &self.owner {
+            return owner.upgrade();
+        }
         if let Some(owner) = self
             .machine
             .as_ref()
@@ -614,6 +628,9 @@ impl State {
     }
 
     pub fn get_machine_owner_id(&self) -> Option<crate::common::ObjectID> {
+        if self.owner.is_some() {
+            return (self.owner_id != crate::common::INVALID_ID).then_some(self.owner_id);
+        }
         if let Some(machine) = self.machine.as_ref().and_then(|weak| weak.upgrade()) {
             if let Ok(guard) = machine.try_lock() {
                 let id = guard.get_owner_id();
@@ -776,6 +793,7 @@ pub struct StateMachine {
     state_map: HashMap<StateId, Box<dyn StateImplementation>>,
     state_meta: HashMap<StateId, StateMeta>,
     owner_id: crate::common::ObjectID,
+    owner: Option<Weak<RwLock<Object>>>,
     sleep_till: u32,
     default_state_id: StateId,
     current_state_id: Option<StateId>,
@@ -813,7 +831,9 @@ impl StateMachine {
             .and_then(|weak| weak.upgrade())
             .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
             .unwrap_or(crate::common::INVALID_ID);
-        Self::new_with_owner_id(owner_id, name)
+        let mut machine = Self::new_with_owner_id(owner_id, name);
+        machine.owner = owner;
+        machine
     }
 
     pub fn new_with_owner_id(owner_id: crate::common::ObjectID, name: &str) -> Self {
@@ -821,6 +841,7 @@ impl StateMachine {
             state_map: HashMap::new(),
             state_meta: HashMap::new(),
             owner_id,
+            owner: None,
             sleep_till: 0,
             default_state_id: INVALID_STATE_ID,
             current_state_id: None,
@@ -1638,6 +1659,9 @@ impl StateMachine {
 
     /// Get the owner object
     pub fn get_owner(&self) -> Option<Arc<RwLock<Object>>> {
+        if let Some(owner) = &self.owner {
+            return owner.upgrade();
+        }
         if self.owner_id == crate::common::INVALID_ID {
             return None;
         }
@@ -1645,11 +1669,18 @@ impl StateMachine {
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.owner_id))
     }
 
+    pub(crate) fn owner_reference(&self) -> Option<Weak<RwLock<Object>>> {
+        self.owner.clone()
+    }
+
     pub fn get_owner_id(&self) -> crate::common::ObjectID {
         self.owner_id
     }
 
     pub fn set_owner_id(&mut self, owner_id: crate::common::ObjectID) {
+        if self.owner_id != owner_id {
+            self.owner = None;
+        }
         self.owner_id = owner_id;
     }
 
@@ -2337,3 +2368,7 @@ mod tests {
 #[cfg(test)]
 #[path = "state_machine_owner_transition_tests.rs"]
 mod owner_transition_tests;
+
+#[cfg(test)]
+#[path = "state_machine_object_owner_tests.rs"]
+mod object_owner_tests;

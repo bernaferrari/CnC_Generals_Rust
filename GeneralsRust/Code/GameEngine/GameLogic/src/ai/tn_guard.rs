@@ -29,17 +29,6 @@ fn dual_world_registry_unavailable() -> bool {
 /// Close enough distance constant
 const CLOSE_ENOUGH: f32 = 25.0;
 
-/// Resolve the tunnel-guard owner object from the id copied into a state or
-/// held by the machine (C++ reached the owner through the machine pointer; the
-/// owned machine keeps only the id).
-fn tn_guard_owner_arc_for_id(owner_id: ObjectID) -> Option<Arc<RwLock<Object>>> {
-    if owner_id == crate::common::INVALID_ID {
-        return None;
-    }
-    TheGameLogic::find_object_by_id(owner_id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(owner_id))
-}
-
 fn clear_attack_state_on_exit(owner: &Arc<RwLock<Object>>) {
     let Ok(mut owner_guard) = owner.write() else {
         return;
@@ -198,15 +187,16 @@ mod tests {
 /// Tunnel Network Guard state machine
 ///
 /// C++ `AITNGuardMachine` owns its `StateMachine` and the guard configuration
-/// as plain members. The machine here is a plain owned field, states carry no
-/// handles, and the machine itself is loaned to each state hook via
+/// as plain members. The machine here is a plain owned field, states retain
+/// only a weak owner (not a machine handle), and the machine itself is loaned to each state hook via
 /// `update_with_owner` / `on_enter_with_owner` — the same shape as the turret
 /// conversion. No Arc, no Mutex, no Weak for the machine.
 #[derive(Debug)]
 pub struct AITNGuardMachine {
     /// The tunnel guard's own state machine. Owned, not shared.
     state_machine: StateMachine,
-    /// Owner object id (C++ `getOwner()`), resolved per use.
+    /// Exact weak owner retained from construction; no registry rebinding.
+    owner: Weak<RwLock<Object>>,
     owner_id: ObjectID,
     /// Position to guard
     position_to_guard: Coord3D,
@@ -221,14 +211,10 @@ pub struct AITNGuardMachine {
 
 impl AITNGuardMachine {
     pub fn new(owner: Weak<RwLock<Object>>) -> Self {
-        let owner_id = owner
-            .upgrade()
-            .and_then(|arc| arc.read().ok().map(|owner_ref| owner_ref.get_id()))
-            .unwrap_or(crate::common::INVALID_ID);
-
         let mut machine = Self {
             state_machine: StateMachine::empty(),
-            owner_id,
+            owner: owner.clone(),
+            owner_id: crate::common::INVALID_ID,
             position_to_guard: Coord3D::new(0.0, 0.0, 0.0),
             nemesis_to_attack: crate::common::INVALID_ID,
             guard_mode: GuardMode::Normal,
@@ -244,7 +230,8 @@ impl AITNGuardMachine {
         if !self.state_machine.is_empty() {
             return;
         }
-        let mut machine = StateMachine::new_with_owner_id(self.owner_id, "AITNGuardMachine");
+        let mut machine = StateMachine::new(Some(self.owner.clone()), "AITNGuardMachine");
+        self.owner_id = machine.get_owner_id();
         self.define_tn_guard_states(&mut machine);
         let _ = machine.init_default_state_with_owner(self);
         self.state_machine = machine;
@@ -323,7 +310,7 @@ impl AITNGuardMachine {
     }
 
     fn friend_owner_arc(&self) -> Option<Arc<RwLock<Object>>> {
-        tn_guard_owner_arc_for_id(self.owner_id)
+        self.owner.upgrade()
     }
 
     fn friend_position_to_guard(&self) -> Coord3D {
@@ -422,8 +409,10 @@ impl AITNGuardMachine {
 
     /// Look for inner target within tunnel network
     pub fn look_for_inner_target(&mut self) -> bool {
-        let owner_id = self.owner_id;
-        let Some(target_id) = find_tunnel_network_inner_target(owner_id) else {
+        let Some(owner) = self.owner.upgrade() else {
+            return false;
+        };
+        let Some(target_id) = find_tunnel_network_inner_target(&owner) else {
             return false;
         };
         self.set_nemesis_id(target_id);
@@ -483,9 +472,8 @@ impl AITNGuardMachine {
 
 // State implementations for tunnel network guard
 //
-// The states embed only the legacy `State` bookkeeping (id/name plus the
-// machine's owner id copied once at define time) and receive the loaned
-// machine through `update_with_owner` / `on_enter_with_owner`.
+// The states retain the exact weak owner through legacy `State` bookkeeping
+// and receive the loaned machine through `update_with_owner` / `on_enter_with_owner`.
 
 #[derive(Debug)]
 struct TnGuardState {
@@ -494,8 +482,8 @@ struct TnGuardState {
 
 impl TnGuardState {
     fn new(machine: &StateMachine, name: &str) -> Self {
-        // `State::new` copies the machine's owner id and attaches NO machine
-        // handle: the machine owns its states, never the other way round.
+        // `State::new` captures the machine's weak owner but no machine handle:
+        // the machine owns its states, never the other way round.
         Self {
             base: State::new(machine, name),
         }
@@ -510,7 +498,7 @@ impl TnGuardState {
     }
 
     fn owner_arc(&self) -> Option<Arc<RwLock<Object>>> {
-        tn_guard_owner_arc_for_id(self.base.owner_id)
+        self.base.get_machine_owner()
     }
 
     fn downcast_machine(owner: &mut dyn std::any::Any) -> Option<&mut AITNGuardMachine> {
@@ -670,12 +658,7 @@ impl AITNGuardInnerState {
 
         if goal_obj.is_none() && self.scan_for_enemy {
             self.scan_for_enemy = false;
-            let owner_id = owner
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID);
-            if let Some(target_id) = tunnel_network_scan(owner_id) {
+            if let Some(target_id) = tunnel_network_scan(&owner) {
                 if let Ok(owner_guard) = owner.read() {
                     if let Some(player_arc) = owner_guard.get_controlling_player() {
                         if let Ok(mut player_guard) = player_arc.write() {
@@ -798,9 +781,14 @@ impl StateImplementation for AITNGuardInnerState {
     }
 
     fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<Object>>) {
-        if let Ok(owner_guard) = owner.read() {
-            self.base.base.owner_id = owner_guard.get_id();
-        }
+        self.base.base.bind_owner(&owner);
+    }
+
+    fn get_machine_owner(&self) -> Result<std::sync::Arc<std::sync::RwLock<Object>>, String> {
+        self.base
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "state machine owner not attached".to_string())
     }
 
     fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
@@ -913,12 +901,7 @@ impl AITNGuardIdleState {
             }
         }
 
-        let owner_id = owner
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(crate::common::INVALID_ID);
-        if let Some(target_id) = find_tunnel_network_inner_target(owner_id) {
+        if let Some(target_id) = find_tunnel_network_inner_target(&owner) {
             machine.friend_set_nemesis_to_attack(target_id);
 
             let Some(target) = get_legacy_object(target_id) else {
@@ -1003,9 +986,14 @@ impl StateImplementation for AITNGuardIdleState {
     }
 
     fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<Object>>) {
-        if let Ok(owner_guard) = owner.read() {
-            self.base.base.owner_id = owner_guard.get_id();
-        }
+        self.base.base.bind_owner(&owner);
+    }
+
+    fn get_machine_owner(&self) -> Result<std::sync::Arc<std::sync::RwLock<Object>>, String> {
+        self.base
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "state machine owner not attached".to_string())
     }
 
     fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
@@ -1215,9 +1203,14 @@ impl StateImplementation for AITNGuardOuterState {
     }
 
     fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<Object>>) {
-        if let Ok(owner_guard) = owner.read() {
-            self.base.base.owner_id = owner_guard.get_id();
-        }
+        self.base.base.bind_owner(&owner);
+    }
+
+    fn get_machine_owner(&self) -> Result<std::sync::Arc<std::sync::RwLock<Object>>, String> {
+        self.base
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "state machine owner not attached".to_string())
     }
 
     fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
@@ -1411,9 +1404,14 @@ impl StateImplementation for AITNGuardReturnState {
     }
 
     fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<Object>>) {
-        if let Ok(owner_guard) = owner.read() {
-            self.base.base.owner_id = owner_guard.get_id();
-        }
+        self.base.base.bind_owner(&owner);
+    }
+
+    fn get_machine_owner(&self) -> Result<std::sync::Arc<std::sync::RwLock<Object>>, String> {
+        self.base
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "state machine owner not attached".to_string())
     }
 
     fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
@@ -1517,9 +1515,14 @@ impl StateImplementation for AITNGuardPickUpCrateState {
     }
 
     fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<Object>>) {
-        if let Ok(owner_guard) = owner.read() {
-            self.base.base.owner_id = owner_guard.get_id();
-        }
+        self.base.base.bind_owner(&owner);
+    }
+
+    fn get_machine_owner(&self) -> Result<std::sync::Arc<std::sync::RwLock<Object>>, String> {
+        self.base
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "state machine owner not attached".to_string())
     }
 
     fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
@@ -1745,9 +1748,14 @@ impl StateImplementation for AITNGuardAttackAggressorState {
     }
 
     fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<Object>>) {
-        if let Ok(owner_guard) = owner.read() {
-            self.base.base.owner_id = owner_guard.get_id();
-        }
+        self.base.base.bind_owner(&owner);
+    }
+
+    fn get_machine_owner(&self) -> Result<std::sync::Arc<std::sync::RwLock<Object>>, String> {
+        self.base
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "state machine owner not attached".to_string())
     }
 
     fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
@@ -1783,15 +1791,14 @@ impl StateImplementation for AITNGuardAttackAggressorState {
     }
 }
 
-fn find_tunnel_network_inner_target(owner_id: ObjectID) -> Option<ObjectID> {
+fn find_tunnel_network_inner_target(owner: &Arc<RwLock<Object>>) -> Option<ObjectID> {
     // Wave 375: empty dual-world → None.
     if dual_world_registry_unavailable() {
         return None;
     }
 
-    let owner = TheGameLogic::find_object_by_id(owner_id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(owner_id))?;
     let owner_guard = owner.read().ok()?;
+    let owner_id = owner_guard.get_id();
 
     if let Some(team_arc) = owner_guard.get_team() {
         if let Ok(team_guard) = team_arc.read() {
@@ -1892,16 +1899,15 @@ fn find_tunnel_network_inner_target(owner_id: ObjectID) -> Option<ObjectID> {
     None
 }
 
-fn tunnel_network_scan(owner_id: ObjectID) -> Option<ObjectID> {
+fn tunnel_network_scan(owner: &Arc<RwLock<Object>>) -> Option<ObjectID> {
     // Wave 375: empty dual-world → None.
     if dual_world_registry_unavailable() {
         return None;
     }
 
     let partition = ThePartitionManager::get()?;
-    let owner = TheGameLogic::find_object_by_id(owner_id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(owner_id))?;
     let owner_guard = owner.read().ok()?;
+    let owner_id = owner_guard.get_id();
     let vision_range = AITNGuardMachine::get_std_guard_range(owner_id);
     let owner_pos = *owner_guard.get_position();
 
@@ -2027,16 +2033,12 @@ fn has_attacked_tn_owner(owner: &Arc<RwLock<Object>>) -> bool {
 
 /// C++ `AITNGuardState`'s per-state `ATTACK_AGGRESSOR` condition. The states
 /// no longer carry a machine handle, so the owner comes from the state's
-/// copied owner id — the loaned-machine equivalent of `getMachine()->getOwner()`.
+/// retained weak owner — the loaned-machine equivalent of `getMachine()->getOwner()`.
 fn tn_guard_attack_aggressor_condition(
     state: &dyn StateImplementation,
     _user_data: &StateTransitionUserData,
 ) -> bool {
-    let Some(owner) = state
-        .get_machine_owner_id()
-        .ok()
-        .and_then(tn_guard_owner_arc_for_id)
-    else {
+    let Some(owner) = state.get_machine_owner().ok() else {
         return false;
     };
     has_attacked_tn_owner(&owner)

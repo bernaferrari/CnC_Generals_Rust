@@ -158,12 +158,9 @@ impl<S: DockState> StateImplementation for DockStateAdapter<S> {
         self.0.dock_xfer_snapshot(xfer)
     }
     fn note_step_owner(&mut self, owner: Arc<RwLock<Object>>) {
-        if let Ok(owner) = owner.read() {
-            let id = owner.get_id();
-            self.0.base_state_mut().owner_id = id;
-            if let Some(helper) = self.0.move_helper() {
-                helper.note_owner_id(id);
-            }
+        self.0.base_state_mut().bind_owner(&owner);
+        if let Some(helper) = self.0.move_helper() {
+            helper.bind_owner(&owner);
         }
     }
     fn bind_goal_object_id(&mut self, id: ObjectID) {
@@ -179,11 +176,17 @@ impl<S: DockState> StateImplementation for DockStateAdapter<S> {
 pub(super) fn register_dock_state<S: DockState>(
     machine: &mut StateMachine,
     id: u32,
-    state: S,
+    mut state: S,
     success: Option<u32>,
     failure: Option<u32>,
     conditions: &[StateConditionInfo],
 ) {
+    if let Some(owner) = machine.get_owner() {
+        state.base_state_mut().bind_owner(&owner);
+        if let Some(helper) = state.move_helper() {
+            helper.bind_owner(&owner);
+        }
+    }
     machine.define_state(
         id,
         Box::new(DockStateAdapter(state)),

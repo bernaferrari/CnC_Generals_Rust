@@ -121,16 +121,9 @@ pub trait LegacyState: Send + Sync + Any + std::fmt::Debug {
 
     fn bind_goal_position(&mut self, _pos: crate::common::Coord3D) {}
 
-    fn bind_goal_squad(
-        &mut self,
-        _squad: Option<Arc<Mutex<crate::ai::squad::Squad>>>,
-    ) {
-    }
+    fn bind_goal_squad(&mut self, _squad: Option<Arc<Mutex<crate::ai::squad::Squad>>>) {}
 
-    fn bind_goal_polygon(
-        &mut self,
-        _polygon: Option<Arc<crate::polygon_trigger::PolygonTrigger>>,
-    ) {
+    fn bind_goal_polygon(&mut self, _polygon: Option<Arc<crate::polygon_trigger::PolygonTrigger>>) {
     }
 }
 
@@ -283,10 +276,7 @@ impl<S: LegacyState + 'static> core::StateImplementation for LegacyStateAdapter<
         self.inner.bind_goal_squad(squad);
     }
 
-    fn bind_goal_polygon(
-        &mut self,
-        polygon: Option<Arc<crate::polygon_trigger::PolygonTrigger>>,
-    ) {
+    fn bind_goal_polygon(&mut self, polygon: Option<Arc<crate::polygon_trigger::PolygonTrigger>>) {
         self.inner.bind_goal_polygon(polygon);
     }
 
@@ -526,9 +516,7 @@ where
     }
 
     fn note_step_owner(&mut self, owner: Arc<RwLock<Object>>) {
-        if let Ok(guard) = owner.read() {
-            self.base_state_mut().owner_id = guard.get_id();
-        }
+        self.base_state_mut().bind_owner(&owner);
     }
 
     fn note_guard_enter(
@@ -555,10 +543,7 @@ where
         self.base_state_mut().goal_squad_copied = squad;
     }
 
-    fn bind_goal_polygon(
-        &mut self,
-        polygon: Option<Arc<crate::polygon_trigger::PolygonTrigger>>,
-    ) {
+    fn bind_goal_polygon(&mut self, polygon: Option<Arc<crate::polygon_trigger::PolygonTrigger>>) {
         self.base_state_mut().goal_polygon_copied = polygon;
     }
 }

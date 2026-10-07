@@ -359,3 +359,63 @@ pub(super) fn with_started_machine_pair(f: impl FnOnce(AIDockMachine, AIDockMach
     let receiving = AIDockMachine::new(fixture.objects[2].clone()).unwrap();
     f(source, receiving);
 }
+
+#[test]
+fn same_id_dock_dispatch_uses_bound_owner_ai() {
+    if !child(concat!(
+        module_path!(),
+        "::same_id_dock_dispatch_uses_bound_owner_ai"
+    )) {
+        return;
+    }
+    let fixture = Fixture::new();
+    let decoy = Arc::new(RwLock::new(Object::new_test(fixture.id(2), 100.0)));
+    let decoy_ai = Arc::new(Mutex::new(DockAI {
+        distance: 10.0,
+        ..Default::default()
+    }));
+    let interface: Arc<Mutex<dyn AIUpdateInterface>> = decoy_ai.clone();
+    decoy
+        .write()
+        .unwrap()
+        .set_ai_update_interface(Some(interface));
+    crate::object::registry::OBJECT_REGISTRY.register_object(fixture.id(2), &decoy);
+    let mut machine = AIDockMachine::new(fixture.objects[2].clone()).unwrap();
+    assert_eq!(machine.start(fixture.id(0)), StateReturnType::Continue);
+    assert_eq!(
+        fixture.ai.lock().unwrap().targets.len(),
+        1,
+        "actual owner's AI receives the dock command"
+    );
+    assert!(
+        decoy_ai.lock().unwrap().targets.is_empty(),
+        "numeric ID reuse must not select a different AI"
+    );
+}
+
+#[test]
+fn same_id_dock_move_helper_checks_bound_owner_immobile_status() {
+    if !child(concat!(
+        module_path!(),
+        "::same_id_dock_move_helper_checks_bound_owner_immobile_status"
+    )) {
+        return;
+    }
+    let fixture = Fixture::new();
+    fixture.objects[2].write().unwrap().set_status(
+        ObjectStatusMaskType::from_status(ObjectStatusTypes::Immobile),
+        true,
+    );
+    let decoy = Arc::new(RwLock::new(Object::new_test(fixture.id(2), 100.0)));
+    crate::object::registry::OBJECT_REGISTRY.register_object(fixture.id(2), &decoy);
+    let mut machine = AIDockMachine::new(fixture.objects[2].clone()).unwrap();
+    let mut ai = fixture.ai.lock().unwrap();
+    assert_eq!(
+        machine.start_with_ai(fixture.id(0), &mut *ai),
+        StateReturnType::Failure
+    );
+    assert!(
+        ai.targets.is_empty(),
+        "the actual immobile Object cannot begin moving"
+    );
+}

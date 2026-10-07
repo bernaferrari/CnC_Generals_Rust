@@ -27,6 +27,7 @@ pub struct AIInternalMoveToState {
     goal_position: Coord3D,
     goal_object_id: crate::common::ObjectID,
     owner_id: crate::common::ObjectID,
+    owner: Option<Weak<RwLock<Object>>>,
     goal_layer: PathfindLayerEnum,
     waiting_for_path: bool,
     path_goal_position: Coord3D,
@@ -55,6 +56,7 @@ impl AIInternalMoveToState {
             goal_position: Coord3D::new(0.0, 0.0, 0.0),
             goal_object_id: crate::common::INVALID_ID,
             owner_id: crate::common::INVALID_ID,
+            owner: None,
             goal_layer: PathfindLayerEnum::Invalid,
             waiting_for_path: false,
             path_goal_position: Coord3D::new(0.0, 0.0, 0.0),
@@ -78,6 +80,7 @@ impl AIInternalMoveToState {
             goal_position: Coord3D::new(0.0, 0.0, 0.0),
             goal_object_id: crate::common::INVALID_ID,
             owner_id,
+            owner: None,
             goal_layer: PathfindLayerEnum::Invalid,
             waiting_for_path: false,
             path_goal_position: Coord3D::new(0.0, 0.0, 0.0),
@@ -554,6 +557,11 @@ impl AIInternalMoveToState {
 
     /// Access the machine owner object.
     pub fn get_machine_owner(&self) -> Result<Arc<RwLock<Object>>, String> {
+        if let Some(owner) = &self.owner {
+            return owner
+                .upgrade()
+                .ok_or_else(|| "state machine owner expired".to_string());
+        }
         let id = self.get_machine_owner_id()?;
         crate::helpers::TheGameLogic::find_object_by_id(id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
@@ -564,7 +572,19 @@ impl AIInternalMoveToState {
     }
 
     pub fn note_owner_id(&mut self, id: crate::common::ObjectID) {
+        if self.owner_id != id {
+            self.owner = None;
+        }
         self.owner_id = id;
+    }
+
+    pub(crate) fn bind_owner(&mut self, owner: &Arc<RwLock<Object>>) {
+        self.owner = Some(Arc::downgrade(owner));
+    }
+
+    pub(crate) fn bind_machine_owner(&mut self, machine: &StateMachine) {
+        self.owner_id = machine.get_owner_id();
+        self.owner = machine.owner_reference();
     }
 
     pub fn get_machine_goal_object_id(&self) -> Result<Option<crate::common::ObjectID>, String> {
@@ -584,6 +604,11 @@ impl AIInternalMoveToState {
     }
 
     pub fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
+        if self.owner.is_some() {
+            return (self.owner_id != crate::common::INVALID_ID)
+                .then_some(self.owner_id)
+                .ok_or_else(|| "state machine owner not set".to_string());
+        }
         if let Ok(machine) = self.upgrade_machine() {
             if let Ok(guard) = machine.try_lock() {
                 let id = guard.get_owner_id();

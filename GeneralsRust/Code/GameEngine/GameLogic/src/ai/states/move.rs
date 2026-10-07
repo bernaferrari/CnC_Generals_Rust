@@ -964,9 +964,7 @@ impl StateImplementation for AIMoveAwayFromRepulsorsState {
     }
 
     fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<crate::object::Object>>) {
-        if let Ok(guard) = owner.read() {
-            self.base.base.owner_id = guard.get_id();
-        }
+        self.base.base.bind_owner(&owner);
     }
 
     fn on_enter_with_ai(

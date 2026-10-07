@@ -22,16 +22,6 @@ fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
 
-/// Resolve a guard machine's owner object from its id (C++ reached the owner
-/// through the machine pointer; the owned machine keeps only the id).
-fn guard_owner_arc_for_id(owner_id: ObjectID) -> Option<Arc<RwLock<Object>>> {
-    if owner_id == crate::common::INVALID_ID {
-        return None;
-    }
-    TheGameLogic::find_object_by_id(owner_id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(owner_id))
-}
-
 fn guard_attack_should_exit(exit_conditions: &ExitConditions, goal_id: ObjectID) -> bool {
     exit_conditions.should_exit_for_goal(goal_id, TheGameLogic::get_frame())
 }
@@ -256,6 +246,34 @@ mod tests {
                 .get_state_name_by_id(GuardStateType::Inner as u32),
             Some("AIGuardInner")
         );
+    }
+
+    #[test]
+    fn machine_and_states_keep_the_exact_weak_owner() {
+        use crate::object::Object;
+        use std::sync::{Arc, RwLock};
+
+        let owner_a = Arc::new(RwLock::new(Object::new_test(77, 100.0)));
+        let owner_b = Arc::new(RwLock::new(Object::new_test(77, 200.0)));
+        let machine_a = AIGuardMachine::new(Arc::downgrade(&owner_a));
+        let machine_b = AIGuardMachine::new(Arc::downgrade(&owner_b));
+        assert!(Arc::ptr_eq(
+            &machine_a.friend_owner_arc().unwrap(),
+            &owner_a
+        ));
+        assert!(Arc::ptr_eq(
+            &machine_b.friend_owner_arc().unwrap(),
+            &owner_b
+        ));
+
+        let state_a = AIGuardInnerState::new(&machine_a.state_machine);
+        let state_b = AIGuardInnerState::new(&machine_b.state_machine);
+        assert!(Arc::ptr_eq(&state_a.get_machine_owner().unwrap(), &owner_a));
+        assert!(Arc::ptr_eq(&state_b.get_machine_owner().unwrap(), &owner_b));
+
+        drop(owner_a);
+        assert!(machine_a.friend_owner_arc().is_none());
+        assert!(state_a.get_machine_owner().is_err());
     }
 
     #[test]
@@ -566,15 +584,17 @@ impl ExitConditions {
 /// state hook via `StateImplementation::update_with_owner` /
 /// `on_enter_with_owner` — exactly the `this` context C++ passed through the
 /// `StateMachine::update` flow. Nothing in this module is shared for the
-/// machine: no Arc, no Mutex, no Weak. The only handle kept is `owner_id`,
-/// resolved through the id-keyed registries on every use.
+/// machine: no Arc or Mutex. It retains the exact weak owner supplied by its
+/// creator, matching C++ `StateMachine::getOwner()` identity.
 #[derive(Debug)]
 pub struct AIGuardMachine {
     /// The guard's own state machine (C++ `m_stateMachine`). Owned, not
-    /// shared: no Arc, no Mutex, no Weak. Taken out for each step so the
-    /// states can be loaned this whole machine.
+    /// shared: it is an owned value taken out for each step so the states can
+    /// be loaned this whole machine.
     state_machine: StateMachine,
-    /// Owner object id (C++ `getOwner()`), resolved per use.
+    /// Exact owner identity; expires with the Object rather than resolving an
+    /// unrelated object that happens to reuse the same ID.
+    owner: Weak<RwLock<Object>>,
     owner_id: ObjectID,
     /// Object to guard by ID
     target_to_guard: ObjectID,
@@ -597,14 +617,10 @@ impl AIGuardMachine {
     /// graph but does not initialize it. The owner state supplies target/mode
     /// before calling `initDefaultState()`.
     pub fn new(owner: Weak<RwLock<Object>>) -> Self {
-        let owner_id = owner
-            .upgrade()
-            .and_then(|arc| arc.read().ok().map(|owner_ref| owner_ref.get_id()))
-            .unwrap_or(crate::common::INVALID_ID);
-
         let mut machine = Self {
             state_machine: StateMachine::empty(),
-            owner_id,
+            owner: owner.clone(),
+            owner_id: crate::common::INVALID_ID,
             target_to_guard: crate::common::INVALID_ID,
             area_to_guard: None,
             position_to_guard: Coord3D::new(0.0, 0.0, 0.0),
@@ -621,7 +637,8 @@ impl AIGuardMachine {
         if !self.state_machine.is_empty() {
             return;
         }
-        let mut machine = StateMachine::new_with_owner_id(self.owner_id, "AIGuardMachine");
+        let mut machine = StateMachine::new(Some(self.owner.clone()), "AIGuardMachine");
+        self.owner_id = machine.get_owner_id();
         self.define_guard_states(&mut machine);
         // Order matters: INNER is the default; like C++ the constructor only
         // defines states. The owner state initializes after it applies target/mode.
@@ -709,7 +726,7 @@ impl AIGuardMachine {
     }
 
     fn friend_owner_arc(&self) -> Option<Arc<RwLock<Object>>> {
-        guard_owner_arc_for_id(self.owner_id)
+        self.owner.upgrade()
     }
 
     fn friend_target_to_guard(&self) -> ObjectID {
@@ -1004,8 +1021,8 @@ impl AIGuardMachine {
 //
 // C++ guard states reached the machine through the machine pointer
 // (`getMachine()`); the machine is owned by `AIGuardMachine` here, so states
-// embed only the legacy `State` bookkeeping (id/name plus the machine's owner
-// id copied once at define time) and receive the loaned machine through
+// retain the machine's exact weak owner in legacy `State` bookkeeping and
+// receive the loaned machine through
 // `update_with_owner` / `on_enter_with_owner` — the loaned-machine equivalent
 // of C++'s `getMachine()`.
 
@@ -1017,8 +1034,8 @@ pub struct GuardState {
 
 impl GuardState {
     fn new(machine: &StateMachine, name: &str) -> Self {
-        // `State::new` copies the machine's owner id and attaches NO machine
-        // handle: the machine owns its states, never the other way round.
+        // `State::new` captures the machine's weak owner but no machine handle:
+        // the machine owns its states, never the other way round.
         Self {
             base: State::new(machine, name),
         }
@@ -1033,7 +1050,7 @@ impl GuardState {
     }
 
     fn owner_arc(&self) -> Option<Arc<RwLock<Object>>> {
-        guard_owner_arc_for_id(self.base.owner_id)
+        self.base.get_machine_owner()
     }
 
     fn downcast_machine(owner: &mut dyn std::any::Any) -> Option<&mut AIGuardMachine> {
@@ -1042,9 +1059,9 @@ impl GuardState {
 }
 
 /// Owner of the state currently being tested for a conditional transition
-/// (C++ `getMachine()->getOwner()`), resolved through the copied owner id.
+/// (C++ `getMachine()->getOwner()`), resolved through the exact retained weak owner.
 fn guard_state_owner_arc(state: &dyn StateImplementation) -> Option<Arc<RwLock<Object>>> {
-    guard_owner_arc_for_id(state.get_machine_owner_id().ok()?)
+    state.get_machine_owner().ok()
 }
 
 /// Inner guard state - attack anything within area
@@ -1370,9 +1387,14 @@ impl StateImplementation for AIGuardInnerState {
     }
 
     fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<Object>>) {
-        if let Ok(owner_guard) = owner.read() {
-            self.base.base.owner_id = owner_guard.get_id();
-        }
+        self.base.base.bind_owner(&owner);
+    }
+
+    fn get_machine_owner(&self) -> Result<std::sync::Arc<std::sync::RwLock<Object>>, String> {
+        self.base
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "state machine owner not attached".to_string())
     }
 
     fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
@@ -1588,9 +1610,14 @@ impl StateImplementation for AIGuardIdleState {
     fn on_exit(&mut self, _status: StateExitType) {}
 
     fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<Object>>) {
-        if let Ok(owner_guard) = owner.read() {
-            self.base.base.owner_id = owner_guard.get_id();
-        }
+        self.base.base.bind_owner(&owner);
+    }
+
+    fn get_machine_owner(&self) -> Result<std::sync::Arc<std::sync::RwLock<Object>>, String> {
+        self.base
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "state machine owner not attached".to_string())
     }
 
     fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
@@ -1947,9 +1974,14 @@ impl StateImplementation for AIGuardOuterState {
     }
 
     fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<Object>>) {
-        if let Ok(owner_guard) = owner.read() {
-            self.base.base.owner_id = owner_guard.get_id();
-        }
+        self.base.base.bind_owner(&owner);
+    }
+
+    fn get_machine_owner(&self) -> Result<std::sync::Arc<std::sync::RwLock<Object>>, String> {
+        self.base
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "state machine owner not attached".to_string())
     }
 
     fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
@@ -1996,14 +2028,16 @@ pub struct AIGuardReturnState {
 
 impl AIGuardReturnState {
     pub fn new(machine: &StateMachine) -> Self {
+        let mut move_helper = AIInternalMoveToState::new_with_owner_id(
+            machine.get_owner_id(),
+            "AIGuardReturn".to_string(),
+        );
+        move_helper.bind_machine_owner(machine);
         Self {
             base: GuardState::new(machine, "AIGuardReturn"),
             next_return_scan_time: 0,
             goal_position: Coord3D::new(0.0, 0.0, 0.0),
-            move_helper: AIInternalMoveToState::new_with_owner_id(
-                machine.get_owner_id(),
-                "AIGuardReturn".to_string(),
-            ),
+            move_helper,
         }
     }
 
@@ -2227,9 +2261,15 @@ impl StateImplementation for AIGuardReturnState {
     }
 
     fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<Object>>) {
-        if let Ok(owner_guard) = owner.read() {
-            self.base.base.owner_id = owner_guard.get_id();
-        }
+        self.base.base.bind_owner(&owner);
+        self.move_helper.bind_owner(&owner);
+    }
+
+    fn get_machine_owner(&self) -> Result<std::sync::Arc<std::sync::RwLock<Object>>, String> {
+        self.base
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "state machine owner not attached".to_string())
     }
 
     fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
@@ -2418,9 +2458,14 @@ impl StateImplementation for AIGuardPickUpCrateState {
     }
 
     fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<Object>>) {
-        if let Ok(owner_guard) = owner.read() {
-            self.base.base.owner_id = owner_guard.get_id();
-        }
+        self.base.base.bind_owner(&owner);
+    }
+
+    fn get_machine_owner(&self) -> Result<std::sync::Arc<std::sync::RwLock<Object>>, String> {
+        self.base
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "state machine owner not attached".to_string())
     }
 
     fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
@@ -2744,9 +2789,14 @@ impl StateImplementation for AIGuardAttackAggressorState {
     }
 
     fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<Object>>) {
-        if let Ok(owner_guard) = owner.read() {
-            self.base.base.owner_id = owner_guard.get_id();
-        }
+        self.base.base.bind_owner(&owner);
+    }
+
+    fn get_machine_owner(&self) -> Result<std::sync::Arc<std::sync::RwLock<Object>>, String> {
+        self.base
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "state machine owner not attached".to_string())
     }
 
     fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {

@@ -227,6 +227,8 @@ fn condition_values_remain_distinct_for_equal_owner_ids_and_absent_children() {
     let machine_b = StateMachine::new(Some(Arc::downgrade(&owner_b)), "guard-b");
     let mut a = AITNGuardInnerState::new(&machine_a);
     let mut b = AITNGuardInnerState::new(&machine_b);
+    assert!(Arc::ptr_eq(&a.get_machine_owner().unwrap(), &owner_a));
+    assert!(Arc::ptr_eq(&b.get_machine_owner().unwrap(), &owner_b));
     assert!(a.attack_machine.is_none() && b.attack_machine.is_none());
     a.exit_conditions.edit(|c| c.set_attack_give_up_frame(37));
     b.exit_conditions.edit(|c| c.set_attack_give_up_frame(91));
@@ -236,4 +238,6 @@ fn condition_values_remain_distinct_for_equal_owner_ids_and_absent_children() {
     assert_eq!(a.exit_conditions.inspect(|c| c.attack_give_up_frame), 123);
     assert_eq!(b.exit_conditions.inspect(|c| c.attack_give_up_frame), 91);
     assert!(a.attack_machine.is_none() && b.attack_machine.is_none());
+    drop(owner_a);
+    assert!(a.get_machine_owner().is_err());
 }

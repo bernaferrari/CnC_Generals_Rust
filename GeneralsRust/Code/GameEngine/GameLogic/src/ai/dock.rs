@@ -117,10 +117,10 @@ fn fetch_owner_and_goal_from_move(
     helper: &AIInternalMoveToState,
     label: &str,
 ) -> Result<(Arc<RwLock<Object>>, Arc<RwLock<Object>>), String> {
-    let (owner_id, goal_id) =
+    let (_, goal_id) =
         fetch_owner_and_goal_ids_from_move(helper, None, crate::common::INVALID_ID, label)?;
     Ok((
-        resolve_dock_object(owner_id, label)?,
+        helper.get_machine_owner()?,
         resolve_dock_object(goal_id, label)?,
     ))
 }
@@ -148,7 +148,7 @@ impl AIDockMachine {
     /// can possibly be in, and set the initial (default) state.
     pub fn new(owner: Arc<RwLock<Object>>) -> Result<Self, String> {
         let owner_id = owner.read().map_err(|_| "dock owner poisoned")?.get_id();
-        let mut machine = StateMachine::new_with_owner_id(owner_id, "AIDockMachine");
+        let mut machine = StateMachine::new(Some(Arc::downgrade(&owner)), "AIDockMachine");
         let wait_for_clearance_conditions = [StateConditionInfo::new(
             clearance_without_context,
             AIDockState::AdvancePosition.into(),
@@ -411,7 +411,7 @@ impl DockState for AIDockApproachState {
                 return Ok(StateReturnType::Failure);
             }
         };
-        let owner = resolve_dock_object(owner_id, "dock")?;
+        let owner = self.base.get_machine_owner().ok_or("dock owner expired")?;
         let goal = resolve_dock_object(goal_id, "dock")?;
 
         with_dock(&goal, |dock| {
@@ -466,7 +466,7 @@ impl DockState for AIDockApproachState {
         ai: Option<&mut dyn AIUpdateInterface>,
     ) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.goal_owner() {
-            let owner = resolve_dock_object(owner_id, "dock")?;
+            let owner = self.base.get_machine_owner().ok_or("dock owner expired")?;
             let goal = resolve_dock_object(goal_id, "dock")?;
 
             with_dock(&goal, |dock| {
@@ -590,7 +590,7 @@ impl DockState for AIDockWaitForClearanceState {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
         };
-        let owner = resolve_dock_object(owner_id, "dock")?;
+        let owner = self.base.get_machine_owner().ok_or("dock owner expired")?;
         let goal = resolve_dock_object(goal_id, "dock")?;
 
         with_dock(&goal, |dock| {
@@ -624,7 +624,7 @@ impl DockState for AIDockWaitForClearanceState {
         ai: Option<&mut dyn AIUpdateInterface>,
     ) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.owner_and_goal() {
-            let owner = resolve_dock_object(owner_id, "dock")?;
+            let owner = self.base.get_machine_owner().ok_or("dock owner expired")?;
             let goal = resolve_dock_object(goal_id, "dock")?;
 
             with_dock(&goal, |dock| {
@@ -699,7 +699,7 @@ impl DockState for AIDockAdvancePositionState {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
         };
-        let owner = resolve_dock_object(owner_id, "dock")?;
+        let owner = self.base.get_machine_owner().ok_or("dock owner expired")?;
         let goal = resolve_dock_object(goal_id, "dock")?;
 
         with_dock(&goal, |dock| {
@@ -754,7 +754,7 @@ impl DockState for AIDockAdvancePositionState {
         ai: Option<&mut dyn AIUpdateInterface>,
     ) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.goal_owner() {
-            let owner = resolve_dock_object(owner_id, "dock")?;
+            let owner = self.base.get_machine_owner().ok_or("dock owner expired")?;
             let goal = resolve_dock_object(goal_id, "dock")?;
 
             with_dock(&goal, |dock| {
@@ -834,7 +834,7 @@ impl DockState for AIDockMoveToEntryState {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
         };
-        let owner = resolve_dock_object(owner_id, "dock")?;
+        let owner = self.base.get_machine_owner().ok_or("dock owner expired")?;
         let goal = resolve_dock_object(goal_id, "dock")?;
 
         with_dock(&goal, |dock| {
@@ -888,7 +888,7 @@ impl DockState for AIDockMoveToEntryState {
         ai: Option<&mut dyn AIUpdateInterface>,
     ) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.goal_owner() {
-            let owner = resolve_dock_object(owner_id, "dock")?;
+            let owner = self.base.get_machine_owner().ok_or("dock owner expired")?;
             let goal = resolve_dock_object(goal_id, "dock")?;
 
             with_dock(&goal, |dock| {
@@ -968,7 +968,7 @@ impl DockState for AIDockMoveToDockState {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
         };
-        let owner = resolve_dock_object(owner_id, "dock")?;
+        let owner = self.base.get_machine_owner().ok_or("dock owner expired")?;
         let goal = resolve_dock_object(goal_id, "dock")?;
 
         with_dock(&goal, |dock| {
@@ -1044,7 +1044,7 @@ impl DockState for AIDockMoveToDockState {
         ai: Option<&mut dyn AIUpdateInterface>,
     ) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.goal_owner() {
-            let owner = resolve_dock_object(owner_id, "dock")?;
+            let owner = self.base.get_machine_owner().ok_or("dock owner expired")?;
             let goal = resolve_dock_object(goal_id, "dock")?;
 
             with_dock(&goal, |dock| {
@@ -1224,7 +1224,7 @@ impl DockState for AIDockProcessDockState {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
         };
-        let owner = resolve_dock_object(owner_id, "dock")?;
+        let owner = self.base.get_machine_owner().ok_or("dock owner expired")?;
         let goal = resolve_dock_object(goal_id, "dock")?;
 
         with_dock(&goal, |dock| {
@@ -1315,7 +1315,7 @@ impl DockState for AIDockMoveToExitState {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
         };
-        let owner = resolve_dock_object(owner_id, "dock")?;
+        let owner = self.base.get_machine_owner().ok_or("dock owner expired")?;
         let goal = resolve_dock_object(goal_id, "dock")?;
 
         with_dock(&goal, |dock| {
@@ -1366,7 +1366,7 @@ impl DockState for AIDockMoveToExitState {
         ai: Option<&mut dyn AIUpdateInterface>,
     ) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.goal_owner() {
-            let owner = resolve_dock_object(owner_id, "dock")?;
+            let owner = self.base.get_machine_owner().ok_or("dock owner expired")?;
             let goal = resolve_dock_object(goal_id, "dock")?;
 
             with_dock(&goal, |dock| {
