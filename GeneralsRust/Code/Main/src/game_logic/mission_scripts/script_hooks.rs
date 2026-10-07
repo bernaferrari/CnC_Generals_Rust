@@ -68,7 +68,6 @@ struct ScriptNotificationQueues {
 #[derive(Default)]
 struct AudioCompletionTracking {
     speech_complete_frame: HashMap<String, u64>,
-    speech_handles: HashMap<String, Vec<u32>>,
     audio_complete_frame: HashMap<String, u64>,
 }
 
@@ -93,8 +92,8 @@ pub struct MissionScriptHooks {
     /// because two threads ever contend. One guard also makes a whole drain
     /// atomic against pushes instead of one mutex per queue.
     notifications: Mutex<ScriptNotificationQueues>,
-    /// C++ ScriptEngine completion bookkeeping: speech/audio frame stamps
-    /// and the live handles that still gate HAS_FINISHED_SPEECH.
+    /// C++ ScriptEngine completion bookkeeping: timers started by the first
+    /// speech/audio completion query, independently of playback handles.
     completion: Mutex<AudioCompletionTracking>,
     camera_movement_finished: AtomicBool,
     frame_counter: AtomicU64,
@@ -706,23 +705,10 @@ impl MissionScriptHooks {
         self.note_speech_started_with_handle(name, 0);
     }
 
-    pub fn note_speech_started_with_handle(&self, name: &str, handle: u32) {
-        if name.trim().is_empty() {
-            return;
-        }
-        let now = self.frame_counter.load(Ordering::Relaxed);
-        if let Ok(mut state) = self.completion.lock() {
-            state
-                .speech_complete_frame
-                .insert(name.to_string(), speech_completion_frame(now, name));
-            if handle != 0 {
-                state
-                    .speech_handles
-                    .entry(name.to_string())
-                    .or_default()
-                    .push(handle);
-            }
-        }
+    pub fn note_speech_started_with_handle(&self, _name: &str, _handle: u32) {
+        // Compatibility notification: C++ doSpeechPlay neither starts nor
+        // restarts testingSpeech timers. isSpeechComplete starts them at the
+        // first query and does not wait on a native playback handle.
     }
 
     pub fn note_audio_started(&self, name: &str) {
@@ -754,22 +740,6 @@ impl MissionScriptHooks {
     pub fn is_speech_complete(&self, name: &str, flush: bool) -> bool {
         if name.trim().is_empty() {
             return false;
-        }
-        // Leftover GameClient `is_named_audio_complete`: a live Miles/rodio
-        // handle is still playing, so the line is not finished yet.
-        if let Ok(mut state) = self.completion.lock() {
-            if let Some(pending) = state.speech_handles.get_mut(name) {
-                match gamelogic::helpers::TheAudio::get() {
-                    Some(audio) => pending.retain(|handle| audio.is_currently_playing(*handle)),
-                    None => pending.clear(),
-                }
-                if !pending.is_empty() {
-                    return false;
-                }
-                if flush {
-                    state.speech_handles.remove(name);
-                }
-            }
         }
         let now = self.frame_counter.load(Ordering::Relaxed);
         let Ok(mut state) = self.completion.lock() else {

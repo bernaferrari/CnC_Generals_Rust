@@ -705,8 +705,8 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         // Live GAME_SHELL installs this handler (initialize_scripts), not
         // GameClientScriptActionHandler. C++ SPEECH_PLAY always reaches
         // TheAudio via doSpeechPlay — do not leave this as a UI SFX.
-        let handle = Self::play_speech_through_the_audio(name, allow_overlap);
-        self.hooks.note_speech_started_with_handle(name, handle);
+        // C++ discards the playback handle; completion timing begins on query.
+        let _ = Self::play_speech_through_the_audio(name, allow_overlap);
         if let Some(label) = speech_subtitle_label_if_displayable(name, localization::translate) {
             self.hooks
                 .push_military_caption(label, SPEECH_SUBTITLE_DURATION_MS);

@@ -85,3 +85,6 @@ include!("script_actions.rs");
 
 #[cfg(test)]
 include!("tests.rs");
+
+#[cfg(test)]
+mod speech_completion_tests;
