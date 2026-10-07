@@ -85,6 +85,18 @@ impl Object {
         object_status_mask: ObjectStatusMaskType,
         team: Option<Arc<RwLock<Team>>>,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
+        Self::new_with_id_preparing_ai(thing_template, object_id, object_status_mask, team, false)
+    }
+
+    /// Factory units prepare their exact AI after module installation and before
+    /// onObjectCreated. Direct Object construction keeps its existing policy.
+    pub(super) fn new_with_id_preparing_ai(
+        thing_template: Arc<dyn ThingTemplate>,
+        object_id: ObjectID,
+        object_status_mask: ObjectStatusMaskType,
+        team: Option<Arc<RwLock<Team>>>,
+        prepare_unit_ai: bool,
+    ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         // set_team runs on the still-unshared object: registration below is
         // what publishes the id, so the previous uniquely-owned write guard
         // spelled a lock that protected nothing.
@@ -106,7 +118,9 @@ impl Object {
             register_legacy_object(&object_arc);
         }
 
-        if let Err(err) = Self::init_modules_for(&object_arc, thing_template.as_ref()) {
+        if let Err(err) =
+            Self::init_modules_preparing_ai(&object_arc, thing_template.as_ref(), prepare_unit_ai)
+        {
             if object_id != INVALID_ID {
                 OBJECT_REGISTRY.unregister_object(object_id);
                 unregister_legacy_object(object_id);

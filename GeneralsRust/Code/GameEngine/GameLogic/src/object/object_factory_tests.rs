@@ -602,3 +602,6 @@ fn factory_retirement_queries_the_driving_world_with_identical_ids() {
     second_world.destroy_object(id);
     second_world.cleanup_dead_objects().unwrap();
 }
+
+#[path = "factory_ai_creation_tests.rs"]
+mod ai_creation_tests;

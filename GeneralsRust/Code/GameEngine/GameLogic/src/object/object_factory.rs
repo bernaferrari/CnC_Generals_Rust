@@ -46,7 +46,7 @@ use game_engine::common::thing::module_factory::{
 use log::warn;
 
 #[path = "factory_ai.rs"]
-mod factory_ai;
+pub(super) mod factory_ai;
 
 /// Unified object wrapper that can hold any object type
 pub enum GameObjectInstance {
@@ -273,8 +273,13 @@ impl ObjectFactory {
         // Create base object first
         let mut status_mask = template.get_initial_object_status();
         status_mask |= extra_status;
-        let base_object =
-            Object::new_with_id(template.clone(), object_id, status_mask, team.clone())?;
+        let base_object = Object::new_with_id_preparing_ai(
+            template.clone(),
+            object_id,
+            status_mask,
+            team.clone(),
+            object_type == ObjectType::Unit && !flags.contains(ObjectCreationFlags::NO_AI),
+        )?;
 
         // Set object ID and position
         {
@@ -302,15 +307,6 @@ impl ObjectFactory {
         let game_object = match object_type {
             ObjectType::Unit => {
                 let mut unit = Unit::new(base_object.clone(), template.as_ref())?;
-
-                if !flags.contains(ObjectCreationFlags::NO_AI) {
-                    let ai_update =
-                        factory_ai::prepare_unit_ai(&base_object, template.as_ref(), object_id);
-                    if let Ok(mut obj_guard) = base_object.write() {
-                        obj_guard.set_ai_update_interface(Some(ai_update.clone()));
-                        obj_guard.attach_ai_update_to_module(ai_update);
-                    }
-                }
 
                 GameObjectInstance::Unit(unit)
             }

@@ -24,6 +24,7 @@ mod registry;
 mod types;
 
 pub use ai_core::UnitAIUpdate;
+pub(crate) use ai_core::UnitAiComponents;
 pub use ai_path::{
     leftover_compute_quick_path_coords, leftover_is_in_region_no_z,
     leftover_should_force_direct_path_for_off_map_start,
@@ -47,3 +48,6 @@ mod owned_ai_state_tests;
 
 #[cfg(test)]
 pub(crate) mod owned_tread_speed_fixture;
+
+#[cfg(test)]
+mod factory_owner_preparation_tests;

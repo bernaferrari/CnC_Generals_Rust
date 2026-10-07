@@ -242,9 +242,16 @@ fn ai_body_restore_preserves_owned_victim_mood_and_serialized_jitter() {
     }
     let _serial = crate::test_sync::lock();
     definitions();
-    // A real UnitAI value supplies the serialized jitter bit; neither a fake
-    // machine nor a Unit registration is needed for these existing body fields.
-    let mut saved = runtime(0xA1_5A_71);
+    // The production preparation path supplies the same native-machine
+    // envelope as the factory destination, without legacy Unit admission.
+    let source_id = 0xA1_5A_71;
+    let source_owner = Arc::new(RwLock::new(Object::new_test(source_id, 100.0)));
+    let source = crate::object::object_factory::factory_ai::prepare_unit_ai(
+        &source_owner,
+        &crate::common::DefaultThingTemplate::new("OwnedAiRestoreSource".into()),
+        source_id,
+    );
+    let mut saved = source.lock().unwrap();
     saved.set_current_victim(Some(647));
     saved.set_next_mood_check_time(241);
     saved.randomly_offset_mood_check = true;

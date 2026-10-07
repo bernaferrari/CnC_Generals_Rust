@@ -2770,6 +2770,13 @@ impl AIUpdateInterfaceModule {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn runtime_ai_for_test(
+        &self,
+    ) -> Option<&Arc<Mutex<dyn crate::modules::AIUpdateInterface>>> {
+        self.runtime_ai.as_ref()
+    }
+
     pub fn set_runtime_ai(
         &mut self,
         runtime_ai: Arc<Mutex<dyn crate::modules::AIUpdateInterface>>,

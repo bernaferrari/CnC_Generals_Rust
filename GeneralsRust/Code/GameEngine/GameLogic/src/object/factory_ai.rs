@@ -4,7 +4,7 @@ use super::*;
 
 /// Construct the Unit AI runtime from the same authored module-data precedence
 /// used by ObjectFactory, then apply the primary AI module data before sharing it.
-pub(super) fn prepare_unit_ai(
+pub(in crate::object) fn prepare_unit_ai(
     base_object: &Arc<RwLock<Object>>,
     template: &dyn ThingTemplate,
     object_id: ObjectID,
@@ -411,26 +411,29 @@ pub(super) fn prepare_unit_ai(
     let ai_update_module_data = ai_update_module_data
         .or_else(|| wander_ai_module_data.as_ref().map(|data| data.base.clone()));
 
-    let mut ai_update = UnitAIUpdate::new(
+    let mut ai_update = UnitAIUpdate::new_for_object(
         object_id,
-        supply_ai,
-        chinook_ai,
-        jet_ai,
-        worker_ai,
-        dozer_ai,
-        #[cfg(feature = "allow_surrender")]
-        pow_truck_ai,
-        railed_transport_ai,
-        hack_internet_ai,
-        assault_transport_ai,
-        deliver_payload_ai,
-        transport_ai,
-        deploy_style_ai,
-        wander_ai,
+        base_object,
+        crate::object::unit::UnitAiComponents {
+            supply_truck_ai: supply_ai,
+            chinook_ai,
+            jet_ai,
+            worker_ai,
+            dozer_ai,
+            #[cfg(feature = "allow_surrender")]
+            pow_truck_ai,
+            railed_transport_ai,
+            hack_internet_ai,
+            assault_transport_ai,
+            deliver_payload_ai,
+            transport_ai,
+            deploy_style_ai,
+            wander_ai,
+        },
     );
 
     if let Some(data) = ai_update_module_data {
-        ai_update.apply_ai_update_module_data(&data);
+        ai_update.apply_factory_ai_update_module_data(&data);
     }
     Arc::new(Mutex::new(ai_update))
 }

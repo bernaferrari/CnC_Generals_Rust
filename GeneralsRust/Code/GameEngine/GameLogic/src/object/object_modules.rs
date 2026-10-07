@@ -840,6 +840,14 @@ impl Object {
         object: &Arc<RwLock<Self>>,
         thing_template: &dyn ThingTemplate,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Self::init_modules_preparing_ai(object, thing_template, false)
+    }
+
+    pub(super) fn init_modules_preparing_ai(
+        object: &Arc<RwLock<Self>>,
+        thing_template: &dyn ThingTemplate,
+        prepare_unit_ai: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Err(err) = crate::contain_module_overrides::ensure_module_overrides_installed() {
             warn!(
                 "Failed to install module overrides before module init: {}",
@@ -1145,6 +1153,29 @@ impl Object {
             guard.install_ctor_helpers();
         }
 
+        if prepare_unit_ai {
+            let object_id = object
+                .read()
+                .map_err(|_| "object lock poisoned before AI preparation")?
+                .id;
+            let ai = crate::object::object_factory::factory_ai::prepare_unit_ai(
+                object,
+                thing_template,
+                object_id,
+            );
+            let mut owner = object
+                .write()
+                .map_err(|_| "object lock poisoned during AI installation")?;
+            owner.set_ai_update_interface(Some(ai.clone()));
+            owner.attach_ai_update_to_module(ai);
+        }
+        // C++ Object.cpp:424-456: m_ai and its team profile exist before any
+        // behavior's creation callback; no owner guard spans those callbacks.
+        object
+            .read()
+            .map_err(|_| "object lock poisoned before AI profile")?
+            .apply_team_ai_profile();
+
         // C++ Object.cpp:458-471 — inter-module resolution after the full list
         // exists and before modulesReady, without recursively locking Object.
         Self::invoke_on_object_created_after_install(object)?;
@@ -1153,13 +1184,10 @@ impl Object {
             .map_err(|_| "object lock poisoned after creation callbacks")?
             .modules_ready = true;
 
-        // C++ parity: after AI module construction, seed attitude from the team
-        // prototype, then apply battle plan bonuses (Object::onObjectCreated
-        // parity). One object read resolves both; the write is taken only when
+        // Apply battle plan bonuses after creation callbacks and modulesReady.
+        // The write is taken only when
         // a battle plan is active, after the read guard is released.
         if let Ok(obj_guard) = object.read() {
-            obj_guard.apply_team_ai_profile();
-
             let player_arc = obj_guard.get_controlling_player();
             let battle_plans_active = player_arc
                 .as_ref()

@@ -7,6 +7,26 @@ use super::identity::Unit;
 use super::imports::*;
 use super::registry::{dual_world_registry_unavailable, get_unit_arc};
 use super::types::*;
+use crate::object::update::ai_update_interface::AIUpdateModuleData;
+
+/// Specialized runtimes selected from one Object's authored modules.
+/// They are prepared together before the runtime is published to callbacks.
+pub(crate) struct UnitAiComponents {
+    pub(crate) supply_truck_ai: Option<SupplyTruckAIUpdate>,
+    pub(crate) chinook_ai: Option<ChinookAIUpdate>,
+    pub(crate) jet_ai: Option<JetAIUpdate>,
+    pub(crate) worker_ai: Option<WorkerAIUpdate>,
+    pub(crate) dozer_ai: Option<DozerAIUpdate>,
+    #[cfg(feature = "allow_surrender")]
+    pub(crate) pow_truck_ai: Option<POWTruckAIUpdate>,
+    pub(crate) railed_transport_ai: Option<RailedTransportAIUpdate>,
+    pub(crate) hack_internet_ai: Option<HackInternetAIUpdate>,
+    pub(crate) assault_transport_ai: Option<AssaultTransportAIUpdate>,
+    pub(crate) deliver_payload_ai: Option<DeliverPayloadAIUpdate>,
+    pub(crate) transport_ai: Option<TransportAIUpdate>,
+    pub(crate) deploy_style_ai: Option<DeployStyleAIUpdate>,
+    pub(crate) wander_ai: Option<WanderAIUpdate>,
+}
 
 /// Basic AI update interface that bridges AI commands to unit orders.
 pub struct UnitAIUpdate {
@@ -147,35 +167,68 @@ impl UnitAIUpdate {
         deploy_style_ai: Option<DeployStyleAIUpdate>,
         wander_ai: Option<WanderAIUpdate>,
     ) -> Self {
-        let ai_state_machine = get_unit_arc(unit_id).and_then(|unit_arc| {
-            let owner = unit_arc
-                .read()
+        let owner = get_unit_arc(unit_id).and_then(|unit| {
+            unit.read()
                 .ok()
-                .map(|guard| Arc::downgrade(&guard.base_arc()))?;
-            Some(Arc::new(Mutex::new(AIStateMachine::new(
-                owner,
-                "AIStateMachine",
-            ))))
+                .map(|unit| Arc::downgrade(&unit.base_arc()))
         });
+        Self::from_components(
+            unit_id,
+            owner,
+            UnitAiComponents {
+                supply_truck_ai,
+                chinook_ai,
+                jet_ai,
+                worker_ai,
+                dozer_ai,
+                #[cfg(feature = "allow_surrender")]
+                pow_truck_ai,
+                railed_transport_ai,
+                hack_internet_ai,
+                assault_transport_ai,
+                deliver_payload_ai,
+                transport_ai,
+                deploy_style_ai,
+                wander_ai,
+            },
+        )
+    }
+
+    /// The factory already has the exact Object. No legacy registry selects it.
+    pub(crate) fn new_for_object(
+        unit_id: ObjectID,
+        owner: &Arc<RwLock<Object>>,
+        components: UnitAiComponents,
+    ) -> Self {
+        Self::from_components(unit_id, Some(Arc::downgrade(owner)), components)
+    }
+
+    fn from_components(
+        unit_id: ObjectID,
+        owner: Option<Weak<RwLock<Object>>>,
+        components: UnitAiComponents,
+    ) -> Self {
+        let ai_state_machine =
+            owner.map(|owner| Arc::new(Mutex::new(AIStateMachine::new(owner, "AIStateMachine"))));
 
         Self {
             unit_id,
             current_victim_id: INVALID_ID,
             crate_created: crate::common::INVALID_ID,
-            supply_truck_ai,
-            chinook_ai,
-            jet_ai,
-            worker_ai,
-            dozer_ai,
+            supply_truck_ai: components.supply_truck_ai,
+            chinook_ai: components.chinook_ai,
+            jet_ai: components.jet_ai,
+            worker_ai: components.worker_ai,
+            dozer_ai: components.dozer_ai,
             #[cfg(feature = "allow_surrender")]
-            pow_truck_ai,
-            railed_transport_ai,
-            hack_internet_ai,
-            assault_transport_ai,
-            deliver_payload_ai,
-            transport_ai,
-            deploy_style_ai,
-            wander_ai,
+            pow_truck_ai: components.pow_truck_ai,
+            railed_transport_ai: components.railed_transport_ai,
+            hack_internet_ai: components.hack_internet_ai,
+            assault_transport_ai: components.assault_transport_ai,
+            deliver_payload_ai: components.deliver_payload_ai,
+            transport_ai: components.transport_ai,
+            deploy_style_ai: components.deploy_style_ai,
+            wander_ai: components.wander_ai,
             dock_machine: None,
             ai_state_machine,
             can_path_through_units: false,
@@ -325,6 +378,14 @@ impl UnitAIUpdate {
         &mut self,
         data: &crate::object::update::AIUpdateModuleData,
     ) {
+        self.apply_module_data(data, true);
+    }
+
+    pub(crate) fn apply_factory_ai_update_module_data(&mut self, data: &AIUpdateModuleData) {
+        self.apply_module_data(data, false);
+    }
+
+    fn apply_module_data(&mut self, data: &AIUpdateModuleData, legacy_unit: bool) {
         self.surrender_duration_frames = data.surrender_duration_frames();
         self.auto_acquire_enemies_when_idle = data.auto_acquire_enemies_when_idle();
         self.mood_attack_check_rate_frames = data.mood_attack_check_rate();
@@ -334,28 +395,29 @@ impl UnitAIUpdate {
         self.turret_secondary_data = data.turret_secondary().cloned();
         self.locomotor_sets = data.locomotor_sets().clone();
 
-        if let Some(unit) = get_unit_arc(self.unit_id) {
-            if let Ok(mut guard) = unit.write() {
-                let allow = (self.auto_acquire_enemies_when_idle
-                    & crate::object::update::AUTO_ACQUIRE_IDLE)
-                    != 0;
-                let deny = (self.auto_acquire_enemies_when_idle
-                    & crate::object::update::AUTO_ACQUIRE_IDLE_NO)
-                    != 0;
-                guard.auto_acquire_enemies = allow && !deny;
-                guard.auto_acquire_while_stealthed = (self.auto_acquire_enemies_when_idle
-                    & crate::object::update::AUTO_ACQUIRE_IDLE_STEALTHED)
-                    != 0;
-                guard.auto_acquire_not_while_attacking = (self.auto_acquire_enemies_when_idle
-                    & crate::object::update::AUTO_ACQUIRE_IDLE_NOT_WHILE_ATTACKING)
-                    != 0;
-                guard.auto_acquire_attack_buildings = (self.auto_acquire_enemies_when_idle
-                    & crate::object::update::AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS)
-                    != 0;
-                guard.mood_attack_check_rate_frames = data.mood_attack_check_rate();
+        if legacy_unit {
+            if let Some(unit) = get_unit_arc(self.unit_id) {
+                if let Ok(mut guard) = unit.write() {
+                    let allow = (self.auto_acquire_enemies_when_idle
+                        & crate::object::update::AUTO_ACQUIRE_IDLE)
+                        != 0;
+                    let deny = (self.auto_acquire_enemies_when_idle
+                        & crate::object::update::AUTO_ACQUIRE_IDLE_NO)
+                        != 0;
+                    guard.auto_acquire_enemies = allow && !deny;
+                    guard.auto_acquire_while_stealthed = (self.auto_acquire_enemies_when_idle
+                        & crate::object::update::AUTO_ACQUIRE_IDLE_STEALTHED)
+                        != 0;
+                    guard.auto_acquire_not_while_attacking = (self.auto_acquire_enemies_when_idle
+                        & crate::object::update::AUTO_ACQUIRE_IDLE_NOT_WHILE_ATTACKING)
+                        != 0;
+                    guard.auto_acquire_attack_buildings = (self.auto_acquire_enemies_when_idle
+                        & crate::object::update::AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS)
+                        != 0;
+                    guard.mood_attack_check_rate_frames = data.mood_attack_check_rate();
+                }
             }
         }
-
         if let Some(mut jet_ai) = self.jet_ai.take() {
             jet_ai.on_object_created(self);
             self.jet_ai = Some(jet_ai);
