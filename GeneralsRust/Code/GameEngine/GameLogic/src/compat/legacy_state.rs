@@ -49,6 +49,18 @@ pub trait LegacyState: Send + Sync + Any + std::fmt::Debug {
         self.on_exit(exit)
     }
 
+    fn on_update_with_control(
+        &mut self,
+        _control: &mut core::StateMachineControl,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        _machine_locked: bool,
+    ) -> Result<StateReturnType, String> {
+        match ai {
+            Some(ai) => self.on_update_with_ai(ai),
+            None => self.on_update(),
+        }
+    }
+
     /// Debug-friendly state name.
     fn state_name(&self) -> &str;
     /// Unique state identifier assigned by the machine.
@@ -209,6 +221,21 @@ impl<S: LegacyState + 'static> core::StateImplementation for LegacyStateAdapter<
         let state_name = self.inner.state_name().to_string();
         Self::map_result(state_name.as_str(), self.inner.on_update_with_ai(ai))
     }
+    fn update_with_control(
+        &mut self,
+        control: &mut core::StateMachineControl,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        machine_locked: bool,
+        _owner: &mut dyn Any,
+    ) -> StateReturnType {
+        let name = self.inner.state_name().to_string();
+        Self::map_result(
+            &name,
+            self.inner
+                .on_update_with_control(control, ai, machine_locked),
+        )
+    }
+
     fn is_idle(&self) -> bool {
         self.inner.is_idle()
     }
@@ -392,6 +419,18 @@ pub trait ClassicState: std::fmt::Debug + Send + Sync {
     ) -> Result<StateReturnType, String> {
         self.classic_on_update()
     }
+    fn classic_on_update_with_control(
+        &mut self,
+        _control: &mut core::StateMachineControl,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        _machine_locked: bool,
+    ) -> Result<StateReturnType, String> {
+        match ai {
+            Some(ai) => self.classic_on_update_with_ai(ai),
+            None => self.classic_on_update(),
+        }
+    }
+
     fn classic_on_update(&mut self) -> Result<StateReturnType, String>;
     /// Original `OnExit` callback.
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String>;
@@ -471,6 +510,15 @@ where
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.classic_on_update_with_ai(ai)
+    }
+
+    fn on_update_with_control(
+        &mut self,
+        control: &mut core::StateMachineControl,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        machine_locked: bool,
+    ) -> Result<StateReturnType, String> {
+        self.classic_on_update_with_control(control, ai, machine_locked)
     }
 
     fn on_update(&mut self) -> Result<StateReturnType, String> {

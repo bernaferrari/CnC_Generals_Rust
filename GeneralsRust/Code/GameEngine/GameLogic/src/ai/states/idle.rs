@@ -31,9 +31,9 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers,
+    search_qualifiers, the_ai,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
@@ -157,9 +157,7 @@ impl AIIdleState {
                         PathfindLayerEnum::Ground
                         | PathfindLayerEnum::Tunnel
                         | PathfindLayerEnum::Water
-                        | PathfindLayerEnum::Air => {
-                            crate::ai::pathfind::PathfindLayerEnum::Ground
-                        }
+                        | PathfindLayerEnum::Air => crate::ai::pathfind::PathfindLayerEnum::Ground,
                         _ => crate::ai::pathfind::PathfindLayerEnum::Top,
                     };
                     let _ = crate::ai::pathfind::update_goal_for_object(owner_id, &pos, layer);
@@ -182,10 +180,7 @@ impl AIIdleState {
             }
         }
     }
-    fn update_idle(
-        &mut self,
-        machine_locked: Option<bool>,
-    ) -> Result<StateReturnType, String> {
+    fn update_idle(&mut self, machine_locked: Option<bool>) -> Result<StateReturnType, String> {
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
         }
@@ -197,7 +192,10 @@ impl AIIdleState {
             let locked = if let Some(flag) = machine_locked {
                 flag
             } else if let Ok(machine) = self.base.get_machine() {
-                machine.try_lock().map(|guard| guard.is_locked()).unwrap_or(false)
+                machine
+                    .try_lock()
+                    .map(|guard| guard.is_locked())
+                    .unwrap_or(false)
             } else {
                 false
             };
@@ -240,7 +238,8 @@ impl AIIdleState {
             // }
             if let Some(owner) = self.base.get_machine_owner() {
                 if let Ok(mut owner_guard) = owner.write() {
-                    if owner_guard.is_kind_of(KindOf::CanBeRepulsed) && owner_guard.ai_fire_is_idle {
+                    if owner_guard.is_kind_of(KindOf::CanBeRepulsed) && owner_guard.ai_fire_is_idle
+                    {
                         let ai_store = the_ai();
                         let enemy = ai_store
                             .read()
@@ -297,7 +296,6 @@ impl AIIdleState {
 }
 
 impl StateImplementation for AIIdleState {
-
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
     }
@@ -312,6 +310,17 @@ impl StateImplementation for AIIdleState {
         machine_locked: bool,
     ) -> StateReturnType {
         self.update_idle(Some(machine_locked))
+            .unwrap_or(StateReturnType::Failure)
+    }
+
+    fn update_with_control(
+        &mut self,
+        control: &mut StateMachineControl,
+        _ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        _machine_locked: bool,
+        _owner: &mut dyn std::any::Any,
+    ) -> StateReturnType {
+        self.update_idle(Some(control.is_locked()))
             .unwrap_or(StateReturnType::Failure)
     }
 
@@ -359,10 +368,20 @@ impl ClassicState for AIIdleState {
         Ok(StateReturnType::Continue)
     }
 
+    fn classic_on_update_with_control(
+        &mut self,
+        control: &mut StateMachineControl,
+        _ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        _machine_locked: bool,
+    ) -> Result<StateReturnType, String> {
+        // C++ AIIdleState::update tests the real parent lock before looking
+        // for targets. Registered classic states have no weak machine handle.
+        self.update_idle(Some(control.is_locked()))
+    }
+
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
         self.update_idle(None)
     }
-
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         // Idle state has no cleanup

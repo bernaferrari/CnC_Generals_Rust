@@ -64,7 +64,7 @@ fn assert_changed(core: &StateMachine, enters: &AtomicUsize, result: StateReturn
     );
     assert_eq!(core.get_current_state_id(), Some(7));
     assert_eq!(
-        core.sleep_till, 0,
+        core.control.sleep_till, 0,
         "new state must not inherit the outgoing sleep"
     );
     assert_eq!(

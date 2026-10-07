@@ -156,22 +156,9 @@ impl UnitAIUpdate {
         }
     }
     pub(super) fn is_waiting_for_path(&self) -> bool {
-        if self.waiting_for_path {
-            return true;
-        }
-        if self.queue_for_path_frame > TheGameLogic::get_frame() {
-            return true;
-        }
-        if let Some(unit) = get_unit_arc(self.unit_id) {
-            if let Ok(guard) = unit.read() {
-                return guard
-                    .path_following_state
-                    .as_ref()
-                    .map(|state| state.waiting_for_path)
-                    .unwrap_or(false);
-            }
-        }
-        false
+        // C++ AIUpdate.h:445 reads m_waitingForPath directly. A future queue
+        // deadline and the Unit's residual path mirror are separate state.
+        self.waiting_for_path
     }
     pub(super) fn queue_waypoint(&mut self, pos: &Coord3D) {
         if (self.planning_waypoint_count as usize) < AI_UPDATE_MAX_WAYPOINTS {

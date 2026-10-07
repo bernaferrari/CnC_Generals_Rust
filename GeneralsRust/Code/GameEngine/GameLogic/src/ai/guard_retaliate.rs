@@ -863,6 +863,12 @@ impl AIGuardRetaliateInnerState {
 }
 
 impl StateImplementation for AIGuardRetaliateInnerState {
+    fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|error| format!("AIGuardRetaliateInnerState xfer version failed: {error:?}"))
+    }
+
     /// Retaliate states are only stepped through their owner's machine, which
     /// always loans the machine via `update_with_owner`.
     fn update(&mut self) -> StateReturnType {
@@ -1062,6 +1068,14 @@ impl AIGuardRetaliateIdleState {
 }
 
 impl StateImplementation for AIGuardRetaliateIdleState {
+    fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|error| format!("AIGuardRetaliateIdleState xfer version failed: {error:?}"))?;
+        xfer.xfer_unsigned_int(&mut self.next_enemy_scan_time)
+            .map_err(|error| format!("AIGuardRetaliateIdleState xfer scan time failed: {error:?}"))
+    }
+
     fn take_requested_state_change(&mut self) -> Option<u32> {
         self.requested_state.take()
     }
@@ -1333,6 +1347,12 @@ impl AIGuardRetaliateOuterState {
 }
 
 impl StateImplementation for AIGuardRetaliateOuterState {
+    fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|error| format!("AIGuardRetaliateOuterState xfer version failed: {error:?}"))
+    }
+
     fn update(&mut self) -> StateReturnType {
         StateReturnType::Failure
     }
@@ -1515,6 +1535,17 @@ impl AIGuardRetaliateReturnState {
 }
 
 impl StateImplementation for AIGuardRetaliateReturnState {
+    fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1).map_err(|error| {
+            format!("AIGuardRetaliateReturnState xfer version failed: {error:?}")
+        })?;
+        xfer.xfer_unsigned_int(&mut self.next_return_scan_time)
+            .map_err(|error| {
+                format!("AIGuardRetaliateReturnState scan time xfer failed: {error:?}")
+            })
+    }
+
     fn update(&mut self) -> StateReturnType {
         StateReturnType::Failure
     }
@@ -1605,14 +1636,16 @@ impl StateImplementation for AIGuardRetaliateReturnState {
 #[derive(Debug)]
 pub struct AIGuardRetaliatePickUpCrateState {
     base: GuardRetaliateState,
-    pickup: Option<AIPickUpCrateState>,
+    pickup: AIPickUpCrateState,
 }
 
 impl AIGuardRetaliatePickUpCrateState {
     pub fn new(machine: &StateMachine) -> Self {
         Self {
             base: GuardRetaliateState::new(machine, "AIGuardRetaliatePickUpCrate"),
-            pickup: None,
+            // C++ embeds the AIPickUpCrateState base for the full lifetime of
+            // this state, including before entry and after exit.
+            pickup: AIPickUpCrateState::new(machine),
         }
     }
 
@@ -1636,46 +1669,42 @@ impl AIGuardRetaliatePickUpCrateState {
             .and_then(|crate_obj| crate_obj.read().ok().map(|goal| *goal.get_position()));
         drop(owner_guard);
 
-        let scratch = StateMachine::new(Some(Arc::downgrade(&owner)), "AIPickUpCrate");
-        let mut pickup = AIPickUpCrateState::new(&scratch);
-        pickup.preset_goal_id = crate_id;
-        pickup.base.preset_owner = Some(owner.clone());
+        self.pickup.preset_goal_id = crate_id;
+        self.pickup.base.preset_owner = Some(owner.clone());
         if let Some(pos) = crate_pos {
-            pickup.goal_position = pos;
-            pickup.base.goal_position = pos;
+            self.pickup.goal_position = pos;
+            self.pickup.base.goal_position = pos;
         }
-        let result = match _ai {
-            Some(ai) => pickup.on_enter_with_ai(
+        match _ai {
+            Some(ai) => self.pickup.on_enter_with_ai(
                 ai,
                 crate_id,
                 crate_pos.unwrap_or(Coord3D::new(0.0, 0.0, 0.0)),
             ),
-            None => pickup.on_enter(),
-        };
-        self.pickup = Some(pickup);
-        result
+            None => self.pickup.on_enter(),
+        }
     }
 
     fn classic_update_with_ai(
         &mut self,
         ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
     ) -> StateReturnType {
-        let Some(pickup) = self.pickup.as_mut() else {
-            return StateReturnType::Success;
-        };
         match ai {
-            Some(ai) => pickup.update_with_ai(ai),
-            None => pickup.update(),
+            Some(ai) => self.pickup.update_with_ai(ai),
+            None => self.pickup.update(),
         }
     }
 
     fn classic_on_exit(&mut self, _status: StateExitType) {
         // C++ AIGuardRetaliatePickUpCrateState::onExit is empty.
-        self.pickup = None;
     }
 }
 
 impl StateImplementation for AIGuardRetaliatePickUpCrateState {
+    fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        game_engine::common::system::Snapshotable::xfer(&mut self.pickup, xfer)
+    }
+
     fn update(&mut self) -> StateReturnType {
         StateReturnType::Failure
     }
@@ -1709,6 +1738,10 @@ impl StateImplementation for AIGuardRetaliatePickUpCrateState {
 
     fn on_exit(&mut self, _status: StateExitType) {
         self.classic_on_exit(_status);
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        game_engine::common::system::Snapshotable::load_post_process(&mut self.pickup)
     }
 
     fn update_with_ai_and_owner(
@@ -1938,6 +1971,13 @@ impl AIGuardRetaliateAttackAggressorState {
 }
 
 impl StateImplementation for AIGuardRetaliateAttackAggressorState {
+    fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1).map_err(|error| {
+            format!("AIGuardRetaliateAttackAggressorState xfer version failed: {error:?}")
+        })
+    }
+
     fn update(&mut self) -> StateReturnType {
         StateReturnType::Failure
     }
@@ -2050,6 +2090,10 @@ pub fn has_attacked_me_and_i_can_return_fire_retaliate(machine: &StateMachine) -
 #[cfg(test)]
 #[path = "guard_retaliate_owner_tests.rs"]
 mod owner_tests;
+
+#[cfg(test)]
+#[path = "guard_retaliate_snapshot_contract_tests.rs"]
+mod snapshot_contract_tests;
 
 fn has_attacked_me_from_owner(owner: &Arc<RwLock<Object>>) -> bool {
     if let Ok(owner_ref) = owner.try_read() {

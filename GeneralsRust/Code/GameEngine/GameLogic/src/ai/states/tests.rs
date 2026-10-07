@@ -370,7 +370,9 @@ fn pick_up_crate_state_snapshot_roundtrip_preserves_delay_and_goal() {
 
     assert_eq!(loaded.delay_counter, 2);
     assert_eq!(loaded.goal_position, Coord3D::new(21.0, 22.0, 23.0));
-    assert_eq!(loaded.base.goal_position, Coord3D::new(21.0, 22.0, 23.0));
+    // C++ AIStates.cpp:3136 transfers the inherited goal separately from
+    // AIPickUpCrateState::m_goalPosition at 3142; loading never aliases them.
+    assert_eq!(loaded.base.goal_position, Coord3D::new(1.0, 1.0, 1.0));
 }
 
 #[test]

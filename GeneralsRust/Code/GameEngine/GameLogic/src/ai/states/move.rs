@@ -1246,7 +1246,7 @@ pub struct AIMoveToState {
     /// Whether we can try one more repath
     pub(crate) try_one_more_repath: bool,
     /// Goal layer for movement
-    pub(crate) goal_layer: u8,
+    pub(crate) goal_layer: u32,
     /// Whether this is truly a MoveTo (vs child class like AttackMove)
     pub(crate) is_move_to: bool,
     /// Handle for looping move sound
@@ -2119,7 +2119,7 @@ impl Snapshotable for AIMoveToState {
         let mut goal_position_z = self.goal_position.z;
         xfer.xfer_real(&mut goal_position_z)
             .map_err(|e| format!("AIMoveToState crc goal_position.z failed: {:?}", e))?;
-        let mut goal_layer = self.goal_layer;
+        let mut goal_layer = self.goal_layer as u8;
         xfer.xfer_u8(&mut goal_layer);
         let mut waiting_for_path = self.waiting_for_path;
         xfer.xfer_bool(&mut waiting_for_path)
@@ -2156,7 +2156,10 @@ impl Snapshotable for AIMoveToState {
             .map_err(|e| format!("AIMoveToState xfer goal_position.y failed: {:?}", e))?;
         xfer.xfer_real(&mut self.goal_position.z)
             .map_err(|e| format!("AIMoveToState xfer goal_position.z failed: {:?}", e))?;
-        xfer.xfer_u8(&mut self.goal_layer);
+        // C++ AIInternalMoveToState::xfer writes PathfindLayerEnum via
+        // xferUser(sizeof(enum)); this is a four-byte payload, not a byte.
+        xfer.xfer_unsigned_int(&mut self.goal_layer)
+            .map_err(|e| format!("AIMoveToState xfer goal_layer failed: {e:?}"))?;
         xfer.xfer_bool(&mut self.waiting_for_path)
             .map_err(|e| format!("AIMoveToState xfer waiting_for_path failed: {:?}", e))?;
         xfer.xfer_real(&mut self.path_goal_position.x)

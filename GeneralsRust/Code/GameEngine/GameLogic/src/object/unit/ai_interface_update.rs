@@ -1489,36 +1489,58 @@ impl UnitAIUpdate {
         }
         false
     }
+    fn idle_blocked_by_specialized_ai(&self) -> bool {
+        self.jet_ai
+            .as_ref()
+            .is_some_and(|ai| ai.should_block_idle(self.pending_command))
+            || self
+                .hack_internet_ai
+                .as_ref()
+                .is_some_and(|ai| ai.has_pending_command())
+    }
+
+    pub(super) fn is_idle_in_machine(&self, machine: &AIStateMachine) -> bool {
+        // C++ AIUpdate.cpp:3095-3103: classify the live state, including the
+        // explicit Idle ID before its virtual idle classification.
+        !self.idle_blocked_by_specialized_ai()
+            && (machine.get_current_state_id() == Some(AIStateType::Idle as u32)
+                || machine.is_idle())
+    }
+
+    fn legacy_unit_is_idle(unit: &Unit) -> bool {
+        unit.movement_state == MovementState::Idle
+            && !unit
+                .path_following_state
+                .as_ref()
+                .is_some_and(|state| state.waiting_for_path)
+            && unit.current_path.is_none()
+            && unit.target_position.is_none()
+    }
+
+    pub(super) fn is_idle_in_legacy_unit(&self, unit: &Unit) -> bool {
+        !self.idle_blocked_by_specialized_ai() && Self::legacy_unit_is_idle(unit)
+    }
+
+    pub(super) fn is_moving_in_machine(&self, machine: &AIStateMachine) -> bool {
+        !self.is_idle_in_machine(machine) && (self.locomotor_goal_type != 0 || self.cpp_is_moving)
+    }
+
     pub(super) fn is_idle(&self) -> bool {
-        if let Some(jet_ai) = self.jet_ai.as_ref() {
-            if jet_ai.should_block_idle(self.pending_command) {
-                return false;
-            }
-        }
-        if let Some(hack_ai) = self.hack_internet_ai.as_ref() {
-            if hack_ai.has_pending_command() {
-                return false;
-            }
+        if self.idle_blocked_by_specialized_ai() {
+            return false;
         }
         if let Some(machine) = self.ai_state_machine.as_ref() {
-            if let Ok(guard) = machine.lock() {
-                if !guard.is_idle() {
-                    return false;
-                }
+            if let Ok(machine) = machine.lock() {
+                return self.is_idle_in_machine(&machine);
             }
         }
+        // Residual compatibility when no authored machine exists. Ordinary
+        // machine classification does not consult a second movement authority.
         get_unit_arc(self.unit_id)
             .and_then(|unit| {
-                unit.read().ok().map(|guard| {
-                    guard.movement_state == MovementState::Idle
-                        && !guard
-                            .path_following_state
-                            .as_ref()
-                            .map(|state| state.waiting_for_path)
-                            .unwrap_or(false)
-                        && guard.current_path.is_none()
-                        && guard.target_position.is_none()
-                })
+                unit.read()
+                    .ok()
+                    .map(|unit| Self::legacy_unit_is_idle(&unit))
             })
             .unwrap_or(false)
     }
@@ -1553,24 +1575,16 @@ impl UnitAIUpdate {
     }
     pub(super) fn is_idle_unrestricted(&self) -> bool {
         if let Some(machine) = self.ai_state_machine.as_ref() {
-            if let Ok(guard) = machine.lock() {
-                if !guard.is_idle() {
-                    return false;
-                }
+            if let Ok(machine) = machine.lock() {
+                return machine.get_current_state_id() == Some(AIStateType::Idle as u32)
+                    || machine.is_idle();
             }
         }
         get_unit_arc(self.unit_id)
             .and_then(|unit| {
-                unit.read().ok().map(|guard| {
-                    guard.movement_state == MovementState::Idle
-                        && !guard
-                            .path_following_state
-                            .as_ref()
-                            .map(|state| state.waiting_for_path)
-                            .unwrap_or(false)
-                        && guard.current_path.is_none()
-                        && guard.target_position.is_none()
-                })
+                unit.read()
+                    .ok()
+                    .map(|unit| Self::legacy_unit_is_idle(&unit))
             })
             .unwrap_or(false)
     }

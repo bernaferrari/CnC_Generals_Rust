@@ -7300,7 +7300,8 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership"
+            "unreviewed_symbol_ownership",
+            "unreviewed_source_range_ownership"
           ],
           "candidate_destinations": [
             {
@@ -7312,6 +7313,21 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_callback_change_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_control.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_idle_lock_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine_live_control_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -52855,6 +52871,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/combat.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/command_idle_query_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -188952,7 +188973,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "0601c61a1e5805e499318bf7759368ee774c42e1065b857977a52133f0007a7a",
+  "provenance_input_digest": "7893102a525d651f0e94a5c83b7b883611570d92ab66de0b1f6189688b8988df",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

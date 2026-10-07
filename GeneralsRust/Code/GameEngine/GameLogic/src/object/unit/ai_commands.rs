@@ -160,8 +160,13 @@ impl UnitAIUpdate {
                         if !is_mobile {
                             return Ok(());
                         }
-                        if command.cmd_source == CommandSourceType::FromAi && !self.is_idle() {
+                        if command.cmd_source == CommandSourceType::FromAi
+                            && !self.is_idle_in_machine(&machine)
+                        {
                             machine.set_goal_position(clipped);
+                            self.blocked_frames = 0;
+                            self.is_blocked = false;
+                            self.blocked_and_stuck = false;
                             let _ = machine.set_temporary_state(
                                 AIStateType::MoveTo as u32,
                                 LOGICFRAMES_PER_SECOND * 20,
@@ -170,6 +175,9 @@ impl UnitAIUpdate {
                             let mut params = command.clone();
                             params.pos = clipped;
                             machine.clear();
+                            self.blocked_frames = 0;
+                            self.is_blocked = false;
+                            self.blocked_and_stuck = false;
                             let _ = machine.ai_do_command(&params);
                         }
                         return Ok(());
@@ -297,9 +305,12 @@ impl UnitAIUpdate {
                 if !is_mobile {
                     return Ok(());
                 }
-                let effectively_moving = !self.is_idle() || self.is_waiting_for_path();
                 if let Some(state_machine) = self.ai_state_machine.as_ref() {
                     if let Ok(mut machine) = state_machine.lock() {
+                        // C++ privateFollowPathAppend uses isMoving || waiting;
+                        // borrow the live machine while this command owns Unit.write.
+                        let effectively_moving =
+                            self.is_moving_in_machine(&machine) || self.is_waiting_for_path();
                         let is_follow_path = matches!(
                             machine.get_current_state_id(),
                             Some(id) if id == AIStateType::FollowPath as u32
@@ -328,6 +339,9 @@ impl UnitAIUpdate {
                     }
                 }
 
+                let effectively_moving = (!self.is_idle_in_legacy_unit(&guard)
+                    && (self.locomotor_goal_type != 0 || self.cpp_is_moving))
+                    || self.is_waiting_for_path();
                 if effectively_moving {
                     let mut coords = Vec::new();
                     if let Some(goal) = guard

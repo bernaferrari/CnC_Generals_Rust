@@ -1916,3 +1916,6 @@ fn unit_ai_update_xfer_rejects_invalid_planning_waypoint_count() {
 
     assert!(err.contains("Invalid AIUpdate waypoint count"));
 }
+
+#[path = "command_idle_query_tests.rs"]
+mod command_idle_query_tests;

@@ -2809,18 +2809,24 @@ impl Snapshotable for AIPickUpCrateState {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
 
+        game_engine::common::system::Snapshotable::xfer(&mut self.base, xfer)
+            .map_err(|e| format!("Failed to xfer AIInternalMoveToState payload: {e}"))?;
+
         xfer.xfer_int(&mut self.delay_counter)
             .map_err(|e| format!("Failed to xfer pick up crate delay_counter: {:?}", e))?;
-        xfer.xfer_coord3d(&mut self.goal_position);
-
-        if xfer.is_loading() {
-            self.base.goal_position = self.goal_position;
+        for component in [
+            &mut self.goal_position.x,
+            &mut self.goal_position.y,
+            &mut self.goal_position.z,
+        ] {
+            xfer.xfer_real(component)
+                .map_err(|e| format!("Failed to xfer pick up crate goal_position: {e}"))?;
         }
 
         Ok(())
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        game_engine::common::system::Snapshotable::load_post_process(&mut self.base)
     }
 }
