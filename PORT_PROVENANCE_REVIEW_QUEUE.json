@@ -52850,6 +52850,11 @@
             {
               "cargo_reachable": true,
               "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_attack_mask_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_attack_query_tests.rs"
             },
             {
@@ -188985,7 +188990,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "2be978e7ae52003bc74a9e4e39df8daa577fe7d84d92ea4ba8b2f23a9790589d",
+  "provenance_input_digest": "092b9f7ce65e024bc625beee843159fb985a479144b698b3a79a677de5322192",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

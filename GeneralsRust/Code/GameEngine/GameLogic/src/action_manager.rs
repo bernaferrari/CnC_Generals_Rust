@@ -1925,7 +1925,16 @@ impl TheActionManager {
             command_source,
         );
         if result != ATTACKRESULT_NOT_POSSIBLE {
-            if command_source == CommandSourceType::FromPlayer && !obj.has_any_damage_weapon() {
+            // C++ checks every slot for any nonzero mask, including empty slots.
+            if command_source == CommandSourceType::FromPlayer
+                && ![
+                    WeaponSlotType::Primary,
+                    WeaponSlotType::Secondary,
+                    WeaponSlotType::Tertiary,
+                ]
+                .into_iter()
+                .any(|slot| obj.get_weapon_in_weapon_slot_command_source_mask(slot) != 0)
+            {
                 return ATTACKRESULT_NOT_POSSIBLE;
             }
 
