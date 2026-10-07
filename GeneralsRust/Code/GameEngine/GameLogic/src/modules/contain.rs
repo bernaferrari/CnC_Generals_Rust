@@ -154,6 +154,17 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         true
     }
 
+    /// Admission when the caller already borrows this container's owning Object.
+    /// Unmigrated containers retain their existing query behavior.
+    fn is_valid_container_for_with_owner(
+        &self,
+        obj: &Object,
+        _owner: &Object,
+        check_capacity: bool,
+    ) -> bool {
+        self.is_valid_container_for(obj, check_capacity)
+    }
+
     /// Add object to containment
     fn add_to_contain(
         &mut self,

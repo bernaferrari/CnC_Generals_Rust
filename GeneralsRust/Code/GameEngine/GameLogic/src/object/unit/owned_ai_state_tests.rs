@@ -35,6 +35,9 @@ mod busy_update_tests;
 #[path = "native_fsm_step_tests.rs"]
 mod native_fsm_step_tests;
 
+#[path = "factory_enter_admission_tests.rs"]
+mod factory_enter_admission_tests;
+
 fn child(name: &str) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {

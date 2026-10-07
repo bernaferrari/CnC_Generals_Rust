@@ -1242,7 +1242,11 @@ impl TheActionManager {
                 return false;
             }
 
-            if !contain_guard.is_valid_container_for(obj, check_capacity) {
+            if !contain_guard.is_valid_container_for_with_owner(
+                obj,
+                object_to_enter,
+                check_capacity,
+            ) {
                 return false;
             }
         }

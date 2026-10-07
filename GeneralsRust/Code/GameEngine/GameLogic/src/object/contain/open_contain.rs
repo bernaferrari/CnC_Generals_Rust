@@ -34,6 +34,9 @@ use crate::object::drawable::DrawableArcExt;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
+#[path = "open_admission.rs"]
+mod admission;
+
 type ObjectId = ObjectID;
 type FirePointMatrix = [[f32; 4]; 3];
 
@@ -1175,42 +1178,6 @@ impl OpenContain {
             self.condition_state = curr_condition;
         }
         Ok(())
-    }
-
-    /// Check if this container is valid for the given object
-    pub fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
-        // Check kind restrictions
-        let obj_kind = obj.get_kind_of();
-
-        if self.module_data.allow_inside_kind_of != 0
-            && (obj_kind & self.module_data.allow_inside_kind_of) == 0
-        {
-            return false;
-        }
-
-        // Must have none of the forbidden kind bits
-        if (obj_kind & self.module_data.forbid_inside_kind_of) != 0 {
-            return false;
-        }
-
-        let _ = check_capacity;
-        let owner_id = self.get_object_id();
-        if owner_id == crate::common::INVALID_ID {
-            return true;
-        }
-        let Some(owner_arc) = self.get_object() else {
-            return false;
-        };
-        let Ok(owner) = owner_arc.try_read() else {
-            return false;
-        };
-        let relationship = obj.get_relationship_to(&owner);
-        match relationship {
-            ObjectRelationship::Ally => self.module_data.allow_allies_inside,
-            ObjectRelationship::Enemy => self.module_data.allow_enemies_inside,
-            ObjectRelationship::Neutral => self.module_data.allow_neutral_inside,
-            _ => false,
-        }
     }
 
     /// Add object to containment
@@ -2784,6 +2751,15 @@ impl ContainModuleInterface for OpenContain {
 
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
         OpenContain::is_valid_container_for(self, obj, check_capacity)
+    }
+
+    fn is_valid_container_for_with_owner(
+        &self,
+        obj: &Object,
+        owner: &Object,
+        check_capacity: bool,
+    ) -> bool {
+        OpenContain::is_valid_container_for_with_owner(self, obj, owner, check_capacity)
     }
 
     fn add_to_contain(
