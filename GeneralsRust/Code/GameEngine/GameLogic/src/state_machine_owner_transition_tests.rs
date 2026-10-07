@@ -242,3 +242,56 @@ fn terminal_transition_runs_owner_ai_exit_cleanup_and_unlock_hook() {
 fn always_false(_: &dyn StateImplementation, _: &StateTransitionUserData) -> bool {
     false
 }
+
+#[test]
+fn explicit_entry_retains_ai_owner_and_respects_machine_lock() {
+    let mut machine = StateMachine::new_with_owner_id(INVALID_ID, "owner-explicit-entry");
+    machine.define_state(
+        1,
+        Box::new(OwnerState::new(
+            "first_enter",
+            StateReturnType::Continue,
+            false,
+        )),
+        None,
+        None,
+        None,
+    );
+    machine.define_state(
+        2,
+        Box::new(OwnerState::new(
+            "next_enter",
+            StateReturnType::Continue,
+            false,
+        )),
+        None,
+        None,
+        None,
+    );
+    let mut owner = OwnerContext {
+        identity: "driving owner",
+        ..Default::default()
+    };
+    let mut ai = BorrowedAi::default();
+    assert_eq!(
+        machine.init_default_state_with_ai_and_owner(&mut ai, &mut owner),
+        StateReturnType::Continue
+    );
+    machine.lock();
+    assert_eq!(
+        machine.set_current_state_with_ai_and_owner(2, &mut ai, &mut owner),
+        StateReturnType::Continue
+    );
+    assert_eq!(machine.get_current_state_id(), Some(1));
+    assert_eq!(owner.events, ["first_enter"]);
+    machine.unlock();
+    assert_eq!(
+        machine.set_current_state_with_ai_and_owner(2, &mut ai, &mut owner),
+        StateReturnType::Continue
+    );
+    assert_eq!(machine.get_current_state_id(), Some(2));
+    assert_eq!(
+        owner.events,
+        ["first_enter", "exit", "after_unlock", "next_enter"]
+    );
+}

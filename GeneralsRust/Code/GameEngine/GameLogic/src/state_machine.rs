@@ -1207,6 +1207,19 @@ impl StateMachine {
         self.set_state_entering_with_owner(new_state_id, owner)
     }
 
+    /// Change state using the driving AI and the same owner loan as update.
+    pub(crate) fn set_current_state_with_ai_and_owner(
+        &mut self,
+        new_state_id: StateId,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        owner: &mut dyn Any,
+    ) -> StateReturnType {
+        if self.locked {
+            return StateReturnType::Continue;
+        }
+        self.set_state_entering_impl(new_state_id, Some(ai), owner)
+    }
+
     /// Internal state transition used by state-driven transitions even when locked.
     pub fn internal_set_state(&mut self, new_state_id: StateId) -> StateReturnType {
         self.set_state_entering(new_state_id, None)

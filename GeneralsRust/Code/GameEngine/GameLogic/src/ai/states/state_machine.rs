@@ -625,6 +625,26 @@ impl AIStateMachine {
         ret
     }
 
+    /// Enter a state while reusing the AI loan held by UnitAIUpdate's command callback.
+    pub(crate) fn set_state_with_ai(
+        &mut self,
+        new_state_id: u32,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> StateReturnType {
+        let old_id = self.base.get_current_state_id();
+        let ret = self
+            .base
+            .set_current_state_with_ai_and_owner(new_state_id, ai, &mut ());
+
+        if old_id != Some(new_state_id) {
+            // C++ AIStateMachine::setState calls onStateMachineChanged synchronously.
+            // The caller already owns this AI, so do not try-lock the installed handle.
+            ai.set_queue_for_path_time(0);
+        }
+
+        ret
+    }
+
     pub fn lock(&mut self) {
         self.base.lock();
     }
@@ -907,6 +927,24 @@ impl AIStateMachine {
 
 impl AiCommandInterface for AIStateMachine {
     fn ai_do_command(&mut self, params: &AiCommandParams) -> Result<(), crate::ai::AiError> {
+        self.ai_do_command_impl(params, None)
+    }
+}
+
+impl AIStateMachine {
+    pub(crate) fn ai_do_command_with_ai(
+        &mut self,
+        params: &AiCommandParams,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<(), crate::ai::AiError> {
+        self.ai_do_command_impl(params, Some(ai))
+    }
+
+    fn ai_do_command_impl(
+        &mut self,
+        params: &AiCommandParams,
+        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> Result<(), crate::ai::AiError> {
         let is_follow_path_cmd = matches!(
             params.cmd,
             AiCommandType::FollowPath
@@ -1071,7 +1109,11 @@ impl AiCommandInterface for AIStateMachine {
             self.base.set_guard_mode_raw(params.int_value);
         }
 
-        self.set_state(state as u32);
+        if let Some(ai) = ai.as_deref_mut() {
+            self.set_state_with_ai(state as u32, ai);
+        } else {
+            self.set_state(state as u32);
+        }
         Ok(())
     }
 }

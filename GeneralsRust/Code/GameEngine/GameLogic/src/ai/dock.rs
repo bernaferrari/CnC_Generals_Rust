@@ -1526,3 +1526,8 @@ impl DroneInfo {
 #[cfg(test)]
 #[path = "dock_owner_tests.rs"]
 mod owner_tests;
+
+#[cfg(test)]
+pub(crate) fn with_started_test_machines(f: impl FnOnce(AIDockMachine, AIDockMachine)) {
+    owner_tests::with_started_machine_pair(f);
+}

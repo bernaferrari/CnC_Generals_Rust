@@ -31,9 +31,9 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers,
+    search_qualifiers, the_ai,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
@@ -185,11 +185,9 @@ impl StateImplementation for AIAttackMoveToState {
             should_repath_this_frame = true;
         }
         if should_repath_this_frame {
-            let _ = self.base.on_enter_with_ai(
-                ai,
-                crate::common::INVALID_ID,
-                self.base.goal_position,
-            );
+            let _ =
+                self.base
+                    .on_enter_with_ai(ai, crate::common::INVALID_ID, self.base.goal_position);
             self.base.force_repath();
         }
         let mut ret = self.base.update_with_ai(ai);
@@ -310,20 +308,20 @@ impl AIAttackMoveToState {
         let ai_arc;
         let mut locked_ai;
         let has_ai = borrowed.is_some();
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
-        {
-            *ai
-        } else {
-            ai_arc = owner
-                .read()
-                .ok()
-                .and_then(|guard| guard.get_ai_update_interface())
-                .ok_or_else(|| "attack move-to missing AIUpdateInterface".to_string())?;
-            locked_ai = ai_arc
-                .lock()
-                .map_err(|_| "attack move-to AI lock poisoned".to_string())?;
-            &mut *locked_ai
-        };
+        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+            if let Some(ai) = borrowed.as_mut() {
+                *ai
+            } else {
+                ai_arc = owner
+                    .read()
+                    .ok()
+                    .and_then(|guard| guard.get_ai_update_interface())
+                    .ok_or_else(|| "attack move-to missing AIUpdateInterface".to_string())?;
+                locked_ai = ai_arc
+                    .lock()
+                    .map_err(|_| "attack move-to AI lock poisoned".to_string())?;
+                &mut *locked_ai
+            };
         let mut force_retarget_this_frame = false;
         let mut should_repath_this_frame = false;
         if let Some(machine) = self.attack_move_machine.as_mut() {
@@ -578,10 +576,7 @@ impl ClassicState for AIAttackFollowWaypointPathAsTeamState {
 }
 
 impl AIAttackFollowWaypointPathAsTeamState {
-    fn arm_attack_follow(
-        &mut self,
-        result: StateReturnType,
-    ) -> Result<StateReturnType, String> {
+    fn arm_attack_follow(&mut self, result: StateReturnType) -> Result<StateReturnType, String> {
         let owner = self
             .base
             .base
@@ -612,20 +607,20 @@ impl AIAttackFollowWaypointPathAsTeamState {
         let ai_arc;
         let mut locked_ai;
         let has_ai = borrowed.is_some();
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
-        {
-            *ai
-        } else {
-            ai_arc = owner
-                .read()
-                .ok()
-                .and_then(|guard| guard.get_ai_update_interface())
-                .ok_or_else(|| "attack follow path missing AIUpdateInterface".to_string())?;
-            locked_ai = ai_arc
-                .lock()
-                .map_err(|_| "attack follow path AI lock poisoned".to_string())?;
-            &mut *locked_ai
-        };
+        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+            if let Some(ai) = borrowed.as_mut() {
+                *ai
+            } else {
+                ai_arc = owner
+                    .read()
+                    .ok()
+                    .and_then(|guard| guard.get_ai_update_interface())
+                    .ok_or_else(|| "attack follow path missing AIUpdateInterface".to_string())?;
+                locked_ai = ai_arc
+                    .lock()
+                    .map_err(|_| "attack follow path AI lock poisoned".to_string())?;
+                &mut *locked_ai
+            };
         let mut force_retarget_this_frame = false;
         let mut should_repath_this_frame = false;
         if let Some(machine) = self.attack_follow_machine.as_mut() {
@@ -880,20 +875,20 @@ impl AIAttackFollowWaypointPathAsIndividualsState {
         let has_ai = borrowed.is_some();
         let ai_arc;
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
-        {
-            *ai
-        } else {
-            ai_arc = owner
-                .read()
-                .ok()
-                .and_then(|guard| guard.get_ai_update_interface())
-                .ok_or_else(|| "attack follow path missing AIUpdateInterface".to_string())?;
-            locked_ai = ai_arc
-                .lock()
-                .map_err(|_| "attack follow path AI lock poisoned".to_string())?;
-            &mut *locked_ai
-        };
+        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+            if let Some(ai) = borrowed.as_mut() {
+                *ai
+            } else {
+                ai_arc = owner
+                    .read()
+                    .ok()
+                    .and_then(|guard| guard.get_ai_update_interface())
+                    .ok_or_else(|| "attack follow path missing AIUpdateInterface".to_string())?;
+                locked_ai = ai_arc
+                    .lock()
+                    .map_err(|_| "attack follow path AI lock poisoned".to_string())?;
+                &mut *locked_ai
+            };
         let mut force_retarget_this_frame = false;
         let mut should_repath_this_frame = false;
         if let Some(machine) = self.attack_follow_machine.as_mut() {
@@ -933,7 +928,12 @@ impl AIAttackFollowWaypointPathAsIndividualsState {
         }
         if should_repath_this_frame {
             if let Ok(owner_guard) = owner.read() {
-                self.base.core.compute_goal(&self.base.base, &owner_guard, &mut *ai_guard, false)?;
+                self.base.core.compute_goal(
+                    &self.base.base,
+                    &owner_guard,
+                    &mut *ai_guard,
+                    false,
+                )?;
                 self.base.core.compute_path(&mut *ai_guard)?;
             }
         }
@@ -1015,66 +1015,11 @@ pub(crate) fn forward_parent_goal_to_nested_machine(
     }
 }
 
-impl StateImplementation for AIAttackObjectState {
-    fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
-        self.base.goal_object_id = id;
-    }
-
-    fn bind_goal_position(&mut self, pos: Coord3D) {
-        self.base.goal_position_copied = Some(pos);
-    }
-
-    fn on_enter_with_ai(
+impl AIAttackObjectState {
+    fn classic_on_enter_with_optional_ai(
         &mut self,
-        _ai: &mut dyn crate::modules::AIUpdateInterface,
-        goal_id: crate::common::ObjectID,
-        _goal_pos: Coord3D,
-    ) -> StateReturnType {
-        if goal_id != crate::common::INVALID_ID {
-            self.preset_goal_id = goal_id;
-        }
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn update_with_ai(
-        &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
-    ) -> StateReturnType {
-        self.attack_frame(Some(ai))
-            .unwrap_or(StateReturnType::Failure)
-    }
-
-    fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
-    }
-
-    fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Snapshotable::xfer(self, xfer)
-    }
-}
-
-impl ClassicState for AIAttackObjectState {
-    fn base_state(&self) -> &State {
-        &self.base
-    }
-
-    fn base_state_mut(&mut self) -> &mut State {
-        &mut self.base
-    }
-
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Snapshotable::xfer(self, xfer)
-    }
-
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
@@ -1194,7 +1139,11 @@ impl ClassicState for AIAttackObjectState {
         attack_machine.set_goal_position(self.original_victim_pos);
 
         // C++ lines 5540-5545: Init default state and set attacking status
-        let ret = attack_machine.init_default_state();
+        let ret = if let Some(ai) = ai.as_deref_mut() {
+            attack_machine.init_default_state_with_ai(ai)
+        } else {
+            attack_machine.init_default_state()
+        };
         if ret == StateReturnType::Continue {
             if let Ok(mut owner_guard) = owner.write() {
                 owner_guard.set_status(
@@ -1208,6 +1157,78 @@ impl ClassicState for AIAttackObjectState {
         self.issued_attack = true;
 
         Ok(ret)
+    }
+}
+
+impl StateImplementation for AIAttackObjectState {
+    fn on_enter(&mut self) -> StateReturnType {
+        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+    }
+
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base.goal_object_id = id;
+    }
+
+    fn bind_goal_position(&mut self, pos: Coord3D) {
+        self.base.goal_position_copied = Some(pos);
+    }
+
+    fn on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        goal_id: crate::common::ObjectID,
+        _goal_pos: Coord3D,
+    ) -> StateReturnType {
+        if goal_id != crate::common::INVALID_ID {
+            self.preset_goal_id = goal_id;
+        }
+        self.classic_on_enter_with_ai(ai)
+            .unwrap_or(StateReturnType::Failure)
+    }
+
+    fn update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> StateReturnType {
+        self.attack_frame(Some(ai))
+            .unwrap_or(StateReturnType::Failure)
+    }
+
+    fn update(&mut self) -> StateReturnType {
+        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+    }
+
+    fn on_exit(&mut self, _status: StateExitType) {
+        let _ = self.classic_on_exit(_status);
+    }
+
+    fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
+    }
+}
+
+impl ClassicState for AIAttackObjectState {
+    fn base_state(&self) -> &State {
+        &self.base
+    }
+
+    fn base_state_mut(&mut self) -> &mut State {
+        &mut self.base
+    }
+
+    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
+    }
+
+    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        self.classic_on_enter_with_optional_ai(None)
+    }
+
+    fn classic_on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<StateReturnType, String> {
+        self.classic_on_enter_with_optional_ai(Some(ai))
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
@@ -1408,7 +1429,6 @@ impl AIAttackObjectState {
     }
 }
 
-
 /// Attack position state
 #[derive(Debug)]
 pub struct AIAttackPositionState {
@@ -1509,7 +1529,6 @@ impl ClassicState for AIAttackPositionState {
         } else if let Ok(owner_guard) = owner.read() {
             self.target_position = *owner_guard.get_position();
         }
-
 
         // C++ lines 5525-5527: Choose weapon (position variant uses INVALID_ID)
         let cmd_source = {
@@ -1767,10 +1786,41 @@ impl AIPickUpCrateState {
             preset_goal_id: INVALID_ID,
         }
     }
+
+    fn update_with_optional_ai(
+        &mut self,
+        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
+        if self.delay_counter > 0 {
+            self.delay_counter -= 1;
+            if self.delay_counter == 0 {
+                return if let Some(ai) = ai.as_deref_mut() {
+                    self.base.classic_on_enter_with_ai(ai)
+                } else {
+                    self.base.classic_on_enter()
+                };
+            }
+            return Ok(StateReturnType::Continue);
+        }
+        if let Some(ai) = ai.as_deref_mut() {
+            self.base.classic_on_update_with_ai(ai)
+        } else {
+            self.base.classic_on_update()
+        }
+    }
 }
 
 impl StateImplementation for AIPickUpCrateState {
     fn on_enter(&mut self) -> StateReturnType {
+        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+    }
+
+    fn on_enter_with_ai(
+        &mut self,
+        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        _goal_id: ObjectID,
+        _goal_pos: Coord3D,
+    ) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
@@ -1786,8 +1836,24 @@ impl StateImplementation for AIPickUpCrateState {
         self.classic_on_update().unwrap_or(StateReturnType::Failure)
     }
 
+    fn update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> StateReturnType {
+        self.classic_on_update_with_ai(ai)
+            .unwrap_or(StateReturnType::Failure)
+    }
+
     fn on_exit(&mut self, _status: StateExitType) {
         let _ = self.classic_on_exit(_status);
+    }
+
+    fn on_exit_with_ai(
+        &mut self,
+        status: StateExitType,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) {
+        let _ = self.base.on_exit_with_ai(status, ai);
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -1837,15 +1903,14 @@ impl ClassicState for AIPickUpCrateState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        if self.delay_counter > 0 {
-            self.delay_counter -= 1;
-            if self.delay_counter == 0 {
-                return self.base.classic_on_enter();
-            }
-            return Ok(StateReturnType::Continue);
-        }
+        self.update_with_optional_ai(None)
+    }
 
-        self.base.classic_on_update()
+    fn classic_on_update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<StateReturnType, String> {
+        self.update_with_optional_ai(Some(ai))
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
@@ -2127,7 +2192,8 @@ impl AIAttackAreaState {
             polygon: (*polygon).clone(),
         };
 
-        let ai_store = the_ai();let victim_id = ai_store
+        let ai_store = the_ai();
+        let victim_id = ai_store
             .read()
             .ok()?
             .find_closest_enemy(

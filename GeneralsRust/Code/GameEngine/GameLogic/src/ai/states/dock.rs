@@ -265,8 +265,12 @@ impl Snapshotable for AIDockState {
             self.dock_machine = Some(AIDockMachine::new(owner)?);
         }
 
-        if let Some(machine) = self.dock_machine.as_mut() {
-            machine.xfer(xfer)?;
+        // C++ AIStates.cpp:6040 gates child bytes on the wire flag, even
+        // when the receiving parent already has a child. Retain that child.
+        if has_machine {
+            if let Some(machine) = self.dock_machine.as_mut() {
+                machine.xfer(xfer)?;
+            }
         }
 
         xfer.xfer_bool(&mut self.using_precision_movement)
@@ -282,3 +286,7 @@ impl Snapshotable for AIDockState {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "dock_snapshot_tests.rs"]
+mod snapshot_tests;

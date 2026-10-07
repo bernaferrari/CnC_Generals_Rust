@@ -31,9 +31,9 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers,
+    search_qualifiers, the_ai,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
@@ -89,6 +89,53 @@ impl AIGuardState {
             enter_polygon: None,
         }
     }
+
+    fn enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        goal_id: crate::common::ObjectID,
+        goal_pos: Coord3D,
+    ) -> StateReturnType {
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failure;
+        }
+        let Some(owner) = self.base.get_machine_owner() else {
+            return StateReturnType::Failure;
+        };
+        let mut guard_machine = AIGuardMachine::new(Arc::downgrade(&owner));
+        if let Some(polygon) = self.enter_polygon.clone() {
+            guard_machine.set_area_to_guard(Some(polygon.clone()));
+            let center = polygon.get_center_point();
+            guard_machine.set_target_position_to_guard(&center);
+        } else if goal_id != crate::common::INVALID_ID {
+            if let Some(target) = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
+            {
+                guard_machine.set_target_to_guard(Some(&target));
+            } else {
+                guard_machine.set_target_position_to_guard(&goal_pos);
+            }
+        } else {
+            guard_machine.set_target_position_to_guard(&goal_pos);
+        }
+        guard_machine.set_guard_mode(GuardMode::from_i32(self.enter_mode));
+        if guard_machine.init_default_state_with_ai(ai).is_failure() {
+            return StateReturnType::Failure;
+        }
+        let result = guard_machine.set_state_with_ai(GuardStateType::Return, ai);
+        self.guard_machine = Some(guard_machine);
+        result
+    }
+
+    fn update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> StateReturnType {
+        self.guard_machine
+            .as_mut()
+            .map(|guard_machine| guard_machine.update_with_ai(ai))
+            .unwrap_or(StateReturnType::Failure)
+    }
 }
 
 impl StateImplementation for AIGuardState {
@@ -128,39 +175,11 @@ impl StateImplementation for AIGuardState {
     }
     fn on_enter_with_ai(
         &mut self,
-        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
         goal_id: crate::common::ObjectID,
         goal_pos: Coord3D,
     ) -> StateReturnType {
-        if dual_world_registry_unavailable() {
-            return StateReturnType::Failure;
-        }
-        let Some(owner) = self.base.get_machine_owner() else {
-            return StateReturnType::Failure;
-        };
-        let mut guard_machine = AIGuardMachine::new(Arc::downgrade(&owner));
-        if let Some(polygon) = self.enter_polygon.clone() {
-            guard_machine.set_area_to_guard(Some(polygon.clone()));
-            let center = polygon.get_center_point();
-            guard_machine.set_target_position_to_guard(&center);
-        } else if goal_id != crate::common::INVALID_ID {
-            if let Some(target) = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
-            {
-                guard_machine.set_target_to_guard(Some(&target));
-            } else {
-                guard_machine.set_target_position_to_guard(&goal_pos);
-            }
-        } else {
-            guard_machine.set_target_position_to_guard(&goal_pos);
-        }
-        guard_machine.set_guard_mode(GuardMode::from_i32(self.enter_mode));
-        if guard_machine.init_default_state().is_failure() {
-            return StateReturnType::Failure;
-        }
-        let result = guard_machine.set_state(GuardStateType::Return);
-        self.guard_machine = Some(guard_machine);
-        result
+        self.enter_with_ai(ai, goal_id, goal_pos)
     }
 
     fn update(&mut self) -> StateReturnType {
@@ -168,12 +187,9 @@ impl StateImplementation for AIGuardState {
     }
     fn update_with_ai(
         &mut self,
-        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> StateReturnType {
-        let Some(guard_machine) = self.guard_machine.as_mut() else {
-            return StateReturnType::Failure;
-        };
-        guard_machine.update()
+        self.update_with_ai(ai)
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
@@ -194,11 +210,7 @@ impl ClassicState for AIGuardState {
         &mut self.base
     }
 
-    fn classic_note_guard_enter(
-        &mut self,
-        mode: i32,
-        polygon: Option<Arc<PolygonTrigger>>,
-    ) {
+    fn classic_note_guard_enter(&mut self, mode: i32, polygon: Option<Arc<PolygonTrigger>>) {
         self.enter_mode = mode;
         self.enter_polygon = polygon;
     }
@@ -242,7 +254,12 @@ impl ClassicState for AIGuardState {
             .base
             .get_machine()
             .ok()
-            .and_then(|machine| machine.try_lock().ok().map(|guard| guard.get_guard_mode_raw()))
+            .and_then(|machine| {
+                machine
+                    .try_lock()
+                    .ok()
+                    .map(|guard| guard.get_guard_mode_raw())
+            })
             .unwrap_or(self.enter_mode);
         guard_machine.set_guard_mode(GuardMode::from_i32(guard_mode));
 
@@ -255,12 +272,34 @@ impl ClassicState for AIGuardState {
         Ok(result)
     }
 
+    fn classic_on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<StateReturnType, String> {
+        let goal_id = self
+            .base
+            .get_machine_goal_object_id()
+            .unwrap_or(crate::common::INVALID_ID);
+        let goal_pos = self
+            .base
+            .get_machine_goal_position()
+            .unwrap_or(Coord3D::new(0.0, 0.0, 0.0));
+        Ok(self.enter_with_ai(ai, goal_id, goal_pos))
+    }
+
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
         let Some(guard_machine) = self.guard_machine.as_mut() else {
             return Ok(StateReturnType::Failure);
         };
 
         Ok(guard_machine.update())
+    }
+
+    fn classic_on_update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<StateReturnType, String> {
+        Ok(self.update_with_ai(ai))
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {

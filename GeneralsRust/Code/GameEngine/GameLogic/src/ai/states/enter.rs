@@ -31,9 +31,9 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers,
+    search_qualifiers, the_ai,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
@@ -46,9 +46,8 @@ use crate::damage::DamageInfo;
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
 use crate::locomotor::LocomotorAppearance;
 use crate::modules::{
-    ExitInterface,
     AIUpdateInterface, AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt,
-    ContainWant, ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
+    ContainWant, ExitDoorType, ExitInterface, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
 };
 use crate::object::production::AIFreeToExitType;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -95,48 +94,50 @@ impl AIEnterState {
             preset_goal_id: INVALID_ID,
         }
     }
+
+    fn finish_exit_with_optional_ai(
+        &mut self,
+        exit: StateExitType,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> Result<(), String> {
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+        if let Some(ai) = ai {
+            self.base.on_exit_with_ai(exit, ai);
+        } else {
+            self.base.classic_on_exit(exit)?;
+        }
+        if let Some(owner) = self.base.base.get_machine_owner() {
+            if let Ok(mut owner_guard) = owner.write() {
+                owner_guard.ai_pending_clear_ignore = true;
+                owner_guard.ai_pending_allow_invalid_position = Some(false);
+            }
+            if let Ok(owner_guard) = owner.read() {
+                if self.entry_to_clear != INVALID_ID {
+                    if let Some(goal) = get_legacy_object(self.entry_to_clear) {
+                        if let Ok(goal_guard) = goal.read() {
+                            if let Some(contain) = goal_guard.get_contain() {
+                                contain.on_object_wants_to_enter_or_exit(
+                                    &*owner_guard,
+                                    ContainWant::WantsNeither,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.entry_to_clear = INVALID_ID;
+        Ok(())
+    }
 }
 
-impl StateImplementation for AIEnterState {
-    fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
-        self.base.base.goal_object_id = id;
-    }
-
-    fn bind_goal_position(&mut self, pos: Coord3D) {
-        self.base.base.goal_position_copied = Some(pos);
-    }
-
-    fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn on_exit(&mut self, _status: StateExitType) {
-        let _ = self.classic_on_exit(_status);
-    }
-
-    fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Snapshotable::xfer(self, xfer)
-    }
-}
-
-impl ClassicState for AIEnterState {
-    fn base_state(&self) -> &State {
-        &self.base.base
-    }
-
-    fn base_state_mut(&mut self) -> &mut State {
-        &mut self.base.base
-    }
-
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Snapshotable::xfer(self, xfer)
-    }
-
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+impl AIEnterState {
+    fn classic_on_enter_with_optional_ai(
+        &mut self,
+        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
@@ -195,10 +196,17 @@ impl ClassicState for AIEnterState {
         self.base.goal_position = self.goal_position;
         self.base.preset_owner = self.preset_owner.clone();
         self.base.set_adjusts_destination(false);
-        self.base.classic_on_enter()
+        if let Some(ai) = ai.as_deref_mut() {
+            self.base.classic_on_enter_with_ai(ai)
+        } else {
+            self.base.classic_on_enter()
+        }
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn classic_on_update_with_optional_ai(
+        &mut self,
+        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
@@ -265,6 +273,10 @@ impl ClassicState for AIEnterState {
                         CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
                     ) {
                         if let Some(ai) = owner_guard.get_ai_update_interface() {
+                            // Keep the complete legacy command payload. The extension's
+                            // try_lock is nonblocking and skips redispatch when this AI is
+                            // already held by its parent callback; a borrowed same-frame
+                            // continuation remains a separate owner-aware API gap.
                             ai.ai_attack_object(
                                 goal_guard.get_id(),
                                 NO_MAX_SHOTS_LIMIT,
@@ -282,7 +294,11 @@ impl ClassicState for AIEnterState {
             }
         }
 
-        let code = self.base.classic_on_update()?;
+        let code = if let Some(ai) = ai.as_deref_mut() {
+            self.base.classic_on_update_with_ai(ai)?
+        } else {
+            self.base.classic_on_update()?
+        };
 
         if code == StateReturnType::Success {
             let owner_guard = owner
@@ -314,38 +330,97 @@ impl ClassicState for AIEnterState {
 
         Ok(code)
     }
+}
+
+impl StateImplementation for AIEnterState {
+    fn on_enter(&mut self) -> StateReturnType {
+        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+    }
+
+    fn on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        _goal_id: ObjectID,
+        _goal_pos: Coord3D,
+    ) -> StateReturnType {
+        self.classic_on_enter_with_ai(ai)
+            .unwrap_or(StateReturnType::Failure)
+    }
+
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base.base.goal_object_id = id;
+    }
+
+    fn bind_goal_position(&mut self, pos: Coord3D) {
+        self.base.base.goal_position_copied = Some(pos);
+    }
+
+    fn update(&mut self) -> StateReturnType {
+        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+    }
+
+    fn update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> StateReturnType {
+        self.classic_on_update_with_ai(ai)
+            .unwrap_or(StateReturnType::Failure)
+    }
+
+    fn on_exit(&mut self, _status: StateExitType) {
+        let _ = self.classic_on_exit(_status);
+    }
+
+    fn on_exit_with_ai(
+        &mut self,
+        status: StateExitType,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) {
+        let _ = self.finish_exit_with_optional_ai(status, Some(ai));
+    }
+
+    fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
+    }
+}
+
+impl ClassicState for AIEnterState {
+    fn base_state(&self) -> &State {
+        &self.base.base
+    }
+
+    fn base_state_mut(&mut self) -> &mut State {
+        &mut self.base.base
+    }
+
+    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
+    }
+
+    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        self.classic_on_enter_with_optional_ai(None)
+    }
+
+    fn classic_on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<StateReturnType, String> {
+        self.classic_on_enter_with_optional_ai(Some(ai))
+    }
+
+    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        self.classic_on_update_with_optional_ai(None)
+    }
+
+    fn classic_on_update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<StateReturnType, String> {
+        self.classic_on_update_with_optional_ai(Some(ai))
+    }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        // Wave 257: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
-        self.base.classic_on_exit(_exit)?;
-        if let Some(owner) = self.base.base.get_machine_owner() {
-            if let Ok(mut owner_guard) = owner.write() {
-                owner_guard.ai_pending_clear_ignore = true;
-                owner_guard.ai_pending_allow_invalid_position = Some(false);
-            }
-            if let Ok(owner_guard) = owner.read() {
-
-                if self.entry_to_clear != INVALID_ID {
-                    if let Some(goal) = get_legacy_object(self.entry_to_clear) {
-                        if let Ok(goal_guard) = goal.read() {
-                            if let Some(contain) = goal_guard.get_contain() {
-                                contain.on_object_wants_to_enter_or_exit(
-                                    &*owner_guard,
-                                    ContainWant::WantsNeither,
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        self.entry_to_clear = INVALID_ID;
-        Ok(())
+        self.finish_exit_with_optional_ai(_exit, None)
     }
 }
 
@@ -430,8 +505,6 @@ impl ClassicState for AIExitState {
         let goal_guard = goal
             .read()
             .map_err(|_| "exit state goal lock poisoned".to_string())?;
-
-
 
         if let Some(contain) = goal_guard.get_contain() {
             contain.on_object_wants_to_enter_or_exit(&*owner_guard, ContainWant::WantsToExit);

@@ -717,7 +717,7 @@ impl UnitAIUpdate {
                 }
             }
             crate::ai::AiCommandType::GuardPosition => {
-                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                if let Some(state_machine) = self.ai_state_machine.clone() {
                     if let Ok(mut machine) = state_machine.lock() {
                         let is_mobile = self.locomotor_set.get_active().is_some();
                         if !is_mobile {
@@ -732,8 +732,9 @@ impl UnitAIUpdate {
                         if is_projectile {
                             return Ok(());
                         }
+                        drop(guard);
                         machine.clear();
-                        let _ = machine.ai_do_command(command);
+                        let _ = machine.ai_do_command_with_ai(command, self);
                         return Ok(());
                     }
                 }
@@ -745,7 +746,7 @@ impl UnitAIUpdate {
                 guard.order_queue.clear();
             }
             crate::ai::AiCommandType::GuardObject => {
-                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                if let Some(state_machine) = self.ai_state_machine.clone() {
                     if let Ok(mut machine) = state_machine.lock() {
                         let is_mobile = self.locomotor_set.get_active().is_some();
                         if !is_mobile {
@@ -760,8 +761,9 @@ impl UnitAIUpdate {
                         if is_projectile {
                             return Ok(());
                         }
+                        drop(guard);
                         machine.clear();
-                        let _ = machine.ai_do_command(command);
+                        let _ = machine.ai_do_command_with_ai(command, self);
                         return Ok(());
                     }
                 }
@@ -779,7 +781,7 @@ impl UnitAIUpdate {
                 }
             }
             crate::ai::AiCommandType::GuardArea => {
-                if let Some(state_machine) = self.ai_state_machine.as_ref() {
+                if let Some(state_machine) = self.ai_state_machine.clone() {
                     if let Ok(mut machine) = state_machine.lock() {
                         let is_mobile = self.locomotor_set.get_active().is_some();
                         if !is_mobile {
@@ -794,8 +796,9 @@ impl UnitAIUpdate {
                         if is_projectile {
                             return Ok(());
                         }
+                        drop(guard);
                         machine.clear();
-                        let _ = machine.ai_do_command(command);
+                        let _ = machine.ai_do_command_with_ai(command, self);
                         return Ok(());
                     }
                 }

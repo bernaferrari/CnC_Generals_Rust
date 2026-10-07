@@ -544,6 +544,13 @@ impl AttackStateMachine {
         self.base.init_default_state()
     }
 
+    pub(crate) fn init_default_state_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> StateReturnType {
+        self.base.init_default_state_with_ai_and_owner(ai, &mut ())
+    }
+
     pub fn set_state(&mut self, state: AttackSubStateId) -> StateReturnType {
         self.base.set_current_state(state as u32)
     }

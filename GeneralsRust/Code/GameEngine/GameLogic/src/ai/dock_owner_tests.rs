@@ -340,3 +340,22 @@ fn held_ai_complete_dock_obeys_action_delay_lock_phases_and_exit_cleanup() {
     }
     machine.halt().unwrap();
 }
+
+/// Wire-only parent controls reuse the actual installed RepairDock fixture.
+pub(super) fn with_started_machine_pair(f: impl FnOnce(AIDockMachine, AIDockMachine)) {
+    let _serial = crate::test_sync::lock();
+    let fixture = Fixture::new();
+    fixture.occupy_front();
+    let mut source = AIDockMachine::new(fixture.objects[2].clone()).unwrap();
+    let mut ai = fixture.ai.lock().unwrap();
+    assert!(!source.start_with_ai(fixture.id(0), &mut *ai).is_failure());
+    ai.distance = 0.0;
+    assert!(!source.update_with_ai(&mut *ai).is_failure());
+    assert_eq!(
+        source.test_state(),
+        Some(AIDockState::WaitForClearance as u32)
+    );
+    drop(ai);
+    let receiving = AIDockMachine::new(fixture.objects[2].clone()).unwrap();
+    f(source, receiving);
+}
