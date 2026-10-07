@@ -14,7 +14,9 @@ use crate::modules::AIUpdateInterfaceExt;
 use crate::object::*;
 use crate::state_machine::*;
 
-use std::sync::{Arc, Mutex, RwLock, Weak};
+#[cfg(test)]
+use std::sync::Mutex;
+use std::sync::{Arc, RwLock, Weak};
 
 /// Wave 429: host-only path has no dual-world factory objects.
 #[inline]
@@ -44,7 +46,9 @@ fn retaliate_attack_aggressor_condition(
 ) -> bool {
     // Update already holds the machine; the owner resolves through the id the
     // state copied at define time.
-    retaliate_state_owner_arc(state).as_ref().is_some_and(has_attacked_me_from_owner)
+    retaliate_state_owner_arc(state)
+        .as_ref()
+        .is_some_and(has_attacked_me_from_owner)
 }
 
 /// Owner of the state currently being tested for a conditional transition
@@ -179,6 +183,8 @@ pub struct GuardRetaliateExitConditions {
     radius_sqr: f32,
     /// Frame at which we give up attacking
     attack_give_up_frame: u32,
+    #[cfg(test)]
+    test_exit_acquisitions: usize,
 }
 
 /// Exit condition flags for guard retaliate
@@ -195,6 +201,8 @@ impl GuardRetaliateExitConditions {
             center: Coord3D::new(0.0, 0.0, 0.0),
             radius_sqr: 0.0,
             attack_give_up_frame: 0,
+            #[cfg(test)]
+            test_exit_acquisitions: 0,
         }
     }
 
@@ -274,29 +282,11 @@ impl GuardRetaliateExitConditions {
     }
 }
 
-/// Shared handle for the exit conditions a guard-retaliate state hands its
-/// child attack machine. This is the one deliberate interior-mutable cell
-/// left in the family: `AttackExitConditionsInterface` is a shared trait
-/// object the child reads while the parent state keeps tuning the same
-/// conditions, and the trait lives in `ai/states` out of this conversion's
-/// scope. The state machine itself carries no shared handle.
-#[derive(Debug, Clone)]
-struct GuardRetaliateExitConditionsHandle {
-    inner: Arc<Mutex<GuardRetaliateExitConditions>>,
-}
-
-impl GuardRetaliateExitConditionsHandle {
-    fn new(inner: Arc<Mutex<GuardRetaliateExitConditions>>) -> Self {
-        Self { inner }
-    }
-}
-
-impl AttackExitConditionsInterface for GuardRetaliateExitConditionsHandle {
+// C++ owns these conditions in the parent state. The child only borrows
+// them during its synchronous update; no retained shared handle is needed.
+impl AttackExitConditionsInterface for GuardRetaliateExitConditions {
     fn should_exit(&self, machine: &StateMachine) -> bool {
-        let Ok(guard) = self.inner.lock() else {
-            return false;
-        };
-        guard.should_exit(machine)
+        GuardRetaliateExitConditions::should_exit(self, machine)
     }
 }
 
@@ -330,19 +320,24 @@ mod tests {
 
     #[test]
     fn guard_retaliate_machine_settles_in_idle_and_stays_there() {
-        // IDLE is the one guard state whose enter does not need the owner
-        // object, so it lands (and stays) even with no resolvable owner.
-        let mut machine = AIGuardRetaliateMachine::new(Weak::new());
-        machine.set_state(GuardRetaliateStateType::Idle);
-        assert_eq!(
-            machine.state_machine.get_current_state_id(),
-            Some(GuardRetaliateStateType::Idle as u32)
-        );
-        machine.update();
-        assert_eq!(
-            machine.state_machine.get_current_state_id(),
-            Some(GuardRetaliateStateType::Idle as u32)
-        );
+        // A missing owner can stay idle only until its randomized scan delay
+        // expires. Give this control a positive delay independent of earlier
+        // tests' draws; the scoped stream restores on unwind.
+        let mut random = game_engine::common::random_value::RandomState::default();
+        random.set_seed_words([1, 2, 3, 4, 5, 6]);
+        game_engine::common::random_value::with_logic_rng_owner(&mut random, || {
+            let mut machine = AIGuardRetaliateMachine::new(Weak::new());
+            machine.set_state(GuardRetaliateStateType::Idle);
+            assert_eq!(
+                machine.state_machine.get_current_state_id(),
+                Some(GuardRetaliateStateType::Idle as u32)
+            );
+            machine.update();
+            assert_eq!(
+                machine.state_machine.get_current_state_id(),
+                Some(GuardRetaliateStateType::Idle as u32)
+            );
+        });
     }
 }
 
@@ -392,8 +387,7 @@ impl AIGuardRetaliateMachine {
         if !self.state_machine.is_empty() {
             return;
         }
-        let mut machine =
-            StateMachine::new_with_owner_id(self.owner_id, "AIGuardRetaliateMachine");
+        let mut machine = StateMachine::new_with_owner_id(self.owner_id, "AIGuardRetaliateMachine");
         self.define_guard_retaliate_states(&mut machine);
         let _ = machine.init_default_state_with_owner(self);
         self.state_machine = machine;
@@ -677,7 +671,7 @@ impl GuardRetaliateState {
 #[derive(Debug)]
 pub struct AIGuardRetaliateInnerState {
     base: GuardRetaliateState,
-    exit_conditions: Arc<Mutex<GuardRetaliateExitConditions>>,
+    exit_conditions: GuardRetaliateExitConditions,
     is_attacking: bool,
     attack_machine: Option<AttackStateMachine>,
     enter_state: Option<AIEnterState>,
@@ -687,7 +681,7 @@ impl AIGuardRetaliateInnerState {
     pub fn new(machine: &StateMachine) -> Self {
         Self {
             base: GuardRetaliateState::new(machine, "AIGuardRetaliateInner"),
-            exit_conditions: Arc::new(Mutex::new(GuardRetaliateExitConditions::new())),
+            exit_conditions: GuardRetaliateExitConditions::new(),
             is_attacking: false,
             attack_machine: None,
             enter_state: None,
@@ -742,16 +736,17 @@ impl AIGuardRetaliateInnerState {
         }
 
         let pos = machine.friend_position_to_guard();
-        if let Ok(mut exit_guard) = self.exit_conditions.lock() {
+        {
+            let conditions = &mut self.exit_conditions;
             let radius = 1.5
                 * owner
                     .read()
                     .ok()
                     .map(|g| AIGuardRetaliateMachine::get_std_guard_range(g.get_id()))
                     .unwrap_or(100.0);
-            exit_guard.set_center(pos);
-            exit_guard.set_radius_sqr(radius * radius);
-            exit_guard.set_conditions(
+            conditions.set_center(pos);
+            conditions.set_radius_sqr(radius * radius);
+            conditions.set_conditions(
                 guard_retaliate_exit_conditions::ATTACK_EXIT_IF_OUTSIDE_RADIUS
                     | guard_retaliate_exit_conditions::ATTACK_EXIT_IF_NO_UNIT_FOUND,
             );
@@ -764,9 +759,6 @@ impl AIGuardRetaliateInnerState {
             true,
             false,
         );
-        attack_machine.set_exit_conditions(Box::new(GuardRetaliateExitConditionsHandle::new(
-            self.exit_conditions.clone(),
-        )));
         attack_machine.set_goal_object(nemesis.read().ok().map(|g| g.get_id()));
 
         let result = attack_machine.init_default_state();
@@ -783,7 +775,7 @@ impl AIGuardRetaliateInnerState {
 
     fn classic_update(&mut self) -> StateReturnType {
         if let Some(attack_machine) = self.attack_machine.as_mut() {
-            return attack_machine.update();
+            return attack_machine.update_with_exit_conditions(&self.exit_conditions);
         }
         if let Some(enter_state) = self.enter_state.as_mut() {
             return enter_state.update();
@@ -1022,7 +1014,7 @@ impl StateImplementation for AIGuardRetaliateIdleState {
 #[derive(Debug)]
 pub struct AIGuardRetaliateOuterState {
     base: GuardRetaliateState,
-    exit_conditions: Arc<Mutex<GuardRetaliateExitConditions>>,
+    exit_conditions: GuardRetaliateExitConditions,
     is_attacking: bool,
     attack_machine: Option<AttackStateMachine>,
 }
@@ -1031,7 +1023,7 @@ impl AIGuardRetaliateOuterState {
     pub fn new(machine: &StateMachine) -> Self {
         Self {
             base: GuardRetaliateState::new(machine, "AIGuardRetaliateOuter"),
-            exit_conditions: Arc::new(Mutex::new(GuardRetaliateExitConditions::new())),
+            exit_conditions: GuardRetaliateExitConditions::new(),
             is_attacking: false,
             attack_machine: None,
         }
@@ -1088,14 +1080,15 @@ impl AIGuardRetaliateOuterState {
             .unwrap_or(std_guard_range)
         };
 
-        if let Ok(mut exit_guard) = self.exit_conditions.lock() {
+        {
+            let conditions = &mut self.exit_conditions;
             let radius = 0.67 * (range + std_guard_range);
-            exit_guard.set_center(pos);
-            exit_guard.set_radius_sqr(radius * radius);
-            exit_guard.set_attack_give_up_frame(
+            conditions.set_center(pos);
+            conditions.set_radius_sqr(radius * radius);
+            conditions.set_attack_give_up_frame(
                 TheGameLogic::get_frame().saturating_add(get_guard_chase_unit_frames()),
             );
-            exit_guard.set_conditions(
+            conditions.set_conditions(
                 guard_retaliate_exit_conditions::ATTACK_EXIT_IF_EXPIRED_DURATION
                     | guard_retaliate_exit_conditions::ATTACK_EXIT_IF_OUTSIDE_RADIUS
                     | guard_retaliate_exit_conditions::ATTACK_EXIT_IF_NO_UNIT_FOUND,
@@ -1109,9 +1102,6 @@ impl AIGuardRetaliateOuterState {
             true,
             false,
         );
-        attack_machine.set_exit_conditions(Box::new(GuardRetaliateExitConditionsHandle::new(
-            self.exit_conditions.clone(),
-        )));
         attack_machine.set_goal_object(nemesis.read().ok().map(|g| g.get_id()));
         let result = attack_machine.init_default_state();
 
@@ -1140,11 +1130,12 @@ impl AIGuardRetaliateOuterState {
             if let Some(goal_pos) = crate::object::registry::OBJECT_REGISTRY
                 .with_object(goal_id, |goal_guard| *goal_guard.get_position())
             {
-                if let Ok(mut exit_guard) = self.exit_conditions.lock() {
+                {
+                    let conditions = &mut self.exit_conditions;
                     let delta = Coord3D::new(
-                        exit_guard.center.x - goal_pos.x,
-                        exit_guard.center.y - goal_pos.y,
-                        exit_guard.center.z - goal_pos.z,
+                        conditions.center.x - goal_pos.x,
+                        conditions.center.y - goal_pos.y,
+                        conditions.center.z - goal_pos.z,
                     );
                     if let Some(vision) = self.base.owner_arc().and_then(|owner| {
                         owner
@@ -1153,7 +1144,7 @@ impl AIGuardRetaliateOuterState {
                             .map(|g| AIGuardRetaliateMachine::get_std_guard_range(g.get_id()))
                     }) {
                         if Vector3Ext::length_sqr(&delta) <= vision * vision {
-                            exit_guard.set_attack_give_up_frame(
+                            conditions.set_attack_give_up_frame(
                                 TheGameLogic::get_frame()
                                     .saturating_add(get_guard_chase_unit_frames()),
                             );
@@ -1163,7 +1154,7 @@ impl AIGuardRetaliateOuterState {
             }
         }
 
-        attack_machine.update()
+        attack_machine.update_with_exit_conditions(&self.exit_conditions)
     }
 
     fn classic_on_exit(&mut self, _status: StateExitType) {
@@ -1494,7 +1485,7 @@ impl StateImplementation for AIGuardRetaliatePickUpCrateState {
 #[derive(Debug)]
 pub struct AIGuardRetaliateAttackAggressorState {
     base: GuardRetaliateState,
-    exit_conditions: Arc<Mutex<GuardRetaliateExitConditions>>,
+    exit_conditions: GuardRetaliateExitConditions,
     is_attacking: bool,
     attack_machine: Option<AttackStateMachine>,
 }
@@ -1503,7 +1494,7 @@ impl AIGuardRetaliateAttackAggressorState {
     pub fn new(machine: &StateMachine) -> Self {
         Self {
             base: GuardRetaliateState::new(machine, "AIGuardRetaliateAttackAggressor"),
-            exit_conditions: Arc::new(Mutex::new(GuardRetaliateExitConditions::new())),
+            exit_conditions: GuardRetaliateExitConditions::new(),
             is_attacking: false,
             attack_machine: None,
         }
@@ -1581,14 +1572,14 @@ impl AIGuardRetaliateAttackAggressorState {
             .unwrap_or(std_guard_range)
         };
 
-        if let Ok(mut exit_guard) = self.exit_conditions.lock() {
-            exit_guard.set_center(pos);
-            exit_guard
-                .set_radius_sqr((range + std_guard_range) * (range + std_guard_range));
-            exit_guard.set_attack_give_up_frame(
+        {
+            let conditions = &mut self.exit_conditions;
+            conditions.set_center(pos);
+            conditions.set_radius_sqr((range + std_guard_range) * (range + std_guard_range));
+            conditions.set_attack_give_up_frame(
                 TheGameLogic::get_frame().saturating_add(get_guard_chase_unit_frames()),
             );
-            exit_guard.set_conditions(
+            conditions.set_conditions(
                 guard_retaliate_exit_conditions::ATTACK_EXIT_IF_EXPIRED_DURATION
                     | guard_retaliate_exit_conditions::ATTACK_EXIT_IF_OUTSIDE_RADIUS
                     | guard_retaliate_exit_conditions::ATTACK_EXIT_IF_NO_UNIT_FOUND,
@@ -1602,9 +1593,6 @@ impl AIGuardRetaliateAttackAggressorState {
             true,
             false,
         );
-        attack_machine.set_exit_conditions(Box::new(GuardRetaliateExitConditionsHandle::new(
-            self.exit_conditions.clone(),
-        )));
         attack_machine.set_goal_object(nemesis.read().ok().map(|g| g.get_id()));
         let result = attack_machine.init_default_state();
 
@@ -1622,7 +1610,7 @@ impl AIGuardRetaliateAttackAggressorState {
         let Some(attack_machine) = self.attack_machine.as_mut() else {
             return StateReturnType::Success;
         };
-        attack_machine.update()
+        attack_machine.update_with_exit_conditions(&self.exit_conditions)
     }
 
     fn classic_on_exit(&mut self, _status: StateExitType) {
@@ -1770,3 +1758,7 @@ fn has_attacked_me_from_owner(owner: &Arc<RwLock<Object>>) -> bool {
         false
     }
 }
+
+#[cfg(test)]
+#[path = "guard_retaliate_condition_owner_tests.rs"]
+mod condition_owner_tests;

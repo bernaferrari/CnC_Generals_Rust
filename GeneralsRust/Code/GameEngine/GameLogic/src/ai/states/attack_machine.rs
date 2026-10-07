@@ -555,6 +555,18 @@ impl AttackStateMachine {
         self.base.update()
     }
 
+    /// Guard states own their conditions alongside this child. Borrow them
+    /// only for this step so parent tuning is visible before child effects.
+    pub(crate) fn update_with_exit_conditions(
+        &mut self,
+        conditions: &dyn AttackExitConditionsInterface,
+    ) -> StateReturnType {
+        if conditions.should_exit(&self.base) {
+            return StateReturnType::Success;
+        }
+        self.update()
+    }
+
     pub fn update_with_ai(
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,

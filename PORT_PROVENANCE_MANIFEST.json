@@ -13219,6 +13219,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/guard_retaliate_condition_owner_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -13727,6 +13734,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/tn_guard.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/tn_guard_condition_owner_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -50276,6 +50290,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/guard_retaliate_condition_owner_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -50784,6 +50805,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/tn_guard.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/tn_guard_condition_owner_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -157227,7 +157255,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "33671bcd2cfdbac5758b8b9ef7911894ba2abd9b16a95b4bd2719df2914f5b33",
+  "input_digest": "d7987c13e4af2b80877cedf073b8e94265298683b99b7102d8ba15181ddc5bdc",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -179579,822 +179607,910 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1773,
+        "end_line": 1765,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/guard_retaliate.rs",
-      "sha256": "e8a9e8753f1d70c2c28b20e06559648b8499944e5c6f1b10e6be8571f29ff633",
+      "sha256": "8033740b8e809cd530a20b9440ab25fd95afe13f30485536d17c99fb5fda3081",
       "symbol_index_status": "indexed",
       "symbols": [
         {
           "kind": "fn",
-          "line": 21,
+          "line": 23,
           "name": "dual_world_registry_unavailable"
         },
         {
           "kind": "const",
-          "line": 26,
+          "line": 28,
           "name": "CLOSE_ENOUGH"
         },
         {
           "kind": "const",
-          "line": 28,
+          "line": 30,
           "name": "CRATE_PICKUP_RANGE_SQR"
         },
         {
           "kind": "fn",
-          "line": 33,
+          "line": 35,
           "name": "retaliate_owner_arc_for_id"
         },
         {
           "kind": "fn",
-          "line": 40,
+          "line": 42,
           "name": "retaliate_attack_aggressor_condition"
         },
         {
           "kind": "fn",
-          "line": 52,
+          "line": 56,
           "name": "retaliate_state_owner_arc"
         },
         {
           "kind": "fn",
-          "line": 55,
+          "line": 59,
           "name": "get_guard_enemy_scan_rate"
         },
         {
           "kind": "fn",
-          "line": 64,
+          "line": 68,
           "name": "get_guard_chase_unit_frames"
         },
         {
           "kind": "fn",
-          "line": 73,
+          "line": 77,
           "name": "get_guard_enemy_return_scan_rate"
         },
         {
           "kind": "fn",
-          "line": 82,
+          "line": 86,
           "name": "scan_guard_retaliate_inner_target"
         },
         {
           "kind": "enum",
-          "line": 156,
+          "line": 160,
           "name": "GuardRetaliateStateType"
         },
         {
           "kind": "struct",
-          "line": 173,
+          "line": 177,
           "name": "GuardRetaliateExitConditions"
         },
         {
           "kind": "const",
-          "line": 186,
+          "line": 192,
           "name": "ATTACK_EXIT_IF_OUTSIDE_RADIUS"
         },
         {
           "kind": "const",
-          "line": 187,
+          "line": 193,
           "name": "ATTACK_EXIT_IF_EXPIRED_DURATION"
         },
         {
           "kind": "const",
-          "line": 188,
+          "line": 194,
           "name": "ATTACK_EXIT_IF_NO_UNIT_FOUND"
         },
         {
           "kind": "fn",
-          "line": 192,
+          "line": 198,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 200,
+          "line": 208,
           "name": "should_exit"
-        },
-        {
-          "kind": "fn",
-          "line": 259,
-          "name": "set_conditions"
-        },
-        {
-          "kind": "fn",
-          "line": 263,
-          "name": "set_center"
         },
         {
           "kind": "fn",
           "line": 267,
-          "name": "set_radius_sqr"
+          "name": "set_conditions"
         },
         {
           "kind": "fn",
           "line": 271,
+          "name": "set_center"
+        },
+        {
+          "kind": "fn",
+          "line": 275,
+          "name": "set_radius_sqr"
+        },
+        {
+          "kind": "fn",
+          "line": 279,
           "name": "set_attack_give_up_frame"
         },
         {
-          "kind": "struct",
-          "line": 284,
-          "name": "GuardRetaliateExitConditionsHandle"
-        },
-        {
           "kind": "fn",
-          "line": 289,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 295,
+          "line": 288,
           "name": "should_exit"
         },
         {
           "kind": "fn",
-          "line": 308,
+          "line": 298,
           "name": "guard_retaliate_machine_fields_are_isolated_per_machine"
         },
         {
           "kind": "fn",
-          "line": 332,
+          "line": 322,
           "name": "guard_retaliate_machine_settles_in_idle_and_stays_there"
         },
         {
           "kind": "struct",
-          "line": 357,
+          "line": 352,
           "name": "AIGuardRetaliateMachine"
         },
         {
           "kind": "fn",
-          "line": 372,
+          "line": 367,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 391,
+          "line": 386,
           "name": "build_state_machine"
         },
         {
           "kind": "fn",
-          "line": 404,
+          "line": 398,
           "name": "define_guard_retaliate_states"
         },
         {
           "kind": "fn",
-          "line": 469,
+          "line": 463,
           "name": "friend_request_state"
         },
         {
           "kind": "fn",
-          "line": 473,
+          "line": 467,
           "name": "friend_owner_arc"
         },
         {
           "kind": "fn",
-          "line": 477,
+          "line": 471,
           "name": "friend_position_to_guard"
         },
         {
           "kind": "fn",
-          "line": 481,
+          "line": 475,
           "name": "friend_nemesis_to_attack"
         },
         {
           "kind": "fn",
-          "line": 485,
+          "line": 479,
           "name": "friend_set_nemesis_to_attack"
         },
         {
           "kind": "fn",
-          "line": 491,
+          "line": 485,
           "name": "is_idle"
         },
         {
           "kind": "fn",
-          "line": 496,
+          "line": 490,
           "name": "get_position_to_guard"
         },
         {
           "kind": "fn",
-          "line": 500,
+          "line": 494,
           "name": "set_target_position_to_guard"
         },
         {
           "kind": "fn",
-          "line": 504,
+          "line": 498,
           "name": "set_nemesis_id"
         },
         {
           "kind": "fn",
-          "line": 508,
+          "line": 502,
           "name": "get_nemesis_id"
         },
         {
           "kind": "fn",
-          "line": 512,
+          "line": 506,
           "name": "init_default_state"
         },
         {
           "kind": "fn",
-          "line": 522,
+          "line": 516,
           "name": "set_state"
         },
         {
           "kind": "fn",
-          "line": 532,
+          "line": 526,
           "name": "halt"
         },
         {
           "kind": "fn",
-          "line": 536,
+          "line": 530,
           "name": "is_in_attack_state"
         },
         {
           "kind": "fn",
-          "line": 540,
+          "line": 534,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 553,
+          "line": 547,
           "name": "look_for_inner_target"
         },
         {
           "kind": "fn",
-          "line": 586,
+          "line": 580,
           "name": "get_std_guard_range"
         },
         {
           "kind": "fn",
-          "line": 599,
+          "line": 593,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 604,
+          "line": 598,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 625,
+          "line": 619,
           "name": "load_post_process"
         },
         {
           "kind": "struct",
-          "line": 646,
+          "line": 640,
           "name": "GuardRetaliateState"
         },
         {
           "kind": "fn",
-          "line": 651,
+          "line": 645,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 658,
+          "line": 652,
           "name": "state"
         },
         {
           "kind": "fn",
-          "line": 662,
+          "line": 656,
           "name": "state_mut"
         },
         {
           "kind": "fn",
-          "line": 666,
+          "line": 660,
           "name": "owner_arc"
         },
         {
           "kind": "fn",
-          "line": 670,
+          "line": 664,
           "name": "downcast_machine"
         },
         {
           "kind": "struct",
-          "line": 678,
+          "line": 672,
           "name": "AIGuardRetaliateInnerState"
         },
         {
           "kind": "fn",
-          "line": 687,
+          "line": 681,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 696,
+          "line": 690,
           "name": "is_attack"
         },
         {
           "kind": "fn",
-          "line": 700,
+          "line": 694,
           "name": "classic_on_enter"
         },
         {
           "kind": "fn",
-          "line": 783,
+          "line": 775,
           "name": "classic_update"
         },
         {
           "kind": "fn",
-          "line": 793,
+          "line": 785,
           "name": "classic_on_exit"
         },
         {
           "kind": "fn",
-          "line": 818,
+          "line": 810,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 821,
+          "line": 813,
           "name": "on_enter_with_owner"
         },
         {
           "kind": "fn",
-          "line": 828,
+          "line": 820,
           "name": "update_with_owner"
         },
         {
           "kind": "fn",
-          "line": 835,
+          "line": 827,
           "name": "on_exit"
         },
         {
           "kind": "fn",
-          "line": 841,
+          "line": 833,
           "name": "load_post_process_with_owner"
         },
         {
           "kind": "fn",
-          "line": 850,
+          "line": 842,
           "name": "note_step_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 848,
+          "name": "get_machine_owner_id"
         },
         {
           "kind": "fn",
           "line": 856,
-          "name": "get_machine_owner_id"
+          "name": "bind_goal_object_id"
+        },
+        {
+          "kind": "fn",
+          "line": 860,
+          "name": "is_attack"
         },
         {
           "kind": "fn",
           "line": 864,
-          "name": "bind_goal_object_id"
+          "name": "is_busy"
         },
         {
           "kind": "fn",
           "line": 868,
-          "name": "is_attack"
+          "name": "get_name"
         },
         {
           "kind": "fn",
           "line": 872,
-          "name": "is_busy"
+          "name": "get_id"
         },
         {
           "kind": "fn",
           "line": 876,
-          "name": "get_name"
-        },
-        {
-          "kind": "fn",
-          "line": 880,
-          "name": "get_id"
-        },
-        {
-          "kind": "fn",
-          "line": 884,
           "name": "set_id"
         },
         {
           "kind": "struct",
-          "line": 892,
+          "line": 884,
           "name": "AIGuardRetaliateIdleState"
         },
         {
           "kind": "fn",
-          "line": 898,
+          "line": 890,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 904,
+          "line": 896,
           "name": "is_guard_idle"
         },
         {
           "kind": "fn",
-          "line": 908,
+          "line": 900,
           "name": "classic_on_enter"
         },
         {
           "kind": "fn",
-          "line": 915,
+          "line": 907,
           "name": "classic_update"
         },
         {
           "kind": "fn",
-          "line": 964,
+          "line": 956,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 967,
+          "line": 959,
           "name": "on_enter_with_owner"
         },
         {
           "kind": "fn",
-          "line": 974,
+          "line": 966,
           "name": "update_with_owner"
         },
         {
           "kind": "fn",
-          "line": 981,
+          "line": 973,
           "name": "on_exit"
         },
         {
           "kind": "fn",
-          "line": 985,
+          "line": 977,
           "name": "note_step_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 983,
+          "name": "get_machine_owner_id"
         },
         {
           "kind": "fn",
           "line": 991,
-          "name": "get_machine_owner_id"
-        },
-        {
-          "kind": "fn",
-          "line": 999,
           "name": "bind_goal_object_id"
         },
         {
           "kind": "fn",
-          "line": 1003,
+          "line": 995,
           "name": "is_guard_idle"
         },
         {
           "kind": "fn",
-          "line": 1007,
+          "line": 999,
           "name": "get_name"
         },
         {
           "kind": "fn",
-          "line": 1011,
+          "line": 1003,
           "name": "get_id"
         },
         {
           "kind": "fn",
-          "line": 1015,
+          "line": 1007,
           "name": "set_id"
         },
         {
           "kind": "struct",
-          "line": 1023,
+          "line": 1015,
           "name": "AIGuardRetaliateOuterState"
         },
         {
           "kind": "fn",
-          "line": 1031,
+          "line": 1023,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 1039,
+          "line": 1031,
           "name": "is_attack"
         },
         {
           "kind": "fn",
-          "line": 1043,
+          "line": 1035,
           "name": "classic_on_enter"
         },
         {
           "kind": "fn",
-          "line": 1127,
+          "line": 1117,
           "name": "classic_update"
         },
         {
           "kind": "fn",
-          "line": 1168,
+          "line": 1159,
           "name": "classic_on_exit"
         },
         {
           "kind": "fn",
-          "line": 1178,
+          "line": 1169,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 1181,
+          "line": 1172,
           "name": "on_enter_with_owner"
         },
         {
           "kind": "fn",
-          "line": 1188,
+          "line": 1179,
           "name": "update_with_owner"
         },
         {
           "kind": "fn",
-          "line": 1195,
+          "line": 1186,
           "name": "on_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 1192,
+          "name": "load_post_process_with_owner"
         },
         {
           "kind": "fn",
           "line": 1201,
-          "name": "load_post_process_with_owner"
-        },
-        {
-          "kind": "fn",
-          "line": 1210,
           "name": "note_step_owner"
         },
         {
           "kind": "fn",
-          "line": 1216,
+          "line": 1207,
           "name": "get_machine_owner_id"
         },
         {
           "kind": "fn",
-          "line": 1224,
+          "line": 1215,
           "name": "bind_goal_object_id"
         },
         {
           "kind": "fn",
-          "line": 1228,
+          "line": 1219,
           "name": "is_attack"
         },
         {
           "kind": "fn",
-          "line": 1232,
+          "line": 1223,
           "name": "is_busy"
         },
         {
           "kind": "fn",
-          "line": 1236,
+          "line": 1227,
           "name": "get_name"
         },
         {
           "kind": "fn",
-          "line": 1240,
+          "line": 1231,
           "name": "get_id"
         },
         {
           "kind": "fn",
-          "line": 1244,
+          "line": 1235,
           "name": "set_id"
         },
         {
           "kind": "struct",
-          "line": 1252,
+          "line": 1243,
           "name": "AIGuardRetaliateReturnState"
         },
         {
           "kind": "fn",
-          "line": 1259,
+          "line": 1250,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 1266,
+          "line": 1257,
           "name": "classic_on_enter"
         },
         {
           "kind": "fn",
-          "line": 1288,
+          "line": 1279,
           "name": "classic_update"
         },
         {
           "kind": "fn",
-          "line": 1322,
+          "line": 1313,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 1325,
+          "line": 1316,
           "name": "on_enter_with_owner"
         },
         {
           "kind": "fn",
-          "line": 1332,
+          "line": 1323,
           "name": "update_with_owner"
         },
         {
           "kind": "fn",
-          "line": 1339,
+          "line": 1330,
           "name": "on_exit"
         },
         {
           "kind": "fn",
-          "line": 1343,
+          "line": 1334,
           "name": "note_step_owner"
         },
         {
           "kind": "fn",
-          "line": 1349,
+          "line": 1340,
           "name": "get_machine_owner_id"
         },
         {
           "kind": "fn",
-          "line": 1357,
+          "line": 1348,
           "name": "bind_goal_object_id"
         },
         {
           "kind": "fn",
-          "line": 1361,
+          "line": 1352,
           "name": "is_busy"
         },
         {
           "kind": "fn",
-          "line": 1365,
+          "line": 1356,
           "name": "get_name"
         },
         {
           "kind": "fn",
-          "line": 1369,
+          "line": 1360,
           "name": "get_id"
         },
         {
           "kind": "fn",
-          "line": 1373,
+          "line": 1364,
           "name": "set_id"
         },
         {
           "kind": "struct",
-          "line": 1381,
+          "line": 1372,
           "name": "AIGuardRetaliatePickUpCrateState"
         },
         {
           "kind": "fn",
-          "line": 1387,
+          "line": 1378,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 1393,
+          "line": 1384,
           "name": "classic_on_enter"
         },
         {
           "kind": "fn",
-          "line": 1421,
+          "line": 1412,
           "name": "classic_update"
         },
         {
           "kind": "fn",
-          "line": 1428,
+          "line": 1419,
           "name": "classic_on_exit"
         },
         {
           "kind": "fn",
-          "line": 1436,
+          "line": 1427,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 1439,
+          "line": 1430,
           "name": "on_enter_with_owner"
         },
         {
           "kind": "fn",
-          "line": 1446,
+          "line": 1437,
           "name": "update_with_owner"
         },
         {
           "kind": "fn",
-          "line": 1453,
+          "line": 1444,
           "name": "on_exit"
         },
         {
           "kind": "fn",
-          "line": 1457,
+          "line": 1448,
           "name": "note_step_owner"
         },
         {
           "kind": "fn",
-          "line": 1463,
+          "line": 1454,
           "name": "get_machine_owner_id"
         },
         {
           "kind": "fn",
-          "line": 1471,
+          "line": 1462,
           "name": "bind_goal_object_id"
         },
         {
           "kind": "fn",
-          "line": 1475,
+          "line": 1466,
           "name": "is_busy"
         },
         {
           "kind": "fn",
-          "line": 1479,
+          "line": 1470,
           "name": "get_name"
         },
         {
           "kind": "fn",
-          "line": 1483,
+          "line": 1474,
           "name": "get_id"
         },
         {
           "kind": "fn",
-          "line": 1487,
+          "line": 1478,
           "name": "set_id"
         },
         {
           "kind": "struct",
-          "line": 1495,
+          "line": 1486,
           "name": "AIGuardRetaliateAttackAggressorState"
         },
         {
           "kind": "fn",
-          "line": 1503,
+          "line": 1494,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 1511,
+          "line": 1502,
           "name": "is_attack"
         },
         {
           "kind": "fn",
-          "line": 1515,
+          "line": 1506,
           "name": "classic_on_enter"
         },
         {
           "kind": "fn",
-          "line": 1620,
+          "line": 1608,
           "name": "classic_update"
         },
         {
           "kind": "fn",
-          "line": 1627,
+          "line": 1615,
           "name": "classic_on_exit"
         },
         {
           "kind": "fn",
-          "line": 1647,
+          "line": 1635,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 1650,
+          "line": 1638,
           "name": "on_enter_with_owner"
         },
         {
           "kind": "fn",
-          "line": 1657,
+          "line": 1645,
           "name": "update_with_owner"
         },
         {
           "kind": "fn",
-          "line": 1664,
+          "line": 1652,
           "name": "on_exit"
         },
         {
           "kind": "fn",
-          "line": 1670,
+          "line": 1658,
           "name": "load_post_process_with_owner"
         },
         {
           "kind": "fn",
-          "line": 1679,
+          "line": 1667,
           "name": "note_step_owner"
         },
         {
           "kind": "fn",
-          "line": 1685,
+          "line": 1673,
           "name": "get_machine_owner_id"
         },
         {
           "kind": "fn",
-          "line": 1693,
+          "line": 1681,
           "name": "bind_goal_object_id"
         },
         {
           "kind": "fn",
-          "line": 1697,
+          "line": 1685,
           "name": "is_attack"
         },
         {
           "kind": "fn",
-          "line": 1701,
+          "line": 1689,
           "name": "is_busy"
         },
         {
           "kind": "fn",
-          "line": 1705,
+          "line": 1693,
           "name": "get_name"
         },
         {
           "kind": "fn",
-          "line": 1709,
+          "line": 1697,
           "name": "get_id"
         },
         {
           "kind": "fn",
-          "line": 1713,
+          "line": 1701,
           "name": "set_id"
         },
         {
           "kind": "fn",
-          "line": 1720,
+          "line": 1708,
           "name": "has_attacked_me_and_i_can_return_fire_retaliate"
         },
         {
           "kind": "fn",
-          "line": 1726,
+          "line": 1714,
           "name": "has_attacked_me_from_owner"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 240,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/guard_retaliate_condition_owner_tests.rs",
+      "sha256": "027699eb900df545cdab8d403efb7f7a1d6df8b82f2e75d8e0f5421031c97d24",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "trait",
+          "line": 6,
+          "name": "TestConditionAccess"
+        },
+        {
+          "kind": "fn",
+          "line": 7,
+          "name": "edit"
+        },
+        {
+          "kind": "fn",
+          "line": 8,
+          "name": "inspect"
+        },
+        {
+          "kind": "fn",
+          "line": 11,
+          "name": "edit"
+        },
+        {
+          "kind": "fn",
+          "line": 14,
+          "name": "inspect"
+        },
+        {
+          "kind": "fn",
+          "line": 19,
+          "name": "edit"
+        },
+        {
+          "kind": "fn",
+          "line": 22,
+          "name": "inspect"
+        },
+        {
+          "kind": "struct",
+          "line": 29,
+          "name": "PreserveRng"
+        },
+        {
+          "kind": "fn",
+          "line": 31,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 36,
+          "name": "drop"
+        },
+        {
+          "kind": "struct",
+          "line": 40,
+          "name": "Fixture"
+        },
+        {
+          "kind": "fn",
+          "line": 49,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 66,
+          "name": "drop"
+        },
+        {
+          "kind": "fn",
+          "line": 75,
+          "name": "aiguardretaliateinnerstate_borrows_conditions_without_mutex"
+        },
+        {
+          "kind": "fn",
+          "line": 124,
+          "name": "aiguardretaliateouterstate_borrows_conditions_without_mutex"
+        },
+        {
+          "kind": "fn",
+          "line": 173,
+          "name": "aiguardretaliateattackaggressorstate_borrows_conditions_without_mutex"
+        },
+        {
+          "kind": "fn",
+          "line": 222,
+          "name": "condition_values_remain_distinct_for_equal_owner_ids_and_absent_children"
         }
       ]
     },
@@ -190879,11 +190995,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2587,
+        "end_line": 2599,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/attack_machine.rs",
-      "sha256": "8605bcb4d4addb115aaee4829a2e44cf37c8949363ff2ce94049ccc6358c8a4b",
+      "sha256": "100af5665f727e35aa424102d02bc0d16878a8b42c0536f0f763206a5912e360",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -191033,502 +191149,507 @@
         },
         {
           "kind": "fn",
-          "line": 557,
+          "line": 560,
+          "name": "update_with_exit_conditions"
+        },
+        {
+          "kind": "fn",
+          "line": 569,
           "name": "update_with_ai"
-        },
-        {
-          "kind": "fn",
-          "line": 567,
-          "name": "halt"
-        },
-        {
-          "kind": "fn",
-          "line": 571,
-          "name": "xfer"
-        },
-        {
-          "kind": "fn",
-          "line": 575,
-          "name": "crc"
         },
         {
           "kind": "fn",
           "line": 579,
-          "name": "load_post_process"
-        },
-        {
-          "kind": "struct",
-          "line": 586,
-          "name": "AIAttackAimAtTargetState"
-        },
-        {
-          "kind": "fn",
-          "line": 595,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 607,
-          "name": "on_enter"
-        },
-        {
-          "kind": "fn",
-          "line": 610,
-          "name": "bind_goal_object_id"
-        },
-        {
-          "kind": "fn",
-          "line": 614,
-          "name": "bind_goal_position"
-        },
-        {
-          "kind": "fn",
-          "line": 618,
-          "name": "update"
-        },
-        {
-          "kind": "fn",
-          "line": 622,
-          "name": "on_exit"
-        },
-        {
-          "kind": "fn",
-          "line": 626,
-          "name": "xfer_snapshot"
-        },
-        {
-          "kind": "fn",
-          "line": 633,
-          "name": "base_state"
-        },
-        {
-          "kind": "fn",
-          "line": 636,
-          "name": "base_state_mut"
-        },
-        {
-          "kind": "fn",
-          "line": 640,
-          "name": "classic_xfer_snapshot"
-        },
-        {
-          "kind": "fn",
-          "line": 644,
-          "name": "classic_on_enter"
-        },
-        {
-          "kind": "fn",
-          "line": 794,
-          "name": "classic_on_update"
-        },
-        {
-          "kind": "const",
-          "line": 873,
-          "name": "REL_THRESH"
-        },
-        {
-          "kind": "fn",
-          "line": 942,
-          "name": "classic_on_exit"
-        },
-        {
-          "kind": "fn",
-          "line": 954,
-          "name": "classic_is_attack"
-        },
-        {
-          "kind": "fn",
-          "line": 962,
-          "name": "should_seed_attack_common_target"
-        },
-        {
-          "kind": "fn",
-          "line": 969,
-          "name": "seed_team_target_if_attack_common"
-        },
-        {
-          "kind": "struct",
-          "line": 981,
-          "name": "AIAttackFireWeaponState"
-        },
-        {
-          "kind": "fn",
-          "line": 987,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 996,
-          "name": "on_enter"
-        },
-        {
-          "kind": "fn",
-          "line": 999,
-          "name": "bind_goal_object_id"
-        },
-        {
-          "kind": "fn",
-          "line": 1003,
-          "name": "bind_goal_position"
-        },
-        {
-          "kind": "fn",
-          "line": 1007,
-          "name": "update"
-        },
-        {
-          "kind": "fn",
-          "line": 1011,
-          "name": "on_exit"
-        },
-        {
-          "kind": "fn",
-          "line": 1018,
-          "name": "base_state"
-        },
-        {
-          "kind": "fn",
-          "line": 1021,
-          "name": "base_state_mut"
-        },
-        {
-          "kind": "fn",
-          "line": 1025,
-          "name": "classic_on_enter"
-        },
-        {
-          "kind": "fn",
-          "line": 1056,
-          "name": "classic_on_update"
-        },
-        {
-          "kind": "fn",
-          "line": 1216,
-          "name": "classic_on_exit"
-        },
-        {
-          "kind": "fn",
-          "line": 1241,
-          "name": "classic_is_attack"
-        },
-        {
-          "kind": "const",
-          "line": 1246,
-          "name": "ATTACK_MIN_RECOMPUTE_TIME"
-        },
-        {
-          "kind": "fn",
-          "line": 1248,
-          "name": "attack_view_blocked"
-        },
-        {
-          "kind": "fn",
-          "line": 1269,
-          "name": "attack_can_pursue"
-        },
-        {
-          "kind": "struct",
-          "line": 1335,
-          "name": "AIAttackPursueTargetState"
-        },
-        {
-          "kind": "fn",
-          "line": 1349,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 1371,
-          "name": "compute_path"
-        },
-        {
-          "kind": "fn",
-          "line": 1451,
-          "name": "update_internal"
-        },
-        {
-          "kind": "fn",
-          "line": 1574,
-          "name": "on_enter"
-        },
-        {
-          "kind": "fn",
-          "line": 1577,
-          "name": "bind_goal_object_id"
-        },
-        {
-          "kind": "fn",
-          "line": 1581,
-          "name": "bind_goal_position"
-        },
-        {
-          "kind": "fn",
-          "line": 1585,
-          "name": "update"
-        },
-        {
-          "kind": "fn",
-          "line": 1589,
-          "name": "update_with_ai"
-        },
-        {
-          "kind": "fn",
-          "line": 1618,
-          "name": "on_exit"
-        },
-        {
-          "kind": "fn",
-          "line": 1622,
-          "name": "xfer_snapshot"
-        },
-        {
-          "kind": "fn",
-          "line": 1629,
-          "name": "base_state"
-        },
-        {
-          "kind": "fn",
-          "line": 1632,
-          "name": "base_state_mut"
-        },
-        {
-          "kind": "fn",
-          "line": 1636,
-          "name": "classic_xfer_snapshot"
-        },
-        {
-          "kind": "fn",
-          "line": 1640,
-          "name": "classic_on_enter"
-        },
-        {
-          "kind": "fn",
-          "line": 1724,
-          "name": "classic_on_update"
-        },
-        {
-          "kind": "fn",
-          "line": 1750,
-          "name": "classic_on_exit"
-        },
-        {
-          "kind": "fn",
-          "line": 1756,
-          "name": "classic_is_attack"
-        },
-        {
-          "kind": "struct",
-          "line": 1763,
-          "name": "AIAttackApproachTargetState"
-        },
-        {
-          "kind": "fn",
-          "line": 1777,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 1799,
-          "name": "compute_path"
-        },
-        {
-          "kind": "fn",
-          "line": 1895,
-          "name": "update_internal"
-        },
-        {
-          "kind": "fn",
-          "line": 2021,
-          "name": "on_enter"
-        },
-        {
-          "kind": "fn",
-          "line": 2024,
-          "name": "bind_goal_object_id"
-        },
-        {
-          "kind": "fn",
-          "line": 2028,
-          "name": "bind_goal_position"
-        },
-        {
-          "kind": "fn",
-          "line": 2032,
-          "name": "update"
-        },
-        {
-          "kind": "fn",
-          "line": 2036,
-          "name": "update_with_ai"
-        },
-        {
-          "kind": "fn",
-          "line": 2103,
-          "name": "on_exit"
-        },
-        {
-          "kind": "fn",
-          "line": 2107,
-          "name": "xfer_snapshot"
-        },
-        {
-          "kind": "fn",
-          "line": 2114,
-          "name": "base_state"
-        },
-        {
-          "kind": "fn",
-          "line": 2117,
-          "name": "base_state_mut"
-        },
-        {
-          "kind": "fn",
-          "line": 2121,
-          "name": "classic_xfer_snapshot"
-        },
-        {
-          "kind": "fn",
-          "line": 2125,
-          "name": "classic_on_enter"
-        },
-        {
-          "kind": "fn",
-          "line": 2240,
-          "name": "classic_on_update"
-        },
-        {
-          "kind": "fn",
-          "line": 2306,
-          "name": "classic_on_exit"
-        },
-        {
-          "kind": "fn",
-          "line": 2326,
-          "name": "classic_is_attack"
-        },
-        {
-          "kind": "struct",
-          "line": 2333,
-          "name": "AIAttackMoveStateMachine"
-        },
-        {
-          "kind": "fn",
-          "line": 2338,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 2369,
-          "name": "clear"
-        },
-        {
-          "kind": "fn",
-          "line": 2373,
-          "name": "init_default_state"
-        },
-        {
-          "kind": "fn",
-          "line": 2377,
-          "name": "set_state"
-        },
-        {
-          "kind": "fn",
-          "line": 2381,
-          "name": "set_goal_object"
-        },
-        {
-          "kind": "fn",
-          "line": 2385,
-          "name": "set_goal_object_by_id"
-        },
-        {
-          "kind": "fn",
-          "line": 2389,
-          "name": "update"
-        },
-        {
-          "kind": "fn",
-          "line": 2393,
-          "name": "update_with_ai"
-        },
-        {
-          "kind": "fn",
-          "line": 2400,
-          "name": "is_in_idle_state"
-        },
-        {
-          "kind": "fn",
-          "line": 2404,
-          "name": "is_in_attack_state"
-        },
-        {
-          "kind": "fn",
-          "line": 2408,
-          "name": "is_in_guard_idle_state"
-        },
-        {
-          "kind": "fn",
-          "line": 2412,
           "name": "halt"
         },
         {
           "kind": "fn",
-          "line": 2419,
-          "name": "crc"
-        },
-        {
-          "kind": "fn",
-          "line": 2445,
+          "line": 583,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 2466,
+          "line": 587,
+          "name": "crc"
+        },
+        {
+          "kind": "fn",
+          "line": 591,
+          "name": "load_post_process"
+        },
+        {
+          "kind": "struct",
+          "line": 598,
+          "name": "AIAttackAimAtTargetState"
+        },
+        {
+          "kind": "fn",
+          "line": 607,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 619,
+          "name": "on_enter"
+        },
+        {
+          "kind": "fn",
+          "line": 622,
+          "name": "bind_goal_object_id"
+        },
+        {
+          "kind": "fn",
+          "line": 626,
+          "name": "bind_goal_position"
+        },
+        {
+          "kind": "fn",
+          "line": 630,
+          "name": "update"
+        },
+        {
+          "kind": "fn",
+          "line": 634,
+          "name": "on_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 638,
+          "name": "xfer_snapshot"
+        },
+        {
+          "kind": "fn",
+          "line": 645,
+          "name": "base_state"
+        },
+        {
+          "kind": "fn",
+          "line": 648,
+          "name": "base_state_mut"
+        },
+        {
+          "kind": "fn",
+          "line": 652,
+          "name": "classic_xfer_snapshot"
+        },
+        {
+          "kind": "fn",
+          "line": 656,
+          "name": "classic_on_enter"
+        },
+        {
+          "kind": "fn",
+          "line": 806,
+          "name": "classic_on_update"
+        },
+        {
+          "kind": "const",
+          "line": 885,
+          "name": "REL_THRESH"
+        },
+        {
+          "kind": "fn",
+          "line": 954,
+          "name": "classic_on_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 966,
+          "name": "classic_is_attack"
+        },
+        {
+          "kind": "fn",
+          "line": 974,
+          "name": "should_seed_attack_common_target"
+        },
+        {
+          "kind": "fn",
+          "line": 981,
+          "name": "seed_team_target_if_attack_common"
+        },
+        {
+          "kind": "struct",
+          "line": 993,
+          "name": "AIAttackFireWeaponState"
+        },
+        {
+          "kind": "fn",
+          "line": 999,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 1008,
+          "name": "on_enter"
+        },
+        {
+          "kind": "fn",
+          "line": 1011,
+          "name": "bind_goal_object_id"
+        },
+        {
+          "kind": "fn",
+          "line": 1015,
+          "name": "bind_goal_position"
+        },
+        {
+          "kind": "fn",
+          "line": 1019,
+          "name": "update"
+        },
+        {
+          "kind": "fn",
+          "line": 1023,
+          "name": "on_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 1030,
+          "name": "base_state"
+        },
+        {
+          "kind": "fn",
+          "line": 1033,
+          "name": "base_state_mut"
+        },
+        {
+          "kind": "fn",
+          "line": 1037,
+          "name": "classic_on_enter"
+        },
+        {
+          "kind": "fn",
+          "line": 1068,
+          "name": "classic_on_update"
+        },
+        {
+          "kind": "fn",
+          "line": 1228,
+          "name": "classic_on_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 1253,
+          "name": "classic_is_attack"
+        },
+        {
+          "kind": "const",
+          "line": 1258,
+          "name": "ATTACK_MIN_RECOMPUTE_TIME"
+        },
+        {
+          "kind": "fn",
+          "line": 1260,
+          "name": "attack_view_blocked"
+        },
+        {
+          "kind": "fn",
+          "line": 1281,
+          "name": "attack_can_pursue"
+        },
+        {
+          "kind": "struct",
+          "line": 1347,
+          "name": "AIAttackPursueTargetState"
+        },
+        {
+          "kind": "fn",
+          "line": 1361,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 1383,
+          "name": "compute_path"
+        },
+        {
+          "kind": "fn",
+          "line": 1463,
+          "name": "update_internal"
+        },
+        {
+          "kind": "fn",
+          "line": 1586,
+          "name": "on_enter"
+        },
+        {
+          "kind": "fn",
+          "line": 1589,
+          "name": "bind_goal_object_id"
+        },
+        {
+          "kind": "fn",
+          "line": 1593,
+          "name": "bind_goal_position"
+        },
+        {
+          "kind": "fn",
+          "line": 1597,
+          "name": "update"
+        },
+        {
+          "kind": "fn",
+          "line": 1601,
+          "name": "update_with_ai"
+        },
+        {
+          "kind": "fn",
+          "line": 1630,
+          "name": "on_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 1634,
+          "name": "xfer_snapshot"
+        },
+        {
+          "kind": "fn",
+          "line": 1641,
+          "name": "base_state"
+        },
+        {
+          "kind": "fn",
+          "line": 1644,
+          "name": "base_state_mut"
+        },
+        {
+          "kind": "fn",
+          "line": 1648,
+          "name": "classic_xfer_snapshot"
+        },
+        {
+          "kind": "fn",
+          "line": 1652,
+          "name": "classic_on_enter"
+        },
+        {
+          "kind": "fn",
+          "line": 1736,
+          "name": "classic_on_update"
+        },
+        {
+          "kind": "fn",
+          "line": 1762,
+          "name": "classic_on_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 1768,
+          "name": "classic_is_attack"
+        },
+        {
+          "kind": "struct",
+          "line": 1775,
+          "name": "AIAttackApproachTargetState"
+        },
+        {
+          "kind": "fn",
+          "line": 1789,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 1811,
+          "name": "compute_path"
+        },
+        {
+          "kind": "fn",
+          "line": 1907,
+          "name": "update_internal"
+        },
+        {
+          "kind": "fn",
+          "line": 2033,
+          "name": "on_enter"
+        },
+        {
+          "kind": "fn",
+          "line": 2036,
+          "name": "bind_goal_object_id"
+        },
+        {
+          "kind": "fn",
+          "line": 2040,
+          "name": "bind_goal_position"
+        },
+        {
+          "kind": "fn",
+          "line": 2044,
+          "name": "update"
+        },
+        {
+          "kind": "fn",
+          "line": 2048,
+          "name": "update_with_ai"
+        },
+        {
+          "kind": "fn",
+          "line": 2115,
+          "name": "on_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 2119,
+          "name": "xfer_snapshot"
+        },
+        {
+          "kind": "fn",
+          "line": 2126,
+          "name": "base_state"
+        },
+        {
+          "kind": "fn",
+          "line": 2129,
+          "name": "base_state_mut"
+        },
+        {
+          "kind": "fn",
+          "line": 2133,
+          "name": "classic_xfer_snapshot"
+        },
+        {
+          "kind": "fn",
+          "line": 2137,
+          "name": "classic_on_enter"
+        },
+        {
+          "kind": "fn",
+          "line": 2252,
+          "name": "classic_on_update"
+        },
+        {
+          "kind": "fn",
+          "line": 2318,
+          "name": "classic_on_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 2338,
+          "name": "classic_is_attack"
+        },
+        {
+          "kind": "struct",
+          "line": 2345,
+          "name": "AIAttackMoveStateMachine"
+        },
+        {
+          "kind": "fn",
+          "line": 2350,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 2381,
+          "name": "clear"
+        },
+        {
+          "kind": "fn",
+          "line": 2385,
+          "name": "init_default_state"
+        },
+        {
+          "kind": "fn",
+          "line": 2389,
+          "name": "set_state"
+        },
+        {
+          "kind": "fn",
+          "line": 2393,
+          "name": "set_goal_object"
+        },
+        {
+          "kind": "fn",
+          "line": 2397,
+          "name": "set_goal_object_by_id"
+        },
+        {
+          "kind": "fn",
+          "line": 2401,
+          "name": "update"
+        },
+        {
+          "kind": "fn",
+          "line": 2405,
+          "name": "update_with_ai"
+        },
+        {
+          "kind": "fn",
+          "line": 2412,
+          "name": "is_in_idle_state"
+        },
+        {
+          "kind": "fn",
+          "line": 2416,
+          "name": "is_in_attack_state"
+        },
+        {
+          "kind": "fn",
+          "line": 2420,
+          "name": "is_in_guard_idle_state"
+        },
+        {
+          "kind": "fn",
+          "line": 2424,
+          "name": "halt"
+        },
+        {
+          "kind": "fn",
+          "line": 2431,
+          "name": "crc"
+        },
+        {
+          "kind": "fn",
+          "line": 2457,
+          "name": "xfer"
+        },
+        {
+          "kind": "fn",
+          "line": 2478,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 2473,
+          "line": 2485,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 2499,
+          "line": 2511,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 2520,
+          "line": 2532,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 2527,
+          "line": 2539,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 2541,
+          "line": 2553,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 2554,
+          "line": 2566,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 2561,
+          "line": 2573,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 2570,
+          "line": 2582,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 2580,
+          "line": 2592,
           "name": "load_post_process"
         }
       ]
@@ -194826,897 +194947,985 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2064,
+        "end_line": 2048,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/tn_guard.rs",
-      "sha256": "d299f09a8fadb382d72b445d4b0b5d95aca70a74bf997cfc08beae816b05ebf5",
+      "sha256": "fcc010a6ac39abf4bc598690e71ff74177dc97d1b330c3d52c0be1f9307dff8b",
       "symbol_index_status": "indexed",
       "symbols": [
         {
           "kind": "fn",
-          "line": 22,
+          "line": 24,
           "name": "dual_world_registry_unavailable"
         },
         {
           "kind": "const",
-          "line": 28,
+          "line": 30,
           "name": "CLOSE_ENOUGH"
         },
         {
           "kind": "fn",
-          "line": 33,
+          "line": 35,
           "name": "tn_guard_owner_arc_for_id"
         },
         {
           "kind": "fn",
-          "line": 40,
+          "line": 42,
           "name": "clear_attack_state_on_exit"
         },
         {
           "kind": "fn",
-          "line": 63,
+          "line": 65,
           "name": "get_guard_chase_unit_frames"
         },
         {
           "kind": "fn",
-          "line": 72,
+          "line": 74,
           "name": "get_guard_enemy_scan_rate"
         },
         {
           "kind": "fn",
-          "line": 81,
+          "line": 83,
           "name": "get_guard_enemy_return_scan_rate"
         },
         {
           "kind": "enum",
-          "line": 93,
+          "line": 95,
           "name": "TNGuardStateType"
         },
         {
           "kind": "struct",
-          "line": 110,
+          "line": 112,
           "name": "TunnelNetworkExitConditions"
         },
         {
           "kind": "fn",
-          "line": 116,
+          "line": 120,
           "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 123,
-          "name": "should_exit"
         },
         {
           "kind": "fn",
           "line": 129,
-          "name": "set_attack_give_up_frame"
-        },
-        {
-          "kind": "struct",
-          "line": 141,
-          "name": "TunnelNetworkExitConditionsHandle"
-        },
-        {
-          "kind": "fn",
-          "line": 146,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 152,
           "name": "should_exit"
         },
         {
           "kind": "fn",
-          "line": 165,
+          "line": 135,
+          "name": "set_attack_give_up_frame"
+        },
+        {
+          "kind": "fn",
+          "line": 143,
+          "name": "should_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 153,
           "name": "tn_guard_machine_settles_in_idle_and_stays_there"
         },
         {
           "kind": "fn",
-          "line": 177,
+          "line": 165,
           "name": "tn_guard_machine_fields_are_isolated_per_machine"
         },
         {
           "kind": "struct",
-          "line": 218,
+          "line": 206,
           "name": "AITNGuardMachine"
         },
         {
           "kind": "fn",
-          "line": 235,
+          "line": 223,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 255,
+          "line": 243,
           "name": "build_state_machine"
         },
         {
           "kind": "fn",
-          "line": 267,
+          "line": 255,
           "name": "define_tn_guard_states"
         },
         {
           "kind": "fn",
-          "line": 332,
+          "line": 320,
           "name": "friend_request_state"
         },
         {
           "kind": "fn",
-          "line": 336,
+          "line": 324,
           "name": "friend_owner_arc"
         },
         {
           "kind": "fn",
-          "line": 340,
+          "line": 328,
           "name": "friend_position_to_guard"
         },
         {
           "kind": "fn",
-          "line": 344,
+          "line": 332,
           "name": "friend_nemesis_to_attack"
         },
         {
           "kind": "fn",
-          "line": 348,
+          "line": 336,
           "name": "friend_set_nemesis_to_attack"
         },
         {
           "kind": "fn",
-          "line": 352,
+          "line": 340,
           "name": "friend_guard_mode"
         },
         {
           "kind": "fn",
-          "line": 360,
+          "line": 348,
           "name": "get_position_to_guard"
         },
         {
           "kind": "fn",
-          "line": 365,
+          "line": 353,
           "name": "set_target_position_to_guard"
         },
         {
           "kind": "fn",
-          "line": 370,
+          "line": 358,
           "name": "set_nemesis_id"
         },
         {
           "kind": "fn",
-          "line": 376,
+          "line": 364,
           "name": "get_nemesis_id"
         },
         {
           "kind": "fn",
-          "line": 381,
+          "line": 369,
           "name": "get_guard_mode"
         },
         {
           "kind": "fn",
-          "line": 386,
+          "line": 374,
           "name": "set_guard_mode"
         },
         {
           "kind": "fn",
-          "line": 389,
+          "line": 377,
           "name": "init_default_state"
         },
         {
           "kind": "fn",
-          "line": 399,
+          "line": 387,
           "name": "set_state"
         },
         {
           "kind": "fn",
-          "line": 409,
+          "line": 397,
           "name": "halt"
         },
         {
           "kind": "fn",
-          "line": 413,
+          "line": 401,
           "name": "is_in_attack_state"
         },
         {
           "kind": "fn",
-          "line": 417,
+          "line": 405,
           "name": "is_in_guard_idle_state"
         },
         {
           "kind": "fn",
-          "line": 421,
+          "line": 409,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 436,
+          "line": 424,
           "name": "look_for_inner_target"
         },
         {
           "kind": "fn",
-          "line": 446,
+          "line": 434,
           "name": "get_std_guard_range"
         },
         {
           "kind": "fn",
-          "line": 458,
+          "line": 446,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 462,
+          "line": 450,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 482,
+          "line": 470,
           "name": "load_post_process"
         },
         {
           "kind": "struct",
-          "line": 503,
+          "line": 491,
           "name": "TnGuardState"
         },
         {
           "kind": "fn",
-          "line": 508,
+          "line": 496,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 515,
+          "line": 503,
           "name": "state"
         },
         {
           "kind": "fn",
-          "line": 519,
+          "line": 507,
           "name": "state_mut"
         },
         {
           "kind": "fn",
-          "line": 523,
+          "line": 511,
           "name": "owner_arc"
         },
         {
           "kind": "fn",
-          "line": 527,
+          "line": 515,
           "name": "downcast_machine"
         },
         {
           "kind": "struct",
-          "line": 535,
+          "line": 523,
           "name": "AITNGuardInnerState"
         },
         {
           "kind": "fn",
-          "line": 544,
+          "line": 532,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 553,
+          "line": 541,
           "name": "is_attack"
         },
         {
           "kind": "fn",
-          "line": 557,
+          "line": 545,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 560,
+          "line": 548,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 567,
+          "line": 555,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 571,
+          "line": 559,
           "name": "classic_on_enter"
         },
         {
           "kind": "fn",
-          "line": 611,
+          "line": 597,
           "name": "classic_update"
+        },
+        {
+          "kind": "fn",
+          "line": 754,
+          "name": "classic_on_exit"
+        },
+        {
+          "kind": "fn",
+          "line": 767,
+          "name": "update"
         },
         {
           "kind": "fn",
           "line": 770,
-          "name": "classic_on_exit"
-        },
-        {
-          "kind": "fn",
-          "line": 783,
-          "name": "update"
-        },
-        {
-          "kind": "fn",
-          "line": 786,
           "name": "on_enter_with_owner"
         },
         {
           "kind": "fn",
-          "line": 793,
+          "line": 777,
           "name": "update_with_owner"
         },
         {
           "kind": "fn",
-          "line": 800,
+          "line": 784,
           "name": "on_exit"
         },
         {
           "kind": "fn",
-          "line": 806,
+          "line": 790,
           "name": "load_post_process_with_owner"
         },
         {
           "kind": "fn",
-          "line": 815,
+          "line": 799,
           "name": "note_step_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 805,
+          "name": "get_machine_owner_id"
+        },
+        {
+          "kind": "fn",
+          "line": 813,
+          "name": "bind_goal_object_id"
+        },
+        {
+          "kind": "fn",
+          "line": 817,
+          "name": "is_attack"
         },
         {
           "kind": "fn",
           "line": 821,
-          "name": "get_machine_owner_id"
+          "name": "is_busy"
+        },
+        {
+          "kind": "fn",
+          "line": 825,
+          "name": "get_name"
         },
         {
           "kind": "fn",
           "line": 829,
-          "name": "bind_goal_object_id"
+          "name": "get_id"
         },
         {
           "kind": "fn",
           "line": 833,
-          "name": "is_attack"
-        },
-        {
-          "kind": "fn",
-          "line": 837,
-          "name": "is_busy"
-        },
-        {
-          "kind": "fn",
-          "line": 841,
-          "name": "get_name"
-        },
-        {
-          "kind": "fn",
-          "line": 845,
-          "name": "get_id"
-        },
-        {
-          "kind": "fn",
-          "line": 849,
           "name": "set_id"
         },
         {
           "kind": "struct",
-          "line": 857,
+          "line": 841,
           "name": "AITNGuardIdleState"
         },
         {
           "kind": "fn",
-          "line": 863,
+          "line": 847,
           "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 853,
+          "name": "is_guard_idle"
+        },
+        {
+          "kind": "fn",
+          "line": 857,
+          "name": "crc"
+        },
+        {
+          "kind": "fn",
+          "line": 860,
+          "name": "xfer"
         },
         {
           "kind": "fn",
           "line": 869,
-          "name": "is_guard_idle"
+          "name": "load_post_process"
         },
         {
           "kind": "fn",
           "line": 873,
-          "name": "crc"
-        },
-        {
-          "kind": "fn",
-          "line": 876,
-          "name": "xfer"
-        },
-        {
-          "kind": "fn",
-          "line": 885,
-          "name": "load_post_process"
+          "name": "classic_on_enter"
         },
         {
           "kind": "fn",
           "line": 889,
-          "name": "classic_on_enter"
-        },
-        {
-          "kind": "fn",
-          "line": 905,
           "name": "classic_update"
         },
         {
           "kind": "fn",
-          "line": 999,
+          "line": 983,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 1002,
+          "line": 986,
           "name": "on_enter_with_owner"
         },
         {
           "kind": "fn",
-          "line": 1009,
+          "line": 993,
           "name": "update_with_owner"
         },
         {
           "kind": "fn",
-          "line": 1016,
+          "line": 1000,
           "name": "on_exit"
         },
         {
           "kind": "fn",
-          "line": 1020,
+          "line": 1004,
           "name": "note_step_owner"
         },
         {
           "kind": "fn",
-          "line": 1026,
+          "line": 1010,
           "name": "get_machine_owner_id"
         },
         {
           "kind": "fn",
-          "line": 1034,
+          "line": 1018,
           "name": "bind_goal_object_id"
         },
         {
           "kind": "fn",
-          "line": 1038,
+          "line": 1022,
           "name": "is_guard_idle"
         },
         {
           "kind": "fn",
-          "line": 1042,
+          "line": 1026,
           "name": "get_name"
         },
         {
           "kind": "fn",
-          "line": 1046,
+          "line": 1030,
           "name": "get_id"
         },
         {
           "kind": "fn",
-          "line": 1050,
+          "line": 1034,
           "name": "set_id"
         },
         {
           "kind": "struct",
-          "line": 1058,
+          "line": 1042,
           "name": "AITNGuardOuterState"
         },
         {
           "kind": "fn",
-          "line": 1066,
+          "line": 1050,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 1074,
+          "line": 1058,
           "name": "is_attack"
         },
         {
           "kind": "fn",
-          "line": 1078,
+          "line": 1062,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 1081,
+          "line": 1065,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 1088,
+          "line": 1072,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 1092,
+          "line": 1076,
           "name": "classic_on_enter"
         },
         {
           "kind": "fn",
-          "line": 1138,
+          "line": 1120,
           "name": "classic_update"
         },
         {
           "kind": "fn",
-          "line": 1191,
+          "line": 1173,
           "name": "classic_on_exit"
         },
         {
           "kind": "fn",
-          "line": 1202,
+          "line": 1184,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 1205,
+          "line": 1187,
           "name": "on_enter_with_owner"
         },
         {
           "kind": "fn",
-          "line": 1212,
+          "line": 1194,
           "name": "update_with_owner"
         },
         {
           "kind": "fn",
-          "line": 1219,
+          "line": 1201,
           "name": "on_exit"
         },
         {
           "kind": "fn",
-          "line": 1225,
+          "line": 1207,
           "name": "load_post_process_with_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 1216,
+          "name": "note_step_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 1222,
+          "name": "get_machine_owner_id"
+        },
+        {
+          "kind": "fn",
+          "line": 1230,
+          "name": "bind_goal_object_id"
         },
         {
           "kind": "fn",
           "line": 1234,
-          "name": "note_step_owner"
-        },
-        {
-          "kind": "fn",
-          "line": 1240,
-          "name": "get_machine_owner_id"
-        },
-        {
-          "kind": "fn",
-          "line": 1248,
-          "name": "bind_goal_object_id"
-        },
-        {
-          "kind": "fn",
-          "line": 1252,
           "name": "is_attack"
         },
         {
           "kind": "fn",
-          "line": 1256,
+          "line": 1238,
           "name": "is_busy"
         },
         {
           "kind": "fn",
-          "line": 1260,
+          "line": 1242,
           "name": "get_name"
         },
         {
           "kind": "fn",
-          "line": 1264,
+          "line": 1246,
           "name": "get_id"
         },
         {
           "kind": "fn",
-          "line": 1268,
+          "line": 1250,
           "name": "set_id"
         },
         {
           "kind": "struct",
-          "line": 1276,
+          "line": 1258,
           "name": "AITNGuardReturnState"
         },
         {
           "kind": "fn",
-          "line": 1283,
+          "line": 1265,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 1290,
+          "line": 1272,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 1294,
+          "line": 1276,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 1304,
+          "line": 1286,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 1309,
+          "line": 1291,
           "name": "classic_on_enter"
         },
         {
           "kind": "fn",
-          "line": 1363,
+          "line": 1345,
           "name": "classic_update"
         },
         {
           "kind": "fn",
-          "line": 1398,
+          "line": 1380,
           "name": "classic_on_exit"
         },
         {
           "kind": "fn",
-          "line": 1405,
+          "line": 1387,
           "name": "update"
+        },
+        {
+          "kind": "fn",
+          "line": 1390,
+          "name": "on_enter_with_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 1397,
+          "name": "update_with_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 1404,
+          "name": "on_exit"
         },
         {
           "kind": "fn",
           "line": 1408,
-          "name": "on_enter_with_owner"
+          "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 1415,
-          "name": "update_with_owner"
+          "line": 1412,
+          "name": "note_step_owner"
         },
         {
           "kind": "fn",
-          "line": 1422,
-          "name": "on_exit"
+          "line": 1418,
+          "name": "get_machine_owner_id"
         },
         {
           "kind": "fn",
           "line": 1426,
-          "name": "load_post_process"
+          "name": "bind_goal_object_id"
         },
         {
           "kind": "fn",
           "line": 1430,
-          "name": "note_step_owner"
-        },
-        {
-          "kind": "fn",
-          "line": 1436,
-          "name": "get_machine_owner_id"
-        },
-        {
-          "kind": "fn",
-          "line": 1444,
-          "name": "bind_goal_object_id"
-        },
-        {
-          "kind": "fn",
-          "line": 1448,
           "name": "is_busy"
         },
         {
           "kind": "fn",
-          "line": 1452,
+          "line": 1434,
           "name": "get_name"
         },
         {
           "kind": "fn",
-          "line": 1456,
+          "line": 1438,
           "name": "get_id"
         },
         {
           "kind": "fn",
-          "line": 1460,
+          "line": 1442,
           "name": "set_id"
         },
         {
           "kind": "struct",
-          "line": 1468,
+          "line": 1450,
           "name": "AITNGuardPickUpCrateState"
         },
         {
           "kind": "fn",
-          "line": 1474,
+          "line": 1456,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 1480,
+          "line": 1462,
           "name": "classic_on_enter"
         },
         {
           "kind": "fn",
-          "line": 1504,
+          "line": 1486,
           "name": "classic_update"
         },
         {
           "kind": "fn",
-          "line": 1508,
+          "line": 1490,
           "name": "classic_on_exit"
         },
         {
           "kind": "fn",
-          "line": 1515,
+          "line": 1497,
           "name": "update"
+        },
+        {
+          "kind": "fn",
+          "line": 1500,
+          "name": "on_enter_with_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 1507,
+          "name": "update_with_owner"
+        },
+        {
+          "kind": "fn",
+          "line": 1514,
+          "name": "on_exit"
         },
         {
           "kind": "fn",
           "line": 1518,
-          "name": "on_enter_with_owner"
+          "name": "note_step_owner"
         },
         {
           "kind": "fn",
-          "line": 1525,
-          "name": "update_with_owner"
+          "line": 1524,
+          "name": "get_machine_owner_id"
         },
         {
           "kind": "fn",
           "line": 1532,
-          "name": "on_exit"
+          "name": "bind_goal_object_id"
         },
         {
           "kind": "fn",
           "line": 1536,
-          "name": "note_step_owner"
-        },
-        {
-          "kind": "fn",
-          "line": 1542,
-          "name": "get_machine_owner_id"
-        },
-        {
-          "kind": "fn",
-          "line": 1550,
-          "name": "bind_goal_object_id"
-        },
-        {
-          "kind": "fn",
-          "line": 1554,
           "name": "is_busy"
         },
         {
           "kind": "fn",
-          "line": 1558,
+          "line": 1540,
           "name": "get_name"
         },
         {
           "kind": "fn",
-          "line": 1562,
+          "line": 1544,
           "name": "get_id"
         },
         {
           "kind": "fn",
-          "line": 1566,
+          "line": 1548,
           "name": "set_id"
         },
         {
           "kind": "struct",
-          "line": 1574,
+          "line": 1556,
           "name": "AITNGuardAttackAggressorState"
         },
         {
           "kind": "fn",
-          "line": 1582,
+          "line": 1564,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 1590,
+          "line": 1572,
           "name": "is_attack"
         },
         {
           "kind": "fn",
-          "line": 1594,
+          "line": 1576,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 1597,
+          "line": 1579,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 1604,
+          "line": 1586,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 1608,
+          "line": 1590,
           "name": "classic_on_enter"
         },
         {
           "kind": "fn",
-          "line": 1683,
+          "line": 1663,
           "name": "classic_update"
         },
         {
           "kind": "fn",
-          "line": 1714,
+          "line": 1694,
           "name": "classic_on_exit"
         },
         {
           "kind": "fn",
-          "line": 1734,
+          "line": 1714,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 1737,
+          "line": 1717,
           "name": "on_enter_with_owner"
         },
         {
           "kind": "fn",
-          "line": 1744,
+          "line": 1724,
           "name": "update_with_owner"
         },
         {
           "kind": "fn",
-          "line": 1751,
+          "line": 1731,
           "name": "on_exit"
         },
         {
           "kind": "fn",
-          "line": 1757,
+          "line": 1737,
           "name": "load_post_process_with_owner"
         },
         {
           "kind": "fn",
-          "line": 1766,
+          "line": 1746,
           "name": "note_step_owner"
         },
         {
           "kind": "fn",
-          "line": 1772,
+          "line": 1752,
           "name": "get_machine_owner_id"
         },
         {
           "kind": "fn",
-          "line": 1780,
+          "line": 1760,
           "name": "bind_goal_object_id"
         },
         {
           "kind": "fn",
-          "line": 1784,
+          "line": 1764,
           "name": "is_attack"
         },
         {
           "kind": "fn",
-          "line": 1788,
+          "line": 1768,
           "name": "is_busy"
         },
         {
           "kind": "fn",
-          "line": 1792,
+          "line": 1772,
           "name": "get_name"
         },
         {
           "kind": "fn",
-          "line": 1796,
+          "line": 1776,
           "name": "get_id"
         },
         {
           "kind": "fn",
-          "line": 1800,
+          "line": 1780,
           "name": "set_id"
         },
         {
           "kind": "fn",
-          "line": 1805,
+          "line": 1785,
           "name": "find_tunnel_network_inner_target"
         },
         {
           "kind": "fn",
-          "line": 1914,
+          "line": 1894,
           "name": "tunnel_network_scan"
         },
         {
           "kind": "fn",
-          "line": 1953,
+          "line": 1933,
           "name": "find_best_tunnel"
         },
         {
           "kind": "fn",
-          "line": 1989,
+          "line": 1969,
           "name": "has_attacked_me_and_i_can_return_fire_tn"
         },
         {
           "kind": "fn",
-          "line": 1998,
+          "line": 1978,
           "name": "has_attacked_tn_owner"
         },
         {
           "kind": "fn",
-          "line": 2051,
+          "line": 2031,
           "name": "tn_guard_attack_aggressor_condition"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 240,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/tn_guard_condition_owner_tests.rs",
+      "sha256": "461c29a15ef040cf80cbe4dfeaa19fcf92b99a8000876e5192a83c42d9481fb8",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "trait",
+          "line": 6,
+          "name": "TestConditionAccess"
+        },
+        {
+          "kind": "fn",
+          "line": 7,
+          "name": "edit"
+        },
+        {
+          "kind": "fn",
+          "line": 8,
+          "name": "inspect"
+        },
+        {
+          "kind": "fn",
+          "line": 11,
+          "name": "edit"
+        },
+        {
+          "kind": "fn",
+          "line": 14,
+          "name": "inspect"
+        },
+        {
+          "kind": "fn",
+          "line": 19,
+          "name": "edit"
+        },
+        {
+          "kind": "fn",
+          "line": 22,
+          "name": "inspect"
+        },
+        {
+          "kind": "struct",
+          "line": 29,
+          "name": "PreserveRng"
+        },
+        {
+          "kind": "fn",
+          "line": 31,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 36,
+          "name": "drop"
+        },
+        {
+          "kind": "struct",
+          "line": 40,
+          "name": "Fixture"
+        },
+        {
+          "kind": "fn",
+          "line": 49,
+          "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 66,
+          "name": "drop"
+        },
+        {
+          "kind": "fn",
+          "line": 75,
+          "name": "aitnguardinnerstate_borrows_conditions_without_mutex"
+        },
+        {
+          "kind": "fn",
+          "line": 124,
+          "name": "aitnguardouterstate_borrows_conditions_without_mutex"
+        },
+        {
+          "kind": "fn",
+          "line": 173,
+          "name": "aitnguardattackaggressorstate_borrows_conditions_without_mutex"
+        },
+        {
+          "kind": "fn",
+          "line": 222,
+          "name": "condition_values_remain_distinct_for_equal_owner_ids_and_absent_children"
         }
       ]
     },

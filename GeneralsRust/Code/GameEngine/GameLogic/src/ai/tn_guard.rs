@@ -14,7 +14,9 @@ use crate::player::Player;
 use crate::state_machine::*;
 use game_engine::common::system::Snapshotable;
 
-use std::sync::{Arc, Mutex, RwLock, Weak};
+#[cfg(test)]
+use std::sync::Mutex;
+use std::sync::{Arc, RwLock, Weak};
 
 /// Wave 375: leftover AITNGuard must run even when the dual-world factory is empty.
 /// Host-only play still writes/consumes TunnelTracker nemesis (C++ AITNGuard.cpp:168-239).
@@ -110,12 +112,16 @@ pub enum TNGuardStateType {
 pub struct TunnelNetworkExitConditions {
     /// Frame at which we give up attacking
     attack_give_up_frame: u32,
+    #[cfg(test)]
+    test_exit_acquisitions: usize,
 }
 
 impl TunnelNetworkExitConditions {
     pub fn new() -> Self {
         Self {
             attack_give_up_frame: 0,
+            #[cfg(test)]
+            test_exit_acquisitions: 0,
         }
     }
 
@@ -131,29 +137,11 @@ impl TunnelNetworkExitConditions {
     }
 }
 
-/// Shared handle for the exit conditions a tunnel-guard state hands its child
-/// attack machine. This is the one deliberate interior-mutable cell left in
-/// the family: `AttackExitConditionsInterface` is a shared trait object the
-/// child reads while the parent state keeps tuning the same conditions, and
-/// the trait lives in `ai/states` out of this conversion's scope. The state
-/// machine itself carries no shared handle.
-#[derive(Debug, Clone)]
-struct TunnelNetworkExitConditionsHandle {
-    inner: Arc<Mutex<TunnelNetworkExitConditions>>,
-}
-
-impl TunnelNetworkExitConditionsHandle {
-    fn new(inner: Arc<Mutex<TunnelNetworkExitConditions>>) -> Self {
-        Self { inner }
-    }
-}
-
-impl AttackExitConditionsInterface for TunnelNetworkExitConditionsHandle {
+// C++ owns these conditions in the parent state. The child only borrows
+// them during its synchronous update; no retained shared handle is needed.
+impl AttackExitConditionsInterface for TunnelNetworkExitConditions {
     fn should_exit(&self, machine: &StateMachine) -> bool {
-        let Ok(guard) = self.inner.lock() else {
-            return false;
-        };
-        guard.should_exit(machine)
+        TunnelNetworkExitConditions::should_exit(self, machine)
     }
 }
 
@@ -534,7 +522,7 @@ impl TnGuardState {
 #[derive(Debug)]
 pub struct AITNGuardInnerState {
     base: TnGuardState,
-    exit_conditions: Arc<Mutex<TunnelNetworkExitConditions>>,
+    exit_conditions: TunnelNetworkExitConditions,
     scan_for_enemy: bool,
     is_attacking: bool,
     attack_machine: Option<AttackStateMachine>,
@@ -544,7 +532,7 @@ impl AITNGuardInnerState {
     pub fn new(machine: &StateMachine) -> Self {
         Self {
             base: TnGuardState::new(machine, "AITNGuardInner"),
-            exit_conditions: Arc::new(Mutex::new(TunnelNetworkExitConditions::new())),
+            exit_conditions: TunnelNetworkExitConditions::new(),
             scan_for_enemy: true,
             is_attacking: false,
             attack_machine: None,
@@ -580,8 +568,9 @@ impl AITNGuardInnerState {
             return StateReturnType::Success;
         };
 
-        if let Ok(mut exit_guard) = self.exit_conditions.lock() {
-            exit_guard.set_attack_give_up_frame(
+        {
+            let conditions = &mut self.exit_conditions;
+            conditions.set_attack_give_up_frame(
                 TheGameLogic::get_frame().saturating_add(get_guard_chase_unit_frames()),
             );
         }
@@ -593,9 +582,6 @@ impl AITNGuardInnerState {
             true,
             false,
         );
-        attack_machine.set_exit_conditions(Box::new(TunnelNetworkExitConditionsHandle::new(
-            self.exit_conditions.clone(),
-        )));
         attack_machine.set_goal_object(Some(nemesis_id));
 
         let return_val = attack_machine.init_default_state();
@@ -635,8 +621,9 @@ impl AITNGuardInnerState {
 
         if goal_obj.is_none() {
             if let Some(target) = team_target_obj.as_ref() {
-                if let Ok(mut exit_guard) = self.exit_conditions.lock() {
-                    exit_guard.set_attack_give_up_frame(
+                {
+                    let conditions = &mut self.exit_conditions;
+                    conditions.set_attack_give_up_frame(
                         TheGameLogic::get_frame().saturating_add(get_guard_chase_unit_frames()),
                     );
                 }
@@ -665,8 +652,9 @@ impl AITNGuardInnerState {
             }
 
             if let Some(target) = tunnel_nemesis {
-                if let Ok(mut exit_guard) = self.exit_conditions.lock() {
-                    exit_guard.set_attack_give_up_frame(
+                {
+                    let conditions = &mut self.exit_conditions;
+                    conditions.set_attack_give_up_frame(
                         TheGameLogic::get_frame().saturating_add(get_guard_chase_unit_frames()),
                     );
                 }
@@ -728,9 +716,6 @@ impl AITNGuardInnerState {
                     true,
                     false,
                 );
-                attack_machine.set_exit_conditions(Box::new(
-                    TunnelNetworkExitConditionsHandle::new(self.exit_conditions.clone()),
-                ));
                 attack_machine.set_goal_object(Some(target_id));
                 let return_val = attack_machine.init_default_state();
                 self.is_attacking = matches!(return_val, StateReturnType::Continue);
@@ -738,8 +723,7 @@ impl AITNGuardInnerState {
                 return return_val;
             }
         } else if let (Some(goal), Some(team_target)) = (&goal_obj, &team_target_obj) {
-            if goal.read().ok().map(|g| g.get_id()) != team_target.read().ok().map(|t| t.get_id())
-            {
+            if goal.read().ok().map(|g| g.get_id()) != team_target.read().ok().map(|t| t.get_id()) {
                 if let Ok(owner_guard) = owner.read() {
                     if let Some(player_arc) = owner_guard.get_controlling_player() {
                         if let Ok(mut player_guard) = player_arc.write() {
@@ -765,7 +749,7 @@ impl AITNGuardInnerState {
             return StateReturnType::Success;
         };
 
-        attack_machine.update()
+        attack_machine.update_with_exit_conditions(&self.exit_conditions)
     }
 
     fn classic_on_exit(&mut self, _status: StateExitType) {
@@ -1057,7 +1041,7 @@ impl StateImplementation for AITNGuardIdleState {
 #[derive(Debug)]
 pub struct AITNGuardOuterState {
     base: TnGuardState,
-    exit_conditions: Arc<Mutex<TunnelNetworkExitConditions>>,
+    exit_conditions: TunnelNetworkExitConditions,
     is_attacking: bool,
     attack_machine: Option<AttackStateMachine>,
 }
@@ -1066,7 +1050,7 @@ impl AITNGuardOuterState {
     pub fn new(machine: &StateMachine) -> Self {
         Self {
             base: TnGuardState::new(machine, "AITNGuardOuter"),
-            exit_conditions: Arc::new(Mutex::new(TunnelNetworkExitConditions::new())),
+            exit_conditions: TunnelNetworkExitConditions::new(),
             is_attacking: false,
             attack_machine: None,
         }
@@ -1107,8 +1091,9 @@ impl AITNGuardOuterState {
             return StateReturnType::Success;
         };
 
-        if let Ok(mut exit_guard) = self.exit_conditions.lock() {
-            exit_guard.set_attack_give_up_frame(
+        {
+            let conditions = &mut self.exit_conditions;
+            conditions.set_attack_give_up_frame(
                 TheGameLogic::get_frame().saturating_add(get_guard_chase_unit_frames()),
             );
         }
@@ -1120,9 +1105,6 @@ impl AITNGuardOuterState {
             true,
             false,
         );
-        attack_machine.set_exit_conditions(Box::new(TunnelNetworkExitConditionsHandle::new(
-            self.exit_conditions.clone(),
-        )));
         attack_machine.set_goal_object(Some(nemesis_id));
 
         let return_val = attack_machine.init_default_state();
@@ -1186,7 +1168,7 @@ impl AITNGuardOuterState {
             attack_machine.set_goal_object(goal.read().ok().map(|g| g.get_id()));
         }
 
-        attack_machine.update()
+        attack_machine.update_with_exit_conditions(&self.exit_conditions)
     }
 
     fn classic_on_exit(&mut self, _status: StateExitType) {
@@ -1573,7 +1555,7 @@ impl StateImplementation for AITNGuardPickUpCrateState {
 #[derive(Debug)]
 pub struct AITNGuardAttackAggressorState {
     base: TnGuardState,
-    exit_conditions: Arc<Mutex<TunnelNetworkExitConditions>>,
+    exit_conditions: TunnelNetworkExitConditions,
     is_attacking: bool,
     attack_machine: Option<AttackStateMachine>,
 }
@@ -1582,7 +1564,7 @@ impl AITNGuardAttackAggressorState {
     pub fn new(machine: &StateMachine) -> Self {
         Self {
             base: TnGuardState::new(machine, "AITNGuardAttackAggressor"),
-            exit_conditions: Arc::new(Mutex::new(TunnelNetworkExitConditions::new())),
+            exit_conditions: TunnelNetworkExitConditions::new(),
             is_attacking: false,
             attack_machine: None,
         }
@@ -1652,8 +1634,9 @@ impl AITNGuardAttackAggressorState {
             }
         }
 
-        if let Ok(mut exit_guard) = self.exit_conditions.lock() {
-            exit_guard.set_attack_give_up_frame(
+        {
+            let conditions = &mut self.exit_conditions;
+            conditions.set_attack_give_up_frame(
                 TheGameLogic::get_frame().saturating_add(get_guard_chase_unit_frames()),
             );
         }
@@ -1665,9 +1648,6 @@ impl AITNGuardAttackAggressorState {
             true,
             false,
         );
-        attack_machine.set_exit_conditions(Box::new(TunnelNetworkExitConditionsHandle::new(
-            self.exit_conditions.clone(),
-        )));
         attack_machine.set_goal_object(Some(nemesis_id));
 
         let return_val = attack_machine.init_default_state();
@@ -1709,7 +1689,7 @@ impl AITNGuardAttackAggressorState {
             }
         }
 
-        attack_machine.update()
+        attack_machine.update_with_exit_conditions(&self.exit_conditions)
     }
 
     fn classic_on_exit(&mut self, _status: StateExitType) {
@@ -2061,3 +2041,7 @@ fn tn_guard_attack_aggressor_condition(
     };
     has_attacked_tn_owner(&owner)
 }
+
+#[cfg(test)]
+#[path = "tn_guard_condition_owner_tests.rs"]
+mod condition_owner_tests;
