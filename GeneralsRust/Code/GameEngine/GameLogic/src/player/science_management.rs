@@ -12,7 +12,7 @@
 use crate::common::*;
 use crate::helpers::{TheGameLogic, TheGameText};
 use crate::player::{Player, ScienceVec};
-use crate::scripting::engine::get_script_engine;
+use crate::scripting::engine::with_script_engine_mut;
 use game_engine::common::rts::science::get_science_store;
 use game_engine::common::rts::{SCIENCE_INVALID, ScienceType};
 
@@ -358,11 +358,9 @@ impl Player {
         }
 
         // Notify script engine
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                engine.notify_of_acquired_science(self.get_id() as usize, science);
-            }
-        }
+        let _ = with_script_engine_mut(|engine| {
+            engine.notify_of_acquired_science(self.get_id() as usize, science);
+        });
 
         true
     }
@@ -560,13 +558,11 @@ impl Player {
 
         // C++ Player.cpp:2497-2498
         // Notify script engine of all acquired sciences
-        if let Ok(mut engine_guard) = get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                for &science in &self.sciences {
-                    engine.notify_of_acquired_science(self.get_id() as usize, science);
-                }
+        let _ = with_script_engine_mut(|engine| {
+            for &science in &self.sciences {
+                engine.notify_of_acquired_science(self.get_id() as usize, science);
             }
-        }
+        });
     }
 
     /// Get all sciences currently available to this player
