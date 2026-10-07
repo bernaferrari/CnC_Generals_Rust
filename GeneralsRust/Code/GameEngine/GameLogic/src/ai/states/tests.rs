@@ -130,7 +130,7 @@ fn clear_uses_base_clear_semantics() {
 fn set_goal_squad_copies_instead_of_aliasing() {
     let _guard = test_guard();
     let mut machine = AIStateMachine::new(Weak::<RwLock<Object>>::new(), "ai-squad");
-    let source = Arc::new(Mutex::new(Squad::new()));
+    let source = Arc::new(Squad::new());
 
     machine.set_goal_squad(Some(source.clone()));
 
@@ -234,7 +234,7 @@ fn xfer_roundtrip_preserves_path_squad_temp_and_waypoint_lookup_rules() {
     let mut source = AIStateMachine::new(Weak::<RwLock<Object>>::new(), "ai-roundtrip-source");
     let path = vec![Coord3D::new(1.0, 2.0, 3.0), Coord3D::new(4.0, 5.0, 6.0)];
     source.set_goal_path(&path);
-    source.set_goal_squad(Some(Arc::new(Mutex::new(Squad::new()))));
+    source.set_goal_squad(Some(Arc::new(Squad::new())));
     source.set_goal_waypoint(Some(Arc::new(Waypoint::new(
         777_010,
         Coord3D::new(30.0, 40.0, 50.0),

@@ -260,11 +260,11 @@ impl super::partition_manager::PartitionFilter for PartitionFilterAcceptOnTeam {
 /// Reject objects that are not on the specified squad (or are dead).
 /// Matches C++ PartitionFilterAcceptOnSquad.
 pub struct PartitionFilterAcceptOnSquad {
-    squad: Option<Arc<Mutex<Squad>>>,
+    squad: Option<Arc<Squad>>,
 }
 
 impl PartitionFilterAcceptOnSquad {
-    pub fn new(squad: Option<Arc<Mutex<Squad>>>) -> Self {
+    pub fn new(squad: Option<Arc<Squad>>) -> Self {
         Self { squad }
     }
 }
@@ -278,11 +278,8 @@ impl super::partition_manager::PartitionFilter for PartitionFilterAcceptOnSquad 
         let Some(squad) = &self.squad else {
             return false;
         };
-        let Ok(squad_guard) = squad.lock() else {
-            return false;
-        };
 
-        squad_guard.is_on_squad_by_id(obj.get_id())
+        squad.is_on_squad_by_id(obj.get_id())
     }
 
     fn debug_name(&self) -> &'static str {
@@ -1849,7 +1846,7 @@ mod tests {
 
         let mut squad = Squad::new();
         squad.add_object_id(95_001);
-        let filter = PartitionFilterAcceptOnSquad::new(Some(Arc::new(Mutex::new(squad))));
+        let filter = PartitionFilterAcceptOnSquad::new(Some(Arc::new(squad)));
 
         assert!(filter.allow(&member));
         assert!(!filter.allow(&non_member_same_team));
@@ -1864,7 +1861,7 @@ mod tests {
             registered_object_with_kind_of(96_001, "INFANTRY", team_for_player("T", 96, 0));
         let mut squad = Squad::new();
         squad.add_object_id(96_001);
-        let filter = PartitionFilterAcceptOnSquad::new(Some(Arc::new(Mutex::new(squad))));
+        let filter = PartitionFilterAcceptOnSquad::new(Some(Arc::new(squad)));
 
         object
             .write()

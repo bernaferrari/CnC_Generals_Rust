@@ -1980,8 +1980,7 @@ impl AIAttackSquadState {
         }
         drop(owner_guard);
 
-        let mut squad_guard = squad.lock().ok()?;
-        let object_ids = squad_guard.get_live_object_ids();
+        let object_ids = squad.get_live_object_ids();
 
         match difficulty {
             crate::player::GameDifficulty::Easy => {
@@ -2032,10 +2031,7 @@ impl StateImplementation for AIAttackSquadState {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
-    fn bind_goal_squad(
-        &mut self,
-        squad: Option<std::sync::Arc<std::sync::Mutex<crate::ai::squad::Squad>>>,
-    ) {
+    fn bind_goal_squad(&mut self, squad: Option<std::sync::Arc<crate::ai::squad::Squad>>) {
         self.base.goal_squad_copied = squad;
     }
 
@@ -2213,10 +2209,7 @@ impl StateImplementation for AIAttackAreaState {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
-    fn bind_goal_squad(
-        &mut self,
-        squad: Option<std::sync::Arc<std::sync::Mutex<crate::ai::squad::Squad>>>,
-    ) {
+    fn bind_goal_squad(&mut self, squad: Option<std::sync::Arc<crate::ai::squad::Squad>>) {
         self.base.goal_squad_copied = squad;
     }
 

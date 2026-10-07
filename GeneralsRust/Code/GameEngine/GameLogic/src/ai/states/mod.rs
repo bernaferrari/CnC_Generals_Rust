@@ -41,6 +41,9 @@ mod machine_snapshot_tests;
 #[cfg(test)]
 mod construction_tests;
 
+#[cfg(test)]
+mod squad_owner_tests;
+
 pub use attack::{
     AIAttackAreaState, AIAttackFollowWaypointPathAsIndividualsState,
     AIAttackFollowWaypointPathAsTeamState, AIAttackMoveToState, AIAttackObjectState,

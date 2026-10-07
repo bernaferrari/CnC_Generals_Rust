@@ -195,9 +195,9 @@ pub struct AiStateData {
     goal_polygon: Option<crate::polygon_trigger::PolygonTriggerId>,
     /// Target squad for squad attacks
     goal_squad: Option<SquadId>,
-    /// Squad handle (legacy machine parity)
+    /// Machine-owned squad membership (legacy command adapter).
     #[serde(skip)]
-    goal_squad_handle: Option<std::sync::Arc<std::sync::Mutex<Squad>>>,
+    goal_squad_handle: Option<Squad>,
     /// Maximum shots to fire in attack states
     max_shots: i32,
     /// Guard mode for guard states
@@ -1362,19 +1362,15 @@ impl AiStateMachine {
             return Ok(StateReturnType::StateFailed);
         }
 
-        let Some(squad_arc) = state.goal_squad_handle.clone() else {
+        let Some(squad) = state.goal_squad_handle.as_ref() else {
             return Ok(StateReturnType::StateFailed);
         };
         let best_target = {
-            let Ok(mut squad_guard) = squad_arc.lock() else {
-                return Ok(StateReturnType::StateFailed);
-            };
-
             let owner_pos = self.resolve_current_position(state);
             let mut best_target = None;
             let mut best_dist = f32::INFINITY;
 
-            for id in squad_guard.get_live_object_ids() {
+            for id in squad.get_live_object_ids() {
                 let Some(pos) = OBJECT_REGISTRY
                     .with_object(id, |target| {
                         if target.is_effectively_dead() {
@@ -2378,7 +2374,7 @@ impl AiStateMachine {
                     }
                 }
             }
-            handle = Some(std::sync::Arc::new(std::sync::Mutex::new(squad_obj)));
+            handle = Some(squad_obj);
         }
         self.current_state.goal_squad_handle = handle;
     }
@@ -2712,8 +2708,7 @@ impl AiCommandInterface for AiStateMachine {
                         }
                     }
                 }
-                self.current_state.goal_squad_handle =
-                    Some(std::sync::Arc::new(std::sync::Mutex::new(squad)));
+                self.current_state.goal_squad_handle = Some(squad);
             }
         }
 

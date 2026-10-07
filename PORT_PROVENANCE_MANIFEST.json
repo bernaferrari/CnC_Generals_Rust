@@ -13744,6 +13744,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/squad_owner_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -27763,6 +27770,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/experience_tracker.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/factory_ai.rs"
           },
           {
             "cargo_reachable": true,
@@ -50878,6 +50892,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/squad_owner_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -60168,6 +60189,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/experience_tracker.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/factory_ai.rs"
           },
           {
             "cargo_reachable": true,
@@ -157381,7 +157409,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "ff49f4d07060a313238d144dcf4a1d900cd192cfbcda30ddb75180d2fd8c356c",
+  "input_digest": "20604cd6c5da6a7ac71d36f6180b9015f87b910359710dcc3f3d967ed8f45bdf",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -190117,11 +190145,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 340,
+        "end_line": 337,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/squad.rs",
-      "sha256": "1aec8ee5f48eb66eaec2165b4e8449ecd9c653e11f884f05128ead6dbc16657e",
+      "sha256": "8469d12fbdac9dda05a88330ae68d3fbd74df03a397f2201c2ab46ca1edf8e21",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -190161,107 +190189,107 @@
         },
         {
           "kind": "fn",
-          "line": 68,
+          "line": 69,
           "name": "get_live_object_ids"
         },
         {
           "kind": "fn",
-          "line": 91,
+          "line": 88,
           "name": "get_size_of_group"
         },
         {
           "kind": "fn",
-          "line": 96,
+          "line": 93,
           "name": "is_on_squad_by_id"
         },
         {
           "kind": "fn",
-          "line": 105,
+          "line": 102,
           "name": "squad_from_team"
         },
         {
           "kind": "fn",
-          "line": 114,
+          "line": 111,
           "name": "squad_from_ai_group"
         },
         {
           "kind": "fn",
-          "line": 124,
+          "line": 121,
           "name": "ai_group_from_squad"
         },
         {
           "kind": "fn",
-          "line": 133,
+          "line": 130,
           "name": "get_object_ids"
         },
         {
           "kind": "fn",
-          "line": 138,
+          "line": 135,
           "name": "is_empty"
         },
         {
           "kind": "fn",
-          "line": 143,
+          "line": 140,
           "name": "get_center_position"
         },
         {
           "kind": "fn",
-          "line": 175,
+          "line": 172,
           "name": "get_bounding_box"
         },
         {
           "kind": "fn",
-          "line": 208,
+          "line": 205,
           "name": "count_live_objects"
         },
         {
           "kind": "fn",
-          "line": 213,
+          "line": 210,
           "name": "get_object_ids_of_type"
         },
         {
           "kind": "fn",
-          "line": 229,
+          "line": 226,
           "name": "contains_type"
         },
         {
           "kind": "fn",
-          "line": 234,
+          "line": 231,
           "name": "get_strongest_object_id"
         },
         {
           "kind": "fn",
-          "line": 255,
+          "line": 252,
           "name": "get_weakest_object_id"
         },
         {
           "kind": "fn",
-          "line": 272,
+          "line": 269,
           "name": "find_object_by_id"
         },
         {
           "kind": "fn",
-          "line": 279,
+          "line": 276,
           "name": "default"
         },
         {
           "kind": "fn",
-          "line": 285,
+          "line": 282,
           "name": "clone"
         },
         {
           "kind": "fn",
-          "line": 293,
+          "line": 290,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 307,
+          "line": 304,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 335,
+          "line": 332,
           "name": "load_post_process"
         }
       ]
@@ -190270,11 +190298,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3110,
+        "end_line": 3105,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/state_machine.rs",
-      "sha256": "f7ac98cdc83b631a4faa834409b64c91b3f36e49ef5d926de48e8926ef2efca6",
+      "sha256": "82cb9bca4c27522382eca361f8c97b1b639fb2effbbd4631fa75261d613af857",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -190494,452 +190522,452 @@
         },
         {
           "kind": "fn",
-          "line": 1423,
+          "line": 1419,
           "name": "update_attack_follow_waypoint_path_state"
         },
         {
           "kind": "fn",
-          "line": 1473,
+          "line": 1469,
           "name": "update_face_object_state"
         },
         {
           "kind": "fn",
-          "line": 1493,
+          "line": 1489,
           "name": "update_face_position_state"
         },
         {
           "kind": "fn",
-          "line": 1503,
+          "line": 1499,
           "name": "update_face_towards"
         },
         {
           "kind": "const",
-          "line": 1533,
+          "line": 1529,
           "name": "REL_THRESH"
         },
         {
           "kind": "fn",
-          "line": 1548,
+          "line": 1544,
           "name": "update_guard_tunnel_network_state"
         },
         {
           "kind": "fn",
-          "line": 1555,
+          "line": 1551,
           "name": "update_guard_retaliate_state"
         },
         {
           "kind": "fn",
-          "line": 1562,
+          "line": 1558,
           "name": "update_exit_instantly_state"
         },
         {
           "kind": "fn",
-          "line": 1589,
+          "line": 1585,
           "name": "update_guard_state"
         },
         {
           "kind": "struct",
-          "line": 1594,
+          "line": 1590,
           "name": "GuardFlyingOnlyFilter"
         },
         {
           "kind": "fn",
-          "line": 1598,
+          "line": 1594,
           "name": "allow"
         },
         {
           "kind": "fn",
-          "line": 1610,
+          "line": 1606,
           "name": "debug_get_name"
         },
         {
           "kind": "fn",
-          "line": 1687,
+          "line": 1683,
           "name": "update_hunt_state"
         },
         {
           "kind": "fn",
-          "line": 1727,
+          "line": 1723,
           "name": "update_follow_path_state"
         },
         {
           "kind": "const",
-          "line": 1746,
+          "line": 1742,
           "name": "CLOSE_ENOUGH_DIST"
         },
         {
           "kind": "fn",
-          "line": 1758,
+          "line": 1754,
           "name": "issue_movement_target"
         },
         {
           "kind": "const",
-          "line": 1764,
+          "line": 1760,
           "name": "TARGET_EPSILON"
         },
         {
           "kind": "fn",
-          "line": 1796,
+          "line": 1792,
           "name": "start_move_sound"
         },
         {
           "kind": "fn",
-          "line": 1851,
+          "line": 1847,
           "name": "resolve_current_position"
         },
         {
           "kind": "fn",
-          "line": 1863,
+          "line": 1859,
           "name": "native_state_for"
         },
         {
           "kind": "fn",
-          "line": 1907,
+          "line": 1903,
           "name": "current_frame"
         },
         {
           "kind": "fn",
-          "line": 1911,
+          "line": 1907,
           "name": "duration_to_frames"
         },
         {
           "kind": "fn",
-          "line": 1920,
+          "line": 1916,
           "name": "frames_to_duration"
         },
         {
           "kind": "fn",
-          "line": 1929,
+          "line": 1925,
           "name": "try_fire_weapon"
         },
         {
           "kind": "const",
-          "line": 1936,
+          "line": 1932,
           "name": "WEAPON_DELAY_FRAMES"
         },
         {
           "kind": "fn",
-          "line": 1954,
+          "line": 1950,
           "name": "finish_move_state"
         },
         {
           "kind": "fn",
-          "line": 2002,
+          "line": 1998,
           "name": "evacuate_contents"
         },
         {
           "kind": "fn",
-          "line": 2019,
+          "line": 2015,
           "name": "release_from_container"
         },
         {
           "kind": "fn",
-          "line": 2048,
+          "line": 2044,
           "name": "select_next_waypoint"
         },
         {
           "kind": "fn",
-          "line": 2065,
+          "line": 2061,
           "name": "update_follow_waypoint_path_state"
         },
         {
           "kind": "const",
-          "line": 2099,
+          "line": 2095,
           "name": "CLOSE_ENOUGH_DIST"
         },
         {
           "kind": "fn",
-          "line": 2113,
+          "line": 2109,
           "name": "update_wander_state"
         },
         {
           "kind": "fn",
-          "line": 2151,
+          "line": 2147,
           "name": "update_wander_in_place_state"
         },
         {
           "kind": "const",
-          "line": 2164,
+          "line": 2160,
           "name": "DIRECTION_CHANGE_INTERVAL"
         },
         {
           "kind": "fn",
-          "line": 2188,
+          "line": 2184,
           "name": "update_panic_state"
         },
         {
           "kind": "fn",
-          "line": 2223,
+          "line": 2219,
           "name": "update_move_away_from_repulsors"
         },
         {
           "kind": "fn",
-          "line": 2246,
+          "line": 2242,
           "name": "update_rappel_into_state"
         },
         {
           "kind": "fn",
-          "line": 2270,
+          "line": 2266,
           "name": "update_pick_up_crate_state"
         },
         {
           "kind": "fn",
-          "line": 2301,
+          "line": 2297,
           "name": "set_goal_position"
         },
         {
           "kind": "fn",
-          "line": 2307,
+          "line": 2303,
           "name": "set_goal_object"
         },
         {
           "kind": "fn",
-          "line": 2313,
+          "line": 2309,
           "name": "set_goal_path"
         },
         {
           "kind": "fn",
-          "line": 2327,
+          "line": 2323,
           "name": "add_to_goal_path"
         },
         {
           "kind": "fn",
-          "line": 2352,
+          "line": 2348,
           "name": "set_goal_polygon"
         },
         {
           "kind": "fn",
-          "line": 2356,
+          "line": 2352,
           "name": "set_goal_waypoint"
         },
         {
           "kind": "fn",
-          "line": 2363,
+          "line": 2359,
           "name": "set_goal_squad"
         },
         {
           "kind": "fn",
-          "line": 2387,
+          "line": 2383,
           "name": "set_max_shots"
         },
         {
           "kind": "fn",
-          "line": 2392,
+          "line": 2388,
           "name": "set_guard_mode"
         },
         {
           "kind": "fn",
-          "line": 2397,
+          "line": 2393,
           "name": "set_waypoint_graph"
         },
         {
           "kind": "fn",
-          "line": 2402,
+          "line": 2398,
           "name": "set_timeout"
         },
         {
           "kind": "fn",
-          "line": 2407,
+          "line": 2403,
           "name": "set_state_value"
         },
         {
           "kind": "fn",
-          "line": 2458,
+          "line": 2454,
           "name": "get_state_value"
         },
         {
           "kind": "fn",
-          "line": 2502,
+          "line": 2498,
           "name": "set_paused"
         },
         {
           "kind": "fn",
-          "line": 2507,
+          "line": 2503,
           "name": "is_idle"
         },
         {
           "kind": "fn",
-          "line": 2512,
+          "line": 2508,
           "name": "is_busy"
         },
         {
           "kind": "fn",
-          "line": 2517,
+          "line": 2513,
           "name": "is_attack_state"
         },
         {
           "kind": "fn",
-          "line": 2533,
+          "line": 2529,
           "name": "is_guard_state"
         },
         {
           "kind": "fn",
-          "line": 2541,
+          "line": 2537,
           "name": "get_debug_info"
         },
         {
           "kind": "fn",
-          "line": 2556,
+          "line": 2552,
           "name": "get_temporary_state"
         },
         {
           "kind": "enum",
-          "line": 2567,
+          "line": 2563,
           "name": "HostMoveAttackKind"
         },
         {
           "kind": "fn",
-          "line": 2577,
+          "line": 2573,
           "name": "to_crate_state"
         },
         {
           "kind": "fn",
-          "line": 2593,
+          "line": 2589,
           "name": "dispatch_host_move_attack"
         },
         {
           "kind": "fn",
-          "line": 2614,
+          "line": 2610,
           "name": "host_move_attack_state"
         },
         {
           "kind": "fn",
-          "line": 2624,
+          "line": 2620,
           "name": "ai_do_command"
         },
         {
           "kind": "struct",
-          "line": 2749,
+          "line": 2744,
           "name": "AiStateMachineDebugInfo"
         },
         {
           "kind": "struct",
-          "line": 2769,
+          "line": 2764,
           "name": "FaceAiCapture"
         },
         {
           "kind": "struct",
-          "line": 2777,
+          "line": 2772,
           "name": "FaceTestAI"
         },
         {
           "kind": "fn",
-          "line": 2785,
+          "line": 2780,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 2788,
+          "line": 2783,
           "name": "is_moving"
         },
         {
           "kind": "fn",
-          "line": 2792,
+          "line": 2787,
           "name": "is_idle"
         },
         {
           "kind": "fn",
-          "line": 2796,
+          "line": 2791,
           "name": "set_movement_target"
         },
         {
           "kind": "fn",
-          "line": 2800,
+          "line": 2795,
           "name": "with_cur_locomotor"
         },
         {
           "kind": "fn",
-          "line": 2804,
+          "line": 2799,
           "name": "with_cur_locomotor_mut"
         },
         {
           "kind": "fn",
-          "line": 2808,
+          "line": 2803,
           "name": "get_preferred_height"
         },
         {
           "kind": "fn",
-          "line": 2817,
+          "line": 2812,
           "name": "set_locomotor_goal_orientation"
         },
         {
           "kind": "fn",
-          "line": 2823,
+          "line": 2818,
           "name": "set_locomotor_goal_position_explicit"
         },
         {
           "kind": "fn",
-          "line": 2830,
+          "line": 2825,
           "name": "register_face_test_object"
         },
         {
           "kind": "fn",
-          "line": 2861,
+          "line": 2856,
           "name": "unregister_face_test_object"
         },
         {
           "kind": "fn",
-          "line": 2867,
+          "line": 2862,
           "name": "test_state_machine_creation"
         },
         {
           "kind": "fn",
-          "line": 2875,
+          "line": 2870,
           "name": "test_state_transitions"
         },
         {
           "kind": "fn",
-          "line": 2886,
+          "line": 2881,
           "name": "test_temporary_state"
         },
         {
           "kind": "fn",
-          "line": 2903,
+          "line": 2898,
           "name": "test_state_queries"
         },
         {
           "kind": "fn",
-          "line": 2922,
+          "line": 2917,
           "name": "test_goal_setting"
         },
         {
           "kind": "fn",
-          "line": 2943,
+          "line": 2938,
           "name": "test_add_to_goal_path_deduplicates_terminal_point"
         },
         {
           "kind": "fn",
-          "line": 2958,
+          "line": 2953,
           "name": "test_face_position_turn_in_place_sets_orientation_goal"
         },
         {
           "kind": "fn",
-          "line": 2982,
+          "line": 2977,
           "name": "test_face_position_non_turn_in_place_sets_position_goal"
         },
         {
           "kind": "fn",
-          "line": 3007,
+          "line": 3002,
           "name": "test_face_position_within_threshold_completes_without_locomotor_command"
         },
         {
           "kind": "fn",
-          "line": 3030,
+          "line": 3025,
           "name": "test_face_object_without_goal_fails"
         },
         {
           "kind": "fn",
-          "line": 3038,
+          "line": 3033,
           "name": "test_relative_angle_2d_wraps_across_pi_boundary"
         },
         {
           "kind": "fn",
-          "line": 3046,
+          "line": 3041,
           "name": "test_relative_angle_2d_respects_cpp_face_threshold"
         },
         {
           "kind": "fn",
-          "line": 3056,
+          "line": 3051,
           "name": "host_move_attack_adapter_dispatches_only_move_and_attack"
         }
       ]
@@ -190948,11 +190976,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2834,
+        "end_line": 2827,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/attack.rs",
-      "sha256": "4cdbf54924dc184772e858265b68de4852d30628701e054fa9b6eb00967766a4",
+      "sha256": "71a5591914a4c4840c58f3fa3e59d4c276d7cd13ae0cd0f229d2060b355a50e4",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -191622,297 +191650,297 @@
         },
         {
           "kind": "fn",
-          "line": 2031,
+          "line": 2030,
           "name": "on_enter"
         },
         {
           "kind": "fn",
-          "line": 2034,
+          "line": 2033,
           "name": "bind_goal_squad"
         },
         {
           "kind": "fn",
-          "line": 2041,
+          "line": 2037,
           "name": "bind_goal_polygon"
+        },
+        {
+          "kind": "fn",
+          "line": 2044,
+          "name": "update"
         },
         {
           "kind": "fn",
           "line": 2048,
-          "name": "update"
+          "name": "on_exit"
         },
         {
           "kind": "fn",
           "line": 2052,
-          "name": "on_exit"
-        },
-        {
-          "kind": "fn",
-          "line": 2056,
           "name": "xfer_snapshot"
         },
         {
           "kind": "fn",
-          "line": 2063,
+          "line": 2059,
           "name": "base_state"
+        },
+        {
+          "kind": "fn",
+          "line": 2062,
+          "name": "base_state_mut"
         },
         {
           "kind": "fn",
           "line": 2066,
-          "name": "base_state_mut"
+          "name": "classic_xfer_snapshot"
         },
         {
           "kind": "fn",
           "line": 2070,
-          "name": "classic_xfer_snapshot"
-        },
-        {
-          "kind": "fn",
-          "line": 2074,
           "name": "classic_on_enter"
         },
         {
           "kind": "fn",
-          "line": 2092,
+          "line": 2088,
           "name": "classic_on_update"
         },
         {
           "kind": "fn",
-          "line": 2136,
+          "line": 2132,
           "name": "classic_on_exit"
         },
         {
           "kind": "fn",
-          "line": 2143,
+          "line": 2139,
           "name": "classic_is_attack"
         },
         {
           "kind": "struct",
-          "line": 2150,
+          "line": 2146,
           "name": "AIAttackAreaState"
         },
         {
           "kind": "fn",
-          "line": 2157,
+          "line": 2153,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 2164,
+          "line": 2160,
           "name": "find_area_victim"
         },
         {
           "kind": "struct",
-          "line": 2169,
+          "line": 2165,
           "name": "PolygonFilter"
         },
         {
           "kind": "fn",
-          "line": 2175,
+          "line": 2171,
           "name": "allow"
         },
         {
           "kind": "fn",
-          "line": 2185,
+          "line": 2181,
           "name": "debug_get_name"
         },
         {
           "kind": "fn",
-          "line": 2212,
+          "line": 2208,
           "name": "on_enter"
         },
         {
           "kind": "fn",
-          "line": 2215,
+          "line": 2211,
           "name": "bind_goal_squad"
         },
         {
           "kind": "fn",
-          "line": 2222,
+          "line": 2215,
           "name": "bind_goal_polygon"
         },
         {
           "kind": "fn",
-          "line": 2229,
+          "line": 2222,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 2233,
+          "line": 2226,
           "name": "on_exit"
         },
         {
           "kind": "fn",
-          "line": 2237,
+          "line": 2230,
           "name": "xfer_snapshot"
         },
         {
           "kind": "fn",
-          "line": 2244,
+          "line": 2237,
           "name": "base_state"
         },
         {
           "kind": "fn",
-          "line": 2247,
+          "line": 2240,
           "name": "base_state_mut"
         },
         {
           "kind": "fn",
-          "line": 2251,
+          "line": 2244,
           "name": "classic_xfer_snapshot"
         },
         {
           "kind": "fn",
-          "line": 2255,
+          "line": 2248,
           "name": "classic_on_enter"
         },
         {
           "kind": "fn",
-          "line": 2274,
+          "line": 2267,
           "name": "classic_on_update"
         },
         {
           "kind": "fn",
-          "line": 2326,
+          "line": 2319,
           "name": "classic_on_exit"
         },
         {
           "kind": "fn",
-          "line": 2333,
+          "line": 2326,
           "name": "classic_is_attack"
         },
         {
           "kind": "fn",
-          "line": 2340,
+          "line": 2333,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 2354,
+          "line": 2347,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 2398,
+          "line": 2391,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 2408,
+          "line": 2401,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 2422,
+          "line": 2415,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 2455,
+          "line": 2448,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 2465,
+          "line": 2458,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 2490,
+          "line": 2483,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 2526,
+          "line": 2519,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 2536,
+          "line": 2529,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 2553,
+          "line": 2546,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 2583,
+          "line": 2576,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 2593,
+          "line": 2586,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 2614,
+          "line": 2607,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 2648,
+          "line": 2641,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 2658,
+          "line": 2651,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 2667,
+          "line": 2660,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 2677,
+          "line": 2670,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 2689,
+          "line": 2682,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 2704,
+          "line": 2697,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 2731,
+          "line": 2724,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 2741,
+          "line": 2734,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 2760,
+          "line": 2753,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 2790,
+          "line": 2783,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 2800,
+          "line": 2793,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 2813,
+          "line": 2806,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 2829,
+          "line": 2822,
           "name": "load_post_process"
         }
       ]
@@ -193793,11 +193821,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 732,
+        "end_line": 723,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/guard.rs",
-      "sha256": "5e986fcf28d7d0bf3583c316351abe545395a8421864682c5a7408fe11b3d5a3",
+      "sha256": "5b20ad7fa6580902c345ed6e0aa18943ea6fbc8224cb3593217834add55347a1",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -193842,322 +193870,322 @@
         },
         {
           "kind": "fn",
-          "line": 160,
+          "line": 157,
           "name": "bind_goal_polygon"
         },
         {
           "kind": "fn",
-          "line": 167,
+          "line": 164,
           "name": "note_guard_enter"
         },
         {
           "kind": "fn",
-          "line": 172,
+          "line": 169,
           "name": "freezes_parent_during_update"
         },
         {
           "kind": "fn",
-          "line": 176,
+          "line": 173,
           "name": "on_enter_with_ai"
         },
         {
           "kind": "fn",
-          "line": 184,
+          "line": 181,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 188,
+          "line": 185,
           "name": "update_with_ai"
         },
         {
           "kind": "fn",
-          "line": 194,
+          "line": 191,
           "name": "on_exit"
         },
         {
           "kind": "fn",
-          "line": 198,
+          "line": 195,
           "name": "xfer_snapshot"
+        },
+        {
+          "kind": "fn",
+          "line": 202,
+          "name": "base_state"
         },
         {
           "kind": "fn",
           "line": 205,
-          "name": "base_state"
-        },
-        {
-          "kind": "fn",
-          "line": 208,
           "name": "base_state_mut"
         },
         {
           "kind": "fn",
-          "line": 212,
+          "line": 209,
           "name": "classic_note_guard_enter"
         },
         {
           "kind": "fn",
-          "line": 217,
+          "line": 214,
           "name": "classic_freezes_parent_during_update"
         },
         {
           "kind": "fn",
-          "line": 221,
+          "line": 218,
           "name": "classic_xfer_snapshot"
         },
         {
           "kind": "fn",
-          "line": 224,
+          "line": 221,
           "name": "classic_on_enter"
         },
         {
           "kind": "fn",
-          "line": 274,
+          "line": 271,
           "name": "classic_on_enter_with_ai"
         },
         {
           "kind": "fn",
-          "line": 289,
+          "line": 286,
           "name": "classic_on_update"
         },
         {
           "kind": "fn",
-          "line": 297,
+          "line": 294,
           "name": "classic_on_update_with_ai"
         },
         {
           "kind": "fn",
-          "line": 304,
+          "line": 301,
           "name": "classic_on_exit"
         },
         {
           "kind": "fn",
-          "line": 313,
+          "line": 310,
           "name": "classic_is_guard_idle"
         },
         {
           "kind": "fn",
-          "line": 320,
+          "line": 317,
           "name": "classic_is_attack"
         },
         {
           "kind": "struct",
-          "line": 331,
+          "line": 328,
           "name": "AIGuardRetaliateState"
         },
         {
           "kind": "fn",
-          "line": 337,
+          "line": 334,
           "name": "new"
+        },
+        {
+          "kind": "fn",
+          "line": 343,
+          "name": "on_enter"
         },
         {
           "kind": "fn",
           "line": 346,
-          "name": "on_enter"
-        },
-        {
-          "kind": "fn",
-          "line": 349,
           "name": "bind_goal_object_id"
         },
         {
           "kind": "fn",
-          "line": 353,
+          "line": 350,
           "name": "bind_goal_position"
         },
         {
           "kind": "fn",
-          "line": 357,
+          "line": 354,
           "name": "bind_goal_squad"
         },
         {
           "kind": "fn",
-          "line": 364,
+          "line": 358,
           "name": "bind_goal_polygon"
         },
         {
           "kind": "fn",
-          "line": 371,
+          "line": 365,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 375,
+          "line": 369,
           "name": "on_exit"
         },
         {
           "kind": "fn",
-          "line": 379,
+          "line": 373,
           "name": "xfer_snapshot"
         },
         {
           "kind": "fn",
-          "line": 386,
+          "line": 380,
           "name": "base_state"
         },
         {
           "kind": "fn",
-          "line": 389,
+          "line": 383,
           "name": "base_state_mut"
         },
         {
           "kind": "fn",
-          "line": 393,
+          "line": 387,
           "name": "classic_xfer_snapshot"
         },
         {
           "kind": "fn",
-          "line": 397,
+          "line": 391,
           "name": "classic_on_enter"
         },
         {
           "kind": "fn",
-          "line": 430,
+          "line": 424,
           "name": "classic_on_update"
         },
         {
           "kind": "fn",
-          "line": 438,
+          "line": 432,
           "name": "classic_on_exit"
         },
         {
           "kind": "fn",
-          "line": 447,
+          "line": 441,
           "name": "classic_is_attack"
         },
         {
           "kind": "struct",
-          "line": 458,
+          "line": 452,
           "name": "AITunnelNetworkGuardState"
         },
         {
           "kind": "fn",
-          "line": 464,
+          "line": 458,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 473,
+          "line": 467,
           "name": "on_enter"
         },
         {
           "kind": "fn",
-          "line": 476,
+          "line": 470,
           "name": "bind_goal_object_id"
         },
         {
           "kind": "fn",
-          "line": 480,
+          "line": 474,
           "name": "bind_goal_position"
         },
         {
           "kind": "fn",
-          "line": 484,
+          "line": 478,
           "name": "bind_goal_squad"
         },
         {
           "kind": "fn",
-          "line": 491,
+          "line": 482,
           "name": "bind_goal_polygon"
         },
         {
           "kind": "fn",
-          "line": 498,
+          "line": 489,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 502,
+          "line": 493,
           "name": "on_exit"
         },
         {
           "kind": "fn",
-          "line": 506,
+          "line": 497,
           "name": "xfer_snapshot"
         },
         {
           "kind": "fn",
-          "line": 513,
+          "line": 504,
           "name": "base_state"
         },
         {
           "kind": "fn",
-          "line": 516,
+          "line": 507,
           "name": "base_state_mut"
         },
         {
           "kind": "fn",
-          "line": 520,
+          "line": 511,
           "name": "classic_xfer_snapshot"
         },
         {
           "kind": "fn",
-          "line": 524,
+          "line": 515,
           "name": "classic_on_enter"
         },
         {
           "kind": "fn",
-          "line": 549,
+          "line": 540,
           "name": "classic_on_update"
         },
         {
           "kind": "fn",
-          "line": 557,
+          "line": 548,
           "name": "classic_on_exit"
         },
         {
           "kind": "fn",
-          "line": 566,
+          "line": 557,
           "name": "classic_is_attack"
         },
         {
           "kind": "fn",
-          "line": 576,
+          "line": 567,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 591,
+          "line": 582,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 615,
+          "line": 606,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 625,
+          "line": 616,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 640,
+          "line": 631,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 664,
+          "line": 655,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 674,
+          "line": 665,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 689,
+          "line": 680,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 713,
+          "line": 704,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 723,
+          "line": 714,
           "name": "clear_owner_guard_target_type"
         }
       ]
@@ -194541,11 +194569,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 97,
+        "end_line": 100,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/mod.rs",
-      "sha256": "7f808a95f6626810f5f7b37b00c9b53044abb62a537d1f80feef5dcfb4602451",
+      "sha256": "49cc7aa252f346bc631cc594af63bac7901de6b416e9cf95a84f54033c5efeb1",
       "symbol_index_status": "indexed",
       "symbols": []
     },
@@ -194754,13 +194782,131 @@
     },
     {
       "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 133,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/squad_owner_tests.rs",
+      "sha256": "c734c5a474017ce6089814377221dc62de65db27059fca09374a1504a225fc00",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "trait",
+          "line": 10,
+          "name": "TestGoal"
+        },
+        {
+          "kind": "fn",
+          "line": 11,
+          "name": "from_ids"
+        },
+        {
+          "kind": "fn",
+          "line": 12,
+          "name": "ids"
+        },
+        {
+          "kind": "fn",
+          "line": 13,
+          "name": "add_id"
+        },
+        {
+          "kind": "fn",
+          "line": 14,
+          "name": "live_ids"
+        },
+        {
+          "kind": "fn",
+          "line": 17,
+          "name": "from_ids"
+        },
+        {
+          "kind": "fn",
+          "line": 20,
+          "name": "ids"
+        },
+        {
+          "kind": "fn",
+          "line": 23,
+          "name": "add_id"
+        },
+        {
+          "kind": "fn",
+          "line": 26,
+          "name": "live_ids"
+        },
+        {
+          "kind": "fn",
+          "line": 31,
+          "name": "from_ids"
+        },
+        {
+          "kind": "fn",
+          "line": 34,
+          "name": "ids"
+        },
+        {
+          "kind": "fn",
+          "line": 37,
+          "name": "add_id"
+        },
+        {
+          "kind": "fn",
+          "line": 40,
+          "name": "live_ids"
+        },
+        {
+          "kind": "fn",
+          "line": 44,
+          "name": "squad"
+        },
+        {
+          "kind": "fn",
+          "line": 51,
+          "name": "goal"
+        },
+        {
+          "kind": "fn",
+          "line": 54,
+          "name": "machine"
+        },
+        {
+          "kind": "fn",
+          "line": 57,
+          "name": "save"
+        },
+        {
+          "kind": "fn",
+          "line": 65,
+          "name": "assigning_squad_copies_membership_and_keeps_source_independent"
+        },
+        {
+          "kind": "fn",
+          "line": 82,
+          "name": "same_id_machine_goals_stay_separate_during_interleaved_replacement_and_clear"
+        },
+        {
+          "kind": "fn",
+          "line": 99,
+          "name": "restoring_squad_replaces_existing_membership_and_resaves_identical_bytes"
+        },
+        {
+          "kind": "fn",
+          "line": 122,
+          "name": "live_member_query_does_not_change_authored_membership"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1243,
+        "end_line": 1230,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/state_machine.rs",
-      "sha256": "c92be15ed238deffa79d895f13bfdb92fb6a20876bf4198322910e9875bfdc98",
+      "sha256": "57e7e15af4f74c3e7c95e10425b55a27a4340a212005e51eb07110f7edf9f9cc",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -194915,77 +195061,77 @@
         },
         {
           "kind": "fn",
-          "line": 765,
+          "line": 767,
           "name": "set_goal_team"
         },
         {
           "kind": "fn",
-          "line": 778,
+          "line": 779,
           "name": "set_goal_squad"
         },
         {
           "kind": "fn",
-          "line": 801,
+          "line": 794,
           "name": "set_goal_polygon"
         },
         {
           "kind": "fn",
-          "line": 809,
+          "line": 802,
           "name": "set_goal_ai_group"
         },
         {
           "kind": "fn",
-          "line": 821,
+          "line": 810,
           "name": "get_goal_squad"
         },
         {
           "kind": "fn",
-          "line": 826,
+          "line": 816,
           "name": "set_temporary_state"
         },
         {
           "kind": "fn",
-          "line": 877,
+          "line": 867,
           "name": "get_temporary_state"
         },
         {
           "kind": "fn",
-          "line": 882,
+          "line": 872,
           "name": "update_state_machine"
         },
         {
           "kind": "fn",
-          "line": 914,
+          "line": 904,
           "name": "get_current_state_name"
         },
         {
           "kind": "fn",
-          "line": 929,
+          "line": 919,
           "name": "ai_do_command"
         },
         {
           "kind": "fn",
-          "line": 935,
+          "line": 925,
           "name": "ai_do_command_with_ai"
         },
         {
           "kind": "fn",
-          "line": 942,
+          "line": 932,
           "name": "ai_do_command_impl"
         },
         {
           "kind": "fn",
-          "line": 1122,
+          "line": 1112,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 1127,
+          "line": 1117,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 1236,
+          "line": 1223,
           "name": "load_post_process"
         }
       ]
@@ -194998,7 +195144,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/tests.rs",
-      "sha256": "7b214d4c5cc97fdcf720f86b624b9b13f93ec1320a7b8f3ade4b41749ac3bdb0",
+      "sha256": "171c67cfa128f77c260c46ed2ecc81ebfb59a23de02ff0c39bc1cd8b5fde4403",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -200551,11 +200697,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2103,
+        "end_line": 2100,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/partition_filters.rs",
-      "sha256": "58a55a7bb085cbea7eb2435916412138320d88c3c9de965a32ff62fe5b4b1094",
+      "sha256": "de79bcc05644b845513f6afb532eb19ccbe2efa28d138f6e22884e2bb53ab5ed",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -201967,6 +202113,18 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
+        "end_line": 437,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/factory_ai.rs",
+      "sha256": "8dfb9fdfcce6cea6d76df7e6ab3fed355fe36edc5727eb8b4c233f515075e783",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
         "end_line": 49,
         "start_line": 1
       },
@@ -202183,11 +202341,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1255,
+        "end_line": 823,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_factory.rs",
-      "sha256": "37bc749100f765cdee53e98ce5192abf861dc6dea696f9ff2e8d22b7d1665fd5",
+      "sha256": "7448217fe46ee2d3e21814e4ac6b8b84d9e2cef4dd61a2a144069aadb341e32a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205703,7 +205861,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/state_machine.rs",
-      "sha256": "daad07b6c5593e97d89a2341cb4ef7dd1db1665bd8b1a88c0b647233e026e0bb",
+      "sha256": "8b5b024f0a40d3afd41ec8ec0db6591bcc8990346e6dbd29ba4dd56894aaa021",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

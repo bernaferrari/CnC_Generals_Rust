@@ -151,10 +151,7 @@ impl StateImplementation for AIGuardState {
         self.base.goal_position_copied = Some(pos);
     }
 
-    fn bind_goal_squad(
-        &mut self,
-        squad: Option<std::sync::Arc<std::sync::Mutex<crate::ai::squad::Squad>>>,
-    ) {
+    fn bind_goal_squad(&mut self, squad: Option<std::sync::Arc<crate::ai::squad::Squad>>) {
         self.base.goal_squad_copied = squad;
     }
 
@@ -355,10 +352,7 @@ impl StateImplementation for AIGuardRetaliateState {
         self.base.goal_position_copied = Some(pos);
     }
 
-    fn bind_goal_squad(
-        &mut self,
-        squad: Option<std::sync::Arc<std::sync::Mutex<crate::ai::squad::Squad>>>,
-    ) {
+    fn bind_goal_squad(&mut self, squad: Option<std::sync::Arc<crate::ai::squad::Squad>>) {
         self.base.goal_squad_copied = squad;
     }
 
@@ -482,10 +476,7 @@ impl StateImplementation for AITunnelNetworkGuardState {
         self.base.goal_position_copied = Some(pos);
     }
 
-    fn bind_goal_squad(
-        &mut self,
-        squad: Option<std::sync::Arc<std::sync::Mutex<crate::ai::squad::Squad>>>,
-    ) {
+    fn bind_goal_squad(&mut self, squad: Option<std::sync::Arc<crate::ai::squad::Squad>>) {
         self.base.goal_squad_copied = squad;
     }
 

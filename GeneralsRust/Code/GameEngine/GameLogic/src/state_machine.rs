@@ -393,7 +393,7 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
     fn take_published_goal(&mut self) -> Option<(Coord3D, bool)> {
         None
     }
-    fn bind_goal_squad(&mut self, _squad: Option<Arc<Mutex<Squad>>>) {}
+    fn bind_goal_squad(&mut self, _squad: Option<Arc<Squad>>) {}
 
     fn bind_goal_polygon(&mut self, _polygon: Option<Arc<PolygonTrigger>>) {}
 
@@ -530,7 +530,7 @@ pub struct State {
     /// Goal point copied from the machine when `machine` is `None`.
     pub goal_position_copied: Option<Coord3D>,
     /// Squad copied before an update that already holds the machine lock.
-    pub goal_squad_copied: Option<Arc<Mutex<Squad>>>,
+    pub goal_squad_copied: Option<Arc<Squad>>,
     /// Area copied before an update that already holds the machine lock.
     pub goal_polygon_copied: Option<Arc<PolygonTrigger>>,
     /// Waypoint copied before an update that already holds the machine lock.
@@ -647,7 +647,7 @@ impl State {
     }
 
     /// Get the machine goal squad
-    pub fn get_machine_goal_squad(&self) -> Option<Arc<Mutex<Squad>>> {
+    pub fn get_machine_goal_squad(&self) -> Option<Arc<Squad>> {
         if let Some(squad) = self
             .machine
             .as_ref()
@@ -798,7 +798,7 @@ pub struct StateMachine {
     default_state_id: StateId,
     current_state_id: Option<StateId>,
     goal_object_id: crate::common::ObjectID,
-    goal_squad: Option<Weak<Mutex<Squad>>>,
+    goal_squad: Option<Weak<Squad>>,
     goal_polygon: Option<Weak<PolygonTrigger>>,
     goal_waypoint: Option<WaypointId>,
     guard_mode_raw: i32,
@@ -1729,12 +1729,12 @@ impl StateMachine {
     }
 
     /// Set goal squad
-    pub fn set_goal_squad(&mut self, squad: Option<Weak<Mutex<Squad>>>) {
+    pub fn set_goal_squad(&mut self, squad: Option<Weak<Squad>>) {
         self.goal_squad = squad;
     }
 
     /// Get goal squad
-    pub fn get_goal_squad(&self) -> Option<Arc<Mutex<Squad>>> {
+    pub fn get_goal_squad(&self) -> Option<Arc<Squad>> {
         self.goal_squad.as_ref()?.upgrade()
     }
 

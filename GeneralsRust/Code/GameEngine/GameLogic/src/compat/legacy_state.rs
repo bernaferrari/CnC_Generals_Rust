@@ -121,7 +121,7 @@ pub trait LegacyState: Send + Sync + Any + std::fmt::Debug {
 
     fn bind_goal_position(&mut self, _pos: crate::common::Coord3D) {}
 
-    fn bind_goal_squad(&mut self, _squad: Option<Arc<Mutex<crate::ai::squad::Squad>>>) {}
+    fn bind_goal_squad(&mut self, _squad: Option<Arc<crate::ai::squad::Squad>>) {}
 
     fn bind_goal_polygon(&mut self, _polygon: Option<Arc<crate::polygon_trigger::PolygonTrigger>>) {
     }
@@ -272,7 +272,7 @@ impl<S: LegacyState + 'static> core::StateImplementation for LegacyStateAdapter<
         self.inner.bind_goal_position(pos);
     }
 
-    fn bind_goal_squad(&mut self, squad: Option<Arc<Mutex<crate::ai::squad::Squad>>>) {
+    fn bind_goal_squad(&mut self, squad: Option<Arc<crate::ai::squad::Squad>>) {
         self.inner.bind_goal_squad(squad);
     }
 
@@ -539,7 +539,7 @@ where
         self.base_state_mut().goal_position_copied = Some(pos);
     }
 
-    fn bind_goal_squad(&mut self, squad: Option<Arc<Mutex<crate::ai::squad::Squad>>>) {
+    fn bind_goal_squad(&mut self, squad: Option<Arc<crate::ai::squad::Squad>>) {
         self.base_state_mut().goal_squad_copied = squad;
     }
 
