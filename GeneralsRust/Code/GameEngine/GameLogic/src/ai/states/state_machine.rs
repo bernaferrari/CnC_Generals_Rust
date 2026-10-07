@@ -135,7 +135,6 @@ impl std::fmt::Debug for AIStateMachine {
 
 #[path = "state_machine_driver.rs"]
 mod driver;
-use driver::AIStateMachineDriver;
 
 impl AIStateMachine {
     fn driver(&mut self) -> AIStateMachineDriver<'_> {
@@ -782,6 +781,16 @@ impl AIStateMachine {
         ai: &mut A,
         after_body: impl FnOnce(&mut AIStateMachineDriver<'_>, &mut A, &mut dyn std::any::Any),
     ) -> StateReturnType {
+        let mut owner = ();
+        self.update_state_machine_with_owner(ai, &mut owner, after_body)
+    }
+
+    fn update_state_machine_with_owner<A: StateMachineAI + ?Sized>(
+        &mut self,
+        ai: &mut A,
+        owner: &mut dyn std::any::Any,
+        after_body: impl FnOnce(&mut AIStateMachineDriver<'_>, &mut A, &mut dyn std::any::Any),
+    ) -> StateReturnType {
         if let Some(temp_state_id) = self.data.temporary_state_id {
             let goal_id = self.base.get_goal_object_id();
             let goal_pos = self.base.get_goal_position();
@@ -811,9 +820,8 @@ impl AIStateMachine {
         // The state-table borrow ends before the driver completes this step.
         // This is where synchronous terminal commands can acquire a loan of
         // this machine without reentering the outgoing state's callback.
-        let mut owner = ();
         let data = &mut self.data;
-        let mut update = self.base.begin_update_with_ai_and_owner(ai, &mut owner);
+        let mut update = self.base.begin_update_with_ai_and_owner(ai, owner);
         if let StateUpdate::Body(step) = &mut update {
             step.with_driver(|base, ai, owner| {
                 let mut driver = AIStateMachineDriver::new(base, data);
@@ -821,6 +829,23 @@ impl AIStateMachine {
             });
         }
         update.finish()
+    }
+
+    /// Drives a native step with a mandatory same-frame terminal-command sink.
+    pub(crate) fn update_with_synchronous_commands<A: StateMachineAI + ?Sized>(
+        &mut self,
+        ai: &mut A,
+        mut dispatch: impl FnMut(&mut AIStateMachineDriver<'_>, &mut A, TerminalAttackCommand),
+    ) -> StateReturnType {
+        let mut context = TerminalCommandContext::new();
+        self.update_state_machine_with_owner(ai, &mut context, |driver, ai, owner| {
+            let context = owner
+                .downcast_mut::<TerminalCommandContext>()
+                .expect("synchronous command update owns its typed context");
+            if let Some(command) = context.take() {
+                dispatch(driver, ai, command);
+            }
+        })
     }
 
     /// Get current state name (for debugging)

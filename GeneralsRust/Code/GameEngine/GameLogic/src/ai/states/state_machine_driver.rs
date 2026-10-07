@@ -1,10 +1,5 @@
 use super::*;
 
-pub(crate) struct AIStateMachineDriver<'a> {
-    base: &'a mut StateMachine,
-    data: &'a mut AIStateMachineData,
-}
-
 impl<'a> AIStateMachineDriver<'a> {
     pub(super) fn new(base: &'a mut StateMachine, data: &'a mut AIStateMachineData) -> Self {
         Self { base, data }

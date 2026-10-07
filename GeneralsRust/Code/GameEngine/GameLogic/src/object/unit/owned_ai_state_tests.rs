@@ -47,6 +47,8 @@ mod factory_attack_mask_tests;
 #[path = "factory_worker_owner_tests.rs"]
 mod factory_worker_owner_tests;
 
+#[path = "factory_enter_command_tests.rs"]
+mod factory_enter_command_tests;
 fn child(name: &str) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {

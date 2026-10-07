@@ -52875,6 +52875,11 @@
             {
               "cargo_reachable": true,
               "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_enter_command_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_owner_preparation_tests.rs"
             },
             {
@@ -188995,7 +189000,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "feb980ca949de393dcf31734fe7c7c8318c15fd8a52f6508bfcb86874163bdb5",
+  "provenance_input_digest": "742d45250692c86bfbc07818ee979289e44d042cb7616a5739637827859e941e",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

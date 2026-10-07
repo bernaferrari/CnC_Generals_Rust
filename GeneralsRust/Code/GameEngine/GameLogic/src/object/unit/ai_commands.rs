@@ -11,11 +11,72 @@ use super::registry::{
     dual_world_registry_unavailable, get_unit_arc, with_unit_mut, with_unit_ref,
 };
 use super::types::*;
+use crate::ai::states::AIStateMachineDriver;
 
 impl UnitAIUpdate {
+    fn finish_attack_object_command(
+        &mut self,
+        target_id: crate::common::ObjectID,
+        command: &crate::ai::AiCommandParams,
+        guard: CommandOwner<'_>,
+    ) {
+        if let Ok(mut obj_guard) = guard.base_arc().write() {
+            obj_guard.set_current_weapon_max_shot_count(command.int_value);
+        }
+        if let Some(chinook_ai) = self.chinook_ai.as_ref() {
+            if command.cmd == crate::ai::AiCommandType::ForceAttackObject {
+                chinook_ai.private_force_attack_object(
+                    target_id,
+                    command.int_value,
+                    command.cmd_source,
+                );
+            } else {
+                chinook_ai.private_attack_object(target_id, command.int_value, command.cmd_source);
+            }
+        }
+        if let Some(transport_ai) = self.transport_ai.as_ref() {
+            if command.cmd == crate::ai::AiCommandType::ForceAttackObject {
+                transport_ai.private_force_attack_object(
+                    target_id,
+                    command.int_value,
+                    command.cmd_source,
+                );
+            } else {
+                transport_ai.private_attack_object(
+                    target_id,
+                    command.int_value,
+                    command.cmd_source,
+                );
+            }
+        }
+        drop(guard);
+        let clearing_mines = self.is_clearing_mines();
+        if let Some(worker_ai) = self.worker_ai.as_mut() {
+            if clearing_mines {
+                worker_ai.drop_all_boxes_if_carrying();
+            }
+        }
+    }
+
     pub(super) fn execute_command(
         &mut self,
         command: &crate::ai::AiCommandParams,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.execute_command_inner(command, None)
+    }
+
+    pub(super) fn execute_terminal_attack_command(
+        &mut self,
+        terminal: crate::ai::states::TerminalAttackCommand,
+        driver: &mut AIStateMachineDriver<'_>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.execute_command_inner(terminal.params(), Some(driver))
+    }
+
+    fn execute_command_inner(
+        &mut self,
+        command: &crate::ai::AiCommandParams,
+        mut native_driver: Option<&mut AIStateMachineDriver<'_>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if self.data.forbid_player_commands
             && command.cmd_source == crate::ai::CommandSourceType::FromPlayer
@@ -668,54 +729,20 @@ impl UnitAIUpdate {
                             return Ok(());
                         }
                     }
+                    if let Some(driver) = native_driver.as_deref_mut() {
+                        driver.clear_with_ai(self);
+                        let _ = driver.ai_do_command_with_ai(command, self);
+                        self.finish_attack_object_command(target_id, command, guard);
+                        return Ok(());
+                    }
                     if let Some(state_machine) = self.ai_state_machine.clone() {
                         if let Ok(mut machine) = state_machine.lock() {
                             machine.clear_with_ai(self);
                             let _ = machine.ai_do_command_with_ai(command, self);
-                            if let Ok(mut obj_guard) = guard.base_arc().write() {
-                                obj_guard.set_current_weapon_max_shot_count(command.int_value);
-                            }
-                            if let Some(chinook_ai) = self.chinook_ai.as_ref() {
-                                if command.cmd == crate::ai::AiCommandType::ForceAttackObject {
-                                    chinook_ai.private_force_attack_object(
-                                        target_id,
-                                        command.int_value,
-                                        command.cmd_source,
-                                    );
-                                } else {
-                                    chinook_ai.private_attack_object(
-                                        target_id,
-                                        command.int_value,
-                                        command.cmd_source,
-                                    );
-                                }
-                            }
-                            if let Some(transport_ai) = self.transport_ai.as_ref() {
-                                if command.cmd == crate::ai::AiCommandType::ForceAttackObject {
-                                    transport_ai.private_force_attack_object(
-                                        target_id,
-                                        command.int_value,
-                                        command.cmd_source,
-                                    );
-                                } else {
-                                    transport_ai.private_attack_object(
-                                        target_id,
-                                        command.int_value,
-                                        command.cmd_source,
-                                    );
-                                }
-                            }
-                            drop(guard);
-                            let clearing_mines = self.is_clearing_mines();
-                            if let Some(worker_ai) = self.worker_ai.as_mut() {
-                                if clearing_mines {
-                                    worker_ai.drop_all_boxes_if_carrying();
-                                }
-                            }
+                            self.finish_attack_object_command(target_id, command, guard);
                             return Ok(());
                         }
                     }
-
                     guard.legacy()?.give_attack_order(target_id, true, false)?;
                     if let Ok(mut obj_guard) = guard.base_arc().write() {
                         obj_guard.set_current_weapon_max_shot_count(command.int_value);

@@ -554,7 +554,9 @@ impl UnitAIUpdate {
                     let _ = machine.set_state(AIStateType::Dead as u32);
                     machine.lock();
                 }
-                let _ = machine.update_state_machine(self, |_, _, _| {});
+                let _ = machine.update_with_synchronous_commands(self, |driver, ai, terminal| {
+                    let _ = ai.execute_terminal_attack_command(terminal, driver);
+                });
             }
         }
         if let Some(owner_id) = self.owner_object_id() {

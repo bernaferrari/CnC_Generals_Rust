@@ -54,6 +54,19 @@ pub(crate) trait CppState: std::fmt::Debug + Send + Sync + Any {
         }
     }
 
+    /// Optional owner context for operation-local typed state outputs. Existing
+    /// states retain the exact control callback unless they opt into this hook.
+    fn cpp_on_update_with_context(
+        &mut self,
+        control: &mut core::StateMachineControl,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        machine_locked: bool,
+        owner: &mut dyn Any,
+    ) -> Result<StateReturnType, String> {
+        let _ = owner;
+        self.cpp_on_update_with_control(control, ai, machine_locked)
+    }
+
     fn cpp_on_update(&mut self) -> Result<StateReturnType, String>;
     /// Original `OnExit` callback.
     fn cpp_on_exit(&mut self, exit: StateExitType) -> Result<(), String>;
@@ -197,13 +210,13 @@ impl<S: CppState + 'static> core::StateImplementation for CppStateAdapter<S> {
         control: &mut core::StateMachineControl,
         ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
         machine_locked: bool,
-        _owner: &mut dyn Any,
+        owner: &mut dyn Any,
     ) -> StateReturnType {
         let name = self.inner.base_state().get_name().to_string();
         Self::map_result(
             &name,
             self.inner
-                .cpp_on_update_with_control(control, ai, machine_locked),
+                .cpp_on_update_with_context(control, ai, machine_locked, owner),
         )
     }
 

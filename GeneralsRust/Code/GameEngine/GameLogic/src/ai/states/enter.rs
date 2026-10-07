@@ -205,7 +205,15 @@ impl AIEnterState {
 
     fn classic_on_update_with_optional_ai(
         &mut self,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
+        self.classic_on_update_with_context(ai, None)
+    }
+
+    fn classic_on_update_with_context(
+        &mut self,
         mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut owner_context: Option<&mut dyn std::any::Any>,
     ) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
@@ -273,11 +281,17 @@ impl AIEnterState {
                         can_attack,
                         CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
                     ) {
-                        if let Some(ai) = owner_guard.get_ai_update_interface() {
-                            // Keep the complete legacy command payload. The extension's
-                            // try_lock is nonblocking and skips redispatch when this AI is
-                            // already held by its parent callback; a borrowed same-frame
-                            // continuation remains a separate owner-aware API gap.
+                        let terminal_context = owner_context.as_deref_mut().and_then(|owner| {
+                            owner.downcast_mut::<super::TerminalCommandContext>()
+                        });
+                        if let Some(context) = terminal_context {
+                            context.request_attack_object(
+                                goal_guard.get_id(),
+                                NO_MAX_SHOTS_LIMIT,
+                                cmd_source,
+                            );
+                        } else if let Some(ai) = owner_guard.get_ai_update_interface() {
+                            // Standalone state updates retain the historical extension route.
                             ai.ai_attack_object(
                                 goal_guard.get_id(),
                                 NO_MAX_SHOTS_LIMIT,
@@ -418,6 +432,16 @@ impl CppState for AIEnterState {
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.classic_on_update_with_optional_ai(Some(ai))
+    }
+
+    fn cpp_on_update_with_context(
+        &mut self,
+        _control: &mut crate::state_machine::StateMachineControl,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        _machine_locked: bool,
+        owner: &mut dyn std::any::Any,
+    ) -> Result<StateReturnType, String> {
+        self.classic_on_update_with_context(ai, Some(owner))
     }
 
     fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {

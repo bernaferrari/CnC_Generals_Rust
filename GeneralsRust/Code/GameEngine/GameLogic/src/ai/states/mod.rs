@@ -28,6 +28,66 @@ mod state_machine;
 mod types;
 mod wait_busy;
 mod wander_panic;
+
+/// The only synchronous terminal command currently emitted by native Enter.
+#[derive(Debug)]
+pub(crate) struct TerminalAttackCommand {
+    params: crate::ai::AiCommandParams,
+}
+
+impl TerminalAttackCommand {
+    fn attack_object(
+        target_id: crate::common::ObjectID,
+        max_shots: i32,
+        source: crate::ai::CommandSourceType,
+    ) -> Self {
+        let mut params =
+            crate::ai::AiCommandParams::new(crate::ai::AiCommandType::AttackObject, source);
+        params.obj = Some(target_id);
+        params.int_value = max_shots;
+        Self { params }
+    }
+
+    pub(crate) fn params(&self) -> &crate::ai::AiCommandParams {
+        &self.params
+    }
+}
+
+/// Operation-local typed callback output. Never stored or serialized.
+struct TerminalCommandContext {
+    command: Option<TerminalAttackCommand>,
+}
+
+impl TerminalCommandContext {
+    fn new() -> Self {
+        Self { command: None }
+    }
+
+    fn request_attack_object(
+        &mut self,
+        target_id: crate::common::ObjectID,
+        max_shots: i32,
+        source: crate::ai::CommandSourceType,
+    ) {
+        assert!(
+            self.command.is_none(),
+            "one terminal command per state step"
+        );
+        self.command = Some(TerminalAttackCommand::attack_object(
+            target_id, max_shots, source,
+        ));
+    }
+
+    fn take(&mut self) -> Option<TerminalAttackCommand> {
+        self.command.take()
+    }
+}
+
+/// Short-lived mutable loan of the native AI machine's real control and data.
+pub(crate) struct AIStateMachineDriver<'a> {
+    base: &'a mut crate::state_machine::StateMachine,
+    data: &'a mut state_machine::AIStateMachineData,
+}
 mod waypoint;
 
 pub(crate) use attack_machine::seed_team_target_if_attack_common;
