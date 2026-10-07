@@ -52795,6 +52795,26 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_data_locomotor.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_data_orders.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_data_path.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_data_turret.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_drop.rs"
             },
             {
@@ -188980,7 +189000,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "1b473218d5e5d08ae9ca43e900d482ea4cd4734eaaa9549f2c23714a0ca3f187",
+  "provenance_input_digest": "1f8f24883964b0e7c9f31c8d5548771fc32ff398187f840bd2e80c2dbce63135",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

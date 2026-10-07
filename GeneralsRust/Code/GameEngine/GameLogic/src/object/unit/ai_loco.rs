@@ -13,10 +13,7 @@ use super::types::*;
 
 impl UnitAIUpdate {
     pub(super) fn get_preferred_height(&self) -> Option<Real> {
-        self.data
-            .locomotor_set
-            .get_active()
-            .map(|loco| loco.preferred_height)
+        self.data.get_preferred_height()
     }
     pub(super) fn is_allowed_to_adjust_destination(&self) -> bool {
         if let Some(chinook) = self.chinook_ai.as_ref() {
@@ -158,9 +155,7 @@ impl UnitAIUpdate {
         }
     }
     pub(super) fn is_waiting_for_path(&self) -> bool {
-        // C++ AIUpdate.h:445 reads m_waitingForPath directly. A future queue
-        // deadline and the Unit's residual path mirror are separate state.
-        self.data.waiting_for_path
+        self.data.is_waiting_for_path()
     }
     pub(super) fn queue_waypoint(&mut self, pos: &Coord3D) {
         if (self.data.planning_waypoint_count as usize) < AI_UPDATE_MAX_WAYPOINTS {
@@ -356,7 +351,7 @@ impl UnitAIUpdate {
         }
     }
     pub(super) fn are_turrets_linked(&self) -> Bool {
-        self.data.turrets_linked
+        self.data.are_turrets_linked()
     }
     pub(super) fn set_turret_target_object(
         &mut self,
@@ -569,13 +564,10 @@ impl UnitAIUpdate {
         &mut self,
         allow: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(loco) = self.data.locomotor_set.get_active_mut() {
-            loco.set_allow_invalid_position(allow);
-        }
-        Ok(())
+        self.data.set_allow_invalid_position(allow)
     }
     pub(super) fn set_allow_chase(&mut self, allowed: bool) {
-        self.data.allow_chase = allowed;
+        self.data.set_allow_chase(allowed)
     }
     pub(super) fn set_locomotor_upgrade(
         &mut self,
@@ -660,35 +652,25 @@ impl UnitAIUpdate {
         &mut self,
         ultra: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(loco) = self.data.locomotor_set.get_active_mut() {
-            loco.set_ultra_accurate(ultra);
-        }
-        Ok(())
+        self.data.set_ultra_accurate(ultra)
     }
     pub(super) fn set_precise_z_pos(
         &mut self,
         precise: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(loco) = self.data.locomotor_set.get_active_mut() {
-            loco.set_precise_z_pos(precise);
-        }
-        Ok(())
+        self.data.set_precise_z_pos(precise)
     }
     pub(super) fn with_cur_locomotor(&self, f: &mut dyn FnMut(&crate::locomotor::Locomotor)) {
-        if let Some(loco) = self.data.locomotor_set.get_active() {
-            f(loco);
-        }
+        self.data.with_cur_locomotor(f)
     }
     pub(super) fn with_cur_locomotor_mut(
         &mut self,
         f: &mut dyn FnMut(&mut crate::locomotor::Locomotor),
     ) {
-        if let Some(loco) = self.data.locomotor_set.get_active_mut() {
-            f(loco);
-        }
+        self.data.with_cur_locomotor_mut(f)
     }
     pub(super) fn get_locomotor_set_clone(&self) -> Option<crate::locomotor::LocomotorSet> {
-        (!self.data.locomotor_set.is_empty()).then(|| self.data.locomotor_set.clone())
+        self.data.get_locomotor_set_clone()
     }
     pub(super) fn get_path_destination(&self) -> Option<Coord3D> {
         let unit = get_unit_arc(self.unit_id)?;
@@ -826,13 +808,13 @@ impl UnitAIUpdate {
             .unwrap_or(0.0)
     }
     pub(super) fn get_last_command_source(&self) -> CommandSourceType {
-        self.data.last_command_source
+        self.data.get_last_command_source()
     }
     pub(super) fn set_last_command_source(&mut self, source: CommandSourceType) {
-        self.data.last_command_source = source;
+        self.data.set_last_command_source(source)
     }
     pub(super) fn get_current_command(&self) -> Option<crate::ai::AiCommandType> {
-        self.data.current_command
+        self.data.get_current_command()
     }
     pub(super) fn get_pending_command_type(&self) -> Option<crate::ai::AiCommandType> {
         if let Some(jet_ai) = self.jet_ai.as_ref() {
@@ -906,13 +888,13 @@ impl UnitAIUpdate {
             .unwrap_or(true)
     }
     pub(super) fn get_desired_speed(&self) -> Real {
-        self.data.desired_speed
+        self.data.get_desired_speed()
     }
     pub(super) fn set_desired_speed(&mut self, speed: Real) {
-        self.data.desired_speed = speed;
+        self.data.set_desired_speed(speed)
     }
     pub(super) fn is_in_rappel_state(&self) -> bool {
-        self.data.rappel_state.is_some()
+        self.data.is_in_rappel_state()
     }
     pub(super) fn is_doing_combat_drop(&self) -> bool {
         self.chinook_ai
@@ -921,13 +903,7 @@ impl UnitAIUpdate {
             .unwrap_or(false)
     }
     pub(super) fn is_aircraft_that_adjusts_destination(&self) -> bool {
-        let Some(locomotor) = self.data.locomotor_set.get_active() else {
-            return false;
-        };
-        matches!(
-            locomotor.get_appearance(),
-            LocomotorAppearance::Hover | LocomotorAppearance::Wings
-        )
+        self.data.is_aircraft_that_adjusts_destination()
     }
     pub(super) fn is_moving_away_from(&self, obj_id: ObjectID) -> bool {
         let is_temp_move_out = self
@@ -946,7 +922,7 @@ impl UnitAIUpdate {
             TheGameLogic::get_frame().saturating_add(duration_frames);
     }
     pub(super) fn get_ignore_collisions_until(&self) -> UnsignedInt {
-        self.data.ignore_collisions_until
+        self.data.get_ignore_collisions_until()
     }
     pub(super) fn set_queue_for_path_time(&mut self, frames: UnsignedInt) {
         self.data.queue_for_path_frame = if frames == 0 {
@@ -959,21 +935,19 @@ impl UnitAIUpdate {
         &mut self,
         obj_id: Option<ObjectID>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.data.ignore_obstacle_id = obj_id.unwrap_or(INVALID_ID);
-        Ok(())
+        self.data.ignore_obstacle(obj_id)
     }
     pub(super) fn ignore_obstacle_id(
         &mut self,
         id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.data.ignore_obstacle_id = id;
-        Ok(())
+        self.data.ignore_obstacle_id(id)
     }
     pub(super) fn get_ignored_obstacle_id(&self) -> ObjectID {
-        self.data.ignore_obstacle_id
+        self.data.get_ignored_obstacle_id()
     }
     pub(super) fn is_ai_in_dead_state(&self) -> bool {
-        self.data.ai_dead
+        self.data.is_ai_in_dead_state()
     }
     pub(super) fn mark_as_dead(&mut self) {
         self.data.ai_dead = true;
@@ -987,7 +961,7 @@ impl UnitAIUpdate {
         self.wake_up_now();
     }
     pub(super) fn set_is_recruitable(&mut self, recruitable: Bool) {
-        self.data.is_recruitable = recruitable;
+        self.data.set_is_recruitable(recruitable)
     }
     pub(super) fn get_goal_object_id(&self) -> ObjectID {
         let Some(machine) = self.ai_state_machine.as_ref() else {
@@ -1446,7 +1420,7 @@ impl UnitAIUpdate {
         delta_angle.abs() > (std::f32::consts::PI / 30.0)
     }
     pub(super) fn get_cur_locomotor_set_type(&self) -> LocomotorSetType {
-        self.data.current_locomotor_set
+        self.data.get_cur_locomotor_set_type()
     }
     pub(super) fn has_locomotor_for_surface(
         &self,
@@ -1492,10 +1466,10 @@ impl UnitAIUpdate {
         loc_guard.get_max_speed_for_condition(body_state)
     }
     pub(super) fn get_cur_max_blocked_speed(&self) -> Real {
-        self.data.cur_max_blocked_speed
+        self.data.get_cur_max_blocked_speed()
     }
     pub(super) fn set_cur_max_blocked_speed(&mut self, speed: Real) {
-        self.data.cur_max_blocked_speed = speed;
+        self.data.set_cur_max_blocked_speed(speed)
     }
     pub(super) fn set_locomotor_goal_none(&mut self) {
         let jet_keeps_air_goal = self.jet_ai.as_ref().is_some_and(|jet_ai| {
@@ -1519,12 +1493,10 @@ impl UnitAIUpdate {
         self.data.locomotor_goal_type = 0;
     }
     pub(super) fn set_locomotor_goal_orientation(&mut self, angle: Real) {
-        self.data.locomotor_goal_type = 3;
-        self.data.locomotor_goal_data.x = angle;
+        self.data.set_locomotor_goal_orientation(angle)
     }
     pub(super) fn set_locomotor_goal_position_explicit(&mut self, pos: Coord3D) {
-        self.data.locomotor_goal_type = 2;
-        self.data.locomotor_goal_data = pos;
+        self.data.set_locomotor_goal_position_explicit(pos)
     }
     pub(super) fn apply_stored_locomotor_goal(&mut self) {
         if self.data.movement_complete
@@ -1654,14 +1626,10 @@ impl UnitAIUpdate {
         }
     }
     pub(super) fn friend_ending_move(&mut self) {
-        self.data.movement_complete = true;
-        self.data.cpp_is_moving = false;
+        self.data.friend_ending_move()
     }
     pub(super) fn friend_starting_move(&mut self) {
-        self.data.blocked_frames = 0;
-        self.data.blocked_and_stuck = false;
-        self.data.movement_complete = false;
-        self.data.cpp_is_moving = true;
+        self.data.friend_starting_move()
     }
     pub(super) fn evaluate_morale_bonus(&mut self) {
         let Some(unit_arc) = get_unit_arc(self.unit_id) else {
@@ -1822,10 +1790,10 @@ impl UnitAIUpdate {
         }
     }
     pub(super) fn is_surrendered(&self) -> bool {
-        self.data.surrendered_frames_left > 0
+        self.data.is_surrendered()
     }
     pub(super) fn get_surrendered_player_index(&self) -> Option<PlayerIndex> {
-        self.data.surrendered_player_index
+        self.data.get_surrendered_player_index()
     }
     pub(super) fn ai_move_to_position(
         &mut self,
@@ -1997,7 +1965,7 @@ impl UnitAIUpdate {
             .unwrap_or(INVALID_ID)
     }
     pub(super) fn get_next_mood_check_time(&self) -> u32 {
-        self.data.next_mood_check_time
+        self.data.get_next_mood_check_time()
     }
     pub(super) fn reset_next_mood_check_time(&mut self) {
         let Some(unit) = get_unit_arc(self.unit_id) else {
@@ -2023,8 +1991,7 @@ impl UnitAIUpdate {
         self.data.randomly_offset_mood_check = true;
     }
     pub(super) fn set_next_mood_check_time(&mut self, frame: u32) {
-        self.data.next_mood_check_time = frame;
-        self.data.randomly_offset_mood_check = false;
+        self.data.set_next_mood_check_time(frame)
     }
     pub(super) fn can_auto_acquire(&self) -> bool {
         get_unit_arc(self.unit_id)
@@ -2177,27 +2144,13 @@ impl UnitAIUpdate {
         }
     }
     pub(super) fn is_weapon_slot_ok_to_fire(&self, _wslot: WeaponSlotType) -> Bool {
-        if self.data.turrets_linked {
-            return true;
-        }
-
-        let has_primary = self.data.turret_primary_machine.is_some();
-        let has_secondary = self.data.turret_secondary_machine.is_some();
-        if !has_primary && !has_secondary {
-            return true;
-        }
-
-        match _wslot {
-            WeaponSlotType::Primary => has_primary && self.data.turret_primary_enabled,
-            WeaponSlotType::Secondary => has_secondary && self.data.turret_secondary_enabled,
-            WeaponSlotType::Tertiary => !has_primary && !has_secondary,
-        }
+        self.data.is_weapon_slot_ok_to_fire(_wslot)
     }
     pub(super) fn get_original_victim_pos(&self) -> Option<Coord3D> {
-        self.data.original_victim_pos
+        self.data.get_original_victim_pos()
     }
     pub(super) fn set_original_victim_pos(&mut self, pos: Option<Coord3D>) {
-        self.data.original_victim_pos = pos;
+        self.data.set_original_victim_pos(pos)
     }
     pub(super) fn is_in_attack_state(&self) -> bool {
         self.ai_state_machine
@@ -2280,18 +2233,18 @@ impl UnitAIUpdate {
         }
     }
     pub(super) fn set_prior_waypoint_id(&mut self, waypoint_id: crate::waypoint::WaypointId) {
-        self.data.prior_waypoint_id = Some(waypoint_id);
+        self.data.set_prior_waypoint_id(waypoint_id)
     }
     pub(super) fn set_current_waypoint_id(&mut self, waypoint_id: crate::waypoint::WaypointId) {
-        self.data.current_waypoint_id = Some(waypoint_id);
+        self.data.set_current_waypoint_id(waypoint_id)
     }
     pub(super) fn set_completed_waypoint_id(
         &mut self,
         waypoint_id: Option<crate::waypoint::WaypointId>,
     ) {
-        self.data.completed_waypoint_id = waypoint_id;
+        self.data.set_completed_waypoint_id(waypoint_id)
     }
     pub(super) fn get_completed_waypoint_id(&self) -> Option<crate::waypoint::WaypointId> {
-        self.data.completed_waypoint_id
+        self.data.get_completed_waypoint_id()
     }
 }

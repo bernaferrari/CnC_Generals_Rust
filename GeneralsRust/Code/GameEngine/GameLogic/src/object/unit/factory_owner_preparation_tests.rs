@@ -1,6 +1,9 @@
 //! The factory already owns the Object; a same-ID legacy Unit cannot select it.
 use super::*;
+use crate::ai::CommandSourceType;
+use crate::common::Coord3D;
 use crate::common::{DefaultThingTemplate, TemplateModuleInfo};
+use crate::modules::AIAttitudeType;
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
 use game_engine::common::thing::module::ModuleInterfaceType;
 use std::sync::{Arc, RwLock};
@@ -126,4 +129,130 @@ fn foreign_same_id_unit_cannot_select_factory_owner_or_receive_its_module_flags(
             .get_object(id)
             .is_some_and(|published| Arc::ptr_eq(&published, &decoy))
     );
+}
+
+#[test]
+fn prepared_same_id_data_operates_beside_held_parent_and_object_guards() {
+    let _serial = crate::test_sync::lock();
+    let id = 0xA1_F0_25;
+    assert!(super::registry::get_unit_arc(id).is_none());
+    let first = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
+    let second = Arc::new(RwLock::new(crate::object::Object::new_test(id, 200.0)));
+    let first_ai = prepare(&first);
+    let second_ai = prepare(&second);
+    let _held_first_owner = first.write().unwrap();
+    let _held_second_owner = second.write().unwrap();
+    let _held_ambient = crate::system::game_logic::get_game_logic().lock().unwrap();
+    for (ai, frame, index, source, goal) in [
+        (
+            &first_ai,
+            101,
+            7,
+            CommandSourceType::FromPlayer,
+            Coord3D::new(1.0, 2.0, 3.0),
+        ),
+        (
+            &second_ai,
+            909,
+            11,
+            CommandSourceType::FromScript,
+            Coord3D::new(9.0, 8.0, 7.0),
+        ),
+    ] {
+        let mut ai = ai.lock().unwrap();
+        let UnitAIUpdate {
+            ai_state_machine,
+            data,
+            ..
+        } = &mut *ai;
+        let mut parent = ai_state_machine.as_ref().unwrap().lock().unwrap();
+        parent.base.set_goal_position(goal);
+        parent.base.lock();
+        // The actual factory preparation runtime loans its disjoint data.
+        // No installed AI, parent mutex, Object or frame lookup is needed.
+        data.set_next_mood_check_time(frame);
+        data.set_current_goal_path_index(index).unwrap();
+        data.set_last_command_source(source);
+        data.set_can_path_through_units(true).unwrap();
+        data.set_attitude(AIAttitudeType::Aggressive).unwrap();
+        assert_eq!(data.get_next_mood_check_time(), frame);
+        assert_eq!(data.get_current_goal_path_index(), index);
+        assert_eq!(data.get_last_command_source(), source);
+        assert!(data.get_can_path_through_units());
+        assert_eq!(data.get_attitude(), AIAttitudeType::Aggressive);
+        assert_eq!(parent.base.get_goal_position(), goal);
+        assert!(parent.base.is_locked());
+        assert_eq!(parent.get_current_state_id(), None);
+    }
+    assert_eq!(
+        first_ai.lock().unwrap().data.get_next_mood_check_time(),
+        101
+    );
+    assert_eq!(
+        second_ai.lock().unwrap().data.get_next_mood_check_time(),
+        909
+    );
+    assert!(super::registry::get_unit_arc(id).is_none());
+}
+
+#[test]
+fn prepared_data_bump_speed_preserves_cpp_arithmetic_with_parent_held() {
+    let _serial = crate::test_sync::lock();
+    let id = 0xA1_F0_26;
+    let owner = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
+    let ai = prepare(&owner);
+    let mut ai = ai.lock().unwrap();
+    let UnitAIUpdate {
+        ai_state_machine,
+        data,
+        ..
+    } = &mut *ai;
+    let _parent = ai_state_machine.as_ref().unwrap().lock().unwrap();
+    let _owner = owner.write().unwrap();
+    // CPP AIUpdate.cpp:2197-2218/2270-2273: the blocked branch applies 0.95;
+    // recovery applies 1.05 and reduces blocked frames to one.
+    data.set_cur_max_blocked_speed(40.0);
+    data.blocked_frames = 7;
+    assert_eq!(data.apply_bump_speed_limit(80.0, true), 40.0 * 0.95);
+    assert_eq!(data.blocked_frames, 7);
+    assert_eq!(data.apply_bump_speed_limit(60.0, false), 40.0 * 0.95 * 1.05);
+    assert_eq!(data.blocked_frames, 1);
+}
+
+#[test]
+fn prepared_data_loans_the_actual_locomotor_member_with_parent_held() {
+    let _serial = crate::test_sync::lock();
+    let id = 0xA1_F0_27;
+    let owner = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
+    let name = "PreparedDataBorrowLoco";
+    let mut loco = crate::locomotor::LocomotorTemplate::new(name.into());
+    loco.preferred_height = 10.0;
+    crate::locomotor::LOCOMOTOR_STORE.register_template(loco);
+    let mut module = AIUpdateModuleData::default();
+    module.set_locomotor_set_entries(crate::common::LocomotorSetType::Normal, vec![name.into()]);
+    let mut authored = template();
+    authored.modules[0].data = Arc::new(module);
+    let ai = crate::object::object_factory::factory_ai::prepare_unit_ai(&owner, &authored, id);
+    let mut ai = ai.lock().unwrap();
+    let UnitAIUpdate {
+        ai_state_machine,
+        data,
+        ..
+    } = &mut *ai;
+    let _parent = ai_state_machine.as_ref().unwrap().lock().unwrap();
+    let _owner = owner.write().unwrap();
+    let _ambient = crate::system::game_logic::get_game_logic().lock().unwrap();
+    let member = std::ptr::from_ref(data.locomotor_set.get_active().unwrap());
+    data.with_cur_locomotor_mut(&mut |loco| {
+        assert!(std::ptr::eq(std::ptr::from_ref(loco), member));
+        loco.preferred_height = 73.0;
+    });
+    data.set_ultra_accurate(true).unwrap();
+    data.with_cur_locomotor(&mut |loco| {
+        assert!(std::ptr::eq(std::ptr::from_ref(loco), member));
+    });
+    assert_eq!(data.get_preferred_height(), Some(73.0));
+    assert!(data.current_locomotor_is_ultra_accurate());
+    assert_eq!(data.locomotor_set.active_name(), Some(name));
+    assert!(super::registry::get_unit_arc(id).is_none());
 }

@@ -68,19 +68,10 @@ pub fn leftover_compute_quick_path_coords(start: &Coord3D, destination: &Coord3D
 
 impl UnitAIUpdate {
     pub(super) fn set_current_path_snapshot_from_coords(&mut self, path: &[Coord3D]) {
-        self.data.installed_path_layers.clear();
-        let mut snapshot = AiPath::new();
-        for pos in path {
-            snapshot.append_node(pos, AiPathLayer::Ground);
-        }
-        self.data.current_path_snapshot = Some(snapshot);
+        self.data.set_current_path_snapshot_from_coords(path)
     }
     pub(super) fn remember_result_layers(&mut self, waypoints: &[Coord3D], layers: &[u8]) {
-        if layers.len() != waypoints.len() {
-            self.data.installed_path_layers.clear();
-            return;
-        }
-        self.data.installed_path_layers = layers.to_vec();
+        self.data.remember_result_layers(waypoints, layers)
     }
     pub(super) fn apply_final_ground_path_layer(
         &mut self,
@@ -178,10 +169,7 @@ impl UnitAIUpdate {
             .unwrap_or(false)
     }
     pub(super) fn current_locomotor_is_ultra_accurate(&self) -> bool {
-        self.data
-            .locomotor_set
-            .get_active()
-            .is_some_and(|loco| loco.is_ultra_accurate())
+        self.data.current_locomotor_is_ultra_accurate()
     }
     pub(super) fn path_with_cpp_final_node(
         &self,
@@ -821,33 +809,8 @@ impl UnitAIUpdate {
         radius: i32,
         center_in_cell: bool,
     ) {
-        if self.data.pathfind_goal_cell.x < 0 || self.data.pathfind_goal_cell.y < 0 {
-            self.data.pathfind_goal_cell = ICoord2D::new(-1, -1);
-            self.data.pathfind_goal_layer = ClassicPathLayer::Invalid;
-            return;
-        }
-
-        let clear_ground = true;
-        let clear_layer = self.data.pathfind_goal_layer != ClassicPathLayer::Ground
-            && self.data.pathfind_goal_layer != ClassicPathLayer::Invalid;
-        pathfinder.clear_goal_cells(
-            unit_id,
-            self.data.pathfind_goal_cell,
-            radius,
-            center_in_cell,
-            self.data.pathfind_goal_layer,
-            clear_ground,
-            clear_layer,
-        );
-        pathfinder.clear_aircraft_goal_cells(
-            unit_id,
-            self.data.pathfind_goal_cell,
-            radius,
-            center_in_cell,
-        );
-
-        self.data.pathfind_goal_cell = ICoord2D::new(-1, -1);
-        self.data.pathfind_goal_layer = ClassicPathLayer::Invalid;
+        self.data
+            .remove_goal_cells(pathfinder, unit_id, radius, center_in_cell)
     }
     pub(super) fn remove_stored_pathfinder_goal(&mut self) {
         let Some(unit) = get_unit_arc(self.unit_id) else {
@@ -937,10 +900,7 @@ impl UnitAIUpdate {
         pathfinder.set_aircraft_goal_cells(unit_id, new_cell, radius, center_in_cell);
     }
     pub(super) fn has_valid_locomotor_surfaces(&self) -> bool {
-        self.data
-            .locomotor_set
-            .get_active()
-            .is_some_and(|loco| loco.get_legal_surfaces() != 0)
+        self.data.has_valid_locomotor_surfaces()
     }
     pub(super) fn safe_path_search_distance(vision_range: Real, repulsed_distance: Real) -> Real {
         vision_range + repulsed_distance

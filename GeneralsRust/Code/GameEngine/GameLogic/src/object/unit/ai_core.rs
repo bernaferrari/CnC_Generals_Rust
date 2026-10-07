@@ -157,89 +157,7 @@ impl UnitAIUpdate {
             wander_ai: components.wander_ai,
             dock_machine: None,
             ai_state_machine,
-            data: UnitAiData {
-                can_path_through_units: false,
-                randomly_offset_mood_check: false,
-                next_mood_check_time: 0,
-                allow_chase: false,
-                attitude: AIAttitudeType::Normal,
-                last_command_source: CommandSourceType::FromAi,
-                current_command: None,
-                pending_command: None,
-                surrendered_frames_left: 0,
-                surrendered_player_index: None,
-                surrender_duration_frames: LOGICFRAMES_PER_SECOND * 120,
-                demoralized_frames_left: 0,
-                auto_acquire_enemies_when_idle: 0,
-                mood_attack_check_rate_frames: LOGICFRAMES_PER_SECOND * 2,
-                forbid_player_commands: false,
-                turrets_linked: false,
-                turret_sync_flag: TurretType::Invalid,
-                turret_primary_data: None,
-                turret_secondary_data: None,
-                locomotor_upgraded: false,
-                current_locomotor_set: LocomotorSetType::Invalid,
-                locomotor_set: LocomotorSet::new(),
-                locomotor_sets: HashMap::new(),
-                turret_primary_enabled: true,
-                turret_secondary_enabled: true,
-                turret_primary_natural: true,
-                turret_secondary_natural: true,
-                turret_primary_machine: None,
-                turret_secondary_machine: None,
-                enter_target: None,
-                desired_speed: FAST_AS_POSSIBLE,
-                prior_waypoint_id: None,
-                current_waypoint_id: None,
-                completed_waypoint_id: None,
-                current_goal_path_index: -1,
-                rappel_state: None,
-                original_victim_pos: None,
-                pending_safe_path: None,
-                guard_target_type: [GuardTargetType::None_; 2],
-                location_to_guard: Coord3D::ZERO,
-                object_to_guard: INVALID_ID,
-                planning_waypoint_queue: [Coord3D::ZERO; AI_UPDATE_MAX_WAYPOINTS],
-                planning_waypoint_count: 0,
-                planning_waypoint_index: 0,
-                executing_waypoint_queue: false,
-                requested_victim_id: INVALID_ID,
-                requested_destination: Coord3D::ZERO,
-                requested_destination2: Coord3D::ZERO,
-                current_path_snapshot: None,
-                pathfind_goal_cell: ICoord2D::new(-1, -1),
-                pathfind_cur_cell: ICoord2D::new(-1, -1),
-                pathfind_goal_layer: ClassicPathLayer::Invalid,
-                installed_path_layers: Vec::new(),
-                move_out_of_way_1: INVALID_ID,
-                move_out_of_way_2: INVALID_ID,
-                repulsor1: INVALID_ID,
-                repulsor2: INVALID_ID,
-                ignore_obstacle_id: INVALID_ID,
-                ignore_collisions_until: 0,
-                waiting_for_path: false,
-                queue_for_path_frame: 0,
-                path_timestamp: 0,
-                ai_dead: false,
-                is_recruitable: true,
-                next_enemy_scan_time: 0,
-                final_position: Coord3D::ZERO,
-                do_final_position: false,
-                is_attack_path: false,
-                is_final_goal: false,
-                is_approach_path: false,
-                is_safe_path: false,
-                movement_complete: false,
-                cpp_is_moving: false,
-                locomotor_goal_type: 0,
-                locomotor_goal_data: Coord3D::ZERO,
-                is_blocked: false,
-                blocked_and_stuck: false,
-                retry_path: false,
-                blocked_frames: 0,
-                cur_max_blocked_speed: FAST_AS_POSSIBLE,
-                bump_speed_limit: FAST_AS_POSSIBLE,
-            },
+            data: UnitAiData::default(),
         }
     }
     /// Enter `state_id`. The machine stays on `self` so `on_enter` can see it.
@@ -253,21 +171,16 @@ impl UnitAIUpdate {
         let _ = guard.base.set_state_entering(state_id, Some(self));
     }
     pub(super) fn push_guard_target_type(&mut self, target_type: GuardTargetType) {
-        if self.data.guard_target_type[1] == GuardTargetType::None_ {
-            self.data.guard_target_type[1] = target_type;
-        } else {
-            self.data.guard_target_type[0] = target_type;
-        }
+        self.data.push_guard_target_type(target_type)
     }
     pub(super) fn clear_guard_target_type(&mut self) {
-        self.data.guard_target_type[1] = self.data.guard_target_type[0];
-        self.data.guard_target_type[0] = GuardTargetType::None_;
+        self.data.clear_guard_target_type()
     }
     pub(super) fn friend_get_turret_sync(&self) -> TurretType {
-        self.data.turret_sync_flag
+        self.data.friend_get_turret_sync()
     }
     pub(super) fn friend_set_turret_sync(&mut self, turret: TurretType) {
-        self.data.turret_sync_flag = turret;
+        self.data.friend_set_turret_sync(turret)
     }
     pub(super) fn owner_object_id(&self) -> Option<ObjectID> {
         if self.unit_id != INVALID_ID {

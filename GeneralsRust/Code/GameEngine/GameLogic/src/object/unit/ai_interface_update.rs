@@ -1147,30 +1147,7 @@ impl UnitAIUpdate {
         mut desired_speed: Real,
         mut blocked: bool,
     ) -> Real {
-        if blocked && desired_speed > self.data.cur_max_blocked_speed {
-            desired_speed = self.data.cur_max_blocked_speed;
-            if self.data.bump_speed_limit > desired_speed {
-                self.data.bump_speed_limit = desired_speed;
-            }
-            self.data.bump_speed_limit *= 0.95;
-            desired_speed = self.data.bump_speed_limit;
-        } else {
-            blocked = false;
-            if self.data.bump_speed_limit < FAST_AS_POSSIBLE {
-                let min_limit = desired_speed * 0.2;
-                if self.data.bump_speed_limit < min_limit {
-                    self.data.bump_speed_limit = min_limit;
-                }
-                self.data.bump_speed_limit *= 1.05;
-            }
-            if desired_speed > self.data.bump_speed_limit {
-                desired_speed = self.data.bump_speed_limit;
-            }
-        }
-        if !blocked && self.data.blocked_frames > 1 {
-            self.data.blocked_frames = 1;
-        }
-        desired_speed
+        self.data.apply_bump_speed_limit(desired_speed, blocked)
     }
     pub(super) fn is_attacking(&self) -> bool {
         if let Some(machine) = self.ai_state_machine.as_ref() {
@@ -1199,7 +1176,7 @@ impl UnitAIUpdate {
             || guard.movement_state == MovementState::Attacking
     }
     pub(super) fn get_enter_target(&self) -> Option<ObjectID> {
-        self.data.enter_target
+        self.data.get_enter_target()
     }
     pub(super) fn set_demoralized(&mut self, duration_frames: UnsignedInt) {
         let prev = self.data.demoralized_frames_left;
@@ -1212,146 +1189,29 @@ impl UnitAIUpdate {
         }
     }
     pub(super) fn get_which_turret_for_cur_weapon(&self) -> TurretType {
-        if let Some(machine) = self.data.turret_primary_machine.as_ref() {
-            if machine.turret().is_owners_cur_weapon_on_turret() {
-                return TurretType::Primary;
-            }
-        }
-        if let Some(machine) = self.data.turret_secondary_machine.as_ref() {
-            if machine.turret().is_owners_cur_weapon_on_turret() {
-                return TurretType::Secondary;
-            }
-        }
-        TurretType::Invalid
+        self.data.get_which_turret_for_cur_weapon()
     }
     pub(super) fn get_turret_turn_rate(&self, turret: TurretType) -> f32 {
-        let machine = match turret {
-            TurretType::Primary => self.data.turret_primary_machine.as_ref(),
-            TurretType::Secondary => self.data.turret_secondary_machine.as_ref(),
-            TurretType::Invalid => None,
-        };
-        machine
-            .map(|machine| machine.turret().get_turn_rate())
-            .unwrap_or(0.0)
+        self.data.get_turret_turn_rate(turret)
     }
 
     pub(super) fn get_which_turret_for_weapon_slot(&self, slot: WeaponSlotType) -> TurretType {
-        if let Some(machine) = self.data.turret_primary_machine.as_ref() {
-            if machine.turret().is_weapon_slot_on_turret(slot) {
-                return TurretType::Primary;
-            }
-        }
-        if let Some(machine) = self.data.turret_secondary_machine.as_ref() {
-            if machine.turret().is_weapon_slot_on_turret(slot) {
-                return TurretType::Secondary;
-            }
-        }
-        TurretType::Invalid
+        self.data.get_which_turret_for_weapon_slot(slot)
     }
     pub(super) fn set_turret_enabled(&mut self, turret: TurretType, enabled: bool) {
-        match turret {
-            TurretType::Primary => {
-                self.data.turret_primary_enabled = enabled;
-                if let Some(machine) = self.data.turret_primary_machine.as_mut() {
-                    machine.turret_mut().set_turret_enabled(enabled);
-                }
-                if self.data.turrets_linked {
-                    self.data.turret_secondary_enabled = enabled;
-                    if let Some(machine) = self.data.turret_secondary_machine.as_mut() {
-                        machine.turret_mut().set_turret_enabled(enabled);
-                    }
-                }
-            }
-            TurretType::Secondary => {
-                self.data.turret_secondary_enabled = enabled;
-                if let Some(machine) = self.data.turret_secondary_machine.as_mut() {
-                    machine.turret_mut().set_turret_enabled(enabled);
-                }
-                if self.data.turrets_linked {
-                    self.data.turret_primary_enabled = enabled;
-                    if let Some(machine) = self.data.turret_primary_machine.as_mut() {
-                        machine.turret_mut().set_turret_enabled(enabled);
-                    }
-                }
-            }
-            TurretType::Invalid => {}
-        }
+        self.data.set_turret_enabled(turret, enabled)
     }
     pub(super) fn recenter_turret(&mut self, turret: TurretType) {
-        match turret {
-            TurretType::Primary => {
-                self.data.turret_primary_natural = true;
-                if let Some(machine) = self.data.turret_primary_machine.as_mut() {
-                    machine.turret_mut().recenter_turret();
-                }
-                if self.data.turrets_linked {
-                    self.data.turret_secondary_natural = true;
-                    if let Some(machine) = self.data.turret_secondary_machine.as_mut() {
-                        machine.turret_mut().recenter_turret();
-                    }
-                }
-            }
-            TurretType::Secondary => {
-                self.data.turret_secondary_natural = true;
-                if let Some(machine) = self.data.turret_secondary_machine.as_mut() {
-                    machine.turret_mut().recenter_turret();
-                }
-                if self.data.turrets_linked {
-                    self.data.turret_primary_natural = true;
-                    if let Some(machine) = self.data.turret_primary_machine.as_mut() {
-                        machine.turret_mut().recenter_turret();
-                    }
-                }
-            }
-            TurretType::Invalid => {}
-        }
+        self.data.recenter_turret(turret)
     }
     pub(super) fn is_turret_in_natural_position(&self, turret: TurretType) -> bool {
-        match turret {
-            TurretType::Primary => self
-                .data
-                .turret_primary_machine
-                .as_ref()
-                .map(|machine| machine.turret().is_turret_in_natural_position())
-                .unwrap_or(false),
-            TurretType::Secondary => self
-                .data
-                .turret_secondary_machine
-                .as_ref()
-                .map(|machine| machine.turret().is_turret_in_natural_position())
-                .unwrap_or(false),
-            TurretType::Invalid => false,
-        }
+        self.data.is_turret_in_natural_position(turret)
     }
     pub(super) fn is_turret_enabled(&self, turret: TurretType) -> bool {
-        match turret {
-            TurretType::Primary => self
-                .data
-                .turret_primary_machine
-                .as_ref()
-                .map(|machine| machine.turret().is_turret_enabled())
-                .unwrap_or(false),
-            TurretType::Secondary => self
-                .data
-                .turret_secondary_machine
-                .as_ref()
-                .map(|machine| machine.turret().is_turret_enabled())
-                .unwrap_or(false),
-            TurretType::Invalid => false,
-        }
+        self.data.is_turret_enabled(turret)
     }
     pub(super) fn get_turret_rot_and_pitch(&self, turret: TurretType) -> Option<(Real, Real)> {
-        match turret {
-            TurretType::Primary => self.data.turret_primary_machine.as_ref().map(|machine| {
-                let turret = machine.turret();
-                (turret.get_turret_angle(), turret.get_turret_pitch())
-            }),
-            TurretType::Secondary => self.data.turret_secondary_machine.as_ref().map(|machine| {
-                let turret = machine.turret();
-                (turret.get_turret_angle(), turret.get_turret_pitch())
-            }),
-            TurretType::Invalid => None,
-        }
+        self.data.get_turret_rot_and_pitch(turret)
     }
     pub(super) fn get_turret_angle(&self, turret: TurretType) -> Real {
         self.get_turret_rot_and_pitch(turret)
@@ -1368,19 +1228,8 @@ impl UnitAIUpdate {
         slot: WeaponSlotType,
         target: ObjectID,
     ) -> bool {
-        if let Some(machine) = self.data.turret_primary_machine.as_ref() {
-            let turret = machine.turret();
-            if turret.is_weapon_slot_on_turret(slot) && turret.is_trying_to_aim_at_target(target) {
-                return true;
-            }
-        }
-        if let Some(machine) = self.data.turret_secondary_machine.as_ref() {
-            let turret = machine.turret();
-            if turret.is_weapon_slot_on_turret(slot) && turret.is_trying_to_aim_at_target(target) {
-                return true;
-            }
-        }
-        false
+        self.data
+            .is_weapon_slot_on_turret_and_aiming_at_target(slot, target)
     }
     pub(crate) fn load_post_process_path_cells(&mut self) {
         let Some((pos, layer, id, radius, bridge_end)) =
@@ -1556,9 +1405,7 @@ impl UnitAIUpdate {
         self.data.randomly_offset_mood_check = true;
     }
     pub(super) fn take_random_mood_offset(&mut self) -> bool {
-        let set = self.data.randomly_offset_mood_check;
-        self.data.randomly_offset_mood_check = false;
-        set
+        self.data.take_random_mood_offset()
     }
     pub(super) fn is_busy(&self) -> bool {
         self.ai_state_machine
@@ -1571,11 +1418,10 @@ impl UnitAIUpdate {
         &mut self,
         attitude: AIAttitudeType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.data.attitude = attitude;
-        Ok(())
+        self.data.set_attitude(attitude)
     }
     pub(super) fn get_attitude(&self) -> AIAttitudeType {
-        self.data.attitude
+        self.data.get_attitude()
     }
     pub(super) fn is_idle_unrestricted(&self) -> bool {
         if let Some(machine) = self.ai_state_machine.as_ref() {
@@ -1607,24 +1453,19 @@ impl UnitAIUpdate {
         &mut self,
         index: i32,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.data.current_goal_path_index = index;
-        Ok(())
+        self.data.set_current_goal_path_index(index)
     }
     pub(super) fn get_current_goal_path_index(&self) -> i32 {
-        self.data.current_goal_path_index
+        self.data.get_current_goal_path_index()
     }
     pub(super) fn set_can_path_through_units(
         &mut self,
         value: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.data.can_path_through_units = value;
-        if value {
-            self.data.blocked_and_stuck = false;
-        }
-        Ok(())
+        self.data.set_can_path_through_units(value)
     }
     pub(super) fn get_can_path_through_units(&self) -> bool {
-        self.data.can_path_through_units
+        self.data.get_can_path_through_units()
     }
     pub(super) fn is_blocked_and_stuck(&self) -> bool {
         const BLOCKED_RECOMPUTE_THRESHOLD: u32 = 60;
@@ -1642,10 +1483,10 @@ impl UnitAIUpdate {
         })
     }
     pub(super) fn set_is_blocked(&mut self, blocked: bool) {
-        self.data.is_blocked = blocked;
+        self.data.set_is_blocked(blocked)
     }
     pub(super) fn set_blocked_and_stuck(&mut self, blocked: bool) {
-        self.data.blocked_and_stuck = blocked;
+        self.data.set_blocked_and_stuck(blocked)
     }
     pub(super) fn get_num_frames_blocked(&self) -> u32 {
         let mut frames = self.data.blocked_frames;
@@ -1674,7 +1515,6 @@ impl UnitAIUpdate {
         self.set_locomotor_goal_none();
     }
     pub(super) fn clear_move_out_of_way(&mut self) {
-        self.data.move_out_of_way_1 = INVALID_ID;
-        self.data.move_out_of_way_2 = INVALID_ID;
+        self.data.clear_move_out_of_way()
     }
 }
