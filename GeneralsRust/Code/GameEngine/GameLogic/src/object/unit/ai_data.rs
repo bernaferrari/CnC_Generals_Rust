@@ -175,7 +175,7 @@ impl Default for UnitAiData {
             blocked_and_stuck: false,
             retry_path: false,
             blocked_frames: 0,
-            cur_max_blocked_speed: FAST_AS_POSSIBLE,
+            cur_max_blocked_speed: 0.0,
             bump_speed_limit: FAST_AS_POSSIBLE,
         }
     }

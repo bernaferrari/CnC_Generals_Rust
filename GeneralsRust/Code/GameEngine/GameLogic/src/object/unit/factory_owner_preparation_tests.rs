@@ -407,3 +407,95 @@ fn prepared_native_driver_preserves_cpp_logical_lock_during_commands() {
     assert!(!machine.is_locked());
     assert!(Arc::ptr_eq(ai.ai_state_machine.as_ref().unwrap(), &parent));
 }
+
+#[test]
+fn prepared_cpp_blocked_speed_default_is_zero_and_inert() {
+    let _serial = crate::test_sync::lock();
+    let id = 0xA1_F0_32;
+    let first = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
+    let second = Arc::new(RwLock::new(crate::object::Object::new_test(id, 200.0)));
+    let rng = game_engine::common::random_value::get_game_logic_random_seed_state();
+    let _held_ambient = crate::system::game_logic::get_game_logic().lock().unwrap();
+    let first_ai = prepare(&first);
+    let second_ai = prepare(&second);
+    assert_eq!(
+        game_engine::common::random_value::get_game_logic_random_seed_state(),
+        rng
+    );
+    drop(_held_ambient);
+    for (owner, handle) in [(&first, &first_ai), (&second, &second_ai)] {
+        let ai = handle.lock().unwrap();
+        let _held_owner = owner.write().unwrap();
+        let machine = ai.ai_state_machine.as_ref().unwrap().lock().unwrap();
+        // AIUpdate.cpp:218-220: only the blocked cap starts at zero.
+        assert_eq!(ai.get_cur_max_blocked_speed(), 0.0);
+        assert_eq!(ai.data.blocked_frames, 0);
+        assert_eq!(ai.data.bump_speed_limit, crate::modules::FAST_AS_POSSIBLE);
+        assert_eq!(ai.get_desired_speed(), crate::modules::FAST_AS_POSSIBLE);
+        assert_eq!(machine.get_current_state_id(), None);
+        assert!(Arc::ptr_eq(&machine.base.get_owner().unwrap(), owner));
+    }
+    assert!(super::registry::get_unit_arc(id).is_none());
+}
+
+#[test]
+fn prepared_cpp_blocked_speed_initial_cap_limits_then_recovers() {
+    let _serial = crate::test_sync::lock();
+    let id = 0xA1_F0_33;
+    let owner = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
+    let handle = prepare(&owner);
+    let mut ai = handle.lock().unwrap();
+    let parent = ai.ai_state_machine.as_ref().unwrap().clone();
+    let _held_parent = parent.lock().unwrap();
+    let _held_owner = owner.write().unwrap();
+    ai.data.blocked_frames = 7;
+    // AIUpdate.cpp:2197-2218/2270-2273, evaluated against the constructor cap.
+    assert_eq!(ai.apply_bump_speed_limit(80.0, true), 0.0);
+    assert_eq!(ai.data.bump_speed_limit, 0.0);
+    assert_eq!(ai.data.blocked_frames, 7);
+    assert_eq!(ai.apply_bump_speed_limit(80.0, false), 80.0 * 0.2 * 1.05);
+    assert_eq!(ai.data.blocked_frames, 1);
+}
+
+#[test]
+fn prepared_cpp_blocked_speed_snapshot_keeps_fresh_recomputed_cap() {
+    let _serial = crate::test_sync::lock();
+    let id = 0xA1_F0_34;
+    let owner = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
+    let source = prepare(&owner);
+    let loaded = prepare(&owner);
+    let mut source = source.lock().unwrap();
+    let mut loaded = loaded.lock().unwrap();
+    source.set_cur_max_blocked_speed(27.0);
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    assert!(
+        source
+            .xfer_ai_update_state(&mut game_engine::common::system::xfer_save::XferSave::new(
+                &mut bytes, 1
+            ))
+            .unwrap()
+    );
+    assert!(
+        loaded
+            .xfer_ai_update_state(&mut game_engine::common::system::xfer_load::XferLoad::new(
+                std::io::Cursor::new(bytes.into_inner()),
+                1
+            ))
+            .unwrap()
+    );
+    // AIUpdate.cpp:5087-5090 explicitly omits this recomputed cap from Xfer.
+    assert_eq!(source.get_cur_max_blocked_speed(), 27.0);
+    assert_eq!(loaded.get_cur_max_blocked_speed(), 0.0);
+    assert!(Arc::ptr_eq(
+        &loaded
+            .ai_state_machine
+            .as_ref()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .base
+            .get_owner()
+            .unwrap(),
+        &owner
+    ));
+}

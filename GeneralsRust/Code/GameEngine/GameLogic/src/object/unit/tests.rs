@@ -1710,10 +1710,11 @@ fn unit_ai_update_bump_limit_recovers_and_caps_blocked_frames_when_unblocked() {
 }
 
 #[test]
-fn unit_ai_update_cur_max_blocked_speed_defaults_to_fast_as_possible() {
+fn unit_ai_update_cpp_blocked_speed_default_is_zero() {
     let ai = unit_ai_update_without_unit();
 
-    assert_eq!(ai.get_cur_max_blocked_speed(), FAST_AS_POSSIBLE);
+    // C++ AIUpdate.cpp:219 initializes this cap before the movement pass.
+    assert_eq!(ai.get_cur_max_blocked_speed(), 0.0);
 }
 
 #[test]

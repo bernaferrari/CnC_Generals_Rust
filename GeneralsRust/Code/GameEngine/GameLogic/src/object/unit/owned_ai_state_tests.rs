@@ -372,3 +372,30 @@ fn cached_factory_update_admits_due_path_queue_and_consumes_timer() {
         assert_eq!(crc(), reset, "due timer must clear after admission");
     });
 }
+
+#[test]
+fn factory_cpp_blocked_speed_default_precedes_first_admitted_tick() {
+    if !child(concat!(
+        module_path!(),
+        "::factory_cpp_blocked_speed_default_precedes_first_admitted_tick"
+    )) {
+        return;
+    }
+    let _serial = crate::test_sync::lock();
+    definitions();
+    let _frame = RestoreAmbientFrame::set(83);
+    let actual = FactoryRuntime::new();
+    let ai = actual.ai.lock().unwrap();
+    // AIUpdate.cpp:219: admission and Idle entry do not reset the movement cap.
+    assert_eq!(ai.get_cur_max_blocked_speed(), 0.0);
+    assert!(Arc::ptr_eq(
+        &actual.ai,
+        &actual
+            .owner
+            .read()
+            .unwrap()
+            .get_ai_update_interface()
+            .unwrap()
+    ));
+    assert!(super::registry::get_unit_arc(actual.id).is_none());
+}
