@@ -557,7 +557,7 @@ impl ScriptEngine {
             crate::scripting::executor::ScriptActionResult::Success
         } else {
             dispatcher
-                .execute_action(action)
+                .execute_action_with_driver(action, execution.driver)
                 .map_err(|e| GameLogicError::Configuration(format!("Script action error: {}", e)))?
         };
         // All engine/list guards and dispatcher context guards ended above.

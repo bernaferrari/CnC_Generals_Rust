@@ -240,3 +240,6 @@ mod script_action_order_tests;
 
 #[cfg(test)]
 mod script_activation_owner_tests;
+
+#[cfg(test)]
+mod script_display_owner_tests;

@@ -39,11 +39,34 @@ pub struct ScriptTeamStatus {
     pub dead: bool,
 }
 
+/// Parsed display effect for the game driving this action. Borrowed text is
+/// valid only during the synchronous callback; the owner queues its own copy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptDisplayRequest<'a> {
+    Text(&'a str),
+    Cinematic {
+        text: &'a str,
+        font: &'a str,
+        duration_seconds: i32,
+    },
+    MilitaryCaption {
+        text: &'a str,
+        duration_ms: i32,
+    },
+}
+
 /// Synchronous effects and live queries of the actual execution owner.
 /// The driver is borrowed for execution only; it is never installed in the
 /// engine, dispatcher context, or a process-wide active slot.
 pub trait ScriptExecutionDriver {
     fn after_action(&mut self) -> GameLogicResult<()>;
+
+    /// None selects the standalone retained-handler adapter. Some is
+    /// authoritative, including a failed callback: never retry on another
+    /// owner's handler. Effects are flushed by after_action, as before.
+    fn display(&mut self, _request: ScriptDisplayRequest<'_>) -> Option<GameLogicResult<()>> {
+        None
+    }
 
     fn object_status(&self, _id: ObjectID) -> ScriptOwnerQuery<ScriptObjectStatus> {
         ScriptOwnerQuery::Unavailable
@@ -65,7 +88,7 @@ pub trait ScriptExecutionDriver {
     }
 }
 
-struct CanonicalScriptExecutionDriver;
+pub(crate) struct CanonicalScriptExecutionDriver;
 impl ScriptExecutionDriver for CanonicalScriptExecutionDriver {
     fn after_action(&mut self) -> GameLogicResult<()> {
         Ok(())

@@ -4,6 +4,7 @@
 //! Observable script behavior is unchanged.
 
 use super::*;
+use crate::scripting::engine::{ScriptDisplayRequest, ScriptExecutionDriver};
 
 impl ScriptActionDispatcher {
     // ============================================================================
@@ -196,23 +197,18 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_display_text(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let text = self.get_string_param(action, 0)?;
 
         log::info!("Displaying text: {}", text);
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.display_text(&text) {
-                log::warn!("Script action handler display_text failed: {}", err);
-            }
-            return Ok(ScriptActionResult::Success);
-        }
-
-        Ok(ScriptActionResult::Success)
+        Ok(self.dispatch_display_request(ScriptDisplayRequest::Text(&text), driver))
     }
 
     pub(crate) fn do_display_cinematic_text(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let text = self.get_string_param(action, 0)?;
         let font_type = action
@@ -227,22 +223,20 @@ impl ScriptActionDispatcher {
             font_type,
             duration_seconds
         );
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.display_cinematic_text(&text, &font_type, duration_seconds) {
-                log::warn!(
-                    "Script action handler display_cinematic_text failed: {}",
-                    err
-                );
-            }
-            return Ok(ScriptActionResult::Success);
-        }
-
-        Ok(ScriptActionResult::Success)
+        Ok(self.dispatch_display_request(
+            ScriptDisplayRequest::Cinematic {
+                text: &text,
+                font: &font_type,
+                duration_seconds,
+            },
+            driver,
+        ))
     }
 
     pub(crate) fn do_military_caption(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let briefing_text = self.get_string_param(action, 0)?;
         let mut duration_ms = self.get_int_param(action, 1)?;
@@ -259,13 +253,46 @@ impl ScriptActionDispatcher {
             duration_ms
         );
 
-        if let Some(handler) = current_script_action_handler() {
-            if let Err(err) = handler.military_caption(&briefing_text, duration_ms) {
-                log::warn!("Script action handler military_caption failed: {}", err);
-            }
-        }
+        Ok(self.dispatch_display_request(
+            ScriptDisplayRequest::MilitaryCaption {
+                text: &briefing_text,
+                duration_ms,
+            },
+            driver,
+        ))
+    }
 
-        Ok(ScriptActionResult::Success)
+    fn dispatch_display_request(
+        &mut self,
+        request: ScriptDisplayRequest<'_>,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> ScriptActionResult {
+        let result = driver.display(request).or_else(|| {
+            // Clone the standalone adapter before calling it: a callback can
+            // immediately re-enter this engine. Live owners bypass it.
+            current_script_action_handler().map(|handler| match request {
+                ScriptDisplayRequest::Text(text) => handler.display_text(text),
+                ScriptDisplayRequest::Cinematic {
+                    text,
+                    font,
+                    duration_seconds,
+                } => handler.display_cinematic_text(text, font, duration_seconds),
+                ScriptDisplayRequest::MilitaryCaption { text, duration_ms } => {
+                    handler.military_caption(text, duration_ms)
+                }
+            })
+        });
+        if let Some(Err(err)) = result {
+            let name = match request {
+                ScriptDisplayRequest::Text(_) => "display_text",
+                ScriptDisplayRequest::Cinematic { .. } => "display_cinematic_text",
+                ScriptDisplayRequest::MilitaryCaption { .. } => "military_caption",
+            };
+            log::warn!("Script action handler {} failed: {}", name, err);
+        }
+        // Match the legacy display actions: callback errors are logged and
+        // the action chain continues, without retrying or delaying an effect.
+        ScriptActionResult::Success
     }
 
     // ============================================================================

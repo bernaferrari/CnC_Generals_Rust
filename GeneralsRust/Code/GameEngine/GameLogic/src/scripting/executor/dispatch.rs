@@ -203,6 +203,17 @@ impl ScriptActionDispatcher {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
+        self.execute_action_with_driver(
+            action,
+            &mut crate::scripting::engine::CanonicalScriptExecutionDriver,
+        )
+    }
+
+    pub(crate) fn execute_action_with_driver(
+        &mut self,
+        action: &ScriptAction,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
+    ) -> Result<ScriptActionResult, ScriptError> {
         let action_type = action.get_action_type();
 
         // Dispatch to the appropriate handler based on action type
@@ -248,9 +259,11 @@ impl ScriptActionDispatcher {
             ScriptActionType::PlayerHunt => self.do_player_hunt(action),
 
             // Display/UI actions
-            ScriptActionType::DisplayText => self.do_display_text(action),
-            ScriptActionType::DisplayCinematicText => self.do_display_cinematic_text(action),
-            ScriptActionType::ShowMilitaryCaption => self.do_military_caption(action),
+            ScriptActionType::DisplayText => self.do_display_text(action, driver),
+            ScriptActionType::DisplayCinematicText => {
+                self.do_display_cinematic_text(action, driver)
+            }
+            ScriptActionType::ShowMilitaryCaption => self.do_military_caption(action, driver),
 
             // Camera actions
             ScriptActionType::MoveCameraTo => self.do_move_camera_to(action),

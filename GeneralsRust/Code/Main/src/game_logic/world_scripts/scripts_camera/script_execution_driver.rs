@@ -1,7 +1,8 @@
 //! Live synchronous Main owner for one ScriptEngine action walk.
 use super::*;
 use gamelogic::scripting::engine::{
-    ScriptExecutionDriver, ScriptObjectStatus, ScriptOwnerQuery, ScriptTeamStatus,
+    ScriptDisplayRequest, ScriptExecutionDriver, ScriptObjectStatus, ScriptOwnerQuery,
+    ScriptTeamStatus,
 };
 
 pub(super) struct HostScriptExecutionDriver<'a> {
@@ -56,6 +57,36 @@ impl<'a> HostScriptExecutionDriver<'a> {
 }
 
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+    fn display(
+        &mut self,
+        request: ScriptDisplayRequest<'_>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        // Queue on this world, at the same drain boundary as the legacy
+        // callback. Do not use an engine's retained presentation owner.
+        match request {
+            ScriptDisplayRequest::Text(text) => {
+                self.world.mission_scripts.push_message(text.into())
+            }
+            ScriptDisplayRequest::Cinematic {
+                text,
+                font,
+                duration_seconds,
+            } => {
+                self.world.mission_scripts.push_cinematic_text(
+                    text.into(),
+                    font.into(),
+                    duration_seconds,
+                );
+            }
+            ScriptDisplayRequest::MilitaryCaption { text, duration_ms } => {
+                self.world
+                    .mission_scripts
+                    .push_military_caption(text.into(), duration_ms);
+            }
+        }
+        Some(Ok(()))
+    }
+
     fn after_action(&mut self) -> gamelogic::GameLogicResult<()> {
         self.world.apply_script_action_requests();
         Ok(())

@@ -297,7 +297,7 @@ fn pending_combat_snapshot_rejects_old_schema_before_mutating_live_owner() {
     assert!(matches!(
         result,
         Err(crate::save_load::SaveLoadError::VersionMismatch {
-            expected: 23,
+            expected: 24,
             actual: 22
         })
     ));
@@ -431,21 +431,34 @@ fn pending_combat_snapshot_current_wire_has_exact_schema_and_end_boundary() {
         .create_world_snapshot(&source)
         .unwrap();
     assert_eq!(
-        snapshot.version, 23,
-        "current Rust envelope has typed queue fields"
+        snapshot.version, 24,
+        "current Rust envelope requires the alliance capability; body schema stays 23"
     );
     let wire = bincode_legacy::serialize(&snapshot).unwrap();
-    assert!(crate::save_load::snapshot::decode_bincode_world_snapshot(&wire).is_ok());
-    for cut in [0, 3, 4, wire.len() - 1] {
-        assert!(
-            crate::save_load::snapshot::decode_bincode_world_snapshot(&wire[..cut]).is_err(),
-            "truncated positional record {cut}"
+    // The previous envelope remains readable with the identical typed body.
+    // Pin its admission independently of the current writer version.
+    for version in [23u32, 24] {
+        let mut supported = wire.clone();
+        supported[..4].copy_from_slice(&version.to_le_bytes());
+        let decoded =
+            crate::save_load::snapshot::decode_bincode_world_snapshot(&supported).unwrap();
+        assert_eq!(decoded.version, version);
+        assert_eq!(
+            bincode_legacy::serialize(&decoded.pending_combat).unwrap(),
+            bincode_legacy::serialize(&snapshot.pending_combat).unwrap(),
+            "typed queues retain their body under envelope {version}"
         );
+        for cut in [0, 3, 4, supported.len() - 1] {
+            assert!(
+                crate::save_load::snapshot::decode_bincode_world_snapshot(&supported[..cut])
+                    .is_err(),
+                "truncated positional record {cut}, envelope {version}"
+            );
+        }
+        supported.extend_from_slice(b"unframed data");
+        assert!(crate::save_load::snapshot::decode_bincode_world_snapshot(&supported).is_err());
     }
-    let mut trailing = wire.clone();
-    trailing.extend_from_slice(b"unframed data");
-    assert!(crate::save_load::snapshot::decode_bincode_world_snapshot(&trailing).is_err());
-    for version in [0u32, 1, 22, 24, u32::MAX] {
+    for version in [0u32, 1, 22, 25, u32::MAX] {
         let mut incompatible = wire.clone();
         incompatible[..4].copy_from_slice(&version.to_le_bytes());
         assert!(crate::save_load::snapshot::decode_bincode_world_snapshot(&incompatible).is_err());
@@ -467,7 +480,7 @@ fn pending_combat_snapshot_old_direct_reader_and_writer_stop_before_body() {
         assert!(matches!(
             old.xfer(&mut writer),
             Err(SaveLoadError::VersionMismatch {
-                expected: 23,
+                expected: 24,
                 actual: 22
             })
         ));
@@ -486,7 +499,7 @@ fn pending_combat_snapshot_old_direct_reader_and_writer_stop_before_body() {
     assert!(matches!(
         target.xfer(&mut reader),
         Err(SaveLoadError::VersionMismatch {
-            expected: 23,
+            expected: 24,
             actual: 22
         })
     ));
