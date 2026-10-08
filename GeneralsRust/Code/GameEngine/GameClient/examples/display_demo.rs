@@ -7,9 +7,11 @@
 
 use std::time::Instant;
 use winit::{
-    event::{Event, WindowEvent},
-    event_loop::EventLoop,
-    window::WindowBuilder,
+    application::ApplicationHandler,
+    error::OsError,
+    event::WindowEvent,
+    event_loop::{ActiveEventLoop, EventLoop},
+    window::{Window, WindowId},
 };
 
 const WINDOW_TITLE: &str = "C&C Generals Zero Hour - Display Demo";
@@ -256,6 +258,93 @@ impl DisplayDemo {
     }
 }
 
+/// Owns the demo window for Winit's application lifecycle.
+struct WindowDemo {
+    window: Option<Window>,
+    creation_error: Option<OsError>,
+    start: Instant,
+    frame: u64,
+}
+
+impl WindowDemo {
+    fn new() -> Self {
+        Self {
+            window: None,
+            creation_error: None,
+            start: Instant::now(),
+            frame: 0,
+        }
+    }
+}
+
+impl ApplicationHandler for WindowDemo {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() || self.creation_error.is_some() {
+            return;
+        }
+        let attributes = Window::default_attributes()
+            .with_title(WINDOW_TITLE)
+            .with_inner_size(winit::dpi::PhysicalSize::new(DEFAULT_WIDTH, DEFAULT_HEIGHT));
+        match event_loop.create_window(attributes) {
+            Ok(window) => {
+                println!("Window created: {}x{}", DEFAULT_WIDTH, DEFAULT_HEIGHT);
+                println!("Press Escape or close window to exit.");
+                self.start = Instant::now();
+                self.window = Some(window);
+            }
+            Err(error) => {
+                self.creation_error = Some(error);
+                event_loop.exit();
+            }
+        }
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        let Some(window) = self
+            .window
+            .as_ref()
+            .filter(|window| window.id() == window_id)
+        else {
+            return;
+        };
+        match event {
+            WindowEvent::CloseRequested => {
+                println!("Window closed after {} frames", self.frame);
+                event_loop.exit();
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                if event.state == winit::event::ElementState::Pressed
+                    && event.logical_key
+                        == winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape)
+                {
+                    println!("Escape pressed, exiting.");
+                    event_loop.exit();
+                }
+            }
+            WindowEvent::RedrawRequested => {
+                self.frame += 1;
+                if self.frame.is_multiple_of(60) {
+                    let fps = self.frame as f32 / self.start.elapsed().as_secs_f32();
+                    println!("FPS: {:.1}, Frame: {}", fps, self.frame);
+                }
+                window.request_redraw();
+            }
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -271,47 +360,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n=== Creating Window for Visual Demo ===");
 
     let event_loop = EventLoop::new()?;
-    let window = WindowBuilder::new()
-        .with_title(WINDOW_TITLE)
-        .with_inner_size(winit::dpi::PhysicalSize::new(DEFAULT_WIDTH, DEFAULT_HEIGHT))
-        .build(&event_loop)?;
-
-    println!("Window created: {}x{}", DEFAULT_WIDTH, DEFAULT_HEIGHT);
-    println!("Press Escape or close window to exit.");
-
-    let start = Instant::now();
-    let mut frame: u64 = 0;
-
-    event_loop.run(move |event, elwt| match event {
-        Event::WindowEvent { event, .. } => match event {
-            WindowEvent::CloseRequested => {
-                println!("Window closed after {} frames", frame);
-                elwt.exit();
-            }
-            WindowEvent::KeyboardInput { event, .. } => {
-                if event.state == winit::event::ElementState::Pressed
-                    && event.logical_key
-                        == winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape)
-                {
-                    println!("Escape pressed, exiting.");
-                    elwt.exit();
-                }
-            }
-            WindowEvent::RedrawRequested => {
-                frame += 1;
-                if frame.is_multiple_of(60) {
-                    let fps = frame as f32 / start.elapsed().as_secs_f32();
-                    println!("FPS: {:.1}, Frame: {}", fps, frame);
-                }
-                window.request_redraw();
-            }
-            _ => {}
-        },
-        Event::AboutToWait => {
-            window.request_redraw();
-        }
-        _ => {}
-    })?;
-
+    let mut app = WindowDemo::new();
+    event_loop.run_app(&mut app)?;
+    if let Some(error) = app.creation_error {
+        return Err(error.into());
+    }
     Ok(())
 }

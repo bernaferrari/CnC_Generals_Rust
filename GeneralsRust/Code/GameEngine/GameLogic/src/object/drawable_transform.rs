@@ -360,23 +360,51 @@ impl Drawable {
         &self,
         bone_name: &str,
     ) -> Option<Matrix3D> {
+        self.get_current_worldspace_client_bone_positions_for_active(None, bone_name)
+    }
+
+    pub(super) fn get_current_worldspace_client_bone_positions_for_active(
+        &self,
+        active: Option<(&DrawModuleEntry, &dyn ObjectDrawInterface)>,
+        bone_name: &str,
+    ) -> Option<Matrix3D> {
         let bone_name_ascii = AsciiString::from(bone_name);
         let mut saw_draw_interface = false;
-        for module_handle in self.modules() {
+        for entry in &self.modules {
             let mut world_bone = Matrix3D::IDENTITY;
-            let found = module_handle.with_module(|module| {
-                let mut found = false;
-                with_draw_module_mut(module, |draw| {
-                    if let Some(interface) = draw.get_object_draw_interface_mut() {
-                        saw_draw_interface = true;
-                        found = interface.client_only_get_render_obj_bone_transform(
-                            &bone_name_ascii,
-                            &mut world_bone,
-                        );
-                    }
-                });
-                found
-            });
+            let owner = DrawableRenderOwner::new(self, entry);
+            let found = if let Some((_, interface)) =
+                active.filter(|(current, _)| std::ptr::eq(entry.as_ref(), *current))
+            {
+                saw_draw_interface = true;
+                interface.client_only_get_render_obj_bone_transform_for_owner(
+                    &owner,
+                    &bone_name_ascii,
+                    &mut world_bone,
+                )
+            } else {
+                entry.with_module(|module| {
+                    let mut found = false;
+                    with_draw_module_mut(module, |draw| {
+                        if let Some(interface) = draw.get_object_draw_interface_mut() {
+                            saw_draw_interface = true;
+                            found = if active.is_some() {
+                                interface.client_only_get_render_obj_bone_transform_for_owner(
+                                    &owner,
+                                    &bone_name_ascii,
+                                    &mut world_bone,
+                                )
+                            } else {
+                                interface.client_only_get_render_obj_bone_transform(
+                                    &bone_name_ascii,
+                                    &mut world_bone,
+                                )
+                            };
+                        }
+                    });
+                    found
+                })
+            };
 
             if found {
                 return Some(world_bone);
@@ -633,3 +661,7 @@ impl Drawable {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "current_bone_owner_tests.rs"]
+mod current_bone_owner_tests;

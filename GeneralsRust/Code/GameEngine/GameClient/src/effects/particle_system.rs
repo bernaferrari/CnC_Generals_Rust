@@ -2615,16 +2615,31 @@ mod tests {
             color: [1.0, 0.5, 0.25],
             frame: 0,
         };
+        template.info_mut().color_keys[1] = RGBColorKeyframe {
+            color: [1.0, 0.5, 0.25],
+            frame: 10,
+        };
         let template = Arc::new(template);
         let mut system = ParticleSystem::new(template.clone(), 1, false);
+        let sibling = ParticleSystem::new(template.clone(), 2, false);
 
         system.tint_all_colors([0.25, 0.5, 1.0]);
 
+        // C++ ParticleSystemInfo::tintAllColors starts at key 1; the initial
+        // color stays authored. ParticleSystem owns a copy of template keys.
         assert_eq!(
             system.template().info().color_keys[0].color,
+            [1.0, 0.5, 0.25]
+        );
+        assert_eq!(
+            system.template().info().color_keys[1].color,
             [0.25, 0.25, 0.25]
         );
-        assert_eq!(template.info().color_keys[0].color, [1.0, 0.5, 0.25]);
+        assert_eq!(system.template().info().color_keys[1].frame, 10);
+        for source in [&template, sibling.template()] {
+            assert_eq!(source.info().color_keys[0].color, [1.0, 0.5, 0.25]);
+            assert_eq!(source.info().color_keys[1].color, [1.0, 0.5, 0.25]);
+        }
     }
 
     #[test]
@@ -3009,7 +3024,10 @@ mod tests {
             bounding_circle_radius: 0.0,
             is_shrouded: false,
         });
-        system.resolve_attached_parent(0);
+        // Parent resolution and world composition are consecutive phases of
+        // the ordinary update. Stop emission to isolate attachment following.
+        system.stop();
+        assert!(system.update(0, 1));
         assert!(!system.is_destroyed());
         assert_eq!(system.attached_object_id(), 4242);
         assert!((system.position().x - 10.0).abs() < 1e-5);

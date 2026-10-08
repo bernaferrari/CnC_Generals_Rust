@@ -37,6 +37,7 @@ PUBLIC_USE_OCCURRENCE_RE = re.compile(
 )
 TEST_RE = re.compile(r"#\s*\[\s*(?:(?:tokio|async_std)::)?test(?:\s*\([^]]*\))?\s*\]")
 LITERAL_INCLUDE_RE = re.compile(r'include_str!\(\s*"([^"]+)"\s*\)')
+SOURCE_INCLUDE_RE = re.compile(r'(?m)^\s*include!\s*\(\s*"([^"]+)"\s*\)\s*;')
 PATH_MOD_RE = re.compile(
     r'(?ms)#\s*\[\s*path\s*=\s*"([^"]+)"\s*\]\s*'
     r'(?:pub(?:\([^)]*\))?\s+)?mod\s+[A-Za-z_][A-Za-z0-9_]*\s*;'
@@ -214,8 +215,12 @@ def current_fragments(repo: Path, source: Path) -> list[Path]:
 
 
 def rust_module_children(path: Path, text: str) -> list[Path]:
-    """Resolve file-backed Rust modules declared directly by one source file."""
+    """Resolve file-backed modules and literal source inclusions in one file."""
     children: list[Path] = []
+    for value in SOURCE_INCLUDE_RE.findall(text):
+        target = (path.parent / value).resolve()
+        if target.is_file():
+            children.append(target)
     for value in PATH_MOD_RE.findall(text):
         target = (path.parent / value).resolve()
         if target.is_file():

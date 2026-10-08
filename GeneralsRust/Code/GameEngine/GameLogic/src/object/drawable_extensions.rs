@@ -320,10 +320,11 @@ impl DrawableArcExt for Arc<RwLock<Drawable>> {
     fn update_bones_for_client_particle_systems(&self) -> bool {
         if let Ok(guard) = self.read() {
             for module_handle in guard.get_draw_modules_with_interface(ModuleInterfaceType::DRAW) {
+                let owner = DrawableRenderOwner::new(&guard, &module_handle.entry);
                 let updated = module_handle.with_module(|module| {
                     let mut result = false;
                     with_draw_module_mut(module, |draw| {
-                        result = draw.update_bones_for_client_particle_systems();
+                        result = draw.update_bones_for_client_particle_systems_for_owner(&owner);
                     });
                     result
                 });

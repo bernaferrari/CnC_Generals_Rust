@@ -465,24 +465,6 @@ impl W3DModelDraw {
         }
     }
 
-    fn particle_hidden(&self) -> bool {
-        // C++ is `m_hidden || m_hiddenByStealth || m_fullyObscuredByShroud`.
-        // Stealth already calls `set_hidden`. `is_drawable_effectively_hidden`
-        // also treats `!is_visible` as hidden, which this function does not.
-        self.hidden || self.fully_obscured_by_shroud
-    }
-
-    fn current_state_particle_bones(&self) -> Option<Vec<ParticleSysBoneInfo>> {
-        let Some(state) = self.current_state() else {
-            return None;
-        };
-        let particle_sys_bones = state.particle_sys_bones.clone();
-        if particle_sys_bones.is_empty() {
-            return None;
-        }
-        Some(particle_sys_bones)
-    }
-
     fn owner_drawable_handles(
         &self,
     ) -> Option<(
@@ -506,31 +488,12 @@ impl W3DModelDraw {
         Some((owner_id, object, drawable))
     }
 
-    /// Staged deletion uses the same installed model while callbacks run without
-    /// its entry guard. Each phase is sampled after the previous callback.
-    pub(crate) fn take_particle_systems_for_deletion(&mut self) -> Vec<UnsignedInt> {
-        self.particle_systems
-            .drain(..)
-            .map(|tracker| tracker.id)
-            .collect()
-    }
-
     pub(crate) fn take_terrain_track_for_deletion(&mut self) -> Option<u32> {
         self.track_handle.take()
     }
 
     pub(crate) fn finish_template_shadow_deletion(&mut self) {
         self.shadow_allocated = false;
-    }
-
-    fn stop_client_particle_systems(&mut self) {
-        let Some(ps_manager) = TheParticleSystemManager::get() else {
-            self.particle_systems.clear();
-            return;
-        };
-        for tracker in self.particle_systems.drain(..) {
-            ps_manager.destroy_particle_system(tracker.id);
-        }
     }
 
     fn matrix_translation(matrix: &Matrix3D) -> Coord3D {
@@ -541,30 +504,6 @@ impl W3DModelDraw {
     fn matrix_z_rotation(matrix: &Matrix3D) -> Real {
         let cols = matrix.to_cols_array();
         cols[1].atan2(cols[0])
-    }
-
-    /// C++ `recalcBonesForClientParticleSystems`: identity×scale then live bone.
-    fn live_particle_bone_model_space(&self, bone_name: &str) -> Option<(i32, Matrix3D)> {
-        if bone_name.is_empty() {
-            return None;
-        }
-        self.with_owner_drawable(|drawable| {
-            let local = drawable.get_bone_local_transform(bone_name)?;
-            let scale = drawable.get_instance_scale();
-            let scale = if scale.is_finite() && scale > 0.0 {
-                scale
-            } else {
-                1.0
-            };
-            let scaled = Matrix3D::from_scale(Coord3D::splat(scale)) * local;
-            let index = self
-                .current_state()
-                .and_then(|state| state.find_pristine_bone_by_name(bone_name))
-                .map(|(_, bone)| bone.bone_index)
-                .unwrap_or(0);
-            Some((index, scaled))
-        })
-        .flatten()
     }
 
     /// C++ `Get_Bone_Index` / `Get_Bone_Transform` then `preMul(inverse)`
@@ -712,130 +651,43 @@ impl W3DModelDraw {
         Some(self.data.attach_to_drawable_bone_offset)
     }
 
-    fn recalc_bones_for_client_particle_systems(&mut self) {
-        if !self.need_recalc_bone_particle_systems {
-            return;
+    fn client_bone_world_transform(
+        &self,
+        bone_name: &AsciiString,
+        transform: &mut Matrix3D,
+        driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
+    ) -> bool {
+        // C++ returns false on a null render object and does not write.
+        let Some(state) = self.current_state() else {
+            return false;
+        };
+        if state.model_name.as_str().is_empty() {
+            return false;
         }
-
-        self.need_recalc_bone_particle_systems = false;
-
-        let Some(particle_sys_bones) = self.current_state_particle_bones() else {
-            return;
-        };
-        let Some((owner_id, _, drawable)) = self.owner_drawable_handles() else {
-            return;
-        };
-        let Ok(drawable_guard) = drawable.read() else {
-            return;
-        };
-        if drawable_guard.test_drawable_status(DRAWABLE_STATUS_NO_STATE_PARTICLES) {
-            return;
+        let bone_index = state
+            .find_pristine_bone_by_name(bone_name.as_str())
+            .map(|(_, bone)| bone.bone_index)
+            .unwrap_or(0);
+        if bone_index == 0 {
+            *transform = Matrix3D::IDENTITY;
+            return false;
         }
-
-        let Some(ps_manager) = TheParticleSystemManager::get() else {
-            return;
+        let Some(world_bone) = driver
+            .map(|owner| owner.get_bone_transform(bone_name.as_str()))
+            .or_else(|| {
+                self.with_owner_drawable(|drawable| drawable.get_bone_transform(bone_name.as_str()))
+            })
+        else {
+            *transform = Matrix3D::IDENTITY;
+            return false;
         };
 
-        // C++ does not stop here. setModelState already stopped the old systems.
-        // Recalc only creates and appends.
-
-        let hidden = self.particle_hidden();
-        for info in particle_sys_bones.iter() {
-            if info.particle_system.is_empty() {
-                continue;
-            }
-
-            let Some(system_id) =
-                ps_manager.create_particle_system(Some(info.particle_system.as_str()))
-            else {
-                continue;
-            };
-
-            let (bone_index, bone_transform) = self
-                .live_particle_bone_model_space(info.bone_name.as_str())
-                .or_else(|| {
-                    self.current_state()
-                        .and_then(|state| state.find_pristine_bone_by_name(info.bone_name.as_str()))
-                        .map(|(_, bone)| (bone.bone_index, bone.transform))
-                })
-                .unwrap_or((0, Matrix3D::IDENTITY));
-
-            if bone_index != 0 {
-                let position = Self::matrix_translation(&bone_transform);
-                let rotation = Self::matrix_z_rotation(&bone_transform);
-                ps_manager.set_particle_system_position(system_id, &position);
-                ps_manager.rotate_particle_system_local_transform_z(system_id, rotation);
-            } else {
-                ps_manager.set_particle_system_position(system_id, &Coord3D::origin());
-            }
-
-            ps_manager.attach_particle_system_to_drawable(system_id, owner_id);
-            ps_manager.set_particle_system_saveable(system_id, false);
-            if hidden {
-                ps_manager.stop_particle_system(system_id);
-            }
-            self.particle_systems.push(ParticleSysTracker {
-                id: system_id,
-                bone_index,
-                bone_name: info.bone_name.clone(),
-            });
-        }
-    }
-
-    pub fn update_bones_for_client_particle_systems(&mut self) -> bool {
-        let Some((_, _, drawable)) = self.owner_drawable_handles() else {
-            return true;
-        };
-        if self.current_state().is_none()
-            || self
-                .current_state()
-                .is_some_and(|state| state.model_name.as_str().is_empty())
-        {
-            return true;
-        }
-
-        let Ok(drawable_guard) = drawable.read() else {
-            return true;
-        };
-        let Some(ps_manager) = TheParticleSystemManager::get() else {
-            return true;
-        };
-
-        for tracker in &self.particle_systems {
-            if tracker.bone_index == 0 || tracker.bone_name.is_empty() {
-                continue;
-            }
-
-            if ps_manager.find_particle_system(tracker.id).is_none() {
-                continue;
-            }
-
-            if let Some(transform) = drawable_guard
-                .get_current_worldspace_client_bone_positions(tracker.bone_name.as_str())
-            {
-                let position = Self::matrix_translation(&transform);
-                let orientation = Self::matrix_z_rotation(&transform);
-                ps_manager.set_particle_system_position(tracker.id, &position);
-                ps_manager.rotate_particle_system_local_transform_z(tracker.id, orientation);
-                ps_manager.set_particle_system_transform(tracker.id, &transform);
-                ps_manager.set_particle_system_skip_parent_xfrm(tracker.id, true);
-            }
-        }
-
-        true
-    }
-
-    fn do_start_or_stop_particle_sys(&self) {
-        let hidden = self.particle_hidden();
-        let Some(ps_manager) = TheParticleSystemManager::get() else {
-            return;
-        };
-        for tracker in &self.particle_systems {
-            if hidden {
-                ps_manager.stop_particle_system(tracker.id);
-            } else {
-                ps_manager.start_particle_system(tracker.id);
-            }
+        if let Some(world_bone) = world_bone {
+            *transform = world_bone;
+            true
+        } else {
+            *transform = Matrix3D::IDENTITY;
+            false
         }
     }
 

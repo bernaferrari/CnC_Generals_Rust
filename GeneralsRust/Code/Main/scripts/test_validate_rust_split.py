@@ -72,6 +72,49 @@ class ValidateRustSplitTests(unittest.TestCase):
         self.assertIn("test attributes decreased", joined)
         self.assertIn("new public API names: Leak", joined)
 
+    def test_nested_literal_source_includes_preserve_tests_and_surface(self) -> None:
+        root = self.make_repo()
+        source = self.commit_source(root, "pub struct Stable;\n#[test]\nfn behavior() {}\n")
+        (root / source).write_text('include!("parts.rs");\n')
+        (root / source).parent.joinpath("parts.rs").write_text('include!("nested/behavior.rs");\n')
+        nested = (root / source).parent / "nested"
+        nested.mkdir()
+        (nested / "behavior.rs").write_text("pub struct Stable;\n#[test]\nfn behavior() {}\n")
+        report = validate_rust_split.validate(root, root / "GeneralsRust", source, "HEAD")
+        self.assertTrue(report["passed"], report["problems"])
+        self.assertEqual({"before": 1, "after": 1}, report["tests"])
+        self.assertEqual(3, len(report["fragments"]))
+
+    def test_literal_source_include_cannot_hide_oversized_fragment(self) -> None:
+        root = self.make_repo()
+        source = self.commit_source(root, "pub struct Stable;\n")
+        (root / source).write_text('pub struct Stable;\ninclude!("behavior.rs");\n')
+        (root / source).parent.joinpath("behavior.rs").write_text(
+            "// body\n" * (validate_rust_split.HARD_LIMIT + 1)
+        )
+        report = validate_rust_split.validate(root, root / "GeneralsRust", source, "HEAD")
+        self.assertFalse(report["passed"])
+        self.assertTrue(any("oversized fragment" in problem for problem in report["problems"]))
+
+    def test_literal_source_include_cannot_hide_public_growth(self) -> None:
+        root = self.make_repo()
+        source = self.commit_source(root, "pub struct Stable;\n")
+        (root / source).write_text('pub struct Stable;\ninclude!("behavior.rs");\n')
+        (root / source).parent.joinpath("behavior.rs").write_text("pub fn Leak() {}\n")
+        report = validate_rust_split.validate(root, root / "GeneralsRust", source, "HEAD")
+        self.assertFalse(report["passed"])
+        self.assertIn("new public API names: Leak", report["problems"])
+
+    def test_literal_data_include_is_not_a_rust_source_edge(self) -> None:
+        root = self.make_repo()
+        source = self.commit_source(root, "pub struct Stable;\n")
+        (root / source).write_text('pub struct Stable;\nconst DATA: &str = include_str!("data.rs");\n')
+        (root / source).parent.joinpath("data.rs").write_text("pub fn Leak() {}\n#[test]\nfn unrelated() {}\n")
+        report = validate_rust_split.validate(root, root / "GeneralsRust", source, "HEAD")
+        self.assertTrue(report["passed"], report["problems"])
+        self.assertEqual({"before": 0, "after": 0}, report["tests"])
+        self.assertEqual(1, len(report["fragments"]))
+
     def test_rejects_literal_include_of_removed_monolith(self) -> None:
         root = self.make_repo()
         source = self.commit_source(root, "pub struct Stable;\n")

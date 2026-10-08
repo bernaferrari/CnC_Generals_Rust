@@ -106,9 +106,13 @@ impl DrawModule for W3DModelDraw {
             self.update_sub_objects();
         }
 
-        self.recalc_bones_for_client_particle_systems();
+        self.recalc_bones_for_client_particle_systems_for_owner(driver);
         if self.data.particles_attached_to_animated_bones {
-            let _ = self.update_bones_for_client_particle_systems();
+            let _ = if let Some(driver) = driver {
+                self.update_particle_bones_for_owner(driver)
+            } else {
+                self.update_bones_for_client_particle_systems()
+            };
         }
 
         self.handle_client_recoil();
@@ -183,6 +187,13 @@ impl DrawModule for W3DModelDraw {
 
     fn update_bones_for_client_particle_systems(&mut self) -> bool {
         W3DModelDraw::update_bones_for_client_particle_systems(self)
+    }
+
+    fn update_bones_for_client_particle_systems_for_owner(
+        &mut self,
+        owner: &crate::object::drawable::DrawableRenderOwner<'_>,
+    ) -> bool {
+        self.update_particle_bones_for_owner(owner)
     }
 
     fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
@@ -317,35 +328,16 @@ impl ObjectDrawInterface for W3DModelDraw {
         bone_name: &AsciiString,
         transform: &mut Matrix3D,
     ) -> bool {
-        // C++ returns false on a null render object and does not write.
-        let Some(state) = self.current_state() else {
-            return false;
-        };
-        if state.model_name.as_str().is_empty() {
-            return false;
-        }
-        let bone_index = state
-            .find_pristine_bone_by_name(bone_name.as_str())
-            .map(|(_, bone)| bone.bone_index)
-            .unwrap_or(0);
-        if bone_index == 0 {
-            *transform = Matrix3D::IDENTITY;
-            return false;
-        }
-        let Some(world_bone) =
-            self.with_owner_drawable(|drawable| drawable.get_bone_transform(bone_name.as_str()))
-        else {
-            *transform = Matrix3D::IDENTITY;
-            return false;
-        };
+        self.client_bone_world_transform(bone_name, transform, None)
+    }
 
-        if let Some(world_bone) = world_bone {
-            *transform = world_bone;
-            true
-        } else {
-            *transform = Matrix3D::IDENTITY;
-            false
-        }
+    fn client_only_get_render_obj_bone_transform_for_owner(
+        &self,
+        owner: &crate::object::drawable::DrawableRenderOwner<'_>,
+        bone_name: &AsciiString,
+        transform: &mut Matrix3D,
+    ) -> bool {
+        self.client_bone_world_transform(bone_name, transform, Some(owner))
     }
 
     fn get_pristine_bone_positions(

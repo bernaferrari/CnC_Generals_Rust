@@ -188,6 +188,14 @@ pub trait DrawModule: Module {
         false
     }
 
+    /// Update from the Drawable that is already driving this callback.
+    fn update_bones_for_client_particle_systems_for_owner(
+        &mut self,
+        _owner: &crate::object::drawable::DrawableRenderOwner<'_>,
+    ) -> bool {
+        self.update_bones_for_client_particle_systems()
+    }
+
     /// Check if this is a laser beam
     ///
     /// # Returns
@@ -291,6 +299,16 @@ pub trait ObjectDrawInterface {
         bone_name: &AsciiString,
         transform: &mut Matrix3D,
     ) -> bool;
+
+    /// Query without rediscovering the already borrowed Drawable.
+    fn client_only_get_render_obj_bone_transform_for_owner(
+        &self,
+        _owner: &crate::object::drawable::DrawableRenderOwner<'_>,
+        bone_name: &AsciiString,
+        transform: &mut Matrix3D,
+    ) -> bool {
+        self.client_only_get_render_obj_bone_transform(bone_name, transform)
+    }
 
     /// Get pristine bone positions for a condition state
     ///

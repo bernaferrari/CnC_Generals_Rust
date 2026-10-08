@@ -223,6 +223,15 @@ impl ObjectDrawInterface for W3DSupplyDraw {
         self.base
             .client_only_get_render_obj_bone_transform(bone_name, transform)
     }
+    fn client_only_get_render_obj_bone_transform_for_owner(
+        &self,
+        owner: &crate::object::drawable::DrawableRenderOwner<'_>,
+        bone_name: &AsciiString,
+        transform: &mut Matrix3D,
+    ) -> bool {
+        self.base
+            .client_only_get_render_obj_bone_transform_for_owner(owner, bone_name, transform)
+    }
     fn get_pristine_bone_positions(
         &self,
         condition: &ModelConditionFlags,

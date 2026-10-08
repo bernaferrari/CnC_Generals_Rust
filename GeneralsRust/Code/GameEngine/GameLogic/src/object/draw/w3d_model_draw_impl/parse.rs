@@ -195,7 +195,6 @@ fn parse_model_condition_info_field(
                 .find(|token| !token.is_empty())
                 .map(INI::parse_ascii_string)
                 .transpose()?
-                .map(|value| value.to_ascii_lowercase())
                 .unwrap_or_default();
             info.particle_sys_bones.push(ParticleSysBoneInfo {
                 bone_name: AsciiString::from(bone_name.as_str()),
@@ -527,4 +526,31 @@ fn parse_ac_bits_flags(tokens: &[&str]) -> Result<u32, INIError> {
         }
     }
     Ok(bits)
+}
+
+#[cfg(test)]
+mod particle_template_identity_tests {
+    use super::*;
+
+    #[test]
+    fn particle_rows_lowercase_bones_and_preserve_template_identity() {
+        let mut data = W3DModelDrawModuleData::new();
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "ConditionState = NONE\nModel = AVTHUNDRBLT\nParticleSysBone = PROJECTORGLOW09 MicrowaveLenzflare\nParticleSysBone = NONE MicrowaveRotisserie\nEnd\nEnd\n",
+            |ini| data.parse_from_ini(ini),
+        ).unwrap();
+        let rows: Vec<_> = data.condition_states[0]
+            .particle_sys_bones
+            .iter()
+            .map(|row| (row.bone_name.as_str(), row.particle_system.as_str()))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("projectorglow09", "MicrowaveLenzflare"),
+                ("none", "MicrowaveRotisserie")
+            ]
+        );
+    }
 }

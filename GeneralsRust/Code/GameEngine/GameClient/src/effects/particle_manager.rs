@@ -2015,7 +2015,7 @@ mod tests {
     }
 
     #[test]
-    fn can_create_particle_frees_slot_when_exactly_at_limit() {
+    fn can_create_particle_preserves_exact_cap_and_rejects_after_excess_eviction() {
         let mut manager = ParticleSystemManager::new();
         manager.set_lod_params(
             2,
@@ -2046,15 +2046,36 @@ mod tests {
         manager.particle_count = 2;
         manager.field_particle_count = 2;
 
+        // C++ ParticleSys.cpp:1699-1708 admits at the cap. Only an
+        // already over-cap population triggers eviction of an older particle.
+        assert_eq!(manager.live_max_particle_count(), 2);
         assert!(manager.can_create_particle(ParticlePriorityType::Buildup));
-        assert_eq!(manager.particle_count(), 1);
+        assert_eq!(manager.particle_count(), 2);
         assert_eq!(
             manager
                 .find_particle_system(system_id)
-                .expect("active system")
+                .unwrap()
                 .particle_count(),
-            1
+            2
         );
+
+        manager
+            .find_particle_system_mut(system_id)
+            .unwrap()
+            .push_particle(crate::effects::particle_system::Particle::new(
+                &crate::effects::particle_system::ParticleInfo::default(),
+                2,
+                2,
+            ));
+        manager.particle_count = 3;
+        manager.field_particle_count = 3;
+        // The C++ unsigned post-decrement in removeOldestParticles reports
+        // requested + 1, so this incoming particle is rejected after eviction.
+        assert!(!manager.can_create_particle(ParticlePriorityType::Buildup));
+        assert_eq!(manager.particle_count(), 2);
+        let system = manager.find_particle_system(system_id).unwrap();
+        assert_eq!(system.particle_count(), 2);
+        assert_eq!(system.particles().front().unwrap().create_timestamp, 1);
     }
 
     /// Residual combat path: death/fire presets create real registry entries
@@ -2070,6 +2091,14 @@ mod tests {
             info.burst_count = GameClientRandomVariable::new(1.0, 1.0);
             info.initial_delay = GameClientRandomVariable::new(0.0, 0.0);
             info.lifetime = GameClientRandomVariable::new(30.0, 30.0);
+            // C++ Alpha particles with unset alpha keys die as invisible.
+            // This fixture observes a visible newborn's lifetime tick.
+            info.alpha_keys[0] = RandomKeyframe {
+                min_value: 1.0,
+                max_value: 1.0,
+                frame: 0,
+                distribution_type: 0,
+            };
             info.system_lifetime = 0;
         }
         let template = Arc::new(template);
@@ -2082,8 +2111,9 @@ mod tests {
         let system = manager
             .find_particle_system(system_id)
             .expect("active system");
-        assert!(
-            system.particle_count() >= 1,
+        assert_eq!(
+            system.particle_count(),
+            1,
             "createParticle must commit before particle update"
         );
         let newborn = system.particles().front().expect("newborn");
@@ -2149,6 +2179,8 @@ mod tests {
 
         let mut info = crate::effects::particle_system::ParticleInfo::default();
         info.lifetime = 2;
+        // Keep the leftover visible until its finite lifetime expires.
+        info.alpha_keys[0].value = 1.0;
         let particle = crate::effects::particle_system::Particle::new(&info, 0, 0);
         manager
             .find_particle_system_mut(system_id)
@@ -2327,3 +2359,7 @@ mod tests {
         assert_eq!(manager.system_count(), 0);
     }
 }
+
+#[cfg(test)]
+#[path = "particle_draw_owner_tests.rs"]
+mod particle_draw_owner_tests;

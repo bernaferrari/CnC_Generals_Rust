@@ -26,6 +26,35 @@ impl<'a> DrawableRenderOwner<'a> {
         self.drawable.test_drawable_status(status)
     }
 
+    pub(crate) fn get_drawable_id(&self) -> DrawableID {
+        self.drawable.get_drawable_id()
+    }
+
+    pub(crate) fn is_drawable_effectively_hidden(&self) -> bool {
+        self.drawable.is_drawable_effectively_hidden()
+    }
+
+    pub(crate) fn get_bone_local_transform(&self, name: &str) -> Option<Matrix3D> {
+        self.drawable.get_bone_local_transform(name)
+    }
+
+    pub(crate) fn get_bone_transform(&self, name: &str) -> Option<Matrix3D> {
+        self.drawable.get_bone_transform(name)
+    }
+
+    /// Preserve ordered current-bone queries while the active entry is borrowed.
+    pub(crate) fn get_current_worldspace_client_bone_positions(
+        &self,
+        current: &dyn ObjectDrawInterface,
+        name: &str,
+    ) -> Option<Matrix3D> {
+        self.drawable
+            .get_current_worldspace_client_bone_positions_for_active(
+                Some((self.current, current)),
+                name,
+            )
+    }
+
     /// Query the original module order without locking the active entry again.
     /// The active interface must belong to the current module (including its base).
     pub(crate) fn get_pristine_bone_positions(

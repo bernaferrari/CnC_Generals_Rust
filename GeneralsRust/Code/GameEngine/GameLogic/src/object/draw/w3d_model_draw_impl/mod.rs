@@ -51,6 +51,7 @@ include!("types.rs");
 include!("module_data.rs");
 include!("recoil.rs");
 include!("draw.rs");
+include!("particles.rs");
 include!("hlod_live_child.rs");
 include!("impl_anim.rs");
 include!("carrying.rs");
@@ -70,6 +71,7 @@ pub const W3D_MODEL_DRAW_SRC: &str = concat!(
     include_str!("mod.rs"),
     include_str!("constants.rs"),
     include_str!("draw.rs"),
+    include_str!("particles.rs"),
     include_str!("hlod_live_child.rs"),
     include_str!("impl_anim.rs"),
     include_str!("module_data.rs"),
