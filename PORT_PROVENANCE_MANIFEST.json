@@ -28193,6 +28193,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/pristine_bone_aggregation_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -60803,6 +60810,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/physics_interfaces.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/pristine_bone_aggregation_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -157885,7 +157899,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "2cb93da0c9a670c918d72388a963f062645b3bacb75697bd4d2c18f9261fb2f0",
+  "input_digest": "35ed00622523e9ee3a36efefc7c1fc4cc3ae7b7f96a15e47834e12a32bec3daf",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -202337,11 +202351,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 803,
+        "end_line": 757,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/drawable_update.rs",
-      "sha256": "aace9122a1585f1cea9b5878e13f0223b415421005597f915cfe172d6525eba9",
+      "sha256": "8b350199e4ef36d8c5c90e7262b413f7f5d4749cdd5ee433faef65b8eae79868",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -202966,6 +202980,18 @@
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/physics_interfaces.rs",
       "sha256": "4d33143d4f8295cddcce90ec6a7ec77b330aada0a1bcfd595eeb905e428a6ac2",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 338,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/pristine_bone_aggregation_tests.rs",
+      "sha256": "a4bf428fd4734ad07d430115d8e00a62aab0887970f3b7f864653eb0293d618f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

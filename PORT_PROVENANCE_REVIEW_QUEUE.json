@@ -52607,6 +52607,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/pristine_bone_aggregation_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/production/build_cost_calculator.rs"
             },
@@ -189088,7 +189093,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "2cb93da0c9a670c918d72388a963f062645b3bacb75697bd4d2c18f9261fb2f0",
+  "provenance_input_digest": "35ed00622523e9ee3a36efefc7c1fc4cc3ae7b7f96a15e47834e12a32bec3daf",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

@@ -422,61 +422,18 @@ impl Drawable {
         None
     }
 
-    /// Get pristine bone transforms by prefix (approximation of C++ getPristineBonePositions).
+    /// Get pristine bone transforms from ordered draw-module results.
     pub fn get_pristine_bone_transforms(
         &self,
         bone_name_prefix: &str,
         start_index: usize,
         max_bones: usize,
     ) -> Vec<Matrix3D> {
-        let condition = self.model_conditions;
-        let mut positions = vec![Coord3D::origin(); max_bones];
-        let mut transforms = vec![Matrix3D::IDENTITY; max_bones];
-        for module_handle in self.modules() {
-            let count = module_handle.with_module(|module| {
-                let mut count = 0;
-                with_object_draw_interface_mut(module, |draw_module| {
-                    count = draw_module.get_pristine_bone_positions(
-                        &condition,
-                        bone_name_prefix,
-                        start_index as i32,
-                        &mut positions,
-                        &mut transforms,
-                        max_bones,
-                    );
-                });
-                count
-            });
-
-            if count > 0 {
-                return transforms.into_iter().take(count).collect();
-            }
-        }
-
-        let mut matches: Vec<&BoneData> = if start_index == 0 {
-            self.skeleton
-                .iter()
-                .filter(|bone| bone.name == bone_name_prefix)
-                .collect()
-        } else {
-            self.skeleton
-                .iter()
-                .filter(|bone| bone.name.starts_with(bone_name_prefix))
-                .collect()
-        };
-
-        matches.sort_by(|a, b| a.name.cmp(&b.name));
-
-        let skip = start_index.saturating_sub(1);
-        matches
-            .into_iter()
-            .skip(skip)
-            .take(max_bones)
-            .filter_map(|bone| self.get_bone_transform(&bone.name))
-            .collect()
+        self.query_pristine_bones_for_active(None, bone_name_prefix, start_index, max_bones)
+            .1
     }
 
-    /// Get pristine bone positions (local space) by prefix.
+    /// Get pristine bone positions (local space) from ordered draw-module results.
     pub fn get_pristine_bone_positions(
         &self,
         bone_name_prefix: &str,
@@ -493,10 +450,29 @@ impl Drawable {
         start_index: usize,
         max_bones: usize,
     ) -> Vec<Coord3D> {
+        self.query_pristine_bones_for_active(active, bone_name_prefix, start_index, max_bones)
+            .0
+    }
+
+    /// C++ Drawable.cpp:747-770 appends both outputs in the original module
+    /// order. Every module receives the same condition and start index; only
+    /// its output cursor and remaining capacity change after a positive result.
+    fn query_pristine_bones_for_active(
+        &self,
+        active: Option<(&DrawModuleEntry, &dyn ObjectDrawInterface)>,
+        bone_name_prefix: &str,
+        start_index: usize,
+        max_bones: usize,
+    ) -> (Vec<Coord3D>, Vec<Matrix3D>) {
         let condition = self.model_conditions;
         let mut positions = vec![Coord3D::origin(); max_bones];
         let mut transforms = vec![Matrix3D::IDENTITY; max_bones];
+        let mut total = 0;
         for entry in &self.modules {
+            let remaining = max_bones - total;
+            if remaining == 0 {
+                break;
+            }
             let count = if let Some((_, interface)) =
                 active.filter(|(current, _)| std::ptr::eq(entry.as_ref(), *current))
             {
@@ -504,9 +480,9 @@ impl Drawable {
                     &condition,
                     bone_name_prefix,
                     start_index as i32,
-                    &mut positions,
-                    &mut transforms,
-                    max_bones,
+                    &mut positions[total..],
+                    &mut transforms[total..],
+                    remaining,
                 )
             } else {
                 entry.with_module(|module| {
@@ -516,47 +492,21 @@ impl Drawable {
                             &condition,
                             bone_name_prefix,
                             start_index as i32,
-                            &mut positions,
-                            &mut transforms,
-                            max_bones,
+                            &mut positions[total..],
+                            &mut transforms[total..],
+                            remaining,
                         );
                     });
                     count
                 })
             };
-
-            if count > 0 {
-                return positions.into_iter().take(count).collect();
-            }
+            // A module may only return the prefix it filled in the supplied
+            // slices. Keep the cursor bounded even if a module violates that contract.
+            total += count.min(remaining);
         }
-
-        let mut matches: Vec<(usize, &BoneData)> = if start_index == 0 {
-            self.skeleton
-                .iter()
-                .enumerate()
-                .filter(|(_, bone)| bone.name == bone_name_prefix)
-                .collect()
-        } else {
-            self.skeleton
-                .iter()
-                .enumerate()
-                .filter(|(_, bone)| bone.name.starts_with(bone_name_prefix))
-                .collect()
-        };
-
-        matches.sort_by(|a, b| a.1.name.cmp(&b.1.name));
-
-        let skip = start_index.saturating_sub(1);
-        matches
-            .into_iter()
-            .skip(skip)
-            .take(max_bones)
-            .filter_map(|(index, _)| self.bone_transforms.get(index).copied())
-            .map(|transform| {
-                let (_, _, translation) = transform.to_scale_rotation_translation();
-                translation
-            })
-            .collect()
+        positions.truncate(total);
+        transforms.truncate(total);
+        (positions, transforms)
     }
 
     /// Update damage state based on health percentage
@@ -800,3 +750,7 @@ impl Drawable {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "pristine_bone_aggregation_tests.rs"]
+mod pristine_bone_aggregation_tests;
