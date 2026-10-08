@@ -1,6 +1,7 @@
 //! Shared C++ AI.cpp target selection, attack priorities and vision rules.
 //! Native callers borrow the source; ID-based entrypoints are compatibility adapters.
 use super::*;
+use crate::weapon::WeaponSlotType;
 
 pub fn resolve_attack_priority_info_for_object(owner_id: ObjectID) -> Option<AttackPriorityInfo> {
     resolve_attack_priority_info(owner_id, || {
@@ -102,205 +103,125 @@ impl AI {
     /// retains its source borrow; only candidate IDs use the active registry.
     pub(crate) fn find_closest_enemy_for_source(
         &self,
-        me_guard: &Object,
+        source: &Object,
         range: Real,
         qualifiers: u32,
         info: Option<&AttackPriorityInfo>,
         optional_filter: Option<&dyn PartitionFilter>,
     ) -> Result<Option<ObjectId>, AiError> {
-        if (qualifiers & search_qualifiers::CAN_ATTACK) != 0 && !me_guard.is_able_to_attack() {
+        if qualifiers & search_qualifiers::CAN_ATTACK != 0 && !source.is_able_to_attack() {
             return Ok(None);
         }
-
         let Some(partition) = ThePartitionManager::get() else {
             return Ok(None);
         };
-
-        let me = me_guard.get_id();
-        let me_pos = *me_guard.get_position();
-        let candidates =
-            partition.get_objects_in_range_with_borrowed_positions(&me_pos, range, &[(me, me_pos)]);
-        // C++ AI.cpp:651 — NULL or default AttackPriorityInfo is closest-first.
-        let use_priority = info.is_some_and(|i| !i.get_name().is_empty());
+        let source_id = source.get_id();
+        let source_pos = *source.get_position();
+        let candidates = partition.get_objects_in_range_with_borrowed_positions(
+            &source_pos,
+            range,
+            &[(source_id, source_pos)],
+        );
+        // C++ AI.cpp:642-646: null/default uses closest selection, not priorities.
+        let priority_info = info.filter(|info| !info.get_name().is_empty());
         let mut closest_id = None;
-        let mut closest_dist_sqr = range * range + 1.0;
-
-        let mut best_enemy = None;
-        let mut effective_priority = 0;
-        let mut actual_priority = 0;
-        let attack_priority_modifier = self.ai_data.attack_priority_distance_modifier;
+        let mut closest_distance = range * range + 1.0;
+        let mut priority_candidates = Vec::new();
 
         for target_id in candidates {
-            if target_id == me {
+            if target_id == source_id {
                 continue;
             }
-
-            // Collect candidate evaluation without retaining Arc handles.
-            let Some(eval) = OBJECT_REGISTRY.with_object(target_id, |target| {
-                if target.is_effectively_dead() {
-                    return None;
-                }
-                if me_guard.is_off_map() != target.is_off_map() {
-                    return None;
-                }
-                if me_guard.relationship_to(&target) != Relationship::Enemies {
-                    return None;
-                }
-                if (qualifiers & search_qualifiers::ATTACK_BUILDINGS) == 0
-                    && target.is_kind_of(KindOf::Structure)
-                    && !target.is_able_to_attack()
-                {
-                    return None;
-                }
-                if (qualifiers & search_qualifiers::IGNORE_INSIGNIFICANT_BUILDINGS) != 0
-                    && target.is_kind_of(KindOf::Structure)
-                    && !target.is_kind_of(KindOf::CountsForVictory)
-                {
-                    return None;
-                }
-                if (qualifiers & search_qualifiers::CAN_SEE) != 0 {
-                    let target_pos = *target.get_position();
-                    let me_eye = elevated_eye(me_guard, &me_pos);
-                    let target_eye = elevated_eye(target, &target_pos);
-                    if !crate::object::collide::partition_manager::PartitionManager::is_clear_line_of_sight_terrain(
-                        None,
-                        &to_collide_coord(&me_eye),
-                        None,
-                        &to_collide_coord(&target_eye),
-                    ) {
-                        return None;
-                    }
-                }
-                if (qualifiers & search_qualifiers::UNFOGGED) != 0 {
-                    let player_index = me_guard
-                        .with_controlling_player(|guard| guard.get_player_index())
-                        .unwrap_or(-1);
-                    if target.get_shrouded_status(player_index)
-                        != crate::common::ObjectShroudStatus::Clear
-                    {
-                        return None;
-                    }
-                }
-                if target.is_stealthed() && !target.is_detected() {
-                    return None;
-                }
-
-                let attack_result = if (qualifiers
-                    & (search_qualifiers::CAN_ATTACK
-                        | search_qualifiers::WITHIN_ATTACK_RANGE))
-                    != 0
-                {
-                    Some(me_guard.get_able_to_attack_specific_object_for_objects(
-                        AbleToAttackType::NewTarget,
-                        &target,
-                        CommandSourceType::FromAi,
-                    ))
-                } else {
-                    None
-                };
-
-                if (qualifiers & search_qualifiers::CAN_ATTACK) != 0 {
-                    if matches!(
-                        attack_result,
-                        Some(CanAttackResult::NotPossible | CanAttackResult::InvalidShot)
-                    ) {
-                        return None;
-                    }
-                }
-                if (qualifiers & search_qualifiers::WITHIN_ATTACK_RANGE) != 0 {
-                    if !matches!(attack_result, Some(CanAttackResult::Possible)) {
-                        return None;
-                    }
-                }
-
-                let dist_sqr = ThePartitionManager::get_distance_squared(
-                    &me_guard,
-                    &target,
-                    FROM_BOUNDING_SPHERE_2D,
-                );
-
-                let template_name = target.get_template().get_name().to_string();
-                let contained_ids = target
-                    .get_contain()
-                    .and_then(|contain| {
-                        contain
-                            .lock()
-                            .ok()
-                            .map(|cg| cg.get_contained_objects().into_owned())
-                    })
-                    .unwrap_or_default();
-
-                Some((dist_sqr, template_name, contained_ids))
-                }).flatten()
+            let Some(distance) = OBJECT_REGISTRY
+                .with_object(target_id, |target| {
+                    // PartitionManager.cpp:3358-3370 computes distance before filters.
+                    let distance = ThePartitionManager::get_distance_squared(
+                        source,
+                        target,
+                        FROM_BOUNDING_SPHERE_2D,
+                    );
+                    target_passes_builtin_filters(source, target, qualifiers).then_some(distance)
+                })
+                .flatten()
             else {
                 continue;
             };
-
-            let (dist_sqr, template_name, contained_ids) = eval;
-
-            if let Some(filter) = optional_filter {
-                if !filter.allow(target_id) {
-                    continue;
-                }
-            }
-
-            if !use_priority {
-                if dist_sqr < closest_dist_sqr {
-                    closest_dist_sqr = dist_sqr;
-                    closest_id = Some(target_id);
-                }
+            // No target guard spans the user callback; it may change containment.
+            if optional_filter.is_some_and(|filter| !filter.allow(target_id)) {
                 continue;
             }
+            if priority_info.is_some() {
+                priority_candidates.push((target_id, distance));
+            } else if distance < closest_distance {
+                closest_distance = distance;
+                closest_id = Some(target_id);
+            }
+        }
 
-            let priority_info = match info {
-                Some(info) => info,
-                None => continue,
+        let Some(priority_info) = priority_info else {
+            return Ok(closest_id);
+        };
+        // C++ iterateObjectsInRange completes every filter, then sorts the iterator.
+        // Only afterwards does AI.cpp:660-700 inspect live priority/contained data.
+        priority_candidates
+            .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        let mut best_enemy = None;
+        let mut effective_priority = 0;
+        let mut actual_priority = 0;
+        let distance_modifier = self.ai_data.attack_priority_distance_modifier;
+        for (target_id, _) in priority_candidates {
+            let Some((mut priority, contained_ids, distance)) = OBJECT_REGISTRY
+                .with_object(target_id, |target| {
+                    let priority =
+                        priority_info.get_priority(target.get_template().get_name().as_str());
+                    if priority == 0 {
+                        return None;
+                    }
+                    let contained_ids = target
+                        .get_contain()
+                        .and_then(|contain| {
+                            contain
+                                .lock()
+                                .ok()
+                                .map(|contain| contain.get_contained_objects().into_owned())
+                        })
+                        .unwrap_or_default();
+                    // AI.cpp:685 recalculates distance after the filtered iterator.
+                    let distance = ThePartitionManager::get_distance_squared(
+                        source,
+                        target,
+                        FROM_BOUNDING_SPHERE_2D,
+                    );
+                    Some((priority, contained_ids, distance))
+                })
+                .flatten()
+            else {
+                continue;
             };
-            let mut current_priority = priority_info.get_priority(template_name.as_str());
-            if current_priority == 0 {
-                continue;
-            }
-
-            // C++ AI.cpp lines 669-679: garrisoned contents can raise priority.
             for contained_id in contained_ids {
-                if let Some(contained_priority) =
-                    OBJECT_REGISTRY.with_object(contained_id, |contained_obj| {
-                        let contained_template_name =
-                            contained_obj.get_template().get_name().as_str();
-                        priority_info.get_priority(contained_template_name)
+                if let Some(contained_priority) = OBJECT_REGISTRY
+                    .with_object(contained_id, |member| {
+                        priority_info.get_priority(member.get_template().get_name().as_str())
                     })
                 {
-                    if contained_priority > current_priority {
-                        current_priority = contained_priority;
-                    }
+                    priority = priority.max(contained_priority);
                 }
             }
-
-            let dist = dist_sqr.sqrt();
-            let modifier = if attack_priority_modifier > 0.0 {
-                (dist / attack_priority_modifier) as i32
+            let penalty = if distance_modifier > 0.0 {
+                (distance.sqrt() / distance_modifier) as i32
             } else {
                 0
             };
-            let mut modified_priority = current_priority - modifier;
-            if modified_priority < 1 {
-                modified_priority = 1;
-            }
-
+            let modified_priority = (priority - penalty).max(1);
             if modified_priority > effective_priority
-                || (modified_priority == effective_priority && current_priority > actual_priority)
+                || (modified_priority == effective_priority && priority > actual_priority)
             {
                 effective_priority = modified_priority;
-                actual_priority = current_priority;
+                actual_priority = priority;
                 best_enemy = Some(target_id);
             }
         }
-
-        if use_priority {
-            Ok(best_enemy)
-        } else {
-            Ok(closest_id)
-        }
+        Ok(best_enemy)
     }
 
     pub fn get_adjusted_vision_range_for_object(
@@ -374,4 +295,75 @@ impl AI {
 
         range
     }
+}
+
+/// Keep short-circuit calls in C++ AI.cpp:613-639 order. Detailed building,
+/// garrison/disguise and obstacle predicates remain tracked in hq-wlrfy.
+fn target_passes_builtin_filters(source: &Object, target: &Object, qualifiers: u32) -> bool {
+    if target.is_effectively_dead()
+        || source.is_off_map() != target.is_off_map()
+        || source.relationship_to(target) != Relationship::Enemies
+    {
+        return false;
+    }
+    if qualifiers & search_qualifiers::ATTACK_BUILDINGS == 0
+        && target.is_kind_of(KindOf::Structure)
+        && !target.is_able_to_attack()
+    {
+        return false;
+    }
+    // AI.cpp:512-535 tests each real weapon's range, independently of eligibility.
+    if qualifiers & search_qualifiers::WITHIN_ATTACK_RANGE != 0
+        && ![
+            WeaponSlotType::Primary,
+            WeaponSlotType::Secondary,
+            WeaponSlotType::Tertiary,
+        ]
+        .into_iter()
+        .any(|slot| {
+            source
+                .get_weapon_in_weapon_slot(slot)
+                .is_some_and(|weapon| {
+                    weapon.is_within_attack_range_for_objects(source, Some(target), None)
+                })
+        })
+    {
+        return false;
+    }
+    if qualifiers & search_qualifiers::CAN_SEE != 0 {
+        let source_eye = elevated_eye(source, source.get_position());
+        let target_eye = elevated_eye(target, target.get_position());
+        if !crate::object::collide::partition_manager::PartitionManager::is_clear_line_of_sight_terrain(
+            None, &to_collide_coord(&source_eye), None, &to_collide_coord(&target_eye),
+        ) {
+            return false;
+        }
+    }
+    if qualifiers & search_qualifiers::CAN_ATTACK != 0
+        && !matches!(
+            source.get_able_to_attack_specific_object_for_objects(
+                AbleToAttackType::NewTarget,
+                target,
+                CommandSourceType::FromAi,
+            ),
+            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+        )
+    {
+        return false;
+    }
+    if qualifiers & search_qualifiers::UNFOGGED != 0 {
+        let player_index = source
+            .with_controlling_player(|player| player.get_player_index())
+            .unwrap_or(-1);
+        if target.get_shrouded_status(player_index) != crate::common::ObjectShroudStatus::Clear {
+            return false;
+        }
+    }
+    if qualifiers & search_qualifiers::IGNORE_INSIGNIFICANT_BUILDINGS != 0
+        && target.is_kind_of(KindOf::Structure)
+        && !target.is_kind_of(KindOf::CountsForVictory)
+    {
+        return false;
+    }
+    !(target.is_stealthed() && !target.is_detected())
 }

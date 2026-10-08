@@ -384,3 +384,6 @@ fn native_mood_passive_with_no_damage_has_no_target() {
 
 #[path = "factory_mood_policy_tests.rs"]
 mod policy;
+
+#[path = "factory_target_filter_tests.rs"]
+mod target_filters;
