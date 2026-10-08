@@ -141,6 +141,7 @@ impl CacheStats {
 struct AudioCacheState {
     cache: HashMap<PathBuf, OpenAudioFile>,
     current_size: usize,
+    max_size: usize,
     access_order: VecDeque<PathBuf>,
     stats: CacheStats,
     search_paths: Vec<PathBuf>,
@@ -156,9 +157,6 @@ struct AudioCacheState {
 /// This cache retains the operation-wide transaction mutex from C++ while
 /// storing its interrelated Rust bookkeeping behind one read/write lock.
 pub struct AudioFileCache {
-    /// Maximum allowed cache size. This remains immutable in this bounded
-    /// consolidation to preserve the existing Rust set_max_size behavior.
-    max_size: usize,
     /// Serializes cache transactions across file I/O and loader callbacks.
     operation_lock: Mutex<()>,
     /// Cache state is locked only for in-memory phases; never across I/O.
@@ -169,11 +167,11 @@ impl AudioFileCache {
     /// Create a new audio file cache with specified maximum size
     pub fn new(max_size: usize) -> Self {
         Self {
-            max_size,
             operation_lock: Mutex::new(()),
             state: RwLock::new(AudioCacheState {
                 cache: HashMap::new(),
                 current_size: 0,
+                max_size,
                 access_order: VecDeque::new(),
                 stats: CacheStats {
                     current_size: 0,
@@ -212,13 +210,8 @@ impl AudioFileCache {
     pub fn set_max_size(&self, max_size: usize) {
         let _lock = self.operation_lock.lock().unwrap();
         let mut state = self.state.write().unwrap();
-
-        let old_max_size = self.max_size;
-        // Preserve the existing Rust contract: max_size is immutable, while
-        // this call may clean up and update the reported statistics value.
-        if max_size < old_max_size {
-            self.ensure_space_available(&mut state, 0); // Force cleanup
-        }
+        // C++ setMaxSize only updates the limit; later misses handle pressure.
+        state.max_size = max_size;
         state.stats.max_size = max_size;
     }
 
@@ -286,7 +279,7 @@ impl AudioFileCache {
         };
         let file_size = data.len();
         let mut state = self.state.write().unwrap();
-        if !self.ensure_space_available(&mut state, file_size) {
+        if !Self::ensure_space_available(&mut state, file_size) {
             state.stats.miss_count += 1;
             return None;
         }
@@ -354,7 +347,7 @@ impl AudioFileCache {
     /// Get current cache size and entry count
     pub fn cache_info(&self) -> (usize, usize, usize) {
         let state = self.state.read().unwrap();
-        (state.current_size, self.max_size, state.cache.len())
+        (state.current_size, state.max_size, state.cache.len())
     }
 
     /// Clear all cached files
@@ -405,9 +398,9 @@ impl AudioFileCache {
 
     /// Get memory usage information
     pub fn memory_info(&self) -> (usize, usize, f64) {
-        let current_size = self.state.read().unwrap().current_size;
-        let usage_percent = (current_size as f64 / self.max_size as f64) * 100.0;
-        (current_size, self.max_size, usage_percent)
+        let state = self.state.read().unwrap();
+        let usage_percent = (state.current_size as f64 / state.max_size as f64) * 100.0;
+        (state.current_size, state.max_size, usage_percent)
     }
 
     /// Get list of currently cached files
@@ -444,7 +437,7 @@ impl AudioFileCache {
             Ok(data) => {
                 let file_size = data.len();
                 let mut state = self.state.write().unwrap();
-                if !self.ensure_space_available(&mut state, file_size) {
+                if !Self::ensure_space_available(&mut state, file_size) {
                     return false;
                 }
                 let sound_info = self.analyze_audio_file(&data);
@@ -499,7 +492,7 @@ impl AudioFileCache {
         file_data: Vec<u8>,
     ) -> Option<Arc<Vec<u8>>> {
         let file_size = file_data.len();
-        if !self.ensure_space_available(state, file_size) {
+        if !Self::ensure_space_available(state, file_size) {
             eprintln!(
                 "Not enough cache space for file {:?} (size: {})",
                 file_path, file_size
@@ -570,11 +563,11 @@ impl AudioFileCache {
         None
     }
 
-    fn ensure_space_available(&self, state: &mut AudioCacheState, needed_size: usize) -> bool {
-        if needed_size > self.max_size {
+    fn ensure_space_available(state: &mut AudioCacheState, needed_size: usize) -> bool {
+        if needed_size > state.max_size {
             return false;
         }
-        if state.current_size + needed_size <= self.max_size {
+        if state.current_size + needed_size <= state.max_size {
             return true;
         }
 
@@ -590,7 +583,7 @@ impl AudioFileCache {
         }
         files_to_remove.sort_by_key(|&(_, _, priority)| priority);
         for (path, file_size, _) in files_to_remove {
-            if state.current_size + needed_size <= self.max_size {
+            if state.current_size + needed_size <= state.max_size {
                 break;
             }
             state.cache.remove(&path);
@@ -600,7 +593,7 @@ impl AudioFileCache {
                 state.access_order.remove(pos);
             }
         }
-        let result = state.current_size + needed_size <= self.max_size;
+        let result = state.current_size + needed_size <= state.max_size;
         state.stats.entry_count = state.cache.len();
         state.stats.current_size = state.current_size;
         result
