@@ -1200,3 +1200,6 @@ fn explicit_locality_admits_registered_events_with_complete_cpp_player_facts() {
         }
     }
 }
+
+#[path = "tests/positional_audio_divisor_tests.rs"]
+mod positional_audio_divisor_tests;

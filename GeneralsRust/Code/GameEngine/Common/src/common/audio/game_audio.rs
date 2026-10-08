@@ -2535,7 +2535,9 @@ impl AudioManager {
                     let vol_for_consideration = {
                         let effective = self.get_effective_volume(&event);
                         if self.sound_3d_volume > 0.0 {
-                            effective / self.sound_volume.max(f32::EPSILON)
+                            // C++ keeps the raw divisor: 0/0 is NaN and skips the
+                            // threshold comparison; tiny values must not be clamped.
+                            effective / self.sound_volume
                         } else {
                             effective
                         }
