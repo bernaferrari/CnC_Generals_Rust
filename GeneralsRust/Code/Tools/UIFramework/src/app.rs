@@ -40,6 +40,16 @@ impl ToolApp {
         })
     }
 
+    // The native app creator uses this boundary before exposing an App to the loop.
+    fn initialize_for_run(mut self, ctx: &egui::Context) -> Result<Self> {
+        self.theme_manager.apply_theme(ctx);
+        self.tool.initialize().map_err(|error| {
+            error!("Failed to initialize tool: {}", error);
+            error
+        })?;
+        Ok(self)
+    }
+
     /// Shared chrome (menu bar, palette, status, dock layout).
     pub fn chrome(&self) -> &Chrome {
         &self.chrome
@@ -51,7 +61,7 @@ impl ToolApp {
     }
 
     /// Run the application
-    pub fn run(mut self) -> Result<()> {
+    pub fn run(self) -> Result<()> {
         let mut viewport_builder = egui::ViewportBuilder::default()
             .with_inner_size([self.config.window_size[0], self.config.window_size[1]])
             .with_resizable(true)
@@ -79,15 +89,9 @@ impl ToolApp {
                     info!("Graphics context initialized");
                 }
 
-                // Apply theme
-                self.theme_manager.apply_theme(&cc.egui_ctx);
-
-                // Initialize tool
-                if let Err(e) = self.tool.initialize() {
-                    error!("Failed to initialize tool: {}", e);
-                }
-
-                Ok(Box::new(self))
+                self.initialize_for_run(&cc.egui_ctx)
+                    .map(|app| Box::new(app) as Box<dyn eframe::App>)
+                    .map_err(anyhow::Error::into_boxed_dyn_error)
             }),
         )
         .map_err(|e| UIError::WindowCreationFailed(e.to_string()))?;
@@ -333,3 +337,7 @@ impl PerformanceMonitor {
         self.memory_usage = 0.0; // Placeholder
     }
 }
+
+#[cfg(test)]
+#[path = "app_startup_tests.rs"]
+mod startup_tests;
