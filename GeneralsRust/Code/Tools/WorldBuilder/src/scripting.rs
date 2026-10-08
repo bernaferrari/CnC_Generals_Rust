@@ -11,6 +11,7 @@ pub struct ScriptEditor {
     syntax_highlighter: SyntaxHighlighter,
     script_validator: ScriptValidator,
     dirty: bool,
+    script_engine: Option<gamelogic::scripting::engine::ScriptEngine>,
 }
 
 impl ScriptEditor {
@@ -21,10 +22,23 @@ impl ScriptEditor {
             syntax_highlighter: SyntaxHighlighter::new(),
             script_validator: ScriptValidator::new(),
             dirty: false,
+            script_engine: None,
         }
     }
 
     pub fn initialize(&mut self) -> Result<()> {
+        self.initialize_with_script_templates(std::path::Path::new("Data/Scripts/Scripts.ini"))
+    }
+
+    fn initialize_with_script_templates(&mut self, filename: &std::path::Path) -> Result<()> {
+        if self.script_engine.is_none() {
+            // WorldBuilder.cpp:375-380 initializes authored templates, disables
+            // breeze, then reads the editor-only labels through the engine INI authority.
+            let mut engine = gamelogic::scripting::engine::ScriptEngine::new()?;
+            engine.turn_breeze_off();
+            engine.load_template_labels(filename)?;
+            self.script_engine = Some(engine);
+        }
         self.syntax_highlighter.load_syntax_definitions()?;
         Ok(())
     }
@@ -437,4 +451,43 @@ pub enum ErrorType {
     Syntax,
     Runtime,
     Logic,
+}
+
+#[cfg(test)]
+mod template_startup_tests {
+    use super::*;
+    use gamelogic::scripting::core::ScriptActionType;
+
+    #[test]
+    fn constructor_is_inert_and_startup_applies_labels_to_the_editor_engine() {
+        let file = tempfile::Builder::new().suffix(".ini").tempfile().unwrap();
+        std::fs::write(
+            file.path(),
+            "ScriptAction\nInternalName = SET_FLAG\nUIName = EditorFlag\nEnd\n",
+        )
+        .unwrap();
+        let mut editor = ScriptEditor::new();
+        assert!(editor.script_engine.is_none());
+        editor
+            .initialize_with_script_templates(file.path())
+            .unwrap();
+        let engine = editor.script_engine.as_ref().unwrap();
+        let template = engine
+            .get_action_template(ScriptActionType::SetFlag as usize)
+            .unwrap();
+        assert_eq!(template.base.ui_name, "EditorFlag");
+        assert_eq!(template.base.internal_name, "SET_FLAG");
+    }
+
+    #[test]
+    fn missing_script_ini_is_a_startup_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut editor = ScriptEditor::new();
+        assert!(
+            editor
+                .initialize_with_script_templates(&directory.path().join("missing.ini"))
+                .is_err()
+        );
+        assert!(editor.script_engine.is_none());
+    }
 }

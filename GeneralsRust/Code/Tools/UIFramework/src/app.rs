@@ -10,7 +10,8 @@ use std::sync::Arc;
 
 /// Modern application framework for game development tools
 pub struct ToolApp {
-    tool: Box<dyn GameTool + Send + Sync>,
+    /// Owned by the driving UI thread; workers do not borrow the tool.
+    tool: Box<dyn GameTool>,
     config: ToolConfig,
     theme_manager: ThemeManager,
     hot_reload: Arc<RwLock<crate::hot_reload::HotReloadManager>>,
@@ -20,7 +21,7 @@ pub struct ToolApp {
 
 impl ToolApp {
     /// Create a new tool application
-    pub fn new(tool: Box<dyn GameTool + Send + Sync>) -> Result<Self> {
+    pub fn new(tool: Box<dyn GameTool>) -> Result<Self> {
         let config = tool.config().clone();
         let theme_manager = ThemeManager::new(config.theme);
         let hot_reload = Arc::new(RwLock::new(crate::hot_reload::HotReloadManager::new(

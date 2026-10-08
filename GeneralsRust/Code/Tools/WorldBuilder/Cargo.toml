@@ -43,6 +43,7 @@ chrono = { workspace = true, features = ["serde"] }
 # ww3d = { workspace = true }
 # wwmath = { workspace = true }
 game_engine = { path = "../../GameEngine/Common" }
+gamelogic = { path = "../../GameEngine/GameLogic" }
 
 # Async
 tokio = { workspace = true, features = ["rt-multi-thread", "fs"] }

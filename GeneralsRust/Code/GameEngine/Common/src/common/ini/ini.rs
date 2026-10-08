@@ -215,6 +215,7 @@ pub struct INI {
     /// C++ INI.cpp:458-463 feeds the active load's CRC, in line order.
     /// This parser already has exclusive access through `&mut self`.
     xfer: Option<XferCRC<XferLoad<Cursor<Vec<u8>>>>>,
+    script_template_definitions: Vec<super::ini_script::ScriptTemplateDefinition>,
     #[cfg(debug_assertions)]
     cur_block_start: String,
 }
@@ -1197,6 +1198,7 @@ impl INI {
             eof_pending: false,
             tolerant_blocks: false,
             xfer: None,
+            script_template_definitions: Vec::new(),
             #[cfg(debug_assertions)]
             cur_block_start: String::new(),
         }
@@ -1218,6 +1220,21 @@ impl INI {
 
     pub fn take_xfer(&mut self) -> Option<XferCRC<XferLoad<Cursor<Vec<u8>>>>> {
         self.xfer.take()
+    }
+
+    /// Move completed script-label blocks to the driving engine, in source order.
+    /// Completed blocks remain available even if a later block fails to parse.
+    pub fn take_script_template_definitions(
+        &mut self,
+    ) -> Vec<super::ini_script::ScriptTemplateDefinition> {
+        std::mem::take(&mut self.script_template_definitions)
+    }
+
+    pub(super) fn push_script_template_definition(
+        &mut self,
+        definition: super::ini_script::ScriptTemplateDefinition,
+    ) {
+        self.script_template_definitions.push(definition);
     }
 
     /// Check if a filename is a valid INI filename

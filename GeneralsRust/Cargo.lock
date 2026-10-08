@@ -15240,6 +15240,7 @@ dependencies = [
  "egui",
  "env_logger",
  "game_engine",
+ "gamelogic",
  "glam 0.33.7",
  "image",
  "log",

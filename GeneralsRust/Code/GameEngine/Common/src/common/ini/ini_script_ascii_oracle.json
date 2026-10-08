@@ -1,0 +1,42 @@
+[
+  {
+    "line": "UIName = Label:KEY",
+    "value": "Label:KEY"
+  },
+  {
+    "line": "UIName = bare words",
+    "value": "bare"
+  },
+  {
+    "line": "UIName = \"two words\"",
+    "value": "two words"
+  },
+  {
+    "line": "UIName = \"a b\"",
+    "value": "ab"
+  },
+  {
+    "line": "UIName = \"two  words\"",
+    "value": "two  words"
+  },
+  {
+    "line": "UIName = \"  two spaces\"",
+    "value": "  two spaces"
+  },
+  {
+    "line": "UIName = \"x\"",
+    "value": "x"
+  },
+  {
+    "line": "UIName = \"\"",
+    "value": ""
+  },
+  {
+    "line": "UIName =",
+    "value": ""
+  },
+  {
+    "line": "UIName = \"one\" trailing",
+    "value": "one\" trailing"
+  }
+]
