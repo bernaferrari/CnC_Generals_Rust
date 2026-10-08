@@ -61,7 +61,7 @@ impl DrawModule for W3DModelDraw {
     fn do_draw_module_for_owner(
         &mut self,
         transform_mtx: &Matrix3D,
-        driver: Option<&crate::object::drawable::Drawable>,
+        driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
     ) {
         // C++: setPauseAnimation(!getDrawable()->getShouldAnimate(m_animationsRequirePower))
         let should_animate = driver
@@ -128,7 +128,7 @@ impl DrawModule for W3DModelDraw {
         // This Rust bridge represents an absent/empty state as no render model.
         // Asset admission for a named model is a separate renderer boundary.
         let adjusted = if self.has_render_model() {
-            self.adjust_transform_mtx(&source)
+            self.adjust_transform_mtx_for_owner(&source, driver)
         } else {
             source
         };

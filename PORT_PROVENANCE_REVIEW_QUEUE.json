@@ -52168,6 +52168,11 @@
             {
               "cargo_reachable": true,
               "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_model_draw_impl/render_attachment_owner_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_model_draw_impl/render_owner_tests.rs"
             },
             {
@@ -52314,6 +52319,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/drawable_render.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/drawable_render_owner.rs"
             },
             {
               "cargo_reachable": true,
@@ -189068,7 +189078,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "b39ef54520e0d687e1d1888091a5f7755369e2c36ba6f5104b32fc7e242166d8",
+  "provenance_input_digest": "be696dbb2c7797c5691e9189dffe2161b3021a27dda27d25e6413f2d153ae76b",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

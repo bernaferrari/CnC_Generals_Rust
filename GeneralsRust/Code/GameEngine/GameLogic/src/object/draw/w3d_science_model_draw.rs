@@ -165,7 +165,7 @@ impl DrawModule for W3DScienceModelDraw {
     fn do_draw_module_for_owner(
         &mut self,
         transform_mtx: &Matrix3D,
-        driver: Option<&crate::object::drawable::Drawable>,
+        driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
     ) {
         if leftover_science_model_should_hide(self.data.required_science) {
             DrawModule::set_hidden(self, true);

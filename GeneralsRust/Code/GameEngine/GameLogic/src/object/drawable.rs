@@ -13,6 +13,8 @@ mod drawable_extensions;
 mod drawable_physics_visual;
 #[path = "drawable_render.rs"]
 mod drawable_render;
+#[path = "drawable_render_owner.rs"]
+mod drawable_render_owner;
 #[path = "drawable_snapshot.rs"]
 mod drawable_snapshot;
 #[path = "drawable_state.rs"]
@@ -25,6 +27,7 @@ mod drawable_update;
 pub(crate) use drawable_deletion::clear_drawable_modules;
 pub(crate) use drawable_extensions::DrawableThingHandle;
 pub use drawable_extensions::{DrawableArcExt, DrawableExt, ProjectileLaunchOffset};
+pub use drawable_render_owner::DrawableRenderOwner;
 
 use crate::common::ObjectID;
 use crate::common::audio::AudioEventRts;

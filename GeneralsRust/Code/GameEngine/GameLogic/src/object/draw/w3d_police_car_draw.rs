@@ -172,7 +172,7 @@ impl DrawModule for W3DPoliceCarDraw {
     fn do_draw_module_for_owner(
         &mut self,
         transform_mtx: &Matrix3D,
-        driver: Option<&crate::object::drawable::Drawable>,
+        driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
     ) {
         // C++ returns before the light and the truck draw when the render object is null.
         if !self.base.has_render_model() {

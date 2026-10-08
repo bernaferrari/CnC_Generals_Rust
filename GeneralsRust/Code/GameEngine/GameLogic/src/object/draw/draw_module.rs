@@ -102,7 +102,7 @@ pub trait DrawModule: Module {
     fn do_draw_module_for_owner(
         &mut self,
         transform_mtx: &Matrix3D,
-        _driver: Option<&crate::object::drawable::Drawable>,
+        _driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
     ) {
         self.do_draw_module(transform_mtx);
     }

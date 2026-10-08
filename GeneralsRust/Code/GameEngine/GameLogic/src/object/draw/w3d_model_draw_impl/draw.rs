@@ -665,6 +665,13 @@ impl W3DModelDraw {
     /// C++ `W3DModelDrawModuleData::getAttachToDrawableBoneOffset`.
     /// Empty name → no offset. Otherwise always an offset (zero if the bone is missing).
     fn attach_to_drawable_bone_offset(&self) -> Option<Coord3D> {
+        self.attach_to_drawable_bone_offset_for_owner(None)
+    }
+
+    fn attach_to_drawable_bone_offset_for_owner(
+        &self,
+        driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
+    ) -> Option<Coord3D> {
         if self.data.attach_to_drawable_bone.is_empty() {
             return None;
         }
@@ -674,12 +681,26 @@ impl W3DModelDraw {
             }
         }
 
-        let queried = self.with_owner_drawable(|drawable| {
-            drawable
-                .get_pristine_bone_positions(self.data.attach_to_drawable_bone.as_str(), 0, 1)
-                .into_iter()
-                .next()
-        });
+        let queried = if let Some(driver) = driver {
+            Some(
+                driver
+                    .get_pristine_bone_positions(
+                        self,
+                        self.data.attach_to_drawable_bone.as_str(),
+                        0,
+                        1,
+                    )
+                    .into_iter()
+                    .next(),
+            )
+        } else {
+            self.with_owner_drawable(|drawable| {
+                drawable
+                    .get_pristine_bone_positions(self.data.attach_to_drawable_bone.as_str(), 0, 1)
+                    .into_iter()
+                    .next()
+            })
+        };
         if let Some(pos) = queried {
             let offset = pos.unwrap_or(Coord3D::origin());
             if let Ok(mut guard) = self.attach_offset_cache.lock() {
@@ -954,10 +975,18 @@ impl W3DModelDraw {
     }
 
     fn adjust_transform_mtx(&self, transform_mtx: &Matrix3D) -> Matrix3D {
+        self.adjust_transform_mtx_for_owner(transform_mtx, None)
+    }
+
+    fn adjust_transform_mtx_for_owner(
+        &self,
+        transform_mtx: &Matrix3D,
+        driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
+    ) -> Matrix3D {
         let mut mtx = *transform_mtx;
 
         // C++ W3DModelDraw.cpp:1974-1982 (CACHE_ATTACH_BONE is defined).
-        if let Some(offset) = self.attach_to_drawable_bone_offset() {
+        if let Some(offset) = self.attach_to_drawable_bone_offset_for_owner(driver) {
             Self::apply_attach_to_drawable_bone_offset(&mut mtx, offset);
         }
 

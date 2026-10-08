@@ -464,7 +464,7 @@ impl DrawModule for W3DTankTruckDraw {
     fn do_draw_module_for_owner(
         &mut self,
         transform_mtx: &Matrix3D,
-        driver: Option<&crate::object::drawable::Drawable>,
+        driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
     ) {
         self.base.do_draw_module_for_owner(transform_mtx, driver);
         self.update_tread_objects();

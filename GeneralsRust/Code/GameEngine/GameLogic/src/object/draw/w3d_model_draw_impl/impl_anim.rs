@@ -534,7 +534,7 @@ impl W3DModelDraw {
     fn submit_draw_to_bridge_for_drawable(
         &mut self,
         transform_mtx: &Matrix3D,
-        driver: Option<&crate::object::drawable::Drawable>,
+        driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
     ) {
         let Some(owner_id) = self.owner_id else {
             return;

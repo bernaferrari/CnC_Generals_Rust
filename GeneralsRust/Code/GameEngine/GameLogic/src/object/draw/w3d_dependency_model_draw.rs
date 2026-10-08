@@ -209,7 +209,7 @@ impl DrawModule for W3DDependencyModelDraw {
     fn do_draw_module_for_owner(
         &mut self,
         transform_mtx: &Matrix3D,
-        driver: Option<&crate::object::drawable::Drawable>,
+        driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
     ) {
         if !self.dependency_cleared {
             return;

@@ -483,24 +483,47 @@ impl Drawable {
         start_index: usize,
         max_bones: usize,
     ) -> Vec<Coord3D> {
+        self.get_pristine_bone_positions_for_active(None, bone_name_prefix, start_index, max_bones)
+    }
+
+    pub(super) fn get_pristine_bone_positions_for_active(
+        &self,
+        active: Option<(&DrawModuleEntry, &dyn ObjectDrawInterface)>,
+        bone_name_prefix: &str,
+        start_index: usize,
+        max_bones: usize,
+    ) -> Vec<Coord3D> {
         let condition = self.model_conditions;
         let mut positions = vec![Coord3D::origin(); max_bones];
         let mut transforms = vec![Matrix3D::IDENTITY; max_bones];
-        for module_handle in self.modules() {
-            let count = module_handle.with_module(|module| {
-                let mut count = 0;
-                with_object_draw_interface_mut(module, |draw_module| {
-                    count = draw_module.get_pristine_bone_positions(
-                        &condition,
-                        bone_name_prefix,
-                        start_index as i32,
-                        &mut positions,
-                        &mut transforms,
-                        max_bones,
-                    );
-                });
-                count
-            });
+        for entry in &self.modules {
+            let count = if let Some((_, interface)) =
+                active.filter(|(current, _)| std::ptr::eq(entry.as_ref(), *current))
+            {
+                interface.get_pristine_bone_positions(
+                    &condition,
+                    bone_name_prefix,
+                    start_index as i32,
+                    &mut positions,
+                    &mut transforms,
+                    max_bones,
+                )
+            } else {
+                entry.with_module(|module| {
+                    let mut count = 0;
+                    with_object_draw_interface_mut(module, |draw_module| {
+                        count = draw_module.get_pristine_bone_positions(
+                            &condition,
+                            bone_name_prefix,
+                            start_index as i32,
+                            &mut positions,
+                            &mut transforms,
+                            max_bones,
+                        );
+                    });
+                    count
+                })
+            };
 
             if count > 0 {
                 return positions.into_iter().take(count).collect();

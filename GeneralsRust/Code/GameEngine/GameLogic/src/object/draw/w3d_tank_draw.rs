@@ -670,7 +670,7 @@ impl DrawModule for W3DTankDraw {
     fn do_draw_module_for_owner(
         &mut self,
         transform_mtx: &Matrix3D,
-        driver: Option<&crate::object::drawable::Drawable>,
+        driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
     ) {
         // C++ W3DTankDraw.cpp:288-291 — frozen tactical view or script time skips the whole draw.
         let camera_frozen = crate::helpers::get_camera_view_bridge()

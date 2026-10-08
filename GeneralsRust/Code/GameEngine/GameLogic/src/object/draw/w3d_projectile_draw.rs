@@ -257,7 +257,7 @@ impl DrawModule for W3DProjectileDraw {
     fn do_draw_module_for_owner(
         &mut self,
         transform_mtx: &Matrix3D,
-        driver: Option<&crate::object::drawable::Drawable>,
+        driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
     ) {
         let mut adjusted_transform = *transform_mtx;
 

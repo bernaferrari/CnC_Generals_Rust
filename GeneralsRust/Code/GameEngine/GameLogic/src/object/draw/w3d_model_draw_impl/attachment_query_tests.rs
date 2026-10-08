@@ -406,3 +406,6 @@ mod render_owner_tests;
 
 #[path = "render_supply_owner_tests.rs"]
 mod render_supply_owner_tests;
+
+#[path = "render_attachment_owner_tests.rs"]
+mod render_attachment_owner_tests;

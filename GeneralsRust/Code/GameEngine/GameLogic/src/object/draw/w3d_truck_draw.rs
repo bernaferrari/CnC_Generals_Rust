@@ -808,7 +808,7 @@ impl DrawModule for W3DTruckDraw {
     fn do_draw_module_for_owner(
         &mut self,
         transform_mtx: &Matrix3D,
-        driver: Option<&crate::object::drawable::Drawable>,
+        driver: Option<&crate::object::drawable::DrawableRenderOwner<'_>>,
     ) {
         let Some(owner_id) = self.base.owner_id() else {
             self.base.do_draw_module_for_owner(transform_mtx, driver);
