@@ -45,18 +45,30 @@ impl ScriptEvaluator {
             ScriptActionType::CallSubroutine => self.execute_call_subroutine_action(action),
             _ => {
                 let ctx = self.make_script_context();
-                let mut dispatcher = ScriptActionDispatcher::new(ctx);
-                match dispatcher.execute_action(action) {
-                    Ok(ScriptActionResult::Success) => Ok(()),
-                    Ok(ScriptActionResult::Pending(_frames)) => Ok(()),
-                    Ok(ScriptActionResult::Failed(msg)) => Err(GameLogicError::Configuration(
-                        format!("Script action failed: {}", msg),
-                    )),
-                    Err(err) => Err(GameLogicError::Configuration(format!(
-                        "Script action dispatch failed: {}",
-                        err
-                    ))),
-                }
+                self.with_evaluation_engine_mut(|engine| {
+                    engine.with_active(|| {
+                        let mut dispatcher = ScriptActionDispatcher::for_engine(engine, &ctx);
+                        match dispatcher.execute_action(action) {
+                            Ok(ScriptActionResult::Success) => Ok(()),
+                            Ok(ScriptActionResult::Pending(_frames)) => Ok(()),
+                            Ok(ScriptActionResult::Failed(msg)) => {
+                                Err(GameLogicError::Configuration(format!(
+                                    "Script action failed: {}",
+                                    msg
+                                )))
+                            }
+                            Err(err) => Err(GameLogicError::Configuration(format!(
+                                "Script action dispatch failed: {}",
+                                err
+                            ))),
+                        }
+                    })
+                })
+                .unwrap_or_else(|| {
+                    Err(GameLogicError::Configuration(
+                        "Script evaluation engine unavailable".into(),
+                    ))
+                })
             }
         }
     }
@@ -187,10 +199,10 @@ impl ScriptEvaluator {
             .unwrap_or(false))
     }
 
-    fn make_script_context(&self) -> Arc<RwLock<ScriptContext>> {
+    fn make_script_context(&self) -> std::cell::RefCell<ScriptContext> {
         let mut context = ScriptContext::new();
         context.current_frame = TheGameLogic::get_frame();
-        Arc::new(RwLock::new(context))
+        std::cell::RefCell::new(context)
     }
 
     fn with_action_handler<F>(&self, f: F) -> GameLogicResult<()>
@@ -227,8 +239,8 @@ impl ScriptEvaluator {
         let flag_name = flag_param.get_string();
         let flag_value = value_param.get_int() != 0;
 
-        if let Some(result) = self
-            .with_evaluation_engine_mut(|engine| engine.set_flag(flag_name, flag_value))
+        if let Some(result) =
+            self.with_evaluation_engine_mut(|engine| engine.set_flag(flag_name, flag_value))
         {
             result?;
         }

@@ -2367,18 +2367,26 @@ impl ScriptEvaluator {
 
             _ => {
                 let ctx = self.make_script_context();
-                let mut evaluator = ScriptConditionEvaluator::new(ctx);
-                match evaluator.evaluate_condition(condition) {
-                    Ok(ScriptConditionResult::True) => Ok(true),
-                    Ok(ScriptConditionResult::False) => Ok(false),
-                    Ok(ScriptConditionResult::Error(msg)) => Err(GameLogicError::Configuration(
-                        format!("Script condition evaluation error: {}", msg),
-                    )),
-                    Err(err) => Err(GameLogicError::Configuration(format!(
-                        "Script condition evaluation failed: {}",
-                        err
-                    ))),
-                }
+                self.with_evaluation_engine_ref(|engine| {
+                    engine.with_active(|| {
+                        let mut evaluator = ScriptConditionEvaluator::for_engine(engine, &ctx);
+                        match evaluator.evaluate_condition(condition) {
+                            Ok(ScriptConditionResult::True) => Ok(true),
+                            Ok(ScriptConditionResult::False) => Ok(false),
+                            Ok(ScriptConditionResult::Error(msg)) => {
+                                Err(GameLogicError::Configuration(format!(
+                                    "Script condition evaluation error: {}",
+                                    msg
+                                )))
+                            }
+                            Err(err) => Err(GameLogicError::Configuration(format!(
+                                "Script condition evaluation failed: {}",
+                                err
+                            ))),
+                        }
+                    })
+                })
+                .unwrap_or(Ok(false))
             }
         };
         let elapsed = eval_started.elapsed();

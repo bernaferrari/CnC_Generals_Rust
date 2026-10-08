@@ -6,7 +6,7 @@
 use super::*;
 use crate::modules::AIUpdateInterfaceExt;
 
-impl ScriptActionDispatcher {
+impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_team_flash(
         &mut self,
         action: &ScriptAction,
@@ -1129,13 +1129,15 @@ impl ScriptActionDispatcher {
             priority_set
         );
 
-        let info_name = with_script_engine_ref(|engine| {
-            engine
-                .get_attack_info(&priority_set)
-                .map(|info| info.get_name().to_string())
-        })
-        .flatten()
-        .unwrap_or_default();
+        let info_name = self
+            .context
+            .with_engine_ref(|engine| {
+                engine
+                    .get_attack_info(&priority_set)
+                    .map(|info| info.get_name().to_string())
+            })
+            .flatten()
+            .unwrap_or_default();
 
         let mut prototype_updated = false;
         let mut team_members = Vec::new();
@@ -1159,7 +1161,7 @@ impl ScriptActionDispatcher {
                     info_name
                 );
             } else {
-                let _ = with_script_engine_mut(|engine| {
+                let _ = self.context.with_engine_mut(|engine| {
                     for member_id in team_members {
                         if info_name.is_empty() {
                             engine.clear_object_attack_priority_set(member_id);
@@ -1240,9 +1242,10 @@ impl ScriptActionDispatcher {
         // C++ resolves the script before it idles the team.  Take an owned
         // clone through the lexically active engine, then leave engine state
         // unlocked while issuing the AI command.
-        let Some(script) =
-            with_script_engine_ref(|engine| engine.find_script_clone_by_name(&script_name))
-                .flatten()
+        let Some(script) = self
+            .context
+            .with_engine_ref(|engine| engine.find_script_clone_by_name(&script_name))
+            .flatten()
         else {
             return Ok(ScriptActionResult::Success);
         };
@@ -1256,7 +1259,7 @@ impl ScriptActionDispatcher {
             }
         }
 
-        let _ = with_script_engine_mut(|engine| {
+        let _ = self.context.with_engine_mut(|engine| {
             let mut seq_script = crate::scripting::engine::SequentialScript::new();
             seq_script.team_to_exec_on = Some(team_name.clone());
             seq_script.object_id = INVALID_ID;
@@ -1288,9 +1291,10 @@ impl ScriptActionDispatcher {
 
         // Preserve C++ lookup-before-idle order without holding an engine
         // lock across the AI command.
-        let Some(script) =
-            with_script_engine_ref(|engine| engine.find_script_clone_by_name(&script_name))
-                .flatten()
+        let Some(script) = self
+            .context
+            .with_engine_ref(|engine| engine.find_script_clone_by_name(&script_name))
+            .flatten()
         else {
             return Ok(ScriptActionResult::Success);
         };
@@ -1304,7 +1308,7 @@ impl ScriptActionDispatcher {
             }
         }
 
-        let _ = with_script_engine_mut(|engine| {
+        let _ = self.context.with_engine_mut(|engine| {
             let mut seq_script = crate::scripting::engine::SequentialScript::new();
             seq_script.team_to_exec_on = Some(team_name.clone());
             seq_script.object_id = INVALID_ID;
@@ -1327,7 +1331,7 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        let _ = with_script_engine_mut(|engine| {
+        let _ = self.context.with_engine_mut(|engine| {
             engine.remove_all_sequential_scripts_for_team(&team_name);
         });
 
@@ -1493,8 +1497,10 @@ impl ScriptActionDispatcher {
         }
         // The host callback can execute nested script/UI work.  Clone it
         // first so neither the team nor ScriptEngine lock spans that call.
-        let handler =
-            with_script_engine_ref(|script_engine| script_engine.action_handler()).flatten();
+        let handler = self
+            .context
+            .with_engine_ref(|script_engine| script_engine.action_handler())
+            .flatten();
         if let Some(handler) = handler {
             if let Err(err) = handler.create_radar_event(pos.x, pos.y, pos.z, event_type) {
                 log::warn!("Script action handler create_radar_event failed: {}", err);

@@ -5,7 +5,7 @@
 
 use super::*;
 
-impl ScriptActionDispatcher {
+impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_skirmish_build_building(
         &mut self,
         action: &ScriptAction,
@@ -77,8 +77,10 @@ impl ScriptActionDispatcher {
                 None => return Ok(ScriptActionResult::Success),
             };
 
-        let current_player_name =
-            with_script_engine_ref(|engine| engine.get_current_player_name()).flatten();
+        let current_player_name = self
+            .context
+            .with_engine_ref(|engine| engine.get_current_player_name())
+            .flatten();
         if let Some(current_player_name) = current_player_name {
             if let Ok(list) = player_list().read() {
                 if let Some(player_arc) = list.find_player_by_name(&current_player_name) {
@@ -170,7 +172,7 @@ impl ScriptActionDispatcher {
         if dual_world_registry_unavailable() {
             super::request_host_skirmish_base_defense(
                 super::HostScriptSkirmishBaseDefenseRequest {
-                    player: super::current_script_player_name(),
+                    player: self.current_script_player_name(),
                     structure: None,
                     flank: false,
                 },
@@ -194,7 +196,7 @@ impl ScriptActionDispatcher {
         if dual_world_registry_unavailable() {
             super::request_host_skirmish_base_defense(
                 super::HostScriptSkirmishBaseDefenseRequest {
-                    player: super::current_script_player_name(),
+                    player: self.current_script_player_name(),
                     structure: None,
                     flank: true,
                 },
@@ -216,7 +218,7 @@ impl ScriptActionDispatcher {
         if dual_world_registry_unavailable() {
             super::request_host_skirmish_base_defense(
                 super::HostScriptSkirmishBaseDefenseRequest {
-                    player: super::current_script_player_name(),
+                    player: self.current_script_player_name(),
                     structure: Some(structure_type),
                     flank: false,
                 },
@@ -239,7 +241,7 @@ impl ScriptActionDispatcher {
         if dual_world_registry_unavailable() {
             super::request_host_skirmish_base_defense(
                 super::HostScriptSkirmishBaseDefenseRequest {
-                    player: super::current_script_player_name(),
+                    player: self.current_script_player_name(),
                     structure: Some(structure_type),
                     flank: true,
                 },

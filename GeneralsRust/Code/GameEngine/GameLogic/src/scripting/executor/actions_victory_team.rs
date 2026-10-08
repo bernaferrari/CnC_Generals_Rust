@@ -5,7 +5,7 @@
 
 use super::*;
 
-impl ScriptActionDispatcher {
+impl ScriptActionDispatcher<'_> {
     // ============================================================================
     // VICTORY/DEFEAT ACTIONS
     // C++ Reference: ScriptActions.cpp lines 215-276
@@ -16,19 +16,19 @@ impl ScriptActionDispatcher {
         log::info!("VICTORY!");
 
         {
-            let mut ctx = self.context.write().unwrap();
-            ctx.suppress_new_windows = false;
+            self.context
+                .with_state_mut(|ctx| ctx.suppress_new_windows = false);
         }
 
         // C++ ScriptActions.cpp:193-209: closeWindows, TheGameLogic->closeWindows,
         // doDisableInput, winCreateFromScript(Victorious/ObserverQuit),
         // SetVictorious(TRUE), startEndGameTimer.
-        let _ = with_script_engine_mut(|engine| {
+        let _ = self.context.with_engine_mut(|engine| {
             engine.close_windows(false);
             engine.close_game_windows();
         });
         self.do_disable_input()?;
-        let _ = with_script_engine_mut(|engine| {
+        let _ = self.context.with_engine_mut(|engine| {
             let layout = if engine.should_show_observer_quit_window() {
                 "Menus/ObserverQuit.wnd"
             } else {
@@ -47,18 +47,18 @@ impl ScriptActionDispatcher {
         log::info!("QUICK VICTORY!");
 
         {
-            let mut ctx = self.context.write().unwrap();
-            ctx.suppress_new_windows = false;
+            self.context
+                .with_state_mut(|ctx| ctx.suppress_new_windows = false);
         }
 
         // C++ ScriptActions.cpp:171-176: closeWindows + GameLogic::closeWindows,
         // doDisableInput, SetVictorious, startQuickEndGameTimer. No new window.
-        let _ = with_script_engine_mut(|engine| {
+        let _ = self.context.with_engine_mut(|engine| {
             engine.close_windows(false);
             engine.close_game_windows();
         });
         self.do_disable_input()?;
-        let _ = with_script_engine_mut(|engine| {
+        let _ = self.context.with_engine_mut(|engine| {
             engine.set_campaign_victorious(true);
             engine.start_quick_end_game_timer();
         });
@@ -71,19 +71,19 @@ impl ScriptActionDispatcher {
         log::info!("DEFEAT!");
 
         {
-            let mut ctx = self.context.write().unwrap();
-            ctx.suppress_new_windows = false;
+            self.context
+                .with_state_mut(|ctx| ctx.suppress_new_windows = false);
         }
 
         // C++ ScriptActions.cpp:217-233: closeWindows, GameLogic::closeWindows,
         // doDisableInput, winCreateFromScript(Defeat/ObserverQuit),
         // SetVictorious(FALSE), startEndGameTimer.
-        let _ = with_script_engine_mut(|engine| {
+        let _ = self.context.with_engine_mut(|engine| {
             engine.close_windows(false);
             engine.close_game_windows();
         });
         self.do_disable_input()?;
-        let _ = with_script_engine_mut(|engine| {
+        let _ = self.context.with_engine_mut(|engine| {
             let layout = if engine.should_show_observer_quit_window() {
                 "Menus/ObserverQuit.wnd"
             } else {
@@ -104,7 +104,7 @@ impl ScriptActionDispatcher {
         // C++ ScriptActions.cpp:241-251: markMPLocalDefeatWindowShown,
         // closeWindows, GameLogic::closeWindows, LocalDefeat.wnd when not
         // observer, SetVictorious(FALSE), startCloseWindowTimer.
-        let _ = with_script_engine_mut(|engine| {
+        let _ = self.context.with_engine_mut(|engine| {
             engine.set_shown_mp_local_defeat_window(true);
             engine.close_windows(false);
             engine.close_game_windows();

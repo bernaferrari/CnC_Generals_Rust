@@ -42,7 +42,8 @@ impl ScriptEngine {
         context: crate::scripting::executor::ScriptContext,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> GameLogicResult<()> {
-        let mut execution = ScriptExecution::new(context, driver);
+        let context = std::cell::RefCell::new(context);
+        let mut execution = ScriptExecution::new(&context, driver);
         self.with_active(|| self.update_active(&mut execution))
     }
 
@@ -207,9 +208,12 @@ impl ScriptEngine {
         // (scripts_camera.rs), so this walk cannot re-lock TheScriptEngine.
 
         let mut action_dispatcher =
-            crate::scripting::executor::ScriptActionDispatcher::new(execution.context.clone());
+            crate::scripting::executor::ScriptActionDispatcher::for_engine(self, execution.context);
         let mut condition_evaluator =
-            crate::scripting::executor::ScriptConditionEvaluator::new(execution.context.clone());
+            crate::scripting::executor::ScriptConditionEvaluator::for_engine(
+                self,
+                execution.context,
+            );
 
         // Snapshot player names before dispatch.  A script action may change
         // player state or call a subroutine; no PlayerList lock may survive
@@ -370,8 +374,8 @@ impl ScriptEngine {
     fn execute_script(
         &self,
         script: &mut Script,
-        condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator,
-        action_dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher,
+        condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator<'_>,
+        action_dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher<'_>,
         execution: &mut ScriptExecution<'_>,
     ) -> GameLogicResult<()> {
         // If script is not active, return.
@@ -462,8 +466,8 @@ impl ScriptEngine {
     fn evaluate_and_execute_script(
         &self,
         script: &mut Script,
-        condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator,
-        action_dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher,
+        condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator<'_>,
+        action_dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher<'_>,
         execution: &mut ScriptExecution<'_>,
         deactivate_one_shot_on_false_action: bool,
     ) -> GameLogicResult<()> {
@@ -512,7 +516,7 @@ impl ScriptEngine {
     fn execute_action_chain(
         &self,
         action_head: &ScriptAction,
-        dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher,
+        dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher<'_>,
         execution: &mut ScriptExecution<'_>,
     ) -> GameLogicResult<ActionChainExecution> {
         let mut cur: Option<&ScriptAction> = Some(action_head);
@@ -544,7 +548,7 @@ impl ScriptEngine {
     fn dispatch_action_with_driver(
         &self,
         action: &ScriptAction,
-        dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher,
+        dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher<'_>,
         execution: &mut ScriptExecution<'_>,
     ) -> GameLogicResult<crate::scripting::executor::ScriptActionResult> {
         let result = if action.action_type == ScriptActionType::CallSubroutine {
@@ -652,10 +656,8 @@ impl ScriptEngine {
     #[cfg(test)]
     fn evaluate_sequential_scripts_canonical_for_test(&self) -> GameLogicResult<()> {
         let mut driver = CanonicalScriptExecutionDriver;
-        let mut execution = ScriptExecution::new(
-            crate::scripting::executor::ScriptContext::new(),
-            &mut driver,
-        );
+        let context = std::cell::RefCell::new(crate::scripting::executor::ScriptContext::new());
+        let mut execution = ScriptExecution::new(&context, &mut driver);
         self.evaluate_and_progress_all_sequential_scripts(&mut execution)
     }
 
@@ -676,7 +678,7 @@ impl ScriptEngine {
         });
 
         let mut dispatcher =
-            crate::scripting::executor::ScriptActionDispatcher::new(execution.context.clone());
+            crate::scripting::executor::ScriptActionDispatcher::for_engine(self, execution.context);
 
         let mut i: usize = 0;
         let mut last_i: Option<usize> = None;

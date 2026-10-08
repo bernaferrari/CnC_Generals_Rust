@@ -1281,12 +1281,6 @@ fn dual_world_registry_unavailable() -> bool {
     OBJECT_REGISTRY.is_empty()
 }
 
-pub(super) fn current_script_player_name() -> String {
-    with_script_engine_ref(|engine| engine.get_current_player_name())
-        .flatten()
-        .unwrap_or_default()
-}
-
 fn to_radar_coord(pos: &Coord3D) -> game_engine::common::system::radar::Coord3D {
     game_engine::common::system::radar::Coord3D::new(pos.x, pos.y, pos.z)
 }
@@ -1294,18 +1288,6 @@ fn to_radar_coord(pos: &Coord3D) -> game_engine::common::system::radar::Coord3D 
 static TRANSPORT_STATUSES: Lazy<RwLock<HashMap<ObjectID, (u32, usize)>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 static SCRIPT_TEMP_GROUP_ID: AtomicU32 = AtomicU32::new(1);
-
-/// Take an owned handler snapshot before crossing into host/UI code.
-///
-/// Script actions can run from `ScriptEngine::update`, which installs the
-/// active lexical engine. A global ScriptEngine lock is therefore not
-/// available there. More importantly, host callbacks may synchronously enter
-/// script execution again, so the scoped engine access must end before the
-/// callback is invoked.
-fn current_script_action_handler() -> Option<Arc<dyn crate::scripting::engine::ScriptActionHandler>>
-{
-    with_script_engine_ref(|script_engine| script_engine.action_handler()).flatten()
-}
 
 /// Script execution error
 #[derive(Debug, Clone)]
@@ -1425,13 +1407,40 @@ impl ScriptContext {
 ///
 /// C++ Reference: ScriptActions::executeAction()
 /// This is the main entry point for executing script actions
-pub struct ScriptActionDispatcher {
-    context: Arc<RwLock<ScriptContext>>,
+pub struct ScriptActionDispatcher<'engine> {
+    context: ExecutionContext<'engine>,
 }
 
-impl ScriptActionDispatcher {
+impl<'engine> ScriptActionDispatcher<'engine> {
+    fn current_script_player_name(&self) -> String {
+        self.context
+            .with_engine_ref(|engine| engine.get_current_player_name())
+            .flatten()
+            .unwrap_or_default()
+    }
+
+    /// Return an owned handler before crossing callbacks; no engine/state guard escapes.
+    fn current_script_action_handler(
+        &self,
+    ) -> Option<Arc<dyn crate::scripting::engine::ScriptActionHandler>> {
+        self.context
+            .with_engine_ref(|engine| engine.action_handler())
+            .flatten()
+    }
+
+    pub(super) fn for_engine(
+        engine: &'engine crate::scripting::engine::ScriptEngine,
+        state: &'engine std::cell::RefCell<ScriptContext>,
+    ) -> Self {
+        Self {
+            context: ExecutionContext::borrowed(engine, state),
+        }
+    }
+
     pub fn new(context: Arc<RwLock<ScriptContext>>) -> Self {
-        Self { context }
+        Self {
+            context: ExecutionContext::Standalone(context),
+        }
     }
 }
 
@@ -1440,27 +1449,42 @@ impl ScriptActionDispatcher {
 /// C++ Reference: ScriptConditions::evaluateCondition()
 /// This evaluates script conditions to determine script flow
 #[allow(dead_code)]
-pub struct ScriptConditionEvaluator {
-    context: Arc<RwLock<ScriptContext>>,
+pub struct ScriptConditionEvaluator<'engine> {
+    context: ExecutionContext<'engine>,
 }
 
-impl ScriptConditionEvaluator {
+impl<'engine> ScriptConditionEvaluator<'engine> {
+    pub(super) fn for_engine(
+        engine: &'engine crate::scripting::engine::ScriptEngine,
+        state: &'engine std::cell::RefCell<ScriptContext>,
+    ) -> Self {
+        Self {
+            context: ExecutionContext::borrowed(engine, state),
+        }
+    }
+
     pub fn new(context: Arc<RwLock<ScriptContext>>) -> Self {
-        Self { context }
+        Self {
+            context: ExecutionContext::Standalone(context),
+        }
     }
 
     pub(crate) fn with_host_trigger_world<R>(
         &self,
         f: impl FnOnce(&crate::scripting::HostTriggerWorld, u32) -> R,
     ) -> R {
-        let context = self.context.read().unwrap_or_else(|e| e.into_inner());
-        let world = context
-            .host_trigger_world
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        f(&world, context.current_frame)
+        self.context.with_state(|context| {
+            let world = context
+                .host_trigger_world
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            f(&world, context.current_frame)
+        })
     }
 }
+
+mod execution_context;
+use execution_context::ExecutionContext;
 
 mod actions_attack_priority;
 mod actions_camera;
@@ -1486,6 +1510,7 @@ mod tests;
 /// Concatenated live sources for residual `include_str!` scans.
 pub const EXECUTOR_SRC: &str = concat!(
     include_str!("mod.rs"),
+    include_str!("execution_context.rs"),
     include_str!("actions_attack_priority.rs"),
     include_str!("actions_camera.rs"),
     include_str!("actions_garrison.rs"),

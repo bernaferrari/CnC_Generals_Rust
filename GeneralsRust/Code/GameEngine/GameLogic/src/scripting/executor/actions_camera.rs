@@ -6,14 +6,15 @@
 use super::*;
 use crate::scripting::engine::{ScriptCameraRequest, ScriptExecutionDriver};
 
-impl ScriptActionDispatcher {
+impl ScriptActionDispatcher<'_> {
     pub(super) fn dispatch_camera_request(
         &mut self,
         request: ScriptCameraRequest<'_>,
         driver: &mut dyn ScriptExecutionDriver,
     ) {
         let result = driver.camera(request).or_else(|| {
-            current_script_action_handler().map(|handler| request.dispatch_to(handler.as_ref()))
+            self.current_script_action_handler()
+                .map(|handler| request.dispatch_to(handler.as_ref()))
         });
         if let Some(Err(err)) = result {
             log::warn!("Script camera action {:?} failed: {}", request, err);
@@ -106,7 +107,7 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.move_camera_to_selection() {
                 log::warn!(
                     "Script action handler move_camera_to_selection failed: {}",
@@ -146,7 +147,7 @@ impl ScriptActionDispatcher {
         }
         let center = sum / (selected_len as f32);
 
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.move_camera_to_selection() {
                 log::warn!(
                     "Script action handler move_camera_to_selection failed: {}",
@@ -307,7 +308,7 @@ impl ScriptActionDispatcher {
         let amount = self.get_int_param(action, 0)?;
         log::debug!("Setting terrain oversize to {}", amount);
 
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.oversize_terrain(amount) {
                 log::warn!("Script action handler oversize_terrain failed: {}", err);
             }
@@ -326,7 +327,7 @@ impl ScriptActionDispatcher {
         let frames_hold = self.get_int_param(action, 3)?;
         let frames_decrease = self.get_int_param(action, 4)?;
 
-        let _ = with_script_engine_mut(|script_engine| {
+        let _ = self.context.with_engine_mut(|script_engine| {
             script_engine.set_fade_parameters(
                 TFade::Add,
                 min_fade,
@@ -358,7 +359,7 @@ impl ScriptActionDispatcher {
         let frames_hold = self.get_int_param(action, 3)?;
         let frames_decrease = self.get_int_param(action, 4)?;
 
-        let _ = with_script_engine_mut(|script_engine| {
+        let _ = self.context.with_engine_mut(|script_engine| {
             script_engine.set_fade_parameters(
                 TFade::Subtract,
                 min_fade,
@@ -390,7 +391,7 @@ impl ScriptActionDispatcher {
         let frames_hold = self.get_int_param(action, 3)?;
         let frames_decrease = self.get_int_param(action, 4)?;
 
-        let _ = with_script_engine_mut(|script_engine| {
+        let _ = self.context.with_engine_mut(|script_engine| {
             script_engine.set_fade_parameters(
                 TFade::Saturate,
                 min_fade,
@@ -422,7 +423,7 @@ impl ScriptActionDispatcher {
         let frames_hold = self.get_int_param(action, 3)?;
         let frames_decrease = self.get_int_param(action, 4)?;
 
-        let _ = with_script_engine_mut(|script_engine| {
+        let _ = self.context.with_engine_mut(|script_engine| {
             script_engine.set_fade_parameters(
                 TFade::Multiply,
                 min_fade,

@@ -5,7 +5,7 @@
 
 use super::*;
 
-impl ScriptActionDispatcher {
+impl ScriptActionDispatcher<'_> {
     // ============================================================================
     // ADDITIONAL TEAM ACTION IMPLEMENTATIONS
     // ============================================================================

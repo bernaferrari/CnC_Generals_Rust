@@ -15,35 +15,37 @@ fn resolve_script_named_object_id(unit_name: &str) -> Option<u32> {
 }
 
 /// C++ `ScriptActions::doEnableObjectSound` leftover drawable + live-host queue.
-fn enable_or_disable_object_sound(object_name: &str, enable: bool) {
-    super::request_host_script_object_sound(super::HostScriptObjectSoundRequest::Enable {
-        unit: object_name.to_string(),
-        enable,
-    });
-    if let Some(handler) = current_script_action_handler() {
-        if let Err(err) = handler.enable_object_sound(object_name, enable) {
-            log::warn!(
-                "Script action handler enable_object_sound({}) failed: {}",
-                enable,
-                err
-            );
+impl ScriptActionDispatcher<'_> {
+    fn enable_or_disable_object_sound(&self, object_name: &str, enable: bool) {
+        super::request_host_script_object_sound(super::HostScriptObjectSoundRequest::Enable {
+            unit: object_name.to_string(),
+            enable,
+        });
+        if let Some(handler) = self.current_script_action_handler() {
+            if let Err(err) = handler.enable_object_sound(object_name, enable) {
+                log::warn!(
+                    "Script action handler enable_object_sound({}) failed: {}",
+                    enable,
+                    err
+                );
+            }
         }
-    }
-    let Some(object_id) = resolve_script_named_object_id(object_name) else {
-        return;
-    };
-    if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-        if let Ok(obj_guard) = obj_arc.read() {
-            if let Some(drawable) = obj_guard.get_drawable() {
-                if let Ok(mut draw_guard) = drawable.write() {
-                    draw_guard.enable_ambient_sound_from_script(enable);
+        let Some(object_id) = resolve_script_named_object_id(object_name) else {
+            return;
+        };
+        if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
+            if let Ok(obj_guard) = obj_arc.read() {
+                if let Some(drawable) = obj_guard.get_drawable() {
+                    if let Ok(mut draw_guard) = drawable.write() {
+                        draw_guard.enable_ambient_sound_from_script(enable);
+                    }
                 }
             }
         }
     }
 }
 
-impl ScriptActionDispatcher {
+impl ScriptActionDispatcher<'_> {
     // ============================================================================
     // ADDITIONAL AUDIO/VIDEO ACTION IMPLEMENTATIONS
     // ============================================================================
@@ -60,7 +62,7 @@ impl ScriptActionDispatcher {
         // enqueue HostScriptObjectSoundRequest::PlayNamed — live drain would
         // play the same name a second time through TheAudio.
 
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.sound_play_named(&sound_name, &unit_name) {
                 log::warn!("Script action handler sound_play_named failed: {}", err);
             }
@@ -250,7 +252,7 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let object_name = self.get_string_param(action, 0)?;
         log::debug!("Enabling sounds for '{}'", object_name);
-        enable_or_disable_object_sound(&object_name, true);
+        self.enable_or_disable_object_sound(&object_name, true);
         Ok(ScriptActionResult::Success)
     }
 
@@ -260,7 +262,7 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let object_name = self.get_string_param(action, 0)?;
         log::debug!("Disabling sounds for '{}'", object_name);
-        enable_or_disable_object_sound(&object_name, false);
+        self.enable_or_disable_object_sound(&object_name, false);
         Ok(ScriptActionResult::Success)
     }
 
@@ -270,7 +272,7 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let movie_name = self.get_string_param(action, 0)?;
         log::info!("Playing fullscreen movie '{}'", movie_name);
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.movie_play_fullscreen(&movie_name) {
                 log::warn!(
                     "Script action handler movie_play_fullscreen failed: {}",
@@ -287,7 +289,7 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let movie_name = self.get_string_param(action, 0)?;
         log::debug!("Playing radar movie '{}'", movie_name);
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.movie_play_radar(&movie_name) {
                 log::warn!("Script action handler movie_play_radar failed: {}", err);
             }
@@ -317,7 +319,7 @@ impl ScriptActionDispatcher {
             let radar_pos = to_radar_coord(&position);
             radar.create_event(&radar_pos, radar_event, 4.0);
         }
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) =
                 handler.create_radar_event(position.x, position.y, position.z, event_type)
             {
@@ -332,7 +334,7 @@ impl ScriptActionDispatcher {
         if let Ok(mut radar) = get_radar_system().write() {
             radar.force_on(true);
         }
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.set_radar_forced(true) {
                 log::warn!(
                     "Script action handler set_radar_forced(true) failed: {}",
@@ -348,7 +350,7 @@ impl ScriptActionDispatcher {
         if let Ok(mut radar) = get_radar_system().write() {
             radar.force_on(false);
         }
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.set_radar_forced(false) {
                 log::warn!(
                     "Script action handler set_radar_forced(false) failed: {}",
@@ -516,7 +518,7 @@ impl ScriptActionDispatcher {
             player_name
         );
 
-        let _ = with_script_engine_mut(|engine| {
+        let _ = self.context.with_engine_mut(|engine| {
             engine.create_named_map_reveal(&reveal_name, &waypoint, radius, &player_name);
             engine.do_named_map_reveal(&reveal_name);
         });
@@ -530,7 +532,7 @@ impl ScriptActionDispatcher {
         let reveal_name = self.get_string_param(action, 0)?;
         log::debug!("Undoing permanent reveal '{}'", reveal_name);
 
-        let _ = with_script_engine_mut(|engine| {
+        let _ = self.context.with_engine_mut(|engine| {
             engine.undo_named_map_reveal(&reveal_name);
             engine.remove_named_map_reveal(&reveal_name);
         });
@@ -614,7 +616,7 @@ impl ScriptActionDispatcher {
                     let radar_pos = to_radar_coord(&pos);
                     radar.create_event(&radar_pos, radar_event, 4.0);
                 }
-                if let Some(handler) = current_script_action_handler() {
+                if let Some(handler) = self.current_script_action_handler() {
                     if let Err(err) = handler.create_radar_event(pos.x, pos.y, pos.z, event_type) {
                         log::warn!("Script action handler create_radar_event failed: {}", err);
                     }
@@ -628,7 +630,7 @@ impl ScriptActionDispatcher {
         log::debug!("Disabling border shroud");
         if let Some(global) = crate::helpers::TheGlobalData::get() {
             let level = global.get_clear_alpha();
-            if let Some(handler) = current_script_action_handler() {
+            if let Some(handler) = self.current_script_action_handler() {
                 let _ = handler.set_border_shroud_level(level);
             }
         }
@@ -639,7 +641,7 @@ impl ScriptActionDispatcher {
         log::debug!("Enabling border shroud");
         if let Some(global) = crate::helpers::TheGlobalData::get() {
             let level = global.get_shroud_alpha();
-            if let Some(handler) = current_script_action_handler() {
+            if let Some(handler) = self.current_script_action_handler() {
                 let _ = handler.set_border_shroud_level(level);
             }
         }
@@ -680,7 +682,7 @@ impl ScriptActionDispatcher {
             count += 1;
         }
 
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.cameo_flash(&cameo_name, count) {
                 log::warn!("Script action handler cameo_flash failed: {}", err);
             }
@@ -701,7 +703,7 @@ impl ScriptActionDispatcher {
             timer_text
         );
 
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.add_named_timer(&timer_name, &timer_text, true) {
                 log::warn!("Script action handler add_named_timer failed: {}", err);
             }
@@ -717,7 +719,7 @@ impl ScriptActionDispatcher {
         let timer_name = self.get_string_param(action, 0)?;
         log::debug!("Hiding countdown timer '{}'", timer_name);
 
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.remove_named_timer(&timer_name) {
                 log::warn!("Script action handler remove_named_timer failed: {}", err);
             }
@@ -731,7 +733,7 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Enabling countdown timer display");
 
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.show_named_timer_display(true) {
                 log::warn!(
                     "Script action handler show_named_timer_display(true) failed: {}",
@@ -748,7 +750,7 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Disabling countdown timer display");
 
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.show_named_timer_display(false) {
                 log::warn!(
                     "Script action handler show_named_timer_display(false) failed: {}",
@@ -772,7 +774,7 @@ impl ScriptActionDispatcher {
             counter_text
         );
 
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.add_named_timer(&counter_name, &counter_text, false) {
                 log::warn!("Script action handler add_named_timer failed: {}", err);
             }
@@ -788,7 +790,7 @@ impl ScriptActionDispatcher {
         let counter_name = self.get_string_param(action, 0)?;
         log::debug!("Hiding counter '{}'", counter_name);
 
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.remove_named_timer(&counter_name) {
                 log::warn!("Script action handler remove_named_timer failed: {}", err);
             }
@@ -802,7 +804,7 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Disabling special power display");
 
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.set_superweapon_display_enabled_by_script(false) {
                 log::warn!(
                     "Script action handler set_superweapon_display_enabled_by_script(false) failed: {}",
@@ -819,7 +821,7 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Enabling special power display");
 
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.set_superweapon_display_enabled_by_script(true) {
                 log::warn!(
                     "Script action handler set_superweapon_display_enabled_by_script(true) failed: {}",
@@ -853,7 +855,7 @@ impl ScriptActionDispatcher {
         );
 
         // C++: TheInGameUI->popupMessage(message, x, y, width, pause, FALSE)
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) =
                 handler.popup_message(&message, x_percent, y_percent, width, pause, false)
             {
@@ -967,7 +969,7 @@ impl ScriptActionDispatcher {
         }
 
         if center_in_view {
-            if let Some(handler) = current_script_action_handler() {
+            if let Some(handler) = self.current_script_action_handler() {
                 let _ = handler.move_camera_to(
                     selected_pos.x,
                     selected_pos.y,
@@ -989,8 +991,10 @@ impl ScriptActionDispatcher {
 
     pub(crate) fn do_freeze_time(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Freezing time");
-        let _ = with_script_engine_mut(|script_engine| script_engine.do_freeze_time());
-        if let Some(handler) = current_script_action_handler() {
+        let _ = self
+            .context
+            .with_engine_mut(|script_engine| script_engine.do_freeze_time());
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.freeze_time() {
                 log::warn!("Script action handler freeze_time failed: {}", err);
             }
@@ -1000,8 +1004,10 @@ impl ScriptActionDispatcher {
 
     pub(crate) fn do_unfreeze_time(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Unfreezing time");
-        let _ = with_script_engine_mut(|script_engine| script_engine.do_unfreeze_time());
-        if let Some(handler) = current_script_action_handler() {
+        let _ = self
+            .context
+            .with_engine_mut(|script_engine| script_engine.do_unfreeze_time());
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.unfreeze_time() {
                 log::warn!("Script action handler unfreeze_time failed: {}", err);
             }
@@ -1015,7 +1021,7 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let multiplier = self.get_int_param(action, 0)?;
         log::debug!("Setting visual speed multiplier to {}", multiplier);
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.set_visual_speed_multiplier(multiplier) {
                 log::warn!(
                     "Script action handler set_visual_speed_multiplier failed: {}",
@@ -1032,7 +1038,7 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let fps = self.get_int_param(action, 0)?;
         log::debug!("Setting FPS limit to {}", fps);
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.set_fps_limit(fps) {
                 log::warn!("Script action handler set_fps_limit failed: {}", err);
             }
@@ -1062,7 +1068,7 @@ impl ScriptActionDispatcher {
             randomness
         );
 
-        let _ = with_script_engine_mut(|script_engine| {
+        let _ = self.context.with_engine_mut(|script_engine| {
             script_engine.set_breeze_info(direction, intensity, lean, breeze_period, randomness);
         });
 
@@ -1152,7 +1158,7 @@ impl ScriptActionDispatcher {
         let show_weather = self.get_bool_param_optional(action, 0).unwrap_or(true);
         log::debug!("Setting weather visibility to {}", show_weather);
 
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.set_weather_visible(show_weather) {
                 log::warn!("Script action handler set_weather_visible failed: {}", err);
             }
@@ -1254,7 +1260,7 @@ impl ScriptActionDispatcher {
 
         // Live host: leftover OBJECT_REGISTRY is empty. Always push the
         // C++ setCashValue through MissionScriptActionHandler.
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.set_warehouse_value(&warehouse_name, value) {
                 log::warn!("Script action handler set_warehouse_value failed: {}", err);
             }

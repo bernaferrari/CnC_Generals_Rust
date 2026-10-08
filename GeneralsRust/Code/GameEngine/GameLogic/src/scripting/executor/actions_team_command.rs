@@ -5,7 +5,7 @@
 
 use super::*;
 
-impl ScriptActionDispatcher {
+impl ScriptActionDispatcher<'_> {
     /// C++ Reference: ScriptActions::doTeamHuntWithCommandButton() (ScriptActions.cpp ~2003-2147)
     ///
     /// Validates that `ability` is a hunt-capable GUI command, then for each living team

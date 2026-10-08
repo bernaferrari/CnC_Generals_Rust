@@ -3,7 +3,7 @@
 use super::*;
 use crate::common::KindOf;
 
-impl ScriptActionDispatcher {
+impl ScriptActionDispatcher<'_> {
     /// C++ ScriptActions.cpp:3358-3422 `doTeamGarrisonNearestBuilding`.
     ///
     /// Partition-filters nearest garrisonable buildings (internet center for

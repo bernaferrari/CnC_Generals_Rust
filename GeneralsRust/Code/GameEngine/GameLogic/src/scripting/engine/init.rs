@@ -190,7 +190,8 @@ impl ScriptEngine {
         context: crate::scripting::executor::ScriptContext,
         driver: &mut dyn ScriptExecutionDriver,
     ) {
-        let mut execution = ScriptExecution::new(context, driver);
+        let context = std::cell::RefCell::new(context);
+        let mut execution = ScriptExecution::new(&context, driver);
         let (saved_team, saved_player) = {
             let mut inner = self.lock_inner_mut();
             let saved_team = inner.calling_team.take();
@@ -243,7 +244,7 @@ impl ScriptEngine {
         execution: &mut ScriptExecution<'_>,
     ) {
         let mut dispatcher =
-            crate::scripting::executor::ScriptActionDispatcher::new(execution.context.clone());
+            crate::scripting::executor::ScriptActionDispatcher::for_engine(self, execution.context);
         if let Err(err) = self.execute_action_chain(action, &mut dispatcher, execution) {
             log::warn!("friend_execute_action: {}", err);
         }
@@ -915,8 +916,8 @@ impl ScriptEngine {
         &self,
         side_index: usize,
         container: ScriptContainer,
-        condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator,
-        action_dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher,
+        condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator<'_>,
+        action_dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher<'_>,
         execution: &mut ScriptExecution<'_>,
     ) -> GameLogicResult<()> {
         let mut script_index = 0;
@@ -950,8 +951,8 @@ impl ScriptEngine {
     fn execute_script_at_location(
         &self,
         location: ScriptLocation,
-        condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator,
-        action_dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher,
+        condition_evaluator: &mut crate::scripting::executor::ScriptConditionEvaluator<'_>,
+        action_dispatcher: &mut crate::scripting::executor::ScriptActionDispatcher<'_>,
         execution: &mut ScriptExecution<'_>,
     ) -> GameLogicResult<()> {
         self.with_detached_script(location, |script| {
@@ -981,7 +982,8 @@ impl ScriptEngine {
         context: crate::scripting::executor::ScriptContext,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> GameLogicResult<bool> {
-        let mut execution = ScriptExecution::new(context, driver);
+        let context = std::cell::RefCell::new(context);
+        let mut execution = ScriptExecution::new(&context, driver);
         self.execute_subroutine_with_execution(name, &mut execution)
     }
 
@@ -1006,9 +1008,12 @@ impl ScriptEngine {
             return Ok(false);
         };
         let mut action_dispatcher =
-            crate::scripting::executor::ScriptActionDispatcher::new(execution.context.clone());
+            crate::scripting::executor::ScriptActionDispatcher::for_engine(self, execution.context);
         let mut condition_evaluator =
-            crate::scripting::executor::ScriptConditionEvaluator::new(execution.context.clone());
+            crate::scripting::executor::ScriptConditionEvaluator::for_engine(
+                self,
+                execution.context,
+            );
 
         match self.find_subroutine_lookup(name)? {
             SubroutineLookup::Group {

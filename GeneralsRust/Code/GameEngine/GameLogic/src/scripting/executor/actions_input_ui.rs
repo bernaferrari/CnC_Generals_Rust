@@ -3,7 +3,7 @@
 use super::*;
 use crate::helpers::TheInGameUI;
 
-impl ScriptActionDispatcher {
+impl ScriptActionDispatcher<'_> {
     /// C++ ScriptActions.cpp:3176-3189 `doDisableInput`.
     pub(crate) fn do_disable_input(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::info!("Disabling user input");

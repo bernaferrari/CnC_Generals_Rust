@@ -5,7 +5,7 @@
 
 use super::*;
 
-impl ScriptActionDispatcher {
+impl ScriptActionDispatcher<'_> {
     // ============================================================================
     // ADDITIONAL NAMED UNIT ACTION IMPLEMENTATIONS
     // ============================================================================
@@ -392,14 +392,16 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-        let resolved_name = with_script_engine_ref(|engine| {
-            engine
-                .get_attack_info(&priority_set)
-                .map(|info| info.get_name().to_string())
-                .unwrap_or_default()
-        })
-        .unwrap_or_default();
-        let _ = with_script_engine_mut(|engine| {
+        let resolved_name = self
+            .context
+            .with_engine_ref(|engine| {
+                engine
+                    .get_attack_info(&priority_set)
+                    .map(|info| info.get_name().to_string())
+                    .unwrap_or_default()
+            })
+            .unwrap_or_default();
+        let _ = self.context.with_engine_mut(|engine| {
             if resolved_name.is_empty() {
                 engine.clear_object_attack_priority_set(object_id);
             } else {
@@ -844,8 +846,10 @@ impl ScriptActionDispatcher {
         if let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) {
             // Copy the host callback out of the active engine before calling
             // it.  The callback may immediately re-enter script execution.
-            let handler =
-                with_script_engine_ref(|script_engine| script_engine.action_handler()).flatten();
+            let handler = self
+                .context
+                .with_engine_ref(|script_engine| script_engine.action_handler())
+                .flatten();
             if let Some(handler) = handler {
                 if let Err(err) = handler.hide_object_superweapon_display_by_script(object_id) {
                     log::warn!(
@@ -870,8 +874,10 @@ impl ScriptActionDispatcher {
         if let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) {
             // Copy the host callback out of the active engine before calling
             // it.  The callback may immediately re-enter script execution.
-            let handler =
-                with_script_engine_ref(|script_engine| script_engine.action_handler()).flatten();
+            let handler = self
+                .context
+                .with_engine_ref(|script_engine| script_engine.action_handler())
+                .flatten();
             if let Some(handler) = handler {
                 if let Err(err) = handler.show_object_superweapon_display_by_script(object_id) {
                     log::warn!(
@@ -900,7 +906,7 @@ impl ScriptActionDispatcher {
         self.with_named_special_power_module_mut(&unit_name, &special_power, |sp_module| {
             sp_module.pause_countdown(true);
         });
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             let _ = handler.pause_named_special_power_countdown(&unit_name, &special_power, true);
         }
 
@@ -922,7 +928,7 @@ impl ScriptActionDispatcher {
         self.with_named_special_power_module_mut(&unit_name, &special_power, |sp_module| {
             sp_module.pause_countdown(false);
         });
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             let _ = handler.pause_named_special_power_countdown(&unit_name, &special_power, false);
         }
 
@@ -949,7 +955,7 @@ impl ScriptActionDispatcher {
             let ready_frame = base_frame.saturating_add_signed(frames);
             sp_module.set_ready_frame(ready_frame);
         });
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             let _ =
                 handler.set_named_special_power_countdown(&unit_name, &special_power, countdown);
         }
@@ -976,7 +982,7 @@ impl ScriptActionDispatcher {
             let new_ready_frame = sp_module.get_ready_frame().saturating_add_signed(frames);
             sp_module.set_ready_frame(new_ready_frame);
         });
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             let _ = handler.add_named_special_power_countdown(&unit_name, &special_power, amount);
         }
 
@@ -1542,7 +1548,7 @@ impl ScriptActionDispatcher {
         let unit_name = self.get_string_param(action, 0)?;
         let dir = self.get_coord_param(action, 1)?;
         let direction = crate::common::Coord3D::new(dir.x, dir.y, dir.z);
-        let _ = with_script_engine_mut(|engine| {
+        let _ = self.context.with_engine_mut(|engine| {
             engine.set_topple_direction(&unit_name, Some(direction));
         });
         super::request_host_script_topple_direction(&unit_name, dir.x, dir.y);
@@ -2007,7 +2013,7 @@ impl ScriptActionDispatcher {
             },
         };
 
-        let _ = with_script_engine_mut(|engine| {
+        let _ = self.context.with_engine_mut(|engine| {
             let Some(script) = engine.find_script_clone_by_name(&script_name) else {
                 return;
             };
@@ -2045,7 +2051,7 @@ impl ScriptActionDispatcher {
             },
         };
 
-        let _ = with_script_engine_mut(|engine| {
+        let _ = self.context.with_engine_mut(|engine| {
             let Some(script) = engine.find_script_clone_by_name(&script_name) else {
                 return;
             };
@@ -2076,7 +2082,7 @@ impl ScriptActionDispatcher {
             },
         };
 
-        let _ = with_script_engine_mut(|engine| {
+        let _ = self.context.with_engine_mut(|engine| {
             engine.remove_all_sequential_scripts_for_object(object_id);
         });
 

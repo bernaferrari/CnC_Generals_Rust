@@ -6,7 +6,7 @@
 use super::*;
 use crate::scripting::engine::{ScriptCameraRequest, ScriptDisplayRequest, ScriptExecutionDriver};
 
-impl ScriptActionDispatcher {
+impl ScriptActionDispatcher<'_> {
     // ============================================================================
     // PLAYER ACTIONS
     // C++ Reference: ScriptActions.cpp line (set money)
@@ -270,17 +270,18 @@ impl ScriptActionDispatcher {
         let result = driver.display(request).or_else(|| {
             // Clone the standalone adapter before calling it: a callback can
             // immediately re-enter this engine. Live owners bypass it.
-            current_script_action_handler().map(|handler| match request {
-                ScriptDisplayRequest::Text(text) => handler.display_text(text),
-                ScriptDisplayRequest::Cinematic {
-                    text,
-                    font,
-                    duration_seconds,
-                } => handler.display_cinematic_text(text, font, duration_seconds),
-                ScriptDisplayRequest::MilitaryCaption { text, duration_ms } => {
-                    handler.military_caption(text, duration_ms)
-                }
-            })
+            self.current_script_action_handler()
+                .map(|handler| match request {
+                    ScriptDisplayRequest::Text(text) => handler.display_text(text),
+                    ScriptDisplayRequest::Cinematic {
+                        text,
+                        font,
+                        duration_seconds,
+                    } => handler.display_cinematic_text(text, font, duration_seconds),
+                    ScriptDisplayRequest::MilitaryCaption { text, duration_ms } => {
+                        handler.military_caption(text, duration_ms)
+                    }
+                })
         });
         if let Some(Err(err)) = result {
             let name = match request {
@@ -488,7 +489,7 @@ impl ScriptActionDispatcher {
         let sound_name = self.get_string_param(action, 0)?;
 
         log::info!("Playing sound effect: {}", sound_name);
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.play_sound_effect(&sound_name) {
                 log::warn!("Script action handler play_sound_effect failed: {}", err);
             }
@@ -526,7 +527,7 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) =
                 handler.play_sound_effect_at(&sound_name, target.x, target.y, target.z)
             {
@@ -550,7 +551,7 @@ impl ScriptActionDispatcher {
             allow_overlap
         );
 
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.speech_play(&speech_name, allow_overlap) {
                 log::warn!("Script action handler speech_play failed: {}", err);
             }
@@ -574,13 +575,15 @@ impl ScriptActionDispatcher {
             fade_in
         );
 
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.music_set_track(&track_name, fade_out, fade_in) {
                 log::warn!("Script action handler music_set_track failed: {}", err);
             }
         }
 
-        let _ = with_script_engine_mut(|engine| engine.set_current_track_name(track_name.clone()));
+        let _ = self
+            .context
+            .with_engine_mut(|engine| engine.set_current_track_name(track_name.clone()));
 
         Ok(ScriptActionResult::Success)
     }
@@ -595,7 +598,7 @@ impl ScriptActionDispatcher {
             radar.hide(true);
         }
 
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.set_radar_enabled(false) {
                 log::warn!(
                     "Script action handler set_radar_enabled(false) failed: {}",
@@ -613,7 +616,7 @@ impl ScriptActionDispatcher {
             radar.hide(false);
         }
 
-        if let Some(handler) = current_script_action_handler() {
+        if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.set_radar_enabled(true) {
                 log::warn!(
                     "Script action handler set_radar_enabled(true) failed: {}",
@@ -754,7 +757,9 @@ impl ScriptActionDispatcher {
         log::debug!("Setting flag '{}' to {}", flag_name, value);
 
         // Re-entrant: may run nested under CALL_SUBROUTINE.
-        let _ = with_script_engine_mut(|engine| engine.set_flag(&flag_name, value));
+        let _ = self
+            .context
+            .with_engine_mut(|engine| engine.set_flag(&flag_name, value));
         Ok(ScriptActionResult::Success)
     }
 
@@ -767,7 +772,9 @@ impl ScriptActionDispatcher {
         let value = self.get_int_param(action, 1)?;
         log::debug!("Setting counter '{}' to {}", counter_name, value);
 
-        let _ = with_script_engine_mut(|engine| engine.set_counter(&counter_name, value));
+        let _ = self
+            .context
+            .with_engine_mut(|engine| engine.set_counter(&counter_name, value));
         Ok(ScriptActionResult::Success)
     }
 
@@ -780,7 +787,9 @@ impl ScriptActionDispatcher {
         let counter_name = self.get_string_param(action, 1)?;
         log::debug!("Incrementing counter '{}' by {}", counter_name, amount);
 
-        let _ = with_script_engine_mut(|engine| engine.increment_counter(&counter_name, amount));
+        let _ = self
+            .context
+            .with_engine_mut(|engine| engine.increment_counter(&counter_name, amount));
         Ok(ScriptActionResult::Success)
     }
 
@@ -793,7 +802,9 @@ impl ScriptActionDispatcher {
         let counter_name = self.get_string_param(action, 1)?;
         log::debug!("Decrementing counter '{}' by {}", counter_name, amount);
 
-        let _ = with_script_engine_mut(|engine| engine.decrement_counter(&counter_name, amount));
+        let _ = self
+            .context
+            .with_engine_mut(|engine| engine.decrement_counter(&counter_name, amount));
         Ok(ScriptActionResult::Success)
     }
 
@@ -806,7 +817,9 @@ impl ScriptActionDispatcher {
         let frames = self.get_int_param(action, 1)?;
         log::debug!("Setting timer '{}' to {} frames", timer_name, frames);
 
-        let _ = with_script_engine_mut(|engine| engine.set_timer(&timer_name, frames));
+        let _ = self
+            .context
+            .with_engine_mut(|engine| engine.set_timer(&timer_name, frames));
         Ok(ScriptActionResult::Success)
     }
 
@@ -823,7 +836,7 @@ impl ScriptActionDispatcher {
             seconds
         );
 
-        let _ = with_script_engine_mut(|engine| {
+        let _ = self.context.with_engine_mut(|engine| {
             engine.set_timer_millisecond_script_seconds(&timer_name, seconds)
         });
         Ok(ScriptActionResult::Success)
@@ -846,7 +859,9 @@ impl ScriptActionDispatcher {
 
         let random_frames = get_game_logic_random_value(min_seconds, max_seconds);
 
-        let _ = with_script_engine_mut(|engine| engine.set_timer(&timer_name, random_frames));
+        let _ = self
+            .context
+            .with_engine_mut(|engine| engine.set_timer(&timer_name, random_frames));
         Ok(ScriptActionResult::Success)
     }
 
@@ -867,7 +882,7 @@ impl ScriptActionDispatcher {
 
         let random_seconds = get_game_logic_random_value_real(min_seconds, max_seconds);
 
-        let _ = with_script_engine_mut(|engine| {
+        let _ = self.context.with_engine_mut(|engine| {
             engine.set_timer_millisecond_script_seconds(&timer_name, random_seconds)
         });
         Ok(ScriptActionResult::Success)
@@ -881,7 +896,9 @@ impl ScriptActionDispatcher {
         let timer_name = self.get_string_param(action, 0)?;
         log::debug!("Stopping timer '{}'", timer_name);
 
-        let _ = with_script_engine_mut(|engine| engine.stop_timer(&timer_name));
+        let _ = self
+            .context
+            .with_engine_mut(|engine| engine.stop_timer(&timer_name));
         Ok(ScriptActionResult::Success)
     }
 
@@ -893,7 +910,9 @@ impl ScriptActionDispatcher {
         let timer_name = self.get_string_param(action, 0)?;
         log::debug!("Restarting timer '{}'", timer_name);
 
-        let _ = with_script_engine_mut(|engine| engine.restart_timer(&timer_name));
+        let _ = self
+            .context
+            .with_engine_mut(|engine| engine.restart_timer(&timer_name));
         Ok(ScriptActionResult::Success)
     }
 
@@ -910,7 +929,7 @@ impl ScriptActionDispatcher {
             timer_name
         );
 
-        let _ = with_script_engine_mut(|engine| {
+        let _ = self.context.with_engine_mut(|engine| {
             engine.add_to_timer_millisecond_script_seconds(&timer_name, seconds)
         });
         Ok(ScriptActionResult::Success)
@@ -929,7 +948,7 @@ impl ScriptActionDispatcher {
             timer_name
         );
 
-        let _ = with_script_engine_mut(|engine| {
+        let _ = self.context.with_engine_mut(|engine| {
             engine.subtract_from_timer_millisecond_script_seconds(&timer_name, seconds)
         });
         Ok(ScriptActionResult::Success)
@@ -945,9 +964,10 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let script_name = self.get_string_param(action, 0)?;
         log::debug!("Enabling script '{}'", script_name);
-        let found =
-            with_script_engine_mut(|engine| engine.set_script_active_by_name(&script_name, true))
-                .unwrap_or(false);
+        let found = self
+            .context
+            .with_engine_mut(|engine| engine.set_script_active_by_name(&script_name, true))
+            .unwrap_or(false);
         if !found {
             log::warn!("ENABLE_SCRIPT: script '{}' not found", script_name);
         }
@@ -960,9 +980,10 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let script_name = self.get_string_param(action, 0)?;
         log::debug!("Disabling script '{}'", script_name);
-        let found =
-            with_script_engine_mut(|engine| engine.set_script_active_by_name(&script_name, false))
-                .unwrap_or(false);
+        let found = self
+            .context
+            .with_engine_mut(|engine| engine.set_script_active_by_name(&script_name, false))
+            .unwrap_or(false);
         if !found {
             log::warn!("DISABLE_SCRIPT: script '{}' not found", script_name);
         }
@@ -979,7 +1000,7 @@ impl ScriptActionDispatcher {
         // CRITICAL: never hold get_script_engine().write() across execute_subroutine_by_name.
         // Nested CALL_SUBROUTINE / set_flag / set_timer re-enter the same std RwLock and
         // deadlocked campaign maps (MD_USA01 SUB-Generate Random Number).
-        let found = match with_script_engine_mut(|engine| {
+        let found = match self.context.with_engine_mut(|engine| {
             engine
                 .execute_subroutine_by_name(&subroutine_name)
                 .map_err(|e| ScriptError::ExecutionFailed(e.to_string()))

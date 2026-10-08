@@ -24,7 +24,7 @@ fn bool_result(value: bool) -> ScriptConditionResult {
     }
 }
 
-impl ScriptConditionEvaluator {
+impl ScriptConditionEvaluator<'_> {
     pub(crate) fn resolve_string_token(&self, raw: &str) -> String {
         match raw {
             THE_PLAYER => {
@@ -45,7 +45,9 @@ impl ScriptConditionEvaluator {
                         .unwrap_or_else(|| raw.to_string())
                 }
             }
-            THIS_PLAYER => with_script_engine_ref(|engine| engine.get_current_player_name())
+            THIS_PLAYER => self
+                .context
+                .with_engine_ref(|engine| engine.get_current_player_name())
                 .flatten()
                 .unwrap_or_else(|| raw.to_string()),
             LOCAL_PLAYER => player_list()
@@ -58,13 +60,15 @@ impl ScriptConditionEvaluator {
                         .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
                 })
                 .unwrap_or_else(|| raw.to_string()),
-            THIS_TEAM => with_script_engine_ref(|engine| {
-                engine
-                    .get_condition_team_name()
-                    .or_else(|| engine.get_calling_team_name())
-            })
-            .flatten()
-            .unwrap_or_else(|| raw.to_string()),
+            THIS_TEAM => self
+                .context
+                .with_engine_ref(|engine| {
+                    engine
+                        .get_condition_team_name()
+                        .or_else(|| engine.get_calling_team_name())
+                })
+                .flatten()
+                .unwrap_or_else(|| raw.to_string()),
             TEAM_THE_PLAYER => {
                 // C++ ScriptEngine::getTeamNamed (ScriptEngine.cpp:5935-5939):
                 // remap teamThePlayer only in Generals Challenge campaigns.
@@ -98,12 +102,14 @@ impl ScriptConditionEvaluator {
         team_name: &str,
     ) -> Option<Arc<RwLock<crate::team::Team>>> {
         let resolved = self.resolve_string_token(team_name);
-        let calling = with_script_engine_ref(|engine| {
-            engine
-                .get_calling_team_name()
-                .or_else(|| engine.get_condition_team_name())
-        })
-        .flatten();
+        let calling = self
+            .context
+            .with_engine_ref(|engine| {
+                engine
+                    .get_calling_team_name()
+                    .or_else(|| engine.get_condition_team_name())
+            })
+            .flatten();
         let preferred = calling.filter(|name| name == &resolved);
 
         let factory = get_team_factory();
@@ -135,9 +141,7 @@ impl ScriptConditionEvaluator {
     ) -> Result<crate::polygon_trigger::PolygonTrigger, ScriptError> {
         let owned = self
             .context
-            .read()
-            .unwrap_or_else(|error| error.into_inner())
-            .owned_trigger_area(area_name);
+            .with_state(|context| context.owned_trigger_area(area_name));
         if let Some(trigger) = owned {
             return trigger.ok_or_else(|| {
                 ScriptError::ObjectNotFound(format!(
@@ -146,9 +150,10 @@ impl ScriptConditionEvaluator {
                 ))
             });
         }
-        if let Some(trigger) =
-            with_script_engine_ref(|engine| engine.get_qualified_trigger_area_by_name(area_name))
-                .flatten()
+        if let Some(trigger) = self
+            .context
+            .with_engine_ref(|engine| engine.get_qualified_trigger_area_by_name(area_name))
+            .flatten()
         {
             return Ok(trigger);
         }
@@ -538,13 +543,15 @@ impl ScriptConditionEvaluator {
         );
 
         // Get counter value from script engine
-        let counter_value = with_script_engine_ref(|engine| {
-            engine
-                .get_counter(&counter_name)
-                .map(|counter| counter.value)
-                .unwrap_or(0)
-        })
-        .unwrap_or(0);
+        let counter_value = self
+            .context
+            .with_engine_ref(|engine| {
+                engine
+                    .get_counter(&counter_name)
+                    .map(|counter| counter.value)
+                    .unwrap_or(0)
+            })
+            .unwrap_or(0);
 
         // Perform comparison matching C++ ScriptEngine::evaluateCounter()
         let result = match comparison {
@@ -575,14 +582,16 @@ impl ScriptConditionEvaluator {
         // Re-entrant: nested under CALL_SUBROUTINE may hold the engine write lock.
         // C++: stored flag == expected, else any matching `m_uiInteractions` name
         // is true for this frame (cleared at the end of ScriptEngine::update).
-        let matched = with_script_engine_ref(|engine| {
-            let flag_value = engine
-                .get_flag(&flag_name)
-                .map(|f| f.value)
-                .unwrap_or(false);
-            flag_value == expected || engine.has_ui_interaction(&flag_name)
-        })
-        .unwrap_or(false);
+        let matched = self
+            .context
+            .with_engine_ref(|engine| {
+                let flag_value = engine
+                    .get_flag(&flag_name)
+                    .map(|f| f.value)
+                    .unwrap_or(false);
+                flag_value == expected || engine.has_ui_interaction(&flag_name)
+            })
+            .unwrap_or(false);
 
         Ok(if matched {
             ScriptConditionResult::True
@@ -602,13 +611,15 @@ impl ScriptConditionEvaluator {
 
         // Re-entrant: nested under CALL_SUBROUTINE may hold the engine write lock.
         // Timers are counters with is_countdown_timer; expired when value <= 0.
-        let is_expired = with_script_engine_ref(|engine| {
-            engine
-                .get_counter(&timer_name)
-                .map(|counter| counter.is_countdown_timer && counter.value <= 0)
-                .unwrap_or(false)
-        })
-        .unwrap_or(false);
+        let is_expired = self
+            .context
+            .with_engine_ref(|engine| {
+                engine
+                    .get_counter(&timer_name)
+                    .map(|counter| counter.is_countdown_timer && counter.value <= 0)
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
 
         Ok(if is_expired {
             ScriptConditionResult::True
@@ -942,10 +953,10 @@ impl ScriptConditionEvaluator {
         };
 
         if let Some(player_index) = player_index {
-            let acquired = with_script_engine_mut(|engine| {
-                engine.is_science_acquired(player_index, science, true)
-            })
-            .unwrap_or(false);
+            let acquired = self
+                .context
+                .with_engine_mut(|engine| engine.is_science_acquired(player_index, science, true))
+                .unwrap_or(false);
             if acquired {
                 return Ok(ScriptConditionResult::True);
             }
@@ -1128,12 +1139,13 @@ impl ScriptConditionEvaluator {
         object_type: &str,
         sum_of_objs: i32,
     ) -> ScriptConditionResult {
-        let current_count =
-            with_script_engine_ref(|engine| engine.get_object_count(player_index, object_type))
-                .unwrap_or(0);
+        let current_count = self
+            .context
+            .with_engine_ref(|engine| engine.get_object_count(player_index, object_type))
+            .unwrap_or(0);
 
         if sum_of_objs != current_count {
-            let _ = with_script_engine_mut(|engine| {
+            let _ = self.context.with_engine_mut(|engine| {
                 engine.set_object_count(player_index, object_type, sum_of_objs);
             });
         }
@@ -1193,10 +1205,12 @@ impl ScriptConditionEvaluator {
         );
 
         if condition.custom_data != 0 {
-            if with_script_engine_ref(|engine| {
-                engine.get_frame_object_count_changed() == condition.custom_frame
-            })
-            .unwrap_or(false)
+            if self
+                .context
+                .with_engine_ref(|engine| {
+                    engine.get_frame_object_count_changed() == condition.custom_frame
+                })
+                .unwrap_or(false)
             {
                 return Ok(if condition.custom_data == 1 {
                     ScriptConditionResult::True
@@ -1240,8 +1254,9 @@ impl ScriptConditionEvaluator {
         };
 
         condition.custom_data = if result { 1 } else { -1 };
-        if let Some(frame) =
-            with_script_engine_ref(|engine| engine.get_frame_object_count_changed())
+        if let Some(frame) = self
+            .context
+            .with_engine_ref(|engine| engine.get_frame_object_count_changed())
         {
             condition.custom_frame = frame;
         }
@@ -1942,8 +1957,9 @@ impl ScriptConditionEvaluator {
             return types;
         }
 
-        if let Some(Some(found)) =
-            with_script_engine_ref(|engine| engine.get_object_types(type_or_list_name))
+        if let Some(Some(found)) = self
+            .context
+            .with_engine_ref(|engine| engine.get_object_types(type_or_list_name))
         {
             return found;
         }

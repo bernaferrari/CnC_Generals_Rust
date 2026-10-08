@@ -511,3 +511,5 @@ fn install_live_hold_zone_census(objects: Vec<crate::scripting::HostScriptQueryO
 // Behavior-named suites keep each test file below the 4k LOC ceiling.
 mod actions_and_team_commands;
 mod conditions_and_live_queries;
+
+mod borrowed_engine_tests;

@@ -124,19 +124,19 @@ impl ScriptExecutionDriver for CanonicalScriptExecutionDriver {
 }
 
 struct ScriptExecution<'a> {
-    context: Arc<RwLock<crate::scripting::executor::ScriptContext>>,
+    context: &'a std::cell::RefCell<crate::scripting::executor::ScriptContext>,
     frame: u32,
     driver: &'a mut dyn ScriptExecutionDriver,
 }
 
 impl<'a> ScriptExecution<'a> {
     fn new(
-        context: crate::scripting::executor::ScriptContext,
+        context: &'a std::cell::RefCell<crate::scripting::executor::ScriptContext>,
         driver: &'a mut dyn ScriptExecutionDriver,
     ) -> Self {
         Self {
-            frame: context.current_frame,
-            context: Arc::new(RwLock::new(context)),
+            frame: context.borrow().current_frame,
+            context,
             driver,
         }
     }
@@ -1192,6 +1192,15 @@ impl DerefMut for InnerMutGuard<'_> {
 }
 
 impl ScriptEngine {
+    /// Match active read's failure policy without selecting an ambient engine.
+    pub(crate) fn with_execution_read<R>(&self, f: impl FnOnce(&Self) -> R) -> Option<R> {
+        if self.inner.try_borrow().is_err() {
+            None
+        } else {
+            Some(f(self))
+        }
+    }
+
     /// Scoped shared read of inner state. The `&ScriptEngineInner` cannot escape `f`.
     ///
     /// Panics if an `InnerMutGuard` is live (`RefCell` already borrowed).
@@ -1514,7 +1523,7 @@ impl Drop for SubroutineDepthGuard {
 impl ScriptEngine {
     /// Run `f` with this engine installed as the current lexical nested target.
     /// `scoped_tls` restores an outer active engine even if `f` panics.
-    fn with_active<R>(&self, f: impl FnOnce() -> R) -> R {
+    pub(crate) fn with_active<R>(&self, f: impl FnOnce() -> R) -> R {
         ACTIVE_SCRIPT_ENGINE.set(self, f)
     }
 

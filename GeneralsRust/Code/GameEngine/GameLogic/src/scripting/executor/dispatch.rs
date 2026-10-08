@@ -5,7 +5,7 @@
 
 use super::*;
 
-impl ScriptActionDispatcher {
+impl ScriptActionDispatcher<'_> {
     pub(crate) fn resolve_player_name_token(&self, raw: &str) -> String {
         match raw {
             THE_PLAYER => {
@@ -24,7 +24,9 @@ impl ScriptActionDispatcher {
                         .unwrap_or_else(|| raw.to_string())
                 }
             }
-            THIS_PLAYER => with_script_engine_ref(|engine| engine.get_current_player_name())
+            THIS_PLAYER => self
+                .context
+                .with_engine_ref(|engine| engine.get_current_player_name())
                 .flatten()
                 .unwrap_or_else(|| raw.to_string()),
             LOCAL_PLAYER => player_list()
@@ -43,13 +45,15 @@ impl ScriptActionDispatcher {
 
     pub(crate) fn resolve_team_name_token(&self, raw: &str) -> String {
         match raw {
-            THIS_TEAM => with_script_engine_ref(|engine| {
-                engine
-                    .get_condition_team_name()
-                    .or_else(|| engine.get_calling_team_name())
-            })
-            .flatten()
-            .unwrap_or_else(|| raw.to_string()),
+            THIS_TEAM => self
+                .context
+                .with_engine_ref(|engine| {
+                    engine
+                        .get_condition_team_name()
+                        .or_else(|| engine.get_calling_team_name())
+                })
+                .flatten()
+                .unwrap_or_else(|| raw.to_string()),
             TEAM_THE_PLAYER => {
                 // C++ ScriptEngine::getTeamNamed (ScriptEngine.cpp:5935-5939).
                 if !is_generals_challenge_campaign() {
@@ -928,8 +932,10 @@ impl ScriptActionDispatcher {
     where
         F: FnOnce(&mut crate::ai::integration::IntegratedAiPlayer),
     {
-        let current_player =
-            with_script_engine_ref(|engine| engine.get_current_player_name()).flatten();
+        let current_player = self
+            .context
+            .with_engine_ref(|engine| engine.get_current_player_name())
+            .flatten();
         let Some(player_name) = current_player else {
             log::warn!("Skirmish action: current player not available");
             return;
@@ -982,8 +988,10 @@ impl ScriptActionDispatcher {
     }
 
     pub(crate) fn get_skirmish_enemy_player(&self) -> Option<Arc<RwLock<crate::player::Player>>> {
-        let current_player_name =
-            with_script_engine_ref(|engine| engine.get_current_player_name()).flatten()?;
+        let current_player_name = self
+            .context
+            .with_engine_ref(|engine| engine.get_current_player_name())
+            .flatten()?;
 
         let list = player_list().read().ok()?;
         let current_player = list.find_player_by_name(&current_player_name)?;
@@ -1229,8 +1237,9 @@ impl ScriptActionDispatcher {
             return types;
         }
 
-        if let Some(Some(found)) =
-            with_script_engine_ref(|engine| engine.get_object_types(type_or_list_name))
+        if let Some(Some(found)) = self
+            .context
+            .with_engine_ref(|engine| engine.get_object_types(type_or_list_name))
         {
             return found;
         }
@@ -1586,9 +1595,7 @@ impl ScriptActionDispatcher {
     ) -> Result<crate::polygon_trigger::PolygonTrigger, ScriptError> {
         let owned = self
             .context
-            .read()
-            .unwrap_or_else(|error| error.into_inner())
-            .owned_trigger_area(area_name);
+            .with_state(|context| context.owned_trigger_area(area_name));
         if let Some(trigger) = owned {
             return trigger.ok_or_else(|| {
                 ScriptError::ObjectNotFound(format!(
@@ -1597,9 +1604,10 @@ impl ScriptActionDispatcher {
                 ))
             });
         }
-        if let Some(trigger) =
-            with_script_engine_ref(|engine| engine.get_qualified_trigger_area_by_name(area_name))
-                .flatten()
+        if let Some(trigger) = self
+            .context
+            .with_engine_ref(|engine| engine.get_qualified_trigger_area_by_name(area_name))
+            .flatten()
         {
             return Ok(trigger);
         }
