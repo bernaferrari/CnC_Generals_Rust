@@ -220,7 +220,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-non-network-
 
-      - name: Run authoritative full playability gate
+      - name: Run selected non-network headless gates
         run: Code/Main/playability_gate.sh full
 
       - name: Upload parity dashboard and command evidence

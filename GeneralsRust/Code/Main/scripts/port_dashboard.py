@@ -12,7 +12,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -93,6 +95,117 @@ def command(repo: Path, args: list[str], *, check: bool = True) -> subprocess.Co
     return subprocess.run(args, cwd=repo, text=True, capture_output=True, check=check)
 
 
+def selected_gates(profile: str) -> tuple[tuple[str, list[str]], ...]:
+    if profile == "quick":
+        return QUICK_GATES
+    if profile == "full":
+        return QUICK_GATES + FULL_GATES
+    raise ValueError(f"unknown gate profile: {profile}")
+
+
+def test_result_counts(output: str) -> tuple[int, int] | None:
+    """Return total passed/failed harness cases, if Cargo ran tests."""
+    runs = test_result_runs(output)
+    if not runs:
+        return None
+    return sum(passed for passed, _failed in runs), sum(
+        failed for _passed, failed in runs
+    )
+
+
+def test_result_runs(output: str) -> list[tuple[int, int]]:
+    """Return passed/failed counts for each Cargo test harness result line."""
+    output = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", output)
+    return [
+        (int(passed), int(failed))
+        for passed, failed in re.findall(
+        r"test result:\s*[^;\n]*?(\d+) passed;\s*(\d+) failed;",
+        output,
+        )
+    ]
+
+
+def selected_test_harness_count(args: list[str]) -> int | None:
+    """Count explicitly selected test harnesses, excluding generic packages."""
+    if "--lib" in args:
+        return 1
+    selected = sum(arg == "--test" for arg in args)
+    return selected or None
+
+
+def gate_evidence_errors(
+    evidence: dict[str, Any], expected_profile: str | None = None
+) -> list[str]:
+    """Validate that evidence is the complete, exact selected gate run."""
+    profile = evidence.get("profile")
+    if expected_profile is not None and profile != expected_profile:
+        return [f"profile mismatch: expected {expected_profile}, got {profile!r}"]
+    if profile not in ("quick", "full"):
+        return [f"invalid gate profile: {profile!r}"]
+
+    expected = selected_gates(profile)
+    actual = evidence.get("gates")
+    if not isinstance(actual, list):
+        return ["gate list is missing or invalid"]
+    errors: list[str] = []
+    if len(actual) != len(expected):
+        errors.append(f"incomplete gate count: expected {len(expected)}, got {len(actual)}")
+
+    for index, (name, args) in enumerate(expected):
+        if index >= len(actual):
+            break
+        gate = actual[index]
+        if not isinstance(gate, dict):
+            errors.append(f"gate {index} is not an object")
+            continue
+        if gate.get("name") != name:
+            errors.append(
+                f"gate {index} name mismatch: expected {name!r}, got {gate.get('name')!r}"
+            )
+        if gate.get("command") != list(args):
+            errors.append(f"gate {name} command does not match the selected contract")
+        exit_code = gate.get("exit_code")
+        if type(exit_code) is not int or exit_code != 0:
+            errors.append(f"gate {name} did not exit successfully with an integer status")
+        if gate.get("passed") is not True:
+            errors.append(f"gate {name} is not marked passed")
+
+        is_test_run = args[:2] == ["cargo", "test"] and "--no-run" not in args
+        if not is_test_run:
+            if gate.get("tests_passed") is not None or gate.get("tests_failed") is not None:
+                errors.append(f"gate {name} records test counts for a non-test command")
+            continue
+
+        lines = gate.get("test_result_lines")
+        if not isinstance(lines, list) or any(not isinstance(line, str) for line in lines):
+            errors.append(f"gate {name} has malformed test result lines")
+            continue
+        runs = test_result_runs("\n".join(lines))
+        counts = test_result_counts("\n".join(lines))
+        if len(runs) != len(lines):
+            errors.append(f"gate {name} has invalid test result lines")
+        if counts is None or counts[0] <= 0:
+            errors.append(f"gate {name} has no positive executed-test result")
+        expected_harnesses = selected_test_harness_count(args)
+        if expected_harnesses is not None:
+            if len(runs) != expected_harnesses:
+                errors.append(
+                    f"gate {name} expected {expected_harnesses} test harness results, got {len(runs)}"
+                )
+            elif any(passed <= 0 for passed, _failed in runs):
+                errors.append(f"gate {name} has a selected harness with no passing tests")
+        if counts is not None and counts[1] != 0:
+            errors.append(f"gate {name} reports failed test cases")
+
+        recorded_passed = gate.get("tests_passed")
+        recorded_failed = gate.get("tests_failed")
+        if type(recorded_passed) is not int or recorded_passed != (counts[0] if counts else None):
+            errors.append(f"gate {name} passed-test count does not match its output")
+        if type(recorded_failed) is not int or recorded_failed != (counts[1] if counts else None):
+            errors.append(f"gate {name} failed-test count does not match its output")
+    return errors
+
+
 def git_metadata(repo: Path) -> dict[str, str]:
     sha = command(repo, ["git", "rev-parse", "HEAD"]).stdout.strip()
     timestamp = command(repo, ["git", "show", "-s", "--format=%cI", "HEAD"]).stdout.strip()
@@ -115,20 +228,35 @@ def worktree_digest(repo: Path) -> str:
 
 def run_gates(repo: Path, rust_root: Path, full: bool) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
-    for name, args in QUICK_GATES + (FULL_GATES if full else ()):
-        completed = command(rust_root, list(args), check=False)
-        combined = (completed.stdout + "\n" + completed.stderr).strip().splitlines()
+    for name, args in selected_gates("full" if full else "quick"):
+        try:
+            completed = command(rust_root, list(args), check=False)
+            exit_code = completed.returncode
+            output = (completed.stdout + "\n" + completed.stderr).strip()
+        except OSError as error:
+            exit_code = 127
+            output = f"could not start command: {error}"
+        combined = output.splitlines()
+        is_test_run = args[:2] == ["cargo", "test"] and "--no-run" not in args
+        counts = test_result_counts(output) if is_test_run else None
+        test_result_lines = [
+            line for line in combined if "test result:" in line
+        ] if is_test_run else []
+        passed = exit_code == 0 and (
+            not is_test_run or (counts is not None and counts[0] > 0 and counts[1] == 0)
+        )
         results.append(
             {
                 "name": name,
-                "command": args,
-                "exit_code": completed.returncode,
-                "passed": completed.returncode == 0,
+                "command": list(args),
+                "exit_code": exit_code,
+                "passed": passed,
+                "tests_passed": counts[0] if counts is not None else None,
+                "tests_failed": counts[1] if counts is not None else None,
+                "test_result_lines": test_result_lines,
                 "output_tail": combined[-20:],
             }
         )
-        if completed.returncode != 0:
-            break
     return {
         "schema_version": 1,
         **git_metadata(repo),
@@ -233,14 +361,20 @@ def build_dashboard(
     manifest: dict[str, Any],
     evidence: dict[str, Any] | None,
     quality: dict[str, Any] | None = None,
+    expected_profile: str | None = None,
 ) -> dict[str, Any]:
     summary = manifest["summary"]
     current = evidence is not None and evidence_is_current(evidence, repo)
     gates = evidence.get("gates", []) if current and evidence else []
+    contract_errors = (
+        gate_evidence_errors(evidence, expected_profile) if current and evidence else []
+    )
+    evidence_valid = current and evidence is not None and not contract_errors
+    graded_gates = gates if evidence_valid else []
     quick_names = {name for name, _args in QUICK_GATES}
     full_names = {name for name, _args in FULL_GATES}
-    passed = {gate["name"] for gate in gates if gate.get("passed")}
-    attempted = {gate["name"] for gate in gates}
+    passed = {gate["name"] for gate in graded_gates if gate.get("passed")}
+    attempted = {gate["name"] for gate in graded_gates}
     differential_name = "cpp_rust_randomvalue_differential"
     quality = quality or {}
     quality_known = bool(quality) and all(
@@ -257,8 +391,18 @@ def build_dashboard(
         },
         "grades": {
             "inventory": "pass" if summary["strict_blockers"] == 0 else "fail",
-            "build_and_tests": "pass" if quick_names <= passed else "unknown",
-            "headless_behavior": "pass" if full_names <= passed else "unknown",
+            "build_and_tests": (
+                "pass"
+                if evidence_valid and quick_names <= passed
+                else "fail" if current and evidence and contract_errors
+                else "unknown"
+            ),
+            "headless_behavior": (
+                "pass"
+                if evidence_valid and evidence and evidence.get("profile") == "full" and full_names <= passed
+                else "fail" if current and evidence and evidence.get("profile") == "full" and contract_errors
+                else "unknown"
+            ),
             "cpp_rust_differential": (
                 "component-pass"
                 if differential_name in passed
@@ -284,6 +428,8 @@ def build_dashboard(
             "present": evidence is not None,
             "current_worktree": current,
             "profile": evidence.get("profile") if current and evidence else None,
+            "valid_gate_contract": evidence_valid,
+            "validation_errors": contract_errors,
             "gates": gates,
         },
         "beads": beads_status(repo),
@@ -319,11 +465,24 @@ def main() -> int:
     manifest = json.loads(
         (repo / "PORT_PROVENANCE_MANIFEST.json").read_text(encoding="utf-8")
     )
-    dashboard = build_dashboard(repo, manifest, evidence, quality_status(repo))
+    dashboard = build_dashboard(
+        repo,
+        manifest,
+        evidence,
+        quality_status(repo),
+        expected_profile=args.run_gates,
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(dashboard, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(dashboard["grades"], indent=2))
     print(f"Dashboard: {output_path}")
+    if args.run_gates:
+        errors = gate_evidence_errors(evidence, args.run_gates)
+        if errors:
+            print("Gate verification failed:", file=sys.stderr)
+            for error in errors:
+                print(f"- {error}", file=sys.stderr)
+            return 1
     return 0
 
 
