@@ -1513,9 +1513,21 @@ impl GameLogic {
             }
         }
 
+        // Freeze the driving engine definitions once for this map load. Canonical
+        // engine lifetime is still migrated separately under hq-r0o8i.
+        let script_templates = gamelogic::scripting::engine::with_script_engine_ref(|engine| {
+            gamelogic::scripting::chunk_codec::ScriptTemplateLookup::from_engine(engine)
+        })
+        .unwrap_or_default();
         let script_result = match decoded_map {
-            Some(map) => super::super::script_loader::load_map_scripts_from_chunky(map),
-            None => super::super::script_loader::load_map_scripts(map_name),
+            Some(map) => super::super::script_loader::load_map_scripts_from_chunky_with_templates(
+                map,
+                &script_templates,
+            ),
+            None => super::super::script_loader::load_map_scripts_with_templates(
+                map_name,
+                &script_templates,
+            ),
         };
         match script_result {
             Ok(Some(result)) => {

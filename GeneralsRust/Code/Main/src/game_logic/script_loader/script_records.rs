@@ -9,7 +9,6 @@ const CONDITION_LABEL: &str = "Condition";
 const SCRIPT_ACTION_LABEL: &str = "ScriptAction";
 const SCRIPT_ACTION_FALSE_LABEL: &str = "ScriptActionFalse";
 
-#[derive(Default)]
 struct SidesScriptContext {
     scripts: ScriptListReadInfo,
 }
@@ -18,13 +17,15 @@ fn load_sides_list_fallback(
     map_path: &Path,
     body: &[u8],
     toc: &HashMap<u32, String>,
+    templates: &ScriptTemplateLookup,
 ) -> LoaderResult<Option<MapScriptLoadResult>> {
     let Some((sides_version, sides_payload)) = find_chunk_by_label(body, toc, SIDES_LIST_LABEL)?
     else {
         return Ok(None);
     };
 
-    let script_lists = parse_script_lists_from_sides_chunk(sides_payload, toc, sides_version)?;
+    let script_lists =
+        parse_script_lists_from_sides_chunk(sides_payload, toc, sides_version, templates)?;
     let total = count_scripts(&script_lists);
     info!(
         "Decoded {} script lists ({} scripts) from '{}' via SidesList fallback",
@@ -41,6 +42,21 @@ fn load_sides_list_fallback(
 
 /// Attempt to locate and decode scripts for the provided map.
 pub fn load_map_scripts(map_name: &str) -> LoaderResult<Option<MapScriptLoadResult>> {
+    let templates = current_script_templates();
+    load_map_scripts_with_templates(map_name, &templates)
+}
+
+fn current_script_templates() -> ScriptTemplateLookup {
+    gamelogic::scripting::engine::with_script_engine_ref(|engine| {
+        ScriptTemplateLookup::from_engine(engine)
+    })
+    .unwrap_or_default()
+}
+
+pub(super) fn load_map_scripts_with_templates(
+    map_name: &str,
+    templates: &ScriptTemplateLookup,
+) -> LoaderResult<Option<MapScriptLoadResult>> {
     let Some(_) = locate_map_file(map_name) else {
         warn!(
             "No .map file could be found for '{}'; mission scripts unavailable",
@@ -51,7 +67,7 @@ pub fn load_map_scripts(map_name: &str) -> LoaderResult<Option<MapScriptLoadResu
     let Some(chunky) = load_chunky_map(map_name)? else {
         return Ok(None);
     };
-    load_map_scripts_from_chunky(&chunky)
+    load_map_scripts_from_chunky_with_templates(&chunky, templates)
 }
 
 /// Decode mission scripts from an already-decompressed chunky map.
@@ -59,6 +75,16 @@ pub fn load_map_scripts(map_name: &str) -> LoaderResult<Option<MapScriptLoadResu
 /// `.map` once via `CachedFileInputStream` and parses chunks from that stream.
 pub fn load_map_scripts_from_chunky(
     chunky: &ChunkyMap,
+) -> LoaderResult<Option<MapScriptLoadResult>> {
+    let templates = current_script_templates();
+    load_map_scripts_from_chunky_with_templates(chunky, &templates)
+}
+
+/// Decode against the driving world's frozen template definitions.
+/// No callback or leaf parser consults mutable engine storage.
+pub(super) fn load_map_scripts_from_chunky_with_templates(
+    chunky: &ChunkyMap,
+    templates: &ScriptTemplateLookup,
 ) -> LoaderResult<Option<MapScriptLoadResult>> {
     let map_path = chunky.source.clone();
     if chunky.body_offset >= chunky.bytes.len() {
@@ -71,7 +97,7 @@ pub fn load_map_scripts_from_chunky(
     let body = &chunky.bytes[chunky.body_offset..];
     let player_scripts_chunk = find_chunk_by_label(body, &chunky.toc, PLAYER_SCRIPTS_LABEL)?;
     let Some((version, payload)) = player_scripts_chunk else {
-        if let Some(result) = load_sides_list_fallback(&map_path, body, &chunky.toc)? {
+        if let Some(result) = load_sides_list_fallback(&map_path, body, &chunky.toc, templates)? {
             return Ok(Some(result));
         } else {
             debug!(
@@ -87,11 +113,11 @@ pub fn load_map_scripts_from_chunky(
         }
     };
 
-    let script_lists = parse_script_lists(payload, &chunky.toc, version)?;
+    let script_lists = parse_script_lists(payload, &chunky.toc, version, templates)?;
     let total = count_scripts(&script_lists);
 
     if total == 0 {
-        if let Some(result) = load_sides_list_fallback(&map_path, body, &chunky.toc)? {
+        if let Some(result) = load_sides_list_fallback(&map_path, body, &chunky.toc, templates)? {
             info!(
                 "PlayerScriptsList in '{}' decoded empty; using SidesList fallback instead",
                 map_path.display()
@@ -211,6 +237,7 @@ fn parse_script_lists_from_sides_chunk(
     payload: &[u8],
     toc: &HashMap<u32, String>,
     version: u16,
+    templates: &ScriptTemplateLookup,
 ) -> LoaderResult<Vec<ScriptList>> {
     let chunk_stream = synthesize_chunk_stream(toc, SIDES_LIST_LABEL, version, payload)?;
     let mut input = DataChunkInput::new(chunk_stream);
@@ -220,7 +247,9 @@ fn parse_script_lists_from_sides_chunk(
         ));
     }
 
-    let mut context = SidesScriptContext::default();
+    let mut context = SidesScriptContext {
+        scripts: ScriptListReadInfo::with_templates(templates.clone()),
+    };
     input.register_parser(SIDES_LIST_LABEL, "", parse_sides_chunk_for_scripts_only);
     if !input.parse(&mut context) {
         return Err(configuration_error(
@@ -248,6 +277,7 @@ fn parse_script_lists(
     data: &[u8],
     toc: &HashMap<u32, String>,
     version: u16,
+    templates: &ScriptTemplateLookup,
 ) -> LoaderResult<Vec<ScriptList>> {
     if version == 0 {
         warn!("PlayerScriptsList chunk reported version 0; continuing");
@@ -255,7 +285,7 @@ fn parse_script_lists(
     let mut lists = Vec::new();
     parse_chunk_sequence(data, toc, |label, chunk_version, payload| {
         if label == SCRIPT_LIST_LABEL {
-            lists.push(parse_script_list(payload, toc, chunk_version)?);
+            lists.push(parse_script_list(payload, toc, chunk_version, templates)?);
         } else {
             debug!(
                 "Skipping unexpected chunk '{}' under PlayerScriptsList",
@@ -278,13 +308,16 @@ fn parse_script_list(
     data: &[u8],
     toc: &HashMap<u32, String>,
     _version: u16,
+    templates: &ScriptTemplateLookup,
 ) -> LoaderResult<ScriptList> {
     let mut top_scripts = Vec::new();
     let mut groups = Vec::new();
     parse_chunk_sequence(data, toc, |label, chunk_version, payload| {
         match label {
-            SCRIPT_LABEL => top_scripts.push(parse_script(payload, toc, chunk_version)?),
-            SCRIPT_GROUP_LABEL => groups.push(parse_script_group(payload, toc, chunk_version)?),
+            SCRIPT_LABEL => top_scripts.push(parse_script(payload, toc, chunk_version, templates)?),
+            SCRIPT_GROUP_LABEL => {
+                groups.push(parse_script_group(payload, toc, chunk_version, templates)?)
+            }
             _ => debug!("Unknown chunk '{}' inside ScriptList", label),
         }
         Ok(())
@@ -296,7 +329,12 @@ fn parse_script_list(
     Ok(list)
 }
 
-fn parse_script(data: &[u8], toc: &HashMap<u32, String>, version: u16) -> LoaderResult<Script> {
+fn parse_script(
+    data: &[u8],
+    toc: &HashMap<u32, String>,
+    version: u16,
+    templates: &ScriptTemplateLookup,
+) -> LoaderResult<Script> {
     let mut reader = BinaryReader::new(data);
     let mut script = Script::new();
     script.script_name = reader.read_ascii_string()?;
@@ -319,10 +357,14 @@ fn parse_script(data: &[u8], toc: &HashMap<u32, String>, version: u16) -> Loader
     let mut false_actions = Vec::new();
     parse_chunk_sequence(nested, toc, |label, chunk_version, payload| {
         match label {
-            OR_CONDITION_LABEL => or_nodes.push(parse_or_condition(payload, toc, chunk_version)?),
-            SCRIPT_ACTION_LABEL => actions.push(parse_script_action(payload, chunk_version)?),
+            OR_CONDITION_LABEL => {
+                or_nodes.push(parse_or_condition(payload, toc, chunk_version, templates)?)
+            }
+            SCRIPT_ACTION_LABEL => {
+                actions.push(parse_script_action(payload, chunk_version, templates)?)
+            }
             SCRIPT_ACTION_FALSE_LABEL => {
-                false_actions.push(parse_script_action(payload, chunk_version)?)
+                false_actions.push(parse_script_action(payload, chunk_version, templates)?)
             }
             _ => debug!("Unhandled chunk '{}' inside Script", label),
         }
@@ -339,6 +381,7 @@ fn parse_script_group(
     data: &[u8],
     toc: &HashMap<u32, String>,
     version: u16,
+    templates: &ScriptTemplateLookup,
 ) -> LoaderResult<ScriptGroup> {
     let mut reader = BinaryReader::new(data);
     let mut group = ScriptGroup::new();
@@ -354,7 +397,7 @@ fn parse_script_group(
     let mut scripts = Vec::new();
     parse_chunk_sequence(nested, toc, |label, chunk_version, payload| {
         if label == SCRIPT_LABEL {
-            scripts.push(parse_script(payload, toc, chunk_version)?);
+            scripts.push(parse_script(payload, toc, chunk_version, templates)?);
         } else {
             debug!("Skipping '{}' inside ScriptGroup", label);
         }
@@ -368,12 +411,13 @@ fn parse_or_condition(
     data: &[u8],
     toc: &HashMap<u32, String>,
     _version: u16,
+    templates: &ScriptTemplateLookup,
 ) -> LoaderResult<OrCondition> {
     let mut or_node = OrCondition::new();
     let mut conditions = Vec::new();
     parse_chunk_sequence(data, toc, |label, chunk_version, payload| {
         if label == CONDITION_LABEL {
-            conditions.push(parse_condition(payload, chunk_version)?);
+            conditions.push(parse_condition(payload, chunk_version, templates)?);
         } else {
             debug!("Unknown chunk '{}' inside OrCondition", label);
         }
@@ -383,32 +427,18 @@ fn parse_or_condition(
     Ok(or_node)
 }
 
-fn parse_condition(data: &[u8], version: u16) -> LoaderResult<Condition> {
+fn parse_condition(
+    data: &[u8],
+    version: u16,
+    templates: &ScriptTemplateLookup,
+) -> LoaderResult<Condition> {
     let mut reader = BinaryReader::new(data);
     let cond_value = reader.read_i32()? as u32;
     let mut cond_type = convert_condition_type(cond_value)?;
     let mut condition = Condition::new(cond_type);
     if version >= 4 {
         let name_key = reader.read_u32()?;
-        let mut matched = false;
-        if let Ok(engine_guard) = gamelogic::scripting::engine::get_script_engine().read() {
-            if let Some(engine) = engine_guard.as_ref() {
-                if let Some(template) = engine.get_condition_template(cond_type as usize) {
-                    if template.base.internal_name_key == name_key {
-                        matched = true;
-                    }
-                }
-                if !matched {
-                    if let Some(resolved) = engine.find_condition_type_by_name_key(name_key) {
-                        cond_type = resolved;
-                        matched = true;
-                    }
-                }
-            }
-        }
-        if !matched {
-            cond_type = ConditionType::ConditionFalse;
-        }
+        cond_type = templates.resolve_condition(cond_type, name_key);
         condition.condition_type = cond_type;
     }
     let param_count = reader.read_i32()? as usize;
@@ -419,31 +449,17 @@ fn parse_condition(data: &[u8], version: u16) -> LoaderResult<Condition> {
     Ok(condition)
 }
 
-fn parse_script_action(data: &[u8], version: u16) -> LoaderResult<ScriptAction> {
+fn parse_script_action(
+    data: &[u8],
+    version: u16,
+    templates: &ScriptTemplateLookup,
+) -> LoaderResult<ScriptAction> {
     let mut reader = BinaryReader::new(data);
     let mut action_type = convert_action_type(reader.read_i32()? as u32)?;
     let mut action = ScriptAction::new(action_type);
     if version >= 2 {
         let name_key = reader.read_u32()?;
-        let mut matched = false;
-        if let Ok(engine_guard) = gamelogic::scripting::engine::get_script_engine().read() {
-            if let Some(engine) = engine_guard.as_ref() {
-                if let Some(template) = engine.get_action_template(action_type as usize) {
-                    if template.base.internal_name_key == name_key {
-                        matched = true;
-                    }
-                }
-                if !matched {
-                    if let Some(resolved) = engine.find_action_type_by_name_key(name_key) {
-                        action_type = resolved;
-                        matched = true;
-                    }
-                }
-            }
-        }
-        if !matched {
-            action_type = ScriptActionType::NoOp;
-        }
+        action_type = templates.resolve_action(action_type, name_key);
         action.action_type = action_type;
     }
     let param_count = reader.read_i32()? as usize;

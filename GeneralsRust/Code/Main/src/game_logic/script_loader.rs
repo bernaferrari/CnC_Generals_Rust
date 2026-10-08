@@ -31,6 +31,7 @@ use gamelogic::GameLogicError;
 use gamelogic::common::MAP_XY_FACTOR;
 use gamelogic::common::{AsciiString, ICoord3D};
 use gamelogic::polygon_trigger::PolygonTrigger;
+use gamelogic::scripting::chunk_codec::ScriptTemplateLookup;
 use gamelogic::scripting::core::{
     Condition, ConditionType, Coord3D, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptGroup, ScriptList,

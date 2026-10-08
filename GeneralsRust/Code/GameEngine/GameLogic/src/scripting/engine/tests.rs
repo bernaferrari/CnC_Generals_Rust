@@ -1592,3 +1592,7 @@ mod science_callback_owner_tests;
 mod remaining_camera_driver_tests;
 
 mod attack_priority_table_tests;
+
+mod chunk_decode_owner_tests;
+
+mod chunk_explicit_owner_tests;

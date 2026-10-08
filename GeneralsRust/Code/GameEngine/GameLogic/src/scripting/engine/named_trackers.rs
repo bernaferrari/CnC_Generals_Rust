@@ -674,6 +674,26 @@ impl ScriptEngine {
         get_skate_distance_override()
     }
 
+    /// Freeze only definition keys for one decode operation, in C++ enum order.
+    pub(super) fn script_template_lookup(
+        &self,
+    ) -> crate::scripting::chunk_codec::ScriptTemplateLookup {
+        self.with_inner(|inner| {
+            crate::scripting::chunk_codec::ScriptTemplateLookup::from_keys(
+                inner
+                    .condition_templates
+                    .iter()
+                    .map(|t| t.base.internal_name_key)
+                    .collect(),
+                inner
+                    .action_templates
+                    .iter()
+                    .map(|t| t.base.internal_name_key)
+                    .collect(),
+            )
+        })
+    }
+
     /// Get action template (owned snapshot — never a borrow into `UnsafeCell`).
     pub fn get_action_template(&self, index: usize) -> Option<ActionTemplate> {
         self.with_inner(|inner| inner.action_templates.get(index).cloned())

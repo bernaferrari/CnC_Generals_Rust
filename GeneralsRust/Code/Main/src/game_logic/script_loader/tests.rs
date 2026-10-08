@@ -653,6 +653,7 @@ End\n";
             "TerrainLogic::load_map_data must call add_bridge_to_logic for map bridges"
         );
     }
+    include!("owned_template_tests.rs");
 }
 
 #[cfg(test)]
