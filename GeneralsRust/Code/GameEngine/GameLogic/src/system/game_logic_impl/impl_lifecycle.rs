@@ -82,9 +82,11 @@ impl GameLogic {
 
             self.remove_updates_for_object(obj_id);
             self.all_objects.retain(|&id| id != obj_id);
-            OBJECT_REGISTRY.unregister_object(obj_id);
 
             if let Some(obj_ref) = self.objects.remove(&obj_id) {
+                // C++ removes this GameLogic's lookup before destruction. The
+                // temporary shared index must not evict another world's handle.
+                OBJECT_REGISTRY.unregister_object_if_same(obj_id, &obj_ref);
                 if let Ok(obj_read) = obj_ref.read() {
                     object_position = Some(*obj_read.get_position());
                 }

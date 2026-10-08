@@ -101,6 +101,39 @@ impl ObjectRegistry {
         }
     }
 
+    /// Retire only the handle owned by the caller. Numeric IDs can repeat in
+    /// separate GameLogic instances; their compatibility index is shared until
+    /// remaining callers receive an explicit owner.
+    pub(crate) fn unregister_object_if_same(
+        &self,
+        id: ObjectID,
+        object: &SharedObjectHandle,
+    ) -> bool {
+        let removed = if let Ok(mut guard) = self.store.write() {
+            if !guard
+                .objects
+                .get(&id)
+                .is_some_and(|stored| Arc::ptr_eq(stored, object))
+            {
+                return false;
+            }
+            let removed = guard.unregister(id);
+            self.set_live_count(guard.objects.len());
+            removed
+        } else {
+            return false;
+        };
+        // Destructors can re-enter the registry. Preserve unregister's callback
+        // order and do not clear a different handle's script entry on mismatch.
+        drop(removed);
+        if let Ok(mut engine_guard) = get_script_engine().try_write() {
+            if let Some(engine) = engine_guard.as_mut() {
+                engine.clear_object_attack_priority_set(id);
+            }
+        }
+        true
+    }
+
     /// Retrieve a strong reference to an object by identifier.
     pub fn get_object(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
         // Wave 247: host path (empty registry) skips RwLock entirely.
@@ -309,6 +342,27 @@ mod tests {
             ObjectStatusMaskType::none(),
             None,
         )))
+    }
+
+    #[test]
+    fn identity_checked_retirement_preserves_replacement_and_count() {
+        let _lock = test_isolation_lock().lock().unwrap();
+        let registry = ObjectRegistry::default();
+        let original = crate_test_object(77);
+        let replacement = crate_test_object(77);
+        registry.register_object(77, &original);
+        registry.register_object(77, &replacement);
+
+        assert!(!registry.unregister_object_if_same(77, &original));
+        assert_eq!(registry.live_count.load(Ordering::Acquire), 1);
+        assert!(Arc::ptr_eq(
+            &registry.store.read().unwrap().get(77).unwrap(),
+            &replacement
+        ));
+        assert!(registry.unregister_object_if_same(77, &replacement));
+        assert!(registry.store_is_empty());
+        assert!(registry.store.read().unwrap().get(77).is_none());
+        assert!(!registry.unregister_object_if_same(77, &replacement));
     }
 
     #[test]

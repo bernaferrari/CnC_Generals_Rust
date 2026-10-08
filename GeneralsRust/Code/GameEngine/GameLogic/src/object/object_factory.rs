@@ -117,27 +117,6 @@ impl GameObjectInstance {
     }
 
     /// Update the object for one frame
-    pub fn update(
-        &mut self,
-        delta_time: Real,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        match self {
-            GameObjectInstance::Unit(unit) => {
-                unit.update(delta_time)?;
-            }
-            GameObjectInstance::Structure(structure) => {
-                structure.update(delta_time)?;
-            }
-            GameObjectInstance::SimpleObject(simple_object) => {
-                simple_object.update(delta_time)?;
-            }
-            GameObjectInstance::BaseObject { .. } | GameObjectInstance::Projectile { .. } => {
-                // Base objects don't have additional update logic beyond their modules
-            }
-        }
-
-        Ok(())
-    }
 
     /// Check if this object is of a specific type
     pub fn is_unit(&self) -> bool {
@@ -402,32 +381,6 @@ impl ObjectFactory {
     }
 
     /// Update all objects for one frame
-    pub fn update_all_objects(
-        &mut self,
-        game_logic: &mut crate::system::game_logic::GameLogic,
-        delta_time: Real,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Collect object IDs to avoid borrowing issues
-        let object_ids: Vec<ObjectID> = self.object_registry.keys().cloned().collect();
-
-        for object_id in object_ids {
-            if let Some(game_object) = self.object_registry.get_mut(&object_id) {
-                if let Err(e) = game_object.update(delta_time) {
-                    // If update fails (e.g., projectile should be destroyed), mark for destruction
-                    if e.to_string().contains("should be destroyed") {
-                        self.destroy_object(game_logic, object_id);
-                    } else {
-                        eprintln!("Error updating object {}: {}", object_id, e);
-                    }
-                }
-            }
-        }
-
-        // Process destruction queue
-        self.process_destruction_queue(game_logic);
-
-        Ok(())
-    }
 
     /// Retire factory wrappers only after the driving owner retires admission.
     /// The factory never unregisters lookup or finalizes gameplay objects.

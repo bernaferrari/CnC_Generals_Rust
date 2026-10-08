@@ -2144,4 +2144,70 @@ mod tests {
 
         assert_eq!(commands.len(), 4);
     }
+
+    #[test]
+    fn cleanup_of_one_local_world_preserves_same_id_registry_owner() {
+        let _fixture = test_state_lock();
+        const ID: ObjectID = 0xD1F0;
+        let mut driving = GameLogic::new();
+        let mut foreign = GameLogic::new();
+        let driving_object = Arc::new(RwLock::new(Object::new_test(ID, 101.0)));
+        let foreign_object = Arc::new(RwLock::new(Object::new_test(ID, 202.0)));
+
+        assert_eq!(
+            driving
+                .register_object(Arc::clone(&driving_object))
+                .unwrap(),
+            ID
+        );
+        assert_eq!(
+            foreign
+                .register_object(Arc::clone(&foreign_object))
+                .unwrap(),
+            ID
+        );
+        assert!(Arc::ptr_eq(
+            &driving.find_object_by_id(ID).expect("driving world lookup"),
+            &driving_object,
+        ));
+        assert!(Arc::ptr_eq(
+            &foreign.find_object_by_id(ID).expect("foreign world lookup"),
+            &foreign_object,
+        ));
+        assert!(Arc::ptr_eq(
+            &crate::object::registry::OBJECT_REGISTRY
+                .get_object(ID)
+                .expect("last registered compatibility index entry"),
+            &foreign_object,
+        ));
+
+        // C++ processDestroyList removes this owner's ID lookup just before
+        // deleting its object. It must not remove another local GameLogic's
+        // object which happens to have the same numeric ID.
+        driving.destroy_object(ID);
+        driving.cleanup_dead_objects().unwrap();
+
+        let foreign_index_survived = crate::object::registry::OBJECT_REGISTRY
+            .get_object(ID)
+            .is_some_and(|actual| Arc::ptr_eq(&actual, &foreign_object));
+        let foreign_is_still_live = !foreign_object.read().unwrap().is_destroyed();
+        let foreign_owner_map_survived = foreign
+            .find_object_by_id(ID)
+            .is_some_and(|actual| Arc::ptr_eq(&actual, &foreign_object));
+
+        // Clean the second owner before assertions so a failing OLD witness
+        // does not leave the static compatibility registry holding a handle.
+        foreign.destroy_object(ID);
+        foreign.cleanup_dead_objects().unwrap();
+
+        assert!(
+            foreign_index_survived,
+            "cleanup in the driving world must not unregister the same-ID foreign handle"
+        );
+        assert!(foreign_is_still_live, "the foreign object must remain live");
+        assert!(
+            foreign_owner_map_survived,
+            "the foreign owner's local map must remain intact"
+        );
+    }
 }

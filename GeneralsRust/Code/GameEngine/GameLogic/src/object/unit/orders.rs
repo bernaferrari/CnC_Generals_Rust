@@ -9,176 +9,7 @@ use super::types::*;
 
 impl Unit {
     /// Update unit logic for one frame
-    pub fn update(
-        &mut self,
-        delta_time: Real,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Process current order
-        self.process_current_order(delta_time)?;
-
-        // Update movement
-        self.update_movement(delta_time)?;
-
-        // Update combat behavior
-        self.update_combat(delta_time)?;
-
-        // Update facing direction
-        self.update_facing(delta_time)?;
-
-        // Check for state changes
-        self.check_status_effects(delta_time)?;
-
-        // Update animation state
-        self.update_animation_state()?;
-
-        // Update per-unit AI module (matches C++ AIUpdateInterface::update call per frame).
-        let ai = self
-            .base_arc()
-            .read()
-            .ok()
-            .and_then(|base_guard| base_guard.get_ai_update_interface());
-        if let Some(ai) = ai {
-            if let Ok(mut ai_guard) = ai.lock() {
-                let _ = ai_guard.update();
-            }
-        }
-
-        Ok(())
-    }
     /// Process the current order
-    pub(super) fn process_current_order(
-        &mut self,
-        _delta_time: Real,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.advance_order_queue();
-        let order = self.current_order.take();
-        match order {
-            None => {
-                // No current order, check for auto-behaviors
-                if self.auto_acquire_enemies {
-                    self.look_for_enemies()?;
-                }
-
-                if self.return_to_formation {
-                    self.return_to_formation_position()?;
-                }
-            }
-            Some(current_order) => {
-                if !matches!(current_order, UnitOrder::AttackMove { .. }) {
-                    self.attack_move_active = false;
-                }
-
-                match current_order {
-                    UnitOrder::Stop => {
-                        self.stop_movement();
-                        // Don't restore — order is consumed
-                        self.advance_order_queue();
-                    }
-
-                    UnitOrder::Move {
-                        destination,
-                        use_formation,
-                        waypoints,
-                    } => {
-                        if self.movement_state == MovementState::Idle
-                            && self.target_position.is_none()
-                            && self.waypoint_queue.is_empty()
-                        {
-                            let delta = self.get_position() - destination;
-                            if (delta.x * delta.x + delta.y * delta.y).sqrt() <= 1.0 {
-                                // Don't restore — order completed
-                                self.advance_order_queue();
-                                return Ok(());
-                            }
-                        }
-                        self.process_move_order(destination, use_formation, &waypoints)?;
-                        // Restore — move order continues across frames
-                        self.current_order = Some(UnitOrder::Move {
-                            destination,
-                            use_formation,
-                            waypoints,
-                        });
-                    }
-
-                    UnitOrder::Attack { target, pursue } => {
-                        self.process_attack_order(target, pursue)?;
-                        self.current_order = Some(UnitOrder::Attack { target, pursue });
-                    }
-
-                    UnitOrder::AttackMove {
-                        destination,
-                        engage_enemies,
-                    } => {
-                        self.process_attack_move_order(destination, engage_enemies)?;
-                        self.current_order = Some(UnitOrder::AttackMove {
-                            destination,
-                            engage_enemies,
-                        });
-                    }
-
-                    UnitOrder::Guard {
-                        position,
-                        area_radius,
-                    } => {
-                        self.process_guard_order(position, area_radius)?;
-                        self.current_order = Some(UnitOrder::Guard {
-                            position,
-                            area_radius,
-                        });
-                    }
-
-                    UnitOrder::Follow { target, distance } => {
-                        self.process_follow_order(target, distance)?;
-                        self.current_order = Some(UnitOrder::Follow { target, distance });
-                    }
-
-                    UnitOrder::Patrol {
-                        waypoints,
-                        loop_patrol,
-                    } => {
-                        self.process_patrol_order(&waypoints, loop_patrol)?;
-                        self.current_order = Some(UnitOrder::Patrol {
-                            waypoints,
-                            loop_patrol,
-                        });
-                    }
-
-                    UnitOrder::Garrison { building } => {
-                        self.process_garrison_order(building)?;
-                        self.current_order = Some(UnitOrder::Garrison { building });
-                    }
-
-                    UnitOrder::Ungarrison { exit_position } => {
-                        self.process_ungarrison_order(exit_position)?;
-                        self.current_order = Some(UnitOrder::Ungarrison { exit_position });
-                    }
-
-                    UnitOrder::Capture { building } => {
-                        self.process_capture_order(building)?;
-                        self.current_order = Some(UnitOrder::Capture { building });
-                    }
-
-                    UnitOrder::Retreat {
-                        safe_position,
-                        organized,
-                    } => {
-                        self.process_retreat_order(safe_position, organized)?;
-                        self.current_order = Some(UnitOrder::Retreat {
-                            safe_position,
-                            organized,
-                        });
-                    }
-
-                    other => {
-                        // Restore unhandled order types
-                        self.current_order = Some(other);
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
     pub(super) fn advance_order_queue(&mut self) {
         if self.current_order.is_none() && !self.order_queue.is_empty() {
             self.current_order = Some(self.order_queue.remove(0));
@@ -538,18 +369,21 @@ impl Unit {
             }
         }
         if let Some(container_id) = container_id {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(container_id, |container_guard| {
-                if let Some(contain) = container_guard.get_contain() {
-                    if let Ok(mut contain_guard) = contain.lock() {
-                        if let Ok(base_guard) = self.base_arc().read() {
-                            let _ = contain_guard.on_object_wants_to_enter_or_exit(
-                                &*base_guard,
-                                crate::modules::ContainWant::WantsToExit,
-                            );
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                container_id,
+                |container_guard| {
+                    if let Some(contain) = container_guard.get_contain() {
+                        if let Ok(mut contain_guard) = contain.lock() {
+                            if let Ok(base_guard) = self.base_arc().read() {
+                                let _ = contain_guard.on_object_wants_to_enter_or_exit(
+                                    &*base_guard,
+                                    crate::modules::ContainWant::WantsToExit,
+                                );
+                            }
                         }
                     }
-                }
-                });
+                },
+            );
         }
         self.is_garrisoned = false;
         self.garrison_building = None;

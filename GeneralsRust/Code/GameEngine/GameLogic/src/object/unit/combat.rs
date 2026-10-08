@@ -9,147 +9,6 @@ use super::types::*;
 
 impl Unit {
     /// Update combat behavior
-    pub(super) fn update_combat(
-        &mut self,
-        delta_time: Real,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if !self.auto_acquire_enemies && self.attack_target.is_none() {
-            return Ok(());
-        }
-
-        match self.combat_mode {
-            CombatMode::Aggressive => {
-                if self.attack_target.is_none() {
-                    self.acquire_target()?;
-                }
-            }
-
-            CombatMode::Defensive => {
-                // Only attack if we're being attacked
-                if self.is_under_attack() && self.attack_target.is_none() {
-                    self.acquire_target()?;
-                }
-            }
-
-            CombatMode::HoldPosition => {
-                // Attack but don't move to engage
-                if self.attack_target.is_none() {
-                    self.acquire_target_in_range()?;
-                }
-            }
-
-            CombatMode::HoldFire => {
-                // Don't attack at all
-                self.attack_target = None;
-            }
-
-            CombatMode::GuardArea => {
-                // Only attack enemies in our guard area
-                if self.attack_target.is_none() {
-                    self.acquire_target_in_guard_area()?;
-                    if self.attack_target.is_none() {
-                        if let Some(guard_pos) = self.guard_position {
-                            let current_pos = self.get_position();
-                            let dx = guard_pos.x - current_pos.x;
-                            let dy = guard_pos.y - current_pos.y;
-                            let distance = (dx * dx + dy * dy).sqrt();
-                            if distance > 1.0
-                                && !self.is_movement_active()
-                                && self.target_position.is_none()
-                            {
-                                self.move_to_position(guard_pos, false)?;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Process attack if we have a target
-        if let Some(target_id) = self.attack_target {
-            self.engage_target(target_id, delta_time)?;
-        } else if self.attack_move_active && self.is_movement_active() {
-            self.acquire_target()?;
-        }
-
-        if self.attack_move_active && self.movement_state == MovementState::Attacking {
-            const ATTACK_MOVE_SHOT_GRACE: u32 = 15;
-            let current_frame = TheGameLogic::get_frame() as u32;
-            let last_shot = self
-                .base_arc()
-                .read()
-                .map(|guard| guard.get_last_shot_fired_frame())
-                .unwrap_or(0);
-            if current_frame >= self.attack_move_resume_frame
-                && current_frame.saturating_sub(last_shot) > ATTACK_MOVE_SHOT_GRACE
-            {
-                self.movement_state = match self.current_order {
-                    Some(UnitOrder::Patrol { .. }) => MovementState::Patrolling,
-                    Some(UnitOrder::Follow { .. }) => MovementState::Following,
-                    Some(UnitOrder::Guard { .. }) => MovementState::Guarding,
-                    _ => MovementState::Moving,
-                };
-            }
-        }
-
-        if self.attack_move_active && self.movement_state == MovementState::Idle {
-            let destination = match &self.current_order {
-                Some(UnitOrder::AttackMove { destination, .. }) => *destination,
-                Some(UnitOrder::Patrol { .. }) => {
-                    return Ok(());
-                }
-                _ => {
-                    self.attack_move_active = false;
-                    return Ok(());
-                }
-            };
-
-            let current_pos = self.get_position();
-            let dx = destination.x - current_pos.x;
-            let dy = destination.y - current_pos.y;
-            let distance = (dx * dx + dy * dy).sqrt();
-            if distance > 1.0 {
-                self.move_to_position(destination, false)?;
-            } else {
-                self.attack_move_active = false;
-                self.movement_state = MovementState::Idle;
-            }
-        }
-
-        if !self.attack_move_active
-            && self.attack_target.is_none()
-            && self.movement_state == MovementState::Attacking
-        {
-            let mut resume_state = match self.current_order {
-                Some(UnitOrder::Follow { .. }) => MovementState::Following,
-                Some(UnitOrder::Patrol { .. }) => MovementState::Patrolling,
-                Some(UnitOrder::Retreat { .. }) => MovementState::Retreating,
-                Some(UnitOrder::Guard { .. }) => MovementState::Idle,
-                Some(UnitOrder::Move { .. }) => MovementState::Moving,
-                _ => MovementState::Idle,
-            };
-            if matches!(
-                resume_state,
-                MovementState::Moving
-                    | MovementState::Following
-                    | MovementState::Patrolling
-                    | MovementState::Retreating
-            ) && self.target_position.is_none()
-            {
-                resume_state = MovementState::Idle;
-            }
-            self.movement_state = resume_state;
-        }
-
-        if matches!(self.current_order, Some(UnitOrder::Attack { .. }))
-            && self.attack_target.is_none()
-        {
-            self.current_order = None;
-            self.advance_order_queue();
-        }
-
-        Ok(())
-    }
     pub(super) fn look_for_enemies(
         &mut self,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -392,7 +251,8 @@ impl Unit {
         if offset == Some(true) {
             let half = (interval / 2) as i32;
             let jitter = crate::helpers::get_game_logic_random_value(-half, half);
-            self.last_target_scan_frame = (current_frame as i32).saturating_add(jitter).max(0) as u32;
+            self.last_target_scan_frame =
+                (current_frame as i32).saturating_add(jitter).max(0) as u32;
         } else {
             self.last_target_scan_frame = current_frame;
         }
