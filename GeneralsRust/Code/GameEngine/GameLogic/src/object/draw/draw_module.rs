@@ -97,6 +97,16 @@ pub trait DrawModule: Module {
     /// * `transform_mtx` - World transform matrix for positioning
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D);
 
+    /// Render with the driving Drawable borrowed for this synchronous callback.
+    /// The borrow is never retained; unrelated modules keep their existing callback.
+    fn do_draw_module_for_owner(
+        &mut self,
+        transform_mtx: &Matrix3D,
+        _driver: Option<&crate::object::drawable::Drawable>,
+    ) {
+        self.do_draw_module(transform_mtx);
+    }
+
     /// Enable or disable shadow casting
     ///
     /// # Arguments

@@ -458,7 +458,15 @@ impl DrawModule for W3DTankTruckDraw {
     }
 
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
-        self.base.do_draw_module(transform_mtx);
+        self.do_draw_module_for_owner(transform_mtx, None);
+    }
+
+    fn do_draw_module_for_owner(
+        &mut self,
+        transform_mtx: &Matrix3D,
+        driver: Option<&crate::object::drawable::Drawable>,
+    ) {
+        self.base.do_draw_module_for_owner(transform_mtx, driver);
         self.update_tread_objects();
 
         let mut direction = Coord3D::new(transform_mtx.x_axis.x, transform_mtx.x_axis.y, 0.0);

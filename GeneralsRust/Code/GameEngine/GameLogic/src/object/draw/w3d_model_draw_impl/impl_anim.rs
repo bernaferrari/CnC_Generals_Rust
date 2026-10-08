@@ -531,7 +531,11 @@ impl W3DModelDraw {
     /// 6. **Instance scaling**: C++ applies `getDrawable()->getInstanceScale()`
     ///    to the world transform before rendering. We include the scaled
     ///    transform.
-    fn submit_draw_to_bridge(&mut self, transform_mtx: &Matrix3D) {
+    fn submit_draw_to_bridge_for_drawable(
+        &mut self,
+        transform_mtx: &Matrix3D,
+        driver: Option<&crate::object::drawable::Drawable>,
+    ) {
         let Some(owner_id) = self.owner_id else {
             return;
         };
@@ -647,12 +651,10 @@ impl W3DModelDraw {
         // only. `Drawable::draw` does not scale, and a second multiply here
         // would scale the translation as well.
         let world_transform = *transform_mtx;
-        let render_object_scale = self
-            .with_owner_drawable(|drawable| {
-                let scale = drawable.get_instance_scale();
-                (scale != 1.0).then_some(scale)
-            })
-            .flatten();
+        let render_object_scale = driver
+            .map(|drawable| drawable.get_instance_scale())
+            .or_else(|| self.with_owner_drawable(|drawable| drawable.get_instance_scale()))
+            .filter(|scale| *scale != 1.0);
         let render_object_color = (!model_name.is_empty()).then_some(self.hex_color as u32);
 
         // Phase 6: Build the model draw state with all collected data.

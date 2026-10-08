@@ -664,6 +664,14 @@ impl DrawModule for W3DTankDraw {
     }
 
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
+        self.do_draw_module_for_owner(transform_mtx, None);
+    }
+
+    fn do_draw_module_for_owner(
+        &mut self,
+        transform_mtx: &Matrix3D,
+        driver: Option<&crate::object::drawable::Drawable>,
+    ) {
         // C++ W3DTankDraw.cpp:288-291 — frozen tactical view or script time skips the whole draw.
         let camera_frozen = crate::helpers::get_camera_view_bridge()
             .is_some_and(|view| view.is_time_frozen() && !view.is_camera_movement_finished());
@@ -722,7 +730,7 @@ impl DrawModule for W3DTankDraw {
         self.update_move_debris(self.current_velocity * self.current_velocity);
 
         // Draw base model (includes turret positioning and recoil)
-        self.base.do_draw_module(transform_mtx);
+        self.base.do_draw_module_for_owner(transform_mtx, driver);
         self.publish_tread_uv_overrides();
 
         // When render object system is implemented:

@@ -157,7 +157,15 @@ impl DrawModule for W3DOverlordTankDraw {
     }
 
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
-        self.base.do_draw_module(transform_mtx);
+        self.do_draw_module_for_owner(transform_mtx, None);
+    }
+
+    fn do_draw_module_for_owner(
+        &mut self,
+        transform_mtx: &Matrix3D,
+        driver: Option<&crate::object::drawable::Drawable>,
+    ) {
+        self.base.do_draw_module_for_owner(transform_mtx, driver);
         if let Some(owner_id) = self.owner_id() {
             super::overlord_rider::draw_overlord_rider(owner_id);
         }

@@ -392,7 +392,8 @@ impl Drawable {
 
     /// C++ `Drawable::getShouldAnimate(considerPower)`.
     pub fn get_should_animate(&self, consider_power: bool) -> bool {
-        let Some(object) = TheGameLogic::find_object_by_id(self.object_id) else {
+        // CPP Drawable.cpp:604 uses the bound Object pointer, never an ID lookup.
+        let Some(object) = self.get_object() else {
             return true;
         };
         let Ok(obj) = object.read() else {

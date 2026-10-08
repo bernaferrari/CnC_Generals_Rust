@@ -282,9 +282,6 @@ pub struct GameEngineDevice {
 
     /// Platform interface
     platform_interface: Arc<DeviceInterface>,
-
-    /// System configuration
-    config: Arc<RwLock<SystemConfig>>,
 }
 
 /// System-wide configuration
@@ -354,8 +351,9 @@ impl GameEngineDevice {
         Self::with_config(SystemConfig::default()).await
     }
 
-    /// Create a new `GameEngineDevice` system with custom configuration
-    pub async fn with_config(config: SystemConfig) -> Result<Self> {
+    /// Create a device system. SystemConfig fields are currently unused;
+    /// device-specific settings are applied by the admission methods below.
+    pub async fn with_config(_config: SystemConfig) -> Result<Self> {
         let platform_interface = Arc::new(DeviceInterface::new().await?);
 
         Ok(Self {
@@ -369,7 +367,6 @@ impl GameEngineDevice {
             w3d_device: RwLock::new(None),
 
             platform_interface,
-            config: Arc::new(RwLock::new(config)),
         })
     }
 

@@ -400,3 +400,9 @@ fn dependency_and_supply_modules_use_the_driving_drawable_query() {
         assert_eq!(launch.turret_pitch_pos, Coord3D::new(4.0, 5.0, 6.0));
     }
 }
+
+#[path = "render_owner_tests.rs"]
+mod render_owner_tests;
+
+#[path = "render_supply_owner_tests.rs"]
+mod render_supply_owner_tests;

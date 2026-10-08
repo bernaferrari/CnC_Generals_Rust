@@ -251,6 +251,14 @@ impl DrawModule for W3DProjectileDraw {
     }
 
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
+        self.do_draw_module_for_owner(transform_mtx, None);
+    }
+
+    fn do_draw_module_for_owner(
+        &mut self,
+        transform_mtx: &Matrix3D,
+        driver: Option<&crate::object::drawable::Drawable>,
+    ) {
         let mut adjusted_transform = *transform_mtx;
 
         // Orient to flight path
@@ -264,7 +272,8 @@ impl DrawModule for W3DProjectileDraw {
         }
 
         // Draw model
-        self.base.do_draw_module(&adjusted_transform);
+        self.base
+            .do_draw_module_for_owner(&adjusted_transform, driver);
     }
 
     fn set_shadows_enabled(&mut self, enable: bool) {

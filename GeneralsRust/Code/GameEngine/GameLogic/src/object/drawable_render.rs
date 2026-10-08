@@ -82,7 +82,9 @@ impl crate::drawable::Drawable for Drawable {
                             laser.draw_from_update(input);
                         }
                     }
-                    draw => draw.into_draw_module().do_draw_module(&transform_mtx),
+                    draw => draw
+                        .into_draw_module()
+                        .do_draw_module_for_owner(&transform_mtx, Some(self)),
                 });
             });
             if let Some(client) = TheGameClient::get() {

@@ -159,12 +159,20 @@ impl DrawModule for W3DScienceModelDraw {
     }
 
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
+        self.do_draw_module_for_owner(transform_mtx, None);
+    }
+
+    fn do_draw_module_for_owner(
+        &mut self,
+        transform_mtx: &Matrix3D,
+        driver: Option<&crate::object::drawable::Drawable>,
+    ) {
         if leftover_science_model_should_hide(self.data.required_science) {
             DrawModule::set_hidden(self, true);
             return;
         }
         DrawModule::set_hidden(self, false);
-        self.base.do_draw_module(transform_mtx);
+        self.base.do_draw_module_for_owner(transform_mtx, driver);
     }
     fn set_shadows_enabled(&mut self, enable: bool) {
         self.base.set_shadows_enabled(enable);

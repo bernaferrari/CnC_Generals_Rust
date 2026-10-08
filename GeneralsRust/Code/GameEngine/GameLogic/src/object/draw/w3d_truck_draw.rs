@@ -802,8 +802,16 @@ impl DrawModule for W3DTruckDraw {
     }
 
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
+        self.do_draw_module_for_owner(transform_mtx, None);
+    }
+
+    fn do_draw_module_for_owner(
+        &mut self,
+        transform_mtx: &Matrix3D,
+        driver: Option<&crate::object::drawable::Drawable>,
+    ) {
         let Some(owner_id) = self.base.owner_id() else {
-            self.base.do_draw_module(transform_mtx);
+            self.base.do_draw_module_for_owner(transform_mtx, driver);
             return;
         };
         let mut speed = 0.0;
@@ -842,7 +850,7 @@ impl DrawModule for W3DTruckDraw {
             .and_then(|client| client.get_object_wheel_info(owner_id))
             .map(|info| info.frames_airborne)
             .unwrap_or(0);
-        self.base.do_draw_module(transform_mtx);
+        self.base.do_draw_module_for_owner(transform_mtx, driver);
         if !truck_client_physics_active() {
             return;
         }

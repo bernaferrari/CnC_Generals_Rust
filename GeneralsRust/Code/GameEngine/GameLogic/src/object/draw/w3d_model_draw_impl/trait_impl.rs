@@ -55,8 +55,23 @@ impl DrawModule for W3DModelDraw {
     }
 
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
+        self.do_draw_module_for_owner(transform_mtx, None);
+    }
+
+    fn do_draw_module_for_owner(
+        &mut self,
+        transform_mtx: &Matrix3D,
+        driver: Option<&crate::object::drawable::Drawable>,
+    ) {
         // C++: setPauseAnimation(!getDrawable()->getShouldAnimate(m_animationsRequirePower))
-        self.set_pause_animation(!self.owner_should_animate());
+        let should_animate = driver
+            .map(|drawable| drawable.get_should_animate(self.data.animations_require_power))
+            .unwrap_or_else(|| self.owner_should_animate());
+        self.set_pause_animation(!should_animate);
+        let state_context = driver.map(|drawable| ModelDrawContext {
+            instance_scale: drawable.get_instance_scale(),
+            state_particles: !drawable.test_drawable_status(DRAWABLE_STATUS_NO_STATE_PARTICLES),
+        });
         // C++ doDrawModule never early-returns on hidden/shroud; hide is Set_Hidden only.
 
         self.tick_animation_state();
@@ -65,7 +80,7 @@ impl DrawModule for W3DModelDraw {
                 let next_duration = self.next_state_anim_loop_duration;
                 self.next_state = None;
                 self.next_state_anim_loop_duration = NO_NEXT_DURATION;
-                self.set_model_state(next_state_index);
+                self.set_model_state_for_drawable(next_state_index, state_context.as_ref());
                 if next_duration != NO_NEXT_DURATION {
                     self.set_animation_loop_duration(next_duration);
                 }
@@ -99,8 +114,9 @@ impl DrawModule for W3DModelDraw {
         self.handle_client_recoil();
 
         let mut source = *transform_mtx;
-        let instance_scale = self
-            .with_owner_drawable(|drawable| drawable.get_instance_scale())
+        let instance_scale = driver
+            .map(|drawable| drawable.get_instance_scale())
+            .or_else(|| self.with_owner_drawable(|drawable| drawable.get_instance_scale()))
             .unwrap_or(1.0);
         if instance_scale != 1.0 {
             // C++ `doDrawModule` scales the matrix and calls `Set_ObjectScale`.
@@ -108,8 +124,15 @@ impl DrawModule for W3DModelDraw {
             source.y_axis *= instance_scale;
             source.z_axis *= instance_scale;
         }
-        let adjusted = self.adjust_transform_mtx(&source);
-        self.submit_draw_to_bridge(&adjusted);
+        // CPP W3DModelDraw.cpp:2072-2078 only adjusts a live render object.
+        // This Rust bridge represents an absent/empty state as no render model.
+        // Asset admission for a named model is a separate renderer boundary.
+        let adjusted = if self.has_render_model() {
+            self.adjust_transform_mtx(&source)
+        } else {
+            source
+        };
+        self.submit_draw_to_bridge_for_drawable(&adjusted, driver);
         self.sync_terrain_decal_pose();
     }
 

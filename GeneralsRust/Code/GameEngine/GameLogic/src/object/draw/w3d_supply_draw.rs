@@ -158,7 +158,15 @@ impl DrawModule for W3DSupplyDraw {
     }
 
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
-        self.base.do_draw_module(transform_mtx);
+        self.do_draw_module_for_owner(transform_mtx, None);
+    }
+
+    fn do_draw_module_for_owner(
+        &mut self,
+        transform_mtx: &Matrix3D,
+        driver: Option<&crate::object::drawable::Drawable>,
+    ) {
+        self.base.do_draw_module_for_owner(transform_mtx, driver);
     }
     fn set_shadows_enabled(&mut self, enable: bool) {
         self.base.set_shadows_enabled(enable);
