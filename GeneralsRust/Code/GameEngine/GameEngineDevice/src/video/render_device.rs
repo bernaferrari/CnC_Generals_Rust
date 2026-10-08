@@ -522,6 +522,7 @@ impl RenderDevice {
                 flags: wgpu::InstanceFlags::default(),
                 memory_budget_thresholds: Default::default(),
                 backend_options,
+                display: None,
             }));
 
             // Request adapter with high performance preference
@@ -530,7 +531,7 @@ impl RenderDevice {
                     power_preference: PowerPreference::HighPerformance,
                     compatible_surface: None,
                     force_fallback_adapter: false,
-            apply_limit_buckets: false,
+                    apply_limit_buckets: false,
                 })
                 .await
                 .map_err(|_| {
@@ -716,8 +717,8 @@ impl RenderDevice {
         label: &str,
         vertex_shader: &ShaderDesc,
         fragment_shader: Option<&ShaderDesc>,
-        vertex_buffers: &[Some(VertexBufferLayout<'_>)],
-        bind_group_layouts: &[Some(&BindGroupLayout)],
+        vertex_buffers: &[VertexBufferLayout<'_>],
+        bind_group_layouts: &[&BindGroupLayout],
         render_targets: &[Option<ColorTargetState>],
         depth_stencil: Option<DepthStencilState>,
         primitive: PrimitiveState,
@@ -742,7 +743,11 @@ impl RenderDevice {
                 .device
                 .create_pipeline_layout(&PipelineLayoutDescriptor {
                     label: Some(&format!("{}_layout", label)),
-                    bind_group_layouts,
+                    bind_group_layouts: &bind_group_layouts
+                        .iter()
+                        .copied()
+                        .map(Some)
+                        .collect::<Vec<_>>(),
                     immediate_size: 0,
                 });
 
@@ -754,7 +759,7 @@ impl RenderDevice {
                     vertex: VertexState {
                         module: &vs_module,
                         entry_point: Some(&vertex_shader.entry_point),
-                        buffers: vertex_buffers,
+                        buffers: &vertex_buffers.iter().cloned().map(Some).collect::<Vec<_>>(),
                         compilation_options: wgpu::PipelineCompilationOptions::default(),
                     },
                     primitive,
@@ -792,7 +797,7 @@ impl RenderDevice {
         &self,
         label: &str,
         compute_shader: &ShaderDesc,
-        bind_group_layouts: &[Some(&BindGroupLayout)],
+        bind_group_layouts: &[&BindGroupLayout],
     ) -> Result<Arc<ComputePipeline>> {
         #[cfg(feature = "video")]
         {
@@ -807,7 +812,11 @@ impl RenderDevice {
                 .device
                 .create_pipeline_layout(&PipelineLayoutDescriptor {
                     label: Some(&format!("{}_layout", label)),
-                    bind_group_layouts,
+                    bind_group_layouts: &bind_group_layouts
+                        .iter()
+                        .copied()
+                        .map(Some)
+                        .collect::<Vec<_>>(),
                     immediate_size: 0,
                 });
 

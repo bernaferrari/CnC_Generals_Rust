@@ -20,9 +20,9 @@ use std::mem;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use wgpu::{
-    Adapter, Backends, BufferUsages, CompositeAlphaMode, Device, Features, Instance, Limits,
-    PowerPreference, PresentMode, Queue, RequestAdapterOptions, Surface, SurfaceConfiguration,
-    SurfaceError, SurfaceTargetUnsafe, TextureUsages,
+    Adapter, Backends, BufferUsages, CompositeAlphaMode, CurrentSurfaceTexture, Device, Features,
+    Instance, Limits, PowerPreference, PresentMode, Queue, RequestAdapterOptions, Surface,
+    SurfaceConfiguration, SurfaceTargetUnsafe, TextureUsages,
 };
 use winit::window::Window;
 
@@ -637,7 +637,7 @@ pub struct W3DMaterialData {
 /// Complete W3D device with modern wgpu backend
 pub struct W3DDevice {
     /// Device configuration
-    config: Arc<RwLock<W3DConfig>>,
+    config: Arc<W3DConfig>,
 
     /// WGPU instance for creating adapters
     instance: Arc<Instance>,
@@ -672,26 +672,11 @@ pub struct W3DDevice {
     textures: Arc<RwLock<HashMap<String, Texture>>>,
     shaders: Arc<RwLock<HashMap<String, Shader>>>,
 
-    /// GPU buffer pools for efficient memory management
-    vertex_buffer_pool: Arc<RwLock<BufferPool>>,
-    index_buffer_pool: Arc<RwLock<BufferPool>>,
-    uniform_buffer_pool: Arc<RwLock<BufferPool>>,
-
     /// Current scene with render objects
     current_scene: Arc<RwLock<Scene>>,
 
-    /// Frame-in-flight management
-    frame_counter: Arc<RwLock<u64>>,
-
-    /// Command buffer recording
-    command_encoder: Arc<RwLock<Option<wgpu::CommandEncoder>>>,
-
-    /// Render pass management
-    current_render_pass: Arc<RwLock<Option<wgpu::RenderPass<'static>>>>,
-
     /// Initialization and lifecycle state
     initialized: Arc<RwLock<bool>>,
-    shutting_down: Arc<RwLock<bool>>,
 }
 
 impl W3DDevice {
@@ -712,11 +697,11 @@ impl W3DDevice {
             backends: config.backend,
             memory_budget_thresholds: Default::default(),
             backend_options,
-            ..Default::default()
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
 
         Ok(Self {
-            config: Arc::new(RwLock::new(config)),
+            config: Arc::new(config),
             instance: Arc::new(instance),
             adapter: Arc::new(RwLock::new(None)),
             device: Arc::new(RwLock::new(None)),
@@ -730,24 +715,8 @@ impl W3DDevice {
             materials: Arc::new(RwLock::new(HashMap::new())),
             textures: Arc::new(RwLock::new(HashMap::new())),
             shaders: Arc::new(RwLock::new(HashMap::new())),
-            vertex_buffer_pool: Arc::new(RwLock::new(BufferPool::new(
-                BufferUsages::VERTEX,
-                256, // 256-byte alignment for vertex buffers
-            ))),
-            index_buffer_pool: Arc::new(RwLock::new(BufferPool::new(
-                BufferUsages::INDEX,
-                64, // 64-byte alignment for index buffers
-            ))),
-            uniform_buffer_pool: Arc::new(RwLock::new(BufferPool::new(
-                BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-                256, // 256-byte alignment for uniform buffers (required by some GPUs)
-            ))),
             current_scene: Arc::new(RwLock::new(Scene::default())),
-            frame_counter: Arc::new(RwLock::new(0)),
-            command_encoder: Arc::new(RwLock::new(None)),
-            current_render_pass: Arc::new(RwLock::new(None)),
             initialized: Arc::new(RwLock::new(false)),
-            shutting_down: Arc::new(RwLock::new(false)),
         })
     }
 
@@ -763,7 +732,7 @@ impl W3DDevice {
     ) -> Result<()> {
         tracing::info!("Initializing W3D device with wgpu backend");
 
-        let config = self.config.read().await;
+        let config = &self.config;
 
         // Request adapter
         let adapter = self
@@ -772,7 +741,7 @@ impl W3DDevice {
                 power_preference: config.power_preference,
                 compatible_surface: surface.as_ref(),
                 force_fallback_adapter: false,
-            apply_limit_buckets: false,
+                apply_limit_buckets: false,
             })
             .await
             .map_err(|_| W3DError::InitializationFailed("No suitable adapter found".to_string()))?;
@@ -786,7 +755,7 @@ impl W3DDevice {
         }
 
         let required_limits = Limits {
-            max_uniform_buffer_binding_size: config.max_uniform_buffer_size as u32,
+            max_uniform_buffer_binding_size: u64::from(config.max_uniform_buffer_size as u32),
             max_storage_buffer_binding_size: 1024 * 1024 * 128, // 128MB storage buffers
             ..Limits::default()
         };
@@ -816,7 +785,7 @@ impl W3DDevice {
             let surface_config = SurfaceConfiguration {
                 usage: TextureUsages::RENDER_ATTACHMENT,
                 format: surface_format,
-            color_space: wgpu::SurfaceColorSpace::Auto,
+                color_space: wgpu::SurfaceColorSpace::Auto,
                 width: width.max(1),
                 height: height.max(1),
                 present_mode,
@@ -832,7 +801,7 @@ impl W3DDevice {
             let surface_config = SurfaceConfiguration {
                 usage: TextureUsages::RENDER_ATTACHMENT,
                 format: surface_format,
-            color_space: wgpu::SurfaceColorSpace::Auto,
+                color_space: wgpu::SurfaceColorSpace::Auto,
                 width: config.resolution.width.max(1),
                 height: config.resolution.height.max(1),
                 present_mode: if config.vsync {
@@ -1078,7 +1047,7 @@ impl W3DDevice {
         // Create pipeline layout
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some(&format!("{} Pipeline Layout", shader.name)),
-            bind_group_layouts: &bind_group_layouts.iter().collect::<Vec<_>>(),
+            bind_group_layouts: &bind_group_layouts.iter().map(Some).collect::<Vec<_>>(),
             immediate_size: 0,
         });
 
@@ -1159,14 +1128,15 @@ impl W3DDevice {
             let surface_guard = self.surface.read().await;
             if let Some(surface) = surface_guard.as_ref() {
                 match surface.get_current_texture() {
-                    Ok(frame) => Some(frame),
-                    Err(SurfaceError::Timeout) => {
+                    CurrentSurfaceTexture::Success(frame)
+                    | CurrentSurfaceTexture::Suboptimal(frame) => Some(frame),
+                    CurrentSurfaceTexture::Timeout => {
                         tracing::warn!(
                             "W3D surface acquire timed out; rendering offscreen this frame"
                         );
                         None
                     }
-                    Err(err) => {
+                    err => {
                         tracing::warn!(
                             "W3D surface acquire failed ({err:?}); rendering offscreen this frame"
                         );
@@ -1440,15 +1410,8 @@ impl Clone for W3DDevice {
             materials: self.materials.clone(),
             textures: self.textures.clone(),
             shaders: self.shaders.clone(),
-            vertex_buffer_pool: self.vertex_buffer_pool.clone(),
-            index_buffer_pool: self.index_buffer_pool.clone(),
-            uniform_buffer_pool: self.uniform_buffer_pool.clone(),
             current_scene: self.current_scene.clone(),
-            frame_counter: self.frame_counter.clone(),
-            command_encoder: self.command_encoder.clone(),
-            current_render_pass: self.current_render_pass.clone(),
             initialized: self.initialized.clone(),
-            shutting_down: self.shutting_down.clone(),
         }
     }
 }
@@ -1458,3 +1421,7 @@ impl Drop for W3DDevice {
         tracing::debug!("W3D device dropped");
     }
 }
+
+#[cfg(test)]
+#[path = "w3d_device_ownership_tests.rs"]
+mod ownership_tests;

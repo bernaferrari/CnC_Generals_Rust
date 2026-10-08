@@ -2054,7 +2054,7 @@ impl W3DShadowMapper {
             address_mode_w: AddressMode::ClampToEdge,
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
-            mipmap_filter: MipmapFilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
 
@@ -2065,7 +2065,7 @@ impl W3DShadowMapper {
             address_mode_w: AddressMode::ClampToEdge,
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
-            mipmap_filter: MipmapFilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             compare: Some(CompareFunction::LessEqual),
             ..Default::default()
         });
@@ -2176,7 +2176,7 @@ impl W3DShadowMapper {
                 vertex: VertexState {
                     module: &depth_shader,
                     entry_point: Some("vs_depth_only"),
-                    buffers: &[self.get_shadow_vertex_layout()],
+                    buffers: &[Some(self.get_shadow_vertex_layout())],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: None, // Depth-only, no fragment shader needed
@@ -2428,7 +2428,7 @@ impl W3DShadowMapper {
                 timestamp_writes: None,
                 occlusion_query_set: None,
                 multiview_mask: None,
-});
+            });
 
             // Set pipeline and viewport
             render_pass.set_pipeline(pipeline);

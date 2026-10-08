@@ -869,7 +869,7 @@ impl W3DRenderer {
             timestamp_writes: None,
             occlusion_query_set: None,
             multiview_mask: None,
-});
+        });
     }
 
     /// Submit a render batch to the GPU
@@ -951,7 +951,11 @@ impl W3DRenderer {
                 .device
                 .create_pipeline_layout(&PipelineLayoutDescriptor {
                     label: Some("W3D Batch Submission Layout"),
-                    bind_group_layouts: &bind_group_layouts,
+                    bind_group_layouts: &bind_group_layouts
+                        .iter()
+                        .copied()
+                        .map(Some)
+                        .collect::<Vec<_>>(),
                     immediate_size: 0,
                 });
             let pipeline = self
@@ -963,7 +967,7 @@ impl W3DRenderer {
                         module: shader,
                         entry_point: Some("vs_main"),
                         compilation_options: Default::default(),
-                        buffers: &[mesh_layout.clone(), instance_vertex_layout()],
+                        buffers: &[Some(mesh_layout.clone()), Some(instance_vertex_layout())],
                     },
                     fragment: Some(FragmentState {
                         module: shader,
@@ -994,7 +998,7 @@ impl W3DRenderer {
                     depth_stencil: if depth_test_enabled {
                         Some(DepthStencilState {
                             format: FRAME_DEPTH_STENCIL_FORMAT,
-                            depth_write_enabled,
+                            depth_write_enabled: Some(depth_write_enabled),
                             depth_compare: Some(CompareFunction::LessEqual),
                             stencil: StencilState::default(),
                             bias: DepthBiasState::default(),
@@ -1120,7 +1124,7 @@ impl W3DRenderer {
             timestamp_writes: None,
             occlusion_query_set: None,
             multiview_mask: None,
-});
+        });
 
         render_pass.set_pipeline(pipeline);
         render_pass.set_bind_group(0, &frame_bind_group, &[]);
@@ -1995,15 +1999,28 @@ mod tests {
             detail_blend_mode: 0,
             properties: super::super::MaterialProperties::default(),
         };
+        material.properties.diffuse_color[3] = 0.4;
         material.properties.specular_color = [0.7, 0.2, 0.1];
         material.properties.shininess = 96.0;
         material.properties.unlit = true;
 
         let params = batch_material_params(Some(&material));
-        assert!((params[0] - 0.7).abs() < 1.0e-6);
-        assert!((params[1] - 0.25).abs() < 1.0e-6);
-        assert!((params[2] - 1.0).abs() < 1.0e-6);
+        assert!((params[0] - 0.4).abs() < 1.0e-6);
+        assert!((params[1] - 0.7).abs() < 1.0e-6);
+        assert!((params[2] - 0.25).abs() < 1.0e-6);
         assert!((params[3] - 1.0).abs() < 1.0e-6);
+
+        material.properties.diffuse_color[3] = -0.5;
+        material.properties.specular_color = [-1.0, 2.0, 0.5];
+        material.properties.shininess = 256.0;
+        material.properties.unlit = false;
+        assert_eq!(batch_material_params(Some(&material)), [0.0, 1.0, 0.0, 0.0]);
+
+        material.properties.diffuse_color[3] = 3.0;
+        material.properties.specular_color = [-1.0, -2.0, -0.5];
+        material.properties.shininess = -20.0;
+        material.properties.unlit = true;
+        assert_eq!(batch_material_params(Some(&material)), [1.0, 0.0, 1.0, 1.0]);
     }
 
     #[test]

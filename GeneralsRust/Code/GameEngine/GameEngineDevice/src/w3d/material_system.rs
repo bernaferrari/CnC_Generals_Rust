@@ -715,7 +715,9 @@ impl W3DShaderManager {
                 vertex: VertexState {
                     module: &vertex_module,
                     entry_point: Some("vs_main"),
-                    buffers: &[self.create_vertex_buffer_layout(&variant.vertex_layout)],
+                    buffers: &[Some(
+                        self.create_vertex_buffer_layout(&variant.vertex_layout),
+                    )],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(FragmentState {
@@ -740,8 +742,8 @@ impl W3DShaderManager {
                 depth_stencil: if variant.render_state.depth_test {
                     Some(DepthStencilState {
                         format: TextureFormat::Depth32Float,
-                        depth_write_enabled: variant.render_state.depth_write,
-                        depth_compare,
+                        depth_write_enabled: Some(variant.render_state.depth_write),
+                        depth_compare: Some(depth_compare),
                         stencil: StencilState::default(),
                         bias: DepthBiasState::default(),
                     })
@@ -1035,7 +1037,7 @@ impl W3DTextureManager {
             address_mode_w: AddressMode::Repeat,
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
-            mipmap_filter: MipmapFilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             lod_min_clamp: 0.0,
             lod_max_clamp: 32.0,
             compare: None,

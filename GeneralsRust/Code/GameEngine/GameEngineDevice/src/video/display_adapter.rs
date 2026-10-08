@@ -325,9 +325,10 @@ impl DisplayAdapter {
                 flags: wgpu::InstanceFlags::default(),
                 memory_budget_thresholds: Default::default(),
                 backend_options,
+                display: None,
             });
 
-            let adapters = instance.enumerate_adapters(Backends::all());
+            let adapters = instance.enumerate_adapters(Backends::all()).await;
             let mut display_adapters = Vec::new();
 
             for (index, adapter) in adapters.into_iter().enumerate() {

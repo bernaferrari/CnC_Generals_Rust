@@ -23,8 +23,8 @@ use tokio::sync::RwLock;
 use wgpu::{
     Adapter, Backends, BindGroup, Buffer, CommandEncoder, CompositeAlphaMode, ComputePass,
     ComputePipeline, Device, Features, Instance, Limits, PowerPreference, PresentMode, Queue,
-    RenderPass, RenderPipeline, Surface, SurfaceConfiguration, SurfaceError, SurfaceTexture,
-    Texture, TextureFormat, TextureView, util::DeviceExt,
+    RenderPass, RenderPipeline, Surface, SurfaceConfiguration, SurfaceTexture, Texture,
+    TextureFormat, TextureView, util::DeviceExt,
 };
 
 #[cfg(feature = "video")]
@@ -256,6 +256,7 @@ impl VideoDevice {
                 },
                 memory_budget_thresholds: Default::default(),
                 backend_options,
+                display: None,
             }));
 
             // Request adapter
@@ -264,7 +265,7 @@ impl VideoDevice {
                     power_preference: config.power_preference,
                     compatible_surface: None,
                     force_fallback_adapter: false,
-            apply_limit_buckets: false,
+                    apply_limit_buckets: false,
                 })
                 .await
                 .map_err(|_| {

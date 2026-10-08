@@ -939,9 +939,8 @@ impl W3DTextureManager {
         texture_id: &str,
         image: DynamicImage,
     ) -> Result<W3DTextureGpu> {
-        let rgba_image = image.to_rgba8();
+        let mut rgba_image = image.to_rgba8();
         let (mut width, mut height) = rgba_image.dimensions();
-        let mut raw_data = rgba_image.into_raw();
 
         // C++ TextureClass IsReducible / WW3D::Get_Texture_Reduction.
         let reduction = crate_texture_reduction();
@@ -949,15 +948,17 @@ impl W3DTextureManager {
             if width <= 1 && height <= 1 {
                 break;
             }
-            let Some(img) = image::RgbaImage::from_raw(width, height, raw_data) else {
-                break;
-            };
             width = (width / 2).max(1);
             height = (height / 2).max(1);
-            let resized =
-                image::imageops::resize(&img, width, height, image::imageops::FilterType::Triangle);
-            raw_data = resized.into_raw();
+            rgba_image = image::imageops::resize(
+                &rgba_image,
+                width,
+                height,
+                image::imageops::FilterType::Triangle,
+            );
         }
+
+        let raw_data = rgba_image.into_raw();
 
         let mip_levels = if self.mip_levels_auto {
             (width.min(height) as f32).log2().floor() as u32 + 1
@@ -1017,7 +1018,7 @@ impl W3DTextureManager {
             address_mode_w: AddressMode::Repeat,
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
-            mipmap_filter: MipmapFilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             compare: None,
             lod_min_clamp: 0.0,
             lod_max_clamp: 32.0,
