@@ -381,3 +381,6 @@ fn native_mood_passive_with_no_damage_has_no_target() {
         .unwrap();
     assert_eq!(ai.get_next_mood_target_id(false, false), fixture.target_id);
 }
+
+#[path = "factory_mood_policy_tests.rs"]
+mod policy;

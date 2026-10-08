@@ -1937,20 +1937,6 @@ impl UnitAIUpdate {
     pub(super) fn set_next_mood_check_time(&mut self, frame: u32) {
         self.data.set_next_mood_check_time(frame)
     }
-    pub(super) fn can_auto_acquire(&self) -> bool {
-        get_unit_arc(self.unit_id)
-            .and_then(|unit| unit.read().ok().map(|guard| guard.auto_acquire_enemies))
-            .unwrap_or(false)
-    }
-    pub(super) fn can_auto_acquire_while_stealthed(&self) -> bool {
-        get_unit_arc(self.unit_id)
-            .and_then(|unit| {
-                unit.read()
-                    .ok()
-                    .map(|guard| guard.auto_acquire_while_stealthed)
-            })
-            .unwrap_or(false)
-    }
     pub(super) fn get_mood_matrix_value(&self) -> u32 {
         if self.ai_state_machine.is_none() {
             return 0;

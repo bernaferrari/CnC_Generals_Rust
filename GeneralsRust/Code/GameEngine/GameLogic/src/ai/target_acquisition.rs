@@ -330,10 +330,14 @@ impl AI {
         factors_to_consider: u32,
         attitude: Option<AIAttitudeType>,
     ) -> Real {
+        // AI.cpp:785-789 returns zero when the object has no AI interface.
+        if attitude.is_none() {
+            return 0.0;
+        }
         let mut range = source.get_vision_range();
-        let player_is_human = source
-            .with_controlling_player(|player| player.get_player_type() == PlayerType::Human)
-            .unwrap_or(false);
+        let controller_is_human =
+            source.with_controlling_player(|player| player.get_player_type() == PlayerType::Human);
+        let player_is_human = controller_is_human == Some(true);
         let contained = source.get_contained_by().is_some();
         let weapon_range = source.get_largest_weapon_range();
         let ai_data = &self.ai_data;
@@ -355,7 +359,9 @@ impl AI {
         // C++ AI.cpp:814-826 — contained uses weapon range; Sleep returns 0.
         if contained {
             range = weapon_range;
-        } else if (factors_to_consider & vision_factors::MOOD) != 0 && !player_is_human {
+        } else if (factors_to_consider & vision_factors::MOOD) != 0
+            && controller_is_human == Some(false)
+        {
             if let Some(attitude) = attitude {
                 match attitude {
                     AIAttitudeType::Sleep => return 0.0,

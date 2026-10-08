@@ -28560,6 +28560,13 @@
             "classification": "test",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_mood_policy_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_mood_query_tests.rs"
           },
           {
@@ -61031,6 +61038,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_enter_command_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_mood_policy_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -157616,7 +157630,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "294c50f9b34b8f7338f461e15ac9803364fa9326ab18371fc39e2822eaa7627b",
+  "input_digest": "f6d9ec2a5b2f0605b641f2e31c09277b48786811736714ea91af6d933b8eeaba",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -195728,11 +195742,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 372,
+        "end_line": 378,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/target_acquisition.rs",
-      "sha256": "b6ce5d5d63a00ad8997faba04e5e0579d0340ede83e658ef9c8207d47a94ce88",
+      "sha256": "0515261284b44e6b396ab2500cc246cf083ef3990b1cf314a91c2161e68cdbf1",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -202757,11 +202771,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 259,
+        "end_line": 292,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_acquisition.rs",
-      "sha256": "31d6351f15888e0b869a8cb8e8a8388147de2fa5aed698f8cdae2f19169b5c10",
+      "sha256": "331a6b42b70fd242d4cd8643c5abd1aba10e7fad41cfc8e5a21d5671ae3fff2a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -202913,11 +202927,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2195,
+        "end_line": 2181,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_loco.rs",
-      "sha256": "923b160febb10ed77d642392f12e9bf3c0f75e4cf8f6bee11c8ae5ca8e750d31",
+      "sha256": "958d0c5d2f79e988ed6b8b3d8d4b8c6f6231fcbdfc292fa4cda83190baac46af",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -203081,11 +203095,23 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 384,
+        "end_line": 682,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_mood_policy_tests.rs",
+      "sha256": "be4cbdd14fd09945b5b213d8c703cdd5e1e0da4f04640cd09091f52d9110bed6",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 387,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_mood_query_tests.rs",
-      "sha256": "cdf3786b57d5fe133045b1938ad5af095942d81cc3e89ff80495f15fe15ff5b0",
+      "sha256": "ef97bf9cb4a2775faef2b60080ad1981c24d7230428b822382bae78816009737",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

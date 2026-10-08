@@ -11,6 +11,45 @@ use crate::object::update::ai_update_interface::{
 };
 
 impl UnitAIUpdate {
+    pub(super) fn can_auto_acquire(&self) -> bool {
+        if self.owner.is_some() {
+            // AIUpdate.h:565 returns the whole mask as Bool, including NO.
+            return self.data.auto_acquire_enemies_when_idle != 0;
+        }
+        get_unit_arc(self.unit_id)
+            .and_then(|unit| unit.read().ok().map(|guard| guard.auto_acquire_enemies))
+            .unwrap_or(false)
+    }
+
+    pub(super) fn can_auto_acquire_while_stealthed(&self) -> bool {
+        if self.owner.is_some() {
+            let Some(owner) = self.owner.as_ref().and_then(Weak::upgrade) else {
+                return false;
+            };
+            return owner
+                .read()
+                .ok()
+                .is_some_and(|source| self.can_auto_acquire_while_stealthed_for_source(&source));
+        }
+        get_unit_arc(self.unit_id)
+            .and_then(|unit| {
+                unit.read()
+                    .ok()
+                    .map(|guard| guard.auto_acquire_while_stealthed)
+            })
+            .unwrap_or(false)
+    }
+
+    fn can_auto_acquire_while_stealthed_for_source(&self, source: &crate::object::Object) -> bool {
+        // AIUpdate.cpp:4459 checks the real stealth module before the mask.
+        source.get_stealth().is_some_and(|handle| {
+            handle
+                .lock()
+                .ok()
+                .is_some_and(|stealth| stealth.is_granted_by_special_power())
+        }) || self.data.auto_acquire_enemies_when_idle & AUTO_ACQUIRE_IDLE_STEALTHED != 0
+    }
+
     pub(super) fn get_next_mood_target_id(
         &mut self,
         called_by_ai: bool,
@@ -49,13 +88,7 @@ impl UnitAIUpdate {
             return INVALID_ID;
         }
         if called_during_idle && source.test_status(ObjectStatusTypes::Stealthed) {
-            let special_power = source.get_stealth().is_some_and(|handle| {
-                handle
-                    .lock()
-                    .ok()
-                    .is_some_and(|stealth| stealth.is_granted_by_special_power())
-            });
-            if !special_power && mask & AUTO_ACQUIRE_IDLE_STEALTHED == 0 {
+            if !self.can_auto_acquire_while_stealthed_for_source(&source) {
                 let passenger_may_fire = source
                     .get_contained_by()
                     .and_then(|id| {
