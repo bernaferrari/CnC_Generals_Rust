@@ -86,11 +86,19 @@ pub fn honesty_host_eager_apply_batch_nav_commands_residual_wave925() -> bool {
 pub fn honesty_host_eager_apply_batch_residual_pack_wave925() -> bool {
     let cnc = cnc_source();
     let gw = gw_source();
-    let cascade_raw = code_window(cnc, "// Wave 682/925: post-logic host", 900);
+    let cascade_raw =
+        super::harness::rust_fn_body(cnc, "host_run_coupled_fast_forward_loop").unwrap_or("");
     let cascade = non_comment_code(cascade_raw);
     let batch_raw = code_window(gw, "fn eager_apply_all_host_residuals_after_logic", 6000);
-    let ok = cascade_raw.contains("925")
-        && cascade.contains("eager_apply_all_host_residuals_after_logic")
+    let tick = cascade.find("Self::host_update_logic_frame");
+    let gather = cascade.find("host_drain_physical_gather_dropoffs");
+    let eager = cascade.find("eager_apply_all_host_residuals_after_logic");
+    let shadow = cascade.find("host_run_gameworld_shadow_after_logic(logic)");
+    let ok = tick.zip(gather).is_some_and(|(a, b)| a < b)
+        && gather.zip(eager).is_some_and(|(a, b)| a < b)
+        && eager.zip(shadow).is_some_and(|(a, b)| a < b)
+        && cascade.contains("if couple_shadow")
+        && cascade.contains("shadow, logic")
         && !cascade.contains("eager_apply_host_fire_spawns_after_logic")
         && !cascade.contains("eager_apply_host_spawn_after_logic")
         && batch_raw.contains("eager_apply_host_fire_spawns_after_logic")

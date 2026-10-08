@@ -2019,19 +2019,26 @@ mod tests {
             "the gated step must still advance exactly one frame"
         );
     }
+    fn seed_boundary_test_owner(logic: &mut GameLogic, seed: u32) {
+        logic.logic_random.seed_random(seed);
+        logic.logic_base_seed = game_engine::common::random_value::get_game_logic_random_seed();
+    }
+
     #[test]
     fn step_boundary_callback_draws_from_the_driving_instance_in_sequence() {
         let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         drop_pending_clear_game_data();
         use game_engine::common::random_value::{
-            get_game_logic_random_value, init_random_with_seed, with_logic_rng_owner,
+            get_game_logic_random_value, with_logic_rng_owner,
         };
 
         const SEED: u32 = 0xB0A7_DA7A;
         const DT: f32 = LOGIC_FRAME_TIMESTEP;
-        init_random_with_seed(SEED);
         let mut actual = GameLogic::new();
         let mut reference = GameLogic::new();
+        seed_boundary_test_owner(&mut actual, SEED);
+        seed_boundary_test_owner(&mut reference, SEED);
+        let global_words = game_engine::common::random_value::get_game_logic_random_seed_state();
         let mut draws = Vec::new();
         let snapshot = actual.tick_logic_frame_with_boundary(2.0 * DT, None, Some(2), |_| {
             draws.push(get_game_logic_random_value(0, 999))
@@ -2055,6 +2062,11 @@ mod tests {
         assert_eq!(snapshot.steps_run, 2);
         assert_eq!(draws, vec![expected_first, expected_second]);
         assert_eq!(actual_next, expected_next);
+        assert_eq!(
+            game_engine::common::random_value::get_game_logic_random_seed_state(),
+            global_words,
+            "step and callback draws leave the process fallback untouched"
+        );
     }
 
     #[test]
@@ -2062,18 +2074,18 @@ mod tests {
         let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         drop_pending_clear_game_data();
         use game_engine::common::random_value::{
-            get_game_logic_random_seed, get_game_logic_random_value, init_random_with_seed,
-            with_logic_rng_owner,
+            get_game_logic_random_seed, get_game_logic_random_value, with_logic_rng_owner,
         };
 
         const SEED: u32 = 0xA101_0001;
         const FOREIGN_SEED: u32 = 0xB202_0002;
         const DT: f32 = LOGIC_FRAME_TIMESTEP;
-        init_random_with_seed(SEED);
         let mut a = GameLogic::new();
         let mut a_ref = GameLogic::new();
         let mut b = GameLogic::new();
         let mut b_ref = GameLogic::new();
+        seed_boundary_test_owner(&mut a, SEED);
+        seed_boundary_test_owner(&mut a_ref, SEED);
         // Distinguish B from A while preventing per-batch seed adoption from
         // replacing B's deliberately independent test stream.
         b.logic_random.seed_random(FOREIGN_SEED);
@@ -2114,12 +2126,12 @@ mod tests {
         let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         drop_pending_clear_game_data();
         use game_engine::common::random_value::{
-            RandomState, get_game_logic_random_value, init_random_with_seed, with_logic_rng_owner,
+            RandomState, get_game_logic_random_value, with_logic_rng_owner,
         };
         use std::panic::{AssertUnwindSafe, catch_unwind};
 
-        init_random_with_seed(0xCA11_BACC);
         let mut driver = GameLogic::new();
+        seed_boundary_test_owner(&mut driver, 0xCA11_BACC);
         let mut outer = RandomState::default();
         outer.seed_random(0x0A77_EA01);
         let mut replay = RandomState::default();

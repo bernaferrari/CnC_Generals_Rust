@@ -1770,7 +1770,7 @@ fn production_tick_builds_presentation_after_side_systems() {
         .split_once("fn host_run_coupled_fast_forward_loop(")
         .expect("fixed-step helper")
         .1;
-    assert!(loop_body.contains(".host_update_logic_frame("));
+    assert!(loop_body.contains("Self::host_update_logic_frame("));
     let host_finalize_call = eng.find("host_finalize_presentation_after_logic(");
     let pres = eng
         .find("PresentationFrame::build_from_logic")

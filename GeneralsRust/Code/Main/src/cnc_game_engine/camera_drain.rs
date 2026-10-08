@@ -2386,6 +2386,9 @@ impl CnCGameEngine {
                         tracked_carriers,
                         playability,
                     );
+                    // Wave 682/925: post-logic host→GameWorld residual batch.
+                    // The callback borrows this driving GameLogic after each
+                    // completed step; all eager channels retain their order.
                     if couple_shadow {
                         crate::gameworld_shadow::with_active_shadow_mut(|shadow| {
                             crate::gameworld_shadow::eager_apply_all_host_residuals_after_logic(
@@ -2409,6 +2412,7 @@ impl CnCGameEngine {
     pub(super) fn host_run_gameworld_shadow_after_logic(
         logic: &mut crate::game_logic::GameLogic,
     ) -> usize {
+        // Wave 597/680/927: delegate the per-step shadow/session boundary.
         let from_boundary = crate::gameworld_shadow::with_active_shadow_mut(|shadow| {
             crate::gameworld_shadow::run_post_logic_shadow_boundary(Some(shadow), logic)
         })
@@ -2419,7 +2423,8 @@ impl CnCGameEngine {
                 .len()
         })
         .unwrap_or(from_boundary);
-        // Destruction follows this step's health writeback.
+        // Wave 621/912: after health writeback, drain destroy-ready log
+        // before the next host ingress.
         let _ = logic
             .apply_host_support_op(crate::game_logic::HostSupportOp::ProcessDestroyListIfNeeded);
         entity_count
