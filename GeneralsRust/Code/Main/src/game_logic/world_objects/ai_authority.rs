@@ -19,7 +19,7 @@ impl GameLogic {
     ) -> Option<AICommand> {
         let should_scan =
             |interval: u32| -> bool { interval > 0 && frame.is_multiple_of(interval) };
-        let ai_auto_engage_paused = self.skirmish_ai_auto_engage_paused(team);
+        let ai_auto_engage_paused = self.skirmish_ai_auto_engage_paused(object_id);
 
         if matches!(ai_state, AIState::AttackMoving) {
             if self

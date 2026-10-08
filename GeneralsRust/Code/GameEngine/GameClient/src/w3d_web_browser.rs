@@ -243,8 +243,10 @@ mod native_browser {
         #[cfg(target_os = "windows")]
         {
             let wide: Vec<u16> = url.encode_utf16().chain(Some(0)).collect();
+            // SAFETY: The declaration matches shell32's ShellExecuteW system ABI;
+            // its pointer and string requirements are upheld at the call below.
             #[link(name = "shell32")]
-            extern "system" {
+            unsafe extern "system" {
                 fn ShellExecuteW(
                     hwnd: *mut core::ffi::c_void,
                     op: *const u16,

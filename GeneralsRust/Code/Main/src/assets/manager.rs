@@ -11,14 +11,14 @@ use crate::assets::{
     archive::{ArchiveFileSystem, ArchiveStatistics},
     audio::AudioManager,
     models::{
-        get_common_cnc_units, split_w3d_draw_animation_identity, W3DLoader, W3DMesh, W3DModel,
-        W3dAnimation, W3dAnimationBinding,
+        W3DLoader, W3DMesh, W3DModel, W3dAnimation, W3dAnimationBinding, get_common_cnc_units,
+        split_w3d_draw_animation_identity,
     },
     textures::{GPUTexture, RawTexture, TextureManager},
     ww3d_asset_manager::WW3DAssetManager,
 };
 use crate::localization;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use log::{debug, error, info, warn};
 use std::cmp::Ordering as CmpOrdering;
 use std::collections::{HashMap, HashSet};
@@ -2758,10 +2758,12 @@ mod tests {
         assert!(first.get_cached_model(key).is_none());
         assert!(!first.w3d_model_known_missing("first_owner_missing"));
         assert!(second.w3d_model_known_missing("second_owner_missing"));
-        assert!(first
-            .archive_system
-            .resolve_local_file(&relative_asset)
-            .is_none());
+        assert!(
+            first
+                .archive_system
+                .resolve_local_file(&relative_asset)
+                .is_none()
+        );
         let second_root_file = second
             .archive_system
             .resolve_local_file(&relative_asset)
@@ -3283,3 +3285,7 @@ mod tests {
         assert!(!archive_filename_matches(None, "musiczh.big"));
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "splash_damage_completion_tests.rs"]
+mod splash_damage_completion_tests;

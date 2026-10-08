@@ -1,0 +1,244 @@
+{
+  "columns": [
+    {
+      "index": 0,
+      "name": "lane",
+      "encoding": "text"
+    },
+    {
+      "index": 1,
+      "name": "name",
+      "encoding": "text"
+    },
+    {
+      "index": 2,
+      "name": "velocity_x",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 3,
+      "name": "velocity_y",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 4,
+      "name": "velocity_z",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 5,
+      "name": "position_x",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 6,
+      "name": "position_y",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 7,
+      "name": "position_z",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 8,
+      "name": "target_x",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 9,
+      "name": "target_y",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 10,
+      "name": "target_z",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 11,
+      "name": "entry_angle",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 12,
+      "name": "supplied_post_angle",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 13,
+      "name": "entry_direction_x",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 14,
+      "name": "entry_direction_y",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 15,
+      "name": "entry_direction_z",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 16,
+      "name": "supplied_post_direction_x",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 17,
+      "name": "supplied_post_direction_y",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 18,
+      "name": "supplied_post_direction_z",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 19,
+      "name": "desired_speed",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 20,
+      "name": "acceleration_or_step",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 21,
+      "name": "braking_or_step",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 22,
+      "name": "mass",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 23,
+      "name": "entry_speed",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 24,
+      "name": "exit_speed",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 25,
+      "name": "raw_slide_factor_frames",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 26,
+      "name": "lane_slide_factor",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 27,
+      "name": "path_distance",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 28,
+      "name": "observed_exit_angle",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 29,
+      "name": "observed_exit_direction_x",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 30,
+      "name": "observed_exit_direction_y",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 31,
+      "name": "observed_exit_direction_z",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 32,
+      "name": "impulse_x",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 33,
+      "name": "impulse_y",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 34,
+      "name": "impulse_z",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 35,
+      "name": "integrated_velocity_x",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 36,
+      "name": "integrated_velocity_y",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 37,
+      "name": "integrated_velocity_z",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 38,
+      "name": "adapter_displacement_x",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 39,
+      "name": "adapter_displacement_y",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 40,
+      "name": "adapter_displacement_z",
+      "encoding": "f32_bits_hex"
+    },
+    {
+      "index": 41,
+      "name": "ultra",
+      "encoding": "integer"
+    },
+    {
+      "index": 42,
+      "name": "rotation_calls",
+      "encoding": "integer"
+    },
+    {
+      "index": 43,
+      "name": "turning_calls",
+      "encoding": "integer"
+    },
+    {
+      "index": 44,
+      "name": "turning",
+      "encoding": "integer"
+    },
+    {
+      "index": 45,
+      "name": "mass_reads",
+      "encoding": "integer"
+    },
+    {
+      "index": 46,
+      "name": "motive_expires",
+      "encoding": "integer"
+    }
+  ],
+  "coordinate_mapping": "original XYZ -> host (X,Z,-Y)",
+  "lanes": [
+    "raw-frame",
+    "host-impulse"
+  ]
+}

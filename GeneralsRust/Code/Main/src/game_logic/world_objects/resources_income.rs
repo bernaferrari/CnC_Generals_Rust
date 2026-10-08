@@ -37,57 +37,84 @@ impl GameLogic {
         }
     }
 
-    pub(in super::super) fn update_player_resources(&mut self, dt: f32) {
-        // Calculate power and resource generation for each player.  `Team` is
-        // only a faction identity: two USA players must not share a power grid
-        // or supply-center income.
+    /// Shared C++-derived grid fold. The caller chooses the object-state
+    /// authority: ordinary ticks can read coupled state; snapshot completion
+    /// must use the receiving object's fully transferred local fields.
+    fn power_totals_for_player(
+        &self,
+        player_id: u32,
+        eligible: impl Fn(&Object) -> bool,
+    ) -> (i32, i32) {
+        self.objects
+            .values()
+            .filter(|object| self.player_owner_for_host_object(object) == Some(player_id))
+            .filter(|object| eligible(object))
+            .fold((0_i32, 0_i32), |(produced, consumed), object| {
+                // Object::friend_adjustPowerForPlayer: disabledness only
+                // excludes producers. Persisted production already includes
+                // any Overcharge bonus, so never replay that bonus on load.
+                let produced = if object.is_disabled() && object.power_provided > 0 {
+                    produced
+                } else {
+                    produced.saturating_add(object.power_provided)
+                };
+                (
+                    produced,
+                    consumed.saturating_add(object.power_consumed.abs()),
+                )
+            })
+    }
+
+    fn apply_derived_power(player: &mut Player, (produced, consumed): (i32, i32)) {
+        player.power_available = produced - consumed;
+        player.power_produced = produced;
+        player.power_consumed = consumed;
+    }
+
+    fn apply_power_sabotage(player: &mut Player) {
+        // Preserve the existing host nonzero-deadline mask, including its
+        // independently tracked equality discrepancy with C++ frame < till.
+        if player.power_sabotaged_till_frame > 0 {
+            player.power_produced = 0;
+            player.power_available = -player.power_consumed;
+        }
+    }
+
+    /// C++ Energy::xfer omits derived totals because object loading restores
+    /// them before observers run. All object/status tails must finish first.
+    /// This boundary does not age sabotage, publish economy events, or tick.
+    pub(crate) fn restore_player_power(&mut self) {
         let player_ids: Vec<u32> = self.players.keys().copied().collect();
         for player_id in player_ids {
-            let (object_power_produced, power_consumed) = self
-                .objects
-                .values()
-                .filter(|object| self.player_owner_for_host_object(object) == Some(player_id))
-                .filter(|object| object.is_constructed() && object.is_alive())
-                .fold((0_i32, 0_i32), |(produced, consumed), object| {
-                    // C++ Object::friend_adjustPowerForPlayer: disabledness
-                    // only affects producers. onDisabledEdge also folds
-                    // Overcharge EnergyBonus out of the same production pool.
-                    let produced = if object.is_disabled() && object.power_provided > 0 {
-                        produced
-                    } else {
-                        produced.saturating_add(object.power_provided)
-                    };
-                    (
-                        produced,
-                        consumed.saturating_add(object.power_consumed.abs()),
-                    )
-                });
+            let totals = self.power_totals_for_player(player_id, |object| {
+                object.is_constructed_from_host_state() && object.is_alive_from_host_state()
+            });
+            if let Some(player) = self.players.get_mut(&player_id) {
+                Self::apply_derived_power(player, totals);
+                Self::apply_power_sabotage(player);
+            }
+        }
+    }
 
-            // C++ Energy is incremental. Disabled producers (including an
-            // active Overcharge EnergyBonus) are omitted above, so the
-            // capture-while-disabled delta is not applied — onDisabledEdge
-            // already stripped that pool before onCapture no-ops.
-            let power_produced = object_power_produced;
-
+    pub(in super::super) fn update_player_resources(&mut self, dt: f32) {
+        // Team is only faction identity; same-faction players retain distinct
+        // grids. Preserve the existing ordinary coupled-aware eligibility.
+        let player_ids: Vec<u32> = self.players.keys().copied().collect();
+        for player_id in player_ids {
+            let totals = self.power_totals_for_player(player_id, |object| {
+                object.is_constructed() && object.is_alive()
+            });
             let Some(player) = self.players.get_mut(&player_id) else {
                 continue;
             };
-            player.power_available = power_produced - power_consumed;
-            player.power_produced = power_produced;
-            player.power_consumed = power_consumed;
-
-            // C++ parity: check if power sabotage timer has expired and clear it
-            // Matches C++ Player::update() sabotage recovery logic
+            Self::apply_derived_power(player, totals);
+            // Expiry and publication belong only to an ordinary update.
             if player.power_sabotaged_till_frame > 0
                 && self.frame > player.power_sabotaged_till_frame
             {
                 player.power_sabotaged_till_frame = 0;
             }
-            // C++ Energy::getProduction / getEnergySupplyRatio return 0 while sabotaged.
-            if player.power_sabotaged_till_frame > 0 {
-                player.power_produced = 0;
-                player.power_available = -power_consumed;
-            }
+            Self::apply_power_sabotage(player);
 
             // Shadow economy channel: effective supplies + power after host tick residual.
             crate::game_logic::host_economy_log::record(

@@ -826,7 +826,7 @@ mod tests {
         {
             let cursor = Cursor::new(&bytes);
             let mut load = XferLoad::new(cursor, 1);
-            obj.xfer_behavior_module_list(&mut load, false);
+            obj.xfer_behavior_module_list(&mut load, false).unwrap();
         }
         assert_eq!(obj.behavior_module_xfer_count(), before);
         assert!(obj.has_ctor_helpers());

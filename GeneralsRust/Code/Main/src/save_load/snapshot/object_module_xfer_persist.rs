@@ -283,12 +283,18 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectModuleXferPersistPay
         }
     }
     for entry in payload.death_start {
-        if let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) {
+        if let Some(object) = game_logic
+            .host_objects_mut()
+            .get_mut(&ObjectId(entry.object_id))
+        {
             object.status.on_die_started = entry.on_die_started;
         }
     }
     for entry in payload.retained_death {
-        if let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) {
+        if let Some(object) = game_logic
+            .host_objects_mut()
+            .get_mut(&ObjectId(entry.object_id))
+        {
             object.status.effectively_dead = entry.effectively_dead;
             object.status.keep_as_rubble = entry.keep_as_rubble;
             match entry.keep_object_die {

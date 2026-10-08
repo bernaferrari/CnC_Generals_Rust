@@ -184,6 +184,14 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Set up Python for parity tooling
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install C++ definition parser for parity tooling
+        run: python3 -m pip install -r Code/Main/scripts/requirements-provenance.txt
+
       - name: Install Linux dependencies
         run: |
           sudo apt-get update

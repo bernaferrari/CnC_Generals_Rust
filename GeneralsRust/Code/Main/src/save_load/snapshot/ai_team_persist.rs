@@ -1078,7 +1078,7 @@ fn apply_payload(game_logic: &mut GameLogic, payload: AiTeamPersistPayload) {
         {
             pending.push(req);
         }
-        let Some(object) = game_logic.host_object_mut(id) else {
+        let Some(object) = game_logic.host_objects_mut().get_mut(&id) else {
             continue;
         };
         let path: Vec<Vec3> = order.path.iter().copied().map(arr_to_vec3).collect();

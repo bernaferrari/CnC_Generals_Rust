@@ -1,4 +1,11 @@
 impl GameLogic {
+    /// Transfer the native snapshot using the same implementation as the
+    /// registered bridge. Errors do not roll back earlier mutations or construction
+    /// side effects; this is not the host WorldSnapshot format.
+    pub fn xfer_native_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        xfer_game_logic_state(self, xfer)
+    }
+
     pub fn prepare_logic_for_object_load(&mut self) {
         let bridge_towers_to_destroy: Vec<ObjectID> = {
             let terrain = crate::terrain::get_terrain_logic();

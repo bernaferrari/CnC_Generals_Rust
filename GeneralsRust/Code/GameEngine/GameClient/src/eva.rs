@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::sync::atomic::AtomicUsize;
 
 use game_engine::common::ini::{
-    register_block_parser, FieldParse, INIError, INILoadType, INIResult, INI,
+    FieldParse, INI, INIError, INILoadType, INIResult, register_block_parser,
 };
 use game_engine::common::random_value::get_game_client_random_value;
 use gamelogic::common::audio::AudioEventRts;
@@ -69,9 +69,10 @@ const EVA_MESSAGE_NAMES: [&str; 53] = [
 
 const EVA_COUNT: usize = EVA_MESSAGE_NAMES.len();
 /// C++ `ExpirationTimeMS = -1` reaches `INI::scanUnsignedInt` (%u) which wraps
-/// to 4294967295 ms; `parseDurationUnsignedInt` scales by 30/1000 and ceils
-/// → 128,849,019 frames (GameCommon.h LOGICFRAMES_PER_SECOND=30).
-const FOREVER_FRAMES: u32 = 128_849_019;
+/// to 4294967295 ms. Casting to f32 gives 4294967296; multiplication by the
+/// rounded f32 factor 30/1000 then ceiling gives 128,849,016 frames.
+/// This value is used only for the explicit "-1" expiration token.
+const FOREVER_FRAMES: u32 = 128_849_016;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -1060,6 +1061,32 @@ mod tests {
     use super::*;
     use std::path::{Path, PathBuf};
 
+    #[test]
+    fn eva_expiration_minus_one_matches_original_duration() {
+        // Exercise the local production field parser without global registration
+        // or audio. C++ scans -1 as UINT_MAX, then uses f32 multiply and ceil.
+        for fields in [
+            "ExpirationTimeMS = -1\nEnd\n",
+            "ExpirationTimeMS = 4294967295\nEnd\n",
+        ] {
+            let mut info = EvaCheckInfo::new(EvaMessage::LowPower);
+            let mut ini = INI::new();
+            ini.with_inline_source(fields, |ini| parse_eva_check_info_fields(ini, &mut info))
+                .unwrap();
+            assert_eq!(info.frames_to_expire(), 128_849_016, "{fields}");
+            assert_eq!(info.frames_between_checks(), 900, "{fields}");
+        }
+
+        let mut defaults = EvaCheckInfo::new(EvaMessage::LowPower);
+        let mut ini = INI::new();
+        ini.with_inline_source("End\n", |ini| {
+            parse_eva_check_info_fields(ini, &mut defaults)
+        })
+        .unwrap();
+        assert_eq!(defaults.frames_between_checks(), 900);
+        assert_eq!(defaults.frames_to_expire(), 150);
+    }
+
     fn repo_root() -> Option<PathBuf> {
         let mut dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         loop {
@@ -1269,11 +1296,7 @@ pub fn residual_eva_is_enabled() -> bool {
 /// Residual: last EvaMessage index flagged for play (None if none).
 pub fn residual_eva_last_message_index() -> Option<usize> {
     let idx = RESIDUAL_EVA_LAST_MESSAGE.load(std::sync::atomic::Ordering::Relaxed);
-    if idx == usize::MAX {
-        None
-    } else {
-        Some(idx)
-    }
+    if idx == usize::MAX { None } else { Some(idx) }
 }
 
 /// Residual: enable EVA without INI reload.

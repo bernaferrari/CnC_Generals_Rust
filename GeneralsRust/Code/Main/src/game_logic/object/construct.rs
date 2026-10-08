@@ -2479,15 +2479,24 @@ impl Object {
     }
 
     pub fn is_alive(&self) -> bool {
+        self.is_alive_with_health(|| {
+            crate::gameworld_shadow::coupled_entity_health(self.id).unwrap_or(self.health.current)
+        })
+    }
+
+    /// Snapshot restoration owns the receiving object's transferred fields;
+    /// an unrelated published shadow may reuse this numeric ObjectId.
+    pub(crate) fn is_alive_from_host_state(&self) -> bool {
+        self.is_alive_with_health(|| self.health.current)
+    }
+
+    fn is_alive_with_health(&self, health: impl FnOnce() -> f32) -> bool {
         if self.status.destroyed || self.status.effectively_dead || self.status.keep_as_rubble {
             return false;
         }
-        // C++ Object::isEffectivelyDead is a status bit; HP comes from the
-        // BodyModule (single store). When GameWorld is coupled, HashMap
-        // health.current can lag writeback — use the mapped entity HP.
-        let hp =
-            crate::gameworld_shadow::coupled_entity_health(self.id).unwrap_or(self.health.current);
-        if hp <= 0.0 {
+        // Read HP only after the lifetime flags. The ordinary caller may
+        // read coupled BodyModule state; restore supplies its transferred HP.
+        if health() <= 0.0 {
             return false;
         }
         // C++ effectively-dead during SlowDeath / air crash sequences.
@@ -2584,6 +2593,11 @@ impl Object {
         if let Some((pct, uc)) = crate::gameworld_shadow::coupled_entity_construction(self.id) {
             return !uc || pct + 1e-6 >= 1.0;
         }
+        self.is_constructed_from_host_state()
+    }
+
+    /// Receiving-state counterpart of the ordinary coupled-aware predicate.
+    pub(crate) fn is_constructed_from_host_state(&self) -> bool {
         !self.status.under_construction && self.construction_percent >= 1.0
     }
 

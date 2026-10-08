@@ -149,12 +149,12 @@ fn omitted_fields_keep_original_braking_and_other_existing_defaults() {
             };
             assert_eq!(get(&template).to_bits(), expected, "{field}");
         }
-        // These are current Common defaults, some intentionally differing from
-        // C++ until ini_bridge repairs them. This slice does not redesign them.
+        // Suspension defaults are owned by Common, matching the C++ constructor.
+        // Unrelated raw/default conventions remain unchanged in this slice.
         assert_eq!(template.min_turn_speed.to_bits(), 0);
         assert_eq!(template.speed_limit_z.to_bits(), 1_000_000.0_f32.to_bits());
-        assert_eq!(template.pitch_stiffness.to_bits(), 0);
-        assert_eq!(template.uniform_axial_damping.to_bits(), 0);
+        assert_eq!(template.pitch_stiffness.to_bits(), 0.1_f32.to_bits());
+        assert_eq!(template.uniform_axial_damping.to_bits(), 1.0_f32.to_bits());
         assert_eq!(
             template.preferred_height_damping.to_bits(),
             1.0_f32.to_bits()

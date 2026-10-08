@@ -1339,6 +1339,8 @@ fn strategy_center_turret_mood_target_residual() {
         sc.turret_holding = false;
         sc.turret_idle_recentering = false;
     }
+    let frame = game_logic.frame;
+    let _ = game_logic.tick_turret_state_machine(sc_id, frame as f32 * LOGIC_FRAME_TIMESTEP, frame);
     game_logic.tick_battle_plan_door_residuals();
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
@@ -1357,12 +1359,16 @@ fn strategy_center_turret_mood_target_residual() {
             "mood-target residual aims FirePitch, got {}",
             sc.turret_pitch_deg
         );
-        // Yaw left natural toward enemy at +X.
-        assert!(
-            (sc.turret_angle_deg - STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG).abs() > 1.0
-                || sc.turret_angle_deg.abs() < 5.0,
-            "mood-target residual must aim yaw at enemy, angle={}",
-            sc.turret_angle_deg
+        // C++ acquisition only installs the goal. The next turret AIM update
+        // owns rotation; an acquisition must not snap to a target angle.
+        assert_eq!(sc.turret_target_id, Some(enemy_id));
+        assert_eq!(
+            sc.turret_substate,
+            crate::game_logic::object::TurretSubState::Aim
+        );
+        assert_eq!(
+            sc.turret_angle_deg,
+            STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG
         );
         assert!(!sc.turret_idle_scanning);
     }
@@ -1388,6 +1394,7 @@ fn strategy_center_turret_mood_target_residual() {
             "out-of-range residual must clear mood target"
         );
         assert!(sc.target.is_none());
+        assert!(sc.turret_target_id.is_none());
     }
     assert!(
         game_logic.battle_plans().turret_mood_target_clear_count() >= 1,

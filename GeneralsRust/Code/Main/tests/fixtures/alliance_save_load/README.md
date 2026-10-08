@@ -1,6 +1,6 @@
 # Host alliance save compatibility
 
-Final scoped suite: **11 passed, 2 explicitly ignored**. The ignored probes are the supplied-file reader and the preserved same-faction continuation gap; its exact command appears below. Adjacent gates pass 8 deterministic, 6 experience and 15 weapon-default tests.
+Current scoped suite: **13 passed, 1 explicitly ignored** after the empty-AI-roster correction. The supplied-file reader is the ignored probe; it also passed separately for each genuine v23 fixture below. The historically named same-faction known-gap test is enabled and passes its unchanged full-trace expectation. The earlier alliance work recorded 8 deterministic, 6 experience and 15 weapon-default tests; those adjacent suites were not rerun for this bounded roster correction.
 
 New saves are incompatible with older builds. Live files now advertise WorldSnapshot 24 and carry Players v4. Older schema-23 readers reject them before host restoration. Other named-chunk/map side effects may already have occurred; this is not a transactional-load guarantee.
 
@@ -27,14 +27,18 @@ RUST_MIN_STACK=16777216 cargo test --offline --locked -j1 -p generals_main --tes
 
 The retained executable's ignored `externally_supplied_save_reader` accepts `ALLIANCE_SAVE_INPUT=/path/to/file.sav`; `ALLIANCE_EXPECT_REJECTION=1` additionally requires non-success with no host frame/player/object restoration. `ALLIANCE_SAVE_OUTPUT=/path/to/directory` retains actual writer bytes. `ALLIANCE_AUTHORITY_CASE=same_faction` or `inactive` selects one authority case for a fresh-process diagnostic.
 
-Same-faction, distinct-owner canonical inputs round-trip, but a separately observed continuation changes untouched Idle/zero shots/HP240 to restored Attacking/one shot/HP215, even when the case runs alone. Its cause is not established or repaired here; it must not be reported as a positive combat result. Inactive-player filtering is checked immediately before updates; subsequent source/restored traces are compared as observed, without claiming the initial inactive state persists across updates. The existing non-human skirmish constructor also re-enables `can_build_units` after legacy chunk apply; the tests distinguish raw codec fields from that later behavior.
+An earlier same-faction investigation observed untouched Idle/zero shots/HP240 versus restored Attacking/one shot/HP215. That remains a historical result, not the current test outcome: the accepted source already enabled `same_faction_real_file_continuation_known_gap`, and the current suite passes its explicit requirement that untouched human continuation fires 25 damage at frame 1 and restoration matches the full trace. This does not attribute the older gap's resolution solely to the empty-roster change. Inactive-player filtering is checked immediately before updates; subsequent source/restored traces are compared as observed, without claiming the initial inactive state persists across updates.
 
-The normal suite explicitly ignores two opt-in probes: the supplied-file reader and the preserved same-faction continuation gap. Run that red expectation unchanged in a fresh process with:
+The earlier reader also re-enabled `can_build_units` after legacy chunk apply by constructing an AI for the nonlocal slot. The empty-roster correction deliberately replaces that expectation: this genuine outer-v23 fixture has an explicit empty AI vector, and its Players-v1–v4 false build flags must survive full restore, matching C++ Player::xfer's direct transfer. The test verifies the outer version and empty vector before checking each sibling layout.
+
+The normal suite ignores only the opt-in supplied-file reader. To run the enabled same-faction continuation case alone:
 
 ```sh
-RUST_MIN_STACK=16777216 cargo test --offline --locked -j1 -p generals_main --test alliance_save_load same_faction_real_file_continuation_known_gap -- --ignored --exact --nocapture --test-threads=1
+RUST_MIN_STACK=16777216 cargo test --offline --locked -j1 -p generals_main --test alliance_save_load same_faction_real_file_continuation_known_gap -- --exact --nocapture --test-threads=1
 ```
 
 A separately labeled diagnostic adapts a new same-faction positional body to outer23 and supplies the genuine old explicit-enemy Players3 chunk. The retained old reader fires under those authored rows too. These are derived diagnostic bytes, not a genuine old-writer same-faction file; exact old-source non-regression and the cause of the untouched/restored difference remain unproved.
 
 For portable new-save compatibility artifacts, run each exact primary writer test in a fresh process, then run the supplied-file reader in another fresh process. A combined-suite explicit-map output was observed to capture ambient `MuzzleFlash` particle state and fail a fresh reader later in restore. That failure is preserved in the evidence; final cross-build file checks use separately generated fresh-process primary saves. No particle/global-state repair or whole-load rollback is claimed.
+
+Current fixture admission explicitly completes an empty WeaponStore before unnamed-weapon pitch queries and preloads the source `MuzzleFlash`/`BulletImpact` presets before both writer and reader construction. It preserves active particle systems and all original gameplay inputs/assertions. No AssetManager or native ThingFactory is present, and fixture templates have no named weapon, locomotor or ArmorSet dependency. This bounded-catalog guarantee covers this suite and its inspected alliance fixtures, not arbitrary external saves with other templates or nonempty AI rosters. See [AI roster restore evidence](../../../docs/ai_roster_save_restore.md) for the separately preserved implicit-energy gap and current validation scope.

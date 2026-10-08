@@ -97,7 +97,7 @@ fn capture(game_logic: &GameLogic) -> PowerPlantRodsPersistPayload {
 fn reset_rods(game_logic: &mut GameLogic) {
     let ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
     for id in ids {
-        if let Some(object) = game_logic.host_object_mut(id) {
+        if let Some(object) = game_logic.host_objects_mut().get_mut(&id) {
             object.power_plant_rods_extended = false;
             object.power_plant_rods_done_frame = 0;
         }

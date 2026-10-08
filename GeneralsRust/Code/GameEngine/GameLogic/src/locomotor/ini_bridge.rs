@@ -115,26 +115,10 @@ pub fn from_common_ini_template(
     dest.accel_pitch_limit = parse_angle_real(src.accel_pitch_limit);
     dest.decel_pitch_limit = parse_angle_real(src.decel_pitch_limit);
     dest.bounce_kick = parse_angular_velocity_real(src.bounce_kick);
-    dest.pitch_stiffness = if src.pitch_stiffness == 0.0 {
-        dest.pitch_stiffness
-    } else {
-        src.pitch_stiffness
-    };
-    dest.roll_stiffness = if src.roll_stiffness == 0.0 {
-        dest.roll_stiffness
-    } else {
-        src.roll_stiffness
-    };
-    dest.pitch_damping = if src.pitch_damping == 0.0 {
-        dest.pitch_damping
-    } else {
-        src.pitch_damping
-    };
-    dest.roll_damping = if src.roll_damping == 0.0 {
-        dest.roll_damping
-    } else {
-        src.roll_damping
-    };
+    dest.pitch_stiffness = src.pitch_stiffness;
+    dest.roll_stiffness = src.roll_stiffness;
+    dest.pitch_damping = src.pitch_damping;
+    dest.roll_damping = src.roll_damping;
     dest.pitch_by_z_vel_coef = src.pitch_by_z_vel_coef;
     dest.thrust_roll = src.thrust_roll;
     dest.wobble_rate = src.wobble_rate;
@@ -144,11 +128,7 @@ pub fn from_common_ini_template(
     dest.lateral_vel_coef = src.lateral_vel_coef;
     dest.forward_accel_coef = src.forward_accel_coef;
     dest.lateral_accel_coef = src.lateral_accel_coef;
-    dest.uniform_axial_damping = if src.uniform_axial_damping == 0.0 {
-        dest.uniform_axial_damping
-    } else {
-        src.uniform_axial_damping
-    };
+    dest.uniform_axial_damping = src.uniform_axial_damping;
     dest.turn_pivot_offset = src.turn_pivot_offset;
     dest.airborne_targeting_height = src.airborne_targeting_height;
     dest.close_enough_dist = src.close_enough_dist;

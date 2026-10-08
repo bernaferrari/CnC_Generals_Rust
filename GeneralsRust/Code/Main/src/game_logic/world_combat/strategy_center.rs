@@ -4,156 +4,115 @@
 use super::super::*;
 
 impl GameLogic {
-    /// Residual Strategy Center Bombardment turret fire (StrategyCenterGun).
-    ///
-    /// C++ BattlePlanUpdate::enableTurret(true) residual path:
-    /// PrimaryDamage **200** / radius **25**, range **400**, min **100**,
-    /// Delay **7000**ms (210 frames). Fail-closed: not full turret recenter /
-    /// ScatterRadius / projectile lob matrix.
+    /// Live gates shared by Strategy mood acquisition and its residual FIRE.
+    /// Keep the existing faction-based plan lookup separate from exact-owner pause.
+    pub(in super::super) fn strategy_center_bombardment_turret_active(
+        &self,
+        center_id: ObjectId,
+    ) -> bool {
+        use crate::game_logic::host_strategy_center::{
+            HostBattlePlan, HostBattlePlanTransition, is_strategy_center_template,
+        };
+        let Some(center) = self.objects.get(&center_id) else {
+            return false;
+        };
+        let strategy = is_strategy_center_template(&center.template_name)
+            || center.is_kind_of(KindOf::FSStrategyCenter);
+        let player = self.player_id_for_team(center.team).unwrap_or(0);
+        strategy
+            && center.is_alive()
+            && center.is_constructed()
+            && center.can_attack()
+            && center.weapon.is_some()
+            && center.turret_enabled
+            && !self.skirmish_ai_auto_engage_paused(center_id)
+            && self.battle_plans.active_plan_for_player(player) == Some(HostBattlePlan::Bombardment)
+            && self
+                .battle_plans
+                .door_state_for_center(center_id)
+                .is_none_or(|door| {
+                    door.status == HostBattlePlanTransition::Active
+                        && door.door_plan == Some(HostBattlePlan::Bombardment)
+                        && !door.centering_turret
+                })
+    }
+
+    /// Residual StrategyCenterGun discharge, called only from its turret FIRE.
+    /// The existing residual damage/scatter/effects authority stays here; AIM
+    /// and target selection belong to the ordinary turret state update.
     pub(in super::super) fn try_strategy_center_bombardment_turret_fire(
         &mut self,
         center_id: ObjectId,
-    ) {
+    ) -> AttackFireResult {
         use crate::game_logic::host_strategy_center::{
             STRATEGY_CENTER_GUN_FIRE_AUDIO, STRATEGY_CENTER_GUN_PRIMARY_RADIUS,
             is_legal_strategy_center_gun_target, strategy_center_gun_damage_at,
             strategy_center_gun_in_range,
         };
+        use crate::game_logic::object::TurretSubState;
 
+        if !self.strategy_center_bombardment_turret_active(center_id) {
+            return AttackFireResult::Failure;
+        }
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
-
         let Some(attacker) = self.objects.get(&center_id) else {
-            return;
+            return AttackFireResult::Failure;
         };
-        if !attacker.is_alive()
-            || !attacker.is_constructed()
-            || attacker.weapon.is_none()
-            || !attacker.can_attack()
+        // FIRE must consume exactly the goal whose AIM succeeded. Never select
+        // a new nearest enemy here or use this PRIMARY residual for another slot.
+        let Some(target_id) = attacker.turret_target_id else {
+            return AttackFireResult::Failure;
+        };
+        if !attacker.turret_mood_target
+            || attacker.target != Some(target_id)
+            || attacker.turret_substate != TurretSubState::Fire
+            || attacker.selected_weapon_slot() != Some(0)
+            || !attacker.is_weapon_slot_on_turret(0)
         {
-            return;
+            return AttackFireResult::Failure;
         }
         let Some(weapon) = attacker.weapon.as_ref() else {
-            return;
+            return AttackFireResult::Failure;
         };
-        if !Object::weapon_ready(weapon, current_time) {
-            return;
+        // AIStates.cpp:5189-5197: PRE_ATTACK waits in FIRE; other not-ready
+        // states fail back to AIM. Read the existing live weapon state only.
+        if attacker.pre_attack_target == Some(target_id)
+            && attacker.pre_attack_ready_at > current_time + 1e-6
+        {
+            return AttackFireResult::Continue;
         }
-
+        if !Object::weapon_ready(weapon, current_time) {
+            return AttackFireResult::Failure;
+        }
         let team = attacker.team;
         let fire_pos = attacker.get_position();
-        let range = weapon.range;
-        let min_range = weapon.min_range;
-        // Ownership: while mood flag is set and mood target is still legal/in-range,
-        // prefer that engagee over a full nearest-enemy re-scan (keeps flag vs target
-        // in sync). Otherwise fire path owns acquisition and clears mood flag below.
-        let mood_prefer = if attacker.turret_mood_target {
-            attacker.target
-        } else {
-            None
+        let Some(victim) = self.objects.get(&target_id) else {
+            return AttackFireResult::Failure;
         };
-
-        // Mood-prefer residual: keep engagee when still legal/in-range.
-        let mut best: Option<(ObjectId, f32, bool)> = None;
-        if let Some(mid) = mood_prefer {
-            if let Some(obj) = self.objects.get(&mid) {
-                let combat_kind = crate::game_logic::host_residual_acquire::residual_combat_kind(
-                    obj.is_kind_of(KindOf::Attackable),
-                    obj.is_kind_of(KindOf::Structure),
-                    obj.is_kind_of(KindOf::Infantry),
-                    obj.is_kind_of(KindOf::Vehicle),
-                    obj.is_kind_of(KindOf::Aircraft),
-                );
-                let is_air = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
-                let dist = fire_pos.distance(obj.get_position());
-                if is_legal_strategy_center_gun_target(
-                    obj.is_alive(),
-                    obj.team == team,
-                    obj.team == Team::Neutral,
-                    obj.status.under_construction,
-                    combat_kind,
-                    is_air,
-                ) && !(obj.is_effectively_stealthed() && obj.team != team)
-                    && !(obj.is_eject_invulnerable() && obj.team != team)
-                    && strategy_center_gun_in_range(dist)
-                    && dist >= min_range
-                    && dist <= range
-                {
-                    best = Some((mid, dist, is_air));
-                }
-            }
-        }
-        if best.is_none() {
-            // Pure residual acquire query (fire decision choice phase).
-            let candidates: Vec<_> = self
-                .objects
-                .iter()
-                .map(|(&id, obj)| {
-                    let combat_kind =
-                        crate::game_logic::host_residual_acquire::residual_combat_kind(
-                            obj.is_kind_of(KindOf::Attackable),
-                            obj.is_kind_of(KindOf::Structure),
-                            obj.is_kind_of(KindOf::Infantry),
-                            obj.is_kind_of(KindOf::Vehicle),
-                            obj.is_kind_of(KindOf::Aircraft),
-                        );
-                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
-                        id,
-                        team: obj.team,
-                        position: obj.get_position(),
-                        is_alive: obj.is_alive(),
-                        is_neutral: obj.team == Team::Neutral,
-                        under_construction: obj.status.under_construction,
-                        combat_kind,
-                        effectively_stealthed: obj.is_effectively_stealthed(),
-                        is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
-                        eject_invulnerable: obj.is_eject_invulnerable(),
-                    }
-                })
-                .collect();
-            best = crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
-                center_id,
-                team,
-                fire_pos,
-                candidates,
-                |_| range,
-                |c| {
-                    let dist = fire_pos.distance(c.position);
-                    is_legal_strategy_center_gun_target(
-                        c.is_alive,
-                        c.team == team,
-                        c.is_neutral,
-                        c.under_construction,
-                        c.combat_kind,
-                        c.is_air,
-                    ) && !(c.eject_invulnerable && c.team != team)
-                        && strategy_center_gun_in_range(dist)
-                        && dist >= min_range
-                },
-            )
-            .map(|(id, dist, air)| (id, dist, air));
-        }
-
-        let Some((target_id, _, _)) = best else {
-            return;
-        };
-
-        // C++ TurretAIAimTurretState: FIRE only after yaw+pitch align.
-        // InitiallyDisabled Strategy Center cannot fire until Bombardment
-        // enableTurret(true).
-        if self
-            .objects
-            .get(&center_id)
-            .map(|o| !o.turret_enabled)
-            .unwrap_or(true)
+        let combat_kind = crate::game_logic::host_residual_acquire::residual_combat_kind(
+            victim.is_kind_of(KindOf::Attackable),
+            victim.is_kind_of(KindOf::Structure),
+            victim.is_kind_of(KindOf::Infantry),
+            victim.is_kind_of(KindOf::Vehicle),
+            victim.is_kind_of(KindOf::Aircraft),
+        );
+        let is_air = victim.is_kind_of(KindOf::Aircraft) || victim.status.airborne_target;
+        let distance = fire_pos.distance(victim.get_position());
+        if !is_legal_strategy_center_gun_target(
+            victim.is_alive(),
+            victim.team == team,
+            victim.team == Team::Neutral,
+            victim.status.under_construction,
+            combat_kind,
+            is_air,
+        ) || (victim.is_effectively_stealthed() && victim.team != team)
+            || (victim.is_eject_invulnerable() && victim.team != team)
+            || !strategy_center_gun_in_range(distance)
+            || distance < weapon.min_range
+            || distance > weapon.range
+            || !attacker.is_within_attack_range_for_slot(0, victim)
         {
-            return;
-        }
-        self.set_turret_target_object(center_id, Some(target_id), false);
-        if !matches!(
-            self.tick_turret_aim(center_id, 1.0),
-            AttackAimResult::Success
-        ) {
-            return;
+            return AttackFireResult::Failure;
         }
 
         let impact = self
@@ -379,6 +338,7 @@ impl GameLogic {
                 .with_position(muzzle_pos)
                 .with_priority(165),
         );
+        AttackFireResult::Success
     }
 
     /// Residual base-defense auto-fire: Patriot / Gattling / FSBaseDefense
@@ -1198,7 +1158,10 @@ impl GameLogic {
                         clip.victim_id,
                     );
                     if entered_attack {
-                        crate::game_logic::host_ai_decision_log::record_set_state(clip.assistant_id, 2);
+                        crate::game_logic::host_ai_decision_log::record_set_state(
+                            clip.assistant_id,
+                            2,
+                        );
                     }
                 }
                 // Kill XP awarded after this borrow via award_experience.

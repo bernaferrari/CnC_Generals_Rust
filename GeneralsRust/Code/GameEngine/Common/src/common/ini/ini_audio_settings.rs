@@ -858,12 +858,34 @@ mod tests {
     }
 
     #[test]
-    fn retail_audio_settings_keep_quoted_speaker_names() {
-        let src = include_str!(
-            "../../../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/AudioSettings.ini"
-        );
-        let mut ini = crate::common::ini::ini::INI::new();
+    fn audio_settings_parse_quoted_speakers_and_signed_percentages() {
+        init_global_audio_settings();
+        let src = "AudioSettings\nDefault2DSpeakerType = \"2 Speakers\"\nDefault3DSpeakerType = \"5.1 Surround\"\nDefaultSoundVolume = 65%\nRelative2DVolume = -25%\nEnd\n";
+        let mut ini = INI::new();
         ini.with_inline_source(src, |ini| ini.parse_current_file())
+            .expect("synthetic AudioSettings block");
+        let settings = get_audio_settings_read().expect("audio settings");
+        assert_eq!(
+            settings.default_speaker_type_2d,
+            SpeakerType::TwoSpeakers.to_u32()
+        );
+        assert_eq!(
+            settings.default_speaker_type_3d,
+            SpeakerType::FivePointOne.to_u32()
+        );
+        assert!((settings.default_sound_volume - 0.65).abs() < 0.001);
+        assert!((settings.relative_2d_volume - (-0.25)).abs() < 0.001);
+    }
+
+    #[test]
+    #[ignore = "requires locally supplied retail INIZH/Data/INI/AudioSettings.ini"]
+    fn retail_audio_settings_keep_quoted_speaker_names() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/AudioSettings.ini");
+        let src = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("read retail {}: {error}", path.display()));
+        let mut ini = crate::common::ini::ini::INI::new();
+        ini.with_inline_source(&src, |ini| ini.parse_current_file())
             .expect("retail AudioSettings.ini");
         let settings = get_audio_settings_read().expect("audio settings");
         assert_eq!(

@@ -1,6 +1,10 @@
 //! Real-file hostility continuation. Source finishes before restored construction.
 //! Serial ordering does not establish isolation of the existing global save slots.
+use game_client::effects::particle_manager::{
+    ParticleSystemManager, get_particle_system_manager_mut,
+};
 use gamelogic::common::Relationship;
+use gamelogic::weapon::{with_weapon_store, with_weapon_store_mut};
 use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
 use generals_main::game_logic::{
     AbleToAttackType, CanAttackResult, GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate,
@@ -9,13 +13,47 @@ use generals_main::game_logic::{
 use generals_main::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
 use glam::Vec3;
 use serde_json::{Value, json};
+use std::sync::Once;
 use std::time::{Duration, UNIX_EPOCH};
 use tempfile::TempDir;
 
 const ATTACKER: &str = "AllianceSaveAttacker";
 const TARGET: &str = "AllianceSaveTarget";
 
+fn admit_catalogs() {
+    assert!(generals_main::assets::get_asset_manager().is_none());
+    assert!(
+        game_engine::common::thing::thing_factory::try_get_thing_factory()
+            .unwrap()
+            .is_none()
+    );
+    static WEAPON_ADMISSION: Once = Once::new();
+    WEAPON_ADMISSION.call_once(|| {
+        gamelogic::initialize_weapon_store().unwrap();
+        with_weapon_store_mut(|store| {
+            assert_eq!(store.get_template_count(), 0);
+            // Every fixture weapon is inline and unnamed. Finish this exact
+            // empty catalog before pitch queries, without disk discovery.
+            store.mark_host_bootstrap_complete();
+        })
+        .unwrap();
+    });
+    with_weapon_store(|store| {
+        assert!(store.host_bootstrap_is_complete());
+        assert_eq!(store.get_template_count(), 0);
+    })
+    .unwrap();
+    // Preload the source-defined combat presets for writer and fresh supplied-
+    // file readers alike. Preserve any active systems from earlier operations.
+    let mut guard = get_particle_system_manager_mut().unwrap();
+    let manager = guard.get_or_insert_with(ParticleSystemManager::new);
+    for name in ["MuzzleFlash", "BulletImpact"] {
+        assert!(manager.ensure_preset_template(name).is_some());
+    }
+}
+
 fn world() -> GameLogic {
+    admit_catalogs();
     let mut world = GameLogic::new();
     let mut attacker = ThingTemplate::new(ATTACKER);
     attacker
@@ -40,6 +78,14 @@ fn world() -> GameLogic {
         .set_primary_weapon_none();
     world.templates.insert(ATTACKER.into(), attacker);
     world.templates.insert(TARGET.into(), target);
+    for template in world.templates.values() {
+        assert!(template.primary_weapon_name.is_none());
+        assert!(
+            template.secondary_weapon_name.is_none() && template.tertiary_weapon_name.is_none()
+        );
+        assert!(template.locomotor_name.is_none() && template.locomotor_set_names.is_empty());
+        assert!(template.authored_locomotor_sets.is_none() && template.armor_sets.is_empty());
+    }
     world
 }
 
@@ -94,6 +140,94 @@ fn continuation(world: &mut GameLogic, attacker: ObjectId, target: ObjectId) -> 
             "damage_type":format!("{:?}",t.last_damage_info_type)}));
     }
     trace
+}
+
+// Retain controller/pause observations beside the saved-input/full-trace
+// comparison; the AI-roster suite separately asserts exact registration.
+fn pause_observation(world: &GameLogic, attacker: ObjectId, target: ObjectId) -> Value {
+    let a = world.host_object(attacker).unwrap();
+    let t = world.host_object(target).unwrap();
+    let players: Vec<_> = [0, 1]
+        .into_iter()
+        .map(|id| {
+            let p = world.get_player(id).unwrap();
+            json!({"id":id,"faction":format!("{:?}",p.team),"local":p.is_local,
+            "alive":p.is_alive,"ai_active":world.is_host_ai_active(id)})
+        })
+        .collect();
+    json!({"frame":world.get_frame(),"owners":[a.owner_player_id,t.owner_player_id],
+        "factions":[format!("{:?}",a.team),format!("{:?}",t.team)],
+        "team_instances":[a.team_instance_name,t.team_instance_name],"players":players,
+        "ai_count":world.host_ai_player_count(),"paused":world.skirmish_ai_auto_engage_paused(attacker),
+        "target":format!("{:?}",a.target),"ai":format!("{:?}",a.ai_state),
+        "attack_substate":format!("{:?}",a.attack_substate),
+        "sequence":a.weapon_discharge_marker().sequence,"target_health":t.health.current})
+}
+
+#[test]
+fn same_faction_command_phase_preserves_human_attack() {
+    let mut source = world();
+    for id in 0..2 {
+        let mut p = Player::new(id, Team::USA, "same_faction", id == 0);
+        p.alliance_team = [31, 45][id as usize];
+        source.add_player(p);
+    }
+    let attacker = source
+        .create_object_for_player(ATTACKER, 0, Vec3::ZERO)
+        .unwrap();
+    let target = source
+        .create_object_for_player(TARGET, 1, Vec3::new(10.0, 0.0, 0.0))
+        .unwrap();
+    let directory = TempDir::new().unwrap();
+    let mut manager = SaveFileManager::with_save_directory(directory.path());
+    manager.init().unwrap();
+    manager.save_game("phase", &source, &info()).unwrap();
+    let mut traces = Vec::new();
+    for label in ["source", "restored"] {
+        if label == "restored" {
+            drop(source);
+            source = world();
+            manager.load_game("phase", &mut source).unwrap();
+        }
+        println!(
+            "phase {label} before={}",
+            pause_observation(&source, attacker, target)
+        );
+        source.queue_command(GameCommand {
+            command_type: CommandType::AttackObject { target_id: target },
+            player_id: 0,
+            command_id: 1,
+            timestamp: UNIX_EPOCH + Duration::from_secs(1),
+            selected_units: vec![attacker],
+            modifier_keys: ModifierKeys::default(),
+        });
+        source.process_commands();
+        println!(
+            "phase {label} admitted={}",
+            pause_observation(&source, attacker, target)
+        );
+        assert_eq!(source.host_object(attacker).unwrap().target, Some(target));
+        assert_eq!(
+            source.host_object(attacker).unwrap().ai_state,
+            generals_main::game_logic::AIState::Attacking
+        );
+        let mut trace = Vec::new();
+        for _ in 0..2 {
+            source.update();
+            let observation = pause_observation(&source, attacker, target);
+            println!("phase {label} tick={observation}");
+            let a = source.host_object(attacker).unwrap();
+            trace.push(json!({"target":format!("{:?}",a.target),"ai":format!("{:?}",a.ai_state),
+                "sequence":a.weapon_discharge_marker().sequence,"health":source.host_object(target).unwrap().health.current}));
+        }
+        traces.push(trace);
+    }
+    assert_eq!(
+        traces[0], traces[1],
+        "ordinary commands must continue identically after admission"
+    );
+    assert_eq!(traces[0][1]["sequence"], json!(1));
+    assert_eq!(traces[0][1]["health"], json!(215.0));
 }
 
 fn info() -> SaveGameInfo {
@@ -355,7 +489,6 @@ fn exact_alliance_authorship_and_relationship_precedence_survive() {
 }
 
 #[test]
-#[ignore = "Known separate gap: same-faction untouched continuation is Idle/0/240 but restored is Attacking/1/215; canonical input preservation only is in scope"]
 fn same_faction_real_file_continuation_known_gap() {
     run_authority_cases(true, Some("same_faction"));
 }
@@ -467,6 +600,12 @@ fn run_authority_cases(continue_same_faction: bool, selected: Option<&str>) {
             .create_object_for_player(TARGET, 1, Vec3::new(10.0, 0.0, 0.0))
             .unwrap();
         let before = checkpoint(&source, attacker, target);
+        if same_faction {
+            println!(
+                "authority {label} pause_before={}",
+                pause_observation(&source, attacker, target)
+            );
+        }
         assert_eq!(
             [
                 source.player_relationship(0, 1),
@@ -505,15 +644,27 @@ fn run_authority_cases(continue_same_faction: bool, selected: Option<&str>) {
             .map(|row| row["sequence"].as_u64().unwrap())
             .unwrap_or(0);
         println!("authority {label} untouched={}", json!(expected_trace));
-        // The same-faction source was observed not to discharge. Preserve its
-        // full comparison here without claiming the positive combat witness.
-        if !same_faction && !inactive && (shots > 0) != (expected[0] == Enemies) {
+        if compare_trace && !inactive && (shots > 0) != (expected[0] == Enemies) {
             mismatches.push(format!("{label}: untouched discharge eligibility"));
+        }
+        if same_faction && compare_trace {
+            if expected_trace[1]["sequence"] != json!(1)
+                || expected_trace[1]["health"] != json!(215.0)
+                || expected_trace[1]["marker_frame"] != json!(1)
+            {
+                mismatches.push(format!("{label}: human continuation must discharge exactly 25 damage at processed frame 1"));
+            }
         }
         drop(source);
         let mut restored = world();
         manager.load_game(label, &mut restored).unwrap();
         let after = checkpoint(&restored, attacker, target);
+        if same_faction {
+            println!(
+                "authority {label} pause_loaded={}",
+                pause_observation(&restored, attacker, target)
+            );
+        }
         assert_eq!(restored.get_player(1).unwrap().is_alive, !inactive);
         assert_eq!(restored.player_relationship(0, 0), Allies);
         assert_eq!(restored.player_relationship(0, 99), Neutral);
@@ -600,6 +751,11 @@ fn historical_players_rows_keep_their_own_layout_and_defaults() {
             replace_chunk(original, "CHUNK_Players", Some(&payload)),
         )
         .unwrap();
+        // The original fixture is genuine outer v23; only the sibling Players
+        // layout varies here. Its explicit empty AI vector remains authoritative.
+        let (snapshot, _) = manager.load_game_snapshot("legacy").unwrap();
+        assert_eq!(snapshot.version, 23);
+        assert!(snapshot.ai_players.is_empty());
         let mut decoded = world();
         for id in 0..2 {
             decoded.add_player(Player::new(id, Team::USA, "Codec", true));
@@ -633,9 +789,10 @@ fn historical_players_rows_keep_their_own_layout_and_defaults() {
             );
             assert_eq!(p.map_side.relations.len(), 1);
             assert_eq!(p.map_relationship(1 - id), Some(Relationship::Enemies));
-            // restore_ai_players sets up the saved non-human skirmish player
-            // through AIManager::apply_skirmish_can_build_units after chunk apply.
-            assert_eq!(p.can_build_units, id == 1);
+            // C++ Player::xfer transfers canBuildUnits directly (Player.cpp:4293).
+            // An explicitly empty AI roster must not overwrite the saved false
+            // value with a constructor effect merely because a slot is nonlocal.
+            assert!(!p.can_build_units);
             assert!(p.can_build_base && !p.is_observer && p.is_alive && p.radar_disabled);
             assert_eq!(p.skill_points_modifier, 1.5 + id as f32);
             assert_eq!(p.radar_count, 21 + id as i32);

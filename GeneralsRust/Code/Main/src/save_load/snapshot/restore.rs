@@ -1049,16 +1049,14 @@ impl SnapshotBuilder {
     }
 
     /// Restore the serialized host skirmish-AI rows after players/objects are
-    /// available.  Empty rows are an older-save compatibility case: retain the
-    /// existing global-AI fallback instead of manufacturing per-player state.
+    /// available. Accepted v23/v24 rows are authoritative even when empty;
+    /// replacement also removes stale controllers from a populated receiver.
     pub(super) fn restore_ai_players(
         &self,
         ai_players_snapshot: &[AIPlayerSnapshot],
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-        if !ai_players_snapshot.is_empty() {
-            game_logic.restore_host_ai_players_from_save(ai_players_snapshot);
-        }
+        game_logic.restore_host_ai_players_from_save(ai_players_snapshot);
         Ok(())
     }
 
@@ -1201,7 +1199,6 @@ impl SnapshotBuilder {
         snapshot: &WorldSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-
         let mut seen = HashSet::new();
         for entry in &snapshot.object_instance_guards {
             if !seen.insert(entry.object_id) {
@@ -1210,7 +1207,7 @@ impl SnapshotBuilder {
                     entry.object_id
                 )));
             }
-            let Some(object) = game_logic.host_object_mut(entry.object_id) else {
+            let Some(object) = game_logic.host_objects_mut().get_mut(&entry.object_id) else {
                 log::warn!(
                     "ObjectInstanceGuard snapshot references missing object {}",
                     entry.object_id
@@ -1231,7 +1228,7 @@ impl SnapshotBuilder {
     pub(super) fn sync_all_garrisoned_units_from_occupants(&self, game_logic: &mut GameLogic) {
         let ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
         for id in ids {
-            if let Some(object) = game_logic.host_object_mut(id) {
+            if let Some(object) = game_logic.host_objects_mut().get_mut(&id) {
                 Self::rebuild_garrisoned_units_from_occupants(object);
             }
         }

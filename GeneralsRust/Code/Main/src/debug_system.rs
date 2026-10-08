@@ -129,9 +129,9 @@ impl PerformanceTimer {
 /// mutable bookkeeping stays behind short critical sections.
 pub struct DebugSystem {
     config: DebugConfig,
-    stats: Arc<Mutex<DebugStats>>,
-    log_writer: Option<Arc<Mutex<BufWriter<File>>>>,
-    performance_timers: Arc<Mutex<std::collections::HashMap<String, PerformanceTimer>>>,
+    stats: Mutex<DebugStats>,
+    log_writer: Option<Mutex<BufWriter<File>>>,
+    performance_timers: Mutex<std::collections::HashMap<String, PerformanceTimer>>,
 }
 
 impl DebugSystem {
@@ -139,9 +139,9 @@ impl DebugSystem {
     pub fn new(config: DebugConfig) -> Result<Self> {
         let mut system = Self {
             config: config.clone(),
-            stats: Arc::new(Mutex::new(DebugStats::default())),
+            stats: Mutex::new(DebugStats::default()),
             log_writer: None,
-            performance_timers: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            performance_timers: Mutex::new(std::collections::HashMap::new()),
         };
 
         // Initialize log file if enabled
@@ -179,7 +179,7 @@ impl DebugSystem {
             .context("Failed to open log file")?;
 
         let writer = BufWriter::new(file);
-        self.log_writer = Some(Arc::new(Mutex::new(writer)));
+        self.log_writer = Some(Mutex::new(writer));
 
         Ok(())
     }

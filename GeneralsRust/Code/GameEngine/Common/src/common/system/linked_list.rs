@@ -34,6 +34,8 @@ pub struct LListNode<T> {
     next: Option<NonNull<LListNode<T>>>,
     /// Previous node in the list
     prev: Option<NonNull<LListNode<T>>>,
+    /// Removed nodes navigate to themselves without storing a movable self pointer.
+    detached_self_loop: bool,
     /// Whether this node should auto-delete when removed
     auto_delete: bool,
     /// Whether this node is the list head/sentinel
@@ -48,6 +50,7 @@ impl<T> LListNode<T> {
             priority: 0,
             next: None,
             prev: None,
+            detached_self_loop: false,
             auto_delete: false,
             is_head: false,
         }
@@ -60,6 +63,7 @@ impl<T> LListNode<T> {
             priority: 0,
             next: None,
             prev: None,
+            detached_self_loop: false,
             auto_delete: false,
             is_head: false,
         }
@@ -72,6 +76,7 @@ impl<T> LListNode<T> {
             priority,
             next: None,
             prev: None,
+            detached_self_loop: false,
             auto_delete: false,
             is_head: false,
         }
@@ -128,57 +133,116 @@ impl<T> LListNode<T> {
 
     /// Remove this node from the list it is in
     pub fn remove(&mut self) {
-        let self_ptr = NonNull::from(&mut *self);
         if let (Some(prev), Some(next)) = (self.prev, self.next) {
-            // SAFETY: prev/next are this node's live neighbors in one list;
-            // unlinking rewires only their link fields, both dereferenceable.
-            unsafe {
-                (*prev.as_ptr()).next = Some(next);
-                (*next.as_ptr()).prev = Some(prev);
+            let self_ptr = NonNull::from(&mut *self);
+            // A singleton's old self links may have been invalidated by this
+            // exclusive receiver reborrow. Compare addresses, never dereference
+            // those links; there are no other nodes to reconnect.
+            if prev != self_ptr || next != self_ptr {
+                // SAFETY: non-self neighbors are live and exclusively mutable
+                // under the owning-list invariant or the raw insertion contract.
+                unsafe {
+                    (*prev.as_ptr()).next = Some(next);
+                    (*next.as_ptr()).prev = Some(prev);
+                }
             }
         }
-        self.prev = Some(self_ptr);
-        self.next = Some(self_ptr);
+        self.prev = None;
+        self.next = None;
+        self.detached_self_loop = true;
     }
 
     /// Insert a node before this node
     ///
     /// # Safety
-    /// Caller must ensure both nodes are valid and belong to the same list context.
-    // SAFETY: contract above — both endpoints are valid same-list nodes, so
-    // the four link-field writes keep the chain consistent.
+    /// `self` must be freshly unlinked (a no-op), removed, or part of a live
+    /// chain at stable addresses with valid reciprocal links. A removed anchor
+    /// forms a two-node ring with `new_node`. `new_node` must be distinct from
+    /// `self` and its neighbors, and must be an unlinked node at
+    /// a stable address. The caller must have exclusive mutation access to all
+    /// affected nodes: no outstanding references may alias the changed fields.
+    /// When joining an owning `LList`, `new_node` must transfer unique ownership
+    /// from a compatible `Box::into_raw` allocation; it must not be reclaimed
+    /// elsewhere. Externally formed chains must keep every reachable node alive
+    /// and unmoved for all references returned by safe navigation, and prevent
+    /// mutation or reclamation while those shared references remain in use.
+    /// All stored pointers must retain valid provenance for later navigation
+    /// and mutation. Exclusive reborrows outside these link operations must not
+    /// invalidate reachable back-pointers, even if allocations remain alive.
+    /// These lifetime, provenance and aliasing guarantees continue after return.
+    // SAFETY: the caller maintains stable, reciprocal links and exclusive
+    // mutation access, including the transferred node's allocation ownership.
     pub unsafe fn insert_raw(&mut self, new_node: NonNull<LListNode<T>>) {
         let self_ptr = NonNull::from(&mut *self);
-        let prev_ptr = match self.prev {
+        let prev_ptr = match (*self_ptr.as_ptr()).prev {
+            Some(prev) if prev == self_ptr => self_ptr,
             Some(prev) => prev,
+            None if (*self_ptr.as_ptr()).detached_self_loop => self_ptr,
             None => return,
         };
+        // Refresh the opposite neighbor's back-pointer after the exclusive
+        // receiver reborrow; keep all writes in this raw pointer's lineage.
+        let next_ptr = match (*self_ptr.as_ptr()).next {
+            Some(next) if next != self_ptr => next,
+            _ => self_ptr,
+        };
+        (*next_ptr.as_ptr()).prev = Some(self_ptr);
+        (*self_ptr.as_ptr()).detached_self_loop = false;
+        (*new_node.as_ptr()).detached_self_loop = false;
         (*new_node.as_ptr()).prev = Some(prev_ptr);
         (*new_node.as_ptr()).next = Some(self_ptr);
         (*prev_ptr.as_ptr()).next = Some(new_node);
-        self.prev = Some(new_node);
+        (*self_ptr.as_ptr()).prev = Some(new_node);
     }
 
     /// Append a node after this node
     ///
     /// # Safety
-    /// Caller must ensure both nodes are valid and belong to the same list context.
-    // SAFETY: contract above — both endpoints are valid same-list nodes, so
-    // the four link-field writes keep the chain consistent.
+    /// `self` must be freshly unlinked (a no-op), removed, or part of a live
+    /// chain at stable addresses with valid reciprocal links. A removed anchor
+    /// forms a two-node ring with `new_node`. `new_node` must be distinct from
+    /// `self` and its neighbors, and must be an unlinked node at
+    /// a stable address. The caller must have exclusive mutation access to all
+    /// affected nodes: no outstanding references may alias the changed fields.
+    /// When joining an owning `LList`, `new_node` must transfer unique ownership
+    /// from a compatible `Box::into_raw` allocation; it must not be reclaimed
+    /// elsewhere. Externally formed chains must keep every reachable node alive
+    /// and unmoved for all references returned by safe navigation, and prevent
+    /// mutation or reclamation while those shared references remain in use.
+    /// All stored pointers must retain valid provenance for later navigation
+    /// and mutation. Exclusive reborrows outside these link operations must not
+    /// invalidate reachable back-pointers, even if allocations remain alive.
+    /// These lifetime, provenance and aliasing guarantees continue after return.
+    // SAFETY: the caller maintains stable, reciprocal links and exclusive
+    // mutation access, including the transferred node's allocation ownership.
     pub unsafe fn append_raw(&mut self, new_node: NonNull<LListNode<T>>) {
         let self_ptr = NonNull::from(&mut *self);
-        let next_ptr = match self.next {
+        let next_ptr = match (*self_ptr.as_ptr()).next {
+            Some(next) if next == self_ptr => self_ptr,
             Some(next) => next,
+            None if (*self_ptr.as_ptr()).detached_self_loop => self_ptr,
             None => return,
         };
+        // Refresh the opposite neighbor's back-pointer after the exclusive
+        // receiver reborrow; keep all writes in this raw pointer's lineage.
+        let prev_ptr = match (*self_ptr.as_ptr()).prev {
+            Some(prev) if prev != self_ptr => prev,
+            _ => self_ptr,
+        };
+        (*prev_ptr.as_ptr()).next = Some(self_ptr);
+        (*self_ptr.as_ptr()).detached_self_loop = false;
+        (*new_node.as_ptr()).detached_self_loop = false;
         (*new_node.as_ptr()).prev = Some(self_ptr);
         (*new_node.as_ptr()).next = Some(next_ptr);
         (*next_ptr.as_ptr()).prev = Some(new_node);
-        self.next = Some(new_node);
+        (*self_ptr.as_ptr()).next = Some(new_node);
     }
 
     /// Get the next node in the list, skipping the head node
     pub fn next_node(&self) -> Option<&LListNode<T>> {
+        if self.detached_self_loop {
+            return Some(self);
+        }
         let next = self.next?;
         // SAFETY: next is a live neighbor; reading is_head and reborrowing
         // through &self keeps aliasing shared-only.
@@ -193,6 +257,9 @@ impl<T> LListNode<T> {
 
     /// Get the previous node in the list, skipping the head node
     pub fn prev_node(&self) -> Option<&LListNode<T>> {
+        if self.detached_self_loop {
+            return Some(self);
+        }
         let prev = self.prev?;
         // SAFETY: prev is a live neighbor; reading is_head and reborrowing
         // through &self keeps aliasing shared-only.
@@ -207,6 +274,9 @@ impl<T> LListNode<T> {
 
     /// Get the next node, wrapping around the head when needed
     pub fn loop_next(&self) -> Option<&LListNode<T>> {
+        if self.detached_self_loop {
+            return Some(self);
+        }
         let mut next = self.next?;
         // SAFETY: walk touches only live nodes reachable from this node via
         // links validated by list construction (circular with sentinel).
@@ -224,6 +294,9 @@ impl<T> LListNode<T> {
 
     /// Get the previous node, wrapping around the head when needed
     pub fn loop_prev(&self) -> Option<&LListNode<T>> {
+        if self.detached_self_loop {
+            return Some(self);
+        }
         let mut prev = self.prev?;
         // SAFETY: walk touches only live nodes reachable from this node via
         // links validated by list construction (circular with sentinel).
@@ -251,8 +324,14 @@ impl<T: fmt::Debug> fmt::Debug for LListNode<T> {
         f.debug_struct("LListNode")
             .field("item", &self.item)
             .field("priority", &self.priority)
-            .field("has_next", &self.next.is_some())
-            .field("has_prev", &self.prev.is_some())
+            .field(
+                "has_next",
+                &(self.detached_self_loop || self.next.is_some()),
+            )
+            .field(
+                "has_prev",
+                &(self.detached_self_loop || self.prev.is_some()),
+            )
             .field("auto_delete", &self.auto_delete)
             .finish()
     }
@@ -305,6 +384,7 @@ impl<T> LList<T> {
             let first_ptr = (*head_ptr).next.unwrap().as_ptr();
 
             // Insert after head (at beginning of actual list)
+            (*node_ptr.as_ptr()).detached_self_loop = false;
             (*node_ptr.as_ptr()).next = (*head_ptr).next;
             (*node_ptr.as_ptr()).prev = Some(self.head);
             (*head_ptr).next = Some(node_ptr);
@@ -323,6 +403,7 @@ impl<T> LList<T> {
             let last_ptr = (*head_ptr).prev.unwrap().as_ptr();
 
             // Insert before head (at end of actual list)
+            (*node_ptr.as_ptr()).detached_self_loop = false;
             (*node_ptr.as_ptr()).next = Some(self.head);
             (*node_ptr.as_ptr()).prev = (*head_ptr).prev;
             (*head_ptr).prev = Some(node_ptr);
@@ -403,6 +484,7 @@ impl<T> LList<T> {
             let after_ptr = after.as_ptr();
             let next_ptr = (*after_ptr).next.unwrap().as_ptr();
 
+            (*node_ptr.as_ptr()).detached_self_loop = false;
             (*node_ptr.as_ptr()).next = (*after_ptr).next;
             (*node_ptr.as_ptr()).prev = Some(after);
             (*after_ptr).next = Some(node_ptr);
@@ -420,6 +502,7 @@ impl<T> LList<T> {
             let before_ptr = before.as_ptr();
             let prev_ptr = (*before_ptr).prev.unwrap().as_ptr();
 
+            (*node_ptr.as_ptr()).detached_self_loop = false;
             (*node_ptr.as_ptr()).next = Some(before);
             (*node_ptr.as_ptr()).prev = (*before_ptr).prev;
             (*before_ptr).prev = Some(node_ptr);
@@ -506,8 +589,9 @@ impl<T> LList<T> {
 
     /// Clear all nodes from the list
     pub fn clear(&mut self) {
-        while let Some(_) = self.remove_first() {
-            // Nodes are automatically dropped
+        while !self.is_empty() {
+            // An itemless node still owns an allocation and may have successors.
+            drop(self.remove_first());
         }
     }
 
@@ -690,17 +774,18 @@ impl<'a, T> Iterator for LListIter<'a, T> {
         // SAFETY: current nodes are list-owned and alive for 'a; advancing
         // follows the same links without dropping or mutating nodes.
         unsafe {
-            let current = self.current?;
-            let current_ptr = current.as_ptr();
+            while let Some(current) = self.current {
+                let current_ptr = current.as_ptr();
 
-            // Get the item from current node
-            let item = (*current_ptr).item.as_ref()?;
+                // Itemless nodes still have successors; advance before skipping them.
+                let next = (*current_ptr).next;
+                self.current = if next == Some(self.head) { None } else { next };
 
-            // Advance to next node
-            let next = (*current_ptr).next;
-            self.current = if next == Some(self.head) { None } else { next };
-
-            Some(item)
+                if let Some(item) = (*current_ptr).item.as_ref() {
+                    return Some(item);
+                }
+            }
+            None
         }
     }
 }
@@ -751,25 +836,22 @@ mod tests {
 
     #[test]
     fn test_sorted_insertion() {
-        let mut list = LList::new();
-        list.set_sort_mode(SortMode::Ascending);
-
-        list.add_item(3, 30);
-        list.add_item(1, 10);
-        list.add_item(2, 20);
-
-        let items: Vec<_> = list.iter().cloned().collect();
-        assert_eq!(items, vec![10, 20, 30]);
-
-        let mut desc_list = LList::new();
-        desc_list.set_sort_mode(SortMode::Descending);
-
-        desc_list.add_item(3, 30);
-        desc_list.add_item(1, 10);
-        desc_list.add_item(2, 20);
-
-        let items: Vec<_> = desc_list.iter().cloned().collect();
-        assert_eq!(items, vec![30, 20, 10]);
+        // List.cpp:83-118 is the ordering oracle, including equal priorities.
+        // Its constructor does not initialize the group flag; set it explicitly.
+        for (mode, end, expected) in [
+            (SortMode::Ascending, false, [30, 21, 20, 10]),
+            (SortMode::Ascending, true, [30, 20, 21, 10]),
+            (SortMode::Descending, false, [10, 21, 20, 30]),
+            (SortMode::Descending, true, [10, 20, 21, 30]),
+        ] {
+            let mut list = LList::new();
+            list.set_sort_mode(mode);
+            list.add_to_end_of_group(end);
+            for (priority, item) in [(3, 30), (1, 10), (2, 20), (2, 21)] {
+                list.add_item(priority, item);
+            }
+            assert_eq!(list.iter().copied().collect::<Vec<_>>(), expected);
+        }
     }
 
     #[test]
@@ -848,5 +930,178 @@ mod tests {
         // Test iterator is consumed properly
         let count = list.iter().count();
         assert_eq!(count, 5);
+    }
+}
+
+#[cfg(test)]
+mod safety_tests {
+    use super::*;
+    use std::{cell::Cell, rc::Rc};
+
+    #[test]
+    fn removed_node_survives_moves_and_reinsertion() {
+        let mut boxed = Box::new(LListNode::with_item(7));
+        assert!(boxed.next_node().is_none());
+        boxed.remove();
+        let mut moved = *boxed;
+        assert!(!moved.in_list());
+        assert!(std::ptr::eq(moved.next_node().unwrap(), &moved));
+        assert!(std::ptr::eq(moved.prev_node().unwrap(), &moved));
+        assert!(std::ptr::eq(moved.loop_next().unwrap(), &moved));
+        assert!(std::ptr::eq(moved.loop_prev().unwrap(), &moved));
+        moved.remove();
+        let mut list = LList::new();
+        list.add_to_tail(Box::new(moved));
+        assert!(list.first_node().unwrap().next_node().is_none());
+        assert_eq!(list.remove_first(), Some(7));
+        assert!(list.is_empty());
+    }
+
+    #[test]
+    fn clear_and_drop_consume_itemless_nodes() {
+        struct Count(Rc<Cell<usize>>);
+        impl Drop for Count {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+        for slots in [
+            [false, true, true],
+            [true, false, true],
+            [true, true, false],
+            [false, false, false],
+        ] {
+            for explicit in [false, true] {
+                let count = Rc::new(Cell::new(0));
+                let mut list = LList::new();
+                for has_item in slots {
+                    list.add_to_tail(Box::new(if has_item {
+                        LListNode::with_item(Count(count.clone()))
+                    } else {
+                        LListNode::new()
+                    }));
+                }
+                let expected = slots.iter().filter(|&&v| v).count();
+                if explicit {
+                    list.clear();
+                    assert!(list.is_empty());
+                    assert_eq!(list.node_count(), 0);
+                    assert_eq!(count.get(), expected);
+                    list.add_item_to_tail(Count(count.clone()));
+                }
+                drop(list);
+                assert_eq!(count.get(), expected + usize::from(explicit));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod iteration_tests {
+    use super::*;
+
+    fn list_with_slots(slots: &[Option<i32>]) -> LList<i32> {
+        let mut list = LList::new();
+        for slot in slots {
+            list.add_to_tail(Box::new(match slot {
+                Some(item) => LListNode::with_item(*item),
+                None => LListNode::new(),
+            }));
+        }
+        list
+    }
+
+    fn assert_iteration(slots: &[Option<i32>], expected: &[i32]) {
+        let list = list_with_slots(slots);
+        let mut iter = list.iter();
+        let mut held = Vec::new();
+        for value in expected {
+            let item = iter.next().expect("itemless nodes must not end iteration");
+            assert_eq!(item, value);
+            // Yield the original borrowed item, not a replacement or copy.
+            assert!(std::ptr::eq(
+                item,
+                list.find_node(value).unwrap().item().unwrap()
+            ));
+            held.push(item);
+        }
+        for _ in 0..3 {
+            assert_eq!(iter.next(), None);
+        }
+        assert_eq!(held.iter().map(|&&item| item).collect::<Vec<_>>(), expected);
+        assert_eq!(list.iter().copied().collect::<Vec<_>>(), expected);
+        assert_eq!(list.node_count() as usize, slots.len());
+    }
+
+    #[test]
+    fn itemless_head() {
+        assert_iteration(&[None, Some(1), Some(2)], &[1, 2]);
+    }
+
+    #[test]
+    fn itemless_middle() {
+        assert_iteration(&[Some(1), None, Some(2)], &[1, 2]);
+    }
+
+    #[test]
+    fn itemless_tail() {
+        assert_iteration(&[Some(1), Some(2), None], &[1, 2]);
+    }
+
+    #[test]
+    fn all_itemless() {
+        assert_iteration(&[None, None, None], &[]);
+    }
+
+    #[test]
+    fn empty_end_is_repeatable() {
+        assert_iteration(&[], &[]);
+    }
+
+    #[test]
+    fn consecutive_itemless_nodes() {
+        assert_iteration(
+            &[None, None, Some(1), None, None, Some(2), None, None],
+            &[1, 2],
+        );
+    }
+
+    #[test]
+    fn find_item_after_itemless_head() {
+        let list = list_with_slots(&[None, Some(1), None, Some(2), None]);
+        assert!(list.find_item(&1));
+        assert!(list.find_item(&2));
+        assert!(!list.find_item(&3));
+    }
+
+    #[test]
+    fn find_item_after_itemless_middle() {
+        let list = list_with_slots(&[Some(1), None, None, Some(2)]);
+        assert!(list.find_item(&1));
+        assert!(list.find_item(&2));
+        assert!(!list.find_item(&3));
+    }
+
+    #[test]
+    fn find_item_missing_from_itemless_lists() {
+        for slots in [&[None, None][..], &[Some(1), None][..], &[][..]] {
+            assert!(!list_with_slots(slots).find_item(&3));
+        }
+    }
+
+    #[test]
+    fn merged_itemless_lists_preserve_order_and_source_reuse() {
+        let mut list = list_with_slots(&[None, Some(1), None]);
+        let mut other = list_with_slots(&[None, Some(2), None]);
+        list.merge(&mut other);
+        assert!(other.is_empty());
+        assert_eq!(list.node_count(), 6);
+        assert_eq!(list.iter().copied().collect::<Vec<_>>(), [1, 2]);
+        assert!(list.find_item(&2));
+        assert!(!list.find_item(&3));
+        other.add_to_tail(Box::new(LListNode::new()));
+        other.add_item_to_tail(3);
+        assert_eq!(other.iter().copied().collect::<Vec<_>>(), [3]);
+        assert_eq!(list.iter().copied().collect::<Vec<_>>(), [1, 2]);
     }
 }

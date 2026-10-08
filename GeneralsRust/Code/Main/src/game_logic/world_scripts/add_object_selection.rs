@@ -1329,29 +1329,33 @@ impl GameLogic {
         self.ai_manager.set_ai_active(player_id, active);
     }
 
-    /// True when this team's skirmish AI player is non-local and currently paused.
-    /// Human/local teams always return false (auto-engage remains available).
-    pub fn skirmish_ai_auto_engage_paused(&self, team: Team) -> bool {
-        self.players.iter().any(|(&pid, player)| {
-            player.team == team && !player.is_local && !self.is_host_ai_active(pid)
-        })
+    /// True when this object's exact controlling player is non-local and its
+    /// skirmish AI is inactive. Missing AI registration retains that policy;
+    /// missing object/owner/player identity never falls back to a faction.
+    pub fn skirmish_ai_auto_engage_paused(&self, object_id: ObjectId) -> bool {
+        self.objects
+            .get(&object_id)
+            .and_then(|object| object.owner_player_id)
+            .and_then(|player_id| self.players.get(&player_id).map(|p| (player_id, p)))
+            .is_some_and(|(player_id, player)| {
+                !player.is_local && !self.is_host_ai_active(player_id)
+            })
     }
 
-    /// Pause skirmish AI for `player_id` and clear that team's combat targets so
+    /// Pause skirmish AI for `player_id` and clear that player's combat targets so
     /// residual unit AI does not keep counterfiring after the manager pause.
-    /// Also cancels production queues on that team so barracks/factories do not
+    /// Also cancels that player's production queues so barracks/factories do not
     /// keep spawning units during a golden map clear while AI is paused.
     /// Used by golden map clear (AI rebuild off + no structure auto-engage).
     pub fn pause_skirmish_ai_and_clear_combat(&mut self, player_id: u32) {
         self.set_ai_active(player_id, false);
-        let team = self.players.get(&player_id).map(|p| p.team);
-        let Some(team) = team else {
+        if !self.players.contains_key(&player_id) {
             return;
-        };
+        }
         let ids: Vec<ObjectId> = self
             .objects
             .values()
-            .filter(|o| o.team == team && o.is_alive())
+            .filter(|o| o.owner_player_id == Some(player_id) && o.is_alive())
             .map(|o| o.id)
             .collect();
         // Cancel production first (needs building_data); then clear combat state.

@@ -56,6 +56,8 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
         sc.turret_holding = false;
         sc.turret_idle_recentering = false;
     }
+    let frame = game_logic.frame;
+    let _ = game_logic.tick_turret_state_machine(sc_id, frame as f32 * LOGIC_FRAME_TIMESTEP, frame);
     game_logic.tick_battle_plan_door_residuals();
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
@@ -76,6 +78,8 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
         sc.set_ai_state(AIState::Idle);
         sc.set_status_attacking(false);
     }
+    let frame = game_logic.frame;
+    let _ = game_logic.tick_turret_state_machine(sc_id, frame as f32 * LOGIC_FRAME_TIMESTEP, frame);
     game_logic.tick_battle_plan_door_residuals();
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
@@ -95,6 +99,8 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
         sc.set_ai_state(AIState::Idle);
         sc.set_status_attacking(false);
     }
+    let frame = game_logic.frame;
+    let _ = game_logic.tick_turret_state_machine(sc_id, frame as f32 * LOGIC_FRAME_TIMESTEP, frame);
     game_logic.tick_battle_plan_door_residuals();
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
@@ -115,7 +121,15 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
         // Bone pitch drawable residual from TurretAI angles.
         let bone = strategy_center_turret_bone_drawable(sc.turret_angle_deg, sc.turret_pitch_deg);
         assert!((bone.pitch_deg - STRATEGY_CENTER_FIRE_PITCH_DEG).abs() < 0.01);
-        assert!(!bone.is_natural || bone.yaw_deg.abs() < 5.0);
+        assert!(
+            bone.is_natural,
+            "mood acquisition leaves the initial natural pose unchanged"
+        );
+        assert_eq!(sc.turret_target_id, Some(enemy_id));
+        assert_eq!(
+            sc.turret_substate,
+            crate::game_logic::object::TurretSubState::Aim
+        );
     }
 
     // VisionObjectName createVisionObject disabled in retail C++.
@@ -465,7 +479,10 @@ fn strategy_center_bombardment_turret_fire_residual() {
     }
 
     for _ in 0..90 {
-        game_logic.try_strategy_center_bombardment_turret_fire(sc_id);
+        let frame = game_logic.frame;
+        let _ =
+            game_logic.tick_turret_state_machine(sc_id, frame as f32 * LOGIC_FRAME_TIMESTEP, frame);
+        game_logic.tick_battle_plan_door_residuals();
         if game_logic.honesty_battle_plan_turret_fire_ok() {
             break;
         }
@@ -611,7 +628,9 @@ fn strategy_center_gun_scatter_misses_infantry_residual() {
     }
 
     for _ in 0..90 {
-        logic.try_strategy_center_bombardment_turret_fire(sc_id);
+        let frame = logic.frame;
+        let _ = logic.tick_turret_state_machine(sc_id, frame as f32 * LOGIC_FRAME_TIMESTEP, frame);
+        logic.tick_battle_plan_door_residuals();
         if logic.strategy_center_gun_scatter_applied > 0
             || logic.strategy_center_gun_scatter_misses > 0
             || logic.honesty_strategy_center_gun_scatter_ok()
@@ -647,7 +666,9 @@ fn strategy_center_gun_scatter_misses_infantry_residual() {
     }
     let before_applied = logic.strategy_center_gun_scatter_applied;
     for _ in 0..90 {
-        logic.try_strategy_center_bombardment_turret_fire(sc_id);
+        let frame = logic.frame;
+        let _ = logic.tick_turret_state_machine(sc_id, frame as f32 * LOGIC_FRAME_TIMESTEP, frame);
+        logic.tick_battle_plan_door_residuals();
         if logic.strategy_center_gun_scatter_applied > before_applied
             || logic.honesty_strategy_center_gun_scatter_ok()
         {

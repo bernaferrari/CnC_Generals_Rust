@@ -897,10 +897,7 @@ impl GameLODManager {
         loop {
             ini.read_line()?;
             let tokens = ini.get_line_tokens();
-            if tokens
-                .iter()
-                .any(|token| token.eq_ignore_ascii_case("End"))
-            {
+            if tokens.iter().any(|token| token.eq_ignore_ascii_case("End")) {
                 break;
             }
             if ini.is_eof() {
@@ -996,10 +993,7 @@ impl GameLODManager {
         loop {
             ini.read_line()?;
             let tokens = ini.get_line_tokens();
-            if tokens
-                .iter()
-                .any(|token| token.eq_ignore_ascii_case("End"))
-            {
+            if tokens.iter().any(|token| token.eq_ignore_ascii_case("End")) {
                 break;
             }
             if ini.is_eof() {
@@ -1521,13 +1515,28 @@ mod tests {
     }
 
     #[test]
-    fn retail_gamelod_ini_parses() {
-        let src = include_str!(
-            "../../../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/GameLOD.ini"
-        );
+    fn dynamic_lod_block_parses_minimum_fps() {
         init_game_lod_manager();
         let mut ini = INI::new();
-        ini.with_inline_source(src, |ini| ini.parse_current_file())
+        ini.with_inline_source("DynamicGameLOD VeryHigh\nMinimumFPS=37\nEnd", |ini| {
+            ini.parse_current_file()
+        })
+        .expect("synthetic DynamicGameLOD block");
+        let manager = get_game_lod_manager();
+        let very_high = DynamicGameLODLevel::VeryHigh.to_index().unwrap();
+        assert_eq!(manager.dynamic_game_lod_info[very_high].min_fps, 37);
+    }
+
+    #[test]
+    #[ignore = "requires locally supplied retail INIZH/Data/INI/GameLOD.ini"]
+    fn retail_gamelod_ini_parses() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/GameLOD.ini");
+        let src = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("read retail {}: {error}", path.display()));
+        init_game_lod_manager();
+        let mut ini = INI::new();
+        ini.with_inline_source(&src, |ini| ini.parse_current_file())
             .expect("retail GameLOD.ini");
         let manager = get_game_lod_manager();
         let very_high = DynamicGameLODLevel::VeryHigh.to_index().unwrap();
@@ -1538,10 +1547,9 @@ mod tests {
     fn bench_profile_reads_successive_header_tokens() {
         init_game_lod_manager();
         let mut ini = INI::new();
-        ini.with_inline_source(
-            "BenchProfile = P4 2189 6.1 15.1 9.4\n",
-            |ini| ini.parse_current_file(),
-        )
+        ini.with_inline_source("BenchProfile = P4 2189 6.1 15.1 9.4\n", |ini| {
+            ini.parse_current_file()
+        })
         .expect("bench profile header");
         let manager = get_game_lod_manager();
         let profile = manager.bench_profiles[0].as_ref().expect("profile stored");

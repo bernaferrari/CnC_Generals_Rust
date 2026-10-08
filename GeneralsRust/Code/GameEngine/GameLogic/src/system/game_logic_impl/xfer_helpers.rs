@@ -230,7 +230,8 @@ fn xfer_object_snapshot(
     frame: UnsignedInt,
     changed_objects: &mut VecDeque<ObjectID>,
     changed_frame: &mut UnsignedInt,
-) {
+) -> Result<(), XferStatus> {
+    let mode = xfer.get_xfer_mode();
     let mut bridge = CommonXferBridge { inner: xfer };
     obj.xfer_with_trigger_context(&mut bridge, frame, &mut |id| {
         // Same immediate queue/stamp semantics as GameLogic's normal adapter.
@@ -238,7 +239,16 @@ fn xfer_object_snapshot(
             changed_objects.push_back(id);
             *changed_frame = frame;
         }
-    });
+    })
+    .map_err(|error| {
+        warn!("Native Object snapshot failed: {error}");
+        match mode {
+            XferMode::Load => XferStatus::ReadError,
+            XferMode::Save => XferStatus::WriteError,
+            XferMode::Crc => XferStatus::InvalidData,
+            XferMode::Invalid => XferStatus::ModeUnknown,
+        }
+    })
 }
 
 fn xfer_polygon_snapshot(poly: &mut crate::polygon_trigger::PolygonTrigger, xfer: &mut dyn Xfer) {
@@ -273,9 +283,7 @@ fn xfer_game_logic_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(
                 let Some(entry) = logic.objects.get(&obj_id) else {
                     continue;
                 };
-                let Ok(obj) = entry.read() else {
-                    continue;
-                };
+                let obj = entry.read().map_err(|_| XferStatus::InvalidData)?;
                 obj.get_template().get_name().to_string()
             };
             let Some(toc) = logic.find_toc_entry_by_name(&tname) else {
@@ -283,17 +291,16 @@ fn xfer_game_logic_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(
             };
             let mut toc_id = toc.id;
             xfer.xfer_unsigned_short(&mut toc_id)?;
-            let _ = xfer.begin_block();
+            xfer.begin_block()?;
             if let Some(entry) = logic.objects.get(&obj_id) {
-                if let Ok(mut obj) = entry.write() {
-                    xfer_object_snapshot(
-                        &mut obj,
-                        xfer,
-                        logic.frame,
-                        &mut logic.objects_changed_trigger_areas,
-                        &mut logic.frame_objects_changed_trigger_areas,
-                    );
-                }
+                let mut obj = entry.write().map_err(|_| XferStatus::InvalidData)?;
+                xfer_object_snapshot(
+                    &mut obj,
+                    xfer,
+                    logic.frame,
+                    &mut logic.objects_changed_trigger_areas,
+                    &mut logic.frame_objects_changed_trigger_areas,
+                )?;
             }
             xfer.end_block()?;
         }

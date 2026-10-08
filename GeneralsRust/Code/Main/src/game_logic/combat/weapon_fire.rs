@@ -139,7 +139,7 @@ fn host_vec_to_leftover_coord(pos: Vec3) -> gamelogic::common::Coord3D {
 /// live objects because leftover `dealDamageInternal` looks up leftover
 /// GameObjects that the player path does not own.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct LiveProjectilelessDelayedDamage {
+pub(in crate::game_logic) struct LiveProjectilelessDelayedDamage {
     when: u32,
     pending: PendingProjectile,
     damage_pos: Vec3,
@@ -261,21 +261,7 @@ pub fn apply_ready_projectileless_delayed_damage(
     current_frame: u32,
     players: Option<&HashMap<u32, crate::game_logic::Player>>,
 ) {
-    // Preserve the existing due selection and application order. Release the
-    // short queue borrow before effects can call other CombatSystem methods.
-    let ready = {
-        let queue = &mut combat.projectileless_delayed;
-        let mut ready = Vec::new();
-        let mut i = 0;
-        while i < queue.len() {
-            if queue[i].when <= current_frame {
-                ready.push(queue.remove(i));
-            } else {
-                i += 1;
-            }
-        }
-        ready
-    };
+    let ready = take_ready_projectileless_delayed_damage(combat, current_frame);
     let historic_damage_limit = game_engine::common::global_data::read().historic_damage_limit;
     for shot in ready {
         combat.apply_projectileless_delayed_shot(
@@ -286,6 +272,24 @@ pub fn apply_ready_projectileless_delayed_damage(
             historic_damage_limit,
         );
     }
+}
+
+/// Select one batch only. Callback-enqueued shots remain on the live owner.
+pub(in crate::game_logic) fn take_ready_projectileless_delayed_damage(
+    combat: &mut CombatSystem,
+    current_frame: u32,
+) -> Vec<LiveProjectilelessDelayedDamage> {
+    let queue = &mut combat.projectileless_delayed;
+    let mut ready = Vec::new();
+    let mut i = 0;
+    while i < queue.len() {
+        if queue[i].when <= current_frame {
+            ready.push(queue.remove(i));
+        } else {
+            i += 1;
+        }
+    }
+    ready
 }
 
 /// Data needed to spawn a projectile (enqueued by Object::fire_at).

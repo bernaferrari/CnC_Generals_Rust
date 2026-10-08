@@ -1,0 +1,15 @@
+omitted omitted omitted omitted omitted omitted 3dcccccd 3dcccccd 3f666666 3f666666 3f800000
+zero_positive +0 +0 +0 +0 +0 00000000 00000000 00000000 00000000 00000000
+zero_negative -0 -0 -0 -0 -0 80000000 80000000 80000000 80000000 80000000
+zero_positive_0 +0 omitted omitted omitted omitted 00000000 3dcccccd 3f666666 3f666666 3f800000
+zero_positive_1 omitted +0 omitted omitted omitted 3dcccccd 00000000 3f666666 3f666666 3f800000
+zero_positive_2 omitted omitted +0 omitted omitted 3dcccccd 3dcccccd 00000000 3f666666 3f800000
+zero_positive_3 omitted omitted omitted +0 omitted 3dcccccd 3dcccccd 3f666666 00000000 3f800000
+zero_positive_4 omitted omitted omitted omitted +0 3dcccccd 3dcccccd 3f666666 3f666666 00000000
+zero_negative_0 -0 omitted omitted omitted omitted 80000000 3dcccccd 3f666666 3f666666 3f800000
+zero_negative_1 omitted -0 omitted omitted omitted 3dcccccd 80000000 3f666666 3f666666 3f800000
+zero_negative_2 omitted omitted -0 omitted omitted 3dcccccd 3dcccccd 80000000 3f666666 3f800000
+zero_negative_3 omitted omitted omitted -0 omitted 3dcccccd 3dcccccd 3f666666 80000000 3f800000
+zero_negative_4 omitted omitted omitted omitted -0 3dcccccd 3dcccccd 3f666666 3f666666 80000000
+control_distinct 0.125 0.25 0.375 0.5 0.625 3e000000 3e800000 3ec00000 3f000000 3f200000
+control_unclamped -0.125 1.25 -2.5 3.75 -4.5 be000000 3fa00000 c0200000 40700000 c0900000

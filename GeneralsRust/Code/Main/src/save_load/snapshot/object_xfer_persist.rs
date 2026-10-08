@@ -29,8 +29,8 @@
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 //! Restore writes clocks/flags only; it never re-runs create/apply.
 
-use crate::game_logic::object::TurretSubState;
 use crate::game_logic::HUNT_CMD_FROM_AI;
+use crate::game_logic::object::TurretSubState;
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
@@ -1756,7 +1756,7 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
 fn reset_object_xfer(game_logic: &mut GameLogic) {
     let ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
     for id in ids {
-        let Some(object) = game_logic.host_object_mut(id) else {
+        let Some(object) = game_logic.host_objects_mut().get_mut(&id) else {
             continue;
         };
         object.unit_ai_runtime.clear_saved_deadlines();
@@ -1806,7 +1806,7 @@ fn reset_object_xfer(game_logic: &mut GameLogic) {
 fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) {
     for entry in payload.objects {
         let id = ObjectId(entry.object_id);
-        if let Some(object) = game_logic.host_object_mut(id) {
+        if let Some(object) = game_logic.host_objects_mut().get_mut(&id) {
             object.status.disabled_held = entry.disabled_held;
             object.single_use_command_used = entry.single_use_command_used;
             object.ai_attitude = entry.ai_attitude;
@@ -2186,10 +2186,12 @@ mod tests {
         assert_eq!(object.which_exit_path, 0);
         assert_eq!(object.cheer_timer, 0.0);
         assert!(!object_has_special_cheering(&object));
-        assert!(object
-            .weapon_scatter_targets_unused
-            .iter()
-            .all(Vec::is_empty));
+        assert!(
+            object
+                .weapon_scatter_targets_unused
+                .iter()
+                .all(Vec::is_empty)
+        );
         assert_eq!(object.weapon_scatter_targets_inited, [false, false, false]);
         assert!(!object.weapon_bonus_horde);
         assert!(!object.weapon_bonus_enthusiastic);
@@ -2201,18 +2203,24 @@ mod tests {
             "absent OXOB resets m_isRecruitable to leftover default true"
         );
         assert_eq!(object.ignore_collisions_until_frame, 0);
-        assert!(logic
-            .host_objects()
-            .values()
-            .all(|object| object.unit_ai_runtime.guard_scan_deadline().is_none()));
-        assert!(logic
-            .host_objects()
-            .values()
-            .all(|object| object.unit_ai_runtime.hunt_scan_deadline().is_none()));
-        assert!(logic
-            .host_objects()
-            .values()
-            .all(|object| object.unit_ai_runtime.quick_exit_deadline().is_none()));
+        assert!(
+            logic
+                .host_objects()
+                .values()
+                .all(|object| object.unit_ai_runtime.guard_scan_deadline().is_none())
+        );
+        assert!(
+            logic
+                .host_objects()
+                .values()
+                .all(|object| object.unit_ai_runtime.hunt_scan_deadline().is_none())
+        );
+        assert!(
+            logic
+                .host_objects()
+                .values()
+                .all(|object| object.unit_ai_runtime.quick_exit_deadline().is_none())
+        );
     }
 
     #[test]
@@ -2792,13 +2800,15 @@ mod tests {
         assert_eq!(loaded.last_fire_frame, 0);
         assert!(loaded.is_recruitable);
         assert_eq!(loaded.ignore_collisions_until_frame, 0);
-        assert!(dest
-            .host_objects()
-            .values()
-            .all(|object| object.unit_ai_runtime.guard_scan_deadline().is_none()));
-        assert!(dest
-            .host_objects()
-            .values()
-            .all(|object| object.unit_ai_runtime.hunt_scan_deadline().is_none()));
+        assert!(
+            dest.host_objects()
+                .values()
+                .all(|object| object.unit_ai_runtime.guard_scan_deadline().is_none())
+        );
+        assert!(
+            dest.host_objects()
+                .values()
+                .all(|object| object.unit_ai_runtime.hunt_scan_deadline().is_none())
+        );
     }
 }

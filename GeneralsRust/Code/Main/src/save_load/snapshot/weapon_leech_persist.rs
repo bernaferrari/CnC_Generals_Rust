@@ -91,7 +91,7 @@ fn capture(game_logic: &GameLogic) -> WeaponLeechPersistPayload {
 fn reset_weapon_leech(game_logic: &mut GameLogic) {
     let ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
     for id in ids {
-        if let Some(object) = game_logic.host_object_mut(id) {
+        if let Some(object) = game_logic.host_objects_mut().get_mut(&id) {
             object.leech_range_active_primary = false;
             object.leech_range_active_secondary = false;
         }

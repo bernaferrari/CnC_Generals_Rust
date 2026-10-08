@@ -1,0 +1,122 @@
+{
+  "source_checkout_head_at_capture": "8ddd8252ce6636e80e323c3cc4fda3dff88e4f0c",
+  "original_authority": "GeneralsMD source, exact pinned bytes; checkout HEAD may advance on disjoint files",
+  "sources": {
+    "loco": {
+      "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Locomotor.cpp",
+      "sha256": "d0eb6b4cf7cac16a9d51e1456defc7b63ef97c70f0b356b7df3d77e005974f5a"
+    },
+    "physics": {
+      "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Update/PhysicsUpdate.cpp",
+      "sha256": "95b47641e6517b18ec62e50a7b0bbffb03181dee89d5cc1b5fa2495b83db31d6"
+    },
+    "common": {
+      "path": "GeneralsMD/Code/GameEngine/Source/Common/System/GameCommon.cpp",
+      "sha256": "d18d9f8ff9cee817d7bf88b370dc2e4a701f98979c85cd3bd0c712bd18818157"
+    },
+    "header": {
+      "path": "GeneralsMD/Code/GameEngine/Include/Common/GameCommon.h",
+      "sha256": "5765730dca375098a638184ce473cfbe43fed12623a1e8234ccd219883a5e54a"
+    },
+    "base": {
+      "path": "GeneralsMD/Code/Libraries/Include/Lib/BaseType.h",
+      "sha256": "590af4e59d0e48510d976eeafa248000a1ac9f05d8f905f66f24b1c1cf9eceef"
+    },
+    "physics_header": {
+      "path": "GeneralsMD/Code/GameEngine/Include/GameLogic/Module/PhysicsUpdate.h",
+      "sha256": "7182131ef9c8708537b5d58b8b0149bff05549988bcf3d1e21e15e69e3c118fe"
+    }
+  },
+  "blocks": {
+    "pi": {
+      "source": "base",
+      "first_line": 67,
+      "last_line": 70,
+      "sha256": "dbf37467547a44dca4c9befc4d7b6a26e83a1171f4ef623178de7a5bed15be91"
+    },
+    "types": {
+      "source": "base",
+      "first_line": 106,
+      "last_line": 114,
+      "sha256": "875d4e55027ca34c964d545854ce1aac868abf1e351e05555afdd89befee9a6b"
+    },
+    "sqr": {
+      "source": "base",
+      "first_line": 125,
+      "last_line": 129,
+      "sha256": "90b89123428285ceadd874bbdbb1a4bdc0d621f1d40123e8497cf875b40283b5"
+    },
+    "frames": {
+      "source": "header",
+      "first_line": 37,
+      "last_line": 76,
+      "sha256": "8928e39b4e5a0d32a2d131c4b75785744e34f3f32bf6caf6c2fde6a473db12c8"
+    },
+    "slowdown": {
+      "source": "loco",
+      "first_line": 62,
+      "last_line": 73,
+      "sha256": "4d09f2f15587b8e8189243c871788399c90d12b5f87d37feb23919fafca3dfc3"
+    },
+    "forward": {
+      "source": "physics",
+      "first_line": 939,
+      "last_line": 957,
+      "sha256": "e96544dc5db5218e021cbc75fa5e28af0ce4b49ac9a3971fdf22ba9c73f177b1"
+    },
+    "force": {
+      "source": "physics",
+      "first_line": 298,
+      "last_line": 336,
+      "sha256": "1749947927bdb0023e2a56087bce58f7c8e7ca452ebbdca81b8d633dc4760e3e"
+    },
+    "motive": {
+      "source": "physics",
+      "first_line": 395,
+      "last_line": 400,
+      "sha256": "721e0008bdd7a6a15a6a08ba934f8ed9b1480d1f3cc3e9705ba0f30ccb25c20a"
+    },
+    "is_motive": {
+      "source": "physics",
+      "first_line": 389,
+      "last_line": 392,
+      "sha256": "5cc16cf7e5edcb3c833ab54a7c7d9f5484c48e8226410bde4f58a0affdd01d6e"
+    },
+    "motive_frames": {
+      "source": "physics",
+      "first_line": 46,
+      "last_line": 46,
+      "sha256": "644f39484261ffb0615566dc4b56e037e82be06d07dda00a4fb50c0230f243f5"
+    },
+    "velocity_step": {
+      "source": "physics",
+      "first_line": 634,
+      "last_line": 636,
+      "sha256": "6938c11ba539ddb3a567e030a1c7beb083ccf15a3d1fb9b9ee552ac161dfd7b4"
+    },
+    "other": {
+      "source": "loco",
+      "first_line": 2326,
+      "last_line": 2404,
+      "sha256": "94b143d6e1da59421a36264a5a78c5eb48ea5c7e26670bd9d50bb9b22a9ea9b7"
+    },
+    "coord_length": {
+      "source": "base",
+      "first_line": 317,
+      "last_line": 317,
+      "sha256": "e7d0db92a72450bbb05508dcd37c2bdf55b75d585fa77f6075eb8094bf57b2a9"
+    },
+    "coord_normalize": {
+      "source": "base",
+      "first_line": 320,
+      "last_line": 330,
+      "sha256": "505fa354150202a28678cc591d26f1ee2f98b516274eae212af8a69253e6071b"
+    },
+    "turning_enum": {
+      "source": "physics_header",
+      "first_line": 18,
+      "last_line": 23,
+      "sha256": "00afec31418b19e38bcce8b79a9d5725110fb7f68a3902419c6e709a76621ec1"
+    }
+  }
+}

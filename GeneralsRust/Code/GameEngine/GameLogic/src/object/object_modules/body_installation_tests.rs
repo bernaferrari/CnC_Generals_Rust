@@ -428,12 +428,14 @@ fn authored_body_object_module_list_xfer_reaches_exact_cached_body() {
         .owner
         .write()
         .unwrap()
-        .xfer_behavior_module_list(&mut XferSave::new(Cursor::new(&mut saved), 1), true);
+        .xfer_behavior_module_list(&mut XferSave::new(Cursor::new(&mut saved), 1), true)
+        .unwrap();
     second
         .owner
         .write()
         .unwrap()
-        .xfer_behavior_module_list(&mut XferLoad::new(Cursor::new(saved), 1), false);
+        .xfer_behavior_module_list(&mut XferLoad::new(Cursor::new(saved), 1), false)
+        .unwrap();
     assert_eq!(second.body.lock().unwrap().get_health(), 60.0);
     assert_eq!(second.body.lock().unwrap().get_max_health(), 400.0);
     assert!(Arc::ptr_eq(

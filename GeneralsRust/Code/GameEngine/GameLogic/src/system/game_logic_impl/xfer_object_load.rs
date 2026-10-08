@@ -62,14 +62,15 @@ fn xfer_game_logic_objects_load(
             continue;
         };
 
-        if let Ok(mut obj) = arc.write() {
+        {
+            let mut obj = arc.write().map_err(|_| XferStatus::InvalidData)?;
             xfer_object_snapshot(
                 &mut obj,
                 xfer,
                 logic.frame,
                 &mut logic.objects_changed_trigger_areas,
                 &mut logic.frame_objects_changed_trigger_areas,
-            );
+            )?;
         }
         let wall_id = arc.read().ok().map(|obj| obj.get_id());
         let walk_on_wall = arc
@@ -80,7 +81,8 @@ fn xfer_game_logic_objects_load(
         let _ = logic.register_object(arc);
         if walk_on_wall {
             if let Some(object_id) = wall_id {
-                let ai_store = the_ai(); if let Ok(ai) = ai_store.read() {
+                let ai_store = the_ai();
+                if let Ok(ai) = ai_store.read() {
                     if let Some(pathfinder) = ai.pathfinder() {
                         if let Ok(mut pf) = pathfinder.write() {
                             pf.add_wall_piece(object_id);
@@ -96,7 +98,8 @@ fn xfer_game_logic_objects_load(
 
 fn pathfinder_new_map_after_polygon_load() {
     // C++ GameLogic.cpp:4880 `TheAI->pathfinder()->newMap()` after trigger restore.
-    let ai_store = the_ai(); if let Ok(ai) = ai_store.read() {
+    let ai_store = the_ai();
+    if let Ok(ai) = ai_store.read() {
         if let Some(pathfinder) = ai.pathfinder() {
             if let Ok(mut pf) = pathfinder.write() {
                 if let Ok(terrain) = get_terrain_logic().read() {

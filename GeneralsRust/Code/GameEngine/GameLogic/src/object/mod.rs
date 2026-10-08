@@ -2376,6 +2376,7 @@ mod vision;
 
 pub use object_thing::ObjectArcExt;
 pub(crate) use object_thing::{ObjectThingHandle, make_drawable_module_thing_handle};
+pub use object_xfer::ObjectXferError;
 
 pub type ObjectId = ObjectID;
 

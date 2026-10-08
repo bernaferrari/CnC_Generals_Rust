@@ -608,8 +608,8 @@ impl EvaEventStore {
         }
 
         let msecs = value * multiplier;
-        // Convert ms to frames at 30 FPS
-        let frames = (msecs / (1000.0 / 30.0)).round() as u32;
+        // C++ multiplies by the rounded f32 frame-per-ms factor before rounding up.
+        let frames = INI::convert_duration_msecs_to_frames(msecs).ceil() as u32;
         Ok(frames)
     }
 }

@@ -436,28 +436,183 @@ impl GameLogic {
         self.battle_plans.honesty_turret_idle_recenter_ok()
     }
 
-    /// Tick TurretAI idle mood-target residual for Bombardment ACTIVE Strategy Centers.
-    ///
-    /// C++ `TurretAI::friend_checkForIdleMoodTarget` residual:
-    /// - When idle, acquire nearest legal enemy in StrategyCenterGun range band
-    /// - Aim pitch/yaw at target (FirePitch **45**), flag `m_targetWasSetByIdleMood`
-    /// - While held: re-aim each frame; clear when dead / OOR / illegal (team/air/UC)
-    /// - Mood matrix Sleep → IgnoreAll (no acquire); Passive → WaitForAttack
-    ///   (only last_damage_source residual); Normal/Alert/Aggressive → free
-    /// - Fire residual ownership: bombardment fire clears mood flag if it engages
-    ///   a different target (see `try_strategy_center_bombardment_turret_fire`)
+    /// Strategy-specific selection at the existing turret Idle/Hold boundary.
+    /// C++ friend_checkForIdleMoodTarget assigns a goal, never yaw or pitch.
+    pub(in crate::game_logic) fn acquire_strategy_center_turret_mood_target(
+        &mut self,
+        cid: ObjectId,
+        current_time: f32,
+    ) {
+        use crate::game_logic::host_strategy_center::{
+            HostAiAttitude, strategy_center_mood_target_eligible_with_attitude,
+            strategy_center_mood_target_enemy_legal_with_vision, strategy_center_mood_vision_range,
+        };
+        if !self.strategy_center_bombardment_turret_active(cid) {
+            return;
+        }
+        let Some(obj) = self.objects.get(&cid) else {
+            return;
+        };
+        let team = obj.team;
+        let fire_pos = obj.get_position();
+        let has_mood = obj.turret_mood_target;
+        let attitude = HostAiAttitude::from_i8(obj.ai_attitude);
+        let last_dmg = obj.last_damage_source;
+        // Partition / AI vision residual: VisionRange **400**.
+        // Bombardment ACTIVE path: S&D sight scalar does not apply (plans
+        // are mutually exclusive). Host residual still uses the vision
+        // filter helper so reduced-vision / S&D matrix stays host-testable.
+        let vision_range = strategy_center_mood_vision_range(false);
+        // "Busy" for acquire: only non-mood attacking (pack recenter / explicit
+        // non-mood attack). Mood-set Attacking is the hold state, not busy.
+        let busy_non_mood = !has_mood
+            && (obj.status.attacking
+                || matches!(
+                    obj.ai_state,
+                    AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
+                ));
+
+        // Passive WaitForAttack: only retaliate vs last_damage_source residual.
+        let passive_last = last_dmg.is_some();
+        if !strategy_center_mood_target_eligible_with_attitude(
+            true,
+            true,
+            busy_non_mood,
+            has_mood,
+            attitude,
+            passive_last,
+        ) {
+            return;
+        }
+
+        // Find residual mood target: Passive uses last damage source only
+        // (C++ getNextMoodTarget Passive branch); else nearest legal enemy.
+        // Partition vision residual gates acquire distance.
+        let mut best: Option<(ObjectId, f32, f32, f32)> = None; // id, dist, x, z
+        if attitude.idle_mood_wait_for_attack() {
+            if let Some(tid) = last_dmg {
+                if tid != cid {
+                    if let Some(other) = self.objects.get(&tid) {
+                        let op = other.get_position();
+                        let dx = op.x - fire_pos.x;
+                        let dz = op.z - fire_pos.z;
+                        let dist = (dx * dx + dz * dz).sqrt();
+                        let is_air =
+                            other.is_kind_of(KindOf::Aircraft) || other.status.airborne_target;
+                        if strategy_center_mood_target_enemy_legal_with_vision(
+                            other.is_alive(),
+                            other.team == team,
+                            other.team == Team::Neutral,
+                            other.status.under_construction,
+                            is_air,
+                            dist,
+                            vision_range,
+                        ) {
+                            best = Some((tid, dist, op.x, op.z));
+                        }
+                    }
+                }
+            }
+        } else {
+            // Pure residual acquire: nearest legal enemy in mood vision (XZ).
+            let candidates: Vec<_> = self
+                .objects
+                .iter()
+                .map(|(&oid, other)| {
+                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                        id: oid,
+                        team: other.team,
+                        position: other.get_position(),
+                        is_alive: other.is_alive(),
+                        is_neutral: other.team == Team::Neutral,
+                        under_construction: other.status.under_construction,
+                        combat_kind: true,
+                        effectively_stealthed: other.is_effectively_stealthed(),
+                        is_air: other.is_kind_of(KindOf::Aircraft) || other.status.airborne_target,
+                        eject_invulnerable: other.is_eject_invulnerable(),
+                    }
+                })
+                .collect();
+            best = crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
+                Some(cid),
+                (fire_pos.x, fire_pos.z),
+                candidates,
+                vision_range,
+                |c| {
+                    let dist = {
+                        let dx = c.position.x - fire_pos.x;
+                        let dz = c.position.z - fire_pos.z;
+                        (dx * dx + dz * dz).sqrt()
+                    };
+                    // The XZ query has no implicit stealth filter. Preserve
+                    // the old specialty query / C++ free-acquire rejection
+                    // before installing the goal, not only later in FIRE.
+                    strategy_center_mood_target_enemy_legal_with_vision(
+                        c.is_alive,
+                        c.team == team,
+                        c.is_neutral,
+                        c.under_construction,
+                        c.is_air,
+                        dist,
+                        vision_range,
+                    ) && !(c.effectively_stealthed && c.team != team)
+                },
+            )
+            .map(|(id, dist, _)| {
+                let p = self
+                    .objects
+                    .get(&id)
+                    .map(|o| o.get_position())
+                    .unwrap_or(fire_pos);
+                (id, dist, p.x, p.z)
+            });
+        }
+        if let Some((tid, _, _, _)) = best {
+            // C++ TurretAI.cpp:870-874: install target, choose weapon, mark mood.
+            // The current Idle/Hold invocation ends before the next AIM step.
+            self.set_turret_target_object(cid, Some(tid), false);
+            let _ = self.choose_best_weapon_for_target(cid, Some(tid), current_time);
+            let mut entered_attack = false;
+            if let Some(o) = self.objects.get_mut(&cid) {
+                o.note_attack_target(tid);
+                o.turret_mood_target = true;
+                o.turret_idle_scanning = false;
+                o.record_host_turret();
+                o.turret_holding = false;
+                o.record_host_turret();
+                o.turret_hold_until_frame = 0;
+                o.turret_idle_recentering = false;
+                entered_attack = !matches!(
+                    o.ai_state,
+                    AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
+                );
+                if entered_attack {
+                    o.set_ai_state(AIState::Attacking);
+                }
+            }
+            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                crate::game_logic::host_ai_decision_log::record_attack(cid, tid);
+                if entered_attack {
+                    crate::game_logic::host_ai_decision_log::record_set_state(cid, 2);
+                }
+            }
+            self.battle_plans.record_turret_mood_target_acquire();
+        }
+    }
+
+    /// Retain or clear Strategy mood ownership at the existing late AI boundary.
+    /// Acquisition is the turret Idle/Hold operation; AIM alone changes angles.
     pub(in crate::game_logic) fn tick_strategy_center_turret_mood_target(&mut self) {
         use crate::game_logic::host_strategy_center::{
-            HostAiAttitude, HostBattlePlan, HostBattlePlanTransition, is_strategy_center_template,
-            strategy_center_gun_in_range, strategy_center_mood_target_eligible_with_attitude,
-            strategy_center_mood_target_enemy_legal_with_vision,
+            HostBattlePlan, HostBattlePlanTransition, is_strategy_center_template,
+            strategy_center_gun_in_range, strategy_center_mood_target_enemy_legal_with_vision,
             strategy_center_mood_target_in_vision,
             strategy_center_mood_target_should_clear_with_vision,
-            strategy_center_mood_vision_range, strategy_center_turret_aim_at,
+            strategy_center_mood_vision_range,
         };
 
         // Bombardment ACTIVE centers.
-        let centers: Vec<ObjectId> = self
+        let mut centers: Vec<ObjectId> = self
             .battle_plans
             .door_states()
             .iter()
@@ -469,13 +624,32 @@ impl GameLogic {
             .map(|s| s.center_id)
             .collect();
 
-        let mut acquires = 0u32;
+        // Kind-only host Strategy fixtures can have an active plan without a
+        // door record. Keep the same ownership clear path as their Idle hook,
+        // after the existing registered-center order above.
+        for (&cid, obj) in self.objects.iter() {
+            if obj.turret_mood_target
+                && (is_strategy_center_template(&obj.template_name)
+                    || obj.is_kind_of(KindOf::FSStrategyCenter))
+                && self.battle_plans.door_state_for_center(cid).is_none()
+                && self
+                    .battle_plans
+                    .active_plan_for_player(self.player_id_for_team(obj.team).unwrap_or(0))
+                    == Some(HostBattlePlan::Bombardment)
+            {
+                centers.push(cid);
+            }
+        }
+
         let mut clears = 0u32;
         for cid in centers {
             let Some(obj) = self.objects.get(&cid) else {
                 continue;
             };
-            if !obj.is_alive() || !is_strategy_center_template(&obj.template_name) {
+            if !obj.is_alive()
+                || !(is_strategy_center_template(&obj.template_name)
+                    || obj.is_kind_of(KindOf::FSStrategyCenter))
+            {
                 continue;
             }
             if obj.weapon.is_none() {
@@ -484,27 +658,15 @@ impl GameLogic {
             let team = obj.team;
             let fire_pos = obj.get_position();
             let has_mood = obj.turret_mood_target;
-            let attitude = HostAiAttitude::from_i8(obj.ai_attitude);
-            let last_dmg = obj.last_damage_source;
             // Partition / AI vision residual: VisionRange **400**.
             // Bombardment ACTIVE path: S&D sight scalar does not apply (plans
             // are mutually exclusive). Host residual still uses the vision
             // filter helper so reduced-vision / S&D matrix stays host-testable.
             let vision_range = strategy_center_mood_vision_range(false);
-            // "Busy" for acquire: only non-mood attacking (pack recenter / explicit
-            // non-mood attack). Mood-set Attacking is the hold state, not busy.
-            let busy_non_mood = !has_mood
-                && (obj.status.attacking
-                    || matches!(
-                        obj.ai_state,
-                        AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
-                    ));
-
-            // Hold / clear / re-aim mood target residual.
+            // Retain/clear bookkeeping at the pre-existing late Strategy boundary.
             if has_mood {
                 let tgt = obj.target;
-                let mut clear = tgt.is_none();
-                let mut aim_xz: Option<(f32, f32)> = None;
+                let mut clear = tgt.is_none() || tgt != obj.turret_target_id;
                 if let Some(tid) = tgt {
                     if let Some(t) = self.objects.get(&tid) {
                         let tp = t.get_position();
@@ -523,20 +685,18 @@ impl GameLogic {
                         );
                         let in_range = strategy_center_gun_in_range(dist);
                         let in_vision = strategy_center_mood_target_in_vision(dist, vision_range);
-                        clear = strategy_center_mood_target_should_clear_with_vision(
+                        clear |= strategy_center_mood_target_should_clear_with_vision(
                             true,
                             t.is_alive(),
                             in_range,
                             in_vision,
                         ) || !legal;
-                        if !clear {
-                            aim_xz = Some((tp.x, tp.z));
-                        }
                     } else {
                         clear = true;
                     }
                 }
                 if clear {
+                    self.set_turret_target_object(cid, None, false);
                     if let Some(o) = self.objects.get_mut(&cid) {
                         o.turret_mood_target = false;
                         o.set_status_attacking(false);
@@ -552,15 +712,10 @@ impl GameLogic {
                         crate::game_logic::host_ai_decision_log::record_stop_attack(cid);
                     }
                     clears = clears.saturating_add(1);
-                } else if let Some((tx, tz)) = aim_xz {
-                    // C++ AIM continuous aim residual while mood target held.
-                    let (aim_a, aim_p) =
-                        strategy_center_turret_aim_at(fire_pos.x, fire_pos.z, tx, tz);
+                } else {
+                    // AIM owns continuous rate-limited rotation. Keep only the
+                    // established host engagement bookkeeping in this late pass.
                     if let Some(o) = self.objects.get_mut(&cid) {
-                        o.turret_angle_deg = aim_a;
-                        o.record_host_turret();
-                        o.turret_pitch_deg = aim_p;
-                        o.record_host_turret();
                         o.set_status_attacking(true);
                         let entered_attack = o.ai_state != AIState::Attacking;
                         if entered_attack {
@@ -573,137 +728,7 @@ impl GameLogic {
                         }
                     }
                 }
-                continue; // no re-acquire this frame while mood flag set
             }
-
-            // Passive WaitForAttack: only retaliate vs last_damage_source residual.
-            let passive_last = last_dmg.is_some();
-            if !strategy_center_mood_target_eligible_with_attitude(
-                true,
-                true,
-                busy_non_mood,
-                has_mood,
-                attitude,
-                passive_last,
-            ) {
-                continue;
-            }
-
-            // Find residual mood target: Passive uses last damage source only
-            // (C++ getNextMoodTarget Passive branch); else nearest legal enemy.
-            // Partition vision residual gates acquire distance.
-            let mut best: Option<(ObjectId, f32, f32, f32)> = None; // id, dist, x, z
-            if attitude.idle_mood_wait_for_attack() {
-                if let Some(tid) = last_dmg {
-                    if tid != cid {
-                        if let Some(other) = self.objects.get(&tid) {
-                            let op = other.get_position();
-                            let dx = op.x - fire_pos.x;
-                            let dz = op.z - fire_pos.z;
-                            let dist = (dx * dx + dz * dz).sqrt();
-                            let is_air =
-                                other.is_kind_of(KindOf::Aircraft) || other.status.airborne_target;
-                            if strategy_center_mood_target_enemy_legal_with_vision(
-                                other.is_alive(),
-                                other.team == team,
-                                other.team == Team::Neutral,
-                                other.status.under_construction,
-                                is_air,
-                                dist,
-                                vision_range,
-                            ) {
-                                best = Some((tid, dist, op.x, op.z));
-                            }
-                        }
-                    }
-                }
-            } else {
-                // Pure residual acquire: nearest legal enemy in mood vision (XZ).
-                let candidates: Vec<_> = self
-                    .objects
-                    .iter()
-                    .map(|(&oid, other)| {
-                        crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
-                            id: oid,
-                            team: other.team,
-                            position: other.get_position(),
-                            is_alive: other.is_alive(),
-                            is_neutral: other.team == Team::Neutral,
-                            under_construction: other.status.under_construction,
-                            combat_kind: true,
-                            effectively_stealthed: other.is_effectively_stealthed(),
-                            is_air: other.is_kind_of(KindOf::Aircraft)
-                                || other.status.airborne_target,
-                            eject_invulnerable: other.is_eject_invulnerable(),
-                        }
-                    })
-                    .collect();
-                best = crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
-                    Some(cid),
-                    (fire_pos.x, fire_pos.z),
-                    candidates,
-                    vision_range,
-                    |c| {
-                        let dist = {
-                            let dx = c.position.x - fire_pos.x;
-                            let dz = c.position.z - fire_pos.z;
-                            (dx * dx + dz * dz).sqrt()
-                        };
-                        strategy_center_mood_target_enemy_legal_with_vision(
-                            c.is_alive,
-                            c.team == team,
-                            c.is_neutral,
-                            c.under_construction,
-                            c.is_air,
-                            dist,
-                            vision_range,
-                        )
-                    },
-                )
-                .map(|(id, dist, _)| {
-                    let p = self
-                        .objects
-                        .get(&id)
-                        .map(|o| o.get_position())
-                        .unwrap_or(fire_pos);
-                    (id, dist, p.x, p.z)
-                });
-            }
-            if let Some((tid, _, tx, tz)) = best {
-                let (aim_a, aim_p) = strategy_center_turret_aim_at(fire_pos.x, fire_pos.z, tx, tz);
-                let mut entered_attack = false;
-                if let Some(o) = self.objects.get_mut(&cid) {
-                    o.note_attack_target(tid);
-                    o.turret_mood_target = true;
-                    o.turret_angle_deg = aim_a;
-                    o.record_host_turret();
-                    o.turret_pitch_deg = aim_p;
-                    o.record_host_turret();
-                    o.turret_idle_scanning = false;
-                    o.record_host_turret();
-                    o.turret_holding = false;
-                    o.record_host_turret();
-                    o.turret_hold_until_frame = 0;
-                    o.turret_idle_recentering = false;
-                    entered_attack = !matches!(
-                        o.ai_state,
-                        AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
-                    );
-                    if entered_attack {
-                        o.set_ai_state(AIState::Attacking);
-                    }
-                }
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                    crate::game_logic::host_ai_decision_log::record_attack(cid, tid);
-                    if entered_attack {
-                        crate::game_logic::host_ai_decision_log::record_set_state(cid, 2);
-                    }
-                }
-                acquires = acquires.saturating_add(1);
-            }
-        }
-        for _ in 0..acquires {
-            self.battle_plans.record_turret_mood_target_acquire();
         }
         for _ in 0..clears {
             self.battle_plans.record_turret_mood_target_clear();

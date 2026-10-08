@@ -207,8 +207,8 @@ impl AIManager {
     ///
     /// The caller supplies restored player teams because save rows identify an
     /// AI by player id, while team ownership remains part of `PlayerSnapshot`.
-    /// For older saves with no rows, the caller registers this match's
-    /// opponents from its restored players; it does not drive a global AI.
+    /// Empty rows replace this manager's roster with no controllers. Both
+    /// accepted world schemas serialize that absence explicitly.
     pub fn restore_players_from_save(
         &mut self,
         snapshots: &[crate::save_load::AIPlayerSnapshot],

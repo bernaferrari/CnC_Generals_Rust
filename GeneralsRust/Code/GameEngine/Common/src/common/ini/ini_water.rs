@@ -1119,13 +1119,33 @@ mod tests {
     }
 
     #[test]
-    fn retail_water_ini_parses_final_end_without_newline() {
+    fn water_transparency_parses_final_end_without_newline() {
         initialize_water_settings();
-        let src = include_str!(
-            "../../../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/Water.ini"
-        );
+        let lock = get_water_transparency().expect("transparency store");
+        let original = {
+            let mut guard = lock.write().expect("write");
+            std::mem::replace(&mut *guard, WaterTransparencySetting::new())
+        };
+        let src = "WaterTransparency\nTransparentWaterDepth = 7.25\nStandingWaterTexture = SyntheticWater.tga\nEnd";
         let mut ini = crate::common::ini::ini::INI::new();
         ini.with_inline_source(src, |ini| ini.parse_current_file())
+            .expect("synthetic WaterTransparency block without trailing newline");
+        let mut guard = lock.write().expect("write");
+        assert!((guard.transparent_water_depth - 7.25).abs() < 0.001);
+        assert_eq!(guard.standing_water_texture.as_str(), "SyntheticWater.tga");
+        *guard = original;
+    }
+
+    #[test]
+    #[ignore = "requires locally supplied retail INIZH/Data/INI/Water.ini"]
+    fn retail_water_ini_parses_final_end_without_newline() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/Water.ini");
+        let src = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("read retail {}: {error}", path.display()));
+        initialize_water_settings();
+        let mut ini = crate::common::ini::ini::INI::new();
+        ini.with_inline_source(&src, |ini| ini.parse_current_file())
             .expect("retail Water.ini");
         let lock = get_water_transparency().expect("transparency store");
         let guard = lock.read().expect("read");

@@ -66,8 +66,9 @@
 //!
 //! - **TurretAI idle mood-target residual** (Bombardment ACTIVE idle gun):
 //!   C++ `friend_checkForIdleMoodTarget` acquires an enemy in StrategyCenterGun
-//!   range band (min **100** / max **400**), sets turret target + FirePitch aim,
-//!   flags `m_targetWasSetByIdleMood`. Mood target leaving range / dying clears
+//!   range band (min **100** / max **400**), sets the turret target and flags
+//!   `m_targetWasSetByIdleMood`; the next turret AIM update owns yaw/FirePitch.
+//!   Mood target leaving range / dying clears
 //!   the target so IDLESCAN can resume.
 //!
 //! - **TurretAI mood matrix Sleep/Passive residual** (AttitudeType):

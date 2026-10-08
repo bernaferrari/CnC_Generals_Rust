@@ -60,7 +60,7 @@ impl CombatSystem {
         std::mem::take(&mut self.pending_on_die)
     }
 
-    fn note_kill_for_on_die(
+    pub(in crate::game_logic) fn note_kill_for_on_die(
         &mut self,
         id: ObjectId,
         before_hp: f32,
@@ -78,7 +78,7 @@ impl CombatSystem {
     /// the type is not DAMAGE_PENALTY / DAMAGE_HEALING. Local-player,
     /// sourcePlayerMask, and radar-data gates run in
     /// `GameLogic::try_under_attack_from_damage`.
-    fn queue_under_attack_if_dealt(
+    pub(in crate::game_logic) fn queue_under_attack_if_dealt(
         &mut self,
         victim_id: ObjectId,
         damage_type: DamageType,
@@ -406,13 +406,31 @@ impl CombatSystem {
         &mut self,
         dt: f32,
         objects: &mut HashMap<ObjectId, Object>,
-        mut countermeasures: Option<
+        countermeasures: Option<
             &mut crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
         >,
         frame: u32,
         players: Option<&HashMap<u32, crate::game_logic::Player>>,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) -> Vec<ObjectId> {
+        let (damage_events, projectiles_to_remove) =
+            self.prepare_projectile_impacts(dt, objects, countermeasures, frame);
+        self.apply_damage_events(&damage_events, objects, players, team_factory, frame);
+        self.retire_projectile_impacts(&projectiles_to_remove);
+        projectiles_to_remove
+    }
+
+    /// Collect the original flight batch before any impact damage is applied.
+    /// Keep its ID snapshot, encounter order, and flight-side mutations intact.
+    pub(in crate::game_logic) fn prepare_projectile_impacts(
+        &mut self,
+        dt: f32,
+        objects: &mut HashMap<ObjectId, Object>,
+        mut countermeasures: Option<
+            &mut crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
+        >,
+        frame: u32,
+    ) -> (Vec<DamageEvent>, Vec<ObjectId>) {
         let projectile_ids: Vec<ObjectId> = self.projectiles.keys().copied().collect();
         let historic_damage_limit = game_engine::common::global_data::read().historic_damage_limit;
 
@@ -779,24 +797,28 @@ impl CombatSystem {
             }
         }
 
-        self.apply_damage_events(&damage_events, objects, players, team_factory, frame);
+        (damage_events, projectiles_to_remove)
+    }
 
+    /// Retirement stays after completion of the entire collected event batch.
+    pub(in crate::game_logic) fn retire_projectile_impacts(
+        &mut self,
+        projectiles_to_remove: &[ObjectId],
+    ) {
         // Remove expired/hit projectiles.  Under coupled GameWorld flight
         // authority, publish an explicit inactive residual here: a later
         // active-only snapshot cannot otherwise tell the shadow that a host
         // KILL_SELF delay (or ordinary impact) has actually completed.
-        for proj_id in &projectiles_to_remove {
+        for proj_id in projectiles_to_remove {
             if self.projectiles.remove(proj_id).is_some()
                 && crate::gameworld_shadow::gameworld_projectile_authority_live()
             {
                 crate::game_logic::host_projectile_log::record_retired(proj_id.0);
             }
         }
-
-        projectiles_to_remove
     }
 
-    fn apply_damage_events(
+    pub(in crate::game_logic) fn apply_damage_events(
         &mut self,
         damage_events: &[DamageEvent],
         objects: &mut HashMap<ObjectId, Object>,
@@ -1019,6 +1041,19 @@ impl CombatSystem {
         frame: u32,
         historic_damage_limit: u32,
     ) {
+        let events =
+            self.prepare_projectileless_delayed_shot(shot, objects, frame, historic_damage_limit);
+        self.apply_damage_events(&events, objects, players, None, frame);
+    }
+
+    /// Prepare just this impact; the owner completes it before preparing another.
+    pub(in crate::game_logic) fn prepare_projectileless_delayed_shot(
+        &mut self,
+        shot: &LiveProjectilelessDelayedDamage,
+        objects: &HashMap<ObjectId, Object>,
+        frame: u32,
+        historic_damage_limit: u32,
+    ) -> Vec<DamageEvent> {
         let p = &shot.pending;
         let mut proj = Projectile::new(
             ObjectId(0),
@@ -1095,7 +1130,7 @@ impl CombatSystem {
                 source_velocity: Vec3::ZERO,
             });
         }
-        self.apply_damage_events(&events, objects, players, None, frame);
+        events
     }
 
     /// Check if projectile collides with something

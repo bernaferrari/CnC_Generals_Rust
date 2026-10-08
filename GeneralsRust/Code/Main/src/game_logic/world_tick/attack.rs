@@ -213,6 +213,9 @@ impl GameLogic {
             };
             // Host-immediate: aim enter on the next line reads `target` this frame.
             // The decision log below is in addition to these writes, not instead of them.
+            // A real body attack takes ownership from independent turret mood,
+            // even when the command keeps the same goal (TurretAI.cpp:565-566).
+            u.turret_mood_target = false;
             u.attack_substate = crate::game_logic::AttackSubState::AimAtTarget;
             if u.max_shots_to_fire == 0 {
                 u.max_shots_to_fire = -1;
@@ -275,6 +278,16 @@ impl GameLogic {
                     continue;
                 };
                 if u.ai_state != AIState::Attacking {
+                    continue;
+                }
+                // Strategy's host Attacking/firing bits also describe its
+                // independent mood turret. They do not admit a body attack
+                // machine; an actual attack_state_enter clears this flag.
+                if u.turret_mood_target
+                    && (crate::game_logic::host_strategy_center::is_strategy_center_template(
+                        &u.template_name,
+                    ) || u.is_kind_of(KindOf::FSStrategyCenter))
+                {
                     continue;
                 }
                 let sm_owned = u.status.is_aiming_weapon
@@ -886,6 +899,14 @@ impl GameLogic {
     /// C++ TurretAI::friend_checkForIdleMoodTarget (TurretAI.cpp:855-876).
     /// Leftover `turret.rs` friend_check_for_idle_mood_target: PreferMostDamage FromAi.
     fn turret_check_for_idle_mood_target(&mut self, unit_id: ObjectId, current_time: f32) {
+        let strategy_center = self.objects.get(&unit_id).is_some_and(|u| {
+            crate::game_logic::host_strategy_center::is_strategy_center_template(&u.template_name)
+                || u.is_kind_of(KindOf::FSStrategyCenter)
+        });
+        if strategy_center {
+            self.acquire_strategy_center_turret_mood_target(unit_id, current_time);
+            return;
+        }
         use mood_action_adjust::AFFECT_RANGE_IGNORE_ALL;
         let adj = self.get_mood_matrix_action_adjustment(unit_id, MoodMatrixAction::Idle, false);
         if adj & AFFECT_RANGE_IGNORE_ALL != 0 {
@@ -1257,11 +1278,25 @@ impl GameLogic {
                         }
                         return AttackAimResult::Continue;
                     }
-                    let fire = self.attack_fire_weapon_update(unit_id, vid, current_time);
+                    // Preserve the existing discharge authority: Strategy mood
+                    // owns its residual effects/HP; explicit attacks keep the
+                    // generic weapon/projectile route. Both consume this AIM goal.
+                    let strategy_mood = self.objects.get(&unit_id).is_some_and(|u| {
+                        u.turret_mood_target
+                            && (crate::game_logic::host_strategy_center::is_strategy_center_template(
+                                &u.template_name,
+                            ) || u.is_kind_of(KindOf::FSStrategyCenter))
+                    });
+                    let fire = if strategy_mood {
+                        self.try_strategy_center_bombardment_turret_fire(unit_id)
+                    } else {
+                        self.attack_fire_weapon_update(unit_id, vid, current_time)
+                    };
                     match fire {
                         AttackFireResult::Continue => AttackAimResult::Continue,
                         AttackFireResult::Success | AttackFireResult::Failure => {
-                            if matches!(fire, AttackFireResult::Success) {
+                            if matches!(fire, AttackFireResult::Success) && !strategy_mood {
+                                // Strategy residual already notifies exactly once.
                                 self.notify_turret_fired(unit_id);
                             }
                             self.attack_fire_weapon_exit(unit_id);
@@ -1656,6 +1691,19 @@ impl GameLogic {
 
         // Ensure turret tracks the same victim (C++ setTurretTargetObject).
         self.set_turret_target_object(unit_id, Some(victim_id), false);
+
+        // AIStates.cpp:4998-5020: a weapon on a turning turret never succeeds
+        // through body AIM. Its ordinary turret update owns rotation and FIRE.
+        // Zero-turn/fake turrets and slots outside that turret still fall through.
+        let turning_turret = self.objects.get(&unit_id).is_some_and(|u| {
+            u.is_alive()
+                && u.selected_weapon_slot()
+                    .is_some_and(|slot| u.is_weapon_slot_on_turret(slot))
+                && u.turret_turn_rate_rad != 0.0
+        });
+        if turning_turret {
+            return AttackAimResult::Continue;
+        }
 
         let (body_aimed, range_ok, turret_enabled) = {
             let Some(u) = self.objects.get_mut(&unit_id) else {
@@ -2432,8 +2480,21 @@ impl GameLogic {
         if self.attack_state_enter(unit_id, victim_id) == AttackMachineResult::Failure {
             return false;
         }
-        // Prefer attack path if out of range / LOS blocked residual handled by assign.
-        let _ = self.request_attack_path(unit_id, Some(victim_id), victim_pos);
+        // AIUpdate.cpp:3395-3417 only installs the attack state/goal. An
+        // already-in-range turning turret must not manufacture a movement path
+        // while its AIM state owns the shot. Keep existing fallback and chase
+        // requests unchanged, and do not clear a previously installed path.
+        let selected_turning_turret = self.objects.get(&unit_id).is_some_and(|u| {
+            u.selected_weapon_slot()
+                .is_some_and(|slot| u.is_weapon_slot_on_turret(slot))
+                && u.turret_turn_rate_rad != 0.0
+        });
+        let turret_aim_only = selected_turning_turret
+            && !self.out_of_weapon_range_object(unit_id, victim_id)
+            && !self.want_to_squish_target(unit_id, victim_id);
+        if !turret_aim_only {
+            let _ = self.request_attack_path(unit_id, Some(victim_id), victim_pos);
+        }
         true
     }
 

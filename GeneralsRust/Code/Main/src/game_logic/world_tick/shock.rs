@@ -419,7 +419,6 @@ impl GameLogic {
             })
             .collect();
         let mut hits = 0u32;
-        let mut destroy: Vec<ObjectId> = Vec::new();
         for (id, dist) in candidates {
             let dmg = if primary_radius > 0.0 && dist <= primary_radius {
                 primary_damage
@@ -431,7 +430,9 @@ impl GameLogic {
             if dmg <= 0.0 {
                 continue;
             }
-            if let Some(obj) = self.objects.get_mut(&id) {
+            // Earlier victims may synchronously kill another snapshotted
+            // candidate through onDie. Re-fetch instead of replaying that hit.
+            if self.objects.get(&id).is_some_and(|obj| obj.is_alive()) {
                 let damage_type = weapon_name
                     .map(crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name)
                     // C++ WeaponTemplate ctor defaults m_damageType to
@@ -442,21 +443,29 @@ impl GameLogic {
                     weapon_name,
                     damage_type,
                 );
-                let dead = obj.take_damage_from_typed_death(
-                    dmg,
-                    Some(attacker_id),
+                let context = crate::game_logic::object::DamageHitContext::new(
+                    self.objects.get(&attacker_id),
+                    weapon_name,
                     damage_type,
-                    death_type,
                 );
-                hits = hits.saturating_add(1);
-                if dead {
-                    destroy.push(id);
+                // C++ Weapon::dealDamageInternal completes each attemptDamage:
+                // body callbacks -> scoreTheKill -> onDie -> fresh-source FX.
+                if self
+                    .apply_owned_damage_with_killer_team(
+                        id,
+                        dmg,
+                        Some(attacker_id),
+                        damage_type,
+                        death_type,
+                        None,
+                        &context,
+                        Some(attacker_team),
+                    )
+                    .is_some()
+                {
+                    hits = hits.saturating_add(1);
                 }
             }
-        }
-        for id in destroy {
-            self.award_score_the_kill_experience(attacker_id, id);
-            self.mark_object_for_destruction(id, Some(attacker_team));
         }
         let source_pos = self
             .objects
@@ -586,7 +595,6 @@ impl GameLogic {
             })
             .collect();
         let mut hits = 0u32;
-        let mut destroy: Vec<ObjectId> = Vec::new();
         for (id, dist) in candidates {
             let dmg = if dist <= primary_r {
                 primary_dmg
@@ -596,7 +604,9 @@ impl GameLogic {
             if dmg <= 0.0 {
                 continue;
             }
-            if let Some(obj) = self.objects.get_mut(&id) {
+            // Earlier victims may synchronously kill another snapshotted
+            // candidate through onDie. Re-fetch instead of replaying that hit.
+            if self.objects.get(&id).is_some_and(|obj| obj.is_alive()) {
                 let damage_type = weapon_name
                     .map(crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name)
                     // C++ WeaponTemplate ctor defaults m_damageType to
@@ -607,21 +617,29 @@ impl GameLogic {
                     weapon_name,
                     damage_type,
                 );
-                let dead = obj.take_damage_from_typed_death(
-                    dmg,
-                    Some(attacker_id),
+                let context = crate::game_logic::object::DamageHitContext::new(
+                    self.objects.get(&attacker_id),
+                    weapon_name,
                     damage_type,
-                    death_type,
                 );
-                hits = hits.saturating_add(1);
-                if dead {
-                    destroy.push(id);
+                // C++ Weapon::dealDamageInternal completes each attemptDamage:
+                // body callbacks -> scoreTheKill -> onDie -> fresh-source FX.
+                if self
+                    .apply_owned_damage_with_killer_team(
+                        id,
+                        dmg,
+                        Some(attacker_id),
+                        damage_type,
+                        death_type,
+                        None,
+                        &context,
+                        Some(attacker_team),
+                    )
+                    .is_some()
+                {
+                    hits = hits.saturating_add(1);
                 }
             }
-        }
-        for id in destroy {
-            self.award_score_the_kill_experience(attacker_id, id);
-            self.mark_object_for_destruction(id, Some(attacker_team));
         }
         let source_pos = self
             .objects

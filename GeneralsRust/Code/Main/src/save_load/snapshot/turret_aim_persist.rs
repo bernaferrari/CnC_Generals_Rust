@@ -138,7 +138,7 @@ fn object_has_turret_residual(object: &crate::game_logic::Object) -> bool {
 fn reset_turret_aim(game_logic: &mut GameLogic) {
     let ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
     for id in ids {
-        let Some(object) = game_logic.host_object_mut(id) else {
+        let Some(object) = game_logic.host_objects_mut().get_mut(&id) else {
             continue;
         };
         // Keep constructed natural angle/pitch/enabled so old saves without a

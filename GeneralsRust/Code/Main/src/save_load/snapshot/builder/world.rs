@@ -299,7 +299,12 @@ impl SnapshotBuilder {
         self.restore_weather(&snapshot.weather, game_logic)?;
         self.restore_resource_manager(&snapshot.resource_manager, game_logic)?;
         self.restore_combat_tracker(&snapshot.combat_tracker, game_logic)?;
-        self.restore_global_ai_state(&snapshot.global_ai_state, game_logic)?;
+        // Both accepted world versions (23/24) explicitly serialize the AI
+        // roster. An empty roster must not run skirmish constructors, which
+        // would invent controllers and overwrite saved player build flags.
+        if !snapshot.ai_players.is_empty() {
+            self.restore_global_ai_state(&snapshot.global_ai_state, game_logic)?;
+        }
         self.restore_ai_players(&snapshot.ai_players, game_logic)?;
         self.restore_special_power_strikes(&snapshot.special_power_strikes, game_logic)?;
         self.restore_combat_particles(&snapshot.combat_particles, game_logic)?;
@@ -545,6 +550,11 @@ impl SnapshotBuilder {
         game_logic
             .combat_system
             .restore_pending_combat(&snapshot.pending_combat);
+
+        // Energy::xfer deliberately omits derived production/consumption.
+        // Rebuild only after all object/status tails (including disabled_held)
+        // are transferred, before the first script/construction observer.
+        game_logic.restore_player_power();
 
         log::info!("World restoration complete");
         Ok(())

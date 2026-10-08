@@ -1167,18 +1167,6 @@ impl GameLogic {
                             // (Locomotor.cpp:932). Maintain-hover is the zero-delta arm.
                             obj.maintain_pos_valid = false;
                             let mut desired_angle = (-direction.z).atan2(direction.x);
-                            // C++ legs wander (Locomotor.cpp:1618). Climb never does.
-                            let wander_enabled =
-                                !matches!(obj.loco_appearance, LocomotorAppearance::Climber)
-                                    && (obj.wander_width_factor != 0.0
-                                        || matches!(
-                                            obj.loco_appearance,
-                                            LocomotorAppearance::LegsTwo
-                                        ));
-                            if wander_enabled {
-                                let actual = obj.movement.velocity.length();
-                                desired_angle += obj.tick_wander_angle_offset(actual);
-                            }
                             // C++ AIUpdate.cpp:2145-2148. FAST_AS_POSSIBLE stays at max.
                             // Climb flags live in moveTowardsPositionClimb, after the blocked return.
                             let mut speed = obj.effective_max_speed();
@@ -1267,14 +1255,6 @@ impl GameLogic {
                                     obj.climber_slope_speed_scale(current_pos.y, climber_ahead_y);
                             }
 
-                            let current_angle = obj.get_orientation();
-                            let mut delta = desired_angle - current_angle;
-                            while delta > std::f32::consts::PI {
-                                delta -= std::f32::consts::TAU;
-                            }
-                            while delta < -std::f32::consts::PI {
-                                delta += std::f32::consts::TAU;
-                            }
                             let dist = horiz(current_pos, flat_target);
                             // C++ Path::computePointOnPath distAlongPath (AIPathfind.cpp:997)
                             // then locoUpdate_moveTowardsPosition raise (Locomotor.cpp:980-992).
@@ -1452,6 +1432,36 @@ impl GameLogic {
                                     }
                                 }
                                 break 'unit;
+                            }
+                            // C++ Legs keeps its signed component-product speed
+                            // from before wander/rotation for the later force
+                            // (Locomotor.cpp:1612,1660). Other appearances retain
+                            // their existing force sampling below.
+                            let legs_forward_speed = (allow_2d_motive
+                                && matches!(obj.loco_appearance, LocomotorAppearance::LegsTwo))
+                            .then(|| obj.forward_speed_2d());
+                            // C++ moveTowardsPositionLegs (Locomotor.cpp:1596-1633):
+                            // wander runs only for admitted two-leg motive movement,
+                            // after the blocked, airborne and downhill gates. Preserve
+                            // phase on skipped frames, including its direction flag.
+                            if allow_2d_motive
+                                && matches!(obj.loco_appearance, LocomotorAppearance::LegsTwo)
+                                && obj.wander_width_factor != 0.0
+                            {
+                                // The original signed component-product speed is in
+                                // distance/frame. This host helper returns distance/sec;
+                                // adapt the scalar, without changing its other callers.
+                                let actual = obj.forward_speed_2d()
+                                    * game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL;
+                                desired_angle += obj.tick_wander_angle_offset(actual);
+                            }
+                            let current_angle = obj.get_orientation();
+                            let mut delta = desired_angle - current_angle;
+                            while delta > std::f32::consts::PI {
+                                delta -= std::f32::consts::TAU;
+                            }
+                            while delta < -std::f32::consts::PI {
+                                delta += std::f32::consts::TAU;
                             }
                             // C++ moveTowardsPositionTreads/Legs/Climb angleCoeff
                             // (Locomotor.cpp:1170-1180, 1638-1646, 1760-1767).
@@ -1632,6 +1642,19 @@ impl GameLogic {
                                     && obj.ultra_accurate_slide_factor > 0.0
                                     && (flat_target.x - current_pos.x).abs() <= slide_thresh
                                     && (flat_target.z - current_pos.z).abs() <= slide_thresh;
+                                // C++ Other caches its force direction before rotation
+                                // (Locomotor.cpp:2346), except the close slide override.
+                                // The close slide retains its existing scalar sampling.
+                                let other_force_direction = (!sliding
+                                    && matches!(obj.loco_appearance, LocomotorAppearance::Other))
+                                .then(|| {
+                                    let entry = obj.unit_direction_vector_2d();
+                                    glam::Vec3::new(entry.x, 0.0, entry.y)
+                                });
+                                // Normal Other retains signed entry speed (C++ :2337).
+                                // The preceding approach phase changes goal speed only.
+                                let other_forward_speed =
+                                    other_force_direction.map(|_| obj.forward_speed_2d());
                                 let new_angle = if sliding {
                                     current_angle
                                 } else {
@@ -1659,11 +1682,14 @@ impl GameLogic {
                                 } else {
                                     glam::Vec3::new(new_angle.cos(), 0.0, -new_angle.sin())
                                 };
+                                let force_direction = other_force_direction.unwrap_or(heading);
                                 let accel = obj.effective_acceleration();
                                 // Host speed is dist/sec. C++ speedDelta is dist/frame
                                 // and m_vel += m_accel has no extra dt, so one host
                                 // frame adds min(A*dt, gap) along the force direction.
-                                let forward = obj.movement.velocity.dot(heading);
+                                let forward = legs_forward_speed
+                                    .or(other_forward_speed)
+                                    .unwrap_or_else(|| obj.movement.velocity.dot(heading));
                                 let speed_delta = signed_speed - forward;
                                 if speed_delta != 0.0 {
                                     let brake_accel = if matches!(
@@ -1702,7 +1728,7 @@ impl GameLogic {
                                     } else {
                                         -step
                                     };
-                                    obj.movement.velocity += heading * applied;
+                                    obj.movement.velocity += force_direction * applied;
                                 }
                                 obj.invalidate_velocity_magnitude();
                                 obj.record_host_movement();
@@ -2305,12 +2331,7 @@ impl GameLogic {
             &self.objects,
             self.frame,
         );
-        crate::game_logic::combat::apply_ready_projectileless_delayed_damage(
-            &mut self.combat_system,
-            &mut self.objects,
-            self.frame,
-            Some(&self.players),
-        );
+        self.apply_owned_projectileless_delayed_damage();
         self.execute_pending_weapon_fire_ocls();
     }
 

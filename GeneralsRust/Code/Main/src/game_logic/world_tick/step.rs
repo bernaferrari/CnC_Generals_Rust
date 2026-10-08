@@ -1137,12 +1137,7 @@ impl GameLogic {
                 self.frame,
             );
         }
-        crate::game_logic::combat::apply_ready_projectileless_delayed_damage(
-            &mut self.combat_system,
-            &mut self.objects,
-            self.frame,
-            Some(&self.players),
-        );
+        self.apply_owned_projectileless_delayed_damage();
 
         // C++ Weapon::fireWeaponTemplate runs FireOCL at shot acceptance,
         // independently of whether the projectile later finds a target.
@@ -1163,14 +1158,7 @@ impl GameLogic {
             // Defer integrate+hits to shadow_session (GW step + writeback + hits).
             Vec::new()
         } else {
-            let hits = self.combat_system.update_projectiles_with_relationships(
-                dt,
-                &mut self.objects,
-                Some(&mut self.countermeasures),
-                self.frame,
-                Some(&self.players),
-                Some(&self.team_factory),
-            );
+            let hits = self.update_owned_projectile_impacts(dt);
             crate::game_logic::host_projectile_log::record_snapshot(
                 self.combat_system.projectiles_snapshot(),
             );
@@ -1423,12 +1411,7 @@ impl GameLogic {
         // -----------------------------------------------------------------------
         // C++: TheWeaponStore->UPDATE();
         // Process delayed weapon damage that is now ready.
-        crate::game_logic::combat::apply_ready_projectileless_delayed_damage(
-            &mut self.combat_system,
-            &mut self.objects,
-            self.frame,
-            Some(&self.players),
-        );
+        self.apply_owned_projectileless_delayed_damage();
         match with_weapon_store_mut(|store| store.take_due_delayed_damage()) {
             Ok(due) => {
                 for info in due {

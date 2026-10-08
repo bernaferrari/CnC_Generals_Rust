@@ -15,10 +15,9 @@ impl XferSnapshotTrait for GameLogicSnapshotBridge {
         Ok(())
     }
 
-
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
         let mut guard = self.logic.lock().map_err(|_| XferStatus::InvalidData)?;
-        xfer_game_logic_state(&mut guard, xfer)
+        guard.xfer_native_snapshot(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), XferStatus> {
@@ -239,7 +238,6 @@ impl XferSnapshotTrait for TeamFactorySnapshotBridge {
         xfer_team_factory_load_post_process()
     }
 }
-
 
 struct SidesListSnapshotBridge;
 

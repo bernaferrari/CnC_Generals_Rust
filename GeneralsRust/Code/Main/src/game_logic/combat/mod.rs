@@ -12,6 +12,7 @@ include!("damage.rs");
 include!("projectile.rs");
 include!("weapon_fire.rs");
 include!("resolution.rs");
+include!("queued_area.rs");
 include!("pending_snapshot.rs");
 
 #[cfg(test)]

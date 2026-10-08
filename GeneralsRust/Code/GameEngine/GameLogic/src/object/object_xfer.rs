@@ -5,6 +5,46 @@
 use super::object_impl_imports::*;
 use super::*;
 
+/// Context for a failed Object behavior-module transfer.
+///
+/// A failure can follow earlier state changes and stream reads or writes. This
+/// error does not imply rollback or a transactional Object transfer.
+#[derive(Debug)]
+pub struct ObjectXferError {
+    pub object_id: ObjectID,
+    pub module_tag: Option<String>,
+    pub operation: &'static str,
+    pub detail: String,
+}
+
+impl ObjectXferError {
+    fn new(
+        object_id: ObjectID,
+        module_tag: Option<&str>,
+        operation: &'static str,
+        detail: impl ToString,
+    ) -> Self {
+        Self {
+            object_id,
+            module_tag: module_tag.map(str::to_owned),
+            operation,
+            detail: detail.to_string(),
+        }
+    }
+}
+
+impl fmt::Display for ObjectXferError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Object {}", self.object_id)?;
+        if let Some(tag) = &self.module_tag {
+            write!(f, " module '{tag}'")?;
+        }
+        write!(f, " {} failed: {}", self.operation, self.detail)
+    }
+}
+
+impl std::error::Error for ObjectXferError {}
+
 fn xfer_matrix3d(xfer: &mut dyn Xfer, matrix: &mut Matrix3D) {
     // C++ Xfer::xferMatrix3D: version byte + 3 rows × 4 Reals (Object.cpp:4025, Xfer.cpp:818-843).
     let current_version: u8 = 1;
@@ -491,136 +531,111 @@ impl Object {
         xfer: &mut dyn Xfer,
         tag: &str,
         helper: &mut H,
-    ) {
+    ) -> Result<(), ObjectXferError> {
         let mut module_identifier = tag.to_string();
-        let _ = xfer.xfer_ascii_string(&mut module_identifier);
-        if xfer.begin_block().is_ok() {
-            if let Err(err) = EngineSnapshotable::xfer(helper, xfer) {
-                warn!(
-                    "Object::xfer {} failed for object {}: {}",
-                    tag, object_id, err
-                );
-            }
-            let _ = xfer.end_block();
-        }
+        xfer.xfer_ascii_string(&mut module_identifier)
+            .map_err(|err| ObjectXferError::new(object_id, Some(tag), "module_tag", err))?;
+        xfer.begin_block().map_err(|err| {
+            ObjectXferError::new(object_id, Some(tag), "begin_block", format!("{err:?}"))
+        })?;
+        EngineSnapshotable::xfer(helper, xfer)
+            .map_err(|err| ObjectXferError::new(object_id, Some(tag), "helper_xfer", err))?;
+        xfer.end_block().map_err(|err| {
+            ObjectXferError::new(object_id, Some(tag), "end_block", format!("{err:?}"))
+        })
     }
 
-    fn xfer_helper_by_tag(&mut self, xfer: &mut dyn Xfer, tag: &str) -> bool {
+    fn xfer_helper_by_tag(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        tag: &str,
+    ) -> Result<bool, ObjectXferError> {
         let object_id = self.id;
+        let helper_error = |err| ObjectXferError::new(object_id, Some(tag), "helper_xfer", err);
         match tag {
             HELPER_TAG_SMC => {
                 if let Some(helper) = &mut self.smc_helper {
-                    if let Err(err) = EngineSnapshotable::xfer(helper, xfer) {
-                        warn!(
-                            "Object::xfer load {} failed for object {}: {}",
-                            tag, object_id, err
-                        );
-                    }
-                    return true;
+                    EngineSnapshotable::xfer(helper, xfer).map_err(helper_error)?;
+                    return Ok(true);
                 }
             }
             HELPER_TAG_STATUS => {
                 if let Some(helper) = &mut self.status_damage_helper {
-                    if let Err(err) = EngineSnapshotable::xfer(helper.as_mut(), xfer) {
-                        warn!(
-                            "Object::xfer load {} failed for object {}: {}",
-                            tag, object_id, err
-                        );
-                    }
-                    return true;
+                    EngineSnapshotable::xfer(helper.as_mut(), xfer).map_err(helper_error)?;
+                    return Ok(true);
                 }
             }
             HELPER_TAG_SUBDUAL => {
                 if let Some(helper) = &mut self.subdual_damage_helper {
-                    if let Err(err) = EngineSnapshotable::xfer(helper.as_mut(), xfer) {
-                        warn!(
-                            "Object::xfer load {} failed for object {}: {}",
-                            tag, object_id, err
-                        );
-                    }
-                    return true;
+                    EngineSnapshotable::xfer(helper.as_mut(), xfer).map_err(helper_error)?;
+                    return Ok(true);
                 }
             }
             HELPER_TAG_REPULSOR => {
                 if let Some(helper) = &mut self.repulsor_helper {
-                    if let Err(err) = EngineSnapshotable::xfer(helper, xfer) {
-                        warn!(
-                            "Object::xfer load {} failed for object {}: {}",
-                            tag, object_id, err
-                        );
-                    }
-                    return true;
+                    EngineSnapshotable::xfer(helper, xfer).map_err(helper_error)?;
+                    return Ok(true);
                 }
             }
             HELPER_TAG_DEFECTION => {
                 if let Some(helper) = &mut self.defection_helper {
-                    if let Err(err) = EngineSnapshotable::xfer(helper, xfer) {
-                        warn!(
-                            "Object::xfer load {} failed for object {}: {}",
-                            tag, object_id, err
-                        );
-                    }
-                    return true;
+                    EngineSnapshotable::xfer(helper, xfer).map_err(helper_error)?;
+                    return Ok(true);
                 }
             }
             HELPER_TAG_WEAPON_STATUS => {
                 if let Some(helper) = &mut self.ws_helper {
-                    if let Err(err) = EngineSnapshotable::xfer(helper.as_mut(), xfer) {
-                        warn!(
-                            "Object::xfer load {} failed for object {}: {}",
-                            tag, object_id, err
-                        );
-                    }
-                    return true;
+                    EngineSnapshotable::xfer(helper.as_mut(), xfer).map_err(helper_error)?;
+                    return Ok(true);
                 }
             }
             HELPER_TAG_FIRING_TRACKER => {
                 if let Some(helper) = &mut self.firing_tracker {
-                    if let Err(err) = EngineSnapshotable::xfer(helper.as_mut(), xfer) {
-                        warn!(
-                            "Object::xfer load {} failed for object {}: {}",
-                            tag, object_id, err
-                        );
-                    }
-                    return true;
+                    EngineSnapshotable::xfer(helper.as_mut(), xfer).map_err(helper_error)?;
+                    return Ok(true);
                 }
             }
             HELPER_TAG_TEMP_WEAPON_BONUS => {
                 if let Some(helper) = &mut self.temp_weapon_bonus_helper {
-                    if let Err(err) = EngineSnapshotable::xfer(helper.as_mut(), xfer) {
-                        warn!(
-                            "Object::xfer load {} failed for object {}: {}",
-                            tag, object_id, err
-                        );
-                    }
-                    return true;
+                    EngineSnapshotable::xfer(helper.as_mut(), xfer).map_err(helper_error)?;
+                    return Ok(true);
                 }
             }
             _ => {}
         }
-        false
+        Ok(false)
     }
 
-    pub(crate) fn xfer_behavior_module_list(&mut self, xfer: &mut dyn Xfer, is_saving: bool) {
+    pub(crate) fn xfer_behavior_module_list(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        is_saving: bool,
+    ) -> Result<(), ObjectXferError> {
         let object_id = self.id;
         let mut module_count = self.behavior_module_xfer_count();
-        let _ = xfer.xfer_unsigned_short(&mut module_count);
+        xfer.xfer_unsigned_short(&mut module_count)
+            .map_err(|err| ObjectXferError::new(object_id, None, "module_count", err))?;
 
         if is_saving {
             if let Some(helper) = &mut self.smc_helper {
-                Self::xfer_owned_helper_block(object_id, xfer, HELPER_TAG_SMC, helper);
+                Self::xfer_owned_helper_block(object_id, xfer, HELPER_TAG_SMC, helper)?;
             }
             if let Some(helper) = &mut self.status_damage_helper {
-                Self::xfer_owned_helper_block(object_id, xfer, HELPER_TAG_STATUS, helper.as_mut());
+                Self::xfer_owned_helper_block(object_id, xfer, HELPER_TAG_STATUS, helper.as_mut())?;
             }
             if let Some(helper) = &mut self.subdual_damage_helper {
-                Self::xfer_owned_helper_block(object_id, xfer, HELPER_TAG_SUBDUAL, helper.as_mut());
+                Self::xfer_owned_helper_block(
+                    object_id,
+                    xfer,
+                    HELPER_TAG_SUBDUAL,
+                    helper.as_mut(),
+                )?;
             }
             if let Some(helper) = &mut self.repulsor_helper {
-                Self::xfer_owned_helper_block(object_id, xfer, HELPER_TAG_REPULSOR, helper);
+                Self::xfer_owned_helper_block(object_id, xfer, HELPER_TAG_REPULSOR, helper)?;
             }
             if let Some(helper) = &mut self.defection_helper {
-                Self::xfer_owned_helper_block(object_id, xfer, HELPER_TAG_DEFECTION, helper);
+                Self::xfer_owned_helper_block(object_id, xfer, HELPER_TAG_DEFECTION, helper)?;
             }
             if let Some(helper) = &mut self.ws_helper {
                 Self::xfer_owned_helper_block(
@@ -628,7 +643,7 @@ impl Object {
                     xfer,
                     HELPER_TAG_WEAPON_STATUS,
                     helper.as_mut(),
-                );
+                )?;
             }
             if let Some(helper) = &mut self.firing_tracker {
                 Self::xfer_owned_helper_block(
@@ -636,7 +651,7 @@ impl Object {
                     xfer,
                     HELPER_TAG_FIRING_TRACKER,
                     helper.as_mut(),
-                );
+                )?;
             }
             if let Some(helper) = &mut self.temp_weapon_bonus_helper {
                 Self::xfer_owned_helper_block(
@@ -644,7 +659,7 @@ impl Object {
                     xfer,
                     HELPER_TAG_TEMP_WEAPON_BONUS,
                     helper.as_mut(),
-                );
+                )?;
             }
             let remaining =
                 (module_count as usize).saturating_sub(self.ctor_helper_xfer_tags().len());
@@ -654,29 +669,55 @@ impl Object {
                         NameKeyGenerator::key_to_name(module.get_module_tag_name_key())
                     })
                     .unwrap_or_else(|| entry.tag().to_string());
-                let _ = xfer.xfer_ascii_string(&mut module_identifier);
+                xfer.xfer_ascii_string(&mut module_identifier)
+                    .map_err(|err| {
+                        ObjectXferError::new(object_id, Some(&module_identifier), "module_tag", err)
+                    })?;
 
-                if xfer.begin_block().is_ok() {
-                    entry.with_module(|module| {
-                        if let Err(err) = module.xfer(xfer) {
-                            warn!(
-                                "Object::xfer failed for module '{}' on object {}: {}",
-                                module_identifier, self.id, err
-                            );
-                        }
-                    });
-                    let _ = xfer.end_block();
-                }
+                let module_error = |operation, err| {
+                    ObjectXferError::new(
+                        object_id,
+                        Some(&module_identifier),
+                        operation,
+                        format!("{err:?}"),
+                    )
+                };
+                xfer.begin_block()
+                    .map_err(|err| module_error("begin_block", err))?;
+                entry
+                    .with_module(|module| module.xfer(xfer))
+                    .map_err(|err| {
+                        ObjectXferError::new(
+                            object_id,
+                            Some(&module_identifier),
+                            "module_xfer",
+                            err,
+                        )
+                    })?;
+                xfer.end_block()
+                    .map_err(|err| module_error("end_block", err))?;
             }
         } else {
             for _ in 0..module_count {
                 let mut module_identifier = String::new();
-                let _ = xfer.xfer_ascii_string(&mut module_identifier);
+                xfer.xfer_ascii_string(&mut module_identifier)
+                    .map_err(|err| ObjectXferError::new(object_id, None, "module_tag", err))?;
                 let module_identifier_key = NameKeyGenerator::name_to_key(&module_identifier);
+                let module_error = |operation, err| {
+                    ObjectXferError::new(
+                        object_id,
+                        Some(&module_identifier),
+                        operation,
+                        format!("{err:?}"),
+                    )
+                };
 
-                let data_size = xfer.begin_block().unwrap_or(0);
-                if self.xfer_helper_by_tag(xfer, &module_identifier) {
-                    let _ = xfer.end_block();
+                let data_size = xfer
+                    .begin_block()
+                    .map_err(|err| module_error("begin_block", err))?;
+                if self.xfer_helper_by_tag(xfer, &module_identifier)? {
+                    xfer.end_block()
+                        .map_err(|err| module_error("end_block", err))?;
                     continue;
                 }
                 let module_index = self.modules.iter().position(|entry| {
@@ -686,20 +727,25 @@ impl Object {
                 });
                 if let Some(index) = module_index {
                     let entry = &self.modules[index];
-                    entry.with_module(|module| {
-                        if let Err(err) = module.xfer(xfer) {
-                            warn!(
-                                "Object::xfer load failed for module '{}' on object {}: {}",
-                                module_identifier, self.id, err
-                            );
-                        }
-                    });
+                    entry
+                        .with_module(|module| module.xfer(xfer))
+                        .map_err(|err| {
+                            ObjectXferError::new(
+                                object_id,
+                                Some(&module_identifier),
+                                "module_xfer",
+                                err,
+                            )
+                        })?;
                 } else if data_size > 0 {
-                    let _ = xfer.skip(data_size);
+                    xfer.skip(data_size)
+                        .map_err(|err| module_error("skip", err))?;
                 }
-                let _ = xfer.end_block();
+                xfer.end_block()
+                    .map_err(|err| module_error("end_block", err))?;
             }
         }
+        Ok(())
     }
 }
 
@@ -796,9 +842,9 @@ impl Snapshot for Object {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) {
-        self.xfer_with_optional_trigger_frame(xfer, None, &mut |id| {
-            crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(id);
-        });
+        if let Err(err) = self.xfer_checked(xfer) {
+            warn!("Object::xfer stopped: {err}");
+        }
     }
 
     fn load_post_process(&mut self) {
@@ -826,6 +872,19 @@ impl Snapshot for Object {
 }
 
 impl Object {
+    /// Transfer Object state, stopping when its behavior-module traversal fails.
+    ///
+    /// Propagates reported errors from module counts, tags, block operations,
+    /// helper/module transfers, and unknown-module skips. Existing unchecked
+    /// primitive and other non-module transfers remain outside this bounded
+    /// error-propagation path. Earlier mutations, callbacks, and stream I/O are
+    /// not rolled back on failure.
+    pub fn xfer_checked(&mut self, xfer: &mut dyn Xfer) -> Result<(), ObjectXferError> {
+        self.xfer_with_optional_trigger_frame(xfer, None, &mut |id| {
+            crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(id);
+        })
+    }
+
     /// C++ Object.cpp:4008-4027: transform side effects execute inside xfer,
     /// using the driving match clock and synchronous trigger notifications.
     pub(crate) fn xfer_with_trigger_context(
@@ -833,8 +892,8 @@ impl Object {
         xfer: &mut dyn Xfer,
         frame: UnsignedInt,
         changed: &mut dyn FnMut(ObjectID),
-    ) {
-        self.xfer_with_optional_trigger_frame(xfer, Some(frame), changed);
+    ) -> Result<(), ObjectXferError> {
+        self.xfer_with_optional_trigger_frame(xfer, Some(frame), changed)
     }
 
     fn xfer_with_optional_trigger_frame(
@@ -842,7 +901,7 @@ impl Object {
         xfer: &mut dyn Xfer,
         frame: Option<UnsignedInt>,
         changed: &mut dyn FnMut(ObjectID),
-    ) {
+    ) -> Result<(), ObjectXferError> {
         let current_version: u8 = 9;
         let mut version = current_version;
         let _ = xfer.xfer_version(&mut version, current_version);
@@ -1070,7 +1129,7 @@ impl Object {
         }
 
         // C++ Object.cpp:4264-4356 — UnsignedShort counts m_behaviors (helpers first).
-        self.xfer_behavior_module_list(xfer, is_saving);
+        self.xfer_behavior_module_list(xfer, is_saving)?;
 
         if version >= 3 {
             let _ = xfer.xfer_unsigned_int(&mut self.sole_healing_benefactor_id);
@@ -1130,5 +1189,6 @@ impl Object {
         } else {
             self.is_receiving_difficulty_bonus = false;
         }
+        Ok(())
     }
 }

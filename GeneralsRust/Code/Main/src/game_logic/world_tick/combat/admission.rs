@@ -89,7 +89,7 @@ impl GameLogic {
                     attacker.ai_state,
                     AIState::Idle | AIState::Attacking | AIState::Patrolling
                 )
-                && !self.skirmish_ai_auto_engage_paused(attacker.team);
+                && !self.skirmish_ai_auto_engage_paused(attacker_id);
             if defense_auto_ok {
                 // Residual owns base-defense fire (nearest-in-range each shot).
                 // Manual AttackObject is not required; structures never chase.
@@ -113,14 +113,16 @@ impl GameLogic {
                     attacker.ai_state,
                     AIState::Idle | AIState::Attacking | AIState::Patrolling
                 )
-                && !self.skirmish_ai_auto_engage_paused(attacker.team);
+                && !self.skirmish_ai_auto_engage_paused(attacker_id);
             if sc_auto_ok {
                 // Player residual gate: active plan must be Bombardment.
                 let pid = self.player_id_for_team(attacker.team).unwrap_or(0);
                 if self.battle_plans.active_plan_for_player(pid)
                     == Some(HostBattlePlan::Bombardment)
                 {
-                    self.try_strategy_center_bombardment_turret_fire(attacker_id);
+                    // Strategy's ordinary turret Idle/Hold acquires the goal;
+                    // its next AIM update rotates, and FIRE retains the existing
+                    // residual discharge authority. Do not advance aim here.
                     return None;
                 }
             }
@@ -143,7 +145,7 @@ impl GameLogic {
                 attacker.is_alive(),
                 attacker.can_attack(),
                 idle_ok,
-            ) && !self.skirmish_ai_auto_engage_paused(attacker.team)
+            ) && !self.skirmish_ai_auto_engage_paused(attacker_id)
                 // Only residual-own auto-fire when no explicit player target.
                 && attacker.target.is_none()
                 && attacker.target_location.is_none();
@@ -169,7 +171,7 @@ impl GameLogic {
                 attacker.is_alive(),
                 attacker.can_attack(),
                 idle_ok,
-            ) && !self.skirmish_ai_auto_engage_paused(attacker.team)
+            ) && !self.skirmish_ai_auto_engage_paused(attacker_id)
                 && attacker.target.is_none()
                 && attacker.target_location.is_none();
             if hf_auto_ok {
