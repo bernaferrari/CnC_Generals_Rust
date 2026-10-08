@@ -5,8 +5,6 @@ use crate::{GameTool, ThemeType, ToolConfig, UIError};
 use anyhow::Result;
 use eframe::egui;
 use log::{error, info, warn};
-use parking_lot::RwLock;
-use std::sync::Arc;
 
 /// Modern application framework for game development tools
 pub struct ToolApp {
@@ -14,7 +12,8 @@ pub struct ToolApp {
     tool: Box<dyn GameTool>,
     config: ToolConfig,
     theme_manager: ThemeManager,
-    hot_reload: Arc<RwLock<crate::hot_reload::HotReloadManager>>,
+    // The watcher sends channel events; this manager never leaves the UI owner.
+    hot_reload: crate::hot_reload::HotReloadManager,
     performance_monitor: PerformanceMonitor,
     chrome: Chrome,
 }
@@ -24,9 +23,7 @@ impl ToolApp {
     pub fn new(tool: Box<dyn GameTool>) -> Result<Self> {
         let config = tool.config().clone();
         let theme_manager = ThemeManager::new(config.theme);
-        let hot_reload = Arc::new(RwLock::new(crate::hot_reload::HotReloadManager::new(
-            config.hot_reload_enabled,
-        )?));
+        let hot_reload = crate::hot_reload::HotReloadManager::new(config.hot_reload_enabled)?;
 
         info!("Initializing tool: {} v{}", config.name, config.version);
 
@@ -107,13 +104,9 @@ impl eframe::App for ToolApp {
         self.performance_monitor.frame_start();
 
         // Check for hot reload updates
-        if self.config.hot_reload_enabled {
-            if let Some(mut hot_reload) = self.hot_reload.try_write() {
-                if hot_reload.check_for_changes() {
-                    info!("Hot reload triggered");
-                    ctx.request_repaint();
-                }
-            }
+        if self.config.hot_reload_enabled && self.hot_reload.check_for_changes() {
+            info!("Hot reload triggered");
+            ctx.request_repaint();
         }
 
         self.sync_chrome_view_state();

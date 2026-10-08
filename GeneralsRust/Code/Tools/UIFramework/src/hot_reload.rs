@@ -3,10 +3,8 @@
 use crate::UIError;
 use anyhow::Result;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
-use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -264,26 +262,21 @@ impl Default for HotReloadConfig {
     }
 }
 
-/// Asset hot reload handler
+/// Asset metadata owned by the tool; watcher registration borrows its manager.
 pub struct AssetHotReload {
-    manager: Arc<RwLock<HotReloadManager>>,
     asset_cache: HashMap<PathBuf, AssetCacheEntry>,
 }
 
 impl AssetHotReload {
-    pub fn new(manager: Arc<RwLock<HotReloadManager>>) -> Self {
+    pub fn new() -> Self {
         Self {
-            manager,
             asset_cache: HashMap::new(),
         }
     }
 
     /// Register an asset for hot reloading
-    pub fn register_asset(&mut self, path: PathBuf) -> Result<()> {
-        // try_write() returns Option, not Result
-        if let Some(mut manager) = self.manager.try_write() {
-            manager.watch_path(path.clone())?;
-        }
+    pub fn register_asset(&mut self, manager: &mut HotReloadManager, path: PathBuf) -> Result<()> {
+        manager.watch_path(path.clone())?;
 
         let entry = AssetCacheEntry {
             path: path.clone(),
@@ -398,3 +391,7 @@ struct CompiledShader {
     compiled_time: std::time::SystemTime,
     compile_errors: Vec<String>,
 }
+
+#[cfg(test)]
+#[path = "hot_reload_tests.rs"]
+mod tests;
