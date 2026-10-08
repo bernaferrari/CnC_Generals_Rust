@@ -101,6 +101,7 @@ pub(crate) struct TemporaryLifecycleObservation {
     pub(crate) ordinary_state: Option<u32>,
     pub(crate) path_index: Option<i32>,
     pub(crate) through_units: Option<bool>,
+    pub(crate) current_victim: Option<crate::common::ObjectID>,
 }
 
 pub(super) struct AIStateMachineData {
@@ -138,6 +139,7 @@ impl AIStateMachineData {
             ordinary_state: ordinary,
             path_index: ai.map(|a| a.get_current_goal_path_index()),
             through_units: ai.map(|a| a.get_can_path_through_units()),
+            current_victim: ai.and_then(|a| a.get_current_victim()),
         });
     }
 }
@@ -720,6 +722,24 @@ impl AIStateMachine {
         self.base.is_in_idle_state()
     }
 
+    /// The callback can be a temporary Idle while the ordinary state attacks.
+    /// Inspect the actual registered body rather than guessing from its ID.
+    pub(crate) fn updates_idle_state(&mut self) -> bool {
+        let id = self
+            .data
+            .temporary_state_id
+            .or(self.base.get_current_state_id());
+        id.and_then(|id| self.base.get_state_mut(id))
+            .is_some_and(|state| state.is_idle())
+    }
+
+    fn classify_terminal_context(&self, owner: &mut dyn std::any::Any) {
+        if let Some(context) = owner.downcast_mut::<TerminalCommandContext>() {
+            context.parent_is_idle = self.is_idle();
+            context.parent_is_attacking = self.is_attack_state();
+        }
+    }
+
     pub fn is_busy(&self) -> bool {
         self.base.is_in_busy_state()
     }
@@ -828,7 +848,7 @@ impl AIStateMachine {
     pub(crate) fn update_state_machine<A: StateMachineAI + ?Sized>(
         &mut self,
         ai: &mut A,
-        after_body: impl FnOnce(&mut AIStateMachineDriver<'_>, &mut A, &mut dyn std::any::Any),
+        after_body: impl FnMut(&mut AIStateMachineDriver<'_>, &mut A, &mut dyn std::any::Any),
     ) -> StateReturnType {
         let mut owner = ();
         self.update_state_machine_with_owner(ai, &mut owner, after_body)
@@ -838,11 +858,12 @@ impl AIStateMachine {
         &mut self,
         ai: &mut A,
         owner: &mut dyn std::any::Any,
-        after_body: impl FnOnce(&mut AIStateMachineDriver<'_>, &mut A, &mut dyn std::any::Any),
+        mut after_body: impl FnMut(&mut AIStateMachineDriver<'_>, &mut A, &mut dyn std::any::Any),
     ) -> StateReturnType {
         #[cfg(test)]
         let ordinary = self.base.get_current_state_id();
         if let Some(temp_state_id) = self.data.temporary_state_id {
+            self.classify_terminal_context(owner);
             let goal_id = self.base.get_goal_object_id();
             let goal_pos = self.base.get_goal_position();
             let goal_squad = self.base.get_goal_squad();
@@ -855,10 +876,11 @@ impl AIStateMachine {
                 state.bind_goal_polygon(goal_polygon);
                 state.bind_goal_waypoint(goal_waypoint);
             }
-            if let Some(mut status) = self
-                .base
-                .update_registered_with_control(temp_state_id, ai.as_ai_update())
+            if let Some(mut status) =
+                self.base
+                    .update_registered_with_control(temp_state_id, ai.as_ai_update(), owner)
             {
+                after_body(&mut self.driver(), ai, owner);
                 if self.data.temporary_state_frame_end < TheGameLogic::get_frame() {
                     if status == StateReturnType::Continue {
                         status = StateReturnType::Success;
@@ -905,6 +927,7 @@ impl AIStateMachine {
             ordinary,
             Some(ai.as_ai_update()),
         );
+        self.classify_terminal_context(owner);
         let data = &mut self.data;
         let mut update = self.base.begin_update_with_ai_and_owner(ai, owner);
         if let StateUpdate::Body(step) = &mut update {
@@ -927,6 +950,9 @@ impl AIStateMachine {
             let context = owner
                 .downcast_mut::<TerminalCommandContext>()
                 .expect("synchronous command update owns its typed context");
+            if let Some(state) = context.state.take() {
+                driver.set_state_with_ai(state as u32, ai.as_ai_update());
+            }
             if let Some(command) = context.take() {
                 dispatch(driver, ai, command);
             }

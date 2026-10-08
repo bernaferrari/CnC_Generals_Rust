@@ -29,7 +29,7 @@ mod types;
 mod wait_busy;
 mod wander_panic;
 
-/// The only synchronous terminal command currently emitted by native Enter.
+/// Full attack command emitted by native terminal callbacks.
 #[derive(Debug)]
 pub(crate) struct TerminalAttackCommand {
     params: crate::ai::AiCommandParams,
@@ -56,11 +56,19 @@ impl TerminalAttackCommand {
 /// Operation-local typed callback output. Never stored or serialized.
 struct TerminalCommandContext {
     command: Option<TerminalAttackCommand>,
+    state: Option<AIStateType>,
+    parent_is_idle: bool,
+    parent_is_attacking: bool,
 }
 
 impl TerminalCommandContext {
     fn new() -> Self {
-        Self { command: None }
+        Self {
+            command: None,
+            state: None,
+            parent_is_idle: false,
+            parent_is_attacking: false,
+        }
     }
 
     fn request_attack_object(
@@ -70,7 +78,7 @@ impl TerminalCommandContext {
         source: crate::ai::CommandSourceType,
     ) {
         assert!(
-            self.command.is_none(),
+            self.command.is_none() && self.state.is_none(),
             "one terminal command per state step"
         );
         self.command = Some(TerminalAttackCommand::attack_object(
@@ -80,6 +88,14 @@ impl TerminalCommandContext {
 
     fn take(&mut self) -> Option<TerminalAttackCommand> {
         self.command.take()
+    }
+
+    fn request_state(&mut self, state: AIStateType) {
+        assert!(
+            self.command.is_none() && self.state.is_none(),
+            "one terminal operation per state step"
+        );
+        self.state = Some(state);
     }
 }
 

@@ -1299,6 +1299,33 @@ impl CppState for AIAttackObjectState {
     }
 
     fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+        self.exit_attack(None)
+    }
+
+    fn cpp_on_exit_with_control(
+        &mut self,
+        control: &mut StateMachineControl,
+        _exit: StateExitType,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> Result<(), String> {
+        let live_ai = ai.is_some();
+        self.exit_attack(ai)?;
+        if live_ai {
+            control.set_goal_object_by_id(None);
+        }
+        Ok(())
+    }
+
+    fn cpp_is_attack(&self) -> bool {
+        true
+    }
+}
+
+impl AIAttackObjectState {
+    fn exit_attack(
+        &mut self,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> Result<(), String> {
         self.target_id = INVALID_ID;
         self.issued_attack = false;
         if let Some(mut machine) = self.attack_machine.take() {
@@ -1314,25 +1341,26 @@ impl CppState for AIAttackObjectState {
                 );
                 owner_guard.clear_model_condition_state(ModelConditionFlags::ATTACKING);
                 owner_guard.clear_leech_range_mode_for_all_weapons();
-                owner_guard.ai_pending_original_victim_pos = Some(None);
-                owner_guard.ai_pending_clear_victim = true;
-                for turret in [TurretType::Primary, TurretType::Secondary] {
-                    owner_guard
-                        .ai_pending_turret_objects
-                        .push((turret, None, false));
+                if ai.is_none() {
+                    owner_guard.ai_pending_clear_victim = true;
+                    for turret in [TurretType::Primary, TurretType::Secondary] {
+                        owner_guard
+                            .ai_pending_turret_objects
+                            .push((turret, None, false));
+                    }
+                    owner_guard.ai_pending_clear_goal = true;
                 }
-                owner_guard.ai_pending_clear_goal = true;
+            }
+        }
+        if let Some(ai) = ai {
+            ai.set_current_victim(None);
+            for turret in [TurretType::Primary, TurretType::Secondary] {
+                ai.set_turret_target_object(turret, None, false);
             }
         }
         Ok(())
     }
 
-    fn cpp_is_attack(&self) -> bool {
-        true
-    }
-}
-
-impl AIAttackObjectState {
     fn attack_frame(
         &mut self,
         ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
@@ -1436,11 +1464,19 @@ impl AIAttackObjectState {
 
             let target_guard = target.read().map_err(|_| "lock poisoned".to_string())?;
             let mut owner_guard = owner.write().map_err(|_| "lock poisoned".to_string())?;
-            let weapon_found = owner_guard.choose_best_weapon_for_target(
-                &*target_guard,
-                WeaponChoiceCriteria::PreferMostDamage,
-                cmd_source,
-            );
+            let weapon_found = match ai.as_deref() {
+                Some(ai) => owner_guard.choose_best_weapon_for_target_with_ai(
+                    &target_guard,
+                    WeaponChoiceCriteria::PreferMostDamage,
+                    cmd_source,
+                    ai,
+                ),
+                None => owner_guard.choose_best_weapon_for_target(
+                    &target_guard,
+                    WeaponChoiceCriteria::PreferMostDamage,
+                    cmd_source,
+                ),
+            };
             if !weapon_found {
                 return Ok(StateReturnType::Failure);
             }

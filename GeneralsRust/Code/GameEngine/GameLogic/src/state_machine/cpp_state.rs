@@ -79,6 +79,18 @@ pub(crate) trait CppState: std::fmt::Debug + Send + Sync + Any {
         self.cpp_on_exit(exit)
     }
 
+    fn cpp_on_exit_with_control(
+        &mut self,
+        _control: &mut core::StateMachineControl,
+        exit: StateExitType,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> Result<(), String> {
+        match ai {
+            Some(ai) => self.cpp_on_exit_with_ai(exit, ai),
+            None => self.cpp_on_exit(exit),
+        }
+    }
+
     /// Override when the state should be considered idle.
     fn cpp_is_idle(&self) -> bool {
         false
@@ -164,6 +176,21 @@ impl<S: CppState> CppStateAdapter<S> {
 }
 
 impl<S: CppState + 'static> core::StateImplementation for CppStateAdapter<S> {
+    fn on_exit_with_control(
+        &mut self,
+        control: &mut core::StateMachineControl,
+        exit: StateExitType,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        _owner: &mut dyn Any,
+    ) {
+        let name = self.inner.base_state().get_name().to_string();
+        let _ = Self::map_result(
+            &name,
+            self.inner
+                .cpp_on_exit_with_control(control, exit, ai)
+                .map(|_| StateReturnType::Continue),
+        );
+    }
     fn on_enter(&mut self) -> StateReturnType {
         let state_name = self.inner.base_state().get_name().to_string();
         Self::map_result(state_name.as_str(), self.inner.cpp_on_enter())

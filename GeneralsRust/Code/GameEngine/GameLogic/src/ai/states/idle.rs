@@ -72,6 +72,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 // AI State implementations
+#[path = "idle_live.rs"]
+mod live;
 
 /// Idle state - do nothing
 /// Matches C++ AIIdleState from AIStates.cpp lines 1246-1448
@@ -131,6 +133,10 @@ impl AIIdleState {
 
     /// Initialize idle state - C++ AIIdleState::doInitIdleState() from AIStates.cpp line 1311
     pub(crate) fn do_init_idle_state(&mut self) {
+        self.do_init_idle_state_with_facts(None);
+    }
+
+    fn do_init_idle_state_with_facts(&mut self, facts: Option<(bool, bool, bool)>) {
         if !self.inited {
             return;
         }
@@ -139,14 +145,14 @@ impl AIIdleState {
 
         if let Some(owner) = self.base.get_machine_owner() {
             if let Ok(mut owner_guard) = owner.write() {
-                let ultra_accurate = owner_guard.ai_fire_ultra_accurate;
-                let pos = *owner_guard.get_position();
-                let plan = idle_pathfinder_restake_plan(
+                let (is_idle, ground_movement, ultra_accurate) = facts.unwrap_or((
                     owner_guard.ai_fire_is_idle,
                     owner_guard.ai_fire_ground_movement,
-                    pos,
-                    ultra_accurate,
-                );
+                    owner_guard.ai_fire_ultra_accurate,
+                ));
+                let pos = *owner_guard.get_position();
+                let plan =
+                    idle_pathfinder_restake_plan(is_idle, ground_movement, pos, ultra_accurate);
                 if plan.first_restake {
                     let owner_id = owner_guard.get_id();
                     let layer = match owner_guard.get_layer() {
@@ -175,8 +181,10 @@ impl AIIdleState {
                         }
                     }
                 }
-                owner_guard.ai_pending_goal_none = true;
-                owner_guard.ai_pending_clear_victim = true;
+                if facts.is_none() {
+                    owner_guard.ai_pending_goal_none = true;
+                    owner_guard.ai_pending_clear_victim = true;
+                }
             }
         }
     }
@@ -366,6 +374,31 @@ impl CppState for AIIdleState {
         }
 
         Ok(StateReturnType::Continue)
+    }
+
+    fn cpp_on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn AIUpdateInterface,
+    ) -> Result<StateReturnType, String> {
+        // C++ resets before drawing the one initial countdown offset.
+        ai.reset_next_mood_check_time();
+        self.inited = true;
+        self.initial_sleep_offset =
+            get_game_logic_random_value(0, (LOGICFRAMES_PER_SECOND * 2) as i32) as u16;
+        Ok(StateReturnType::Continue)
+    }
+
+    fn cpp_on_update_with_context(
+        &mut self,
+        control: &mut StateMachineControl,
+        ai: Option<&mut dyn AIUpdateInterface>,
+        _machine_locked: bool,
+        owner: &mut dyn std::any::Any,
+    ) -> Result<StateReturnType, String> {
+        match (ai, owner.downcast_mut::<TerminalCommandContext>()) {
+            (Some(ai), Some(context)) => self.update_idle_with_ai(control, ai, context),
+            _ => self.update_idle(Some(control.is_locked())),
+        }
     }
 
     fn cpp_on_update_with_control(

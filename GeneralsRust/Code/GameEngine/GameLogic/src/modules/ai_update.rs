@@ -28,6 +28,11 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     fn is_moving(&self) -> bool;
     /// Check if the object is idle
     fn is_idle(&self) -> bool;
+    /// Apply AI-specific idle gates to the driving machine's exact virtual
+    /// classification, without reacquiring that machine during its callback.
+    fn is_idle_with_parent_state(&self, parent_is_idle: bool) -> bool {
+        parent_is_idle
+    }
     /// Check if the object is idle without pending-command suppression.
     fn is_idle_unrestricted(&self) -> bool {
         self.is_idle()

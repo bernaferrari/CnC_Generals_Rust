@@ -328,6 +328,20 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
         self.on_exit(_status)
     }
 
+    /// Exit can mutate the driving control without reentering its owner.
+    fn on_exit_with_control(
+        &mut self,
+        _control: &mut StateMachineControl,
+        status: StateExitType,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        owner: &mut dyn Any,
+    ) {
+        match ai {
+            Some(ai) => self.on_exit_with_ai_and_owner(status, ai, owner),
+            None => self.on_exit_with_owner(status, owner),
+        }
+    }
+
     /// Evacuate freezes transitions. The step already holds this machine.
     fn locks_machine(&self) -> bool {
         false
@@ -1227,11 +1241,12 @@ impl StateMachine {
 
         if let Some(current_id) = self.control.current_state_id {
             if let Some(current_state) = self.state_map.get_mut(&current_id) {
-                if let Some(ai) = ai {
-                    current_state.on_exit_with_ai_and_owner(StateExitType::Reset, ai, &mut ());
-                } else {
-                    current_state.on_exit(StateExitType::Reset);
-                }
+                current_state.on_exit_with_control(
+                    &mut self.control,
+                    StateExitType::Reset,
+                    ai,
+                    &mut (),
+                );
             }
         }
 
@@ -1403,13 +1418,19 @@ impl StateMachine {
                 .and_then(|state| state.exit_restore_goal());
             if let Some(current_state) = self.state_map.get_mut(&current_id) {
                 if let Some(ref mut ai_ref) = ai {
-                    current_state.on_exit_with_ai_and_owner(
+                    current_state.on_exit_with_control(
+                        &mut self.control,
                         StateExitType::Normal,
-                        &mut **ai_ref,
+                        Some(&mut **ai_ref),
                         owner,
                     );
                 } else {
-                    current_state.on_exit_with_owner(StateExitType::Normal, owner);
+                    current_state.on_exit_with_control(
+                        &mut self.control,
+                        StateExitType::Normal,
+                        None,
+                        owner,
+                    );
                 }
             }
             if outgoing_locks {
@@ -1909,11 +1930,12 @@ impl StateMachine {
         &mut self,
         id: StateId,
         ai: &mut dyn crate::modules::AIUpdateInterface,
+        owner: &mut dyn Any,
     ) -> Option<StateReturnType> {
         let locked = self.control.is_locked();
         self.state_map
             .get_mut(&id)
-            .map(|state| state.update_with_control(&mut self.control, Some(ai), locked, &mut ()))
+            .map(|state| state.update_with_control(&mut self.control, Some(ai), locked, owner))
     }
 
     pub fn get_state_mut(&mut self, id: StateId) -> Option<&mut Box<dyn StateImplementation>> {

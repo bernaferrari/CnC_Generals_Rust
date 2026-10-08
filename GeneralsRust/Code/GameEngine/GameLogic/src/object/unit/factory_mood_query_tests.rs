@@ -387,3 +387,6 @@ mod policy;
 
 #[path = "factory_target_filter_tests.rs"]
 mod target_filters;
+
+#[path = "factory_idle_callback_tests.rs"]
+mod idle_callbacks;

@@ -437,7 +437,18 @@ impl UnitAIUpdate {
         let primary_turn_rate = self.get_turret_turn_rate(crate::common::TurretType::Primary);
         let secondary_turn_rate = self.get_turret_turn_rate(crate::common::TurretType::Secondary);
         let state_id = self.get_current_state_id();
-        let mood_target = self.get_next_mood_target_id(true, false);
+        let idle_callback = self.ai_state_machine.as_ref().is_some_and(|machine| {
+            machine
+                .lock()
+                .is_ok_and(|mut machine| machine.updates_idle_state())
+        });
+        // Idle owns its ordered query after initialization/repulsor/crate.
+        // The non-Idle mood mirror still serves nested attack callbacks.
+        let mood_target = if idle_callback {
+            crate::common::INVALID_ID
+        } else {
+            self.get_next_mood_target_id(true, false)
+        };
         let ground_movement = self.is_doing_ground_movement();
         let mut can_turn_in_place = false;
         let mut ultra_accurate = false;
@@ -450,8 +461,16 @@ impl UnitAIUpdate {
         let next_mood_check = self.get_next_mood_check_time();
         let idle_mood_adjust =
             self.get_mood_matrix_action_adjustment(crate::ai::MoodMatrixAction::Idle);
-        let crate_id = self.check_for_crate_to_pickup_id();
-        let idle_attack = self.get_next_mood_target_id(true, true);
+        let crate_id = if idle_callback {
+            crate::common::INVALID_ID
+        } else {
+            self.check_for_crate_to_pickup_id()
+        };
+        let idle_attack = if idle_callback {
+            crate::common::INVALID_ID
+        } else {
+            self.get_next_mood_target_id(true, true)
+        };
         let locomotor_speed = self.get_cur_locomotor_speed();
         let blocked_and_stuck = self.is_blocked_and_stuck();
         let has_path = self.get_path().is_some();
@@ -1347,7 +1366,7 @@ impl UnitAIUpdate {
         }
         false
     }
-    fn idle_blocked_by_specialized_ai(&self) -> bool {
+    pub(super) fn idle_blocked_by_specialized_ai(&self) -> bool {
         self.jet_ai
             .as_ref()
             .is_some_and(|ai| ai.should_block_idle(self.data.pending_command))

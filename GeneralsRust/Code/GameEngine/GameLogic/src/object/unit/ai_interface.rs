@@ -111,6 +111,10 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::is_idle(self)
     }
 
+    fn is_idle_with_parent_state(&self, parent_is_idle: bool) -> bool {
+        !self.idle_blocked_by_specialized_ai() && parent_is_idle
+    }
+
     fn is_busy(&self) -> bool {
         UnitAIUpdate::is_busy(self)
     }
