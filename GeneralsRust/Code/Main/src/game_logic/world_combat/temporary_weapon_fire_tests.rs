@@ -15,6 +15,21 @@ use crate::game_logic::host_temporary_weapon_behavior::{
     TemporaryWeaponStatus,
 };
 
+// Headless module tests admit their own weapons through the real INI parser.
+// Unique names avoid depending on retail files or changing seeded tank guns.
+fn register_death_splash_weapon(name: &str, damage: u32, radius: u32) {
+    let ini = format!(
+        "Weapon {name}\n PrimaryDamage = {damage}\n PrimaryDamageRadius = {radius}\n DamageType = EXPLOSION\n RadiusDamageAffects = ALLIES ENEMIES NEUTRALS\n ProjectileObject = NONE\n ClipSize = 8\n ClipReloadTime = 0\n DelayBetweenShots = 0\nEnd\n"
+    );
+    assert_eq!(
+        crate::assets::ini_template_loader::register_weapons_from_ini_text(&ini),
+        1
+    );
+    let fields = store_fields_for_weapon_name(name).expect("authored death weapon");
+    assert_eq!(fields.primary_damage, damage as f32);
+    assert_eq!(fields.primary_radius, radius as f32);
+}
+
 fn ready_weapon_on(
     template: &str,
     role: FireWeaponWhenDamagedWeaponRole,
@@ -195,6 +210,8 @@ fn dead_behavior_fires_once_and_skips_under_construction() {
 /// only skips when the object owns the conflicting upgrade.
 #[test]
 fn dead_behavior_honors_triggered_by_and_conflicts_with_ownership() {
+    register_death_splash_weapon("TempDeadMuxDefault", 1000, 40);
+    register_death_splash_weapon("TempDeadMuxHE", 2000, 50);
     let mut logic = GameLogic::new();
     logic.frame = 8;
     let mux_default = FireWeaponUpgradeMuxMetadata {
@@ -211,7 +228,7 @@ fn dead_behavior_honors_triggered_by_and_conflicts_with_ownership() {
             module_source_index: 0,
             module_tag: None,
             starts_active: true,
-            death_weapon: Some("BombTruckDefaultBombDamage".into()),
+            death_weapon: Some("TempDeadMuxDefault".into()),
             upgrade_mux: mux_default,
             death_types: Default::default(),
             veterancy_levels: Default::default(),
@@ -222,7 +239,7 @@ fn dead_behavior_honors_triggered_by_and_conflicts_with_ownership() {
             module_source_index: 1,
             module_tag: None,
             starts_active: false,
-            death_weapon: Some("BombTruckHighExplosionBombDamage".into()),
+            death_weapon: Some("TempDeadMuxHE".into()),
             upgrade_mux: mux_he,
             death_types: Default::default(),
             veterancy_levels: Default::default(),
@@ -244,7 +261,7 @@ fn dead_behavior_honors_triggered_by_and_conflicts_with_ownership() {
     object.status.destroyed = true;
     let source = ObjectId(15);
     logic.objects.insert(source, object);
-    // Retail BombTruck death weapons are 1000/40-radius blasts; the death
+    // The authored default fixture is a 1000/40-radius blast; the death
     // weapon only records hits on a LIVE victim (the dead truck itself is
     // excluded like C++ Weapon.cpp:1330 self/producer skips).
     let mut victim_t = ThingTemplate::new("BombTruckDeathSplashVictim");
@@ -252,7 +269,7 @@ fn dead_behavior_honors_triggered_by_and_conflicts_with_ownership() {
     logic
         .templates
         .insert("BombTruckDeathSplashVictim".into(), victim_t);
-    let _victim = logic
+    let victim = logic
         .create_object(
             "BombTruckDeathSplashVictim",
             Team::USA,
@@ -264,6 +281,8 @@ fn dead_behavior_honors_triggered_by_and_conflicts_with_ownership() {
         first > 0,
         "StartsActive default with empty conflict ownership must fire"
     );
+    assert_eq!(first, 1);
+    assert!(logic.objects[&victim].health.current <= 0.0);
     assert!(
         logic
             .host_object(source)
@@ -279,7 +298,7 @@ fn dead_behavior_honors_triggered_by_and_conflicts_with_ownership() {
     logic.objects.insert(source, object);
     // Phase 1's 1000-damage default blast killed the first splash victim;
     // the HE module also needs a LIVE victim in radius to record hits.
-    let _victim2 = logic
+    let victim2 = logic
         .create_object(
             "BombTruckDeathSplashVictim",
             Team::USA,
@@ -291,6 +310,8 @@ fn dead_behavior_honors_triggered_by_and_conflicts_with_ownership() {
         upgraded > 0,
         "TriggeredBy HE must activate exclusive death module"
     );
+    assert_eq!(upgraded, 1);
+    assert!(logic.objects[&victim2].health.current <= 0.0);
     assert!(
         logic
             .host_object(source)
@@ -303,6 +324,8 @@ fn dead_behavior_honors_triggered_by_and_conflicts_with_ownership() {
 /// Exclusive mux selects default vs HE; Bio still fires when owned.
 #[test]
 fn dead_behavior_fires_every_matching_module() {
+    register_death_splash_weapon("TempDeadMultiHE", 60, 5);
+    register_death_splash_weapon("TempDeadMultiBio", 60, 5);
     let mut logic = GameLogic::new();
     logic.frame = 8;
     let mux_default = FireWeaponUpgradeMuxMetadata {
@@ -323,7 +346,7 @@ fn dead_behavior_fires_every_matching_module() {
             module_source_index: 0,
             module_tag: None,
             starts_active: true,
-            death_weapon: Some("CrusaderTankGun".into()),
+            death_weapon: Some("TempDeadMultiBio".into()),
             upgrade_mux: mux_default,
             death_types: Default::default(),
             veterancy_levels: Default::default(),
@@ -334,7 +357,7 @@ fn dead_behavior_fires_every_matching_module() {
             module_source_index: 1,
             module_tag: None,
             starts_active: false,
-            death_weapon: Some("PaladinTankGun".into()),
+            death_weapon: Some("TempDeadMultiHE".into()),
             upgrade_mux: mux_he,
             death_types: Default::default(),
             veterancy_levels: Default::default(),
@@ -345,7 +368,7 @@ fn dead_behavior_fires_every_matching_module() {
             module_source_index: 2,
             module_tag: None,
             starts_active: false,
-            death_weapon: Some("CrusaderTankGun".into()),
+            death_weapon: Some("TempDeadMultiBio".into()),
             upgrade_mux: mux_bio,
             death_types: Default::default(),
             veterancy_levels: Default::default(),
@@ -373,7 +396,7 @@ fn dead_behavior_fires_every_matching_module() {
     object.apply_upgrade_tag("Upgrade_GLABombTruckBioBomb");
     let source = ObjectId(16);
     logic.objects.insert(source, object);
-    // HE (PaladinTankGun) + Bio (CrusaderTankGun) fire only when a LIVE
+    // Both uniquely authored 60/5-radius weapons fire only when a LIVE
     // victim stands in the blast; the destroyed truck is excluded
     // (C++ Weapon.cpp:1330 self skip), so seed one 3 units away.
     let mut victim_t = ThingTemplate::new("BombTruckDeathSplashVictim2");
@@ -381,7 +404,7 @@ fn dead_behavior_fires_every_matching_module() {
     logic
         .templates
         .insert("BombTruckDeathSplashVictim2".into(), victim_t);
-    let _victim = logic
+    let victim = logic
         .create_object(
             "BombTruckDeathSplashVictim2",
             Team::USA,
@@ -393,6 +416,8 @@ fn dead_behavior_fires_every_matching_module() {
         hits > 0,
         "hq-ys6gk: HE+Bio must fire leftover death modules"
     );
+    assert_eq!(hits, 2, "each matching module must apply damage");
+    assert_eq!(logic.objects[&victim].health.current, 880.0);
     assert!(
         logic
             .host_object(source)

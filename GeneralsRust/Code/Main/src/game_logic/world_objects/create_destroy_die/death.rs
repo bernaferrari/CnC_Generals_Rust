@@ -673,7 +673,17 @@ impl GameLogic {
             .get_mut(&id)
             .and_then(|o| o.pending_instant_death_weapon.take())
         {
-            let _ = self.apply_fire_weapon_when_damaged_named(id, &wpn);
+            // C++ InstantDeathBehavior.cpp:141-147 creates, fires and deletes
+            // a temporary Weapon from the authored template. This request
+            // has no persistent module key or snapshot state.
+            let spec = crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec {
+                module_source_index: 0,
+                weapon_template_name: wpn.clone(),
+                weapon_slot: crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponSlot::Primary,
+            };
+            if self.create_and_fire_temp_weapon(id, &spec).is_none() {
+                let _ = self.apply_fire_weapon_when_damaged_named(id, &wpn);
+            }
         }
         true
     }
