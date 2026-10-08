@@ -416,6 +416,8 @@ mod construction_parity_tests;
 #[cfg(test)]
 mod cpp_parity_tests;
 #[cfg(test)]
+mod live_peer_target_tests;
+#[cfg(test)]
 mod ownership_tests;
 #[cfg(test)]
 mod player_slot_order_tests;

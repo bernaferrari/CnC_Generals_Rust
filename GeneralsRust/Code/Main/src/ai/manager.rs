@@ -103,17 +103,20 @@ impl AIManager {
         // with accumulated f32 seconds: rounding can silently skip a frame.
         // C++ PlayerList.cpp:221-228 visits ascending player slots. Commands,
         // object admissions and random draws must not depend on HashMap order.
-        let peer_targets: Vec<(u32, Option<u32>)> = players
+        let mut peer_targets: Vec<(u32, Option<u32>)> = players
             .iter()
             .map(|(&id, ai)| (id, ai.enemy_player_id))
             .collect();
         let destroyed = game_logic.take_ai_team_destroy_notifications();
-        for ai_player in players.values_mut() {
+        for (slot, ai_player) in players.values_mut().enumerate() {
             for (team_id, team_name) in &destroyed {
                 ai_player.ai_pre_team_destroy(Some(*team_id), team_name);
             }
             ai_player.peer_ai_targets = peer_targets.clone();
             ai_player.update(game_logic, current_time);
+            // C++ getCurrentEnemy observes earlier slots after their update,
+            // and later slots before theirs, during this same synchronous pass.
+            peer_targets[slot].1 = ai_player.enemy_player_id;
         }
     }
 

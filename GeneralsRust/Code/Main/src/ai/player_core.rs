@@ -1264,7 +1264,8 @@ impl AIPlayer {
                 dist_sqr = HUGE_DIST * HUGE_DIST * 0.5;
             }
             for &(other_id, other_target) in &self.peer_ai_targets {
-                if other_id == self.player_id || other_id == player_id {
+                // C++ skips the candidate slot only; our prior target also counts.
+                if other_id == player_id {
                     continue;
                 }
                 if other_target == Some(player_id) {
