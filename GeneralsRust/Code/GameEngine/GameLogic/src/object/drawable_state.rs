@@ -461,7 +461,7 @@ impl Drawable {
     /// Matches C++ Drawable.h line 305: isDrawableEffectivelyHidden()
     /// Returns true if hidden via setDrawableHidden OR fully stealthed
     pub fn is_drawable_effectively_hidden(&self) -> bool {
-        self.hidden || !self.is_visible || self.hidden_by_stealth
+        self.hidden || self.hidden_by_stealth
     }
 
     /// Update hidden state on draw modules and selection data.
@@ -596,3 +596,7 @@ impl Drawable {
         self.update_conditional_model();
     }
 }
+
+#[cfg(test)]
+#[path = "effective_hide_tests.rs"]
+mod effective_hide_tests;

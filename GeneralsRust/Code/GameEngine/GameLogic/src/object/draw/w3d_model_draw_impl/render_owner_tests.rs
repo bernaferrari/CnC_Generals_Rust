@@ -134,3 +134,35 @@ fn installed_empty_model_transition_preserves_owner_pause_and_pending_state() {
         assert_eq!(*model.attach_offset_cache.lock().unwrap(), None);
     });
 }
+
+#[test]
+fn installed_model_hiding_is_independent_from_drawable_visibility() {
+    let _serial = crate::test_sync::lock();
+    let mut drawable = Drawable::new(
+        0xD30_2,
+        INVALID_ID,
+        "HidePropagation".into(),
+        DrawableType::Static,
+    );
+    let data = W3DModelDrawModuleData::new();
+    let entry = drawable.add_module(
+        ModuleInterfaceType::DRAW,
+        "W3DModelDraw".into(),
+        "HidePropagation".into(),
+        Arc::new(data.clone()),
+        Box::new(W3DModelDraw::new(data)),
+    );
+    for (hidden, visible) in [(false, false), (true, false), (true, true), (false, true)] {
+        drawable.set_drawable_hidden(hidden).unwrap();
+        drawable.set_visible(visible);
+        let model_hidden = entry.with_module(|module| {
+            (module as &mut dyn std::any::Any)
+                .downcast_mut::<W3DModelDraw>()
+                .unwrap()
+                .hidden
+        });
+        assert_eq!(model_hidden, hidden);
+        assert_eq!(drawable.is_drawable_effectively_hidden(), hidden);
+        assert_eq!(drawable.is_currently_visible(), visible && !hidden);
+    }
+}

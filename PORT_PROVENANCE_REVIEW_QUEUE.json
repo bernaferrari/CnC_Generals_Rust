@@ -52347,6 +52347,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/effective_hide_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/entity_module_host.rs"
             },
@@ -189093,7 +189098,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "35ed00622523e9ee3a36efefc7c1fc4cc3ae7b7f96a15e47834e12a32bec3daf",
+  "provenance_input_digest": "028b7a72e6bc320ebeb4efe75a872c456172dc4074e2aaa7cb7bb9cf1ab67765",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,
