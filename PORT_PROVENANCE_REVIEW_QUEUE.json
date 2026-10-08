@@ -53028,6 +53028,16 @@
             {
               "cargo_reachable": true,
               "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/temporary_lifecycle_control_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/temporary_lifecycle_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/tests.rs"
             },
             {
@@ -189078,7 +189088,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "be696dbb2c7797c5691e9189dffe2161b3021a27dda27d25e6413f2d153ae76b",
+  "provenance_input_digest": "e7a5f9b19bd391378db6a7a30fc422af20fb4aba9c811eb716860a6a986dd3fd",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

@@ -2100,17 +2100,13 @@ impl UnitAIUpdate {
             .unwrap_or(false)
     }
     pub(super) fn set_temporary_state(&mut self, state: AIStateType, frame_limit: UnsignedInt) {
-        if let Some(machine) = self.ai_state_machine.as_ref() {
+        if let Some(machine) = self.ai_state_machine.clone() {
             if let Ok(mut guard) = machine.lock() {
-                let _ = guard.set_temporary_state(state as u32, frame_limit);
+                let _ = guard.set_temporary_state_with_ai(state as u32, frame_limit, self);
             }
         }
     }
     pub(super) fn do_quick_exit(&mut self, path: &[Coord3D]) {
-        let mut path = path.to_vec();
-        if let Some(end) = path.first_mut() {
-            let _ = self.adjust_destination(end);
-        }
         let Some(machine) = self.ai_state_machine.clone() else {
             return;
         };
@@ -2119,36 +2115,12 @@ impl UnitAIUpdate {
         };
         let locked = guard.is_locked();
         guard.unlock();
-        guard.set_goal_path(&path);
-        guard.install_follow_exit_path(&path);
-        let _ = self.set_current_goal_path_index(0);
-        let _ = self.set_can_path_through_units(true);
-        if let Some(first) = path.first() {
-            let extra = if let Some(next) = path.get(1) {
-                let dx = next.x - first.x;
-                let dy = next.y - first.y;
-                let mut offset = (dx * dx + dy * dy).sqrt();
-                if path.get(2).is_some() {
-                    offset += 4.0 * PATHFIND_CELL_SIZE_F;
-                }
-                offset
-            } else {
-                0.0
-            };
-            let _ = self.set_path_extra_distance(extra);
-            let layer = crate::helpers::TheTerrainLogic::get()
-                .map(|terrain| terrain.get_layer_for_destination(first))
-                .unwrap_or(crate::common::PathfindLayerEnum::Ground);
-            let _ = self.update_goal_position(first, layer);
-            let _ = self.set_movement_target(first);
-        }
-        self.set_desired_speed(crate::modules::FAST_AS_POSSIBLE);
-        self.friend_starting_move();
-        self.with_cur_locomotor_mut(&mut |loco| loco.start_move());
-        guard.note_owner_ai_mutex_held_for_next_enter();
-        let _ = guard.set_temporary_state(
+        guard.set_goal_path(path);
+        guard.install_follow_exit_path(path);
+        let _ = guard.set_temporary_state_with_ai(
             AIStateType::FollowExitProductionPath as u32,
             10 * crate::common::LOGICFRAMES_PER_SECOND as UnsignedInt,
+            self,
         );
         if locked {
             guard.lock();

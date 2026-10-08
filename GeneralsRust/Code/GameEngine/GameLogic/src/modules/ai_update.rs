@@ -5,6 +5,14 @@
 
 /// AI update interface (matching C++ AIUpdateInterface)
 pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
+    /// Inspect the actual installed runtime in bounded lifecycle regressions.
+    #[cfg(test)]
+    fn unit_ai_for_test(&mut self) -> Option<&mut crate::object::unit::UnitAIUpdate> {
+        None
+    }
+
+    /// C++ AIUpdate.h setFinalPosition writes existing AI state, not Object pose.
+    fn set_final_position(&mut self, _position: &Coord3D) {}
     /// Update AI logic
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     /// Serialize live AIUpdate runtime state through the owning AIUpdate module.

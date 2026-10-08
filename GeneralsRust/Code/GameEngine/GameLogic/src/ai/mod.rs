@@ -398,28 +398,11 @@ pub trait AiCommandInterface {
     }
 }
 
-// AI Group - collection of AI objects for group pathfinding and commands
-#[allow(dead_code)]
-#[derive(Debug)]
-pub struct AiGroup {
-    id: u32,
-    member_list: Vec<ObjectId>,
-    speed: Real,
-    dirty: bool,
-    ground_path: Option<PathId>,
-}
+// AI Group runtime values retain the same fields and public type path.
+mod group_runtime;
+pub use group_runtime::AiGroup;
 
 impl AiGroup {
-    pub fn new(id: u32) -> Self {
-        Self {
-            id,
-            member_list: Vec::new(),
-            speed: 0.0,
-            dirty: true,
-            ground_path: None,
-        }
-    }
-
     pub fn get_id(&self) -> u32 {
         self.id
     }
@@ -563,6 +546,21 @@ impl AiGroup {
     pub fn get_speed(&mut self) -> Real {
         if self.dirty {
             self.recompute();
+        }
+        self.speed
+    }
+
+    /// The caller supplies the speed read from its already-borrowed installed
+    /// AI, before borrowing this group. Both runtime handles must match the
+    /// resolved member; this is not a detached-AI or ObjectID-only shortcut.
+    pub(crate) fn get_speed_with_borrowed_member(
+        &mut self,
+        owner: &Arc<RwLock<Object>>,
+        installed_ai: &Arc<std::sync::Mutex<dyn crate::modules::AIUpdateInterface>>,
+        speed: Real,
+    ) -> Real {
+        if self.dirty {
+            self.recompute_with_borrowed_member(Some((owner, installed_ai, speed)));
         }
         self.speed
     }
@@ -933,6 +931,17 @@ impl AiGroup {
     }
 
     fn recompute(&mut self) {
+        self.recompute_with_borrowed_member(None);
+    }
+
+    fn recompute_with_borrowed_member(
+        &mut self,
+        borrowed: Option<(
+            &Arc<RwLock<Object>>,
+            &Arc<std::sync::Mutex<dyn crate::modules::AIUpdateInterface>>,
+            Real,
+        )>,
+    ) {
         // Wave 263: empty dual-world → no factory object walks.
         if dual_world_registry_unavailable() {
             return;
@@ -943,17 +952,33 @@ impl AiGroup {
         }
 
         let mut min_speed = Real::INFINITY;
-        for obj_id in &self.member_list {
-            let Some(speed) = OBJECT_REGISTRY
-                .with_object(*obj_id, |obj_guard| {
-                    obj_guard
-                        .get_ai_update_interface()
-                        .and_then(|ai| ai.lock().ok().map(|ai_guard| ai_guard.get_speed().max(0.0)))
-                })
-                .flatten()
-            else {
+        // Snapshot the length, then copy each ID in the original order. The
+        // observation helper does not mutate membership or allocate in production.
+        for member_index in 0..self.member_list.len() {
+            let obj_id = self.member_list[member_index];
+            self.observe_speed_member(obj_id);
+            // Same registry resolution and Object read lifetime as with_object.
+            let Some(member) = OBJECT_REGISTRY.get_object(obj_id) else {
                 continue;
             };
+            let Ok(object) = member.read() else {
+                continue;
+            };
+            let Some(member_ai) = object.get_ai_update_interface() else {
+                continue;
+            };
+            let speed = if let Some((_, _, speed)) = borrowed
+                .filter(|(owner, ai, _)| Arc::ptr_eq(&member, owner) && Arc::ptr_eq(&member_ai, ai))
+            {
+                self.observe_borrowed_speed_hit();
+                speed.max(0.0)
+            } else {
+                let Ok(ai_guard) = member_ai.lock() else {
+                    continue;
+                };
+                ai_guard.get_speed().max(0.0)
+            };
+            drop(object);
             min_speed = min_speed.min(speed);
         }
         if !min_speed.is_finite() {

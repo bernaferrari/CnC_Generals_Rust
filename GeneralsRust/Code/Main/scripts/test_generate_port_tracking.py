@@ -33,6 +33,48 @@ EXPECTED_GUI_HINTS = {
 
 
 class GeneratePortTrackingTests(unittest.TestCase):
+    def test_kind_of_case_correct_legacy_hint_wins_over_basename_fallback(self) -> None:
+        # These are filename hints, not implementation or behavior evidence.
+        destination = Path("Common/src/System/kind_of.rs")
+        keys = (
+            ("Source", "Common/System/KindOf.cpp"),
+            ("Include", "Common/KindOf.h"),
+            ("Include", "Common/System/KindOf.h"),
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            rust_root = root / "rust"
+            compatibility = rust_root / destination
+            fallback = rust_root / "GameLogic/src/common/types/kindof.rs"
+            for path in (compatibility, fallback):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("// Filename candidate only.\n", encoding="utf-8")
+
+            by_stem: dict[str, list[Path]] = defaultdict(list)
+            by_normalized: dict[str, list[Path]] = defaultdict(list)
+            for path in (compatibility, fallback):
+                by_stem[path.stem.lower()].append(path)
+                by_normalized[tracking.normalize_name(path.stem)].append(path)
+
+            for kind, source in keys:
+                cpp_file = root / kind / source
+                cpp_file.parent.mkdir(parents=True, exist_ok=True)
+                cpp_file.write_text("// Legacy filename only.\n", encoding="utf-8")
+
+            for kind in ("Source", "Include"):
+                rows = tracking.build_mapping_rows(
+                    kind, root / kind, rust_root, by_stem, by_normalized
+                )
+                self.assertEqual(sum(key[0] == kind for key in keys), len(rows))
+                for row in rows:
+                    with self.subTest(kind=kind, source=row.source_rel.as_posix()):
+                        self.assertEqual(destination, row.mapped_rel)
+                        self.assertEqual(tracking.SOURCE_STATUS_FOUND, row.status)
+                        self.assertEqual(
+                            destination.as_posix(),
+                            tracking.MANUAL_CPP_TO_RUST[(kind, row.source_rel.as_posix())],
+                        )
+
     def test_catalogue_paths_are_excluded_from_candidate_index(self) -> None:
         self.assertTrue(tracking.is_gpui_catalogue_path(Path("GameClient/gui/src/gui/game_window.rs")))
         self.assertFalse(tracking.is_gpui_catalogue_path(Path("GameClient/src/gui/game_window/mod.rs")))

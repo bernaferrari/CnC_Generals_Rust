@@ -541,6 +541,21 @@ impl CppState for AIMoveOutOfTheWayState {
         self.move_aside_update(Some(ai))
     }
 
+    fn cpp_on_exit_with_ai(
+        &mut self,
+        exit: StateExitType,
+        ai: &mut dyn AIUpdateInterface,
+    ) -> Result<(), String> {
+        // Generic temporary entry can fail before MoveOut's native path exists.
+        // Its own C++ exit still destroys path, unlike base MoveTo's exit.
+        self.base.cpp_on_exit_with_ai(exit, ai)?;
+        ai.destroy_path();
+        ai.set_can_path_through_units(false)
+            .map_err(|e| e.to_string())?;
+        ai.clear_move_out_of_way();
+        Ok(())
+    }
+
     fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         self.base.cpp_on_exit(_exit)?;
         if let Some(owner) = self.base.base.get_machine_owner() {
@@ -1254,8 +1269,6 @@ pub struct AIMoveToState {
     pub(crate) repath_limit: Option<RepathLimit>,
     /// Owner when the caller already holds the state-machine mutex.
     pub(crate) preset_owner: Option<Arc<RwLock<crate::object::Object>>>,
-    /// True only for the enter that runs while this unit's AI mutex is already held.
-    pub(crate) owner_ai_mutex_held: bool,
 }
 
 pub(crate) const MIN_REPATH_TIME: u32 = 10;
@@ -1285,7 +1298,6 @@ impl AIMoveToState {
             ambient_playing_handle: 0,
             repath_limit: None,
             preset_owner: None,
-            owner_ai_mutex_held: false,
         }
     }
 
@@ -1746,6 +1758,41 @@ impl CppState for AIMoveToState {
         }
     }
 
+    fn cpp_on_exit_with_ai(
+        &mut self,
+        _exit: StateExitType,
+        ai: &mut dyn AIUpdateInterface,
+    ) -> Result<(), String> {
+        // AIInternalMoveToState::onExit: sound, endingMove, exact ground
+        // finalization. It does not destroyPath or reset path extra distance.
+        if self.ambient_playing_handle != 0 {
+            if let Some(audio) = TheAudio::get() {
+                audio.remove_audio_event(self.ambient_playing_handle);
+            }
+            self.ambient_playing_handle = 0;
+        }
+        ai.friend_ending_move();
+        let ground = ai.is_doing_ground_movement();
+        let mut ultra = false;
+        ai.with_cur_locomotor(&mut |loco| ultra = loco.is_ultra_accurate());
+        if ground && ultra {
+            if let Some(owner) = self.base.get_machine_owner() {
+                let owner = owner
+                    .read()
+                    .map_err(|_| "movement exit owner poisoned".to_string())?;
+                let dx = self.goal_position.x - owner.get_position().x;
+                let dy = self.goal_position.y - owner.get_position().y;
+                if owner.get_team().is_some()
+                    && dx * dx + dy * dy < PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F
+                {
+                    drop(owner);
+                    ai.set_final_position(&self.goal_position);
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if self.ambient_playing_handle != 0 {
             if let Some(audio) = TheAudio::get() {
@@ -1780,11 +1827,24 @@ impl CppState for AIMoveToState {
 }
 
 impl AIMoveToState {
+    pub(crate) fn enter_authored_segment(
+        &mut self,
+        ai: &mut dyn AIUpdateInterface,
+        goal: Coord3D,
+    ) -> Result<StateReturnType, String> {
+        self.enter_move_impl(Some(ai), Some(goal))
+    }
     fn enter_move(
         &mut self,
-        mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        borrowed: Option<&mut dyn AIUpdateInterface>,
     ) -> Result<StateReturnType, String> {
-        let owner_ai_mutex_held = std::mem::replace(&mut self.owner_ai_mutex_held, false);
+        self.enter_move_impl(borrowed, None)
+    }
+    fn enter_move_impl(
+        &mut self,
+        mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        authored_goal: Option<Coord3D>,
+    ) -> Result<StateReturnType, String> {
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
         }
@@ -1800,7 +1860,10 @@ impl AIMoveToState {
         self.adjust_destinations = self.adjust_destinations_override.unwrap_or(true);
         self.ambient_playing_handle = 0;
 
-        if let Some(goal_obj) = self.base.get_machine_goal_object_id().and_then(|id| {
+        if let Some(goal) = authored_goal {
+            self.goal_position = goal;
+            self.base.goal_position_copied = Some(goal);
+        } else if let Some(goal_obj) = self.base.get_machine_goal_object_id().and_then(|id| {
             crate::helpers::TheGameLogic::find_object_by_id(id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
         }) {
@@ -1841,18 +1904,21 @@ impl AIMoveToState {
             owner_guard.set_model_condition_state(ModelConditionFlags::CLIMBING);
             owner_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
         }
+        let parachuting = owner_guard.test_status(ObjectStatusTypes::Parachuting);
+        let formation_group = (authored_goal.is_none()
+            && owner_guard.get_formation_id() != FormationID::NONE)
+            .then(|| owner_guard.get_group_id())
+            .flatten();
+        let installed_ai = owner_guard.get_ai_update_interface();
+        let formation_member_ai = installed_ai.clone();
+        drop(owner_guard);
         let ai_arc;
         let mut locked_ai;
         let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
             if let Some(ai_ref) = borrowed.as_mut() {
                 *ai_ref
             } else {
-                if owner_ai_mutex_held {
-                    self.adjust_destinations = false;
-                    return Ok(StateReturnType::Continue);
-                }
-                ai_arc = owner_guard
-                    .get_ai_update_interface()
+                ai_arc = installed_ai
                     .ok_or_else(|| "AIMoveToState missing AIUpdateInterface".to_string())?;
                 locked_ai = ai_arc
                     .lock()
@@ -1860,7 +1926,7 @@ impl AIMoveToState {
                 &mut *locked_ai
             };
 
-        if owner_guard.test_status(ObjectStatusTypes::Parachuting) {
+        if parachuting {
             self.adjust_destinations = false;
         } else if !ai_guard.is_allowed_to_adjust_destination() {
             self.adjust_destinations = false;
@@ -1875,15 +1941,31 @@ impl AIMoveToState {
         ai_guard.friend_starting_move();
         ai_guard.with_cur_locomotor_mut(&mut |loco| loco.start_move());
 
-        self.start_move_sound(&owner_guard);
+        {
+            let owner_guard = owner
+                .read()
+                .map_err(|_| "movement sound owner poisoned".to_string())?;
+            self.start_move_sound(&owner_guard);
+        }
 
-        if owner_guard.get_formation_id() != FormationID::NONE {
-            if let Some(group_id) = owner_guard.get_group_id() {
+        if let Some(group_id) = formation_group {
+            // Capture the same getter the existing group algorithm uses before
+            // its lock; the caller's installed AI is already borrowed here.
+            let member_speed = ai_guard.get_speed();
+            {
                 let ai_store = the_ai();
                 if let Ok(ai_lock) = ai_store.read() {
                     if let Some(group) = ai_lock.find_group(group_id) {
                         if let Ok(mut group_guard) = group.write() {
-                            let speed = group_guard.get_speed();
+                            let speed = if let Some(installed) = formation_member_ai.as_ref() {
+                                group_guard.get_speed_with_borrowed_member(
+                                    &owner,
+                                    installed,
+                                    member_speed,
+                                )
+                            } else {
+                                group_guard.get_speed()
+                            };
                             ai_guard.set_desired_speed(speed);
                         }
                     }

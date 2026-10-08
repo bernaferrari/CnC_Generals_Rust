@@ -7,6 +7,15 @@ use super::imports::*;
 use super::registry::get_unit_arc;
 
 impl AIUpdateInterface for UnitAIUpdate {
+    fn set_final_position(&mut self, position: &Coord3D) {
+        self.data.final_position = *position;
+        self.data.do_final_position = false;
+    }
+    #[cfg(test)]
+    fn unit_ai_for_test(&mut self) -> Option<&mut UnitAIUpdate> {
+        Some(self)
+    }
+
     fn xfer_ai_update_state(&mut self, xfer: &mut dyn Xfer) -> Result<bool, String> {
         UnitAIUpdate::xfer_ai_update_state(self, xfer)
     }

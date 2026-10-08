@@ -138,6 +138,16 @@ struct TransitionThunk<S: CppState + 'static> {
 }
 
 impl<S: CppState> CppStateAdapter<S> {
+    /// Narrow concrete access preserves the registered adapter and state identity.
+    pub(crate) fn inner_mut(&mut self) -> &mut S {
+        &mut self.inner
+    }
+
+    #[cfg(test)]
+    pub(crate) fn inner_mut_for_test(&mut self) -> &mut S {
+        &mut self.inner
+    }
+
     pub fn new(inner: S) -> Self {
         Self { inner }
     }

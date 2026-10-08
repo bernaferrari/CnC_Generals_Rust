@@ -152,54 +152,95 @@ impl AIStateMachineDriver<'_> {
         new_state_id: u32,
         frame_limit: u32,
     ) -> StateReturnType {
-        let owner_ai_mutex_held =
-            std::mem::replace(&mut self.data.owner_ai_mutex_held_for_next_enter, false);
-        if let Some(current_id) = self.data.temporary_state_id.take() {
+        self.set_temporary_state_impl(new_state_id, frame_limit, None)
+    }
+    pub(super) fn enter_temporary_with_ai(
+        &mut self,
+        new_state_id: u32,
+        frame_limit: u32,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> StateReturnType {
+        self.set_temporary_state_impl(new_state_id, frame_limit, Some(ai))
+    }
+    fn set_temporary_state_impl(
+        &mut self,
+        new_state_id: u32,
+        frame_limit: u32,
+        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> StateReturnType {
+        #[cfg(test)]
+        let ordinary = self.base.get_current_state_id();
+        // C++ AIStates.cpp:928-939: outgoing identity stays published through
+        // Reset exit; incoming identity is published before synchronous enter.
+        if let Some(current_id) = self.data.temporary_state_id {
+            #[cfg(test)]
+            self.data
+                .observe("before_reset_exit", current_id, ordinary, ai.as_deref());
             if let Some(state) = self.base.get_state_mut(current_id) {
-                state.on_exit(StateExitType::Reset);
+                if let Some(ai) = ai.as_deref_mut() {
+                    state.on_exit_with_ai(StateExitType::Reset, ai);
+                } else {
+                    state.on_exit(StateExitType::Reset);
+                }
             }
+            #[cfg(test)]
+            self.data
+                .observe("after_reset_exit", current_id, ordinary, ai.as_deref());
+            self.data.temporary_state_id = None;
+            #[cfg(test)]
+            self.data
+                .observe("reset_cleared", current_id, ordinary, ai.as_deref());
         }
-
+        if self.base.get_state_mut(new_state_id).is_none() {
+            return StateReturnType::Failure;
+        }
         let goal_id = self.base.get_goal_object_id();
         let goal_pos = self.base.get_goal_position();
         let goal_squad = self.base.get_goal_squad();
         let goal_polygon = self.base.get_goal_polygon();
         let goal_waypoint = self.base.get_goal_waypoint();
-        if let Some(state) = self.base.get_state_mut(new_state_id) {
-            state.bind_goal_object_id(goal_id);
-            state.bind_goal_position(goal_pos);
-            state.bind_goal_squad(goal_squad);
-            state.bind_goal_polygon(goal_polygon);
-            state.bind_goal_waypoint(goal_waypoint);
-            if owner_ai_mutex_held {
-                if let Some(kind) =
-                    crate::ai::states::follow_path::state_follow_path_kind(state.as_mut())
-                {
-                    kind.note_owner_ai_mutex_held(true);
-                }
-            }
-            let ret = state.on_enter();
-            if owner_ai_mutex_held {
-                if let Some(kind) =
-                    crate::ai::states::follow_path::state_follow_path_kind(state.as_mut())
-                {
-                    kind.note_owner_ai_mutex_held(false);
-                }
-            }
-            if ret != StateReturnType::Continue {
+        self.data.temporary_state_id = Some(new_state_id);
+        let state = self
+            .base
+            .get_state_mut(new_state_id)
+            .expect("state checked above");
+        state.bind_goal_object_id(goal_id);
+        state.bind_goal_position(goal_pos);
+        state.bind_goal_squad(goal_squad);
+        state.bind_goal_polygon(goal_polygon);
+        state.bind_goal_waypoint(goal_waypoint);
+        #[cfg(test)]
+        self.data
+            .observe("before_enter", new_state_id, ordinary, ai.as_deref());
+        let ret = if let Some(ai) = ai.as_deref_mut() {
+            state.on_enter_with_ai(ai, goal_id, goal_pos)
+        } else {
+            state.on_enter()
+        };
+        #[cfg(test)]
+        self.data
+            .observe("after_enter", new_state_id, ordinary, ai.as_deref());
+        if ret != StateReturnType::Continue {
+            #[cfg(test)]
+            self.data
+                .observe("before_failed_exit", new_state_id, ordinary, ai.as_deref());
+            if let Some(ai) = ai.as_deref_mut() {
+                state.on_exit_with_ai(StateExitType::Normal, ai);
+            } else {
                 state.on_exit(StateExitType::Normal);
-                return ret;
             }
-
-            let max_limit = 60 * LOGICFRAMES_PER_SECOND;
-            let capped_limit = frame_limit.min(max_limit);
-            self.data.temporary_state_frame_end =
-                TheGameLogic::get_frame().saturating_add(capped_limit);
-            self.data.temporary_state_id = Some(new_state_id);
+            #[cfg(test)]
+            self.data
+                .observe("after_failed_exit", new_state_id, ordinary, ai.as_deref());
+            self.data.temporary_state_id = None;
+            #[cfg(test)]
+            self.data
+                .observe("failed_cleared", new_state_id, ordinary, ai.as_deref());
             return ret;
         }
-
-        StateReturnType::Failure
+        self.data.temporary_state_frame_end =
+            TheGameLogic::get_frame().saturating_add(frame_limit.min(60 * LOGICFRAMES_PER_SECOND));
+        ret
     }
     pub(crate) fn ai_do_command_with_ai(
         &mut self,

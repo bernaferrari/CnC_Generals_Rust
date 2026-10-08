@@ -96,19 +96,27 @@ impl<'a> FollowPathStateKindMut<'a> {
             Self::FollowExitProductionPath(state) => state.append_path(position),
         }
     }
-
-    pub(crate) fn note_owner_ai_mutex_held(self, held: bool) {
-        match self {
-            Self::FollowPath(state) => state.note_owner_ai_mutex_held(held),
-            Self::FollowExitProductionPath(state) => state.base.note_owner_ai_mutex_held(held),
-        }
-    }
 }
 
 pub(crate) fn state_follow_path_kind(
     state: &mut dyn StateImplementation,
 ) -> Option<FollowPathStateKindMut<'_>> {
+    use crate::state_machine::cpp_state::CppStateAdapter;
     let any = state as &mut dyn std::any::Any;
+    if any.is::<CppStateAdapter<AIFollowExitProductionPathState>>() {
+        return Some(FollowPathStateKindMut::FollowExitProductionPath(
+            any.downcast_mut::<CppStateAdapter<AIFollowExitProductionPathState>>()
+                .expect("checked adapter type")
+                .inner_mut(),
+        ));
+    }
+    if any.is::<CppStateAdapter<AIFollowPathState>>() {
+        return Some(FollowPathStateKindMut::FollowPath(
+            any.downcast_mut::<CppStateAdapter<AIFollowPathState>>()
+                .expect("checked adapter type")
+                .inner_mut(),
+        ));
+    }
     if any.is::<AIFollowExitProductionPathState>() {
         let state = any
             .downcast_mut::<AIFollowExitProductionPathState>()
@@ -137,8 +145,6 @@ pub struct AIFollowPathState {
     pub(crate) retry_count: i32,
     pub(crate) follow_exit_production: bool,
     pub(crate) ignore_object_id: Option<ObjectID>,
-    /// True only for the `on_enter` that runs while this unit's AI mutex is already held.
-    pub(crate) owner_ai_mutex_held: bool,
 }
 
 impl AIFollowPathState {
@@ -158,7 +164,6 @@ impl AIFollowPathState {
             retry_count: 0,
             follow_exit_production,
             ignore_object_id: None,
-            owner_ai_mutex_held: false,
         }
     }
 
@@ -175,23 +180,16 @@ impl AIFollowPathState {
         self.ignore_object_id = object_id;
     }
 
-    pub(crate) fn note_owner_ai_mutex_held(&mut self, held: bool) {
-        self.owner_ai_mutex_held = held;
-        self.base.owner_ai_mutex_held = held;
-    }
-
     pub(crate) fn set_goal_position(&mut self, pos: Coord3D) {
+        // C++ FollowPath owns the new segment locally. Parent goal publication
+        // occurs at the start of update, not during enter/segment selection.
         self.base.goal_position = pos;
-        if let Ok(machine) = self.base.base.get_machine() {
-            if let Ok(mut guard) = machine.try_lock() {
-                guard.set_goal_position(pos);
-            }
-        }
+        self.base.base.goal_position_copied = Some(pos);
     }
 
     pub(crate) fn configure_segment(
         &mut self,
-        owner_guard: &Object,
+        projectile: bool,
         ai_guard: &mut dyn AIUpdateInterface,
         allow_adjust: bool,
     ) -> Result<(), String> {
@@ -228,7 +226,7 @@ impl AIFollowPathState {
                     crate::common::PathfindLayerEnum::from_u32(layer as u32),
                 );
             }
-            if owner_guard.is_kind_of(KindOf::Projectile) {
+            if projectile {
                 let _ = ai_guard.set_precise_z_pos(true);
             }
         }
@@ -293,7 +291,9 @@ impl StateImplementation for AIFollowPathState {
                 }
             }
         }
-        if self.configure_segment(&owner_guard, ai, false).is_err() {
+        let projectile = owner_guard.is_kind_of(KindOf::Projectile);
+        drop(owner_guard);
+        if self.configure_segment(projectile, ai, false).is_err() {
             return StateReturnType::Failure;
         }
         StateReturnType::Continue
@@ -334,11 +334,13 @@ impl StateImplementation for AIFollowPathState {
         let Some(pos) = self.path.get(self.index).copied() else {
             return StateReturnType::Success;
         };
+        let projectile = owner_guard.is_kind_of(KindOf::Projectile);
+        drop(owner_guard);
         let _ = ai.set_current_goal_path_index(self.index as i32);
         let _ = ai.ignore_obstacle(None);
         ai.friend_starting_move();
         self.set_goal_position(pos);
-        if self.configure_segment(&owner_guard, ai, true).is_err()
+        if self.configure_segment(projectile, ai, true).is_err()
             || self.base.compute_path(ai).is_err()
         {
             return StateReturnType::Failure;
@@ -369,7 +371,6 @@ impl CppState for AIFollowPathState {
     }
 
     fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
-        let owner_ai_mutex_held = std::mem::replace(&mut self.owner_ai_mutex_held, false);
         if self.path.is_empty() {
             return Ok(StateReturnType::Failure);
         }
@@ -390,38 +391,30 @@ impl CppState for AIFollowPathState {
                 .get_ai_update_interface()
                 .ok_or_else(|| "follow path missing AIUpdateInterface".to_string())?;
             self.set_goal_position(self.path[0]);
-            if owner_ai_mutex_held {
-                if self.follow_exit_production {
-                    self.base.set_adjusts_destination(false);
-                }
-            } else {
-                let mut ai_guard = ai
-                    .lock()
-                    .map_err(|_| "follow path AI lock poisoned".to_string())?;
-                if let Some(ignore_id) = self.ignore_object_id {
-                    let _ = ai_guard.ignore_obstacle_id(ignore_id);
-                }
-                let _ = ai_guard.set_current_goal_path_index(self.index as i32);
-                if self.follow_exit_production {
-                    let _ = ai_guard.set_can_path_through_units(true);
-                    self.base.set_adjusts_destination(false);
-                }
+            let mut ai_guard = ai
+                .lock()
+                .map_err(|_| "follow path AI lock poisoned".to_string())?;
+            if let Some(ignore_id) = self.ignore_object_id {
+                let _ = ai_guard.ignore_obstacle_id(ignore_id);
+            }
+            let _ = ai_guard.set_current_goal_path_index(self.index as i32);
+            if self.follow_exit_production {
+                let _ = ai_guard.set_can_path_through_units(true);
+                self.base.set_adjusts_destination(false);
             }
         }
 
         let status = self.base.cpp_on_enter()?;
-        if !owner_ai_mutex_held {
-            if let Ok(owner_guard) = owner.read() {
-                if owner_guard.get_formation_id() != FormationID::NONE {
-                    if let Some(group_id) = owner_guard.get_group_id() {
-                        let ai_store = the_ai();
-                        if let Ok(ai_lock) = ai_store.read() {
-                            if let Some(group) = ai_lock.find_group(group_id) {
-                                if let Ok(mut group_guard) = group.write() {
-                                    if let Some(ai) = owner_guard.get_ai_update_interface() {
-                                        if let Ok(mut ai_guard) = ai.lock() {
-                                            ai_guard.set_desired_speed(group_guard.get_speed());
-                                        }
+        if let Ok(owner_guard) = owner.read() {
+            if owner_guard.get_formation_id() != FormationID::NONE {
+                if let Some(group_id) = owner_guard.get_group_id() {
+                    let ai_store = the_ai();
+                    if let Ok(ai_lock) = ai_store.read() {
+                        if let Some(group) = ai_lock.find_group(group_id) {
+                            if let Ok(mut group_guard) = group.write() {
+                                if let Some(ai) = owner_guard.get_ai_update_interface() {
+                                    if let Ok(mut ai_guard) = ai.lock() {
+                                        ai_guard.set_desired_speed(group_guard.get_speed());
                                     }
                                 }
                             }
@@ -429,11 +422,14 @@ impl CppState for AIFollowPathState {
                     }
                 }
             }
-            if let Ok(owner_guard) = owner.read() {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        self.configure_segment(&owner_guard, &mut *ai_guard, false)?;
-                    }
+        }
+        if let Ok(owner_guard) = owner.read() {
+            let projectile = owner_guard.is_kind_of(KindOf::Projectile);
+            let ai = owner_guard.get_ai_update_interface();
+            drop(owner_guard);
+            if let Some(ai) = ai {
+                if let Ok(mut ai_guard) = ai.lock() {
+                    self.configure_segment(projectile, &mut *ai_guard, false)?;
                 }
             }
         }
@@ -459,27 +455,45 @@ impl CppState for AIFollowPathState {
             let _ = ai.set_can_path_through_units(true);
             self.base.set_adjusts_destination(false);
         }
-        let status = self.base.cpp_on_enter_with_ai(ai)?;
+        let status = self.base.enter_authored_segment(ai, self.path[0])?;
         let owner = self
             .base
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow path missing owner".to_string())?;
-        if let Ok(owner_guard) = owner.read() {
-            if owner_guard.get_formation_id() != FormationID::NONE {
-                if let Some(group_id) = owner_guard.get_group_id() {
-                    let ai_store = the_ai();
-                    if let Ok(ai_lock) = ai_store.read() {
-                        if let Some(group) = ai_lock.find_group(group_id) {
-                            if let Ok(mut group_guard) = group.write() {
-                                ai.set_desired_speed(group_guard.get_speed());
-                            }
-                        }
+        let (formation_group, projectile, installed_ai) = {
+            let owner_guard = owner
+                .read()
+                .map_err(|_| "follow path owner lock poisoned".to_string())?;
+            (
+                (owner_guard.get_formation_id() != FormationID::NONE)
+                    .then(|| owner_guard.get_group_id())
+                    .flatten(),
+                owner_guard.is_kind_of(KindOf::Projectile),
+                owner_guard.get_ai_update_interface(),
+            )
+        };
+        if let Some(group_id) = formation_group {
+            let member_speed = ai.get_speed();
+            let ai_store = the_ai();
+            if let Ok(ai_lock) = ai_store.read() {
+                if let Some(group) = ai_lock.find_group(group_id) {
+                    if let Ok(mut group_guard) = group.write() {
+                        let speed = if let Some(installed) = installed_ai.as_ref() {
+                            group_guard.get_speed_with_borrowed_member(
+                                &owner,
+                                installed,
+                                member_speed,
+                            )
+                        } else {
+                            group_guard.get_speed()
+                        };
+                        ai.set_desired_speed(speed);
                     }
                 }
             }
-            self.configure_segment(&owner_guard, ai, false)?;
         }
+        self.configure_segment(projectile, ai, false)?;
         Ok(status)
     }
 
@@ -492,6 +506,32 @@ impl CppState for AIFollowPathState {
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.follow_update(Some(ai))
+    }
+
+    fn cpp_on_update_with_control(
+        &mut self,
+        control: &mut crate::state_machine::StateMachineControl,
+        ai: Option<&mut dyn AIUpdateInterface>,
+        _locked: bool,
+    ) -> Result<StateReturnType, String> {
+        // AIStates.cpp:3310 publishes the pre-body segment. A newly selected
+        // next segment remains local until the following update.
+        control.set_goal_position(self.base.goal_position);
+        self.follow_update(ai)
+    }
+
+    fn cpp_on_exit_with_ai(
+        &mut self,
+        exit: StateExitType,
+        ai: &mut dyn AIUpdateInterface,
+    ) -> Result<(), String> {
+        self.base.cpp_on_exit_with_ai(exit, ai)?;
+        ai.set_can_path_through_units(false)
+            .map_err(|e| e.to_string())?;
+        ai.set_precise_z_pos(false).map_err(|e| e.to_string())?;
+        ai.set_current_goal_path_index(-1)
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
@@ -513,11 +553,6 @@ impl AIFollowPathState {
         &mut self,
         mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
     ) -> Result<StateReturnType, String> {
-        if let Ok(machine) = self.base.base.get_machine() {
-            if let Ok(mut guard) = machine.try_lock() {
-                guard.set_goal_position(self.base.goal_position);
-            }
-        }
         let status = if let Some(ai) = borrowed.as_mut() {
             self.base.cpp_on_update_with_ai(*ai)?
         } else {
@@ -536,14 +571,21 @@ impl AIFollowPathState {
         let owner_guard = owner
             .read()
             .map_err(|_| "follow path owner lock poisoned".to_string())?;
+        let owner_position = *owner_guard.get_position();
+        let projectile = owner_guard.is_kind_of(KindOf::Projectile);
+        let installed_ai = if borrowed.is_none() {
+            owner_guard.get_ai_update_interface()
+        } else {
+            None
+        };
+        drop(owner_guard);
         let ai_arc;
         let mut locked_ai;
         let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
             if let Some(ai) = borrowed.as_mut() {
                 *ai
             } else {
-                ai_arc = owner_guard
-                    .get_ai_update_interface()
+                ai_arc = installed_ai
                     .ok_or_else(|| "follow path missing AIUpdateInterface".to_string())?;
                 locked_ai = ai_arc
                     .lock()
@@ -559,8 +601,8 @@ impl AIFollowPathState {
 
         while self.index < self.path.len() {
             let pos = self.path[self.index];
-            let dx = pos.x - owner_guard.get_position().x;
-            let dy = pos.y - owner_guard.get_position().y;
+            let dx = pos.x - owner_position.x;
+            let dy = pos.y - owner_position.y;
             if dx * dx + dy * dy >= PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F {
                 break;
             }
@@ -576,7 +618,7 @@ impl AIFollowPathState {
         ai_guard.friend_starting_move();
 
         self.set_goal_position(pos);
-        self.configure_segment(&owner_guard, &mut *ai_guard, true)?;
+        self.configure_segment(projectile, &mut *ai_guard, true)?;
         self.base.compute_path(&mut *ai_guard)?;
         Ok(StateReturnType::Continue)
     }
@@ -679,6 +721,23 @@ impl CppState for AIFollowExitProductionPathState {
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
         self.base.cpp_on_update_with_ai(ai)
+    }
+
+    fn cpp_on_update_with_control(
+        &mut self,
+        control: &mut crate::state_machine::StateMachineControl,
+        ai: Option<&mut dyn AIUpdateInterface>,
+        locked: bool,
+    ) -> Result<StateReturnType, String> {
+        self.base.cpp_on_update_with_control(control, ai, locked)
+    }
+
+    fn cpp_on_exit_with_ai(
+        &mut self,
+        exit: StateExitType,
+        ai: &mut dyn AIUpdateInterface,
+    ) -> Result<(), String> {
+        self.base.cpp_on_exit_with_ai(exit, ai)
     }
 
     fn cpp_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {

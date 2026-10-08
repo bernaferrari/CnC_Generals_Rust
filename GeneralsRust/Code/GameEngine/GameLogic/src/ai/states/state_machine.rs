@@ -92,7 +92,20 @@ fn notify_state_machine_changed_for_base(base: &StateMachine) {
     }
 }
 /// Existing Rust AIStateMachine non-base fields; this is not a claim of exact C++ field layout.
+#[cfg(test)]
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct TemporaryLifecycleObservation {
+    pub(crate) phase: &'static str,
+    pub(crate) callback_state: u32,
+    pub(crate) published_temporary: Option<u32>,
+    pub(crate) ordinary_state: Option<u32>,
+    pub(crate) path_index: Option<i32>,
+    pub(crate) through_units: Option<bool>,
+}
+
 pub(super) struct AIStateMachineData {
+    #[cfg(test)]
+    pub(super) observations: Vec<TemporaryLifecycleObservation>,
     /// C++ m_goalPath counterpart.
     pub(super) goal_path: Vec<Coord3D>,
     /// C++ m_goalWaypoint counterpart.
@@ -105,8 +118,28 @@ pub(super) struct AIStateMachineData {
     pub(super) temporary_state_id: Option<u32>,
     /// C++ temporary-state end-frame counterpart.
     pub(super) temporary_state_frame_end: u32,
-    /// Rust bridge marker; no direct C++ field counterpart.
-    pub(super) owner_ai_mutex_held_for_next_enter: bool,
+}
+
+#[cfg(test)]
+impl AIStateMachineData {
+    pub(super) fn observe(
+        &mut self,
+        phase: &'static str,
+        state: u32,
+        ordinary: Option<u32>,
+        ai: Option<&dyn crate::modules::AIUpdateInterface>,
+    ) {
+        // Direct owned-field queries only. is_moving/is_idle would reborrow
+        // this very FSM; observing it must never change callback behavior.
+        self.observations.push(TemporaryLifecycleObservation {
+            phase,
+            callback_state: state,
+            published_temporary: self.temporary_state_id,
+            ordinary_state: ordinary,
+            path_index: ai.map(|a| a.get_current_goal_path_index()),
+            through_units: ai.map(|a| a.get_can_path_through_units()),
+        });
+    }
 }
 
 /// The AI state machine - implements all AI commands
@@ -140,9 +173,6 @@ impl AIStateMachine {
     fn driver(&mut self) -> AIStateMachineDriver<'_> {
         AIStateMachineDriver::new(&mut self.base, &mut self.data)
     }
-    pub(crate) fn note_owner_ai_mutex_held_for_next_enter(&mut self) {
-        self.data.owner_ai_mutex_held_for_next_enter = true;
-    }
 }
 
 impl AIStateMachine {
@@ -150,13 +180,14 @@ impl AIStateMachine {
         let mut machine = Self {
             base: StateMachine::new(Some(owner), name),
             data: AIStateMachineData {
+                #[cfg(test)]
+                observations: Vec::new(),
                 goal_path: Vec::new(),
                 goal_waypoint: None,
                 goal_squad: None,
                 goal_polygon: None,
                 temporary_state_id: None,
                 temporary_state_frame_end: 0,
-                owner_ai_mutex_held_for_next_enter: false,
             },
         };
 
@@ -771,6 +802,24 @@ impl AIStateMachine {
     }
 
     /// Get temporary state ID
+    pub(crate) fn set_temporary_state_with_ai(
+        &mut self,
+        state: u32,
+        frames: u32,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> StateReturnType {
+        self.driver().enter_temporary_with_ai(state, frames, ai)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn temporary_lifecycle_observations(&self) -> &[TemporaryLifecycleObservation] {
+        &self.data.observations
+    }
+    #[cfg(test)]
+    pub(crate) fn temporary_frame_end_for_test(&self) -> u32 {
+        self.data.temporary_state_frame_end
+    }
+
     pub fn get_temporary_state(&self) -> Option<u32> {
         self.data.temporary_state_id
     }
@@ -791,6 +840,8 @@ impl AIStateMachine {
         owner: &mut dyn std::any::Any,
         after_body: impl FnOnce(&mut AIStateMachineDriver<'_>, &mut A, &mut dyn std::any::Any),
     ) -> StateReturnType {
+        #[cfg(test)]
+        let ordinary = self.base.get_current_state_id();
         if let Some(temp_state_id) = self.data.temporary_state_id {
             let goal_id = self.base.get_goal_object_id();
             let goal_pos = self.base.get_goal_position();
@@ -803,7 +854,11 @@ impl AIStateMachine {
                 state.bind_goal_squad(goal_squad);
                 state.bind_goal_polygon(goal_polygon);
                 state.bind_goal_waypoint(goal_waypoint);
-                let mut status = state.update_with_ai(ai.as_ai_update());
+            }
+            if let Some(mut status) = self
+                .base
+                .update_registered_with_control(temp_state_id, ai.as_ai_update())
+            {
                 if self.data.temporary_state_frame_end < TheGameLogic::get_frame() {
                     if status == StateReturnType::Continue {
                         status = StateReturnType::Success;
@@ -812,14 +867,44 @@ impl AIStateMachine {
                 if status == StateReturnType::Continue {
                     return status;
                 }
-                state.on_exit(StateExitType::Normal);
+                #[cfg(test)]
+                self.data.observe(
+                    "before_completion_exit",
+                    temp_state_id,
+                    ordinary,
+                    Some(ai.as_ai_update()),
+                );
+                if let Some(state) = self.base.get_state_mut(temp_state_id) {
+                    state.on_exit_with_ai(StateExitType::Normal, ai.as_ai_update());
+                }
+                #[cfg(test)]
+                self.data.observe(
+                    "after_completion_exit",
+                    temp_state_id,
+                    ordinary,
+                    Some(ai.as_ai_update()),
+                );
             }
             self.data.temporary_state_id = None;
+            #[cfg(test)]
+            self.data.observe(
+                "completion_cleared",
+                temp_state_id,
+                ordinary,
+                Some(ai.as_ai_update()),
+            );
         }
 
         // The state-table borrow ends before the driver completes this step.
         // This is where synchronous terminal commands can acquire a loan of
         // this machine without reentering the outgoing state's callback.
+        #[cfg(test)]
+        self.data.observe(
+            "before_ordinary_update",
+            ordinary.unwrap_or(INVALID_STATE_ID),
+            ordinary,
+            Some(ai.as_ai_update()),
+        );
         let data = &mut self.data;
         let mut update = self.base.begin_update_with_ai_and_owner(ai, owner);
         if let StateUpdate::Body(step) = &mut update {

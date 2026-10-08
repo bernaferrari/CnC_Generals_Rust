@@ -240,6 +240,7 @@ impl UnitAIUpdate {
                     self.clip_goal_position(&guard.base_arc(), command.pos, command.cmd_source);
                 if let Some(state_machine) = self.ai_state_machine.clone() {
                     if let Ok(mut machine) = state_machine.lock() {
+                        drop(guard);
                         let is_mobile = self.data.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
@@ -251,9 +252,10 @@ impl UnitAIUpdate {
                             self.data.blocked_frames = 0;
                             self.data.is_blocked = false;
                             self.data.blocked_and_stuck = false;
-                            let _ = machine.set_temporary_state(
+                            let _ = machine.set_temporary_state_with_ai(
                                 AIStateType::MoveTo as u32,
                                 LOGICFRAMES_PER_SECOND * 20,
+                                self,
                             );
                         } else {
                             let mut params = command.clone();

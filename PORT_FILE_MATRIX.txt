@@ -98,7 +98,7 @@ Source | Source/Common/System/GameCommon.cpp | Common/src/System/game_common.rs 
 Source | Source/Common/System/GameMemory.cpp | Common/src/System/game_memory.rs | FOUND | subsystem=Common
 Source | Source/Common/System/GameType.cpp | Common/src/System/game_type.rs | FOUND | subsystem=Common
 Source | Source/Common/System/Geometry.cpp | Common/src/System/geometry.rs | FOUND | subsystem=Common
-Source | Source/Common/System/KindOf.cpp | Common/src/system/kind_of.rs | FOUND | subsystem=Common
+Source | Source/Common/System/KindOf.cpp | Common/src/System/kind_of.rs | FOUND | subsystem=Common
 Source | Source/Common/System/List.cpp | Common/src/System/list.rs | FOUND | subsystem=Common
 Source | Source/Common/System/LocalFile.cpp | Common/src/System/local_file.rs | FOUND | subsystem=Common
 Source | Source/Common/System/LocalFileSystem.cpp | Common/src/System/local_file_system.rs | FOUND | subsystem=Common
@@ -645,7 +645,7 @@ Include | Include/Common/Handicap.h | Common/src/rts/handicap.rs | FOUND | subsy
 Include | Include/Common/INI.h | Common/src/ini/ini.rs | FOUND | subsystem=Common
 Include | Include/Common/INIException.h | Common/src/ini_exception.rs | FOUND | subsystem=Common
 Include | Include/Common/IgnorePreferences.h | Common/src/ignore_preferences.rs | FOUND | subsystem=Common
-Include | Include/Common/KindOf.h | Common/src/system/kind_of.rs | FOUND | subsystem=Common
+Include | Include/Common/KindOf.h | Common/src/System/kind_of.rs | FOUND | subsystem=Common
 Include | Include/Common/LadderPreferences.h | Common/src/ladder_preferences.rs | FOUND | subsystem=Common
 Include | Include/Common/Language.h | Common/src/language.rs | FOUND | subsystem=Common
 Include | Include/Common/LatchRestore.h | Common/src/latch_restore.rs | FOUND | subsystem=Common

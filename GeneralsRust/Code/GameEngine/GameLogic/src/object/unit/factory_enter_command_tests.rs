@@ -884,3 +884,9 @@ fn factory_enter_restored_hostile_occupancy_dispatches_in_same_update() {
         crate::weapon::NO_MAX_SHOTS_LIMIT
     );
 }
+
+#[path = "temporary_lifecycle_tests.rs"]
+mod temporary_lifecycle_tests;
+
+#[path = "temporary_lifecycle_control_tests.rs"]
+mod temporary_lifecycle_control_tests;

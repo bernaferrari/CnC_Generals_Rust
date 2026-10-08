@@ -1904,6 +1904,18 @@ impl StateMachine {
     }
 
     /// Get state by ID (internal)
+    /// Drive one registered temporary body with its disjoint live control.
+    pub(crate) fn update_registered_with_control(
+        &mut self,
+        id: StateId,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Option<StateReturnType> {
+        let locked = self.control.is_locked();
+        self.state_map
+            .get_mut(&id)
+            .map(|state| state.update_with_control(&mut self.control, Some(ai), locked, &mut ()))
+    }
+
     pub fn get_state_mut(&mut self, id: StateId) -> Option<&mut Box<dyn StateImplementation>> {
         self.state_map.get_mut(&id)
     }

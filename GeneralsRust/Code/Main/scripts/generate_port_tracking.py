@@ -24,9 +24,9 @@ SOURCE_STATUS_MISSING = "MISSING"
 # Explicit C++ -> Rust mappings for renamed faithful ports where file names diverge.
 # Keys are: (kind, relative_cpp_path_from_Source_or_Include_root).
 MANUAL_CPP_TO_RUST: dict[tuple[str, str], str] = {
-    ("Source", "Common/System/KindOf.cpp"): "Common/src/system/kind_of.rs",
-    ("Include", "Common/KindOf.h"): "Common/src/system/kind_of.rs",
-    ("Include", "Common/System/KindOf.h"): "Common/src/system/kind_of.rs",
+    ("Source", "Common/System/KindOf.cpp"): "Common/src/System/kind_of.rs",
+    ("Include", "Common/KindOf.h"): "Common/src/System/kind_of.rs",
+    ("Include", "Common/System/KindOf.h"): "Common/src/System/kind_of.rs",
     # These ports are intentionally split into Rust module directories.  Keep
     # the source mapping explicit so the audit does not report the historical
     # flat-file name as missing.
