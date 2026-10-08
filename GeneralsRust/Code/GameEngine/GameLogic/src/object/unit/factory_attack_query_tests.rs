@@ -375,3 +375,56 @@ fn factory_attack_query_retains_dead_noattack_self_and_source_gates() {
     assert_eq!(computer, CanAttackResult::NotPossible);
     assert_eq!(no_weapon, CanAttackResult::NotPossible);
 }
+
+#[test]
+fn factory_authored_locomotor_attack_request_publishes_state_only() {
+    if !child(concat!(
+        module_path!(),
+        "::factory_authored_locomotor_attack_request_publishes_state_only"
+    )) {
+        return;
+    }
+    let _serial = crate::test_sync::lock();
+    definitions();
+    let _frame = RestoreAmbientFrame::set(17);
+    let actual = AttackRuntime::new(true);
+    let target_id = actual.target.read().unwrap().get_id();
+    let target_pos = *actual.target.read().unwrap().get_position();
+    let now = TheGameLogic::get_frame();
+
+    let mut cached_ai = actual.ai.lock().unwrap();
+    {
+        let ai = cached_ai
+            .unit_ai_for_test()
+            .expect("factory-cached UnitAIUpdate");
+        assert!(ai.has_valid_locomotor_surfaces());
+        assert!(ai.data.current_path_snapshot.is_none());
+        // Enter the existing recent-repath throttle: state publication is
+        // exercised, while queued-pathfinder success remains outside this test.
+        ai.data.path_timestamp = now.saturating_add(1);
+    }
+    assert!(crate::ai::object_registry::get_legacy_object(target_id).is_some());
+    assert_eq!(
+        cached_ai.request_attack_path(target_id, &target_pos),
+        Ok(())
+    );
+
+    let ai = cached_ai
+        .unit_ai_for_test()
+        .expect("same cached UnitAIUpdate");
+    assert_eq!(ai.data.requested_destination, target_pos);
+    assert_eq!(ai.data.requested_victim_id, target_id);
+    assert!(ai.data.is_attack_path);
+    assert!(!ai.data.is_approach_path);
+    assert!(!ai.data.is_safe_path);
+    assert!(ai.data.waiting_for_path);
+    assert_eq!(
+        ai.data.queue_for_path_frame,
+        now.saturating_add(crate::common::LOGICFRAMES_PER_SECOND * 2)
+    );
+    assert_eq!(ai.data.path_timestamp, now.saturating_add(1));
+    assert!(
+        ai.data.current_path_snapshot.is_none(),
+        "request publication only; no pathfinder completion claim"
+    );
+}

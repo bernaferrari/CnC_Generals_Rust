@@ -1717,24 +1717,169 @@ fn unit_ai_update_cpp_blocked_speed_default_is_zero() {
     assert_eq!(ai.get_cur_max_blocked_speed(), 0.0);
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct PathRequestSnapshot {
+    destination: Coord3D,
+    final_goal: bool,
+    victim_id: ObjectID,
+    attack: bool,
+    approach: bool,
+    safe: bool,
+    waiting: bool,
+    queue_frame: UnsignedInt,
+    path_timestamp: UnsignedInt,
+}
+
+fn path_request_snapshot(ai: &UnitAIUpdate) -> PathRequestSnapshot {
+    PathRequestSnapshot {
+        destination: ai.data.requested_destination,
+        final_goal: ai.data.is_final_goal,
+        victim_id: ai.data.requested_victim_id,
+        attack: ai.data.is_attack_path,
+        approach: ai.data.is_approach_path,
+        safe: ai.data.is_safe_path,
+        waiting: ai.data.waiting_for_path,
+        queue_frame: ai.data.queue_for_path_frame,
+        path_timestamp: ai.data.path_timestamp,
+    }
+}
+
 #[test]
 fn unit_ai_update_rejects_path_requests_without_valid_locomotor_surfaces() {
-    let mut ai = unit_ai_update_without_unit();
-    let destination = Coord3D::new(10.0, 20.0, 0.0);
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::unit_ai_update_rejects_path_requests_without_valid_locomotor_surfaces"
+    )) {
+        return;
+    }
+    let _serial = crate::test_sync::lock();
 
+    // This child owns real factory registration; no UNIT_REGISTRY injection or
+    // synthetic Unit supplies the surface check.
+    use game_engine::common::thing::module_factory::{get_module_factory, init_module_factory};
+    use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
+    if get_thing_factory().unwrap().is_none() {
+        init_thing_factory().unwrap();
+    }
+    if get_module_factory().unwrap().is_none() {
+        init_module_factory().unwrap();
+    }
+    crate::contain_module_overrides::ensure_module_overrides_installed().unwrap();
+    assert_eq!(
+        get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(
+            "Object NoSurfaceAttackUnit\n KindOf = INFANTRY CAN_ATTACK\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface AttackAI\n End\nEnd\n"
+        ),
+        1
+    );
+
+    let mut factory = crate::object::object_factory::ObjectFactory::new();
+    let id = factory
+        .create_object(
+            "NoSurfaceAttackUnit",
+            Coord3D::ZERO,
+            None,
+            crate::object::object_factory::ObjectCreationFlags::empty(),
+        )
+        .unwrap();
+    let owner = factory
+        .get_object(id)
+        .unwrap()
+        .get_base_object()
+        .expect("factory-admitted Object");
+    let registered = OBJECT_REGISTRY
+        .get_object(id)
+        .expect("real owner must make the global empty-world guard false");
+    assert!(Arc::ptr_eq(&registered, &owner));
+
+    let cached_ai = owner
+        .read()
+        .unwrap()
+        .get_ai_update_interface()
+        .expect("factory-cached AIUpdateInterface");
+    let mut cached_ai = cached_ai.lock().unwrap();
+    let ai = cached_ai.unit_ai_for_test().expect("actual UnitAIUpdate");
+    assert!(
+        !ai.has_valid_locomotor_surfaces(),
+        "the authored object deliberately has no Locomotor entry"
+    );
+
+    // request_path writes these fields before its rejection; attack/approach
+    // requests reject before mutation. This makes the native Rust API contract
+    // explicit without attributing that mutation ordering to C++.
+    let old_destination = Coord3D::new(-10.0, -20.0, 0.0);
+    ai.data.requested_destination = old_destination;
+    ai.data.is_final_goal = false;
+    ai.data.requested_victim_id = 77;
+    ai.data.is_attack_path = true;
+    ai.data.is_approach_path = true;
+    ai.data.is_safe_path = true;
+    ai.data.waiting_for_path = true;
+    ai.data.queue_for_path_frame = 31;
+    ai.data.path_timestamp = 47;
+
+    let destination = Coord3D::new(10.0, 20.0, 0.0);
     assert_eq!(
         ai.request_path(&destination, true).unwrap_err(),
         "Attempting to path immobile unit"
     );
+    let after_request = PathRequestSnapshot {
+        destination,
+        final_goal: true,
+        victim_id: INVALID_ID,
+        attack: false,
+        approach: false,
+        safe: false,
+        waiting: true,
+        queue_frame: 31,
+        path_timestamp: 47,
+    };
+    assert_eq!(path_request_snapshot(ai), after_request);
+
+    // Preserve the other two pre-existing Result/error assertions exactly.
     assert_eq!(
         ai.request_attack_path(INVALID_ID, &destination)
             .unwrap_err(),
         "Attempting to path immobile unit"
     );
+    assert_eq!(path_request_snapshot(ai), after_request);
     assert_eq!(
         ai.request_approach_path(&destination).unwrap_err(),
         "Attempting to path immobile unit"
     );
+    assert_eq!(path_request_snapshot(ai), after_request);
+}
+
+#[test]
+fn unit_ai_update_empty_world_attack_path_is_a_noop() {
+    if !locomotor_fixture_child(concat!(
+        module_path!(),
+        "::unit_ai_update_empty_world_attack_path_is_a_noop"
+    )) {
+        return;
+    }
+    let _serial = crate::test_sync::lock();
+    assert!(
+        OBJECT_REGISTRY.is_empty(),
+        "fresh bounded child is the empty-world control"
+    );
+
+    let mut ai = unit_ai_update_without_unit();
+    ai.data.requested_destination = Coord3D::new(-3.0, 7.0, 1.0);
+    ai.data.is_final_goal = true;
+    ai.data.requested_victim_id = 19;
+    ai.data.is_attack_path = true;
+    ai.data.is_approach_path = true;
+    ai.data.is_safe_path = true;
+    ai.data.waiting_for_path = true;
+    ai.data.queue_for_path_frame = 23;
+    ai.data.path_timestamp = 29;
+    let before = path_request_snapshot(&ai);
+
+    assert_eq!(
+        ai.request_attack_path(INVALID_ID, &Coord3D::new(100.0, 200.0, 0.0)),
+        Ok(())
+    );
+    assert_eq!(path_request_snapshot(&ai), before);
 }
 
 #[test]
