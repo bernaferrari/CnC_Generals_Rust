@@ -1,5 +1,6 @@
 // CPP ScriptActions.cpp2743-2764 and ScriptEngine.cpp7268-7300.
 use super::*;
+use gamelogic::scripting::engine::ScriptEngine;
 
 pub(super) fn isolated(module: &str, test: &str, run: impl FnOnce()) {
     // Legacy script engine, tracker, and terrain are process-owned. Bound a
@@ -75,47 +76,48 @@ fn speech_playback_does_not_start_or_restart_the_completion_query_timer() {
         "speech_playback_does_not_start_or_restart_the_completion_query_timer",
         || {
             let hooks = MissionScriptHooks::new();
+            let engine = ScriptEngine::new().unwrap();
             let name = "CompletionProbe_Unregistered_Speech";
             let handler = unknown_speech(&hooks, name);
-            hooks.note_logic_frame(10);
+            let frame = 10;
             handler.speech_play(name, false).unwrap();
             assert!(
-                hooks.with_completion_tracking_for_test(|state| state
-                    .speech_complete_frame
-                    .is_empty()),
+                engine.snapshot_xfer_tail().testing_speech.is_empty(),
                 "CPP speech playback never creates testingSpeech timer rows"
             );
-            hooks.note_logic_frame(90);
-            assert!(handler.is_speech_complete(name, false));
+            let frame = 90;
+            assert!(engine.is_speech_complete_at_frame(name, false, frame));
             assert_eq!(
-                hooks.with_completion_tracking_for_test(|state| state
-                    .speech_complete_frame
-                    .get(name)
-                    .copied()),
+                engine
+                    .snapshot_xfer_tail()
+                    .testing_speech
+                    .iter()
+                    .find(|(n, _)| n == name)
+                    .map(|(_, f)| *f),
                 Some(90)
             );
-            hooks.note_logic_frame(100);
+            let frame = 100;
             handler.speech_play(name, true).unwrap();
             assert_eq!(
-                hooks.with_completion_tracking_for_test(|state| state
-                    .speech_complete_frame
-                    .get(name)
-                    .copied()),
+                engine
+                    .snapshot_xfer_tail()
+                    .testing_speech
+                    .iter()
+                    .find(|(n, _)| n == name)
+                    .map(|(_, f)| *f),
                 Some(90),
                 "repeated playback must not restart an existing query timer"
             );
-            assert!(handler.is_speech_complete(name, true));
-            assert!(
-                hooks.with_completion_tracking_for_test(|state| state
-                    .speech_complete_frame
-                    .is_empty())
-            );
-            assert!(handler.is_speech_complete(name, false));
+            assert!(engine.is_speech_complete_at_frame(name, true, frame));
+            assert!(engine.snapshot_xfer_tail().testing_speech.is_empty());
+            assert!(engine.is_speech_complete_at_frame(name, false, frame));
             assert_eq!(
-                hooks.with_completion_tracking_for_test(|state| state
-                    .speech_complete_frame
-                    .get(name)
-                    .copied()),
+                engine
+                    .snapshot_xfer_tail()
+                    .testing_speech
+                    .iter()
+                    .find(|(n, _)| n == name)
+                    .map(|(_, f)| *f),
                 Some(100),
                 "first query after flushing creates a fresh row at the current frame"
             );
@@ -131,35 +133,33 @@ fn speech_playback_preserves_an_existing_not_yet_complete_query_deadline() {
         "speech_playback_preserves_an_existing_not_yet_complete_query_deadline",
         || {
             let hooks = MissionScriptHooks::new();
+            let engine = ScriptEngine::new().unwrap();
             let name = "CompletionProbe_Existing_Timer";
             let handler = unknown_speech(&hooks, name);
-            hooks.with_completion_tracking_for_test(|state| {
-                state.speech_complete_frame.insert(name.into(), 160);
-            });
+            let mut tail = engine.snapshot_xfer_tail();
+            tail.testing_speech = vec![(name.into(), 160)];
+            engine.restore_xfer_tail(&tail);
             for (frame, overlap) in [(10, false), (40, true)] {
-                hooks.note_logic_frame(frame);
                 handler.speech_play(name, overlap).unwrap();
                 assert!(
-                    !handler.is_speech_complete(name, true),
+                    !engine.is_speech_complete_at_frame(name, true, frame),
                     "CPP keeps pending query until its original deadline"
                 );
                 assert_eq!(
-                    hooks.with_completion_tracking_for_test(|state| state
-                        .speech_complete_frame
-                        .get(name)
-                        .copied()),
+                    engine
+                        .snapshot_xfer_tail()
+                        .testing_speech
+                        .iter()
+                        .find(|(n, _)| n == name)
+                        .map(|(_, f)| *f),
                     Some(160)
                 );
             }
-            hooks.note_logic_frame(159);
-            assert!(!handler.is_speech_complete(name, false));
-            hooks.note_logic_frame(160);
-            assert!(handler.is_speech_complete(name, true));
-            assert!(
-                hooks.with_completion_tracking_for_test(|state| state
-                    .speech_complete_frame
-                    .is_empty())
-            );
+            let frame = 159;
+            assert!(!engine.is_speech_complete_at_frame(name, false, frame));
+            let frame = 160;
+            assert!(engine.is_speech_complete_at_frame(name, true, frame));
+            assert!(engine.snapshot_xfer_tail().testing_speech.is_empty());
         },
     );
 }

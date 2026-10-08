@@ -115,8 +115,6 @@ impl GameLogic {
         // Flush requests queued outside the action walk as well.
         self.apply_script_action_requests();
 
-        self.mission_scripts.note_logic_frame(self.frame as u64);
-
         self.script_broadcasts
             .retain(|msg| self.sim_time_seconds <= msg.expires_at);
 

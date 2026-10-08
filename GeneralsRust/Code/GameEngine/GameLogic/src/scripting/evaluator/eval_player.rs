@@ -747,16 +747,6 @@ impl ScriptEvaluator {
         })?;
 
         let speech_name = speech_param.get_string();
-        if let Some(finished) = self
-            .with_evaluation_engine_ref(|engine| {
-                engine
-                    .action_handler()
-                    .map(|handler| handler.is_speech_complete(speech_name, true))
-            })
-            .flatten()
-        {
-            return Ok(finished);
-        }
         Ok(self
             .with_evaluation_engine_mut(|engine| engine.is_speech_complete(speech_name, true))
             .unwrap_or(false))
@@ -774,18 +764,6 @@ impl ScriptEvaluator {
         })?;
 
         let audio_name = audio_param.get_string();
-        // Live host: MissionScriptActionHandler waits leftover TheAudio length
-        // on the live frame clock (C++ isAudioComplete).
-        if let Some(finished) = self
-            .with_evaluation_engine_ref(|engine| {
-                engine
-                    .action_handler()
-                    .map(|handler| handler.is_audio_complete(audio_name, true))
-            })
-            .flatten()
-        {
-            return Ok(finished);
-        }
         Ok(self
             .with_evaluation_engine_mut(|engine| engine.is_audio_complete(audio_name, true))
             .unwrap_or(false))

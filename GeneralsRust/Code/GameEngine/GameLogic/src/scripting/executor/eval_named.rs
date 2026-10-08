@@ -1680,68 +1680,32 @@ impl ScriptConditionEvaluator<'_> {
 
     pub(crate) fn eval_has_finished_speech(
         &self,
-        _condition: &Condition,
-        driver: &mut dyn ScriptExecutionDriver,
+        condition: &Condition,
+        _driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        let name = self.get_condition_string_param(_condition, 0)?;
-        log::debug!("Evaluating if speech '{}' finished", name);
-        if let Some(finished) = driver.completion(ScriptCompletionQuery::Speech {
-            name: &name,
-            flush: true,
-        }) {
-            return Ok(if finished {
-                ScriptConditionResult::True
-            } else {
-                ScriptConditionResult::False
-            });
-        }
-        if let Some(Some(finished)) = self.context.with_engine_ref(|script_engine| {
-            script_engine
-                .action_handler()
-                .map(|handler| handler.is_speech_complete(&name, true))
-        }) {
-            return Ok(if finished {
-                ScriptConditionResult::True
-            } else {
-                ScriptConditionResult::False
-            });
-        }
-        Ok(ScriptConditionResult::False)
+        let name = self.get_condition_string_param(condition, 0)?;
+        let frame = self.context.with_state(|state| state.current_frame);
+        let finished = self
+            .context
+            .with_engine_ref(|engine| engine.is_speech_complete_at_frame(&name, true, frame))
+            .unwrap_or(false);
+        Ok(if finished {
+            ScriptConditionResult::True
+        } else {
+            ScriptConditionResult::False
+        })
     }
 
     pub(crate) fn eval_has_finished_audio(
         &self,
-        _condition: &Condition,
-        driver: &mut dyn ScriptExecutionDriver,
+        condition: &Condition,
+        _driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        let name = self.get_condition_string_param(_condition, 0)?;
-        log::debug!("Evaluating if audio '{}' finished", name);
-        if let Some(finished) = driver.completion(ScriptCompletionQuery::Audio {
-            name: &name,
-            flush: true,
-        }) {
-            return Ok(if finished {
-                ScriptConditionResult::True
-            } else {
-                ScriptConditionResult::False
-            });
-        }
-        // C++ evaluateAudioHasCompleted → TheScriptEngine->isAudioComplete(name, true).
-        // Live handler waits leftover TheAudio length on the live frame clock.
-        if let Some(Some(finished)) = self.context.with_engine_ref(|script_engine| {
-            script_engine
-                .action_handler()
-                .map(|handler| handler.is_audio_complete(&name, true))
-        }) {
-            return Ok(if finished {
-                ScriptConditionResult::True
-            } else {
-                ScriptConditionResult::False
-            });
-        }
+        let name = self.get_condition_string_param(condition, 0)?;
+        let frame = self.context.with_state(|state| state.current_frame);
         let finished = self
             .context
-            .with_engine_ref(|engine| engine.is_audio_complete(&name, true))
+            .with_engine_ref(|engine| engine.is_audio_complete_at_frame(&name, true, frame))
             .unwrap_or(false);
         Ok(if finished {
             ScriptConditionResult::True

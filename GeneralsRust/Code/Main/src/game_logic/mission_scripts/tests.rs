@@ -227,85 +227,36 @@ mod tests {
     }
 
     #[test]
-    fn speech_frames_from_length_ms_truncates_like_cpp() {
-        // C++ REAL_TO_UNSIGNEDINT(audioLength / MSEC_PER_LOGICFRAME_REAL).
-        assert_eq!(speech_frames_from_length_ms(0.0), 0);
-        assert_eq!(speech_frames_from_length_ms(5_000.0), 150);
-        assert_eq!(speech_frames_from_length_ms(33.3), 0);
-        assert_eq!(speech_frames_from_length_ms(33.34), 1);
-        assert_eq!(speech_frames_from_length_ms(1_000.0), 30);
-    }
-
-    #[test]
     fn has_finished_speech_uses_audio_length_not_one_frame() {
-        let hooks = MissionScriptHooks::new();
-        hooks.note_logic_frame(10);
+        let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+        assert!(!engine.is_speech_complete_at_frame("", false, 10));
+        let mut tail = engine.snapshot_xfer_tail();
+        // C++ 5-second audio length at30 logic FPS completes150 frames later.
+        tail.testing_speech = vec![("Briefing".into(), 160)];
+        engine.restore_xfer_tail(&tail);
+        for frame in [10, 11, 159] {
+            assert!(!engine.is_speech_complete_at_frame("Briefing", false, frame));
+        }
+        assert!(engine.is_speech_complete_at_frame("Briefing", true, 160));
         assert!(
-            !hooks.is_speech_complete("", false),
-            "empty speech name is not complete"
-        );
-
-        // Seed a 5s VO completion (150 frames) as TheAudio would.
-        hooks.with_completion_tracking_for_test(|state| {
-            state.speech_complete_frame.insert(
-                "Briefing".to_string(),
-                10 + speech_frames_from_length_ms(5_000.0),
-            );
-        });
-        assert!(
-            !hooks.is_speech_complete("Briefing", false),
-            "HAS_FINISHED_SPEECH must stay false one frame after a 5s line"
-        );
-        hooks.note_logic_frame(11);
-        assert!(
-            !hooks.is_speech_complete("Briefing", false),
-            "HAS_FINISHED_SPEECH must stay false until TheAudio length elapses"
-        );
-        hooks.note_logic_frame(159);
-        assert!(!hooks.is_speech_complete("Briefing", false));
-        hooks.note_logic_frame(160);
-        assert!(hooks.is_speech_complete("Briefing", true));
-        assert!(
-            hooks.with_completion_tracking_for_test(|state| {
-                state.speech_complete_frame.get("Briefing").is_none()
-            }),
+            engine.snapshot_xfer_tail().testing_speech.is_empty(),
             "flush removes the completed speech tracker"
         );
     }
 
     #[test]
     fn has_finished_audio_uses_the_audio_length_not_one_frame() {
-        let hooks = MissionScriptHooks::new();
-        hooks.note_logic_frame(10);
+        let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+        assert!(!engine.is_audio_complete_at_frame("", false, 10));
+        let mut tail = engine.snapshot_xfer_tail();
+        tail.testing_audio = vec![("Boom".into(), 160)];
+        engine.restore_xfer_tail(&tail);
+        for frame in [10, 11, 159] {
+            assert!(!engine.is_audio_complete_at_frame("Boom", false, frame));
+        }
+        assert!(engine.is_audio_complete_at_frame("Boom", true, 160));
         assert!(
-            !hooks.is_audio_complete("", false),
-            "empty audio name is not complete"
-        );
-
-        // Seed a 5s SFX completion (150 frames) as leftover TheAudio would.
-        hooks.with_completion_tracking_for_test(|state| {
-            state.audio_complete_frame.insert(
-                "Boom".to_string(),
-                10 + speech_frames_from_length_ms(5_000.0),
-            );
-        });
-        assert!(
-            !hooks.is_audio_complete("Boom", false),
-            "HAS_FINISHED_AUDIO must stay false one frame after a 5s SFX"
-        );
-        hooks.note_logic_frame(11);
-        assert!(
-            !hooks.is_audio_complete("Boom", false),
-            "HAS_FINISHED_AUDIO must stay false until leftover TheAudio length elapses"
-        );
-        hooks.note_logic_frame(159);
-        assert!(!hooks.is_audio_complete("Boom", false));
-        hooks.note_logic_frame(160);
-        assert!(hooks.is_audio_complete("Boom", true));
-        assert!(
-            hooks.with_completion_tracking_for_test(|state| {
-                state.audio_complete_frame.get("Boom").is_none()
-            }),
+            engine.snapshot_xfer_tail().testing_audio.is_empty(),
             "flush removes the completed audio tracker"
         );
     }
@@ -326,7 +277,6 @@ mod tests {
         handler
             .movie_play_fullscreen("IntroMovie")
             .expect("movie play should queue");
-        hooks.note_logic_frame(1);
         assert!(
             !handler.is_video_complete("IntroMovie", false),
             "HAS_FINISHED_VIDEO must not complete one frame after play"
@@ -542,7 +492,6 @@ mod tests {
             "track should not complete on the next frame without Miles loop count"
         );
 
-        hooks.note_logic_frame(1);
         assert!(
             !handler.has_music_track_completed("TrackA", 1),
             "one logic frame is not a Miles loop completion"

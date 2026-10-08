@@ -10,8 +10,8 @@
 
 use super::core::*;
 use super::engine::{
-    CanonicalScriptExecutionDriver, ScriptCompletionQuery, ScriptExecutionDriver, TFade,
-    get_area_tracker, get_named_object_tracker,
+    CanonicalScriptExecutionDriver, ScriptExecutionDriver, TFade, get_area_tracker,
+    get_named_object_tracker,
 };
 use crate::ai::integration::{IntegratedAiPlayer, with_ai_integration_mut};
 use crate::ai::{

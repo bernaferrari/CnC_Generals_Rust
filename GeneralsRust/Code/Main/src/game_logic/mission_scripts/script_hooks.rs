@@ -64,13 +64,6 @@ struct ScriptNotificationQueues {
     border_shroud_levels: Vec<u8>,
 }
 
-/// Completion maps keyed by audio name.
-#[derive(Default)]
-struct AudioCompletionTracking {
-    speech_complete_frame: HashMap<String, u64>,
-    audio_complete_frame: HashMap<String, u64>,
-}
-
 /// Owned requests for the contiguous late view phase of one action flush.
 /// Consumers mutate concrete presentation state and cannot produce these queues.
 #[derive(Default)]
@@ -102,11 +95,7 @@ pub struct MissionScriptHooks {
     /// because two threads ever contend. One guard also makes a whole drain
     /// atomic against pushes instead of one mutex per queue.
     notifications: Mutex<ScriptNotificationQueues>,
-    /// C++ ScriptEngine completion bookkeeping: timers started by the first
-    /// speech/audio completion query, independently of playback handles.
-    completion: Mutex<AudioCompletionTracking>,
     camera_movement_finished: AtomicBool,
-    frame_counter: AtomicU64,
     /// Test-only count at the actual contiguous view drain acquisitions.
     #[cfg(test)]
     view_drain_acquisitions: AtomicUsize,
@@ -147,41 +136,6 @@ impl MissionScriptHooks {
         assert!(self.notifications.is_poisoned());
     }
 
-    /// Test seam: the completion maps were folded into one guard, so tests
-    /// reach them through the same lock the drain uses.
-    #[cfg(test)]
-    pub(crate) fn with_completion_tracking_for_test<R>(
-        &self,
-        f: impl FnOnce(&mut AudioCompletionTracking) -> R,
-    ) -> R {
-        let mut state = self.completion.lock().expect("completion tracking lock");
-        f(&mut state)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn seed_completion_frame_for_test(&self, speech: bool, name: &str, frame: u64) {
-        self.with_completion_tracking_for_test(|state| {
-            let timers = if speech {
-                &mut state.speech_complete_frame
-            } else {
-                &mut state.audio_complete_frame
-            };
-            timers.insert(name.into(), frame);
-        });
-    }
-
-    #[cfg(test)]
-    pub(crate) fn completion_frame_for_test(&self, speech: bool, name: &str) -> Option<u64> {
-        self.with_completion_tracking_for_test(|state| {
-            let timers = if speech {
-                &state.speech_complete_frame
-            } else {
-                &state.audio_complete_frame
-            };
-            timers.get(name).copied()
-        })
-    }
-
     pub fn queue_warehouse_set_value(&self, name: &str, cash: i32) {
         if name.is_empty() {
             return;
@@ -216,9 +170,7 @@ impl MissionScriptHooks {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
             notifications: Mutex::new(ScriptNotificationQueues::default()),
-            completion: Mutex::new(AudioCompletionTracking::default()),
             camera_movement_finished: AtomicBool::new(true),
-            frame_counter: AtomicU64::new(0),
             #[cfg(test)]
             view_drain_acquisitions: AtomicUsize::new(0),
         })
@@ -233,16 +185,6 @@ impl MissionScriptHooks {
                 engine.new_map();
             }
         }
-    }
-
-    /// Advance hook completion clocks without walking scripts.
-    ///
-    /// C++ GameLogic.cpp:3600 has one `TheScriptEngine->UPDATE()` per logic
-    /// frame.  Live host evaluation is crate `ScriptEngine::update`; this only
-    /// stamps `frame_counter` so video/speech/audio/music completion queries
-    /// stay frame-accurate after the second walker was removed (hq-fxq1).
-    pub fn note_logic_frame(&self, frame: u64) {
-        self.frame_counter.store(frame, Ordering::Relaxed);
     }
 
     pub fn push_message(&self, text: String) {
@@ -745,23 +687,6 @@ impl MissionScriptHooks {
         queue.oversize_terrain_requests.push(amount);
     }
 
-    pub fn note_speech_started(&self, name: &str) {
-        self.note_speech_started_with_handle(name, 0);
-    }
-
-    pub fn note_speech_started_with_handle(&self, _name: &str, _handle: u32) {
-        // Compatibility notification: C++ doSpeechPlay neither starts nor
-        // restarts testingSpeech timers. isSpeechComplete starts them at the
-        // first query and does not wait on a native playback handle.
-    }
-
-    pub fn note_audio_started(&self, name: &str) {
-        // C++ isAudioComplete starts the TheAudio length timer on first query,
-        // not on play. Do not stamp now+1 (that made HAS_FINISHED_AUDIO true
-        // next frame).
-        let _ = name;
-    }
-
     pub fn note_music_started(&self, name: &str) {
         // C++ MUSIC_TRACK_HAS_COMPLETED is TheAudio loop count, not a frame stamp.
         let _ = name;
@@ -779,60 +704,6 @@ impl MissionScriptHooks {
             engine.is_video_complete(name, flush)
         })
         .unwrap_or(false)
-    }
-
-    pub fn is_speech_complete(&self, name: &str, flush: bool) -> bool {
-        if name.trim().is_empty() {
-            return false;
-        }
-        let now = self.frame_counter.load(Ordering::Relaxed);
-        let Ok(mut state) = self.completion.lock() else {
-            return true;
-        };
-        let done_frame = match state.speech_complete_frame.get(name).copied() {
-            Some(done_frame) => done_frame,
-            None => {
-                // C++ first HAS_FINISHED_SPEECH query starts the TheAudio timer.
-                let done_frame = speech_completion_frame(now, name);
-                state
-                    .speech_complete_frame
-                    .insert(name.to_string(), done_frame);
-                done_frame
-            }
-        };
-        let done = now >= done_frame;
-        if done && flush {
-            state.speech_complete_frame.remove(name);
-        }
-        done
-    }
-
-    pub fn is_audio_complete(&self, name: &str, flush: bool) -> bool {
-        if name.trim().is_empty() {
-            return false;
-        }
-        // C++ ScriptEngine::isAudioComplete: first query starts leftover
-        // TheAudio length timer; true only after that frame. Use the live
-        // frame clock — leftover TheGameLogic::get_frame is not the host.
-        let now = self.frame_counter.load(Ordering::Relaxed);
-        let Ok(mut state) = self.completion.lock() else {
-            return false;
-        };
-        let done_frame = match state.audio_complete_frame.get(name).copied() {
-            Some(done_frame) => done_frame,
-            None => {
-                let done_frame = speech_completion_frame(now, name);
-                state
-                    .audio_complete_frame
-                    .insert(name.to_string(), done_frame);
-                done_frame
-            }
-        };
-        let done = now >= done_frame;
-        if done && flush {
-            state.audio_complete_frame.remove(name);
-        }
-        done
     }
 
     pub fn has_music_track_completed(&self, track: &str, times: i32) -> bool {

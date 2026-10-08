@@ -112,14 +112,12 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         // Do not drain a second unlocal leftover_world_sfx_event / rodio play.
         let result = game_client::core::script_action_handler::GameClientScriptActionHandler::new()
             .play_sound_effect(sound);
-        self.hooks.note_audio_started(sound);
         result
     }
 
     fn play_sound_effect_at(&self, sound: &str, x: f32, y: f32, z: f32) -> GameLogicResult<()> {
         let result = game_client::core::script_action_handler::GameClientScriptActionHandler::new()
             .play_sound_effect_at(sound, x, y, z);
-        self.hooks.note_audio_started(sound);
         result
     }
 
@@ -711,7 +709,6 @@ impl ScriptActionHandler for MissionScriptActionHandler {
             return Ok(());
         };
         let handle = Self::play_named_sound_through_the_audio(sound, object_id);
-        self.hooks.note_audio_started(sound);
         let _ = handle;
         Ok(())
     }
@@ -719,14 +716,6 @@ impl ScriptActionHandler for MissionScriptActionHandler {
     fn enable_object_sound(&self, _unit_name: &str, _enable: bool) -> GameLogicResult<()> {
         // Leftover dispatcher already queued HostScriptObjectSoundRequest.
         Ok(())
-    }
-
-    fn is_speech_complete(&self, name: &str, flush: bool) -> bool {
-        self.hooks.is_speech_complete(name, flush)
-    }
-
-    fn is_audio_complete(&self, name: &str, flush: bool) -> bool {
-        self.hooks.is_audio_complete(name, flush)
     }
 
     fn music_set_track(&self, track: &str, fade_out: bool, fade_in: bool) -> GameLogicResult<()> {

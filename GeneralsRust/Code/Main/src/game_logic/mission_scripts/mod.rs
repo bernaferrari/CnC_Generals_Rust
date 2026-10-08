@@ -6,8 +6,7 @@
 //! request interface are preserved. Script execution and active state live in
 //! the canonical GameLogic ScriptEngine; hooks do not own an interpreter.
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::localization;
@@ -52,24 +51,6 @@ where
         return None;
     }
     Some(label)
-}
-
-/// C++ `ScriptEngine::isSpeechComplete` completion frame
-/// (`ScriptEngine.cpp:7278-7284`, leftover `named_trackers.rs`).
-/// `REAL_TO_UNSIGNEDINT(TheAudio->getAudioLengthMS / MSEC_PER_LOGICFRAME_REAL)`.
-fn speech_frames_from_length_ms(audio_length_ms: f32) -> u64 {
-    ((audio_length_ms.max(0.0) / 1000.0)
-        * game_engine::common::game_common::LOGICFRAMES_PER_SECOND as f32) as u64
-}
-
-fn speech_completion_frame(now: u64, name: &str) -> u64 {
-    let audio_length_ms = gamelogic::helpers::TheAudio::get()
-        .map(|audio| {
-            let event = gamelogic::common::audio::AudioEventRts::new(name);
-            audio.get_audio_length_ms(&event)
-        })
-        .unwrap_or(0.0);
-    now.saturating_add(speech_frames_from_length_ms(audio_length_ms))
 }
 
 fn camera_coord3d_to_world(x: f32, y: f32, z: f32) -> Vec3 {

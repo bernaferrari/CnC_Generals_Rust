@@ -1007,10 +1007,15 @@ impl ScriptEngine {
         }
     }
 
+    fn timed_audio_frames_from_length_ms(audio_length_ms: f32) -> u32 {
+        ((audio_length_ms.max(0.0) / 1000.0) * LOGICFRAMES_PER_SECOND as f32) as u32
+    }
+
     fn is_timed_audio_complete(
         list: &mut Vec<(String, u32)>,
         event_name: &str,
         remove_from_list: bool,
+        current_frame: u32,
     ) -> bool {
         if event_name.trim().is_empty() {
             return false;
@@ -1027,13 +1032,12 @@ impl ScriptEngine {
                 .unwrap_or(0.0)
                 .max(0.0);
             // C++ uses REAL_TO_UNSIGNEDINT(audioLength / MSEC_PER_LOGICFRAME_REAL): truncate.
-            let frame_count = ((audio_length_ms / 1000.0) * LOGICFRAMES_PER_SECOND as f32) as u32;
-            let completion_frame = TheGameLogic::get_frame().saturating_add(frame_count);
+            let frame_count = Self::timed_audio_frames_from_length_ms(audio_length_ms);
+            let completion_frame = current_frame.saturating_add(frame_count);
             list.push((event_name.to_string(), completion_frame));
             list.len() - 1
         };
 
-        let current_frame = TheGameLogic::get_frame();
         let completed = current_frame >= list[position].1;
         if completed && remove_from_list {
             list.remove(position);
@@ -1041,14 +1045,45 @@ impl ScriptEngine {
         completed
     }
 
+    /// Standalone native adapter; the executing host passes its frame explicitly.
     pub fn is_speech_complete(&self, speech_name: &str, remove_from_list: bool) -> bool {
-        let mut inner = self.lock_inner_mut();
-        Self::is_timed_audio_complete(&mut inner.testing_speech, speech_name, remove_from_list)
+        self.is_speech_complete_at_frame(speech_name, remove_from_list, TheGameLogic::get_frame())
     }
 
     pub fn is_audio_complete(&self, audio_name: &str, remove_from_list: bool) -> bool {
+        self.is_audio_complete_at_frame(audio_name, remove_from_list, TheGameLogic::get_frame())
+    }
+
+    /// C++ first-query timers belong to this engine and its serialized tail.
+    /// The caller supplies the frame of the game driving this operation.
+    pub fn is_speech_complete_at_frame(
+        &self,
+        speech_name: &str,
+        remove_from_list: bool,
+        current_frame: u32,
+    ) -> bool {
         let mut inner = self.lock_inner_mut();
-        Self::is_timed_audio_complete(&mut inner.testing_audio, audio_name, remove_from_list)
+        Self::is_timed_audio_complete(
+            &mut inner.testing_speech,
+            speech_name,
+            remove_from_list,
+            current_frame,
+        )
+    }
+
+    pub fn is_audio_complete_at_frame(
+        &self,
+        audio_name: &str,
+        remove_from_list: bool,
+        current_frame: u32,
+    ) -> bool {
+        let mut inner = self.lock_inner_mut();
+        Self::is_timed_audio_complete(
+            &mut inner.testing_audio,
+            audio_name,
+            remove_from_list,
+            current_frame,
+        )
     }
 
     /// Signal UI interaction

@@ -189,7 +189,6 @@ fn retained_script_callbacks_do_not_keep_dropped_world_trigger_geometry_alive() 
                 "presentation callbacks must not retain simulation geometry through an unused interpreter"
             );
             assert!(second_geometry.upgrade().is_some());
-            first_hooks.note_logic_frame(19);
             first_hooks.push_message("old-presentation-request".into());
             assert!(second_hooks.drain_messages().is_empty());
             assert_eq!(first_hooks.drain_messages().len(), 1);
