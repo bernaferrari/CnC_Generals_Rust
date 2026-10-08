@@ -18474,13 +18474,20 @@
           "blockers": [
             "unreviewed_mapping",
             "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/draw_module.rs"
+            "unreviewed_source_range_ownership",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/draw_module.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/projectile_launch.rs"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/draw_module.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/draw_module.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/projectile_launch.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/Thing/DrawModule.cpp",
@@ -18715,7 +18722,6 @@
             "unreviewed_mapping",
             "unreviewed_symbol_ownership",
             "unreviewed_source_range_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/draw_module.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/module.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/thing/module_factory/behavior_interfaces.rs",
@@ -50844,6 +50850,8 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/die/rebuild_hole_expose_die.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/die/special_power_completion_die.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/die/upgrade_die.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/draw_module.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/projectile_launch.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_debris_draw.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_default_draw.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_dependency_model_draw.rs",
@@ -52060,6 +52068,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/projectile_launch.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_debris_draw.rs"
             },
             {
@@ -52081,6 +52094,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_model_draw_impl/anim_playback.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_model_draw_impl/attachment_query_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -52131,6 +52149,16 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_model_draw_impl/parse.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_model_draw_impl/projectile.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/draw/w3d_model_draw_impl/projectile_plan_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -189030,7 +189058,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "31d84a837d9183ab3ae959e17b48d9f910abbc0c1e7fa8becdf4d61ce60a6193",
+  "provenance_input_digest": "a13d325b4064fa8047eb4cb65db7f7a5ffae98fce4edbd3e4eeb33d6b5ccd719",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

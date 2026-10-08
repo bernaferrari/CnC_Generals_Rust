@@ -5,7 +5,11 @@
 
 use crate::common::*;
 use crate::effects::FXList;
+
+#[path = "projectile_launch.rs"]
+mod projectile_launch;
 use game_engine::common::thing::module::{Module, ModuleData, ModuleInterfaceType, ModuleType};
+pub use projectile_launch::ProjectileLaunchPlan;
 use std::any::Any;
 use std::fmt::Debug;
 
@@ -346,6 +350,20 @@ pub trait ObjectDrawInterface {
         turret_rot_pos: &mut Coord3D,
         turret_pitch_pos: &mut Coord3D,
     ) -> bool;
+
+    /// Freeze the selected state outputs before querying the driving Drawable.
+    /// The returned plan performs no callbacks and never retains module state.
+    fn prepare_projectile_launch_offset(
+        &self,
+        condition: &ModelConditionFlags,
+        weapon_slot: usize,
+        barrel_index: i32,
+        turret_type: TurretType,
+    ) -> Option<ProjectileLaunchPlan>;
+
+    /// Commit a cold query after the caller has released every module guard.
+    /// Returns the first cache result, including a missing bone's zero offset.
+    fn cache_projectile_attachment(&mut self, bone: &str, offset: Coord3D) -> Coord3D;
 
     /// Update projectile clip status
     ///

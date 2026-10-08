@@ -441,41 +441,9 @@ impl DrawableArcExt for Arc<RwLock<Drawable>> {
         barrel_index: i32,
         turret_type: TurretType,
     ) -> Option<ProjectileLaunchOffset> {
-        if let Ok(guard) = self.read() {
-            let condition = guard.model_conditions;
-            let mut launch_pos = Matrix3D::IDENTITY;
-            let mut turret_rot_pos = Coord3D::origin();
-            let mut turret_pitch_pos = Coord3D::origin();
-
-            // Iterate through all draw modules and find one that can provide the launch offset
-            for module_handle in guard.modules() {
-                let found = module_handle.with_module(|module| {
-                    let mut found = false;
-                    with_object_draw_interface_mut(module, |draw_module| {
-                        found = draw_module.get_projectile_launch_offset(
-                            &condition,
-                            weapon_slot as usize,
-                            barrel_index,
-                            &mut launch_pos,
-                            turret_type,
-                            &mut turret_rot_pos,
-                            &mut turret_pitch_pos,
-                        );
-                    });
-                    found
-                });
-
-                if found {
-                    return Some(ProjectileLaunchOffset {
-                        transform: launch_pos,
-                        turret_rot_pos,
-                        turret_pitch_pos,
-                    });
-                }
-            }
-        }
-
-        None
+        self.read()
+            .ok()?
+            .projectile_launch_offset(weapon_slot, barrel_index, turret_type)
     }
 
     /// Get all draw modules registered with this drawable
@@ -485,5 +453,81 @@ impl DrawableArcExt for Arc<RwLock<Drawable>> {
         } else {
             Vec::new()
         }
+    }
+}
+
+impl Drawable {
+    /// Resolve one launch query on this driving Drawable without owner lookup.
+    pub(crate) fn projectile_launch_offset(
+        &self,
+        weapon_slot: WeaponSlotType,
+        barrel_index: i32,
+        turret_type: TurretType,
+    ) -> Option<ProjectileLaunchOffset> {
+        let condition = self.model_conditions;
+        let mut launch_pos = Matrix3D::IDENTITY;
+        let mut turret_rot_pos = Coord3D::origin();
+        let mut turret_pitch_pos = Coord3D::origin();
+
+        // Iterate through all draw modules and find one that can provide the launch offset
+        for module_handle in self.modules() {
+            let plan = module_handle.with_module(|module| {
+                let mut plan = None;
+                with_object_draw_interface_mut(module, |draw| {
+                    plan = draw.prepare_projectile_launch_offset(
+                        &condition,
+                        weapon_slot as usize,
+                        barrel_index,
+                        turret_type,
+                    );
+                });
+                plan
+            });
+            let Some(plan) = plan else {
+                continue;
+            };
+            // No DrawModuleEntry guard is held while the driving Drawable
+            // searches its entries in pristine-bone order, including this one.
+            let attachment = plan.attachment_bone.as_ref().map(|name| {
+                let offset = self
+                    .get_pristine_bone_positions(name.as_str(), 0, 1)
+                    .into_iter()
+                    .next()
+                    .unwrap_or(Coord3D::origin());
+                module_handle.with_module(|module| {
+                    let mut result = offset;
+                    with_object_draw_interface_mut(module, |draw| {
+                        result = draw.cache_projectile_attachment(name.as_str(), offset);
+                    });
+                    result
+                })
+            });
+            let fallback = std::array::from_fn(|index| {
+                let key = plan.fallback_pivots[index];
+                if key == 0 {
+                    return None;
+                }
+                let name = NameKeyGenerator::key_to_name(key)?;
+                self.get_bone_local_transform(&name)
+                    .map(|transform| transform.w_axis.truncate())
+            });
+            let found = plan.finish(
+                attachment,
+                fallback,
+                &mut launch_pos,
+                &mut turret_rot_pos,
+                &mut turret_pitch_pos,
+            );
+
+            if found {
+                return Some(ProjectileLaunchOffset {
+                    transform: launch_pos,
+                    turret_rot_pos,
+                    turret_pitch_pos,
+                });
+            }
+        }
+
+        None
     }
 }

@@ -58,6 +58,7 @@ include!("hide_show.rs");
 include!("anim_playback.rs");
 include!("shadow_bind.rs");
 
+include!("projectile.rs");
 include!("trait_impl.rs");
 include!("snapshot.rs");
 include!("parse.rs");
@@ -76,6 +77,7 @@ pub const W3D_MODEL_DRAW_SRC: &str = concat!(
     include_str!("recoil.rs"),
     include_str!("snapshot.rs"),
     include_str!("trait_impl.rs"),
+    include_str!("projectile.rs"),
     include_str!("types.rs"),
     include_str!("carrying.rs"),
     include_str!("hide_show.rs"),

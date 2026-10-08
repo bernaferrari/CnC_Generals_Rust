@@ -445,111 +445,48 @@ impl ObjectDrawInterface for W3DModelDraw {
         turret_rot_pos: &mut Coord3D,
         turret_pitch_pos: &mut Coord3D,
     ) -> bool {
-        if weapon_slot >= WEAPONSLOT_COUNT {
-            return false;
-        }
-
-        *turret_rot_pos = Coord3D::origin();
-        *turret_pitch_pos = Coord3D::origin();
-
-        let Some(state) = self.data.find_best_info(condition) else {
+        // Standalone compatibility adapter. Installed Drawable queries use
+        // prepare/query/commit below and pass their driving Drawable explicitly.
+        let Some(plan) =
+            self.projectile_launch_plan(condition, weapon_slot, barrel_index, turret_type)
+        else {
             return false;
         };
-
-        let drawable_arc = self.owner_id.and_then(|id| {
-            TheGameLogic::find_object_by_id(id)
-                .and_then(|obj_arc| obj_arc.read().ok().and_then(|guard| guard.get_drawable()))
+        let attachment = plan
+            .attachment_bone
+            .as_ref()
+            .and_then(|_| self.attach_to_drawable_bone_offset());
+        let fallback = std::array::from_fn(|index| {
+            let key = plan.fallback_pivots[index];
+            if key == 0 {
+                return None;
+            }
+            let name = NameKeyGenerator::key_to_name(key)?;
+            self.with_owner_drawable(|drawable| drawable.get_bone_local_transform(&name))
+                .flatten()
+                .map(|transform| transform.w_axis.truncate())
         });
+        plan.finish(
+            attachment,
+            fallback,
+            launch_pos,
+            turret_rot_pos,
+            turret_pitch_pos,
+        )
+    }
 
-        let resolve_pivot_transform = |name_key: NameKeyType| -> Option<Matrix3D> {
-            if name_key == 0 {
-                return None;
-            }
+    fn prepare_projectile_launch_offset(
+        &self,
+        condition: &ModelConditionFlags,
+        weapon_slot: usize,
+        barrel_index: i32,
+        turret_type: TurretType,
+    ) -> Option<ProjectileLaunchPlan> {
+        self.projectile_launch_plan(condition, weapon_slot, barrel_index, turret_type)
+    }
 
-            if let Some(info) = state.pristine_bones.get(&name_key) {
-                return Some(info.transform);
-            }
-
-            let Some(name) = NameKeyGenerator::key_to_name(name_key) else {
-                return None;
-            };
-
-            let Some(drawable) = &drawable_arc else {
-                return None;
-            };
-
-            let Ok(draw_guard) = drawable.read() else {
-                return None;
-            };
-
-            draw_guard.get_bone_local_transform(&name)
-        };
-
-        // C++ CACHE_ATTACH_BONE: attach offset goes to turret rot/pitch, not launch.
-        let attach_offset = self
-            .attach_to_drawable_bone_offset()
-            .unwrap_or(Coord3D::origin());
-
-        if turret_type != TurretType::Invalid {
-            let turret_index = match turret_type {
-                TurretType::Primary => Some(0),
-                TurretType::Secondary => Some(1),
-                TurretType::Invalid => None,
-            };
-
-            if let Some(index) = turret_index {
-                if let Some(turret) = state.turrets.get(index) {
-                    if let Some(rot) = resolve_pivot_transform(turret.turret_angle_name_key) {
-                        *turret_rot_pos = rot.w_axis.truncate();
-                    }
-
-                    if let Some(pitch) = resolve_pivot_transform(turret.turret_pitch_name_key) {
-                        *turret_pitch_pos = pitch.w_axis.truncate();
-                    }
-
-                    turret_rot_pos.x += attach_offset.x;
-                    turret_rot_pos.y += attach_offset.y;
-                    turret_rot_pos.z += attach_offset.z;
-                    turret_pitch_pos.x += attach_offset.x;
-                    turret_pitch_pos.y += attach_offset.y;
-                    turret_pitch_pos.z += attach_offset.z;
-                }
-            }
-        }
-
-        let barrels = &state.weapon_barrels[weapon_slot];
-        if barrels.is_empty() {
-            return false;
-        }
-
-        let mut selected_barrel = barrel_index;
-        if selected_barrel < 0 || (selected_barrel as usize) >= barrels.len() {
-            selected_barrel = 0;
-        }
-
-        let Some(barrel) = barrels.get(selected_barrel as usize) else {
-            return false;
-        };
-        *launch_pos = barrel.projectile_offset_mtx;
-
-        if turret_type != TurretType::Invalid {
-            let turret_index = match turret_type {
-                TurretType::Primary => Some(0),
-                TurretType::Secondary => Some(1),
-                TurretType::Invalid => None,
-            };
-
-            if let Some(index) = turret_index {
-                if let Some(turret) = state.turrets.get(index) {
-                    *launch_pos = Matrix3D::from_rotation_z(turret.turret_art_angle) * *launch_pos;
-                    *launch_pos = Matrix3D::from_rotation_y(-turret.turret_art_pitch) * *launch_pos;
-                }
-            }
-        }
-
-        // C++ compiled CACHE_ATTACH_BONE path does not add attach offset to launchPos.
-
-        true
+    fn cache_projectile_attachment(&mut self, bone: &str, offset: Coord3D) -> Coord3D {
+        self.commit_projectile_attachment(bone, offset)
     }
 
     fn update_projectile_clip_status(

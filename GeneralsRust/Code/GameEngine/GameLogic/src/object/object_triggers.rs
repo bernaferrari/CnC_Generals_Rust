@@ -216,11 +216,8 @@ impl Object {
             return (false, position, transform);
         };
 
-        let launch = drawable.get_projectile_launch_offset(
-            crate::common::WeaponSlotType::Primary,
-            1,
-            turret,
-        );
+        let launch =
+            draw_guard.projectile_launch_offset(crate::common::WeaponSlotType::Primary, 1, turret);
         let Some(launch) = launch else {
             return (false, position, transform);
         };
@@ -258,7 +255,7 @@ impl Object {
     ) -> Option<Matrix3D> {
         let drawable = self.drawable.as_ref()?;
         let draw_guard = drawable.read().ok()?;
-        let launch = drawable.get_projectile_launch_offset(
+        let launch = draw_guard.projectile_launch_offset(
             crate::common::WeaponSlotType::Primary,
             1,
             TurretType::Primary,

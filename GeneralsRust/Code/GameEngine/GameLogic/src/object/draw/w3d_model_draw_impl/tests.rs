@@ -871,6 +871,12 @@ mod tests {
         register_pristine_bone_lookup_hook(None);
     }
 
+    #[path = "projectile_plan_tests.rs"]
+    mod projectile_plan_tests;
+
+    #[path = "attachment_query_tests.rs"]
+    mod attachment_query_tests;
+
     #[path = "cache_transfer_contract_tests.rs"]
     mod cache_transfer_contract_tests;
 }

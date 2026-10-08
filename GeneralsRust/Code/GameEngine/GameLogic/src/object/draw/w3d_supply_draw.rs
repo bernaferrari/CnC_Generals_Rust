@@ -269,6 +269,25 @@ impl ObjectDrawInterface for W3DSupplyDraw {
             turret_pitch_pos,
         )
     }
+    fn prepare_projectile_launch_offset(
+        &self,
+        condition: &ModelConditionFlags,
+        weapon_slot: usize,
+        barrel_index: i32,
+        turret_type: TurretType,
+    ) -> Option<ProjectileLaunchPlan> {
+        self.base.prepare_projectile_launch_offset(
+            condition,
+            weapon_slot,
+            barrel_index,
+            turret_type,
+        )
+    }
+
+    fn cache_projectile_attachment(&mut self, bone: &str, offset: Coord3D) -> Coord3D {
+        self.base.cache_projectile_attachment(bone, offset)
+    }
+
     fn update_projectile_clip_status(
         &mut self,
         shots_remaining: u32,
