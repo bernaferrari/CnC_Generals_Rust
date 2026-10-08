@@ -692,10 +692,7 @@ impl AIPlayer {
         gamelogic::ai::the_ai()
             .read()
             .ok()
-            .and_then(|ai| {
-                Some(ai.get_ai_data())
-                    .map(|d| d.rotate_skirmish_bases)
-            })
+            .and_then(|ai| Some(ai.get_ai_data()).map(|d| d.rotate_skirmish_bases))
             .unwrap_or(false)
     }
 
@@ -1230,7 +1227,10 @@ impl AIPlayer {
         let mut best_enemy: Option<u32> = None;
         let mut best_distance_sqr = HUGE_DIST * HUGE_DIST;
 
-        let player_ids: Vec<u32> = game_logic.get_players().keys().copied().collect();
+        // C++ scans numeric player slots; strict distance comparison keeps the
+        // first slot on ties regardless of the world's HashMap bucket order.
+        let mut player_ids: Vec<u32> = game_logic.get_players().keys().copied().collect();
+        player_ids.sort_unstable();
         for player_id in player_ids {
             if player_id == self.player_id {
                 continue;

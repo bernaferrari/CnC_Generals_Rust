@@ -417,5 +417,7 @@ mod construction_parity_tests;
 mod cpp_parity_tests;
 #[cfg(test)]
 mod ownership_tests;
+#[cfg(test)]
+mod player_slot_order_tests;
 
 pub use manager::AIManager;
