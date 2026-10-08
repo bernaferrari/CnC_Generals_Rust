@@ -52898,7 +52898,17 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_native_commands.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_path.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_runtime.rs"
             },
             {
               "cargo_reachable": true,
@@ -52978,12 +52988,22 @@
             {
               "cargo_reachable": true,
               "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_native_command_button_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_owner_preparation_tests.rs"
             },
             {
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_target_filter_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/factory_update_owner_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -189113,7 +189133,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "085edd3293bdce504580bdeda3966f0880d8da625930159aa4cedfb3d83fcc22",
+  "provenance_input_digest": "5dc0d7bc239313fb2c33ee608e339762e57b3e8ff93a8b2341f04f8f1e94a1f1",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

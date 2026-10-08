@@ -41,7 +41,7 @@ impl CppState for RecordingState {
     }
     fn cpp_on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.events.push("enter-ai");
         ai.set_queue_for_path_time(11);
@@ -53,7 +53,7 @@ impl CppState for RecordingState {
     }
     fn cpp_on_update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.events.push("update-ai");
         ai.set_queue_for_path_time(13);
@@ -62,7 +62,7 @@ impl CppState for RecordingState {
     fn cpp_on_update_with_control(
         &mut self,
         control: &mut StateMachineControl,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         locked: bool,
     ) -> Result<StateReturnType, String> {
         self.events.push("update-control");
@@ -84,7 +84,7 @@ impl CppState for RecordingState {
     fn cpp_on_exit_with_ai(
         &mut self,
         exit: StateExitType,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<(), String> {
         assert_eq!(exit, StateExitType::Normal);
         self.events.push("exit-ai");

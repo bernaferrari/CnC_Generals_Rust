@@ -279,10 +279,7 @@ pub type PolygonTriggerId = crate::polygon_trigger::PolygonTriggerId;
 pub type CommandButtonId = crate::command_button::CommandButtonId;
 pub type PathId = crate::path::PathId;
 
-#[derive(Debug, Clone, Default)]
-pub struct DamageInfo {
-    // Add damage-related fields here
-}
+pub use crate::damage::DamageInfo;
 
 // AI Command Interface trait
 pub trait AiCommandInterface {
@@ -1734,8 +1731,15 @@ impl Pathfinder {
             .map(|bridge| bridge.destroyed)
     }
 
+    pub(crate) fn pathfinding_system_mut(&mut self) -> &mut pathfind_complete::PathfindingSystem {
+        &mut self.inner
+    }
+
     pub fn process_pathfind_queue(&mut self) -> Result<(), AiError> {
-        self.inner.process_queue(PATHFIND_QUEUE_LEN);
+        self.inner
+            .process_queue_with_ai(PATHFIND_QUEUE_LEN, |ai, pathfinder| {
+                ai.do_pathfind_with_pathfinder(pathfinder);
+            });
         Ok(())
     }
 
@@ -1870,6 +1874,11 @@ impl Pathfinder {
     }
 
     /// C++ `Pathfinder::updateLayer` bridge interaction demotion.
+    /// C++ `Pathfinder::setDebugPathPosition` on its owned classic system.
+    pub fn set_debug_path_position(&mut self, position: Coord3D) {
+        self.inner.set_debug_path_position(position);
+    }
+
     pub fn update_layer_for_object(
         &self,
         desired_layer: pathfind_astar::PathfindLayerEnum,
@@ -2277,6 +2286,24 @@ impl Pathfinder {
     ) -> bool {
         self.inner
             .is_line_passable_for_surfaces(from, to, surfaces, ignore_obstacle_id)
+    }
+
+    /// C++ path-following passability using the layer recorded on the active path node.
+    pub fn is_line_passable_for_surfaces_on_layer(
+        &self,
+        from: &Coord3D,
+        to: &Coord3D,
+        surfaces: u32,
+        layer: pathfind_astar::PathfindLayerEnum,
+        ignore_obstacle_id: Option<ObjectID>,
+    ) -> bool {
+        self.inner.is_line_passable_for_surfaces_on_layer(
+            from,
+            to,
+            surfaces,
+            layer,
+            ignore_obstacle_id,
+        )
     }
 
     /// C++ `Pathfinder::findGroundPath` used by `AIGroup::friend_computeGroundPath`.

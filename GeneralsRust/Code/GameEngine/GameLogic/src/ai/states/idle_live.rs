@@ -1,11 +1,12 @@
 //! AIStates.cpp:1311-1446, using the driving AI and ordinary parent state.
 use super::*;
+use crate::modules::ai_state_runtime::AiStateRuntime;
 
 impl AIIdleState {
     pub(super) fn update_idle_with_ai(
         &mut self,
         control: &mut StateMachineControl,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut dyn AiStateRuntime,
         context: &mut TerminalCommandContext,
     ) -> Result<StateReturnType, String> {
         let is_idle = ai.is_idle_with_parent_state(context.parent_is_idle);

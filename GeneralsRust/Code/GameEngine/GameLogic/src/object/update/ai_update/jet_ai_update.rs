@@ -7,6 +7,7 @@ use std::any::Any;
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::ai::states::AICommandParmsStorage;
+use crate::ai::states::AIStateMachineDriver;
 use crate::ai::{AiCommandParams, AiCommandType};
 use crate::common::SECONDS_PER_LOGICFRAME_REAL;
 use crate::common::audio::AudioEventRts;
@@ -17,12 +18,13 @@ use crate::common::{
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::{TheAudio, TheGameClient, TheGameLogic, TheTerrainLogic, TheThingFactory};
-use crate::modules::AIUpdateInterface;
 use crate::modules::BehaviorModuleInterface;
 use crate::modules::BodyModuleInterfaceExt;
+use crate::modules::ai_state_runtime::AiStateRuntime;
 use crate::object::behavior::behavior_module::{PPInfo, RunwayReservationType};
 use crate::object::drawable::DrawableArcExt;
 use crate::object::registry::OBJECT_REGISTRY;
+use crate::object::unit::UnitAiStateRuntime;
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
 use crate::terrain::get_terrain_logic;
 use crate::waypoint::Waypoint;
@@ -581,40 +583,51 @@ impl JetStateMachine {
     fn set_state(
         &mut self,
         state: JetAIStateType,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut UnitAiStateRuntime<'_>,
+        driver: &mut AIStateMachineDriver<'_>,
         jet_ai: &mut JetAIUpdate,
     ) {
         if let Some(prev) = self.state {
-            self.on_exit(prev, ai, jet_ai);
+            self.on_exit(prev, ai, driver, jet_ai);
         }
         self.state = Some(state);
-        self.on_enter(ai, jet_ai);
+        self.on_enter(ai, driver, jet_ai);
     }
 
-    fn clear(&mut self, ai: &mut dyn AIUpdateInterface, jet_ai: &mut JetAIUpdate) {
+    fn clear(
+        &mut self,
+        ai: &mut UnitAiStateRuntime<'_>,
+        driver: &mut AIStateMachineDriver<'_>,
+        jet_ai: &mut JetAIUpdate,
+    ) {
         if let Some(prev) = self.state {
-            self.on_exit(prev, ai, jet_ai);
+            self.on_exit(prev, ai, driver, jet_ai);
         }
         self.state = None;
     }
 
-    fn update(&mut self, ai: &mut dyn AIUpdateInterface, jet_ai: &mut JetAIUpdate) {
+    fn update(
+        &mut self,
+        ai: &mut UnitAiStateRuntime<'_>,
+        driver: &mut AIStateMachineDriver<'_>,
+        jet_ai: &mut JetAIUpdate,
+    ) {
         let Some(state) = self.state else {
             return;
         };
-        let status = self.on_update(state, ai, jet_ai);
+        let status = self.on_update(state, ai, driver, jet_ai);
         if status.is_success() {
             if let Some(next) = self.next_state_success(state) {
-                self.set_state(next, ai, jet_ai);
+                self.set_state(next, ai, driver, jet_ai);
             } else {
-                self.on_exit(state, ai, jet_ai);
+                self.on_exit(state, ai, driver, jet_ai);
                 self.state = None;
             }
         } else if status.is_failure() {
             if let Some(next) = self.next_state_failure(state) {
-                self.set_state(next, ai, jet_ai);
+                self.set_state(next, ai, driver, jet_ai);
             } else {
-                self.on_exit(state, ai, jet_ai);
+                self.on_exit(state, ai, driver, jet_ai);
                 self.state = None;
             }
         }
@@ -674,7 +687,12 @@ impl JetStateMachine {
         }
     }
 
-    fn on_enter(&mut self, ai: &mut dyn AIUpdateInterface, jet_ai: &mut JetAIUpdate) {
+    fn on_enter(
+        &mut self,
+        ai: &mut UnitAiStateRuntime<'_>,
+        driver: &mut AIStateMachineDriver<'_>,
+        jet_ai: &mut JetAIUpdate,
+    ) {
         let assume = self.state;
         match assume {
             Some(JetAIStateType::TakingOffAwaitClearance) => {
@@ -715,7 +733,7 @@ impl JetStateMachine {
                 jet_ai.set_allow_air_loco(false);
                 let _ = ai.set_can_path_through_units(true);
                 let _ = ai.choose_locomotor_set(LocomotorSetType::Taxiing);
-                self.issue_taxi_path(ai, jet_ai);
+                self.issue_taxi_path(ai, driver, jet_ai);
             }
             Some(JetAIStateType::PauseBeforeTakeoff) => {
                 jet_ai.set_takeoff_in_progress(true);
@@ -775,7 +793,7 @@ impl JetStateMachine {
                         loco.set_precise_z_pos(true);
                         loco.set_ultra_accurate(true);
                     });
-                    self.issue_jet_flight_path(ai, jet_ai, landing);
+                    self.issue_jet_flight_path(ai, driver, jet_ai, landing);
                 } else {
                     // C++ HeliTakeoffOrLandingState::onEnter (JetAIUpdate.cpp:961-1024)
                     ai.with_cur_locomotor_mut(&mut |loco| {
@@ -783,7 +801,7 @@ impl JetStateMachine {
                         loco.set_ultra_accurate(true);
                     });
 
-                    self.enter_heli_takeoff_or_landing(ai, jet_ai, landing);
+                    self.enter_heli_takeoff_or_landing(ai, driver, jet_ai, landing);
                 }
                 let producer = jet_ai.producer_object();
                 let _ = ai.ignore_obstacle(
@@ -873,7 +891,8 @@ impl JetStateMachine {
     fn on_exit(
         &mut self,
         state: JetAIStateType,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut UnitAiStateRuntime<'_>,
+        driver: &mut AIStateMachineDriver<'_>,
         jet_ai: &mut JetAIUpdate,
     ) {
         match state {
@@ -970,7 +989,8 @@ impl JetStateMachine {
     fn on_update(
         &mut self,
         state: JetAIStateType,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut UnitAiStateRuntime<'_>,
+        driver: &mut AIStateMachineDriver<'_>,
         jet_ai: &mut JetAIUpdate,
     ) -> crate::state_machine::StateReturnType {
         use crate::state_machine::StateReturnType;
@@ -1042,7 +1062,7 @@ impl JetStateMachine {
                         crate::ai::CommandSourceType::FromAi,
                     );
                     params.coords = path;
-                    let _ = ai.execute_command(&params);
+                    let _ = ai.execute_command_native(&params, driver);
                 }
 
                 ai.set_locomotor_goal_none();
@@ -1055,7 +1075,7 @@ impl JetStateMachine {
                     return StateReturnType::Success;
                 }
                 if !self.taxi_path_issued {
-                    self.issue_taxi_path(ai, jet_ai);
+                    self.issue_taxi_path(ai, driver, jet_ai);
                 }
                 if matches!(
                     state,
@@ -1073,7 +1093,7 @@ impl JetStateMachine {
                         }
                     });
                 }
-                if ai.is_idle() {
+                if ai.is_idle_with_parent_state(driver.is_idle()) {
                     return StateReturnType::Success;
                 }
                 StateReturnType::Continue
@@ -1122,7 +1142,7 @@ impl JetStateMachine {
                     return StateReturnType::Success;
                 }
                 if !self.needs_runway {
-                    return self.update_heli_takeoff_or_landing(ai, jet_ai);
+                    return self.update_heli_takeoff_or_landing(ai, driver, jet_ai);
                 }
                 if landing {
                     if !self.landing_sound_played {
@@ -1186,7 +1206,7 @@ impl JetStateMachine {
                         }
                     });
                 }
-                if ai.is_idle() {
+                if ai.is_idle_with_parent_state(driver.is_idle()) {
                     return StateReturnType::Success;
                 }
                 StateReturnType::Continue
@@ -1285,7 +1305,11 @@ impl JetStateMachine {
                             }
                         }
                     }
-                    let _ = ai.ai_move_to_position(&goal);
+                    // CPP JetOrHeliReturnForLandingState derives from
+                    // AIInternalMoveToState; this must use the composed
+                    // native helper enter path once its owner/pathfinder
+                    // operation is available. It is not an AI command.
+                    let _ = ai.move_registered_unit(&goal);
                     StateReturnType::Continue
                 }) {
                     if matches!(result, StateReturnType::Failure) {
@@ -1314,7 +1338,7 @@ impl JetStateMachine {
                         return StateReturnType::Failure;
                     }
                 }
-                if ai.is_idle() {
+                if ai.is_idle_with_parent_state(driver.is_idle()) {
                     return StateReturnType::Success;
                 }
                 StateReturnType::Continue
@@ -1322,9 +1346,12 @@ impl JetStateMachine {
             JetAIStateType::ReturnToDeadAirfield => {
                 if let Ok(_guard) = obj.read() {
                     let goal = jet_ai.producer_location;
-                    let _ = ai.ai_move_to_position(&goal);
+                    // CPP JetOrHeliReturningToDeadAirfieldState derives
+                    // from AIInternalMoveToState; this must use the composed
+                    // native helper enter path, not command dispatch.
+                    let _ = ai.move_registered_unit(&goal);
                 }
-                if ai.is_idle() {
+                if ai.is_idle_with_parent_state(driver.is_idle()) {
                     return StateReturnType::Success;
                 }
                 StateReturnType::Continue
@@ -1377,7 +1404,12 @@ impl JetStateMachine {
             }
         }
     }
-    fn issue_taxi_path(&mut self, ai: &mut dyn AIUpdateInterface, jet_ai: &mut JetAIUpdate) {
+    fn issue_taxi_path(
+        &mut self,
+        ai: &mut UnitAiStateRuntime<'_>,
+        driver: &mut AIStateMachineDriver<'_>,
+        jet_ai: &mut JetAIUpdate,
+    ) {
         let Some(state) = self.state else {
             return;
         };
@@ -1475,7 +1507,7 @@ impl JetStateMachine {
                 crate::ai::CommandSourceType::FromAi,
             );
             params.coords = path;
-            let _ = ai.execute_command(&params);
+            let _ = ai.execute_command_native(&params, driver);
             true
         }) else {
             self.skip_current = true;
@@ -1490,7 +1522,8 @@ impl JetStateMachine {
 
     fn issue_jet_flight_path(
         &mut self,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut UnitAiStateRuntime<'_>,
+        driver: &mut AIStateMachineDriver<'_>,
         jet_ai: &mut JetAIUpdate,
         landing: bool,
     ) {
@@ -1527,7 +1560,7 @@ impl JetStateMachine {
                 crate::ai::CommandSourceType::FromAi,
             );
             params.coords = path;
-            let _ = ai.execute_command(&params);
+            let _ = ai.execute_command_native(&params, driver);
             true
         }) else {
             self.skip_current = true;
@@ -1542,7 +1575,8 @@ impl JetStateMachine {
 
     fn enter_heli_takeoff_or_landing(
         &mut self,
-        _ai: &mut dyn AIUpdateInterface,
+        _ai: &mut UnitAiStateRuntime<'_>,
+        driver: &mut AIStateMachineDriver<'_>,
         jet_ai: &mut JetAIUpdate,
         landing: bool,
     ) {
@@ -1598,7 +1632,8 @@ impl JetStateMachine {
 
     fn update_heli_takeoff_or_landing(
         &mut self,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut UnitAiStateRuntime<'_>,
+        driver: &mut AIStateMachineDriver<'_>,
         jet_ai: &mut JetAIUpdate,
     ) -> crate::state_machine::StateReturnType {
         use crate::state_machine::StateReturnType;
@@ -1784,7 +1819,7 @@ impl JetAIUpdate {
         })
     }
 
-    pub fn on_object_created(&mut self, ai: &mut dyn AIUpdateInterface) {
+    pub fn on_object_created(&mut self, ai: &mut UnitAiStateRuntime<'_>) {
         self.set_allow_air_loco(false);
         let _ = ai.choose_locomotor_set(LocomotorSetType::Taxiing);
         self.engines_on = true;
@@ -1802,12 +1837,19 @@ impl JetAIUpdate {
         result
     }
 
-    pub fn update_with_ai(&mut self, ai: &mut dyn AIUpdateInterface) {
+    pub fn update_with_ai(
+        &mut self,
+        ai: &mut UnitAiStateRuntime<'_>,
+        driver: &mut AIStateMachineDriver<'_>,
+    ) {
         self.get_producer_location(Some(ai));
         self.update();
         let now = TheGameLogic::get_frame();
         let is_reloading = matches!(self.state_machine.state, Some(JetAIStateType::ReloadAmmo));
-        let is_idle = ai.is_idle_unrestricted() || is_reloading;
+        let is_idle = (driver.get_current_state_id()
+            == Some(crate::ai::states::AIStateType::Idle as u32)
+            || driver.is_idle())
+            || is_reloading;
 
         let mut allow_air_loco = self.allow_air_loco();
         let has_pending = self.get_flag(JetFlag::HasPendingCommand);
@@ -1843,10 +1885,15 @@ impl JetAIUpdate {
                     if should_takeoff {
                         self.set_allow_air_loco(true);
                         allow_air_loco = true;
-                        self.with_state_machine(|machine, jet| machine.clear(ai, jet));
+                        self.with_state_machine(|machine, jet| machine.clear(ai, driver, jet));
                         ai.set_last_command_source(crate::ai::CommandSourceType::FromAi);
                         self.with_state_machine(|machine, jet| {
-                            machine.set_state(JetAIStateType::TakingOffAwaitClearance, ai, jet)
+                            machine.set_state(
+                                JetAIStateType::TakingOffAwaitClearance,
+                                ai,
+                                driver,
+                                jet,
+                            )
                         });
                     }
                 }
@@ -1857,13 +1904,13 @@ impl JetAIUpdate {
                     self.set_use_special_return_loco(true);
                     ai.set_last_command_source(crate::ai::CommandSourceType::FromAi);
                     self.with_state_machine(|machine, jet| {
-                        machine.set_state(JetAIStateType::ReturningForLanding, ai, jet)
+                        machine.set_state(JetAIStateType::ReturningForLanding, ai, driver, jet)
                     });
                 } else if has_pending && !is_reloading {
                     self.return_to_base_frame = 0;
                     let params = self.reconstitute_command_params();
                     self.set_has_pending_command(false);
-                    let _ = ai.execute_command(&params);
+                    let _ = ai.execute_command_native(&params, driver);
                 } else if self.return_to_base_frame != 0
                     && now >= self.return_to_base_frame
                     && allow_air_loco
@@ -1872,7 +1919,7 @@ impl JetAIUpdate {
                     self.set_use_special_return_loco(false);
                     ai.set_last_command_source(crate::ai::CommandSourceType::FromAi);
                     self.with_state_machine(|machine, jet| {
-                        machine.set_state(JetAIStateType::ReturningForLanding, ai, jet)
+                        machine.set_state(JetAIStateType::ReturningForLanding, ai, driver, jet)
                     });
                 } else if self.return_to_base_frame == 0
                     && self.data.return_to_base_idle_time > 0
@@ -1895,18 +1942,19 @@ impl JetAIUpdate {
                     self.set_flag(JetFlag::AllowInterruptAndResumeOfCurStateForReload, false);
                     ai.set_last_command_source(crate::ai::CommandSourceType::FromAi);
                     self.with_state_machine(|machine, jet| {
-                        machine.set_state(JetAIStateType::ReturningForLanding, ai, jet)
+                        machine.set_state(JetAIStateType::ReturningForLanding, ai, driver, jet)
                     });
                 }
             }
         }
-        self.with_state_machine(|machine, jet| machine.update(ai, jet));
+        self.with_state_machine(|machine, jet| machine.update(ai, driver, jet));
     }
 
     pub fn handle_command(
         &mut self,
         params: &AiCommandParams,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut UnitAiStateRuntime<'_>,
+        driver: &mut AIStateMachineDriver<'_>,
     ) -> bool {
         // Wave 309: empty dual-world → fail-closed.
         if dual_world_registry_unavailable() {
@@ -1937,10 +1985,10 @@ impl JetAIUpdate {
                 })
                 .unwrap_or(false);
             if should_return {
-                self.with_state_machine(|machine, jet| machine.clear(ai, jet));
+                self.with_state_machine(|machine, jet| machine.clear(ai, driver, jet));
                 ai.set_last_command_source(crate::ai::CommandSourceType::FromAi);
                 self.with_state_machine(|machine, jet| {
-                    machine.set_state(JetAIStateType::ReturningForLanding, ai, jet)
+                    machine.set_state(JetAIStateType::ReturningForLanding, ai, driver, jet)
                 });
                 return true;
             }
@@ -1960,10 +2008,10 @@ impl JetAIUpdate {
                 })
                 .unwrap_or(false);
             if should_return {
-                self.with_state_machine(|machine, jet| machine.clear(ai, jet));
+                self.with_state_machine(|machine, jet| machine.clear(ai, driver, jet));
                 ai.set_last_command_source(crate::ai::CommandSourceType::FromAi);
                 self.with_state_machine(|machine, jet| {
-                    machine.set_state(JetAIStateType::ReturningForLanding, ai, jet)
+                    machine.set_state(JetAIStateType::ReturningForLanding, ai, driver, jet)
                 });
                 return true;
             }
@@ -1984,10 +2032,10 @@ impl JetAIUpdate {
                 }
                 _ => {
                     self.set_has_pending_command(true);
-                    self.with_state_machine(|machine, jet| machine.clear(ai, jet));
+                    self.with_state_machine(|machine, jet| machine.clear(ai, driver, jet));
                     ai.set_last_command_source(crate::ai::CommandSourceType::FromAi);
                     self.with_state_machine(|machine, jet| {
-                        machine.set_state(JetAIStateType::TakingOffAwaitClearance, ai, jet)
+                        machine.set_state(JetAIStateType::TakingOffAwaitClearance, ai, driver, jet)
                     });
                     return true;
                 }
@@ -2011,7 +2059,7 @@ impl JetAIUpdate {
 
         match params.cmd {
             AiCommandType::FollowExitProductionPath => {
-                self.with_state_machine(|machine, jet| machine.clear(ai, jet));
+                self.with_state_machine(|machine, jet| machine.clear(ai, driver, jet));
                 if let Some(ignore) = params
                     .obj
                     .and_then(|id| TheGameLogic::find_object_by_id(id))
@@ -2024,11 +2072,11 @@ impl JetAIUpdate {
                     .unwrap_or(false);
                 if is_helipad {
                     self.with_state_machine(|machine, jet| {
-                        machine.set_state(JetAIStateType::TakingOffAwaitClearance, ai, jet)
+                        machine.set_state(JetAIStateType::TakingOffAwaitClearance, ai, driver, jet)
                     });
                 } else {
                     self.with_state_machine(|machine, jet| {
-                        machine.set_state(JetAIStateType::TaxiFromHangar, ai, jet)
+                        machine.set_state(JetAIStateType::TaxiFromHangar, ai, driver, jet)
                     });
                 }
                 // C++ privateFollowPath(exitProduction) does not set HAS_PENDING_COMMAND
@@ -2053,7 +2101,7 @@ impl JetAIUpdate {
                     if !can_enter {
                         return true;
                     }
-                    self.do_landing_command(obj_id, params.cmd_source, ai);
+                    self.do_landing_command(obj_id, params.cmd_source, ai, driver);
                     return true;
                 }
             }
@@ -2074,7 +2122,7 @@ impl JetAIUpdate {
                     if !can_repair {
                         return true;
                     }
-                    self.do_landing_command(obj_id, params.cmd_source, ai);
+                    self.do_landing_command(obj_id, params.cmd_source, ai, driver);
                     return true;
                 }
             }
@@ -2088,7 +2136,8 @@ impl JetAIUpdate {
         &mut self,
         airfield_id: ObjectID,
         cmd_source: crate::ai::CommandSourceType,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut UnitAiStateRuntime<'_>,
+        driver: &mut AIStateMachineDriver<'_>,
     ) {
         // Wave 309: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
@@ -2148,7 +2197,7 @@ impl JetAIUpdate {
                 self.set_flag(JetFlag::AllowInterruptAndResumeOfCurStateForReload, false);
                 ai.set_last_command_source(cmd_source);
                 self.with_state_machine(|machine, jet| {
-                    machine.set_state(JetAIStateType::ReturningForLanding, ai, jet)
+                    machine.set_state(JetAIStateType::ReturningForLanding, ai, driver, jet)
                 });
             }
         });
@@ -2206,11 +2255,11 @@ impl JetAIUpdate {
         self.afterburners_on = enable;
     }
 
-    pub fn add_waypoint_to_goal_path(&self, ai: &mut dyn AIUpdateInterface, pos: &Coord3D) {
+    pub fn add_waypoint_to_goal_path(&self, ai: &mut UnitAiStateRuntime<'_>, pos: &Coord3D) {
         let _ = ai.append_goal_position_to_path(pos);
     }
 
-    fn get_producer_location(&mut self, ai: Option<&mut dyn AIUpdateInterface>) {
+    fn get_producer_location(&mut self, ai: Option<&mut UnitAiStateRuntime<'_>>) {
         if self.get_flag(JetFlag::HasProducerLocation) {
             return;
         }
@@ -2735,7 +2784,7 @@ impl JetAIUpdate {
             waypoint,
             polygon,
             int_value: params.int_value,
-            damage: crate::damage::DamageInfo::new(),
+            damage: params.damage.clone(),
             command_button: None,
             command_button_name: String::new(),
             path: None,
@@ -2765,7 +2814,7 @@ impl JetAIUpdate {
             .as_ref()
             .map(|poly| poly.get_id());
         params.int_value = self.most_recent_command.int_value;
-        params.damage = crate::ai::DamageInfo::default();
+        params.damage = self.most_recent_command.damage.clone();
         params
     }
 
@@ -3115,6 +3164,106 @@ mod tests {
 
         assert_eq!(restored.attacking_loco, LocomotorSetType::Supersonic);
         assert_eq!(restored.returning_loco, LocomotorSetType::Taxiing);
+    }
+
+    #[test]
+    fn jet_stored_attack_command_damage_survives_reconstitute_and_snapshot_replay() {
+        let target_id = 0xA771;
+        let other_target_id = 0xB882;
+        let mut params = AiCommandParams::new(
+            AiCommandType::AttackObject,
+            crate::common::CommandSourceType::FromScript,
+        );
+        params.obj = Some(target_id);
+        params.other_obj = Some(other_target_id);
+        params.pos = Coord3D::new(12.25, -31.5, 7.75);
+        params.int_value = 4;
+        params.damage.input.source_id = 0xD993;
+        params.damage.input.source_player_mask =
+            crate::common::PlayerMaskType::PLAYER_3 | crate::common::PlayerMaskType::PLAYER_7;
+        params.damage.input.damage_type = DamageType::JetMissiles;
+        params.damage.input.damage_status_type = crate::common::ObjectStatusTypes::NoAttack;
+        params.damage.input.damage_fx_override = DamageType::Flame;
+        params.damage.input.death_type = DeathType::Exploded;
+        params.damage.input.amount = 73.25;
+        params.damage.input.kill = true;
+        params.damage.input.shock_wave_vector = Coord3D::new(1.25, -2.5, 3.75);
+        params.damage.input.shock_wave_amount = 4.5;
+        params.damage.input.shock_wave_radius = 5.5;
+        params.damage.input.shock_wave_taper_off = 0.25;
+        params.damage.output.actual_damage_dealt = 59.75;
+        params.damage.output.actual_damage_clipped = 13.5;
+        params.damage.output.no_effect = true;
+        params.damage.sync_from_input();
+
+        let mut jet = JetAIUpdate::new(JetAIUpdateModuleData::default(), 0xC114);
+        jet.store_most_recent_command(&params);
+        let in_memory_replay = jet.reconstitute_command_params();
+        assert_eq!(in_memory_replay.cmd, AiCommandType::AttackObject);
+        assert_eq!(
+            in_memory_replay.cmd_source,
+            crate::common::CommandSourceType::FromScript
+        );
+        assert_eq!(in_memory_replay.obj, Some(target_id));
+        assert_eq!(in_memory_replay.other_obj, Some(other_target_id));
+        assert_eq!(in_memory_replay.pos, params.pos);
+        assert_eq!(in_memory_replay.int_value, params.int_value);
+        assert_damage_payload(&in_memory_replay.damage);
+
+        let mut bytes = Vec::new();
+        {
+            let mut save = XferSave::new(Cursor::new(&mut bytes), 1);
+            jet.xfer(&mut save).unwrap();
+        }
+        let mut restored_jet = JetAIUpdate::new(JetAIUpdateModuleData::default(), 0xC114);
+        {
+            let mut load = XferLoad::new(Cursor::new(bytes), 1);
+            restored_jet.xfer(&mut load).unwrap();
+        }
+
+        // This is the post-load command replay payload consumed by JetAIUpdate.
+        let replayed = restored_jet.reconstitute_command_params();
+        assert_eq!(replayed.cmd, AiCommandType::AttackObject);
+        assert_eq!(
+            replayed.cmd_source,
+            crate::common::CommandSourceType::FromScript
+        );
+        assert_eq!(replayed.obj, Some(target_id));
+        assert_eq!(replayed.other_obj, Some(other_target_id));
+        assert_eq!(replayed.pos, params.pos);
+        assert_eq!(replayed.int_value, params.int_value);
+        assert_damage_payload(&replayed.damage);
+    }
+
+    fn assert_damage_payload(damage: &DamageInfo) {
+        assert_eq!(damage.input.source_id, 0xD993);
+        assert_eq!(
+            damage.input.source_player_mask,
+            crate::common::PlayerMaskType::PLAYER_3 | crate::common::PlayerMaskType::PLAYER_7
+        );
+        assert_eq!(damage.input.damage_type, DamageType::JetMissiles);
+        assert_eq!(
+            damage.input.damage_status_type,
+            crate::common::ObjectStatusTypes::NoAttack
+        );
+        assert_eq!(damage.input.damage_fx_override, DamageType::Flame);
+        assert_eq!(damage.input.death_type, DeathType::Exploded);
+        assert_eq!(damage.input.amount, 73.25);
+        assert!(damage.input.kill);
+        assert_eq!(
+            damage.input.shock_wave_vector,
+            Coord3D::new(1.25, -2.5, 3.75)
+        );
+        assert_eq!(damage.input.shock_wave_amount, 4.5);
+        assert_eq!(damage.input.shock_wave_radius, 5.5);
+        assert_eq!(damage.input.shock_wave_taper_off, 0.25);
+        assert_eq!(damage.output.actual_damage_dealt, 59.75);
+        assert_eq!(damage.output.actual_damage_clipped, 13.5);
+        assert!(damage.output.no_effect);
+        assert_eq!(damage.amount, 73.25);
+        assert_eq!(damage.damage_type, DamageType::JetMissiles);
+        assert_eq!(damage.death_type, DeathType::Exploded);
+        assert_eq!(damage.source_id, 0xD993);
     }
 
     #[test]

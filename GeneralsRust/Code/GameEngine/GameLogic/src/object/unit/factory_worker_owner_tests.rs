@@ -406,6 +406,8 @@ fn factory_native_mine_query_ignores_locked_foreign_same_id_unit() {
         )
         .unwrap(),
     ));
+    crate::object::registry::OBJECT_REGISTRY.register_object(id, &foreign_owner);
+    crate::ai::object_registry::register_legacy_object(&foreign_owner);
     super::super::register_unit(id, &foreign);
     assert!(Arc::ptr_eq(
         &foreign_owner,

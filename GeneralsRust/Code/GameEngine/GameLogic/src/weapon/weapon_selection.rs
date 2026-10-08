@@ -15,7 +15,7 @@ impl WeaponSet {
         target: &Object,
         criteria: WeaponChoiceCriteria,
         command_source: CommandSourceType,
-        ai: Option<&dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> (WeaponSlotType, bool) {
         self.select_weapon_inner(
             source.get_id(),
@@ -40,7 +40,7 @@ impl WeaponSet {
         criteria: WeaponChoiceCriteria,
         command_source: CommandSourceType,
         objects: Option<(&Object, &Object)>,
-        ai: Option<&dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> (WeaponSlotType, bool) {
         if self.is_current_weapon_locked() {
             return (self.current_weapon, true);

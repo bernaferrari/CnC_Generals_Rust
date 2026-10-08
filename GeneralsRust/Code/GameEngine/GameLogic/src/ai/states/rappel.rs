@@ -107,7 +107,7 @@ impl StateImplementation for AIRappelIntoState {
 
     fn on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _goal_id: crate::common::ObjectID,
         _goal_pos: Coord3D,
     ) -> StateReturnType {
@@ -124,7 +124,7 @@ impl StateImplementation for AIRappelIntoState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         if ai.is_in_rappel_state() {
             StateReturnType::Continue
@@ -140,7 +140,7 @@ impl StateImplementation for AIRappelIntoState {
     fn on_exit_with_ai(
         &mut self,
         status: StateExitType,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) {
         ai.set_desired_speed(FAST_AS_POSSIBLE);
         self.on_exit(status);
@@ -295,7 +295,7 @@ impl StateImplementation for AICombatDropState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         if ai.is_doing_combat_drop() {
             StateReturnType::Continue

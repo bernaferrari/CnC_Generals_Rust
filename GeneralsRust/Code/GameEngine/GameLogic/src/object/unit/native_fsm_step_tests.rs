@@ -25,9 +25,7 @@ fn captured_base_wire(actual: &FactoryRuntime, ai: &mut dyn AIUpdateInterface) -
     let mut base_bytes = Cursor::new(Vec::new());
     reader
         .ai_state_machine
-        .as_ref()
-        .unwrap()
-        .lock()
+        .as_mut()
         .unwrap()
         .base
         .xfer(&mut XferSave::new(&mut base_bytes, 1))

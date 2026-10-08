@@ -2,8 +2,8 @@
 
 #![allow(unused_imports)]
 
+use super::UnitAiStateRuntime;
 use super::ai_command_owner::CommandOwner;
-use super::ai_core::UnitAIUpdate;
 use super::ai_helpers::*;
 use super::identity::Unit;
 use super::imports::*;
@@ -12,8 +12,112 @@ use super::registry::{
 };
 use super::types::*;
 use crate::ai::states::AIStateMachineDriver;
+use crate::modules::ai_state_runtime::AiStateRuntime;
 
-impl UnitAIUpdate {
+impl UnitAiStateRuntime<'_> {
+    // Retained Jet boundary: these callers still use the standalone Unit order
+    // until their C++ AIInternalMoveToState ownership is migrated (hq-n8qlq).
+    pub(crate) fn move_registered_unit(
+        &mut self,
+        pos: &Coord3D,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let unit = get_unit_arc(self.runtime.unit_id)
+            .ok_or_else(|| "unit no longer available".to_string())?;
+        let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
+        guard.give_move_order(*pos, Vec::new(), false, false)?;
+        Ok(())
+    }
+
+    fn is_clearing_mines(&self) -> bool {
+        let Some(owner) = self
+            .runtime
+            .owner
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+        else {
+            return false;
+        };
+        let Ok(owner) = owner.read() else {
+            return false;
+        };
+        owner.test_status(ObjectStatusTypes::OBJECT_STATUS_IS_ATTACKING)
+            && owner
+                .get_current_weapon()
+                .is_some_and(|(weapon, _)| (weapon.get_anti_mask() & WeaponAntiMask::MINE) != 0)
+    }
+
+    fn clip_goal_position(
+        &self,
+        owner: &Arc<RwLock<crate::object::Object>>,
+        mut pos: Coord3D,
+        cmd_source: CommandSourceType,
+    ) -> Coord3D {
+        if cmd_source != CommandSourceType::FromPlayer {
+            return pos;
+        }
+        let mut fudge = PATHFIND_CELL_SIZE_F * 0.5;
+        if let Ok(object) = owner.read() {
+            if object.is_kind_of(KindOf::Aircraft) && object.is_significantly_above_terrain() {
+                let preferred = self
+                    .runtime
+                    .data
+                    .locomotor_set
+                    .get_active()
+                    .map(|loc| loc.preferred_height)
+                    .unwrap_or(0.0);
+                if preferred > fudge {
+                    fudge = preferred;
+                }
+            }
+        }
+        if let Ok(terrain_guard) = crate::terrain::get_terrain_logic().read() {
+            let extent = terrain_guard.get_maximum_pathfind_extent();
+            pos.x = pos.x.clamp(extent.lo.x + fudge, extent.hi.x - fudge);
+            pos.y = pos.y.clamp(extent.lo.y + fudge, extent.hi.y - fudge);
+        }
+        pos
+    }
+
+    fn finish_command_worker_side_effects(&mut self) {
+        let clearing_mines = self.is_clearing_mines();
+        if let Some(worker_ai) = self.runtime.components.worker_ai.as_mut() {
+            if clearing_mines {
+                worker_ai.drop_all_boxes_if_carrying();
+            }
+        }
+    }
+
+    fn command_button_type_for_owner(
+        &self,
+        owner: &CommandOwner<'_>,
+        button_id: Option<crate::command_button::CommandButtonId>,
+    ) -> Option<crate::commands::command::CommandType> {
+        let button_id = button_id?;
+        let owner_arc = owner.base_arc();
+        let owner_guard = owner_arc.read().ok()?;
+        if owner_guard.is_any_kind_of(&[KindOf::Projectile]) {
+            return None;
+        }
+        let command_set_name = owner_guard.get_command_set_string();
+        let control_bar = crate::control_bar::get_control_bar_bridge()?;
+        let command_set = control_bar.find_command_set_by_name(command_set_name)?;
+        (0..crate::command_button::MAX_COMMANDS_PER_SET).find_map(|slot| {
+            command_set
+                .get_command_button(slot)
+                .filter(|button| button.get_id() == button_id)
+                .map(|button| button.get_command_type())
+        })
+    }
+
+    fn is_idle_with_driver(&self, driver: &AIStateMachineDriver<'_>) -> bool {
+        !self.runtime.idle_blocked_by_specialized_ai()
+            && (driver.get_current_state_id() == Some(AIStateType::Idle as u32) || driver.is_idle())
+    }
+
+    fn is_moving_with_driver(&self, driver: &AIStateMachineDriver<'_>) -> bool {
+        !self.is_idle_with_driver(driver)
+            && (self.runtime.data.locomotor_goal_type != 0 || self.runtime.data.cpp_is_moving)
+    }
     fn finish_attack_object_command(
         &mut self,
         target_id: crate::common::ObjectID,
@@ -58,20 +162,10 @@ impl UnitAIUpdate {
         }
     }
 
-    pub(super) fn execute_command(
+    pub(crate) fn execute_command_native(
         &mut self,
         command: &crate::ai::AiCommandParams,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(machine) = self.ai_state_machine.as_mut() {
-            let mut runtime = super::UnitAiStateRuntime::new(&mut self.runtime, true);
-            return runtime.execute_command_native(command, &mut machine.driver());
-        }
-        self.execute_standalone_command(command)
-    }
-
-    fn execute_standalone_command(
-        &mut self,
-        command: &crate::ai::AiCommandParams,
+        native_driver: &mut AIStateMachineDriver<'_>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if self.runtime.data.forbid_player_commands
             && command.cmd_source == crate::ai::CommandSourceType::FromPlayer
@@ -96,13 +190,29 @@ impl UnitAIUpdate {
             return Ok(());
         }
 
+        // C++ FaceObject/FacePosition reject immobile owners before clearing
+        // the state machine or changing command source and movement bookkeeping.
+        if matches!(
+            command.cmd,
+            crate::ai::AiCommandType::FaceObject | crate::ai::AiCommandType::FacePosition
+        ) {
+            let owner = self.owner().ok_or("native AI owner no longer available")?;
+            if !owner
+                .read()
+                .map_err(|_| "native AI owner lock poisoned")?
+                .is_mobile()
+            {
+                return Ok(());
+            }
+        }
+
         if let Some(mut assault_ai) = self.runtime.components.assault_transport_ai.take() {
             assault_ai.handle_command(command);
             self.runtime.components.assault_transport_ai = Some(assault_ai);
         }
 
         if let Some(mut hack_ai) = self.runtime.components.hack_internet_ai.take() {
-            if hack_ai.handle_command(command, self) {
+            if hack_ai.handle_command_with_runtime(command, self, native_driver) {
                 self.runtime.components.hack_internet_ai = Some(hack_ai);
                 return Ok(());
             }
@@ -110,22 +220,19 @@ impl UnitAIUpdate {
         }
 
         if let Some(mut chinook_ai) = self.runtime.components.chinook_ai.take() {
-            if chinook_ai.handle_command(command, self) {
+            if chinook_ai.handle_command_with_runtime(command, self, native_driver) {
                 self.runtime.components.chinook_ai = Some(chinook_ai);
                 return Ok(());
             }
             self.runtime.components.chinook_ai = Some(chinook_ai);
         }
 
-        if let Some(jet_ai) = self.runtime.components.jet_ai.take() {
-            // Jet command handling transitions the parent state machine. A
-            // standalone UnitAIUpdate has no admitted parent machine/driver,
-            // so fail explicitly instead of synthesizing one or skipping the
-            // Jet pre-handler. Production object admission always installs it.
+        if let Some(mut jet_ai) = self.runtime.components.jet_ai.take() {
+            if jet_ai.handle_command(command, self, native_driver) {
+                self.runtime.components.jet_ai = Some(jet_ai);
+                return Ok(());
+            }
             self.runtime.components.jet_ai = Some(jet_ai);
-            return Err(
-                "standalone Jet command dispatch requires a parent AI state machine".into(),
-            );
         }
 
         if let Some(jet_ai) = self.runtime.components.jet_ai.as_mut() {
@@ -145,7 +252,71 @@ impl UnitAIUpdate {
             }
         }
 
-        self.runtime.data.last_command_source = command.cmd_source;
+        // C++ privateCommandButton changes AI order/source only when its
+        // validated button dispatches an actual command. Null, unmatched,
+        // unsupported and projectile buttons leave movement state intact.
+        if matches!(
+            command.cmd,
+            crate::ai::AiCommandType::CommandButton
+                | crate::ai::AiCommandType::CommandButtonObj
+                | crate::ai::AiCommandType::CommandButtonPos
+        ) {
+            let owner = self.owner().ok_or("native AI owner no longer available")?;
+            let guard = CommandOwner::Object(owner);
+            guard.forward_command_to_flight_deck(command)?;
+            match command.cmd {
+                crate::ai::AiCommandType::CommandButton => {
+                    if self.command_button_type_for_owner(&guard, command.command_button)
+                        == Some(crate::commands::command::CommandType::DoStop)
+                    {
+                        let params = crate::ai::AiCommandParams::new(
+                            crate::ai::AiCommandType::Idle,
+                            command.cmd_source,
+                        );
+                        self.execute_command_native(&params, native_driver)?;
+                    }
+                }
+                crate::ai::AiCommandType::CommandButtonObj => {
+                    if self.command_button_type_for_owner(&guard, command.command_button)
+                        == Some(crate::commands::command::CommandType::CombatDropAtLocation)
+                    {
+                        if let Some(target_id) = command.obj {
+                            if let Some(target) = get_legacy_object(target_id) {
+                                if let Ok(target_guard) = target.read() {
+                                    let mut params = crate::ai::AiCommandParams::new(
+                                        crate::ai::AiCommandType::CombatDrop,
+                                        command.cmd_source,
+                                    );
+                                    params.obj = Some(target_id);
+                                    params.pos = *target_guard.get_position();
+                                    drop(target_guard);
+                                    self.execute_command_native(&params, native_driver)?;
+                                }
+                            }
+                        }
+                    }
+                }
+                crate::ai::AiCommandType::CommandButtonPos => {
+                    // C++ privateCommandButtonPosition currently has no implemented
+                    // location command; a matching button reaches its assert-only
+                    // default and otherwise produces no command-side effects.
+                    let _ = self.command_button_type_for_owner(&guard, command.command_button);
+                }
+                _ => unreachable!(),
+            }
+            drop(guard);
+            self.finish_command_worker_side_effects();
+            return Ok(());
+        }
+
+        if !matches!(
+            command.cmd,
+            crate::ai::AiCommandType::FaceObject
+                | crate::ai::AiCommandType::FacePosition
+                | crate::ai::AiCommandType::GoProne
+        ) {
+            self.runtime.data.last_command_source = command.cmd_source;
+        }
         self.runtime.data.current_command = Some(command.cmd);
         if self.runtime.components.jet_ai.is_some() {
             self.runtime.data.pending_command = Some(command.cmd);
@@ -174,41 +345,21 @@ impl UnitAIUpdate {
             // C++ AIUpdate.cpp:2981-2997 / AIStates.cpp:481-514: Rappel
             // operates on the admitted Object, not a second Unit registration.
             let owner = self
+                .runtime
                 .rappel_owner()
                 .ok_or("rappel owner no longer available")?;
             {
                 let owner = owner.read().map_err(|_| "rappel owner lock poisoned")?;
                 owner.forward_command_to_flight_deck(command);
             }
-            let _ = self.start_rappel_state(&owner, command.obj);
+            let _ = self.runtime.start_rappel_state(&owner, command.obj);
             self.finish_command_worker_side_effects();
             return Ok(());
         }
-        // Native commands retain the exact factory-admitted owner. A stale
-        // native owner is an error, never permission to select a same-ID Unit.
-        let native_owner = match self.runtime.owner.as_ref() {
-            Some(owner) => Some(
-                owner
-                    .upgrade()
-                    .ok_or("native AI owner no longer available")?,
-            ),
-            None => None,
-        };
-        let legacy_unit = if native_owner.is_none() {
-            Some(get_unit_arc(self.runtime.unit_id).ok_or("unit no longer available")?)
-        } else {
-            None
-        };
-        let mut guard = match native_owner {
-            Some(owner) => CommandOwner::Object(owner),
-            None => CommandOwner::LegacyUnit(
-                legacy_unit
-                    .as_ref()
-                    .expect("legacy owner resolved")
-                    .write()
-                    .map_err(|_| "unit lock poisoned")?,
-            ),
-        };
+        // Native commands are bound to the factory-admitted object. This
+        // kernel never falls back to a same-ID legacy Unit.
+        let owner = self.owner().ok_or("native AI owner no longer available")?;
+        let mut guard = CommandOwner::Object(owner);
         guard.forward_command_to_flight_deck(command)?;
 
         match command.cmd {
@@ -236,6 +387,37 @@ impl UnitAIUpdate {
             | crate::ai::AiCommandType::MoveToPositionAndEvacuateAndExit => {
                 let clipped =
                     self.clip_goal_position(&guard.base_arc(), command.pos, command.cmd_source);
+                {
+                    let mut machine = &mut *native_driver;
+
+                    drop(guard);
+                    let is_mobile = self.runtime.data.locomotor_set.get_active().is_some();
+                    if !is_mobile {
+                        return Ok(());
+                    }
+                    if command.cmd_source == CommandSourceType::FromAi
+                        && !self.is_idle_with_driver(machine)
+                    {
+                        machine.set_goal_position(clipped);
+                        self.runtime.data.blocked_frames = 0;
+                        self.runtime.data.is_blocked = false;
+                        self.runtime.data.blocked_and_stuck = false;
+                        let _ = machine.enter_temporary_with_ai(
+                            AIStateType::MoveTo as u32,
+                            LOGICFRAMES_PER_SECOND * 20,
+                            self,
+                        );
+                    } else {
+                        let mut params = command.clone();
+                        params.pos = clipped;
+                        machine.clear_with_ai(self);
+                        self.runtime.data.blocked_frames = 0;
+                        self.runtime.data.is_blocked = false;
+                        self.runtime.data.blocked_and_stuck = false;
+                        machine.ai_do_command_with_ai(&params, self)?;
+                    }
+                    return Ok(());
+                }
 
                 guard
                     .legacy()?
@@ -248,30 +430,47 @@ impl UnitAIUpdate {
                 }
                 let clipped =
                     self.clip_goal_position(&guard.base_arc(), command.pos, command.cmd_source);
+                {
+                    let mut machine = &mut *native_driver;
+
+                    let mut params = command.clone();
+                    params.pos = clipped;
+                    machine.clear_with_ai(self);
+                    machine.ai_do_command_with_ai(&params, self)?;
+                    return Ok(());
+                }
 
                 guard
                     .legacy()?
                     .give_move_order(clipped, Vec::new(), false, false)?;
             }
             crate::ai::AiCommandType::MoveToObject => {
-                if let Some(target_id) = command.obj {
-                    if let Some(target_arc) = get_legacy_object(target_id) {
-                        if let Ok(target_guard) = target_arc.read() {
-                            guard.legacy()?.give_move_order(
-                                *target_guard.get_position(),
-                                Vec::new(),
-                                false,
-                                false,
-                            )?;
-                        }
-                    }
-                }
-            }
-            crate::ai::AiCommandType::MoveAwayFromUnit => {
-                if !self.is_allowed_to_move_away_from_unit() {
+                let mut machine = &mut *native_driver;
+                if self.runtime.data.ai_dead
+                    || self.runtime.data.locomotor_set.get_active().is_none()
+                {
                     return Ok(());
                 }
-                if self.is_ai_in_dead_state() {
+
+                machine.clear_with_ai(self);
+                self.runtime.data.blocked_frames = 0;
+                self.runtime.data.is_blocked = false;
+                self.runtime.data.blocked_and_stuck = false;
+                machine.ai_do_command_with_ai(command, self)?;
+                return Ok(());
+            }
+            crate::ai::AiCommandType::MoveAwayFromUnit => {
+                if !self
+                    .runtime
+                    .components
+                    .jet_ai
+                    .as_ref()
+                    .map(|jet| jet.is_allowed_to_move_away_from_unit())
+                    .unwrap_or(true)
+                {
+                    return Ok(());
+                }
+                if self.runtime.data.is_ai_in_dead_state() {
                     return Ok(());
                 }
                 let is_mobile = self.runtime.data.locomotor_set.get_active().is_some();
@@ -281,9 +480,10 @@ impl UnitAIUpdate {
                 if let Some(target_id) = command.obj {
                     if (target_id == self.runtime.data.move_out_of_way_1
                         || target_id == self.runtime.data.move_out_of_way_2)
-                        && self.is_blocked_and_stuck()
+                        && self.runtime.is_blocked_and_stuck()
                     {
-                        self.set_ignore_collision_time(LOGICFRAMES_PER_SECOND * 2);
+                        self.runtime
+                            .set_ignore_collision_time(LOGICFRAMES_PER_SECOND * 2);
                         return Ok(());
                     }
                     self.runtime.data.move_out_of_way_2 = self.runtime.data.move_out_of_way_1;
@@ -311,6 +511,17 @@ impl UnitAIUpdate {
                                 command.cmd_source,
                             );
 
+                            {
+                                let mut machine = &mut *native_driver;
+
+                                machine.set_goal_position(clipped);
+                                let _ = machine.set_temporary_state(
+                                    AIStateType::MoveOutOfTheWay as u32,
+                                    LOGICFRAMES_PER_SECOND * 10,
+                                );
+                                return Ok(());
+                            }
+
                             guard
                                 .legacy()?
                                 .give_move_order(clipped, Vec::new(), false, false)?;
@@ -323,6 +534,13 @@ impl UnitAIUpdate {
             | crate::ai::AiCommandType::FollowUserPath => {
                 let is_mobile = self.runtime.data.locomotor_set.get_active().is_some();
                 if !is_mobile {
+                    return Ok(());
+                }
+                {
+                    let mut machine = &mut *native_driver;
+
+                    machine.clear_with_ai(self);
+                    machine.ai_do_command_with_ai(command, self)?;
                     return Ok(());
                 }
 
@@ -344,44 +562,57 @@ impl UnitAIUpdate {
                 if !is_mobile {
                     return Ok(());
                 }
+                {
+                    let mut machine = &mut *native_driver;
 
-                let effectively_moving = (!self.is_idle_in_legacy_unit(guard.legacy()?)
-                    && (self.runtime.data.locomotor_goal_type != 0
-                        || self.runtime.data.cpp_is_moving))
-                    || self.is_waiting_for_path();
-                if effectively_moving {
-                    let mut coords = Vec::new();
-                    let legacy = guard.legacy()?;
-                    if let Some(goal) = legacy.target_position.or_else(|| {
-                        legacy
-                            .path_following_state
-                            .as_ref()
-                            .map(|s| s.goal_position)
-                    }) {
-                        coords.push(goal);
+                    // C++ privateFollowPathAppend uses isMoving || waiting;
+                    // borrow the live machine while this command owns Unit.write.
+                    let effectively_moving =
+                        self.is_moving_with_driver(machine) || self.runtime.is_waiting_for_path();
+                    let is_follow_path = matches!(
+                        machine.get_current_state_id(),
+                        Some(id) if id == AIStateType::FollowPath as u32
+                    );
+                    if is_follow_path && machine.get_goal_path_size() > 0 && effectively_moving {
+                        machine.ai_do_command_with_ai(command, self)?;
+                        return Ok(());
                     }
-                    coords.push(command.pos);
-                    let first = coords.remove(0);
-                    let waypoints = coords
-                        .iter()
-                        .map(|pos| Waypoint::new(INVALID_ID, *pos, String::new()))
-                        .collect::<Vec<_>>();
-                    guard
-                        .legacy()?
-                        .give_move_order(first, waypoints, false, false)?;
-                } else {
-                    guard
-                        .legacy()?
-                        .give_move_order(command.pos, Vec::new(), false, false)?;
+                    if effectively_moving {
+                        if let Some(goal) = machine.get_goal_position() {
+                            let mut params = command.clone();
+                            params.cmd = crate::ai::AiCommandType::FollowPath;
+                            params.coords = vec![goal, command.pos];
+                            machine.clear_with_ai(self);
+                            machine.ai_do_command_with_ai(&params, self)?;
+                        }
+                        return Ok(());
+                    }
+                    let mut params = command.clone();
+                    params.cmd = crate::ai::AiCommandType::FollowPath;
+                    params.coords = vec![command.pos];
+                    machine.clear_with_ai(self);
+                    machine.ai_do_command_with_ai(&params, self)?;
+                    return Ok(());
                 }
             }
             crate::ai::AiCommandType::AttackMoveToPosition => {
                 let clipped =
                     self.clip_goal_position(&guard.base_arc(), command.pos, command.cmd_source);
+                {
+                    let mut machine = &mut *native_driver;
 
-                guard.legacy()?.process_attack_move_order(clipped, true)?;
-                if let Ok(mut obj_guard) = guard.base_arc().write() {
-                    obj_guard.set_current_weapon_max_shot_count(command.int_value);
+                    let is_mobile = self.runtime.data.locomotor_set.get_active().is_some();
+                    if !is_mobile {
+                        return Ok(());
+                    }
+                    let mut params = command.clone();
+                    params.pos = clipped;
+                    machine.clear_with_ai(self);
+                    machine.ai_do_command_with_ai(&params, self)?;
+                    if let Ok(mut obj_guard) = guard.base_arc().write() {
+                        obj_guard.set_current_weapon_max_shot_count(command.int_value);
+                    }
+                    return Ok(());
                 }
             }
             crate::ai::AiCommandType::AttackPosition => {
@@ -430,25 +661,38 @@ impl UnitAIUpdate {
                     }
 
                     if let Some(target_id) = target_id {
-                        guard.legacy()?.give_attack_order(target_id, true, false)?;
-                        if let Ok(mut obj_guard) = guard.base_arc().write() {
-                            obj_guard.set_current_weapon_max_shot_count(max_shots);
-                        }
-                        if let Some(chinook_ai) = self.runtime.components.chinook_ai.as_ref() {
-                            chinook_ai.private_attack_object(
-                                target_id,
-                                max_shots,
+                        {
+                            let mut machine = &mut *native_driver;
+
+                            let mut attack_params = crate::ai::AiCommandParams::new(
+                                crate::ai::AiCommandType::AttackObject,
                                 command.cmd_source,
                             );
+                            attack_params.obj = Some(target_id);
+                            attack_params.int_value = max_shots;
+                            machine.clear_with_ai(self);
+                            machine.ai_do_command_with_ai(&attack_params, self)?;
+                            if let Ok(mut obj_guard) = guard.base_arc().write() {
+                                obj_guard.set_current_weapon_max_shot_count(max_shots);
+                            }
+                            if let Some(chinook_ai) = self.runtime.components.chinook_ai.as_ref() {
+                                chinook_ai.private_attack_object(
+                                    target_id,
+                                    max_shots,
+                                    command.cmd_source,
+                                );
+                            }
+                            if let Some(transport_ai) =
+                                self.runtime.components.transport_ai.as_ref()
+                            {
+                                transport_ai.private_attack_object(
+                                    target_id,
+                                    max_shots,
+                                    command.cmd_source,
+                                );
+                            }
+                            return Ok(());
                         }
-                        if let Some(transport_ai) = self.runtime.components.transport_ai.as_ref() {
-                            transport_ai.private_attack_object(
-                                target_id,
-                                max_shots,
-                                command.cmd_source,
-                            );
-                        }
-                        return Ok(());
                     }
                     max_shots = 1;
                 }
@@ -527,15 +771,32 @@ impl UnitAIUpdate {
                     }
                 }
 
-                guard.legacy()?.process_attack_move_order(local_pos, true)?;
-                if let Ok(mut obj_guard) = guard.base_arc().write() {
-                    obj_guard.set_current_weapon_max_shot_count(max_shots);
-                }
-                if let Some(chinook_ai) = self.runtime.components.chinook_ai.as_ref() {
-                    chinook_ai.private_attack_position(&local_pos, max_shots, command.cmd_source);
-                }
-                if let Some(transport_ai) = self.runtime.components.transport_ai.as_ref() {
-                    transport_ai.private_attack_position(&local_pos, max_shots, command.cmd_source);
+                {
+                    let mut machine = &mut *native_driver;
+
+                    let mut params = command.clone();
+                    params.pos = local_pos;
+                    params.int_value = max_shots;
+                    machine.clear_with_ai(self);
+                    machine.ai_do_command_with_ai(&params, self)?;
+                    if let Ok(mut obj_guard) = guard.base_arc().write() {
+                        obj_guard.set_current_weapon_max_shot_count(max_shots);
+                    }
+                    if let Some(chinook_ai) = self.runtime.components.chinook_ai.as_ref() {
+                        chinook_ai.private_attack_position(
+                            &local_pos,
+                            max_shots,
+                            command.cmd_source,
+                        );
+                    }
+                    if let Some(transport_ai) = self.runtime.components.transport_ai.as_ref() {
+                        transport_ai.private_attack_position(
+                            &local_pos,
+                            max_shots,
+                            command.cmd_source,
+                        );
+                    }
+                    return Ok(());
                 }
             }
             crate::ai::AiCommandType::AttackObject
@@ -551,114 +812,138 @@ impl UnitAIUpdate {
                             return Ok(());
                         }
                     }
+                    {
+                        let mut machine = &mut *native_driver;
 
-                    guard.legacy()?.give_attack_order(target_id, true, false)?;
-                    if let Ok(mut obj_guard) = guard.base_arc().write() {
-                        obj_guard.set_current_weapon_max_shot_count(command.int_value);
-                    }
-                    if let Some(chinook_ai) = self.runtime.components.chinook_ai.as_ref() {
-                        if command.cmd == crate::ai::AiCommandType::ForceAttackObject {
-                            chinook_ai.private_force_attack_object(
-                                target_id,
-                                command.int_value,
-                                command.cmd_source,
-                            );
-                        } else {
-                            chinook_ai.private_attack_object(
-                                target_id,
-                                command.int_value,
-                                command.cmd_source,
-                            );
-                        }
-                    }
-                    if let Some(transport_ai) = self.runtime.components.transport_ai.as_ref() {
-                        if command.cmd == crate::ai::AiCommandType::ForceAttackObject {
-                            transport_ai.private_force_attack_object(
-                                target_id,
-                                command.int_value,
-                                command.cmd_source,
-                            );
-                        } else {
-                            transport_ai.private_attack_object(
-                                target_id,
-                                command.int_value,
-                                command.cmd_source,
-                            );
-                        }
+                        machine.clear_with_ai(self);
+                        machine.ai_do_command_with_ai(command, self)?;
+                        self.finish_attack_object_command(target_id, command, guard);
+                        return Ok(());
                     }
                 }
             }
             crate::ai::AiCommandType::AttackTeam => {
-                if let Some(team_name) = command.team.as_ref() {
-                    if let Ok(mut factory) = crate::team::get_team_factory().lock() {
-                        if let Some(team) = factory.find_team(team_name) {
-                            if let Ok(team_guard) = team.read() {
-                                let target_id = if team_guard.get_team_target_object() != INVALID_ID
-                                {
-                                    team_guard.get_team_target_object()
-                                } else {
-                                    team_guard
-                                        .get_members()
-                                        .first()
-                                        .copied()
-                                        .unwrap_or(INVALID_ID)
-                                };
-                                if target_id != INVALID_ID {
-                                    guard.legacy()?.give_attack_order(target_id, true, false)?;
-                                    if let Ok(mut obj_guard) = guard.base_arc().write() {
-                                        obj_guard
-                                            .set_current_weapon_max_shot_count(command.int_value);
-                                    }
-                                }
-                            }
-                        }
-                    }
+                let mut machine = &mut *native_driver;
+
+                machine.clear_with_ai(self);
+                machine.ai_do_command_with_ai(command, self)?;
+                if let Ok(mut obj_guard) = guard.base_arc().write() {
+                    obj_guard.set_current_weapon_max_shot_count(command.int_value);
                 }
+                return Ok(());
             }
             crate::ai::AiCommandType::GuardPosition => {
-                guard.legacy()?.current_order = Some(UnitOrder::Guard {
-                    position: command.pos,
-                    area_radius: guard.legacy()?.engagement_range,
-                });
-                guard.legacy()?.order_queue.clear();
+                let mut machine = &mut *native_driver;
+
+                let is_mobile = self.runtime.data.locomotor_set.get_active().is_some();
+                if !is_mobile {
+                    return Ok(());
+                }
+                let is_projectile = guard
+                    .base_arc()
+                    .read()
+                    .ok()
+                    .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
+                    .unwrap_or(false);
+                if is_projectile {
+                    return Ok(());
+                }
+                drop(guard);
+                machine.clear_with_ai(self);
+                machine.ai_do_command_with_ai(command, self)?;
+                return Ok(());
             }
             crate::ai::AiCommandType::GuardObject => {
-                if let Some(target_id) = command.obj {
-                    if let Some(target_arc) = get_legacy_object(target_id) {
-                        if let Ok(target_guard) = target_arc.read() {
-                            guard.legacy()?.current_order = Some(UnitOrder::Guard {
-                                position: *target_guard.get_position(),
-                                area_radius: guard.legacy()?.engagement_range,
-                            });
-                            guard.legacy()?.order_queue.clear();
-                        }
-                    }
+                let mut machine = &mut *native_driver;
+
+                let is_mobile = self.runtime.data.locomotor_set.get_active().is_some();
+                if !is_mobile {
+                    return Ok(());
                 }
+                let is_projectile = guard
+                    .base_arc()
+                    .read()
+                    .ok()
+                    .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
+                    .unwrap_or(false);
+                if is_projectile {
+                    return Ok(());
+                }
+                drop(guard);
+                machine.clear_with_ai(self);
+                machine.ai_do_command_with_ai(command, self)?;
+                return Ok(());
             }
             crate::ai::AiCommandType::GuardArea => {
-                guard.legacy()?.current_order = Some(UnitOrder::Guard {
-                    position: command.pos,
-                    area_radius: guard.legacy()?.engagement_range,
-                });
-                guard.legacy()?.order_queue.clear();
+                let mut machine = &mut *native_driver;
+
+                let is_mobile = self.runtime.data.locomotor_set.get_active().is_some();
+                if !is_mobile {
+                    return Ok(());
+                }
+                let is_projectile = guard
+                    .base_arc()
+                    .read()
+                    .ok()
+                    .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
+                    .unwrap_or(false);
+                if is_projectile {
+                    return Ok(());
+                }
+                drop(guard);
+                machine.clear_with_ai(self);
+                machine.ai_do_command_with_ai(command, self)?;
+                return Ok(());
             }
-            crate::ai::AiCommandType::GuardTunnelNetwork => {}
+            crate::ai::AiCommandType::GuardTunnelNetwork => {
+                let mut machine = &mut *native_driver;
+
+                let is_mobile = self.runtime.data.locomotor_set.get_active().is_some();
+                if !is_mobile {
+                    return Ok(());
+                }
+                let is_projectile = guard
+                    .base_arc()
+                    .read()
+                    .ok()
+                    .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
+                    .unwrap_or(false);
+                if is_projectile {
+                    return Ok(());
+                }
+                machine.clear_with_ai(self);
+                machine.ai_do_command_with_ai(command, self)?;
+                return Ok(());
+            }
             crate::ai::AiCommandType::GuardRetaliate => {
                 if let Some(target_id) = command.obj {
-                    guard.legacy()?.current_order = Some(UnitOrder::Guard {
-                        position: command.pos,
-                        area_radius: guard.legacy()?.engagement_range,
-                    });
-                    guard.legacy()?.order_queue.clear();
-                    guard.legacy()?.give_attack_order(target_id, true, false)?;
-                    if let Ok(mut obj_guard) = guard.base_arc().write() {
-                        obj_guard.set_current_weapon_max_shot_count(command.int_value);
+                    {
+                        let mut machine = &mut *native_driver;
+
+                        machine.clear_with_ai(self);
+                        machine.ai_do_command_with_ai(command, self)?;
+                        if let Ok(mut obj_guard) = guard.base_arc().write() {
+                            obj_guard.set_current_weapon_max_shot_count(command.int_value);
+                        }
+                        return Ok(());
                     }
                 }
             }
             crate::ai::AiCommandType::Enter => {
                 self.runtime.data.enter_target = command.obj;
+                {
+                    let mut machine = &mut *native_driver;
 
+                    let is_mobile = self.runtime.data.locomotor_set.get_active().is_some();
+                    if !is_mobile {
+                        return Ok(());
+                    }
+                    if command.obj.is_some() {
+                        machine.clear_with_ai(self);
+                        machine.ai_do_command_with_ai(command, self)?;
+                        return Ok(());
+                    }
+                }
                 if let Some(container_id) = command.obj {
                     if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
                         if let Ok(container_guard) = container.write() {
@@ -692,6 +977,15 @@ impl UnitAIUpdate {
                     container
                         .is_disabled_by_type(crate::common::types::DisabledType::DisabledSubdued)
                 }) {
+                    return Ok(());
+                }
+                {
+                    let mut machine = &mut *native_driver;
+
+                    machine.clear_with_ai(self);
+                    let mut exit_command = command.clone();
+                    exit_command.obj = Some(exit_container);
+                    machine.ai_do_command_with_ai(&exit_command, self)?;
                     return Ok(());
                 }
 
@@ -733,7 +1027,15 @@ impl UnitAIUpdate {
                 }) {
                     return Ok(());
                 }
+                {
+                    let mut machine = &mut *native_driver;
 
+                    machine.clear_with_ai(self);
+                    let mut exit_command = command.clone();
+                    exit_command.obj = Some(exit_container);
+                    machine.ai_do_command_with_ai(&exit_command, self)?;
+                    return Ok(());
+                }
                 let container_id = command
                     .obj
                     .or_else(|| guard.base_arc().read().ok()?.get_contained_by());
@@ -769,7 +1071,19 @@ impl UnitAIUpdate {
                 if let Some(mut existing) = self.runtime.dock_machine.take() {
                     let _ = existing.halt();
                 }
+                {
+                    let mut machine = &mut *native_driver;
 
+                    let is_mobile = self.runtime.data.locomotor_set.get_active().is_some();
+                    if !is_mobile {
+                        return Ok(());
+                    }
+                    if command.obj.is_some() {
+                        machine.clear_with_ai(self);
+                        machine.ai_do_command_with_ai(command, self)?;
+                        return Ok(());
+                    }
+                }
                 if let Some(target_id) = command.obj {
                     let target_arc = TheGameLogic::find_object_by_id(target_id);
                     let Some(target_arc) = target_arc else {
@@ -797,7 +1111,7 @@ impl UnitAIUpdate {
                     if let Some(goal_id) = goal_id {
                         let _ = dock_machine.start_with_ai(goal_id, self);
                     }
-                    let _ = self.set_can_path_through_units(true);
+                    let _ = self.runtime.set_can_path_through_units(true);
                     self.runtime.dock_machine = Some(dock_machine);
                     self.finish_command_worker_side_effects();
                     return Ok(());
@@ -805,7 +1119,14 @@ impl UnitAIUpdate {
             }
             crate::ai::AiCommandType::ExecuteRailedTransport => {
                 if let Some(mut railed_ai) = self.runtime.components.railed_transport_ai.take() {
-                    let _ = railed_ai.handle_execute_railed_transport(command.cmd_source, self);
+                    if let Some(owner) = self.owner() {
+                        let _ = railed_ai.handle_execute_railed_transport_with_runtime(
+                            command.cmd_source,
+                            &owner,
+                            self,
+                            native_driver,
+                        );
+                    }
                     self.runtime.components.railed_transport_ai = Some(railed_ai);
                 }
             }
@@ -836,21 +1157,27 @@ impl UnitAIUpdate {
                     }
                 }
                 if let Some(mut railed_ai) = self.runtime.components.railed_transport_ai.take() {
-                    let _ = railed_ai.handle_evacuate(command.int_value, command.cmd_source, self);
+                    if let Some(owner) = self.owner() {
+                        let _ = railed_ai.handle_evacuate_with_runtime(
+                            command.int_value,
+                            command.cmd_source,
+                            &owner,
+                        );
+                    }
                     self.runtime.components.railed_transport_ai = Some(railed_ai);
                 }
             }
             crate::ai::AiCommandType::CombatDrop => {
                 if let Some(mut chinook_ai) = self.runtime.components.chinook_ai.take() {
-                    let mut ai_runtime =
-                        crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(self);
-                    chinook_ai.private_combat_drop(
-                        command.obj,
-                        command.pos,
-                        command.cmd_source,
-                        &mut ai_runtime,
-                    );
-                    drop(ai_runtime);
+                    if let Some(owner) = self.owner() {
+                        chinook_ai.private_combat_drop_for_owner(
+                            &owner,
+                            command.obj,
+                            command.pos,
+                            command.cmd_source,
+                            self,
+                        );
+                    }
                     self.runtime.components.chinook_ai = Some(chinook_ai);
                 }
             }
@@ -877,7 +1204,19 @@ impl UnitAIUpdate {
                     let mut enter_params = command.clone();
                     enter_params.cmd = crate::ai::AiCommandType::Enter;
                     self.runtime.data.enter_target = enter_params.obj;
+                    {
+                        let mut machine = &mut *native_driver;
 
+                        let is_mobile = self.runtime.data.locomotor_set.get_active().is_some();
+                        if !is_mobile {
+                            return Ok(());
+                        }
+                        if enter_params.obj.is_some() {
+                            machine.clear_with_ai(self);
+                            machine.ai_do_command_with_ai(&enter_params, self)?;
+                            return Ok(());
+                        }
+                    }
                     if let Some(container_id) = enter_params.obj {
                         if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
                             if let Ok(container_guard) = container.write() {
@@ -901,14 +1240,14 @@ impl UnitAIUpdate {
             crate::ai::AiCommandType::GetRepaired => {
                 if let Some(target_id) = command.obj {
                     if let Some(mut chinook_ai) = self.runtime.components.chinook_ai.take() {
-                        let mut ai_runtime =
-                            crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(self);
-                        chinook_ai.private_get_repaired(
-                            target_id,
-                            command.cmd_source,
-                            &mut ai_runtime,
-                        );
-                        drop(ai_runtime);
+                        if let Some(owner) = self.owner() {
+                            chinook_ai.private_get_repaired_for_owner(
+                                &owner,
+                                target_id,
+                                command.cmd_source,
+                                self,
+                            );
+                        }
                         self.runtime.components.chinook_ai = Some(chinook_ai);
                         return Ok(());
                     }
@@ -947,7 +1286,19 @@ impl UnitAIUpdate {
                     if let Some(mut existing) = self.runtime.dock_machine.take() {
                         let _ = existing.halt();
                     }
+                    {
+                        let mut machine = &mut *native_driver;
 
+                        let is_mobile = self.runtime.data.locomotor_set.get_active().is_some();
+                        if !is_mobile {
+                            return Ok(());
+                        }
+                        if dock_params.obj.is_some() {
+                            machine.clear_with_ai(self);
+                            machine.ai_do_command_with_ai(&dock_params, self)?;
+                            return Ok(());
+                        }
+                    }
                     if let Some(target_id) = dock_params.obj {
                         let target_arc = TheGameLogic::find_object_by_id(target_id);
                         let Some(target_arc) = target_arc else {
@@ -975,7 +1326,7 @@ impl UnitAIUpdate {
                         if let Some(goal_id) = goal_id {
                             let _ = dock_machine.start_with_ai(goal_id, self);
                         }
-                        let _ = self.set_can_path_through_units(true);
+                        let _ = self.runtime.set_can_path_through_units(true);
                         self.runtime.dock_machine = Some(dock_machine);
                         self.finish_command_worker_side_effects();
                         return Ok(());
@@ -986,13 +1337,16 @@ impl UnitAIUpdate {
             crate::ai::AiCommandType::PickUpPrisoner => {
                 if let Some(prisoner_id) = command.obj {
                     if self.runtime.components.pow_truck_ai.is_some() {
+                        // Resolve every fallible value before taking the
+                        // component so an early return cannot detach it.
                         let owner_id = guard.get_id()?;
                         if let Some(mut pow_ai) = self.runtime.components.pow_truck_ai.take() {
-                            let _ = pow_ai.handle_pick_up_prisoner(
+                            let _ = pow_ai.handle_pick_up_prisoner_with_runtime(
                                 owner_id,
                                 prisoner_id,
                                 command.cmd_source,
                                 self,
+                                native_driver,
                             );
                             self.runtime.components.pow_truck_ai = Some(pow_ai);
                         }
@@ -1002,79 +1356,147 @@ impl UnitAIUpdate {
             #[cfg(feature = "allow_surrender")]
             crate::ai::AiCommandType::ReturnPrisoners => {
                 if self.runtime.components.pow_truck_ai.is_some() {
+                    // See PickUpPrisoner: owner lookup must precede `take()`.
                     let owner_id = guard.get_id()?;
                     if let Some(mut pow_ai) = self.runtime.components.pow_truck_ai.take() {
-                        let _ = pow_ai.handle_return_prisoners(
+                        let _ = pow_ai.handle_return_prisoners_with_runtime(
                             owner_id,
                             command.obj,
                             command.cmd_source,
                             self,
+                            native_driver,
                         );
                         self.runtime.components.pow_truck_ai = Some(pow_ai);
                     }
                 }
             }
-            crate::ai::AiCommandType::Idle => {
-                guard.legacy()?.stop_movement();
+            crate::ai::AiCommandType::FaceObject => {
+                drop(guard);
+                native_driver.clear_with_ai(self);
+                self.runtime.data.blocked_frames = 0;
+                self.runtime.data.is_blocked = false;
+                self.runtime.data.blocked_and_stuck = false;
+                self.runtime.data.last_command_source = command.cmd_source;
+                native_driver.ai_do_command_with_ai(command, self)?;
+                self.finish_command_worker_side_effects();
+                return Ok(());
             }
-            crate::ai::AiCommandType::Busy => {}
+            crate::ai::AiCommandType::FacePosition => {
+                let owner_arc = guard.base_arc();
+                let clipped = self.clip_goal_position(&owner_arc, command.pos, command.cmd_source);
+                drop(guard);
+                native_driver.clear_with_ai(self);
+                native_driver.set_goal_position(clipped);
+                self.runtime.data.blocked_frames = 0;
+                self.runtime.data.is_blocked = false;
+                self.runtime.data.blocked_and_stuck = false;
+                self.runtime.data.last_command_source = command.cmd_source;
+                let mut clipped_command = command.clone();
+                clipped_command.pos = clipped;
+                native_driver.ai_do_command_with_ai(&clipped_command, self)?;
+                self.finish_command_worker_side_effects();
+                return Ok(());
+            }
+            crate::ai::AiCommandType::GoProne => {
+                let prone_module = guard
+                    .base_arc()
+                    .read()
+                    .map_err(|_| "native AI owner lock poisoned")?
+                    .find_update_module("ProneUpdate");
+                drop(guard);
+                if let Some(module) = prone_module {
+                    let damage_dealt = command.damage.output.actual_damage_dealt as i32;
+                    module.with_module(|module| {
+                        if let Some(prone) = module.get_prone_control_interface() {
+                            prone.go_prone(damage_dealt);
+                        }
+                    });
+                }
+                self.finish_command_worker_side_effects();
+                return Ok(());
+            }
+            crate::ai::AiCommandType::Idle => {
+                let mut machine = &mut *native_driver;
+
+                machine.clear_with_ai(self);
+                machine.ai_do_command_with_ai(command, self)?;
+                return Ok(());
+            }
+            crate::ai::AiCommandType::Busy => {
+                let mut machine = &mut *native_driver;
+
+                machine.clear_with_ai(self);
+                machine.ai_do_command_with_ai(command, self)?;
+                return Ok(());
+            }
             crate::ai::AiCommandType::Wander
             | crate::ai::AiCommandType::WanderInPlace
             | crate::ai::AiCommandType::Panic => {
                 if self.runtime.data.locomotor_set.get_active().is_none() {
                     return Ok(());
                 }
+                {
+                    let mut machine = &mut *native_driver;
+
+                    machine.clear_with_ai(self);
+                    machine.ai_do_command_with_ai(command, self)?;
+                    return Ok(());
+                }
             }
             crate::ai::AiCommandType::Hunt => {
-                guard.legacy()?.attack_target = None;
-                guard.legacy()?.auto_acquire_enemies = true;
-                guard.legacy()?.combat_mode = CombatMode::Aggressive;
-                guard.legacy()?.attack_move_active = true;
+                let mut machine = &mut *native_driver;
+
+                let is_mobile = self.runtime.data.locomotor_set.get_active().is_some();
+                if !is_mobile {
+                    return Ok(());
+                }
+                let is_projectile = guard
+                    .base_arc()
+                    .read()
+                    .ok()
+                    .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
+                    .unwrap_or(false);
+                if is_projectile {
+                    return Ok(());
+                }
+                machine.clear_with_ai(self);
+                machine.ai_do_command_with_ai(command, self)?;
+                return Ok(());
             }
-            crate::ai::AiCommandType::AttackArea => {}
+            crate::ai::AiCommandType::AttackArea => {
+                let mut machine = &mut *native_driver;
+
+                let is_mobile = self.runtime.data.locomotor_set.get_active().is_some();
+                if !is_mobile {
+                    return Ok(());
+                }
+                let is_projectile = guard
+                    .base_arc()
+                    .read()
+                    .ok()
+                    .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
+                    .unwrap_or(false);
+                if is_projectile {
+                    return Ok(());
+                }
+                machine.clear_with_ai(self);
+                machine.ai_do_command_with_ai(command, self)?;
+                return Ok(());
+            }
             crate::ai::AiCommandType::FollowWaypointPath
             | crate::ai::AiCommandType::FollowWaypointPathExact
             | crate::ai::AiCommandType::FollowWaypointPathAsTeam
             | crate::ai::AiCommandType::FollowWaypointPathAsTeamExact
             | crate::ai::AiCommandType::AttackFollowWaypointPath
             | crate::ai::AiCommandType::AttackFollowWaypointPathAsTeam => {
-                if matches!(
-                    command.cmd,
-                    crate::ai::AiCommandType::AttackFollowWaypointPath
-                        | crate::ai::AiCommandType::AttackFollowWaypointPathAsTeam
-                ) {
-                    guard.legacy()?.combat_mode = CombatMode::Aggressive;
-                    guard.legacy()?.attack_move_active = true;
+                let mut machine = &mut *native_driver;
+
+                let is_mobile = self.runtime.data.locomotor_set.get_active().is_some();
+                if !is_mobile {
+                    return Ok(());
                 }
-
-                if let Some(start_id) = command.waypoint {
-                    let mut chain: Vec<Waypoint> = Vec::new();
-                    if let Ok(terrain_guard) = crate::terrain::get_terrain_logic().read() {
-                        if let Some(start) = terrain_guard.get_waypoint_by_id(start_id) {
-                            // C++ setPathFromWaypoint: count > WAYPOINT_PATH_LIMIT.
-                            // Also stop at a branch (num_links > 1) like the prior walk.
-                            for node in terrain_guard.walk_link0_chain(start, WAYPOINT_PATH_LIMIT) {
-                                chain.push(Waypoint::new(
-                                    node.get_id(),
-                                    *node.get_location(),
-                                    String::new(),
-                                ));
-                                if node.get_num_links() > 1 {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    if let Some(first) = chain.first().cloned() {
-                        let mut remaining = chain;
-                        remaining.remove(0);
-                        guard
-                            .legacy()?
-                            .give_move_order(first.position, remaining, false, false)?;
-                    }
-                }
-
+                machine.clear_with_ai(self);
+                machine.ai_do_command_with_ai(command, self)?;
                 if matches!(
                     command.cmd,
                     crate::ai::AiCommandType::AttackFollowWaypointPath
@@ -1084,6 +1506,7 @@ impl UnitAIUpdate {
                         obj_guard.set_current_weapon_max_shot_count(command.int_value);
                     }
                 }
+                return Ok(());
             }
             _ => {}
         }
@@ -1091,15 +1514,5 @@ impl UnitAIUpdate {
         drop(guard);
         self.finish_command_worker_side_effects();
         Ok(())
-    }
-
-    fn finish_command_worker_side_effects(&mut self) {
-        // C++ WorkerAIUpdate::aiDoCommand (WorkerAIUpdate.cpp:1043-1050).
-        let clearing_mines = self.is_clearing_mines();
-        if let Some(worker_ai) = self.runtime.components.worker_ai.as_mut() {
-            if clearing_mines {
-                worker_ai.drop_all_boxes_if_carrying();
-            }
-        }
     }
 }

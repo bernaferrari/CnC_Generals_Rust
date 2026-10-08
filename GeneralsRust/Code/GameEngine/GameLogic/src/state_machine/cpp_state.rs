@@ -29,23 +29,34 @@ pub(crate) trait CppState: std::fmt::Debug + Send + Sync + Any {
     /// Original `OnEnter` callback.
     fn cpp_on_enter(&mut self) -> Result<StateReturnType, String>;
 
+    fn cpp_on_enter_with_control(
+        &mut self,
+        _control: &mut core::StateMachineControl,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+    ) -> Result<StateReturnType, String> {
+        match ai {
+            Some(ai) => self.cpp_on_enter_with_ai(ai),
+            None => self.cpp_on_enter(),
+        }
+    }
+
     fn cpp_on_enter_with_ai(
         &mut self,
-        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        _ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.cpp_on_enter()
     }
 
     fn cpp_on_update_with_ai(
         &mut self,
-        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        _ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.cpp_on_update()
     }
     fn cpp_on_update_with_control(
         &mut self,
         _control: &mut core::StateMachineControl,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         _machine_locked: bool,
     ) -> Result<StateReturnType, String> {
         match ai {
@@ -59,7 +70,7 @@ pub(crate) trait CppState: std::fmt::Debug + Send + Sync + Any {
     fn cpp_on_update_with_context(
         &mut self,
         control: &mut core::StateMachineControl,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         machine_locked: bool,
         owner: &mut dyn Any,
     ) -> Result<StateReturnType, String> {
@@ -74,7 +85,7 @@ pub(crate) trait CppState: std::fmt::Debug + Send + Sync + Any {
     fn cpp_on_exit_with_ai(
         &mut self,
         exit: StateExitType,
-        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        _ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<(), String> {
         self.cpp_on_exit(exit)
     }
@@ -83,7 +94,7 @@ pub(crate) trait CppState: std::fmt::Debug + Send + Sync + Any {
         &mut self,
         _control: &mut core::StateMachineControl,
         exit: StateExitType,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), String> {
         match ai {
             Some(ai) => self.cpp_on_exit_with_ai(exit, ai),
@@ -180,7 +191,7 @@ impl<S: CppState + 'static> core::StateImplementation for CppStateAdapter<S> {
         &mut self,
         control: &mut core::StateMachineControl,
         exit: StateExitType,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         _owner: &mut dyn Any,
     ) {
         let name = self.inner.base_state().get_name().to_string();
@@ -191,6 +202,22 @@ impl<S: CppState + 'static> core::StateImplementation for CppStateAdapter<S> {
                 .map(|_| StateReturnType::Continue),
         );
     }
+    fn on_enter_with_control(
+        &mut self,
+        control: &mut core::StateMachineControl,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+        _goal_id: crate::common::ObjectID,
+        _goal_pos: crate::common::Coord3D,
+        _waypoint: Option<crate::waypoint::WaypointId>,
+        _owner: &mut dyn Any,
+    ) -> StateReturnType {
+        let name = self.inner.base_state().get_name().to_string();
+        Self::map_result(
+            name.as_str(),
+            self.inner.cpp_on_enter_with_control(control, ai),
+        )
+    }
+
     fn on_enter(&mut self) -> StateReturnType {
         let state_name = self.inner.base_state().get_name().to_string();
         Self::map_result(state_name.as_str(), self.inner.cpp_on_enter())
@@ -198,7 +225,7 @@ impl<S: CppState + 'static> core::StateImplementation for CppStateAdapter<S> {
 
     fn on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _goal_id: crate::common::ObjectID,
         _goal_pos: crate::common::Coord3D,
     ) -> StateReturnType {
@@ -219,7 +246,7 @@ impl<S: CppState + 'static> core::StateImplementation for CppStateAdapter<S> {
     fn on_exit_with_ai(
         &mut self,
         exit: StateExitType,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) {
         let name = self.inner.base_state().get_name().to_string();
         let _ = Self::map_result(
@@ -237,7 +264,7 @@ impl<S: CppState + 'static> core::StateImplementation for CppStateAdapter<S> {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         let state_name = self.inner.base_state().get_name().to_string();
         Self::map_result(state_name.as_str(), self.inner.cpp_on_update_with_ai(ai))
@@ -245,7 +272,7 @@ impl<S: CppState + 'static> core::StateImplementation for CppStateAdapter<S> {
     fn update_with_control(
         &mut self,
         control: &mut core::StateMachineControl,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         machine_locked: bool,
         owner: &mut dyn Any,
     ) -> StateReturnType {

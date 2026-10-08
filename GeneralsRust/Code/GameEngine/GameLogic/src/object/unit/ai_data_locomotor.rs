@@ -86,11 +86,15 @@ impl UnitAiData {
         self.locomotor_goal_type = 2;
         self.locomotor_goal_data = pos;
     }
-    pub(super) fn apply_bump_speed_limit(
+    pub(super) fn apply_bump_speed_limit(&mut self, desired_speed: Real, blocked: bool) -> Real {
+        self.apply_bump_speed_limit_with_blocked(desired_speed, blocked)
+            .0
+    }
+    pub(super) fn apply_bump_speed_limit_with_blocked(
         &mut self,
         mut desired_speed: Real,
         mut blocked: bool,
-    ) -> Real {
+    ) -> (Real, bool) {
         if blocked && desired_speed > self.cur_max_blocked_speed {
             desired_speed = self.cur_max_blocked_speed;
             if self.bump_speed_limit > desired_speed {
@@ -114,7 +118,7 @@ impl UnitAiData {
         if !blocked && self.blocked_frames > 1 {
             self.blocked_frames = 1;
         }
-        desired_speed
+        (desired_speed, blocked)
     }
 
     pub(super) fn get_desired_speed(&self) -> Real {

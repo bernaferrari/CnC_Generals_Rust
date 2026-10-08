@@ -36,11 +36,11 @@ fn fixture(
     initial: AIStateType,
     idle_virtual: bool,
 ) -> (Arc<RwLock<Object>>, Arc<RwLock<Unit>>, UnitAIUpdate) {
-    let (owner, unit, ai) =
+    let (owner, unit, mut ai) =
         unit_ai_update_with_primary_weapon(0x7af10103, Coord3D::new(30.0, 30.0, 0.0), 100.0);
-    let machine = ai.ai_state_machine.as_ref().unwrap();
+    let machine = ai.ai_state_machine.as_mut().unwrap();
     {
-        let mut machine = machine.lock().unwrap();
+        let machine = machine;
         machine.base = StateMachine::new(Some(Arc::downgrade(&owner)), "query routing witness");
         for state in [
             AIStateType::Idle,
@@ -116,14 +116,14 @@ fn ai_move_command_borrows_busy_machine_and_enters_temporary_move() {
             CommandSourceType::FromAi,
         );
         command.pos = Coord3D::new(80.0, 90.0, 0.0);
-        ai.data.blocked_frames = 123;
-        ai.data.is_blocked = true;
-        ai.data.blocked_and_stuck = true;
+        ai.runtime.data.blocked_frames = 123;
+        ai.runtime.data.is_blocked = true;
+        ai.runtime.data.blocked_and_stuck = true;
         ai.execute_command(&command).unwrap();
-        assert_eq!(ai.data.blocked_frames, 0);
-        assert!(!ai.data.is_blocked);
-        assert!(!ai.data.blocked_and_stuck);
-        let machine = ai.ai_state_machine.as_ref().unwrap().lock().unwrap();
+        assert_eq!(ai.runtime.data.blocked_frames, 0);
+        assert!(!ai.runtime.data.is_blocked);
+        assert!(!ai.runtime.data.blocked_and_stuck);
+        let machine = ai.ai_state_machine.as_ref().unwrap();
         assert_eq!(
             machine.get_current_state_id(),
             Some(AIStateType::Busy as u32)
@@ -137,15 +137,15 @@ fn ai_move_command_borrows_busy_machine_and_enters_temporary_move() {
 }
 fn append(initial: AIStateType, moving: bool, waiting: bool, expected: &[Coord3D]) {
     let (_owner, _unit, mut ai) = fixture(initial, true);
-    ai.data.cpp_is_moving = moving;
-    ai.data.waiting_for_path = waiting;
+    ai.runtime.data.cpp_is_moving = moving;
+    ai.runtime.data.waiting_for_path = waiting;
     let mut command = crate::ai::AiCommandParams::new(
         crate::ai::AiCommandType::FollowPathAppend,
         CommandSourceType::FromPlayer,
     );
     command.pos = Coord3D::new(80.0, 90.0, 0.0);
     ai.execute_command(&command).unwrap();
-    let machine = ai.ai_state_machine.as_ref().unwrap().lock().unwrap();
+    let machine = ai.ai_state_machine.as_ref().unwrap();
     assert_eq!(
         machine.get_current_state_id(),
         Some(AIStateType::FollowPath as u32)
@@ -216,14 +216,14 @@ fn waiting_query_reads_owned_flag_without_clock_or_unit_loans() {
     }
     let _serial = crate::test_sync::lock();
     let (_owner, unit, mut ai) = fixture(AIStateType::Busy, false);
-    ai.data.queue_for_path_frame = u32::MAX;
-    ai.data.waiting_for_path = false;
+    ai.runtime.data.queue_for_path_frame = u32::MAX;
+    ai.runtime.data.waiting_for_path = false;
     let _unit = unit.write().unwrap();
     let _clock = crate::system::game_logic::get_game_logic().lock().unwrap();
     assert!(
         !ai.is_waiting_for_path(),
         "C++ flag is independent of queue deadline"
     );
-    ai.data.waiting_for_path = true;
+    ai.runtime.data.waiting_for_path = true;
     assert!(ai.is_waiting_for_path());
 }

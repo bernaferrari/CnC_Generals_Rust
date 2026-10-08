@@ -568,7 +568,7 @@ impl AttackStateMachine {
 
     pub(crate) fn init_default_state_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         self.base.init_default_state_with_ai_and_owner(ai, &mut ())
     }
@@ -599,7 +599,7 @@ impl AttackStateMachine {
     pub(crate) fn update_with_exit_conditions_and_ai(
         &mut self,
         conditions: &dyn AttackExitConditionsInterface,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         if conditions.should_exit(&self.base) {
             return StateReturnType::Success;
@@ -609,12 +609,12 @@ impl AttackStateMachine {
 
     pub fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         if self.should_exit_attack() {
             return StateReturnType::Success;
         }
-        self.base.update_with_ai(ai)
+        self.base.update_with_ai_and_owner(ai, &mut ())
     }
 
     pub fn halt(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -1511,7 +1511,7 @@ impl AIAttackPursueTargetState {
 
     pub(crate) fn update_internal(
         &mut self,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
@@ -1649,7 +1649,7 @@ impl StateImplementation for AIAttackPursueTargetState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         self.live_no_path = Some(ai.get_path().is_none() && !ai.is_waiting_for_path());
         self.live_stuck = Some(ai.is_blocked_and_stuck());
@@ -2096,7 +2096,7 @@ impl StateImplementation for AIAttackApproachTargetState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         self.live_no_path = Some(ai.get_path().is_none() && !ai.is_waiting_for_path());
         self.live_stuck = Some(ai.is_blocked_and_stuck());
@@ -2451,9 +2451,9 @@ impl AIAttackMoveStateMachine {
 
     pub fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
-        self.base.update_with_ai(ai)
+        self.base.update_with_ai_and_owner(ai, &mut ())
     }
 
     pub fn is_in_idle_state(&self) -> bool {

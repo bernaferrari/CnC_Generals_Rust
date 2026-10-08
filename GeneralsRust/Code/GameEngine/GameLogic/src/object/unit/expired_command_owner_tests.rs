@@ -25,6 +25,8 @@ fn expired_native_command_owner_never_falls_back_to_foreign_unit() {
         )
         .unwrap(),
     ));
+    crate::object::registry::OBJECT_REGISTRY.register_object(id, &foreign_owner);
+    crate::ai::object_registry::register_legacy_object(&foreign_owner);
     super::super::register_unit(id, &foreign);
     drop(actual);
     assert!(

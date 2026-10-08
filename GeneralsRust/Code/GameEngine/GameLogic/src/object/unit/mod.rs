@@ -21,7 +21,9 @@ mod ai_helpers;
 mod ai_interface;
 mod ai_interface_update;
 mod ai_loco;
+mod ai_native_commands;
 mod ai_path;
+mod ai_runtime;
 mod ai_specialized;
 mod combat;
 mod identity;
@@ -32,6 +34,11 @@ mod types;
 
 pub use ai_core::UnitAIUpdate;
 pub(crate) use ai_core::UnitAiComponents;
+/// A synchronous loan of one AI runtime to its currently executing state.
+pub(crate) struct UnitAiStateRuntime<'a> {
+    runtime: &'a mut ai_core::UnitAiRuntime,
+    parent_exists: bool,
+}
 pub use ai_path::{
     leftover_compute_quick_path_coords, leftover_is_in_region_no_z,
     leftover_should_force_direct_path_for_off_map_start,

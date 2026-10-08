@@ -691,9 +691,17 @@ fn is_line_passable_ex_cpp_surface() {
     let src = PATHFIND_COMPLETE_SRC;
     let prod = src.split("#[cfg(test)]").next().expect("production");
     let i = prod
-        .find("fn is_line_passable_for_object_inner(")
-        .expect("is_line_passable_for_object_inner");
-    let w = &prod[i..prod.len().min(i + 2500)];
+        .find("fn is_line_passable_for_object_with_ignore_id(")
+        .expect("borrowed line-passability implementation");
+    let wrapper = prod
+        .split("fn is_line_passable_for_object_inner(")
+        .nth(1)
+        .expect("line-passability wrapper")
+        .split("fn is_line_passable_for_object_with_ignore_id(")
+        .next()
+        .unwrap();
+    assert!(wrapper.contains("self.is_line_passable_for_object_with_ignore_id("));
+    let w = prod[i..].split("/// Check if ground path").next().unwrap();
     assert!(
         w.contains("allow_pinched")
             && w.contains("is_crusher")
@@ -712,7 +720,11 @@ fn check_for_movement_cpp_surface() {
     let i = prod
         .find("pub fn check_for_movement")
         .expect("checkForMovement");
-    let w = &prod[i..prod.len().min(i + 3500)];
+    let w = prod[i..]
+        .split("pub fn check_for_possible(")
+        .next()
+        .unwrap();
+    assert!(w.contains("self.check_for_movement_with_ignore_id("));
     assert!(
         w.contains("ally_fixed_count")
             && w.contains("enemy_fixed")
@@ -2316,7 +2328,10 @@ fn process_queue_recalculates_dirty_zones() {
 fn process_queue_dirty_cpp_surface() {
     let src = PATHFIND_COMPLETE_SRC;
     let prod = src.split("#[cfg(test)]").next().expect("production");
-    let i = prod.find("pub fn process_queue").expect("process_queue");
+    assert!(prod.contains("self.process_queue_with_ai(max_per_frame,"));
+    let i = prod
+        .find("pub fn process_queue_with_ai(")
+        .expect("borrowed queue implementation");
     let w = &prod[i..prod.len().min(i + 900)];
     assert!(
         w.contains("zones_dirty") && w.contains("recalculate_zones_from_cells"),
@@ -2524,7 +2539,8 @@ fn process_queue_uses_cell_budget() {
     // Verify surface: process_queue contains cell_budget check.
     let src = PATHFIND_COMPLETE_SRC;
     let prod = src.split("#[cfg(test)]").next().unwrap();
-    let i = prod.find("pub fn process_queue").unwrap();
+    assert!(prod.contains("self.process_queue_with_ai(max_per_frame,"));
+    let i = prod.find("pub fn process_queue_with_ai(").unwrap();
     let w = &prod[i..prod.len().min(i + 1200)];
     assert!(w.contains("cell_budget") || w.contains("PATHFIND_CELLS_PER_FRAME"));
     assert!(w.contains("cumulative_cells_allocated"));

@@ -7,6 +7,7 @@ use super::{
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::{INVALID_ID, ObjectID};
 use crate::helpers::{TheGameLogic, TheParticleSystemManager, TheTerrainLogic};
+use crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter;
 use crate::modules::{AIUpdateInterface, ContainModuleInterfaceExt};
 use crate::player::player_list;
 use crate::supply_system::SupplyTruckState;
@@ -95,7 +96,10 @@ impl ChinookAIUpdate {
             return Ok(());
         }
 
-        self.update_machine_state(ai);
+        {
+            let mut runtime = AiUpdateRuntimeAdapter(ai);
+            self.update_machine_state(&mut runtime);
+        }
 
         if self.airfield_for_healing != INVALID_ID {
             if let Some(airfield) = TheGameLogic::find_object_by_id(self.airfield_for_healing) {
@@ -131,12 +135,13 @@ impl ChinookAIUpdate {
                     false
                 };
                 if notified && healed {
+                    let mut runtime = AiUpdateRuntimeAdapter(ai);
                     self.set_my_state(
                         ChinookAIState::TakingOff,
                         None,
                         None,
                         CommandSourceType::FromAi,
-                        ai,
+                        &mut runtime,
                     );
                 }
             } else {
@@ -159,12 +164,13 @@ impl ChinookAIUpdate {
                     waiting,
                     self.flight_status == ChinookFlightStatus::Landed,
                 ) {
+                    let mut runtime = AiUpdateRuntimeAdapter(ai);
                     self.set_my_state(
                         ChinookAIState::Landing,
                         None,
                         None,
                         CommandSourceType::FromAi,
-                        ai,
+                        &mut runtime,
                     );
                 } else if chinook_should_auto_takeoff(
                     true,
@@ -172,12 +178,13 @@ impl ChinookAIUpdate {
                     self.flight_status == ChinookFlightStatus::Landed,
                     self.airfield_for_healing != INVALID_ID,
                 ) {
+                    let mut runtime = AiUpdateRuntimeAdapter(ai);
                     self.set_my_state(
                         ChinookAIState::TakingOff,
                         None,
                         None,
                         CommandSourceType::FromAi,
-                        ai,
+                        &mut runtime,
                     );
                 }
             }
@@ -251,6 +258,7 @@ impl ChinookAIUpdate {
             return;
         }
         // C++ ChinookTakeoffOrLandingState uses a 3-unit 3D pad dest, not height-only.
-        self.update_machine_state(ai);
+        let mut runtime = AiUpdateRuntimeAdapter(ai);
+        self.update_machine_state(&mut runtime);
     }
 }

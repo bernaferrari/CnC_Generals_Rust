@@ -29,22 +29,22 @@ pub(super) trait DockState: std::fmt::Debug + Send + Sync + 'static {
     fn dock_on_enter(
         &mut self,
         context: &mut DockContext,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String>;
     fn dock_on_update(
         &mut self,
         context: &mut DockContext,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String>;
     fn dock_on_exit(
         &mut self,
         exit: StateExitType,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), String>;
     fn dock_after_exit(
         &mut self,
         _exit: StateExitType,
-        _ai: Option<&mut dyn AIUpdateInterface>,
+        _ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), String> {
         Ok(())
     }
@@ -83,7 +83,7 @@ impl<S: DockState> StateImplementation for DockStateAdapter<S> {
     }
     fn on_enter_with_ai_and_owner(
         &mut self,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _goal: ObjectID,
         _pos: Coord3D,
         _waypoint: Option<crate::waypoint::WaypointId>,
@@ -102,7 +102,7 @@ impl<S: DockState> StateImplementation for DockStateAdapter<S> {
     }
     fn update_with_ai_and_owner(
         &mut self,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _locked: bool,
         owner: &mut dyn Any,
     ) -> StateReturnType {
@@ -119,7 +119,7 @@ impl<S: DockState> StateImplementation for DockStateAdapter<S> {
     fn on_exit_with_ai_and_owner(
         &mut self,
         status: StateExitType,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _owner: &mut dyn Any,
     ) {
         if let Err(error) = self.0.dock_on_exit(status, Some(ai)) {
@@ -132,7 +132,7 @@ impl<S: DockState> StateImplementation for DockStateAdapter<S> {
     fn on_exit_after_unlock(
         &mut self,
         exit: StateExitType,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         _owner: &mut dyn Any,
     ) {
         if let Err(error) = self.0.dock_after_exit(exit, ai) {

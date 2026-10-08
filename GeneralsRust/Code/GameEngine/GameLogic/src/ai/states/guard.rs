@@ -92,7 +92,7 @@ impl AIGuardState {
 
     fn enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         goal_id: crate::common::ObjectID,
         goal_pos: Coord3D,
     ) -> StateReturnType {
@@ -129,7 +129,7 @@ impl AIGuardState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         self.guard_machine
             .as_mut()
@@ -172,7 +172,7 @@ impl StateImplementation for AIGuardState {
     }
     fn on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         goal_id: crate::common::ObjectID,
         goal_pos: Coord3D,
     ) -> StateReturnType {
@@ -184,7 +184,7 @@ impl StateImplementation for AIGuardState {
     }
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         self.update_with_ai(ai)
     }
@@ -271,7 +271,7 @@ impl CppState for AIGuardState {
 
     fn cpp_on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         let goal_id = self
             .base
@@ -294,7 +294,7 @@ impl CppState for AIGuardState {
 
     fn cpp_on_update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         Ok(self.update_with_ai(ai))
     }
@@ -346,7 +346,7 @@ impl StateImplementation for AIGuardRetaliateState {
 
     fn on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _goal_id: crate::common::ObjectID,
         _goal_pos: Coord3D,
     ) -> StateReturnType {
@@ -356,7 +356,7 @@ impl StateImplementation for AIGuardRetaliateState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         self.cpp_on_update_with_ai(ai)
             .unwrap_or(StateReturnType::Failure)
@@ -365,7 +365,7 @@ impl StateImplementation for AIGuardRetaliateState {
     fn on_exit_with_ai(
         &mut self,
         exit: StateExitType,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) {
         let _ = self.cpp_on_exit_with_ai(exit, ai);
     }
@@ -421,14 +421,14 @@ impl CppState for AIGuardRetaliateState {
 
     fn cpp_on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.enter_retaliate(Some(ai))
     }
 
     fn cpp_on_update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         Ok(self
             .guard_machine
@@ -440,10 +440,10 @@ impl CppState for AIGuardRetaliateState {
     fn cpp_on_exit_with_ai(
         &mut self,
         _exit: StateExitType,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<(), String> {
         if let Some(mut machine) = self.guard_machine.take() {
-            let _ = machine.halt();
+            machine.finish_with_ai(ai);
         }
         ai.clear_guard_target_type();
         Ok(())
@@ -477,7 +477,7 @@ impl CppState for AIGuardRetaliateState {
 impl AIGuardRetaliateState {
     fn enter_retaliate(
         &mut self,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {

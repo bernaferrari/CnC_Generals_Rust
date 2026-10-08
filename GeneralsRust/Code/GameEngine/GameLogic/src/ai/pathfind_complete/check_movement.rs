@@ -312,6 +312,25 @@ impl PathfindingSystem {
         }) else {
             return true;
         };
+        self.check_for_movement_with_ignore_id(obj_id, info, ignore_id)
+    }
+
+    /// Check movement when the caller already owns the pathfinding object's AI
+    /// loan. This avoids reacquiring that same AI mutex inside a queued path run.
+    pub(crate) fn check_for_movement_with_ignore_id(
+        &self,
+        obj_id: ObjectID,
+        info: &mut CheckMovementInfo,
+        ignore_id: ObjectID,
+    ) -> bool {
+        info.ally_fixed_count = 0;
+        info.ally_moving = false;
+        info.ally_goal = false;
+        info.enemy_fixed = false;
+
+        if obj_id == INVALID_ID {
+            return true;
+        }
 
         let mut num_cells_above = info.radius;
         if info.center_in_cell {

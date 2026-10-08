@@ -642,6 +642,25 @@ impl PathfindingSystem {
         repulsor_pos2: &Coord3D,
         repulsor_radius: f32,
     ) -> PathResult {
+        self.find_safe_path_with_movement_policy(
+            request,
+            repulsor_pos1,
+            repulsor_pos2,
+            repulsor_radius,
+            None,
+        )
+    }
+
+    /// Safe-path search using policy already borrowed from the queued AI owner.
+    /// `None` preserves the ID-based policy lookup for unborrowed callers.
+    pub(crate) fn find_safe_path_with_movement_policy(
+        &mut self,
+        request: PathRequest,
+        repulsor_pos1: &Coord3D,
+        repulsor_pos2: &Coord3D,
+        repulsor_radius: f32,
+        downhill_only: Option<bool>,
+    ) -> PathResult {
         const MAX_CELLS: i32 = 2000;
         const COST_ORTHO: i32 = 10;
         const COST_DIAG: i32 = 14;
@@ -802,7 +821,7 @@ impl PathfindingSystem {
         let from = request.from;
         let mut req = request;
         req.to = goal_pos;
-        let result = self.find_path(req);
+        let result = self.find_path_with_movement_policy(req, downhill_only);
         if result.success {
             result
         } else {

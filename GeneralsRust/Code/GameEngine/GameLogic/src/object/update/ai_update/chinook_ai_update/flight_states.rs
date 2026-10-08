@@ -8,10 +8,10 @@ use super::{
 use crate::ai::CommandSourceType;
 use crate::common::{Coord3D, KindOf, ObjectID, ObjectStatusMaskType, PathfindLayerEnum};
 use crate::helpers::{TheGameLogic, ThePartitionManager, TheTerrainLogic};
-use crate::modules::AIUpdateInterface;
+use crate::modules::ai_state_runtime::AiStateRuntime;
 
 impl ChinookAIUpdate {
-    fn set_flight_status(&mut self, status: ChinookFlightStatus, ai: &mut dyn AIUpdateInterface) {
+    fn set_flight_status(&mut self, status: ChinookFlightStatus, ai: &mut dyn AiStateRuntime) {
         self.flight_status = status;
         match status {
             ChinookFlightStatus::Landed => {
@@ -42,7 +42,7 @@ impl ChinookAIUpdate {
         target: Option<ObjectID>,
         pos: Option<Coord3D>,
         _cmd_source: CommandSourceType,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut dyn AiStateRuntime,
     ) {
         self.machine_state = state;
         self.goal_object = target;
@@ -52,7 +52,7 @@ impl ChinookAIUpdate {
         self.enter_machine_state(ai);
     }
 
-    fn enter_machine_state(&mut self, ai: &mut dyn AIUpdateInterface) {
+    fn enter_machine_state(&mut self, ai: &mut dyn AiStateRuntime) {
         match self.machine_state {
             ChinookAIState::None => {}
             ChinookAIState::TakingOff | ChinookAIState::TakeoffAndExit => {
@@ -124,7 +124,7 @@ impl ChinookAIUpdate {
     }
 
     /// C++ `ChinookHeadOffMapState::onEnter`.
-    fn enter_head_off_map(&mut self, ai: &mut dyn AIUpdateInterface) {
+    fn enter_head_off_map(&mut self, ai: &mut dyn AiStateRuntime) {
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
             self.object_id,
             |owner_guard| {
@@ -136,7 +136,7 @@ impl ChinookAIUpdate {
     }
 
     /// C++ `ChinookTakeoffOrLandingState::onEnter`.
-    fn enter_takeoff_or_landing(&mut self, landing: bool, ai: &mut dyn AIUpdateInterface) {
+    fn enter_takeoff_or_landing(&mut self, landing: bool, ai: &mut dyn AiStateRuntime) {
         self.takeoff_landing_is_landing = landing;
         self.set_flight_status(
             if landing {
@@ -217,7 +217,7 @@ impl ChinookAIUpdate {
     }
 
     /// C++ `ChinookTakeoffOrLandingState::onExit`.
-    fn exit_takeoff_or_landing(&mut self, landing: bool, ai: &mut dyn AIUpdateInterface) {
+    fn exit_takeoff_or_landing(&mut self, landing: bool, ai: &mut dyn AiStateRuntime) {
         self.set_flight_status(
             if landing {
                 ChinookFlightStatus::Landed
@@ -249,7 +249,7 @@ impl ChinookAIUpdate {
     }
 
     /// C++ `ChinookTakeoffOrLandingState::update` — 3-unit 3D threshold.
-    fn update_takeoff_or_landing(&mut self, ai: &mut dyn AIUpdateInterface) -> bool {
+    fn update_takeoff_or_landing(&mut self, ai: &mut dyn AiStateRuntime) -> bool {
         let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return true;
         };
@@ -264,7 +264,7 @@ impl ChinookAIUpdate {
             <= CHINOOK_ARRIVE_THRESH_SQR
     }
 
-    fn update_move_to_goal(&self, ai: &mut dyn AIUpdateInterface) -> bool {
+    fn update_move_to_goal(&self, ai: &mut dyn AiStateRuntime) -> bool {
         let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return true;
         };
@@ -282,7 +282,7 @@ impl ChinookAIUpdate {
     }
 
     /// C++ `ChinookMoveToBldgState::onEnter`.
-    fn enter_move_to_bldg(&mut self, ai: &mut dyn AIUpdateInterface) {
+    fn enter_move_to_bldg(&mut self, ai: &mut dyn AiStateRuntime) {
         ai.with_cur_locomotor_mut(&mut |loco| {
             loco.set_ultra_accurate(true);
             self.move_to_bldg_old_preferred = loco.preferred_height;
@@ -316,7 +316,7 @@ impl ChinookAIUpdate {
     }
 
     /// C++ `ChinookMoveToBldgState::update` — 2D arrival **and** `|z-destZ|<=3`.
-    fn update_move_to_bldg(&self, ai: &mut dyn AIUpdateInterface) -> bool {
+    fn update_move_to_bldg(&self, ai: &mut dyn AiStateRuntime) -> bool {
         let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return true;
         };
@@ -334,7 +334,7 @@ impl ChinookAIUpdate {
         chinook_move_to_bldg_arrived(true, pos.z, self.move_to_bldg_dest_z)
     }
 
-    fn exit_move_to_bldg(&mut self, ai: &mut dyn AIUpdateInterface) {
+    fn exit_move_to_bldg(&mut self, ai: &mut dyn AiStateRuntime) {
         ai.with_cur_locomotor_mut(&mut |loco| {
             loco.set_preferred_height(self.move_to_bldg_old_preferred);
             loco.set_ultra_accurate(false);
@@ -372,7 +372,7 @@ impl ChinookAIUpdate {
         );
     }
 
-    fn succeed_machine_state(&mut self, ai: &mut dyn AIUpdateInterface) {
+    fn succeed_machine_state(&mut self, ai: &mut dyn AiStateRuntime) {
         let next = match self.machine_state {
             ChinookAIState::TakingOff => {
                 self.exit_takeoff_or_landing(false, ai);
@@ -423,7 +423,7 @@ impl ChinookAIUpdate {
         }
     }
 
-    pub(super) fn update_machine_state(&mut self, ai: &mut dyn AIUpdateInterface) {
+    pub(super) fn update_machine_state(&mut self, ai: &mut dyn AiStateRuntime) {
         let done = match self.machine_state {
             ChinookAIState::None => false,
             ChinookAIState::TakingOff

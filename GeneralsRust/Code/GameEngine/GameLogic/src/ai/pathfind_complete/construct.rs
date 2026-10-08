@@ -167,6 +167,17 @@ impl PathfindingSystem {
     }
 
     pub fn process_queue(&mut self, max_per_frame: usize) -> usize {
+        self.process_queue_with_ai(max_per_frame, |ai, _pathfinder| ai.do_pathfind())
+    }
+
+    /// C++ `Pathfinder::processPathfindQueue` invokes `AIUpdateInterface::doPathfind(this)`.
+    /// The live pathfinder borrow must flow into the AI callback so it can search
+    /// and install path goals without reacquiring the same lock.
+    pub fn process_queue_with_ai(
+        &mut self,
+        max_per_frame: usize,
+        mut do_pathfind: impl FnMut(&mut dyn crate::modules::AIUpdateInterface, &mut PathfindingSystem),
+    ) -> usize {
         // Terrain/queue drain is valid with zero objects (C++ pathfinder on empty maps).
         // Fail-closed object lookups happen per queued ObjectID below.
 
@@ -208,7 +219,7 @@ impl PathfindingSystem {
                 {
                     if let Ok(mut ai_g) = ai.lock() {
                         // C++ ai->doPathfind reads the live ignore id and destination.
-                        ai_g.do_pathfind();
+                        do_pathfind(&mut *ai_g, self);
                         drop(ai_g);
                         // One pathfind per queue entry. The PathRequest was snapshotted
                         // at queue time; do not search it after do_pathfind.

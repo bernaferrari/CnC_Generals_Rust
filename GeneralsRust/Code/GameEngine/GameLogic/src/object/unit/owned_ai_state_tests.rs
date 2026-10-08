@@ -32,6 +32,9 @@ mod factory_busy_classification_tests;
 #[path = "busy_update_tests.rs"]
 mod busy_update_tests;
 
+#[path = "factory_update_owner_tests.rs"]
+mod factory_update_owner_tests;
+
 #[path = "native_fsm_step_tests.rs"]
 mod native_fsm_step_tests;
 
@@ -286,7 +289,7 @@ fn ai_body_restore_preserves_owned_victim_mood_and_serialized_jitter() {
     let mut saved = source.lock().unwrap();
     saved.set_current_victim(Some(647));
     saved.set_next_mood_check_time(241);
-    saved.data.randomly_offset_mood_check = true;
+    saved.runtime.data.randomly_offset_mood_check = true;
     let mut bytes = Cursor::new(Vec::new());
     assert!(
         saved

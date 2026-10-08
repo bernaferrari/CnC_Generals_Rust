@@ -82,6 +82,11 @@ pub trait PhysicsBehavior: Send + Sync + std::fmt::Debug {
         1.0
     }
 
+    /// Read mass while the exact Object owner is already borrowed by the caller.
+    fn get_mass_with_object(&self, _owner: &crate::object::Object) -> Real {
+        self.get_mass()
+    }
+
     /// C++ PhysicsBehavior::getCenterOfMassOffset.
     fn get_center_of_mass_offset(&self) -> Real {
         0.0
@@ -103,6 +108,13 @@ pub trait PhysicsBehavior: Send + Sync + std::fmt::Debug {
     /// Apply motive force (propulsion)
     fn apply_motive_force(&mut self, _force: &Vec3D) {
         // Default implementation - subclasses should override
+    }
+
+    /// Apply motive force while the caller already holds this physics owner's
+    /// Object borrow. Implementations with owner-backed state should use that
+    /// exact borrow instead of resolving and locking the Object again.
+    fn apply_motive_force_with_object(&mut self, force: &Vec3D, _owner: &crate::object::Object) {
+        self.apply_motive_force(force);
     }
 
     /// Get current turning rate
@@ -183,6 +195,11 @@ pub trait PhysicsBehavior: Send + Sync + std::fmt::Debug {
     fn get_forward_speed_2d(&self) -> Real {
         let vel = self.get_velocity();
         signed_forward_speed_2d(vel.x, vel.y, 1.0, 0.0)
+    }
+
+    /// C++ getForwardSpeed2D using the caller's already-borrowed exact owner.
+    fn get_forward_speed_2d_with_object(&self, _owner: &crate::object::Object) -> Real {
+        self.get_forward_speed_2d()
     }
 
     /// C++ PhysicsBehavior::getForwardSpeed3D (PhysicsUpdate.cpp:964-980).

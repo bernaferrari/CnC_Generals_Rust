@@ -68,20 +68,21 @@ fn factory_locked_idle_initializes_before_skipping_acquisition() {
     ai.set_current_victim(Some(fixture.target_id));
     {
         let native = ai.unit_ai_for_test().unwrap();
-        native.data.locomotor_goal_type = 1;
-        native
-            .ai_state_machine
-            .as_ref()
-            .unwrap()
-            .lock()
-            .unwrap()
-            .lock();
+        native.runtime.data.locomotor_goal_type = 1;
+        native.ai_state_machine.as_mut().unwrap().lock();
     }
     ai.update().unwrap();
     assert_eq!(ai.get_current_state_id(), Some(AIStateType::Idle as u32));
     assert_eq!(ai.get_current_command(), Some(AiCommandType::Idle));
     assert_eq!(ai.get_current_victim(), None);
-    assert_eq!(ai.unit_ai_for_test().unwrap().data.locomotor_goal_type, 0);
+    assert_eq!(
+        ai.unit_ai_for_test()
+            .unwrap()
+            .runtime
+            .data
+            .locomotor_goal_type,
+        0
+    );
     assert_eq!(
         ai.get_next_mood_check_time(),
         1,
@@ -225,7 +226,7 @@ fn factory_temporary_idle_observes_ordinary_attack_classification() {
         "temporary Idle sees the parent's attack veto"
     );
     let native = ai.unit_ai_for_test().unwrap();
-    let machine = native.ai_state_machine.as_ref().unwrap().lock().unwrap();
+    let machine = native.ai_state_machine.as_ref().unwrap();
     let before_ordinary = machine
         .temporary_lifecycle_observations()
         .iter()
@@ -282,4 +283,129 @@ fn factory_temporary_idle_dispatches_before_its_continue_return() {
     );
     assert!(!source.ai_pending_goal_none);
     assert!(!source.ai_pending_clear_victim);
+}
+
+#[test]
+fn factory_primary_turret_updates_only_for_its_live_enabled_owner() {
+    if child(concat!(
+        module_path!(),
+        "::factory_primary_turret_updates_only_for_its_live_enabled_owner"
+    )) {
+        primary_turret_owner_tick(false, false);
+    }
+}
+
+#[test]
+fn factory_primary_turret_updates_only_for_its_live_enabled_owner_disabled() {
+    if child(concat!(
+        module_path!(),
+        "::factory_primary_turret_updates_only_for_its_live_enabled_owner_disabled"
+    )) {
+        primary_turret_owner_tick(true, false);
+    }
+}
+
+#[test]
+fn factory_primary_turret_updates_only_for_its_live_enabled_owner_dead() {
+    if child(concat!(
+        module_path!(),
+        "::factory_primary_turret_updates_only_for_its_live_enabled_owner_dead"
+    )) {
+        primary_turret_owner_tick(false, true);
+    }
+}
+
+fn primary_turret_owner_tick(disabled: bool, dead: bool) {
+    let _serial = crate::test_sync::lock();
+    let _frame = super::super::super::RestoreAmbientFrame::set(17);
+
+    fn current_turret_state(ai: &mut dyn AIUpdateInterface) -> u32 {
+        ai.unit_ai_for_test()
+            .unwrap()
+            .runtime
+            .data
+            .turret_primary_machine
+            .as_ref()
+            .unwrap()
+            .turret()
+            .get_current_state_id()
+            .unwrap()
+    }
+
+    let fixture = MoodFixture::with_primary_turret();
+    {
+        let mut owner = fixture.source.write().unwrap();
+        if disabled {
+            owner.set_disabled(crate::common::DisabledType::Paralyzed);
+        }
+        owner.set_effectively_dead(dead);
+    }
+    let foreign_owner = Arc::new(RwLock::new(crate::object::Object::new_test(
+        fixture.source_id,
+        200.0,
+    )));
+    let foreign = Arc::new(RwLock::new(
+        crate::object::unit::Unit::new(
+            Arc::clone(&foreign_owner),
+            &crate::common::DefaultThingTemplate::new("TurretForeignUnit".into()),
+        )
+        .unwrap(),
+    ));
+    crate::object::unit::register_unit(fixture.source_id, &foreign);
+    let foreign_guard = foreign.write().unwrap();
+    let _rng = RestoreRng::set();
+    let mut ai = fixture.ai.lock().unwrap();
+    ai.set_next_mood_check_time(1000);
+    {
+        let native = ai.unit_ai_for_test().unwrap();
+        assert!(native.runtime.data.turret_primary_machine.is_some());
+        assert!(native.runtime.data.turret_secondary_machine.is_none());
+    }
+    let before = get_game_logic_random_seed_state();
+    let force_idle_frames = crate::ai::the_ai()
+        .read()
+        .unwrap()
+        .get_ai_data()
+        .force_idle_frames_count;
+    let idle = crate::ai::turret::TurretStateType::Idle as u32;
+    assert_eq!(current_turret_state(&mut *ai), idle);
+    ai.update()
+        .expect("ordinary factory AI tick uses its actual turret owner");
+    if disabled || dead {
+        assert_eq!(
+            current_turret_state(&mut *ai),
+            idle,
+            "dead or paralyzed owner suppresses turret update"
+        );
+        assert_eq!(ai.get_next_mood_check_time(), 1000);
+        assert!(!ai.take_random_mood_offset());
+    } else {
+        assert_ne!(
+            current_turret_state(&mut *ai),
+            idle,
+            "the real owner is eligible even while a foreign same-ID Unit is held"
+        );
+        assert_eq!(
+            ai.get_next_mood_check_time(),
+            17_u32.wrapping_add(force_idle_frames)
+        );
+        assert!(ai.take_random_mood_offset());
+    }
+    assert_eq!(
+        get_game_logic_random_seed_state(),
+        before,
+        "no absent secondary turret is constructed or entered during update"
+    );
+    assert!(
+        ai.unit_ai_for_test()
+            .unwrap()
+            .runtime
+            .data
+            .turret_secondary_machine
+            .is_none()
+    );
+    assert_eq!(foreign_guard.get_id(), fixture.source_id);
+    drop(ai);
+    drop(foreign_guard);
+    crate::object::unit::unregister_unit(fixture.source_id);
 }

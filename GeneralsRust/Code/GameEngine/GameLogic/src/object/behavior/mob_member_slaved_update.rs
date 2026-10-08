@@ -207,7 +207,7 @@ impl MobMemberSlavedUpdate {
 
     fn ai_goal_distance(ai: &Arc<std::sync::Mutex<dyn crate::modules::AIUpdateInterface>>) -> Real {
         ai.try_lock()
-            .map(|guard| guard.get_locomotor_distance_to_goal())
+            .map(|mut guard| guard.get_locomotor_distance_to_goal())
             .unwrap_or(0.0)
     }
 }
@@ -282,7 +282,6 @@ impl UpdateModuleInterface for MobMemberSlavedUpdate {
                 }
             }
         }
-
 
         self.frames_to_wait += 1;
         if self.frames_to_wait < 16 {
@@ -362,8 +361,7 @@ impl UpdateModuleInterface for MobMemberSlavedUpdate {
                     my_ai.ai_move_to_position(&master_pos, false, CommandSourceType::FromAi);
                 }
             }
-        }
-        else if my_is_moving {
+        } else if my_is_moving {
             self.catch_up_crisis_timer = 0;
             match crate::GameLogicRandomValue!(0, 10) {
                 1 => my_ai.choose_locomotor_set(crate::common::LocomotorSetType::Wander),
@@ -400,7 +398,8 @@ impl UpdateModuleInterface for MobMemberSlavedUpdate {
 
             if victim_id.is_none() {
                 if self.primary_victim_id != OBJECT_INVALID_ID
-                    && crate::helpers::TheGameLogic::find_object_by_id(self.primary_victim_id).is_some()
+                    && crate::helpers::TheGameLogic::find_object_by_id(self.primary_victim_id)
+                        .is_some()
                 {
                     my_ai.ai_attack_object(self.primary_victim_id, 999, CommandSourceType::FromAi);
                 }

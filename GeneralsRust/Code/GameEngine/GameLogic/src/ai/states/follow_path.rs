@@ -1,5 +1,7 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
+use crate::modules::ai_state_runtime::AiStateRuntime;
+
 use super::attack::*;
 use super::attack_machine::*;
 use super::dead::*;
@@ -45,8 +47,8 @@ use crate::damage::DamageInfo;
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
 use crate::locomotor::LocomotorAppearance;
 use crate::modules::{
-    AIUpdateInterface, AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt,
-    ContainWant, ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
+    AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt, ContainWant,
+    ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
 };
 use crate::object::production::AIFreeToExitType;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -190,7 +192,7 @@ impl AIFollowPathState {
     pub(crate) fn configure_segment(
         &mut self,
         projectile: bool,
-        ai_guard: &mut dyn AIUpdateInterface,
+        ai_guard: &mut dyn AiStateRuntime,
         allow_adjust: bool,
     ) -> Result<(), String> {
         let next_pos = self.path.get(self.index + 1).copied();
@@ -249,7 +251,7 @@ impl StateImplementation for AIFollowPathState {
 
     fn on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         goal_id: crate::common::ObjectID,
         _goal_pos: Coord3D,
     ) -> StateReturnType {
@@ -305,7 +307,7 @@ impl StateImplementation for AIFollowPathState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         let status = self.base.update_with_ai(ai);
         if status == StateReturnType::Continue {
@@ -389,7 +391,7 @@ impl CppState for AIFollowPathState {
                 .map_err(|_| "follow path owner lock poisoned".to_string())?;
             let ai = owner_guard
                 .get_ai_update_interface()
-                .ok_or_else(|| "follow path missing AIUpdateInterface".to_string())?;
+                .ok_or_else(|| "follow path missing AiStateRuntime".to_string())?;
             self.set_goal_position(self.path[0]);
             let mut ai_guard = ai
                 .lock()
@@ -429,7 +431,13 @@ impl CppState for AIFollowPathState {
             drop(owner_guard);
             if let Some(ai) = ai {
                 if let Ok(mut ai_guard) = ai.lock() {
-                    self.configure_segment(projectile, &mut *ai_guard, false)?;
+                    self.configure_segment(
+                        projectile,
+                        &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(
+                            &mut *ai_guard,
+                        ),
+                        false,
+                    )?;
                 }
             }
         }
@@ -438,7 +446,7 @@ impl CppState for AIFollowPathState {
 
     fn cpp_on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         if self.path.is_empty() {
             return Ok(StateReturnType::Failure);
@@ -503,7 +511,7 @@ impl CppState for AIFollowPathState {
 
     fn cpp_on_update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.follow_update(Some(ai))
     }
@@ -511,7 +519,7 @@ impl CppState for AIFollowPathState {
     fn cpp_on_update_with_control(
         &mut self,
         control: &mut crate::state_machine::StateMachineControl,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn AiStateRuntime>,
         _locked: bool,
     ) -> Result<StateReturnType, String> {
         // AIStates.cpp:3310 publishes the pre-body segment. A newly selected
@@ -523,7 +531,7 @@ impl CppState for AIFollowPathState {
     fn cpp_on_exit_with_ai(
         &mut self,
         exit: StateExitType,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut dyn AiStateRuntime,
     ) -> Result<(), String> {
         self.base.cpp_on_exit_with_ai(exit, ai)?;
         ai.set_can_path_through_units(false)
@@ -551,7 +559,7 @@ impl CppState for AIFollowPathState {
 impl AIFollowPathState {
     fn follow_update(
         &mut self,
-        mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let status = if let Some(ai) = borrowed.as_mut() {
             self.base.cpp_on_update_with_ai(*ai)?
@@ -581,16 +589,16 @@ impl AIFollowPathState {
         drop(owner_guard);
         let ai_arc;
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+        let ai_guard: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime =
             if let Some(ai) = borrowed.as_mut() {
                 *ai
             } else {
-                ai_arc = installed_ai
-                    .ok_or_else(|| "follow path missing AIUpdateInterface".to_string())?;
+                ai_arc =
+                    installed_ai.ok_or_else(|| "follow path missing AiStateRuntime".to_string())?;
                 locked_ai = ai_arc
                     .lock()
                     .map_err(|_| "follow path AI lock poisoned".to_string())?;
-                &mut *locked_ai
+                &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *locked_ai)
             };
 
         if status == StateReturnType::Failure && self.retry_count > 0 {
@@ -661,7 +669,7 @@ impl StateImplementation for AIFollowExitProductionPathState {
 
     fn on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         goal_id: crate::common::ObjectID,
         goal_pos: Coord3D,
     ) -> StateReturnType {
@@ -674,7 +682,7 @@ impl StateImplementation for AIFollowExitProductionPathState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         self.base.update_with_ai(ai)
     }
@@ -707,7 +715,7 @@ impl CppState for AIFollowExitProductionPathState {
 
     fn cpp_on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.base.cpp_on_enter_with_ai(ai)
     }
@@ -718,7 +726,7 @@ impl CppState for AIFollowExitProductionPathState {
 
     fn cpp_on_update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.base.cpp_on_update_with_ai(ai)
     }
@@ -726,7 +734,7 @@ impl CppState for AIFollowExitProductionPathState {
     fn cpp_on_update_with_control(
         &mut self,
         control: &mut crate::state_machine::StateMachineControl,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn AiStateRuntime>,
         locked: bool,
     ) -> Result<StateReturnType, String> {
         self.base.cpp_on_update_with_control(control, ai, locked)
@@ -735,7 +743,7 @@ impl CppState for AIFollowExitProductionPathState {
     fn cpp_on_exit_with_ai(
         &mut self,
         exit: StateExitType,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut dyn AiStateRuntime,
     ) -> Result<(), String> {
         self.base.cpp_on_exit_with_ai(exit, ai)
     }
@@ -795,7 +803,7 @@ impl StateImplementation for AIFollowState {
 
     fn on_enter_with_ai(
         &mut self,
-        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        _ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         goal_id: crate::common::ObjectID,
         goal_pos: Coord3D,
     ) -> StateReturnType {

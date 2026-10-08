@@ -84,7 +84,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     }
 
     /// Get remaining distance to goal along locomotor path (matches C++ getLocomotorDistanceToGoal).
-    fn get_locomotor_distance_to_goal(&self) -> Real {
+    fn get_locomotor_distance_to_goal(&mut self) -> Real {
         0.0
     }
 
@@ -1026,6 +1026,14 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// Check if AI is waiting for path (matches AIUpdateInterface::isWaitingForPath).
     /// C++ AIUpdateInterface::doPathfind — process queued path request.
     fn do_pathfind(&mut self) {}
+    /// C++ `AIUpdateInterface::doPathfind(Pathfinder*)` callback, with the actual
+    /// driving pathfinder borrowed synchronously by its queue.
+    fn do_pathfind_with_pathfinder(
+        &mut self,
+        _pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+    ) {
+        self.do_pathfind();
+    }
 
     fn is_waiting_for_path(&self) -> bool {
         false

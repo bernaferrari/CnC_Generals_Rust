@@ -9,6 +9,8 @@ include!("core.rs");
 include!("behavior.rs");
 include!("contain.rs");
 include!("ai_update.rs");
+
+pub(crate) mod ai_state_runtime;
 include!("ai_update_ext.rs");
 include!("specialized_ai.rs");
 include!("physics.rs");

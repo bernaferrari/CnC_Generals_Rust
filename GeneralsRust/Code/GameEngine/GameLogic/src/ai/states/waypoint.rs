@@ -94,7 +94,7 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
 
     fn on_enter_with_waypoint(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _goal_id: crate::common::ObjectID,
         _goal_pos: Coord3D,
         waypoint: Option<crate::waypoint::WaypointId>,
@@ -182,7 +182,7 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         if self.core.frames_sleeping > 0 {
             self.core.frames_sleeping = self.core.frames_sleeping.saturating_sub(1);
@@ -262,15 +262,15 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
             ai.with_cur_locomotor(&mut |loco| __close = loco.get_close_enough_dist());
             __close
         };
-        if ai.get_locomotor_distance_to_goal() > close_enough {
+        if ai.get_locomotor_distance_to_goal(self.base.get_machine_goal_position()) > close_enough {
             return StateReturnType::Continue;
         }
+        let next = self.core.get_next_waypoint(&self.base);
+        self.core.current_waypoint = next.clone();
         let prior_id = self.core.prior_waypoint.as_ref().map(|w| w.id);
         if let Some(prior) = prior_id {
             ai.set_prior_waypoint_id(prior);
         }
-        let next = self.core.get_next_waypoint(&self.base);
-        self.core.current_waypoint = next.clone();
         let team = owner_guard.get_team();
         drop(owner_guard);
         if let Some(current) = next.as_ref() {
@@ -337,25 +337,42 @@ impl CppState for AIFollowWaypointPathAsTeamState {
     }
 
     fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
-        self.waypoint_enter(None)
+        self.waypoint_enter(None, None)
     }
 
     fn cpp_on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
-        self.waypoint_enter(Some(ai))
+        self.waypoint_enter(Some(ai), None)
+    }
+
+    fn cpp_on_enter_with_control(
+        &mut self,
+        control: &mut crate::state_machine::StateMachineControl,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+    ) -> Result<StateReturnType, String> {
+        self.waypoint_enter(ai, Some(control))
     }
 
     fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
-        self.waypoint_update(None)
+        self.waypoint_update(None, None)
     }
 
     fn cpp_on_update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
-        self.waypoint_update(Some(ai))
+        self.waypoint_update(Some(ai), None)
+    }
+
+    fn cpp_on_update_with_control(
+        &mut self,
+        control: &mut crate::state_machine::StateMachineControl,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+        _machine_locked: bool,
+    ) -> Result<StateReturnType, String> {
+        self.waypoint_update(ai, Some(control))
     }
 
     fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
@@ -375,7 +392,8 @@ impl CppState for AIFollowWaypointPathAsTeamState {
 impl AIFollowWaypointPathAsTeamState {
     fn waypoint_enter(
         &mut self,
-        mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+        mut control: Option<&mut crate::state_machine::StateMachineControl>,
     ) -> Result<StateReturnType, String> {
         self.core.append_goal_position = false;
         self.core.prior_waypoint = None;
@@ -383,19 +401,34 @@ impl AIFollowWaypointPathAsTeamState {
         self.core.group_offset = Coord2D::new(0.0, 0.0);
         self.core.angle = 0.0;
 
-        let machine = self.base.get_machine()?;
-        let waypoint_id = machine
-            .try_lock()
-            .ok()
-            .and_then(|guard| guard.get_goal_waypoint())
+        let waypoint_id = control
+            .as_deref()
+            .and_then(|control| control.get_goal_waypoint())
+            .or_else(|| {
+                self.base
+                    .machine
+                    .as_ref()
+                    .and_then(|weak| weak.upgrade())
+                    .and_then(|machine| {
+                        machine
+                            .try_lock()
+                            .ok()
+                            .and_then(|guard| guard.get_goal_waypoint())
+                    })
+            })
             .or(self.base.goal_waypoint_copied);
         self.core.current_waypoint = waypoint_id.and_then(resolve_waypoint_by_id);
         if self.core.current_waypoint.is_none() && !self.core.move_as_group {
             return Ok(StateReturnType::Failure);
         }
         if let Some(current) = self.core.current_waypoint.as_ref() {
-            if let Ok(mut guard) = machine.try_lock() {
-                guard.set_goal_position(current.position);
+            if let Some(control) = control.as_deref_mut() {
+                control.set_goal_position(current.position);
+            } else if let Some(machine) = self.base.machine.as_ref().and_then(|weak| weak.upgrade())
+            {
+                if let Ok(mut guard) = machine.try_lock() {
+                    guard.set_goal_position(current.position);
+                }
             }
         }
         let owner = self
@@ -407,7 +440,7 @@ impl AIFollowWaypointPathAsTeamState {
             .map_err(|_| "follow waypoint owner lock poisoned".to_string())?;
         let ai_arc;
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+        let ai_guard: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime =
             if let Some(ai) = borrowed.as_mut() {
                 *ai
             } else {
@@ -417,7 +450,7 @@ impl AIFollowWaypointPathAsTeamState {
                 locked_ai = ai_arc
                     .lock()
                     .map_err(|_| "follow waypoint path AI lock poisoned".to_string())?;
-                &mut *locked_ai
+                &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *locked_ai)
             };
         let mut speed = FAST_AS_POSSIBLE;
         if self.core.move_as_group {
@@ -453,11 +486,14 @@ impl AIFollowWaypointPathAsTeamState {
                 }
             }
         }
-        self.core.compute_goal(
+        let owner_is_projectile = owner_guard.is_kind_of(KindOf::Projectile);
+        drop(owner_guard);
+        self.core.compute_goal_with_control(
             &self.base,
-            &owner_guard,
             &mut *ai_guard,
             self.core.move_as_group,
+            owner_is_projectile,
+            control.as_deref_mut(),
         )?;
         if !self.core.has_next_waypoint() && ai_guard.is_doing_ground_movement() {
             if !ai_guard.adjust_destination(&mut self.core.goal_position) {
@@ -479,7 +515,8 @@ impl AIFollowWaypointPathAsTeamState {
 impl AIFollowWaypointPathAsTeamState {
     fn waypoint_update(
         &mut self,
-        mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+        mut control: Option<&mut crate::state_machine::StateMachineControl>,
     ) -> Result<StateReturnType, String> {
         if self.core.frames_sleeping > 0 {
             self.core.frames_sleeping = self.core.frames_sleeping.saturating_sub(1);
@@ -490,44 +527,62 @@ impl AIFollowWaypointPathAsTeamState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow waypoint path missing owner".to_string())?;
-        let mut owner_guard = owner
-            .lock()
+        let owner_guard = owner
+            .read()
             .map_err(|_| "follow waypoint owner lock poisoned".to_string())?;
-        let ai_arc;
+        let team = owner_guard.get_team();
+        let group_id = owner_guard.get_group_id();
+        let is_skirmish_ai = owner_guard
+            .with_controlling_player(|player| player.is_skirmish_ai())
+            .unwrap_or(false);
+        let owner_is_projectile = owner_guard.is_kind_of(KindOf::Projectile);
+        let ai_arc = if borrowed.is_none() {
+            Some(
+                owner_guard
+                    .get_ai_update_interface()
+                    .ok_or_else(|| "follow waypoint path missing AIUpdateInterface".to_string())?,
+            )
+        } else {
+            None
+        };
+        drop(owner_guard);
+
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+        let ai_guard: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime =
             if let Some(ai) = borrowed.as_mut() {
                 *ai
             } else {
-                ai_arc = owner_guard
-                    .get_ai_update_interface()
-                    .ok_or_else(|| "follow waypoint path missing AIUpdateInterface".to_string())?;
                 locked_ai = ai_arc
+                    .as_ref()
+                    .unwrap()
                     .lock()
                     .map_err(|_| "follow waypoint path AI lock poisoned".to_string())?;
-                &mut *locked_ai
+                &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *locked_ai)
             };
 
-        if let Some(current) = self.core.current_waypoint.as_ref() {
-            if let Ok(machine) = self.base.get_machine() {
-                if let Ok(mut guard) = machine.try_lock() {
-                    guard.set_goal_position(current.position);
-                }
-            }
-        } else {
+        if self.core.current_waypoint.is_none() {
             return Ok(StateReturnType::Success);
         }
-
-        if self.core.is_follow_waypoint_path_state {
-            let adjustment = ai_guard.get_mood_matrix_action_adjustment(MoodMatrixAction::Move);
-            if (adjustment & mood_matrix_adjustment::ACTION_TO_ATTACK_MOVE) != 0 {
-                if let Some(current) = self.core.current_waypoint.as_ref() {
-                    owner_guard.ai_pending_attack_follow_waypoint = Some(current.id);
-                    owner_guard.ai_pending_attack_follow_as_team = self.core.move_as_group;
-                }
+        if let (Some(control), Some(current)) =
+            (control.as_deref_mut(), self.core.current_waypoint.as_ref())
+        {
+            control.set_goal_position(current.position);
+        }
+        if self.core.is_follow_waypoint_path_state
+            && (ai_guard.get_mood_matrix_action_adjustment(MoodMatrixAction::Move)
+                & mood_matrix_adjustment::ACTION_TO_ATTACK_MOVE)
+                != 0
+        {
+            let waypoint = self
+                .core
+                .current_waypoint
+                .as_ref()
+                .map(|waypoint| waypoint.id);
+            if let Ok(mut owner_guard) = owner.write() {
+                owner_guard.ai_pending_attack_follow_waypoint = waypoint;
+                owner_guard.ai_pending_attack_follow_as_team = self.core.move_as_group;
             }
         }
-
         if self.core.append_goal_position
             && !ai_guard.is_waiting_for_path()
             && ai_guard.get_path().is_some()
@@ -535,77 +590,80 @@ impl AIFollowWaypointPathAsTeamState {
             ai_guard.append_goal_position_to_path(&self.core.goal_position)?;
             self.core.append_goal_position = false;
         }
-
         if self.core.move_as_group {
-            if let Some(team) = owner_guard.get_team() {
-                if let Ok(team_guard) = team.read() {
-                    if team_guard.get_current_waypoint_id()
-                        != self.core.current_waypoint.as_ref().map(|w| w.id)
+            if let Some(team) = team.as_ref() {
+                let waypoint_id = team
+                    .read()
+                    .ok()
+                    .and_then(|team| team.get_current_waypoint_id());
+                if waypoint_id
+                    != self
+                        .core
+                        .current_waypoint
+                        .as_ref()
+                        .map(|waypoint| waypoint.id)
+                {
+                    self.core.prior_waypoint = self.core.current_waypoint.clone();
+                    self.core.current_waypoint = waypoint_id.and_then(resolve_waypoint_by_id);
+                    if self.core.current_waypoint.is_none() {
+                        return Ok(StateReturnType::Success);
+                    }
+                    self.core.compute_goal_with_control(
+                        &self.base,
+                        &mut *ai_guard,
+                        false,
+                        owner_is_projectile,
+                        control.as_deref_mut(),
+                    )?;
+                    if !self.core.has_next_waypoint()
+                        && ai_guard.is_doing_ground_movement()
+                        && !ai_guard.adjust_destination(&mut self.core.goal_position)
                     {
-                        self.core.prior_waypoint = self.core.current_waypoint.clone();
-                        self.core.current_waypoint = team_guard
-                            .get_current_waypoint_id()
-                            .and_then(resolve_waypoint_by_id);
-                        if self.core.current_waypoint.is_none() {
-                            return Ok(StateReturnType::Success);
-                        }
-                        self.core
-                            .compute_goal(&self.base, &owner_guard, &mut *ai_guard, false)?;
-                        if !self.core.has_next_waypoint() && ai_guard.is_doing_ground_movement() {
-                            if !ai_guard.adjust_destination(&mut self.core.goal_position) {
-                                return Ok(StateReturnType::Failure);
-                            }
-                        }
-                        ai_guard.friend_starting_move();
-                        self.core.compute_path(&mut *ai_guard)?;
-                        if ai_guard.is_doing_ground_movement() {
-                            let _ = ai_guard.update_goal_position(
-                                &self.core.goal_position,
-                                self.core.goal_layer,
-                            );
-                        }
+                        return Ok(StateReturnType::Failure);
+                    }
+                    if let Some(control) = control.as_deref_mut() {
+                        control.set_goal_position(self.core.goal_position);
+                    }
+                    ai_guard.friend_starting_move();
+                    self.core.compute_path(&mut *ai_guard)?;
+                    if ai_guard.is_doing_ground_movement() {
+                        let _ = ai_guard
+                            .update_goal_position(&self.core.goal_position, self.core.goal_layer);
                     }
                 }
             }
         }
-
         let frames_blocked = ai_guard.get_num_frames_blocked();
-        let blocked =
-            ai_guard.is_blocked_and_stuck() || frames_blocked > 2 * LOGICFRAMES_PER_SECOND;
-        if blocked {
+        if ai_guard.is_blocked_and_stuck() || frames_blocked > 2 * LOGICFRAMES_PER_SECOND {
             let _ = self.core.compute_path(&mut *ai_guard);
         }
-
         let close_enough = {
-            let mut __close = 5.0;
-            ai_guard.with_cur_locomotor(&mut |loco| __close = loco.get_close_enough_dist());
-            __close
+            let mut close = 5.0;
+            ai_guard.with_cur_locomotor(&mut |loco| close = loco.get_close_enough_dist());
+            close
         };
-
-        let mut status = StateReturnType::Continue;
-        if ai_guard.get_locomotor_distance_to_goal() <= close_enough {
-            status = StateReturnType::Success;
-        }
-
-        if self.core.move_as_group {
-            let is_skirmish_ai = owner_guard
-                .with_controlling_player(|player_guard| player_guard.is_skirmish_ai())
-                .unwrap_or(false);
-            if is_skirmish_ai {
-                if let Some(group_id) = owner_guard.get_group_id() {
-                    let ai_store = the_ai();
-                    if let Ok(ai_lock) = ai_store.read() {
-                        if let Some(group) = ai_lock.find_group(group_id) {
-                            if let Ok(group_guard) = group.read() {
-                                if let Some(center) = group_guard.get_center() {
-                                    let dx = center.x - self.core.goal_position.x;
-                                    let dy = center.y - self.core.goal_position.y;
-                                    let dist = (dx * dx + dy * dy).sqrt();
-                                    let num = group_guard.get_count() as f32;
-                                    let fudge = ai_lock.get_ai_data().skirmish_group_fudge_value;
-                                    if dist <= num * fudge {
-                                        status = StateReturnType::Success;
-                                    }
+        let goal = control
+            .as_deref()
+            .map(|control| control.get_goal_position())
+            .or_else(|| self.base.get_machine_goal_position());
+        let mut status = if ai_guard.get_locomotor_distance_to_goal(goal) <= close_enough {
+            StateReturnType::Success
+        } else {
+            StateReturnType::Continue
+        };
+        if self.core.move_as_group && is_skirmish_ai {
+            if let Some(group_id) = group_id {
+                if let Ok(ai_store) = the_ai().read() {
+                    if let Some(group) = ai_store.find_group(group_id) {
+                        if let Ok(group) = group.read() {
+                            if let Some(center) = group.get_center() {
+                                let dx = center.x - self.core.goal_position.x;
+                                let dy = center.y - self.core.goal_position.y;
+                                let distance = (dx * dx + dy * dy).sqrt();
+                                let fudge = group.get_count() as f32
+                                    * ai_store.get_ai_data().skirmish_group_fudge_value;
+                                if distance <= fudge {
+                                    status = StateReturnType::Success;
                                 }
                             }
                         }
@@ -613,29 +671,41 @@ impl AIFollowWaypointPathAsTeamState {
                 }
             }
         }
-
         if status != StateReturnType::Continue {
-            let prior_id = self.core.prior_waypoint.as_ref().map(|w| w.id);
-            if let Some(prior) = prior_id {
-                ai_guard.set_prior_waypoint_id(prior);
-            }
-            let next = self.core.get_next_waypoint(&self.base);
+            let next = self
+                .core
+                .get_next_waypoint_with_control(&self.base, control.as_deref_mut());
             self.core.current_waypoint = next.clone();
+            let prior_id = self
+                .core
+                .prior_waypoint
+                .as_ref()
+                .map(|waypoint| waypoint.id);
+            if let Some(prior_id) = prior_id {
+                ai_guard.set_prior_waypoint_id(prior_id);
+            }
             if let Some(current) = next.as_ref() {
                 ai_guard.set_current_waypoint_id(current.id);
             }
-
             if next.is_none() {
                 ai_guard.set_completed_waypoint_id(prior_id);
                 return Ok(StateReturnType::Success);
             }
-
-            self.core
-                .compute_goal(&self.base, &owner_guard, &mut *ai_guard, false)?;
-            if !self.core.has_next_waypoint() && ai_guard.is_doing_ground_movement() {
-                if !ai_guard.adjust_destination(&mut self.core.goal_position) {
-                    return Ok(StateReturnType::Failure);
-                }
+            self.core.compute_goal_with_control(
+                &self.base,
+                &mut *ai_guard,
+                false,
+                owner_is_projectile,
+                control.as_deref_mut(),
+            )?;
+            if !self.core.has_next_waypoint()
+                && ai_guard.is_doing_ground_movement()
+                && !ai_guard.adjust_destination(&mut self.core.goal_position)
+            {
+                return Ok(StateReturnType::Failure);
+            }
+            if let Some(control) = control.as_deref_mut() {
+                control.set_goal_position(self.core.goal_position);
             }
             ai_guard.friend_starting_move();
             self.core.compute_path(&mut *ai_guard)?;
@@ -643,17 +713,17 @@ impl AIFollowWaypointPathAsTeamState {
                 let _ =
                     ai_guard.update_goal_position(&self.core.goal_position, self.core.goal_layer);
             }
-            if let Some(current) = self.core.current_waypoint.as_ref() {
-                if self.core.move_as_group {
-                    if let Some(team) = owner_guard.get_team() {
-                        if let Ok(mut team_guard) = team.write() {
-                            team_guard.set_current_waypoint_id(Some(current.id));
-                        }
+            if self.core.move_as_group {
+                if let (Some(team), Some(current)) =
+                    (team.as_ref(), self.core.current_waypoint.as_ref())
+                {
+                    if let Ok(mut team) = team.write() {
+                        team.set_current_waypoint_id(Some(current.id));
                     }
                 }
             }
+            return Ok(StateReturnType::Continue);
         }
-
         Ok(status)
     }
 }
@@ -683,7 +753,7 @@ impl StateImplementation for AIFollowWaypointPathAsTeamExactState {
 
     fn on_enter_with_waypoint(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _goal_id: crate::common::ObjectID,
         _goal_pos: Coord3D,
         waypoint: Option<crate::waypoint::WaypointId>,
@@ -717,7 +787,6 @@ impl StateImplementation for AIFollowWaypointPathAsTeamExactState {
         }
         drop(owner_guard);
         let _ = ai.set_can_path_through_units(true);
-        ai.set_adjusts_destination(false);
         if ai.set_path_from_waypoint(&current, &group_offset).is_err() {
             return StateReturnType::Failure;
         }
@@ -733,7 +802,7 @@ impl StateImplementation for AIFollowWaypointPathAsTeamExactState {
 
     fn update_with_ai(
         &mut self,
-        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        _ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         let Some(owner) = self.base.get_machine_owner() else {
             return StateReturnType::Failure;
@@ -771,14 +840,29 @@ impl CppState for AIFollowWaypointPathAsTeamExactState {
     }
 
     fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
-        self.exact_team_enter(None)
+        self.exact_team_enter(None, None)
     }
-
     fn cpp_on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
-        self.exact_team_enter(Some(ai))
+        self.exact_team_enter(Some(ai), None)
+    }
+    fn cpp_on_enter_with_control(
+        &mut self,
+        control: &mut crate::state_machine::StateMachineControl,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+    ) -> Result<StateReturnType, String> {
+        self.exact_team_enter(ai, Some(control))
+    }
+
+    fn cpp_on_update_with_control(
+        &mut self,
+        _control: &mut crate::state_machine::StateMachineControl,
+        _ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+        _machine_locked: bool,
+    ) -> Result<StateReturnType, String> {
+        self.cpp_on_update()
     }
 
     fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
@@ -814,19 +898,34 @@ impl CppState for AIFollowWaypointPathAsTeamExactState {
 impl AIFollowWaypointPathAsTeamExactState {
     fn exact_team_enter(
         &mut self,
-        mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+        mut control: Option<&mut crate::state_machine::StateMachineControl>,
     ) -> Result<StateReturnType, String> {
-        let machine = self.base.get_machine()?;
-        let waypoint_id = machine
-            .try_lock()
-            .ok()
-            .and_then(|guard| guard.get_goal_waypoint())
+        let waypoint_id = control
+            .as_deref()
+            .and_then(|control| control.get_goal_waypoint())
+            .or_else(|| {
+                self.base
+                    .machine
+                    .as_ref()
+                    .and_then(|weak| weak.upgrade())
+                    .and_then(|machine| {
+                        machine
+                            .try_lock()
+                            .ok()
+                            .and_then(|guard| guard.get_goal_waypoint())
+                    })
+            })
             .or(self.base.goal_waypoint_copied);
         let current = waypoint_id
             .and_then(resolve_waypoint_by_id)
             .ok_or_else(|| "follow waypoint exact missing waypoint".to_string())?;
-        if let Ok(mut guard) = machine.try_lock() {
-            guard.set_goal_position(current.position);
+        if let Some(control) = control.as_deref_mut() {
+            control.set_goal_position(current.position);
+        } else if let Some(machine) = self.base.machine.as_ref().and_then(|weak| weak.upgrade()) {
+            if let Ok(mut guard) = machine.try_lock() {
+                guard.set_goal_position(current.position);
+            }
         }
         let owner = self
             .base
@@ -837,7 +936,7 @@ impl AIFollowWaypointPathAsTeamExactState {
             .map_err(|_| "follow waypoint exact owner lock poisoned".to_string())?;
         let ai_arc;
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+        let ai_guard: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime =
             if let Some(ai) = borrowed.as_mut() {
                 *ai
             } else {
@@ -847,7 +946,7 @@ impl AIFollowWaypointPathAsTeamExactState {
                 locked_ai = ai_arc
                     .lock()
                     .map_err(|_| "follow waypoint exact AI lock poisoned".to_string())?;
-                &mut *locked_ai
+                &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *locked_ai)
             };
         let mut speed = FAST_AS_POSSIBLE;
         let mut group_offset = Coord2D::new(0.0, 0.0);
@@ -868,8 +967,8 @@ impl AIFollowWaypointPathAsTeamExactState {
                 }
             }
         }
+        drop(owner_guard);
         let _ = ai_guard.set_can_path_through_units(true);
-        ai_guard.set_adjusts_destination(false);
         ai_guard.set_path_from_waypoint(&current, &group_offset)?;
         let _ = ai_guard.set_allow_invalid_position(true);
         ai_guard.set_desired_speed(speed);
@@ -901,7 +1000,7 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsState {
 
     fn on_enter_with_waypoint(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _goal_id: crate::common::ObjectID,
         _goal_pos: Coord3D,
         waypoint: Option<crate::waypoint::WaypointId>,
@@ -956,7 +1055,7 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         if self.core.frames_sleeping > 0 {
             self.core.frames_sleeping = self.core.frames_sleeping.saturating_sub(1);
@@ -1006,15 +1105,15 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsState {
             ai.with_cur_locomotor(&mut |loco| __close = loco.get_close_enough_dist());
             __close
         };
-        if ai.get_locomotor_distance_to_goal() > close_enough {
+        if ai.get_locomotor_distance_to_goal(self.base.get_machine_goal_position()) > close_enough {
             return StateReturnType::Continue;
         }
+        let next = self.core.get_next_waypoint(&self.base);
+        self.core.current_waypoint = next.clone();
         let prior_id = self.core.prior_waypoint.as_ref().map(|w| w.id);
         if let Some(prior) = prior_id {
             ai.set_prior_waypoint_id(prior);
         }
-        let next = self.core.get_next_waypoint(&self.base);
-        self.core.current_waypoint = next.clone();
         if let Some(current) = next.as_ref() {
             ai.set_current_waypoint_id(current.id);
         }
@@ -1068,25 +1167,42 @@ impl CppState for AIFollowWaypointPathAsIndividualsState {
     }
 
     fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
-        self.individuals_enter(None)
+        self.individuals_enter(None, None)
     }
 
     fn cpp_on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
-        self.individuals_enter(Some(ai))
+        self.individuals_enter(Some(ai), None)
+    }
+
+    fn cpp_on_enter_with_control(
+        &mut self,
+        control: &mut crate::state_machine::StateMachineControl,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+    ) -> Result<StateReturnType, String> {
+        self.individuals_enter(ai, Some(control))
     }
 
     fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
-        self.individuals_update(None)
+        self.individuals_update(None, None)
     }
 
     fn cpp_on_update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
-        self.individuals_update(Some(ai))
+        self.individuals_update(Some(ai), None)
+    }
+
+    fn cpp_on_update_with_control(
+        &mut self,
+        control: &mut crate::state_machine::StateMachineControl,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+        _machine_locked: bool,
+    ) -> Result<StateReturnType, String> {
+        self.individuals_update(ai, Some(control))
     }
 
     fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
@@ -1106,26 +1222,42 @@ impl CppState for AIFollowWaypointPathAsIndividualsState {
 impl AIFollowWaypointPathAsIndividualsState {
     fn individuals_enter(
         &mut self,
-        mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+        mut control: Option<&mut crate::state_machine::StateMachineControl>,
     ) -> Result<StateReturnType, String> {
         self.core.append_goal_position = false;
         self.core.prior_waypoint = None;
         self.core.frames_sleeping = 0;
         self.core.group_offset = Coord2D::new(0.0, 0.0);
         self.core.angle = 0.0;
-        let machine = self.base.get_machine()?;
-        let waypoint_id = machine
-            .try_lock()
-            .ok()
-            .and_then(|guard| guard.get_goal_waypoint())
+        let waypoint_id = control
+            .as_deref()
+            .and_then(|control| control.get_goal_waypoint())
+            .or_else(|| {
+                self.base
+                    .machine
+                    .as_ref()
+                    .and_then(|weak| weak.upgrade())
+                    .and_then(|machine| {
+                        machine
+                            .try_lock()
+                            .ok()
+                            .and_then(|guard| guard.get_goal_waypoint())
+                    })
+            })
             .or(self.base.goal_waypoint_copied);
         self.core.current_waypoint = waypoint_id.and_then(resolve_waypoint_by_id);
         if self.core.current_waypoint.is_none() && !self.core.move_as_group {
             return Ok(StateReturnType::Failure);
         }
         if let Some(current) = self.core.current_waypoint.as_ref() {
-            if let Ok(mut guard) = machine.try_lock() {
-                guard.set_goal_position(current.position);
+            if let Some(control) = control.as_deref_mut() {
+                control.set_goal_position(current.position);
+            } else if let Some(machine) = self.base.machine.as_ref().and_then(|weak| weak.upgrade())
+            {
+                if let Ok(mut guard) = machine.try_lock() {
+                    guard.set_goal_position(current.position);
+                }
             }
         }
         let owner = self
@@ -1137,7 +1269,7 @@ impl AIFollowWaypointPathAsIndividualsState {
             .map_err(|_| "follow waypoint owner lock poisoned".to_string())?;
         let ai_arc;
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+        let ai_guard: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime =
             if let Some(ai) = borrowed.as_mut() {
                 *ai
             } else {
@@ -1147,10 +1279,17 @@ impl AIFollowWaypointPathAsIndividualsState {
                 locked_ai = ai_arc
                     .lock()
                     .map_err(|_| "follow waypoint path AI lock poisoned".to_string())?;
-                &mut *locked_ai
+                &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *locked_ai)
             };
-        self.core
-            .compute_goal(&self.base, &owner_guard, &mut *ai_guard, false)?;
+        let owner_is_projectile = owner_guard.is_kind_of(KindOf::Projectile);
+        drop(owner_guard);
+        self.core.compute_goal_with_control(
+            &self.base,
+            &mut *ai_guard,
+            false,
+            owner_is_projectile,
+            control.as_deref_mut(),
+        )?;
         if !self.core.has_next_waypoint() && ai_guard.is_doing_ground_movement() {
             if !ai_guard.adjust_destination(&mut self.core.goal_position) {
                 return Ok(StateReturnType::Failure);
@@ -1169,7 +1308,8 @@ impl AIFollowWaypointPathAsIndividualsState {
 
     fn individuals_update(
         &mut self,
-        mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+        mut control: Option<&mut crate::state_machine::StateMachineControl>,
     ) -> Result<StateReturnType, String> {
         if self.core.frames_sleeping > 0 {
             self.core.frames_sleeping = self.core.frames_sleeping.saturating_sub(1);
@@ -1179,37 +1319,47 @@ impl AIFollowWaypointPathAsIndividualsState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow waypoint path missing owner".to_string())?;
-        let mut owner_guard = owner
-            .lock()
+        let owner_guard = owner
+            .read()
             .map_err(|_| "follow waypoint owner lock poisoned".to_string())?;
-        let ai_arc;
+        let owner_is_projectile = owner_guard.is_kind_of(KindOf::Projectile);
+        let ai_arc = if borrowed.is_none() {
+            Some(
+                owner_guard
+                    .get_ai_update_interface()
+                    .ok_or_else(|| "follow waypoint path missing AIUpdateInterface".to_string())?,
+            )
+        } else {
+            None
+        };
+        drop(owner_guard);
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+        let ai_guard: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime =
             if let Some(ai) = borrowed.as_mut() {
                 *ai
             } else {
-                ai_arc = owner_guard
-                    .get_ai_update_interface()
-                    .ok_or_else(|| "follow waypoint path missing AIUpdateInterface".to_string())?;
                 locked_ai = ai_arc
+                    .as_ref()
+                    .unwrap()
                     .lock()
                     .map_err(|_| "follow waypoint path AI lock poisoned".to_string())?;
-                &mut *locked_ai
+                &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *locked_ai)
             };
-        if let Some(current) = self.core.current_waypoint.as_ref() {
-            if let Ok(machine) = self.base.get_machine() {
-                if let Ok(mut guard) = machine.try_lock() {
-                    guard.set_goal_position(current.position);
-                }
-            }
-        } else {
+        let Some(current) = self.core.current_waypoint.as_ref() else {
             return Ok(StateReturnType::Success);
+        };
+        if let Some(control) = control.as_deref_mut() {
+            control.set_goal_position(current.position);
         }
-        if self.core.is_follow_waypoint_path_state {
-            let adjustment = ai_guard.get_mood_matrix_action_adjustment(MoodMatrixAction::Move);
-            if (adjustment & mood_matrix_adjustment::ACTION_TO_ATTACK_MOVE) != 0 {
-                if let Some(current) = self.core.current_waypoint.as_ref() {
-                    owner_guard.ai_pending_attack_follow_waypoint = Some(current.id);
+        if self.core.is_follow_waypoint_path_state
+            && (ai_guard.get_mood_matrix_action_adjustment(MoodMatrixAction::Move)
+                & mood_matrix_adjustment::ACTION_TO_ATTACK_MOVE)
+                != 0
+        {
+            if let Some(owner) = self.base.get_machine_owner() {
+                if let Ok(mut owner) = owner.write() {
+                    owner.ai_pending_attack_follow_waypoint = Some(current.id);
+                    owner.ai_pending_attack_follow_as_team = self.core.move_as_group;
                 }
             }
         }
@@ -1221,27 +1371,36 @@ impl AIFollowWaypointPathAsIndividualsState {
             self.core.append_goal_position = false;
         }
         let frames_blocked = ai_guard.get_num_frames_blocked();
-        let blocked =
-            ai_guard.is_blocked_and_stuck() || frames_blocked > 2 * LOGICFRAMES_PER_SECOND;
-        if blocked {
+        if ai_guard.is_blocked_and_stuck() || frames_blocked > 2 * LOGICFRAMES_PER_SECOND {
             let _ = self.core.compute_path(&mut *ai_guard);
         }
         let close_enough = {
-            let mut __close = 5.0;
-            ai_guard.with_cur_locomotor(&mut |loco| __close = loco.get_close_enough_dist());
-            __close
+            let mut close = 5.0;
+            ai_guard.with_cur_locomotor(&mut |loco| close = loco.get_close_enough_dist());
+            close
         };
-        let mut status = StateReturnType::Continue;
-        if ai_guard.get_locomotor_distance_to_goal() <= close_enough {
-            status = StateReturnType::Success;
-        }
+        let goal = control
+            .as_deref()
+            .map(|control| control.get_goal_position())
+            .or_else(|| self.base.get_machine_goal_position());
+        let mut status = if ai_guard.get_locomotor_distance_to_goal(goal) <= close_enough {
+            StateReturnType::Success
+        } else {
+            StateReturnType::Continue
+        };
         if status != StateReturnType::Continue {
-            let prior_id = self.core.prior_waypoint.as_ref().map(|w| w.id);
-            if let Some(prior) = prior_id {
-                ai_guard.set_prior_waypoint_id(prior);
-            }
-            let next = self.core.get_next_waypoint(&self.base);
+            let next = self
+                .core
+                .get_next_waypoint_with_control(&self.base, control.as_deref_mut());
             self.core.current_waypoint = next.clone();
+            let prior_id = self
+                .core
+                .prior_waypoint
+                .as_ref()
+                .map(|waypoint| waypoint.id);
+            if let Some(prior_id) = prior_id {
+                ai_guard.set_prior_waypoint_id(prior_id);
+            }
             if let Some(current) = next.as_ref() {
                 ai_guard.set_current_waypoint_id(current.id);
             }
@@ -1249,12 +1408,21 @@ impl AIFollowWaypointPathAsIndividualsState {
                 ai_guard.set_completed_waypoint_id(prior_id);
                 return Ok(StateReturnType::Success);
             }
-            self.core
-                .compute_goal(&self.base, &owner_guard, &mut *ai_guard, false)?;
-            if !self.core.has_next_waypoint() && ai_guard.is_doing_ground_movement() {
-                if !ai_guard.adjust_destination(&mut self.core.goal_position) {
-                    return Ok(StateReturnType::Failure);
-                }
+            self.core.compute_goal_with_control(
+                &self.base,
+                &mut *ai_guard,
+                false,
+                owner_is_projectile,
+                control.as_deref_mut(),
+            )?;
+            if !self.core.has_next_waypoint()
+                && ai_guard.is_doing_ground_movement()
+                && !ai_guard.adjust_destination(&mut self.core.goal_position)
+            {
+                return Ok(StateReturnType::Failure);
+            }
+            if let Some(control) = control.as_deref_mut() {
+                control.set_goal_position(self.core.goal_position);
             }
             ai_guard.friend_starting_move();
             self.core.compute_path(&mut *ai_guard)?;
@@ -1262,6 +1430,7 @@ impl AIFollowWaypointPathAsIndividualsState {
                 let _ =
                     ai_guard.update_goal_position(&self.core.goal_position, self.core.goal_layer);
             }
+            return Ok(StateReturnType::Continue);
         }
         Ok(status)
     }
@@ -1292,7 +1461,7 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsExactState {
 
     fn on_enter_with_waypoint(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _goal_id: crate::common::ObjectID,
         _goal_pos: Coord3D,
         waypoint: Option<crate::waypoint::WaypointId>,
@@ -1301,7 +1470,6 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsExactState {
             return StateReturnType::Failure;
         };
         let _ = ai.set_can_path_through_units(true);
-        ai.set_adjusts_destination(false);
         if ai
             .set_path_from_waypoint(&current, &Coord2D::new(0.0, 0.0))
             .is_err()
@@ -1320,7 +1488,7 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsExactState {
 
     fn update_with_ai(
         &mut self,
-        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        _ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         let Some(owner) = self.base.get_machine_owner() else {
             return StateReturnType::Failure;
@@ -1358,14 +1526,29 @@ impl CppState for AIFollowWaypointPathAsIndividualsExactState {
     }
 
     fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
-        self.exact_individuals_enter(None)
+        self.exact_individuals_enter(None, None)
     }
-
     fn cpp_on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
-        self.exact_individuals_enter(Some(ai))
+        self.exact_individuals_enter(Some(ai), None)
+    }
+    fn cpp_on_enter_with_control(
+        &mut self,
+        control: &mut crate::state_machine::StateMachineControl,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+    ) -> Result<StateReturnType, String> {
+        self.exact_individuals_enter(ai, Some(control))
+    }
+
+    fn cpp_on_update_with_control(
+        &mut self,
+        _control: &mut crate::state_machine::StateMachineControl,
+        _ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+        _machine_locked: bool,
+    ) -> Result<StateReturnType, String> {
+        self.cpp_on_update()
     }
 
     fn cpp_on_update(&mut self) -> Result<StateReturnType, String> {
@@ -1401,19 +1584,34 @@ impl CppState for AIFollowWaypointPathAsIndividualsExactState {
 impl AIFollowWaypointPathAsIndividualsExactState {
     fn exact_individuals_enter(
         &mut self,
-        mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+        mut control: Option<&mut crate::state_machine::StateMachineControl>,
     ) -> Result<StateReturnType, String> {
-        let machine = self.base.get_machine()?;
-        let waypoint_id = machine
-            .try_lock()
-            .ok()
-            .and_then(|guard| guard.get_goal_waypoint())
+        let waypoint_id = control
+            .as_deref()
+            .and_then(|control| control.get_goal_waypoint())
+            .or_else(|| {
+                self.base
+                    .machine
+                    .as_ref()
+                    .and_then(|weak| weak.upgrade())
+                    .and_then(|machine| {
+                        machine
+                            .try_lock()
+                            .ok()
+                            .and_then(|guard| guard.get_goal_waypoint())
+                    })
+            })
             .or(self.base.goal_waypoint_copied);
         let current = waypoint_id
             .and_then(resolve_waypoint_by_id)
             .ok_or_else(|| "follow waypoint exact missing waypoint".to_string())?;
-        if let Ok(mut guard) = machine.try_lock() {
-            guard.set_goal_position(current.position);
+        if let Some(control) = control.as_deref_mut() {
+            control.set_goal_position(current.position);
+        } else if let Some(machine) = self.base.machine.as_ref().and_then(|weak| weak.upgrade()) {
+            if let Ok(mut guard) = machine.try_lock() {
+                guard.set_goal_position(current.position);
+            }
         }
         let owner = self
             .base
@@ -1424,7 +1622,7 @@ impl AIFollowWaypointPathAsIndividualsExactState {
             .map_err(|_| "follow waypoint exact owner lock poisoned".to_string())?;
         let ai_arc;
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+        let ai_guard: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime =
             if let Some(ai) = borrowed.as_mut() {
                 *ai
             } else {
@@ -1434,11 +1632,11 @@ impl AIFollowWaypointPathAsIndividualsExactState {
                 locked_ai = ai_arc
                     .lock()
                     .map_err(|_| "follow waypoint exact AI lock poisoned".to_string())?;
-                &mut *locked_ai
+                &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *locked_ai)
             };
         let group_offset = Coord2D::new(0.0, 0.0);
+        drop(owner_guard);
         let _ = ai_guard.set_can_path_through_units(true);
-        ai_guard.set_adjusts_destination(false);
         ai_guard.set_path_from_waypoint(&current, &group_offset)?;
         let _ = ai_guard.set_allow_invalid_position(true);
         ai_guard.set_desired_speed(FAST_AS_POSSIBLE);

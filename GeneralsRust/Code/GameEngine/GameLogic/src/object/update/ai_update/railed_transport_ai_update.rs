@@ -9,6 +9,8 @@ use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::{AsciiString, Bool, Coord3D, Int, ObjectID, Real, UnsignedInt, WaypointID};
 use crate::helpers::TheGameLogic;
 use crate::modules::AIUpdateInterface;
+use crate::modules::ai_state_runtime::AiStateRuntime;
+use crate::object::unit::UnitAiStateRuntime;
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
 use crate::terrain::get_terrain_logic;
 use game_engine::common::ini::{FieldParse, INI, INIError};
@@ -409,16 +411,92 @@ impl RailedTransportAIUpdate {
         Ok(())
     }
 
+    /// Native command path: follow the route through the borrowed parent
+    /// driver and use the admitted owner supplied by the operation view.
+    pub fn handle_execute_railed_transport_with_runtime(
+        &mut self,
+        _cmd_source: CommandSourceType,
+        owner: &Arc<std::sync::RwLock<crate::object::Object>>,
+        runtime: &mut UnitAiStateRuntime<'_>,
+        driver: &mut crate::ai::states::AIStateMachineDriver<'_>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+        let is_loading = owner.read().ok().and_then(|owner| {
+            owner.with_railed_transport_dock_update_interface(|dock| dock.is_loading_or_unloading())
+        });
+        if is_loading != Some(false) || self.num_paths <= 0 {
+            return Ok(());
+        }
+        self.current_path += 1;
+        if self.current_path >= self.num_paths {
+            self.current_path = 0;
+        }
+        let Some(path) = self.path.get(self.current_path as usize) else {
+            return Ok(());
+        };
+        let start_id = path.start_waypoint_id;
+        let terrain = get_terrain_logic();
+        let Ok(terrain_guard) = terrain.read() else {
+            return Ok(());
+        };
+        if terrain_guard.get_waypoint_by_id(start_id).is_none() {
+            warn!("RailedTransportAIUpdate: Start waypoint not found.");
+            return Ok(());
+        }
+        drop(terrain_guard);
+
+        let mut params =
+            AiCommandParams::new(AiCommandType::FollowWaypointPath, CommandSourceType::FromAi);
+        params.waypoint = Some(start_id);
+        runtime.dispatch_command_with_driver(&params, driver)?;
+        if let Ok(owner) = owner.read() {
+            let _ = owner.with_dock_update_interface(|dock| dock.set_dock_open(false));
+        }
+        self.in_transit = true;
+        Ok(())
+    }
+
+    pub fn handle_evacuate_with_runtime(
+        &mut self,
+        expose_stealth_units: Int,
+        cmd_source: CommandSourceType,
+        owner: &Arc<std::sync::RwLock<crate::object::Object>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+        let Ok(owner_guard) = owner.read() else {
+            return Ok(());
+        };
+        if self.in_transit {
+            return Ok(());
+        }
+        let Some(is_loading) = owner_guard
+            .with_railed_transport_dock_update_interface(|dock| dock.is_loading_or_unloading())
+        else {
+            return Ok(());
+        };
+        if is_loading {
+            return Ok(());
+        }
+        let _ = (expose_stealth_units, cmd_source);
+        let _ = owner_guard.with_railed_transport_dock_update_interface(|dock| dock.unload_all());
+        Ok(())
+    }
+
     fn set_in_transit(&mut self, in_transit: Bool) {
         // Wave 407: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
             return;
         }
 
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
-            let _ = owner_guard.with_dock_update_interface(|dock| {
-                dock.set_dock_open(!in_transit);
-            });
+        let _ =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+                let _ = owner_guard.with_dock_update_interface(|dock| {
+                    dock.set_dock_open(!in_transit);
+                });
             });
 
         self.in_transit = in_transit;

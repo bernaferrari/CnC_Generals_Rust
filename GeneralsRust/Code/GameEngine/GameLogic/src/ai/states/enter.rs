@@ -98,7 +98,7 @@ impl AIEnterState {
     fn finish_exit_with_optional_ai(
         &mut self,
         exit: StateExitType,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), String> {
         if dual_world_registry_unavailable() {
             return Ok(());
@@ -136,7 +136,7 @@ impl AIEnterState {
 impl AIEnterState {
     fn classic_on_enter_with_optional_ai(
         &mut self,
-        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
@@ -205,14 +205,14 @@ impl AIEnterState {
 
     fn classic_on_update_with_optional_ai(
         &mut self,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         self.classic_on_update_with_context(ai, None)
     }
 
     fn classic_on_update_with_context(
         &mut self,
-        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         mut owner_context: Option<&mut dyn std::any::Any>,
     ) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
@@ -354,7 +354,7 @@ impl StateImplementation for AIEnterState {
 
     fn on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _goal_id: ObjectID,
         _goal_pos: Coord3D,
     ) -> StateReturnType {
@@ -376,7 +376,7 @@ impl StateImplementation for AIEnterState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         self.cpp_on_update_with_ai(ai)
             .unwrap_or(StateReturnType::Failure)
@@ -389,7 +389,7 @@ impl StateImplementation for AIEnterState {
     fn on_exit_with_ai(
         &mut self,
         status: StateExitType,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) {
         let _ = self.finish_exit_with_optional_ai(status, Some(ai));
     }
@@ -418,7 +418,7 @@ impl CppState for AIEnterState {
 
     fn cpp_on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.classic_on_enter_with_optional_ai(Some(ai))
     }
@@ -429,7 +429,7 @@ impl CppState for AIEnterState {
 
     fn cpp_on_update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.classic_on_update_with_optional_ai(Some(ai))
     }
@@ -437,7 +437,7 @@ impl CppState for AIEnterState {
     fn cpp_on_update_with_context(
         &mut self,
         _control: &mut crate::state_machine::StateMachineControl,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         _machine_locked: bool,
         owner: &mut dyn std::any::Any,
     ) -> Result<StateReturnType, String> {

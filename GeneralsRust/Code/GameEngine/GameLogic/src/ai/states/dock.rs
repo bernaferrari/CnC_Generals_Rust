@@ -1,5 +1,7 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
+use crate::modules::ai_state_runtime::AiStateRuntime;
+
 use super::attack::*;
 use super::attack_machine::*;
 use super::dead::*;
@@ -45,8 +47,8 @@ use crate::damage::DamageInfo;
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
 use crate::locomotor::LocomotorAppearance;
 use crate::modules::{
-    AIUpdateInterface, AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt,
-    ContainWant, ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
+    AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt, ContainWant,
+    ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
 };
 use crate::object::production::AIFreeToExitType;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -90,7 +92,7 @@ impl AIDockState {
 }
 
 impl AIDockState {
-    fn enter(&mut self, ai: Option<&mut dyn AIUpdateInterface>) -> Result<StateReturnType, String> {
+    fn enter(&mut self, ai: Option<&mut dyn AiStateRuntime>) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
@@ -130,7 +132,7 @@ impl AIDockState {
         Ok(result)
     }
 
-    fn step(&mut self, ai: Option<&mut dyn AIUpdateInterface>) -> Result<StateReturnType, String> {
+    fn step(&mut self, ai: Option<&mut dyn AiStateRuntime>) -> Result<StateReturnType, String> {
         let Some(dock_machine) = self.dock_machine.as_mut() else {
             return Ok(StateReturnType::Failure);
         };
@@ -160,13 +162,13 @@ impl StateImplementation for AIDockState {
 
     fn on_enter_with_ai(
         &mut self,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut dyn AiStateRuntime,
         _id: ObjectID,
         _pos: Coord3D,
     ) -> StateReturnType {
         self.enter(Some(ai)).unwrap_or(StateReturnType::Failure)
     }
-    fn update_with_ai(&mut self, ai: &mut dyn AIUpdateInterface) -> StateReturnType {
+    fn update_with_ai(&mut self, ai: &mut dyn AiStateRuntime) -> StateReturnType {
         self.step(Some(ai)).unwrap_or(StateReturnType::Failure)
     }
 

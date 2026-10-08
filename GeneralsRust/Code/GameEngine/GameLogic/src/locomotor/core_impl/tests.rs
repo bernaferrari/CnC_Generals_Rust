@@ -7,6 +7,30 @@ mod tests {
 
     struct RegisteredObjectCleanup(ObjectID);
 
+    #[test]
+    fn other_motive_force_caps_acceleration_and_default_braking_to_speed_delta() {
+        let mut template = LocomotorTemplate::new("SpeedDelta".into());
+        template.max_speed = 3.0;
+        template.acceleration = 0.1;
+        let mut loco = Locomotor::new(Arc::new(template));
+        for (actual_speed, expected) in [(2.95, 0.05), (3.1, -0.1), (3.0, 0.0)] {
+            let (_, _, acceleration) = loco.move_towards_position_other_physics(
+                Coord3D::ZERO,
+                0.0,
+                Coord3D::new(180.0, 0.0, 0.0),
+                180.0,
+                3.0,
+                actual_speed,
+                BodyDamageType::Pristine,
+                0.0,
+            );
+            assert!(
+                (acceleration - expected).abs() < 0.00001,
+                "C++ caps force to the remaining speed delta: {actual_speed}, {acceleration}"
+            );
+        }
+    }
+
     impl Drop for RegisteredObjectCleanup {
         fn drop(&mut self) {
             OBJECT_REGISTRY.unregister_object(self.0);
@@ -205,7 +229,7 @@ mod tests {
 
     #[test]
     fn test_path_request_integration() {
-        use crate::ai::pathfinding_system::{create_pathfinding_system, PathfindingSystem};
+        use crate::ai::pathfinding_system::{PathfindingSystem, create_pathfinding_system};
 
         let template = Arc::new(LocomotorTemplate::new_infantry("TestInfantry".to_string()));
         let loco = Locomotor::new(template);
@@ -488,13 +512,8 @@ mod tests {
                 .is_none(),
             "KINDOF_DOZER must not be corrected (Locomotor.cpp:1502-1504)"
         );
-        let leaving = loco.fix_invalid_position_with(
-            false,
-            pos,
-            Coord3D::new(5.0, 0.0, 0.0),
-            10.0,
-            is_valid,
-        );
+        let leaving =
+            loco.fix_invalid_position_with(false, pos, Coord3D::new(5.0, 0.0, 0.0), 10.0, is_valid);
         assert!(
             leaving.is_none(),
             "dot > 0.25 already-leaving must return false (Locomotor.cpp:1542-1544)"
@@ -546,6 +565,60 @@ mod tests {
             "unheld SeaLevel still snaps (Locomotor.cpp:2211-2219)"
         );
         assert!(free.requires_constant);
+    }
+
+    /// C++ handleBehaviorZ updates the Object before Locomotor's braking correction.
+    /// The correction starts from owner XY, not the predicted XY returned by the mover.
+    #[test]
+    fn braking_cheat_preserves_owner_z_snap_without_double_xy_step() {
+        let object_id = 19_042_781;
+        let template = crate::common::DefaultThingTemplate::new("BrakingOwner".to_string());
+        let braking_status = crate::common::ObjectStatusMaskType::from_status(
+            crate::common::ObjectStatusTypes::Braking,
+        );
+        let owner =
+            crate::object::Object::new_with_id(Arc::new(template), object_id, braking_status, None)
+                .expect("braking owner");
+        let _owner_cleanup = RegisteredObjectCleanup(object_id);
+        let current = Coord3D::new(10.0, 20.0, 3.0);
+        owner
+            .write()
+            .expect("owner lock")
+            .set_position(&current)
+            .expect("initial owner position");
+
+        let mut template = LocomotorTemplate::new_wheeled("BrakingWheels".to_string());
+        template.behavior_z = LocomotorBehaviorZ::FixedAbsoluteHeight;
+        let mut loco = Locomotor::new(Arc::new(template));
+        loco.preferred_height = 42.0;
+        loco.set_allow_invalid_position(true);
+
+        let target = Coord3D::new(60.0, 20.0, 3.0);
+        let (returned, _, speed) = {
+            let mut owner = owner.write().expect("owner lock");
+            loco.loco_update_move_towards_position(
+                current,
+                0.0,
+                8.0,
+                target,
+                1.0,
+                8.0,
+                BodyDamageType::Pristine,
+                1.0,
+                false,
+                None,
+                Some(&mut *owner),
+            )
+        };
+        let actual = *owner.read().expect("owner lock").get_position();
+        let min_vel = PATHFIND_CELL_SIZE_F / LOGICFRAMES_PER_SECOND as Real;
+        let cheat_step = speed.abs().max(min_vel).min(target.x - current.x);
+
+        assert!((actual.x - (current.x + cheat_step)).abs() < 0.001);
+        assert!((actual.y - current.y).abs() < 0.001);
+        assert!((actual.z - 42.0).abs() < 0.001);
+        assert!((returned.x - actual.x).abs() < 0.001);
+        assert!((returned.z - actual.z).abs() < 0.001);
     }
 
     /// C++ Locomotor.cpp:761-765 — startMove resets only the donut timer.
@@ -601,16 +674,10 @@ mod tests {
             !short,
             "dividing speeds by 30 keeps the probe inside x<20 and must not block"
         );
-        let clear = Locomotor::wheels_look_ahead_blocked(
-            current,
-            0.0,
-            rel,
-            10.0,
-            10.0,
-            10.0,
-            0.2,
-            |_| true,
-        );
+        let clear =
+            Locomotor::wheels_look_ahead_blocked(current, 0.0, rel, 10.0, 10.0, 10.0, 0.2, |_| {
+                true
+            });
         assert!(!clear, "valid look-ahead must not block");
         let shallow = Locomotor::wheels_look_ahead_blocked(
             current,

@@ -8,9 +8,12 @@ use std::sync::{Arc, Mutex, RwLock};
 #[derive(Debug, Default)]
 struct TestAI {
     movement_targets: Vec<Coord3D>,
+    path_requests: Vec<(Coord3D, bool)>,
+    waiting_for_path: bool,
     adjust_destination: Vec<bool>,
     path_extra_distance: Vec<f32>,
     friend_ending_moves: usize,
+    friend_starting_moves: usize,
     destroyed_paths: usize,
 }
 
@@ -32,7 +35,21 @@ impl AIUpdateInterface for TestAI {
         Ok(())
     }
 
-    fn get_locomotor_distance_to_goal(&self) -> f32 {
+    fn request_path(&mut self, target: &Coord3D, final_goal: bool) -> Result<(), String> {
+        self.path_requests.push((*target, final_goal));
+        self.waiting_for_path = true;
+        Ok(())
+    }
+
+    fn is_waiting_for_path(&self) -> bool {
+        self.waiting_for_path
+    }
+
+    fn friend_starting_move(&mut self) {
+        self.friend_starting_moves += 1;
+    }
+
+    fn get_locomotor_distance_to_goal(&mut self) -> f32 {
         10.0
     }
 
@@ -120,9 +137,13 @@ fn exercise_borrowed_helper() {
         helper.on_enter_with_ai(&mut *ai).expect("borrowed enter"),
         StateReturnType::Continue
     );
-    assert_eq!(ai.movement_targets, vec![target]);
+    // AIStates.cpp::computePath requests a path; it does not issue a parent
+    // movement command or change the AI's destination-adjustment setting.
+    assert_eq!(ai.path_requests, vec![(target, true)]);
+    assert!(ai.movement_targets.is_empty());
+    assert_eq!(ai.friend_starting_moves, 2);
     assert_eq!(ai.path_extra_distance, vec![0.0]);
-    assert_eq!(ai.adjust_destination, vec![true]);
+    assert!(ai.adjust_destination.is_empty());
     assert_eq!(
         helper.update_with_ai(&mut *ai).expect("borrowed update"),
         StateReturnType::Continue
@@ -131,7 +152,9 @@ fn exercise_borrowed_helper() {
         .on_exit_with_ai(StateExitType::Normal, &mut *ai)
         .expect("borrowed exit");
     assert_eq!(ai.friend_ending_moves, 1);
-    assert_eq!(ai.destroyed_paths, 1);
+    assert_eq!(ai.path_requests, vec![(target, true)]);
+    // C++ onExit ends movement but leaves path destruction to its owner.
+    assert_eq!(ai.destroyed_paths, 0);
     drop(ai);
 
     // The legacy public API continues to resolve the installed AI handle when

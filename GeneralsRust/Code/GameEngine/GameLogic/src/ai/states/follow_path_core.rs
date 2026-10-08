@@ -1,5 +1,7 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
+use crate::modules::ai_state_runtime::AiStateRuntime;
+
 use super::attack::*;
 use super::attack_machine::*;
 use super::dead::*;
@@ -45,8 +47,8 @@ use crate::damage::DamageInfo;
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
 use crate::locomotor::LocomotorAppearance;
 use crate::modules::{
-    AIUpdateInterface, AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt,
-    ContainWant, ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
+    AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt, ContainWant,
+    ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
 };
 use crate::object::production::AIFreeToExitType;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -81,6 +83,7 @@ pub(crate) struct FollowWaypointPathCore {
     pub(crate) angle: Real,
     pub(crate) frames_sleeping: UnsignedInt,
     pub(crate) append_goal_position: bool,
+    pub(crate) adjusts_destination: bool,
     pub(crate) goal_position: Coord3D,
     pub(crate) goal_layer: PathfindLayerEnum,
 }
@@ -96,6 +99,7 @@ impl FollowWaypointPathCore {
             angle: 0.0,
             frames_sleeping: 0,
             append_goal_position: false,
+            adjusts_destination: true,
             goal_position: Coord3D::origin(),
             goal_layer: PathfindLayerEnum::Ground,
         }
@@ -109,6 +113,14 @@ impl FollowWaypointPathCore {
     }
 
     pub(crate) fn get_next_waypoint(&mut self, state: &State) -> Option<Arc<Waypoint>> {
+        self.get_next_waypoint_with_control(state, None)
+    }
+
+    pub(crate) fn get_next_waypoint_with_control(
+        &mut self,
+        state: &State,
+        control: Option<&mut crate::state_machine::StateMachineControl>,
+    ) -> Option<Arc<Waypoint>> {
         let current = self.current_waypoint.as_ref()?;
         let link_count = current.get_num_links();
         if link_count == 0 {
@@ -119,7 +131,9 @@ impl FollowWaypointPathCore {
         let which = get_game_logic_random_value(0, (link_count - 1) as i32) as usize;
         let next_id = current.get_link(which)?;
         self.prior_waypoint = self.current_waypoint.clone();
-        if let Ok(machine) = state.get_machine() {
+        if let Some(control) = control {
+            control.set_goal_position(current.position);
+        } else if let Some(machine) = state.machine.as_ref().and_then(|weak| weak.upgrade()) {
             if let Ok(mut guard) = machine.try_lock() {
                 guard.set_goal_position(current.position);
             }
@@ -159,8 +173,20 @@ impl FollowWaypointPathCore {
         &mut self,
         state: &State,
         owner: &Object,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut dyn AiStateRuntime,
         use_group_offsets: bool,
+    ) -> Result<(), String> {
+        let owner_is_projectile = owner.is_kind_of(KindOf::Projectile);
+        self.compute_goal_with_control(state, ai, use_group_offsets, owner_is_projectile, None)
+    }
+
+    pub(crate) fn compute_goal_with_control(
+        &mut self,
+        state: &State,
+        ai: &mut dyn AiStateRuntime,
+        use_group_offsets: bool,
+        owner_is_projectile: bool,
+        control: Option<&mut crate::state_machine::StateMachineControl>,
     ) -> Result<(), String> {
         let Some(current_waypoint) = self.current_waypoint.as_ref() else {
             return Ok(());
@@ -210,24 +236,26 @@ impl FollowWaypointPathCore {
                 }
             }
             if !is_in_region_no_z(&extent, &self.goal_position) {
-                ai.set_adjusts_destination(false);
+                self.adjusts_destination = false;
                 let _ = ai.set_allow_invalid_position(true);
                 self.append_goal_position = true;
             }
         }
 
         if self.has_next_waypoint() {
-            ai.set_adjusts_destination(false);
+            self.adjusts_destination = false;
         } else {
-            ai.set_adjusts_destination(true);
-            if owner.is_kind_of(KindOf::Projectile) {
+            self.adjusts_destination = true;
+            if owner_is_projectile {
                 ai.with_cur_locomotor_mut(&mut |loco| loco.set_precise_z_pos(true));
             }
         }
 
         ai.set_path_extra_distance(self.calc_extra_path_distance())
             .map_err(|e| e.to_string())?;
-        if let Ok(machine) = state.get_machine() {
+        if let Some(control) = control {
+            control.set_goal_position(self.goal_position);
+        } else if let Some(machine) = state.machine.as_ref().and_then(|weak| weak.upgrade()) {
             if let Ok(mut guard) = machine.try_lock() {
                 guard.set_goal_position(self.goal_position);
             }
@@ -236,13 +264,13 @@ impl FollowWaypointPathCore {
         Ok(())
     }
 
-    pub(crate) fn compute_path(&mut self, ai: &mut dyn AIUpdateInterface) -> Result<(), String> {
-        ai.set_movement_target(&self.goal_position).map_err(|err| {
-            format!(
-                "FollowWaypointPathState set_movement_target failed: {}",
-                err
-            )
-        })
+    pub(crate) fn compute_path(&mut self, ai: &mut dyn AiStateRuntime) -> Result<(), String> {
+        // AIStates.cpp:1580-1584: AIInternalMoveToState sets its wait flag,
+        // requests a path using getAdjustsDestination(), then starts movement.
+        let is_final_goal = ai.should_adjust_destination(self.adjusts_destination);
+        ai.request_path(&self.goal_position, is_final_goal)?;
+        ai.friend_starting_move();
+        Ok(())
     }
 
     pub(crate) fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {

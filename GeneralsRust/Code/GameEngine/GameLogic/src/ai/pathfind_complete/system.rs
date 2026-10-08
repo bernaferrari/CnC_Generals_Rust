@@ -35,6 +35,7 @@ pub struct PathfindingSystem {
             bool,
             ObjectID,
             bool, // is_human
+            bool, // downhill-only locomotor policy
         ),
         PathResult,
     >,

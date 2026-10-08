@@ -24,7 +24,7 @@ impl PathfindingSystem {
 
         // Line passability checker — C++ isLinePassable(..., blocked, false).
         let passability = |from: &Coord3D, to: &Coord3D, layer: PathfindLayerEnum| {
-            self.is_line_passable_for_object_inner(
+            self.is_line_passable_for_object_with_ignore_id(
                 obj_id,
                 from,
                 to,
@@ -36,6 +36,7 @@ impl PathfindingSystem {
                 blocked, // consider_transient / blocked ally handling
                 0,
                 true,
+                Some(request.ignore_obstacle_id.unwrap_or(INVALID_ID)),
             )
         };
 
@@ -67,6 +68,29 @@ impl PathfindingSystem {
         let common_layer = CommonPathfindLayerEnum::from_u32(layer as u32);
         pos.z = sample(pos.x, pos.y, common_layer);
         pos
+    }
+
+    /// C++ `Path::computePointOnPath` checks each segment using the node's
+    /// stored path layer. Unlike the compatibility helper, this must not
+    /// silently substitute Ground for bridge/air/other layers.
+    pub fn is_line_passable_for_surfaces_on_layer(
+        &self,
+        from: &Coord3D,
+        to: &Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        layer: PathfindLayerEnum,
+        ignore_obstacle_id: Option<ObjectID>,
+    ) -> bool {
+        let ignore_cells = ignored_obstacle_cells(ignore_obstacle_id);
+        self.is_line_passable(
+            from,
+            to,
+            surfaces,
+            false,
+            layer,
+            ignore_cells.as_ref(),
+            false,
+        )
     }
 
     /// Check if line between points is passable
@@ -112,6 +136,37 @@ impl PathfindingSystem {
         footprint_radius: i32,
         center_in_cell: bool,
     ) -> bool {
+        self.is_line_passable_for_object_with_ignore_id(
+            obj_id,
+            from,
+            to,
+            surfaces,
+            is_crusher,
+            layer,
+            ignore_cells,
+            allow_pinched,
+            consider_transient,
+            footprint_radius,
+            center_in_cell,
+            None,
+        )
+    }
+
+    fn is_line_passable_for_object_with_ignore_id(
+        &self,
+        obj_id: ObjectID,
+        from: &Coord3D,
+        to: &Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        layer: PathfindLayerEnum,
+        ignore_cells: Option<&HashSet<GridCoord>>,
+        allow_pinched: bool,
+        consider_transient: bool,
+        footprint_radius: i32,
+        center_in_cell: bool,
+        ignore_obstacle_id: Option<ObjectID>,
+    ) -> bool {
         let dx = to.x - from.x;
         let dy = to.y - from.y;
         let distance = (dx * dx + dy * dy).sqrt();
@@ -149,7 +204,13 @@ impl PathfindingSystem {
                     acceptable_surfaces: surfaces,
                     ..Default::default()
                 };
-                if !self.check_for_movement(obj_id, &mut info) {
+                let can_move = match ignore_obstacle_id {
+                    Some(ignore_id) => {
+                        self.check_for_movement_with_ignore_id(obj_id, &mut info, ignore_id)
+                    }
+                    None => self.check_for_movement(obj_id, &mut info),
+                };
+                if !can_move {
                     return false;
                 }
                 if info.ally_fixed_count > 0 || info.enemy_fixed {
@@ -276,6 +337,7 @@ impl PathfindingSystem {
         layer: PathfindLayerEnum,
         radius: i32,
         center_in_cell: bool,
+        aircraft_goal_only: Option<bool>,
     ) -> bool {
         // Wave 262: empty dual-world → fail-closed.
         if dual_world_registry_unavailable() {
@@ -285,7 +347,8 @@ impl PathfindingSystem {
         let ignore_cells = ignored_obstacle_cells(request.ignore_obstacle_id);
         let pathfinder = &self.pathfinder;
         let center_cell = ICoord2D::new(cell.x, cell.y);
-        let check_for_aircraft = Self::object_uses_aircraft_goal_reservations(request.object_id);
+        let check_for_aircraft = aircraft_goal_only
+            .unwrap_or_else(|| Self::object_uses_aircraft_goal_reservations(request.object_id));
 
         let mut ok = true;
         Self::for_goal_cells(center_cell, radius, center_in_cell, |coord| {

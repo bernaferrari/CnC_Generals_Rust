@@ -10,10 +10,16 @@ impl AIStateMachineDriver<'_> {
     pub(crate) fn clear(&mut self) {
         self.clear_impl(None);
     }
-    pub(crate) fn clear_with_ai(&mut self, ai: &mut dyn crate::modules::AIUpdateInterface) {
+    pub(crate) fn clear_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) {
         self.clear_impl(Some(ai));
     }
-    fn clear_impl(&mut self, mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>) {
+    fn clear_impl(
+        &mut self,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+    ) {
         // C++ AIStateMachine::clear() calls StateMachine::clear(), not reset().
         if let Some(ai) = ai.as_deref_mut() {
             self.base.clear_with_ai(ai);
@@ -50,7 +56,7 @@ impl AIStateMachineDriver<'_> {
     pub(crate) fn set_state_with_ai(
         &mut self,
         new_state_id: u32,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         let old_id = self.base.get_current_state_id();
         let ret = self
@@ -154,11 +160,11 @@ impl AIStateMachineDriver<'_> {
     ) -> StateReturnType {
         self.set_temporary_state_impl(new_state_id, frame_limit, None)
     }
-    pub(super) fn enter_temporary_with_ai(
+    pub(crate) fn enter_temporary_with_ai(
         &mut self,
         new_state_id: u32,
         frame_limit: u32,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         self.set_temporary_state_impl(new_state_id, frame_limit, Some(ai))
     }
@@ -166,7 +172,7 @@ impl AIStateMachineDriver<'_> {
         &mut self,
         new_state_id: u32,
         frame_limit: u32,
-        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> StateReturnType {
         #[cfg(test)]
         let ordinary = self.base.get_current_state_id();
@@ -245,14 +251,14 @@ impl AIStateMachineDriver<'_> {
     pub(crate) fn ai_do_command_with_ai(
         &mut self,
         params: &AiCommandParams,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<(), crate::ai::AiError> {
         self.ai_do_command_impl(params, Some(ai))
     }
     fn ai_do_command_impl(
         &mut self,
         params: &AiCommandParams,
-        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), crate::ai::AiError> {
         let is_follow_path_cmd = matches!(
             params.cmd,

@@ -8,7 +8,7 @@ use super::registry::get_unit_arc;
 
 impl Drop for UnitAIUpdate {
     fn drop(&mut self) {
-        let Some(unit) = get_unit_arc(self.unit_id) else {
+        let Some(unit) = get_unit_arc(self.runtime.unit_id) else {
             return;
         };
         let Ok(guard) = unit.read() else {

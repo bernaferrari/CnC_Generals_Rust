@@ -15,7 +15,20 @@ struct MoodFixture {
 
 impl MoodFixture {
     fn new(auto_acquire: &str) -> Self {
+        Self::configured(auto_acquire, false)
+    }
+
+    fn with_primary_turret() -> Self {
+        Self::configured("No", true)
+    }
+
+    fn configured(auto_acquire: &str, primary_turret: bool) -> Self {
         definitions();
+        let turret_ini = if primary_turret {
+            " Turret\n  ControlledWeaponSlots = PRIMARY\n  MinIdleScanInterval = 0\n  MaxIdleScanInterval = 0\n End\n"
+        } else {
+            ""
+        };
         // These are loaded AI-rule inputs in a game; a bare AI's INI-backed
         // defaults are zero. Configure the real rule store for this fixture.
         crate::ai::the_ai()
@@ -28,7 +41,7 @@ impl MoodFixture {
                 rules.aggressive_range_modifier = 1.0;
             });
         assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(&format!(
-            "Object MoodQueryAttacker\n KindOf = INFANTRY CAN_ATTACK\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface MoodAI\n AutoAcquireEnemiesWhenIdle = {auto_acquire}\n MoodAttackCheckRate = 2000\n End\n Locomotor = SET_NORMAL EnterCapacityLoco\nEnd\n"
+            "Object MoodQueryAttacker\n KindOf = INFANTRY CAN_ATTACK\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface MoodAI\n AutoAcquireEnemiesWhenIdle = {auto_acquire}\n MoodAttackCheckRate = 2000\n{turret_ini} End\n Locomotor = SET_NORMAL EnterCapacityLoco\nEnd\n"
         )), 1);
         {
             let mut players = ThePlayerList().write().unwrap();
@@ -235,6 +248,8 @@ fn native_mood_query_and_blocked_fields_ignore_locked_foreign_unit() {
         )
         .unwrap(),
     ));
+    crate::object::registry::OBJECT_REGISTRY.register_object(fixture.source_id, &foreign_owner);
+    crate::ai::object_registry::register_legacy_object(&foreign_owner);
     super::super::super::registry::register_unit(fixture.source_id, &foreign);
     let foreign_guard = foreign.write().unwrap();
     let _foreign_object_guard = foreign_owner.write().unwrap();

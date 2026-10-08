@@ -205,7 +205,7 @@ pub trait DockUpdateInterface: Send + Sync {
         &mut self,
         docker: &std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
         drone_id: Option<ObjectID>,
-        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        _ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         let id = docker
             .read()

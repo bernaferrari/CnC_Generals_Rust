@@ -13,12 +13,36 @@ use game_engine::common::thing::module::ModuleInterfaceType;
 use std::io::Cursor;
 use std::sync::Mutex;
 
-#[derive(Debug, Default)]
 struct DockAI {
     distance: f32,
     targets: Vec<Coord3D>,
     endings: usize,
     dock_delay: u32,
+    path: Option<crate::ai::pathfind::Path>,
+    locomotor: crate::locomotor::Locomotor,
+}
+impl std::fmt::Debug for DockAI {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DockAI")
+            .field("distance", &self.distance)
+            .field("targets", &self.targets)
+            .field("has_path", &self.path.is_some())
+            .finish_non_exhaustive()
+    }
+}
+impl Default for DockAI {
+    fn default() -> Self {
+        let mut template = crate::locomotor::LocomotorTemplate::new_infantry("DockTest".into());
+        template.close_enough_dist = 100.0;
+        Self {
+            distance: 0.0,
+            targets: Vec::new(),
+            endings: 0,
+            dock_delay: 0,
+            path: None,
+            locomotor: crate::locomotor::Locomotor::new(Arc::new(template)),
+        }
+    }
 }
 impl AIUpdateInterface for DockAI {
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -34,8 +58,34 @@ impl AIUpdateInterface for DockAI {
         self.targets.push(*target);
         Ok(())
     }
-    fn get_locomotor_distance_to_goal(&self) -> f32 {
+    fn get_locomotor_distance_to_goal(&mut self) -> f32 {
         self.distance
+    }
+    fn request_path(&mut self, destination: &Coord3D, _is_final_goal: bool) -> Result<(), String> {
+        // Deterministic completed Pathfinder response: publish a real AiPath
+        // with the requested final node before movement completion is checked.
+        self.targets.push(*destination);
+        let mut path = crate::ai::pathfind::Path::new();
+        path.append_node(destination, crate::ai::pathfind::PathfindLayerEnum::Ground);
+        self.path = Some(path);
+        Ok(())
+    }
+    fn get_path(&self) -> Option<()> {
+        self.path.as_ref().map(|_| ())
+    }
+    fn get_path_destination(&self) -> Option<Coord3D> {
+        self.path
+            .as_ref()
+            .and_then(|path| path.get_last_node_position().copied())
+    }
+    fn get_path_last_node(&self) -> Option<Coord3D> {
+        self.get_path_destination()
+    }
+    fn with_cur_locomotor(&self, f: &mut dyn FnMut(&crate::locomotor::Locomotor)) {
+        f(&self.locomotor);
+    }
+    fn with_cur_locomotor_mut(&mut self, f: &mut dyn FnMut(&mut crate::locomotor::Locomotor)) {
+        f(&mut self.locomotor);
     }
     fn get_supply_truck_ai_interface(&self) -> Option<&dyn SupplyTruckAIInterface> {
         Some(self)
@@ -87,9 +137,19 @@ impl Fixture {
             data,
             ModuleInterfaceType::UPDATE,
         );
+        // AIDockApproach delegates to AIInternalMoveToState. The fixture must
+        // provide the same required path + current locomotor contract as C++;
+        // zero distance alone cannot complete an absent path.
+        let mut locomotor_template =
+            crate::locomotor::LocomotorTemplate::new_infantry("DockTest".to_string());
+        locomotor_template.close_enough_dist = 100.0;
         let ai = Arc::new(Mutex::new(DockAI {
             distance: 10.0,
-            ..Default::default()
+            targets: Vec::new(),
+            endings: 0,
+            dock_delay: 0,
+            path: None,
+            locomotor: crate::locomotor::Locomotor::new(Arc::new(locomotor_template)),
         }));
         let interface: Arc<Mutex<dyn AIUpdateInterface>> = ai.clone();
         objects[2]

@@ -10,6 +10,7 @@ impl UnitAiData {
         for pos in path {
             snapshot.append_node(pos, AiPathLayer::Ground);
         }
+        snapshot.connect_waypoints_as_optimized();
         self.current_path_snapshot = Some(snapshot);
     }
     pub(super) fn remember_result_layers(&mut self, waypoints: &[Coord3D], layers: &[u8]) {
@@ -59,6 +60,40 @@ impl UnitAiData {
         self.pathfind_goal_cell = ICoord2D::new(-1, -1);
         self.pathfind_goal_layer = ClassicPathLayer::Invalid;
     }
+    pub(super) fn remove_goal_cells_with_system(
+        &mut self,
+        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+        unit_id: ObjectID,
+        radius: i32,
+        center_in_cell: bool,
+    ) {
+        if self.pathfind_goal_cell.x < 0 || self.pathfind_goal_cell.y < 0 {
+            self.pathfind_goal_cell = ICoord2D::new(-1, -1);
+            self.pathfind_goal_layer = ClassicPathLayer::Invalid;
+            return;
+        }
+        let clear_ground = true;
+        let clear_layer = self.pathfind_goal_layer != ClassicPathLayer::Ground
+            && self.pathfind_goal_layer != ClassicPathLayer::Invalid;
+        pathfinder.clear_goal_cells(
+            unit_id,
+            self.pathfind_goal_cell,
+            radius,
+            center_in_cell,
+            self.pathfind_goal_layer,
+            clear_ground,
+            clear_layer,
+        );
+        pathfinder.clear_aircraft_goal_cells(
+            unit_id,
+            self.pathfind_goal_cell,
+            radius,
+            center_in_cell,
+        );
+        self.pathfind_goal_cell = ICoord2D::new(-1, -1);
+        self.pathfind_goal_layer = ClassicPathLayer::Invalid;
+    }
+
     pub(super) fn has_valid_locomotor_surfaces(&self) -> bool {
         self.locomotor_set
             .get_active()

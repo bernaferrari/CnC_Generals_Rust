@@ -5,7 +5,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use crate::ai::states::AICommandParmsStorage;
+use crate::ai::states::{AICommandParmsStorage, AIStateMachineDriver};
 use crate::ai::{AiCommandParams, AiCommandType};
 use crate::common::CommandSourceType;
 use crate::common::{
@@ -15,7 +15,9 @@ use crate::common::{
 use crate::helpers::{
     TheAudio, TheGameLogic, TheGameText, TheInGameUI, game_client_random_value_real,
 };
+use crate::modules::ai_state_runtime::AiStateRuntime;
 use crate::modules::{AIUpdateInterface, HackInternetAIUpdateInterface};
+use crate::object::unit::UnitAiStateRuntime;
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
@@ -406,6 +408,26 @@ impl HackInternetAIUpdate {
         )
     }
 
+    pub fn handle_command_with_runtime(
+        &mut self,
+        params: &AiCommandParams,
+        runtime: &mut UnitAiStateRuntime<'_>,
+        _driver: &mut AIStateMachineDriver<'_>,
+    ) -> bool {
+        if matches!(
+            self.state,
+            HackInternetState::Hacking { .. } | HackInternetState::Packing { .. }
+        ) {
+            self.pending_command = Some(params.clone());
+            if matches!(self.state, HackInternetState::Hacking { .. }) {
+                runtime.set_last_command_source(CommandSourceType::FromAi);
+                self.enter_packing();
+            }
+            return true;
+        }
+        false
+    }
+
     pub fn handle_command(
         &mut self,
         params: &AiCommandParams,
@@ -600,10 +622,13 @@ impl HackInternetAIUpdate {
                 frames_remaining: frames_remaining.saturating_sub(1),
             };
         } else {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
-                owner_guard
-                    .clear_model_condition_state(crate::common::ModelConditionFlags::Packing);
-                });
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                self.owner_id,
+                |owner_guard| {
+                    owner_guard
+                        .clear_model_condition_state(crate::common::ModelConditionFlags::Packing);
+                },
+            );
             self.state = HackInternetState::Idle;
         }
     }
@@ -677,10 +702,8 @@ impl HackInternetAIUpdate {
             Ok(guard) => guard,
             Err(_) => return Ok(()),
         };
-        owner_guard.add_experience_points_with_side_effects(
-            self.data.xp_per_cash_update as i32,
-            true,
-        );
+        owner_guard
+            .add_experience_points_with_side_effects(self.data.xp_per_cash_update as i32, true);
 
         let mut display_money = true;
         if owner_guard.test_status(crate::common::ObjectStatusTypes::Stealthed) {
@@ -692,16 +715,19 @@ impl HackInternetAIUpdate {
         }
 
         if let Some(container_id) = owner_guard.get_contained_by() {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(container_id, |container_guard| {
-                if container_guard.test_status(crate::common::ObjectStatusTypes::Stealthed) {
-                    if !container_guard.is_locally_controlled()
-                        && !container_guard
-                            .test_status(crate::common::ObjectStatusTypes::Detected)
-                    {
-                        display_money = false;
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                container_id,
+                |container_guard| {
+                    if container_guard.test_status(crate::common::ObjectStatusTypes::Stealthed) {
+                        if !container_guard.is_locally_controlled()
+                            && !container_guard
+                                .test_status(crate::common::ObjectStatusTypes::Detected)
+                        {
+                            display_money = false;
+                        }
                     }
-                }
-                });
+                },
+            );
         }
 
         if display_money {
@@ -710,13 +736,16 @@ impl HackInternetAIUpdate {
             pos.z += 20.0;
 
             if let Some(container_id) = owner_guard.get_contained_by() {
-                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(container_id, |container_guard| {
-                    let geom = container_guard.get_geometry_info();
-                    let width = geom.get_major_radius() * 0.3;
-                    let depth = geom.get_minor_radius() * 0.3;
-                    pos.x += game_client_random_value_real(-width, width);
-                    pos.y += game_client_random_value_real(-depth, depth);
-                    });
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                    container_id,
+                    |container_guard| {
+                        let geom = container_guard.get_geometry_info();
+                        let width = geom.get_major_radius() * 0.3;
+                        let depth = geom.get_minor_radius() * 0.3;
+                        pos.x += game_client_random_value_real(-width, width);
+                        pos.y += game_client_random_value_real(-depth, depth);
+                    },
+                );
             }
 
             let _ = TheInGameUI::add_floating_text(&caption, &pos, Color::new(0, 255, 0, 255));

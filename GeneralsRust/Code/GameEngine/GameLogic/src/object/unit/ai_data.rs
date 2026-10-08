@@ -57,6 +57,8 @@ pub(super) struct UnitAiData {
     pub(super) requested_destination: Coord3D,
     pub(super) requested_destination2: Coord3D,
     pub(super) current_path_snapshot: Option<AiPath>,
+    /// C++ AIUpdate `m_pathExtraDistance`; belongs with the serialized path.
+    pub(super) path_extra_distance: Real,
     pub(super) pathfind_goal_cell: ICoord2D,
     pub(super) pathfind_cur_cell: ICoord2D,
     pub(super) pathfind_goal_layer: ClassicPathLayer,
@@ -145,6 +147,7 @@ impl Default for UnitAiData {
             requested_destination: Coord3D::ZERO,
             requested_destination2: Coord3D::ZERO,
             current_path_snapshot: None,
+            path_extra_distance: 0.0,
             pathfind_goal_cell: ICoord2D::new(-1, -1),
             pathfind_cur_cell: ICoord2D::new(-1, -1),
             pathfind_goal_layer: ClassicPathLayer::Invalid,

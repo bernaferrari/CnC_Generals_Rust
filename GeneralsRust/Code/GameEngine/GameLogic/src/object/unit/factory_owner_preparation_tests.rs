@@ -82,9 +82,7 @@ fn actual_factory_preparation_binds_exact_owner_without_legacy_unit_admission() 
         let machine = ai
             .ai_state_machine
             .as_ref()
-            .expect("factory FSM has an exact owner")
-            .lock()
-            .unwrap();
+            .expect("factory FSM has an exact owner");
         assert!(Arc::ptr_eq(&machine.base.get_owner().unwrap(), owner));
         assert_eq!(
             machine.get_current_state_id(),
@@ -109,19 +107,21 @@ fn foreign_same_id_unit_cannot_select_factory_owner_or_receive_its_module_flags(
         )
         .unwrap(),
     ));
+    crate::object::registry::OBJECT_REGISTRY.register_object(id, &decoy);
+    crate::ai::object_registry::register_legacy_object(&decoy);
     super::register_unit(id, &legacy);
     let _unregister = Unregister(id);
     legacy.write().unwrap().auto_acquire_enemies = false;
     let ai = prepare(&actual);
     let ai = ai.lock().unwrap();
-    let machine = ai.ai_state_machine.as_ref().unwrap().lock().unwrap();
+    let machine = ai.ai_state_machine.as_ref().unwrap();
     assert!(Arc::ptr_eq(&machine.base.get_owner().unwrap(), &actual));
     assert!(
         !legacy.read().unwrap().auto_acquire_enemies,
         "foreign Unit mirrors are untouched"
     );
     assert_eq!(
-        ai.data.auto_acquire_enemies_when_idle,
+        ai.runtime.data.auto_acquire_enemies_when_idle,
         crate::object::update::AUTO_ACQUIRE_IDLE
     );
     assert!(
@@ -162,10 +162,11 @@ fn prepared_same_id_data_operates_beside_held_parent_and_object_guards() {
         let mut ai = ai.lock().unwrap();
         let UnitAIUpdate {
             ai_state_machine,
-            data,
+            runtime,
             ..
         } = &mut *ai;
-        let mut parent = ai_state_machine.as_ref().unwrap().lock().unwrap();
+        let data = &mut runtime.data;
+        let mut parent = ai_state_machine.as_mut().unwrap();
         parent.base.set_goal_position(goal);
         parent.base.lock();
         // The actual factory preparation runtime loans its disjoint data.
@@ -185,11 +186,21 @@ fn prepared_same_id_data_operates_beside_held_parent_and_object_guards() {
         assert_eq!(parent.get_current_state_id(), None);
     }
     assert_eq!(
-        first_ai.lock().unwrap().data.get_next_mood_check_time(),
+        first_ai
+            .lock()
+            .unwrap()
+            .runtime
+            .data
+            .get_next_mood_check_time(),
         101
     );
     assert_eq!(
-        second_ai.lock().unwrap().data.get_next_mood_check_time(),
+        second_ai
+            .lock()
+            .unwrap()
+            .runtime
+            .data
+            .get_next_mood_check_time(),
         909
     );
     assert!(super::registry::get_unit_arc(id).is_none());
@@ -204,10 +215,11 @@ fn prepared_data_bump_speed_preserves_cpp_arithmetic_with_parent_held() {
     let mut ai = ai.lock().unwrap();
     let UnitAIUpdate {
         ai_state_machine,
-        data,
+        runtime,
         ..
     } = &mut *ai;
-    let _parent = ai_state_machine.as_ref().unwrap().lock().unwrap();
+    let data = &mut runtime.data;
+    let _parent = ai_state_machine.as_mut().unwrap();
     let _owner = owner.write().unwrap();
     // CPP AIUpdate.cpp:2197-2218/2270-2273: the blocked branch applies 0.95;
     // recovery applies 1.05 and reduces blocked frames to one.
@@ -236,10 +248,11 @@ fn prepared_data_loans_the_actual_locomotor_member_with_parent_held() {
     let mut ai = ai.lock().unwrap();
     let UnitAIUpdate {
         ai_state_machine,
-        data,
+        runtime,
         ..
     } = &mut *ai;
-    let _parent = ai_state_machine.as_ref().unwrap().lock().unwrap();
+    let data = &mut runtime.data;
+    let _parent = ai_state_machine.as_mut().unwrap();
     let _owner = owner.write().unwrap();
     let _ambient = crate::system::game_logic::get_game_logic().lock().unwrap();
     let member = std::ptr::from_ref(data.locomotor_set.get_active().unwrap());
@@ -275,16 +288,18 @@ fn prepared_native_driver_changes_real_goals_and_state_before_idle_sleep_finishe
         ),
     ] {
         let mut ai = handle.lock().unwrap();
-        let parent = ai.ai_state_machine.as_ref().unwrap().clone();
-        let mut machine = parent.lock().unwrap();
+        let parent = std::ptr::from_ref(ai.ai_state_machine.as_ref().unwrap());
+        let native = &mut *ai;
+        let machine = native.ai_state_machine.as_mut().unwrap();
+        let mut runtime = crate::object::unit::UnitAiStateRuntime::new(&mut native.runtime, true);
         assert!(Arc::ptr_eq(&machine.base.get_owner().unwrap(), owner));
         assert_eq!(
-            machine.set_state_with_ai(crate::ai::states::AIStateType::Idle as u32, &mut *ai),
+            machine.set_state_with_ai(crate::ai::states::AIStateType::Idle as u32, &mut runtime),
             crate::state_machine::StateReturnType::Continue
         );
-        ai.set_queue_for_path_time(123);
+        runtime.runtime.set_queue_for_path_time(123);
         let mut called = false;
-        let result = machine.update_state_machine(&mut *ai, |driver, ai, _owner| {
+        let result = machine.update_state_machine(&mut runtime, |driver, ai, _owner| {
             called = true;
             // Hold the exact Object only while the post-body operations run.
             // Completion may read it once this callback has returned.
@@ -307,7 +322,7 @@ fn prepared_native_driver_changes_real_goals_and_state_before_idle_sleep_finishe
             assert_eq!(driver.get_goal_position().unwrap(), goal);
             assert!(driver.is_busy());
             assert!(!driver.is_idle());
-            assert_eq!(ai.data.queue_for_path_frame, 0);
+            assert_eq!(ai.runtime.data.queue_for_path_frame, 0);
         });
         assert!(
             called,
@@ -337,7 +352,7 @@ fn prepared_native_driver_changes_real_goals_and_state_before_idle_sleep_finishe
             0,
             "outgoing Idle did not leave a sleep deadline on Busy"
         );
-        assert!(Arc::ptr_eq(ai.ai_state_machine.as_ref().unwrap(), &parent));
+        assert!(std::ptr::eq(machine, parent));
     }
     assert_eq!(
         first_ai
@@ -345,8 +360,6 @@ fn prepared_native_driver_changes_real_goals_and_state_before_idle_sleep_finishe
             .unwrap()
             .ai_state_machine
             .as_ref()
-            .unwrap()
-            .lock()
             .unwrap()
             .get_goal_object_id(),
         0xA1_F0_30
@@ -357,8 +370,6 @@ fn prepared_native_driver_changes_real_goals_and_state_before_idle_sleep_finishe
             .unwrap()
             .ai_state_machine
             .as_ref()
-            .unwrap()
-            .lock()
             .unwrap()
             .get_goal_object_id(),
         0xA1_F0_31
@@ -373,10 +384,12 @@ fn prepared_native_driver_preserves_cpp_logical_lock_during_commands() {
     let owner = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
     let handle = prepare(&owner);
     let mut ai = handle.lock().unwrap();
-    let parent = ai.ai_state_machine.as_ref().unwrap().clone();
-    let mut machine = parent.lock().unwrap();
-    machine.set_state_with_ai(crate::ai::states::AIStateType::Wait as u32, &mut *ai);
-    let result = machine.update_state_machine(&mut *ai, |driver, ai, _owner| {
+    let parent = std::ptr::from_ref(ai.ai_state_machine.as_ref().unwrap());
+    let native = &mut *ai;
+    let machine = native.ai_state_machine.as_mut().unwrap();
+    let mut runtime = crate::object::unit::UnitAiStateRuntime::new(&mut native.runtime, true);
+    machine.set_state_with_ai(crate::ai::states::AIStateType::Wait as u32, &mut runtime);
+    let result = machine.update_state_machine(&mut runtime, |driver, ai, _owner| {
         let _held_owner = owner.write().unwrap();
         let command = crate::ai::AiCommandParams::new(
             crate::ai::AiCommandType::Busy,
@@ -405,7 +418,7 @@ fn prepared_native_driver_preserves_cpp_logical_lock_during_commands() {
         Some(crate::ai::states::AIStateType::Busy as u32)
     );
     assert!(!machine.is_locked());
-    assert!(Arc::ptr_eq(ai.ai_state_machine.as_ref().unwrap(), &parent));
+    assert!(std::ptr::eq(machine, parent));
 }
 
 #[test]
@@ -426,11 +439,14 @@ fn prepared_cpp_blocked_speed_default_is_zero_and_inert() {
     for (owner, handle) in [(&first, &first_ai), (&second, &second_ai)] {
         let ai = handle.lock().unwrap();
         let _held_owner = owner.write().unwrap();
-        let machine = ai.ai_state_machine.as_ref().unwrap().lock().unwrap();
+        let machine = ai.ai_state_machine.as_ref().unwrap();
         // AIUpdate.cpp:218-220: only the blocked cap starts at zero.
         assert_eq!(ai.get_cur_max_blocked_speed(), 0.0);
-        assert_eq!(ai.data.blocked_frames, 0);
-        assert_eq!(ai.data.bump_speed_limit, crate::modules::FAST_AS_POSSIBLE);
+        assert_eq!(ai.runtime.data.blocked_frames, 0);
+        assert_eq!(
+            ai.runtime.data.bump_speed_limit,
+            crate::modules::FAST_AS_POSSIBLE
+        );
         assert_eq!(ai.get_desired_speed(), crate::modules::FAST_AS_POSSIBLE);
         assert_eq!(machine.get_current_state_id(), None);
         assert!(Arc::ptr_eq(&machine.base.get_owner().unwrap(), owner));
@@ -445,16 +461,17 @@ fn prepared_cpp_blocked_speed_initial_cap_limits_then_recovers() {
     let owner = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
     let handle = prepare(&owner);
     let mut ai = handle.lock().unwrap();
-    let parent = ai.ai_state_machine.as_ref().unwrap().clone();
-    let _held_parent = parent.lock().unwrap();
+    let native = &mut *ai;
+    let _held_parent = native.ai_state_machine.as_mut().unwrap();
+    let data = &mut native.runtime.data;
     let _held_owner = owner.write().unwrap();
-    ai.data.blocked_frames = 7;
+    data.blocked_frames = 7;
     // AIUpdate.cpp:2197-2218/2270-2273, evaluated against the constructor cap.
-    assert_eq!(ai.apply_bump_speed_limit(80.0, true), 0.0);
-    assert_eq!(ai.data.bump_speed_limit, 0.0);
-    assert_eq!(ai.data.blocked_frames, 7);
-    assert_eq!(ai.apply_bump_speed_limit(80.0, false), 80.0 * 0.2 * 1.05);
-    assert_eq!(ai.data.blocked_frames, 1);
+    assert_eq!(data.apply_bump_speed_limit(80.0, true), 0.0);
+    assert_eq!(data.bump_speed_limit, 0.0);
+    assert_eq!(data.blocked_frames, 7);
+    assert_eq!(data.apply_bump_speed_limit(80.0, false), 80.0 * 0.2 * 1.05);
+    assert_eq!(data.blocked_frames, 1);
 }
 
 #[test]
@@ -490,8 +507,6 @@ fn prepared_cpp_blocked_speed_snapshot_keeps_fresh_recomputed_cap() {
         &loaded
             .ai_state_machine
             .as_ref()
-            .unwrap()
-            .lock()
             .unwrap()
             .base
             .get_owner()

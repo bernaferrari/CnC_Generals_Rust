@@ -7,6 +7,18 @@ impl PathfindingSystem {
     /// 2) hierarchical path probe → clearPassableFlags; on failure setAllPassable  
     /// 3) internalFindPath A*
     pub fn find_path(&mut self, request: PathRequest) -> PathResult {
+        self.find_path_with_movement_policy(request, None)
+    }
+
+    /// Path search using locomotor policy already borrowed from the AI that
+    /// owns the queued path request. `None` retains the ID-based boundary.
+    pub(crate) fn find_path_with_movement_policy(
+        &mut self,
+        request: PathRequest,
+        downhill_only: Option<bool>,
+    ) -> PathResult {
+        let downhill_only =
+            downhill_only.unwrap_or_else(|| Self::object_is_downhill_only(request.object_id));
         // Check cache first
         let cache_key = (
             GridCoord::from_world(&request.from),
@@ -18,6 +30,7 @@ impl PathfindingSystem {
             request.move_allies,
             request.ignore_obstacle_id.unwrap_or(INVALID_ID),
             request.is_human,
+            downhill_only,
         );
 
         {
@@ -81,7 +94,7 @@ impl PathfindingSystem {
 
         let _ = zone_join;
 
-        let result = self.find_path_internal(request);
+        let result = self.find_path_internal_with_downhill_policy(request, Some(downhill_only));
 
         // Cache the result
         {
@@ -100,6 +113,14 @@ impl PathfindingSystem {
     /// Internal path finding implementation
     /// Matches C++ Pathfinder::internalFindPath() at AIPathfind.cpp:6438-6694
     pub(crate) fn find_path_internal(&mut self, request: PathRequest) -> PathResult {
+        self.find_path_internal_with_downhill_policy(request, None)
+    }
+
+    fn find_path_internal_with_downhill_policy(
+        &mut self,
+        request: PathRequest,
+        downhill_policy: Option<bool>,
+    ) -> PathResult {
         let start = GridCoord::from_world(&request.from);
         let goal = GridCoord::from_world(&request.to);
         let ignore_cells = ignored_obstacle_cells(request.ignore_obstacle_id);
@@ -165,7 +186,11 @@ impl PathfindingSystem {
                 acceptable_surfaces: request.surfaces,
                 ..Default::default()
             };
-            if !self.check_for_movement(obj_id, &mut info) {
+            if !self.check_for_movement_with_ignore_id(
+                obj_id,
+                &mut info,
+                request.ignore_obstacle_id.unwrap_or(INVALID_ID),
+            ) {
                 return 0;
             }
             if info.ally_fixed_count > 0 {
@@ -184,7 +209,8 @@ impl PathfindingSystem {
         };
 
         // Downhill-only locomotors (C++ isDownhillOnly) — reject uphill A* steps.
-        let downhill_only = Self::object_is_downhill_only(request.object_id);
+        let downhill_only =
+            downhill_policy.unwrap_or_else(|| Self::object_is_downhill_only(request.object_id));
         let ground_h = |cell: GridCoord| -> f32 {
             let wx = (cell.x as f32 + 0.5) * PATHFIND_CELL_SIZE_F;
             let wy = (cell.y as f32 + 0.5) * PATHFIND_CELL_SIZE_F;
@@ -225,7 +251,11 @@ impl PathfindingSystem {
                 acceptable_surfaces: request.surfaces,
                 ..Default::default()
             };
-            if !self.check_for_movement(obj_id, &mut info) {
+            if !self.check_for_movement_with_ignore_id(
+                obj_id,
+                &mut info,
+                request.ignore_obstacle_id.unwrap_or(INVALID_ID),
+            ) {
                 return false;
             }
             if info.enemy_fixed || info.ally_fixed_count > 0 {
@@ -339,7 +369,16 @@ impl PathfindingSystem {
     /// Hierarchical passable dance, then A* from start tracking the closest
     /// valid destination cell to the goal (screen distance + cost factor).
     /// Exact goal success returns buildActualPath; else path to closest cell.
-    pub fn find_closest_path(&mut self, mut request: PathRequest) -> PathResult {
+    pub fn find_closest_path(&mut self, request: PathRequest) -> PathResult {
+        self.find_closest_path_with_movement_policy(request, None, None)
+    }
+
+    pub(crate) fn find_closest_path_with_movement_policy(
+        &mut self,
+        mut request: PathRequest,
+        downhill_only: Option<bool>,
+        aircraft_goal_only: Option<bool>,
+    ) -> PathResult {
         const COST_ORTHO: i32 = 10;
         const COST_DIAG: i32 = 14;
         // C++ COST_TO_DISTANCE_FACTOR = 1/10 → SQR = 1/100.
@@ -352,11 +391,21 @@ impl PathfindingSystem {
 
         let goal_grid = GridCoord::from_world(&request.to);
         let (radius, center_in_cell) = Self::compute_radius_and_center(request.unit_radius);
-        let aircraft_goal_only = Self::object_uses_aircraft_goal_reservations(request.object_id);
+        let aircraft_goal_only = aircraft_goal_only
+            .unwrap_or_else(|| Self::object_uses_aircraft_goal_reservations(request.object_id));
+        let downhill_only =
+            downhill_only.unwrap_or_else(|| Self::object_is_downhill_only(request.object_id));
 
         if aircraft_goal_only {
             let goal_layer = self.get_layer_for_coord(goal_grid);
-            if self.check_destination(&request, goal_grid, goal_layer, radius, center_in_cell) {
+            if self.check_destination(
+                &request,
+                goal_grid,
+                goal_layer,
+                radius,
+                center_in_cell,
+                Some(aircraft_goal_only),
+            ) {
                 let adjusted = self.world_pos_for_coord(goal_grid, goal_layer);
                 return Self::destination_only_result(request.from, adjusted, goal_layer);
             }
@@ -569,7 +618,7 @@ impl PathfindingSystem {
         let from = request.from;
         request.to = to_pos;
         // Use internal path to avoid hierarchical precheck doubling work.
-        let result = self.find_path_internal(request);
+        let result = self.find_path_internal_with_downhill_policy(request, Some(downhill_only));
         if result.success {
             result
         } else if aircraft_goal_only {

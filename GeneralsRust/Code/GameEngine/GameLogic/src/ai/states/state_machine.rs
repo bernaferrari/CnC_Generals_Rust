@@ -128,7 +128,7 @@ impl AIStateMachineData {
         phase: &'static str,
         state: u32,
         ordinary: Option<u32>,
-        ai: Option<&dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) {
         // Direct owned-field queries only. is_moving/is_idle would reborrow
         // this very FSM; observing it must never change callback behavior.
@@ -172,7 +172,7 @@ impl std::fmt::Debug for AIStateMachine {
 mod driver;
 
 impl AIStateMachine {
-    fn driver(&mut self) -> AIStateMachineDriver<'_> {
+    pub(crate) fn driver(&mut self) -> AIStateMachineDriver<'_> {
         AIStateMachineDriver::new(&mut self.base, &mut self.data)
     }
 }
@@ -649,7 +649,10 @@ impl AIStateMachine {
         self.driver().clear()
     }
 
-    pub(crate) fn clear_with_ai(&mut self, ai: &mut dyn crate::modules::AIUpdateInterface) {
+    pub(crate) fn clear_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) {
         self.driver().clear_with_ai(ai)
     }
 
@@ -675,7 +678,7 @@ impl AIStateMachine {
     pub(crate) fn set_state_with_ai(
         &mut self,
         new_state_id: u32,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         self.driver().set_state_with_ai(new_state_id, ai)
     }
@@ -826,7 +829,7 @@ impl AIStateMachine {
         &mut self,
         state: u32,
         frames: u32,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         self.driver().enter_temporary_with_ai(state, frames, ai)
     }
@@ -860,6 +863,23 @@ impl AIStateMachine {
         owner: &mut dyn std::any::Any,
         mut after_body: impl FnMut(&mut AIStateMachineDriver<'_>, &mut A, &mut dyn std::any::Any),
     ) -> StateReturnType {
+        self.update_state_machine_with_owner_fallible(ai, owner, |driver, ai, owner| {
+            after_body(driver, ai, owner);
+            Ok(())
+        })
+        .expect("infallible state-machine callback cannot fail")
+    }
+
+    fn update_state_machine_with_owner_fallible<A: StateMachineAI + ?Sized>(
+        &mut self,
+        ai: &mut A,
+        owner: &mut dyn std::any::Any,
+        mut after_body: impl FnMut(
+            &mut AIStateMachineDriver<'_>,
+            &mut A,
+            &mut dyn std::any::Any,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>,
+    ) -> Result<StateReturnType, Box<dyn std::error::Error + Send + Sync>> {
         #[cfg(test)]
         let ordinary = self.base.get_current_state_id();
         if let Some(temp_state_id) = self.data.temporary_state_id {
@@ -876,35 +896,36 @@ impl AIStateMachine {
                 state.bind_goal_polygon(goal_polygon);
                 state.bind_goal_waypoint(goal_waypoint);
             }
-            if let Some(mut status) =
-                self.base
-                    .update_registered_with_control(temp_state_id, ai.as_ai_update(), owner)
-            {
-                after_body(&mut self.driver(), ai, owner);
+            if let Some(mut status) = self.base.update_registered_with_control(
+                temp_state_id,
+                ai.as_state_runtime(),
+                owner,
+            ) {
+                after_body(&mut self.driver(), ai, owner)?;
                 if self.data.temporary_state_frame_end < TheGameLogic::get_frame() {
                     if status == StateReturnType::Continue {
                         status = StateReturnType::Success;
                     }
                 }
                 if status == StateReturnType::Continue {
-                    return status;
+                    return Ok(status);
                 }
                 #[cfg(test)]
                 self.data.observe(
                     "before_completion_exit",
                     temp_state_id,
                     ordinary,
-                    Some(ai.as_ai_update()),
+                    Some(ai.as_state_runtime()),
                 );
                 if let Some(state) = self.base.get_state_mut(temp_state_id) {
-                    state.on_exit_with_ai(StateExitType::Normal, ai.as_ai_update());
+                    state.on_exit_with_ai(StateExitType::Normal, ai.as_state_runtime());
                 }
                 #[cfg(test)]
                 self.data.observe(
                     "after_completion_exit",
                     temp_state_id,
                     ordinary,
-                    Some(ai.as_ai_update()),
+                    Some(ai.as_state_runtime()),
                 );
             }
             self.data.temporary_state_id = None;
@@ -913,7 +934,7 @@ impl AIStateMachine {
                 "completion_cleared",
                 temp_state_id,
                 ordinary,
-                Some(ai.as_ai_update()),
+                Some(ai.as_state_runtime()),
             );
         }
 
@@ -925,37 +946,45 @@ impl AIStateMachine {
             "before_ordinary_update",
             ordinary.unwrap_or(INVALID_STATE_ID),
             ordinary,
-            Some(ai.as_ai_update()),
+            Some(ai.as_state_runtime()),
         );
         self.classify_terminal_context(owner);
         let data = &mut self.data;
         let mut update = self.base.begin_update_with_ai_and_owner(ai, owner);
-        if let StateUpdate::Body(step) = &mut update {
+        let after_body_result = if let StateUpdate::Body(step) = &mut update {
             step.with_driver(|base, ai, owner| {
                 let mut driver = AIStateMachineDriver::new(base, data);
-                after_body(&mut driver, ai, owner);
-            });
-        }
-        update.finish()
+                after_body(&mut driver, ai, owner)
+            })
+        } else {
+            Ok(())
+        };
+        after_body_result?;
+        Ok(update.finish())
     }
 
     /// Drives a native step with a mandatory same-frame terminal-command sink.
     pub(crate) fn update_with_synchronous_commands<A: StateMachineAI + ?Sized>(
         &mut self,
         ai: &mut A,
-        mut dispatch: impl FnMut(&mut AIStateMachineDriver<'_>, &mut A, TerminalAttackCommand),
-    ) -> StateReturnType {
+        mut dispatch: impl FnMut(
+            &mut AIStateMachineDriver<'_>,
+            &mut A,
+            TerminalAttackCommand,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>,
+    ) -> Result<StateReturnType, Box<dyn std::error::Error + Send + Sync>> {
         let mut context = TerminalCommandContext::new();
-        self.update_state_machine_with_owner(ai, &mut context, |driver, ai, owner| {
+        self.update_state_machine_with_owner_fallible(ai, &mut context, |driver, ai, owner| {
             let context = owner
                 .downcast_mut::<TerminalCommandContext>()
                 .expect("synchronous command update owns its typed context");
             if let Some(state) = context.state.take() {
-                driver.set_state_with_ai(state as u32, ai.as_ai_update());
+                driver.set_state_with_ai(state as u32, ai.as_state_runtime());
             }
             if let Some(command) = context.take() {
-                dispatch(driver, ai, command);
+                dispatch(driver, ai, command)?;
             }
+            Ok(())
         })
     }
 
@@ -984,7 +1013,7 @@ impl AIStateMachine {
     pub(crate) fn ai_do_command_with_ai(
         &mut self,
         params: &AiCommandParams,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<(), crate::ai::AiError> {
         self.driver().ai_do_command_with_ai(params, ai)
     }

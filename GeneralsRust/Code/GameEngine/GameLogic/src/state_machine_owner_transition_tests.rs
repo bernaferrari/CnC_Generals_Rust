@@ -27,6 +27,10 @@ impl crate::modules::AIUpdateInterface for BorrowedAi {
         true
     }
 
+    fn get_current_goal_path_index(&self) -> i32 {
+        73029 // Distinct owned-runtime identity marker; default interfaces return 0.
+    }
+
     fn is_idle(&self) -> bool {
         false
     }
@@ -71,24 +75,32 @@ impl StateImplementation for OwnerState {
 
     fn update_with_ai_and_owner(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _machine_locked: bool,
         owner: &mut dyn Any,
     ) -> StateReturnType {
-        assert!(ai.is_moving(), "the caller's AI borrow must be forwarded");
+        assert_eq!(
+            ai.get_current_goal_path_index(),
+            73029,
+            "the caller's runtime borrow must be forwarded"
+        );
         Self::record(owner, self.label);
         self.result
     }
 
     fn on_enter_with_ai_and_owner(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _goal: crate::common::ObjectID,
         _position: Coord3D,
         _waypoint: Option<crate::waypoint::WaypointId>,
         owner: &mut dyn Any,
     ) -> StateReturnType {
-        assert!(ai.is_moving(), "entry receives the same AI borrow");
+        assert_eq!(
+            ai.get_current_goal_path_index(),
+            73029,
+            "entry receives the same runtime borrow"
+        );
         Self::record(owner, self.label);
         StateReturnType::Continue
     }
@@ -96,20 +108,24 @@ impl StateImplementation for OwnerState {
     fn on_exit_with_ai_and_owner(
         &mut self,
         _status: StateExitType,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         owner: &mut dyn Any,
     ) {
-        assert!(ai.is_moving(), "exit receives the same AI borrow");
+        assert_eq!(
+            ai.get_current_goal_path_index(),
+            73029,
+            "exit receives the same runtime borrow"
+        );
         Self::record(owner, "exit");
     }
 
     fn on_exit_after_unlock(
         &mut self,
         _status: StateExitType,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         owner: &mut dyn Any,
     ) {
-        assert!(ai.is_some_and(|ai| ai.is_moving()));
+        assert!(ai.is_some_and(|ai| ai.get_current_goal_path_index() == 73029));
         Self::record(owner, "after_unlock");
     }
 

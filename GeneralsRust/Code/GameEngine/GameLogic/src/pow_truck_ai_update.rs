@@ -10,8 +10,10 @@ use crate::ai::object_registry::get_legacy_object;
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::{INVALID_ID, LOGICFRAMES_PER_SECOND, ObjectID, Real, UnsignedInt};
 use crate::helpers::{TheGameLogic, TheGameText, TheGlobalData, TheInGameUI, ThePartitionManager};
+use crate::modules::ai_state_runtime::AiStateRuntime;
 use crate::modules::{AIUpdateInterface, POWTruckAIUpdateInterface};
 use crate::object::Object;
+use crate::object::unit::UnitAiStateRuntime;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
@@ -454,6 +456,62 @@ impl POWTruckAIUpdate {
         ai: &mut dyn AIUpdateInterface,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.private_return_prisoners(owner_id, prison_id, cmd_source, ai)
+    }
+
+    #[cfg(feature = "allow_surrender")]
+    pub fn handle_pick_up_prisoner_with_runtime(
+        &mut self,
+        owner_id: ObjectID,
+        prisoner_id: ObjectID,
+        cmd_source: CommandSourceType,
+        runtime: &mut UnitAiStateRuntime<'_>,
+        driver: &mut crate::ai::states::AIStateMachineDriver<'_>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+        let prisoner = TheGameLogic::find_object_by_id(prisoner_id);
+        if self
+            .validate_target(owner_id, prisoner.as_ref(), cmd_source)
+            .is_err()
+        {
+            return Ok(());
+        }
+        self.set_ai_mode(POWTruckAIMode::Automatic);
+        self.set_task(POWTruckTask::CollectingTarget, Some(prisoner_id));
+        if let Some(prisoner_legacy) = get_legacy_object(prisoner_id) {
+            let _ =
+                runtime.ignore_obstacle(prisoner_legacy.read().ok().map(|guard| guard.get_id()));
+        }
+        AiStateRuntime::with_cur_locomotor_mut(runtime, &mut |loco| loco.set_ultra_accurate(true));
+        let mut params = AiCommandParams::new(AiCommandType::MoveToObject, cmd_source);
+        params.obj = Some(prisoner_id);
+        runtime.dispatch_command_with_driver(&params, driver)?;
+        Ok(())
+    }
+
+    #[cfg(feature = "allow_surrender")]
+    pub fn handle_return_prisoners_with_runtime(
+        &mut self,
+        owner_id: ObjectID,
+        prison_id: Option<ObjectID>,
+        cmd_source: CommandSourceType,
+        runtime: &mut UnitAiStateRuntime<'_>,
+        driver: &mut crate::ai::states::AIStateMachineDriver<'_>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if matches!(cmd_source, CommandSourceType::FromPlayer) {
+            self.set_ai_mode(POWTruckAIMode::Automatic);
+        }
+        let prison_id = prison_id.or_else(|| self.find_best_prison(owner_id));
+        let Some(prison_id) = prison_id else {
+            return Ok(());
+        };
+        self.set_task(POWTruckTask::ReturningPrisoners, Some(prison_id));
+        AiStateRuntime::with_cur_locomotor_mut(runtime, &mut |loco| loco.set_ultra_accurate(true));
+        let mut params = AiCommandParams::new(AiCommandType::Dock, cmd_source);
+        params.obj = Some(prison_id);
+        runtime.dispatch_command_with_driver(&params, driver)?;
+        Ok(())
     }
 
     fn load_prisoner_internal(

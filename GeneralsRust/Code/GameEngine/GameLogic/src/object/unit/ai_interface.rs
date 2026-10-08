@@ -8,8 +8,8 @@ use super::registry::get_unit_arc;
 
 impl AIUpdateInterface for UnitAIUpdate {
     fn set_final_position(&mut self, position: &Coord3D) {
-        self.data.final_position = *position;
-        self.data.do_final_position = false;
+        self.runtime.data.final_position = *position;
+        self.runtime.data.do_final_position = false;
     }
     #[cfg(test)]
     fn unit_ai_for_test(&mut self) -> Option<&mut UnitAIUpdate> {
@@ -222,6 +222,13 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::do_pathfind(self)
     }
 
+    fn do_pathfind_with_pathfinder(
+        &mut self,
+        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+    ) {
+        UnitAIUpdate::do_pathfind_with_pathfinder(self, pathfinder)
+    }
+
     fn is_waiting_for_path(&self) -> bool {
         UnitAIUpdate::is_waiting_for_path(self)
     }
@@ -372,19 +379,19 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::get_path_last_node(self)
     }
     fn installed_path_last_layer(&self) -> Option<u8> {
-        self.data.installed_path_last_layer()
+        self.runtime.data.installed_path_last_layer()
     }
     fn get_retry_path(&self) -> bool {
-        self.data.get_retry_path()
+        self.runtime.data.get_retry_path()
     }
     fn set_locomotor_goal_position_on_path(&mut self) {
-        self.data.set_locomotor_goal_position_on_path()
+        self.runtime.data.set_locomotor_goal_position_on_path()
     }
     fn get_adjusts_destination(&self) -> bool {
         if !self.is_allowed_to_adjust_destination() {
             return false;
         }
-        let Some(unit) = get_unit_arc(self.unit_id) else {
+        let Some(unit) = get_unit_arc(self.runtime.unit_id) else {
             return true;
         };
         let Ok(guard) = unit.read() else {
@@ -406,7 +413,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::peek_cached_point_on_path(self)
     }
 
-    fn get_locomotor_distance_to_goal(&self) -> Real {
+    fn get_locomotor_distance_to_goal(&mut self) -> Real {
         UnitAIUpdate::get_locomotor_distance_to_goal(self)
     }
 
@@ -529,7 +536,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn is_recruitable(&self) -> bool {
-        self.data.is_recruitable()
+        self.runtime.data.is_recruitable()
     }
 
     fn get_goal_object_id(&self) -> ObjectID {

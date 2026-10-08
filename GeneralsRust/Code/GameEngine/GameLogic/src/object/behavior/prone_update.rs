@@ -7,8 +7,8 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, ModelConditionFlags, ModuleData, ObjectID, ObjectStatusMaskType, Real,
-    UnsignedInt, XferVersion,
+    AsciiString, ModelConditionFlags, ModuleData, ObjectStatusMaskType, Real, UnsignedInt,
+    XferVersion,
 };
 use crate::modules::{
     BehaviorModuleInterface, UPDATE_SLEEP_NONE, UpdateModuleInterface, UpdateSleepTime,
@@ -64,7 +64,7 @@ const PRONE_UPDATE_FIELDS: &[FieldParse<ProneUpdateModuleData>] = &[FieldParse {
 
 /// ProneUpdate module - Makes units go prone when damaged
 pub struct ProneUpdate {
-    object_id: ObjectID,
+    owner: Weak<RwLock<GameObject>>,
     module_data: Arc<ProneUpdateModuleData>,
     /// UpdateModule scheduler state serialized by the C++ base class.
     next_call_frame_and_phase: UnsignedInt,
@@ -83,11 +83,7 @@ impl ProneUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            owner: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             prone_frames: 0,
@@ -107,28 +103,19 @@ impl ProneUpdate {
 
     /// Start prone visual and gameplay effects
     fn start_prone_effects(&self) {
-        if let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(mut me) = me_arc.write() {
-                // Set NO_ATTACK status so unit can't fire while prone
-                me.set_status(ObjectStatusMaskType::NO_ATTACK, true);
-                me.set_model_condition_state(ModelConditionFlags::PRONE);
-            }
+        let Some(me_arc) = self.owner.upgrade() else {
+            return;
+        };
+        if let Ok(mut me) = me_arc.write() {
+            // Set NO_ATTACK status so unit can't fire while prone
+            me.set_status(ObjectStatusMaskType::NO_ATTACK, true);
+            me.set_model_condition_state(ModelConditionFlags::PRONE);
         }
     }
 
     /// Stop prone visual and gameplay effects
     fn stop_prone_effects(&self) -> bool {
-        let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        let Some(me_arc) = self.owner.upgrade() else {
             return true;
         };
         let Ok(mut me) = me_arc.write() else {
@@ -291,13 +278,70 @@ mod tests {
     use super::*;
 
     #[test]
+    fn prone_effects_keep_exact_owner_and_do_not_rebind_after_owner_expires() {
+        const SAME_ID: crate::common::ObjectID = 0x5052_4F4E;
+        let owner = Arc::new(RwLock::new(GameObject::new_test(SAME_ID, 100.0)));
+        let foreign = Arc::new(RwLock::new(GameObject::new_test(SAME_ID, 200.0)));
+        crate::object::registry::OBJECT_REGISTRY.register_object(SAME_ID, &foreign);
+        let module_data: Arc<dyn ModuleData> = Arc::new(ProneUpdateModuleData::default());
+
+        let mut prone = ProneUpdate::new(Arc::clone(&owner), module_data.clone()).unwrap();
+        prone.go_prone(1);
+        assert!(
+            owner
+                .read()
+                .unwrap()
+                .test_status(crate::common::ObjectStatusTypes::NoAttack)
+        );
+        assert!(
+            !foreign
+                .read()
+                .unwrap()
+                .test_status(crate::common::ObjectStatusTypes::NoAttack)
+        );
+        prone.update_simple();
+        assert!(
+            !owner
+                .read()
+                .unwrap()
+                .test_status(crate::common::ObjectStatusTypes::NoAttack)
+        );
+        assert!(
+            !foreign
+                .read()
+                .unwrap()
+                .test_status(crate::common::ObjectStatusTypes::NoAttack)
+        );
+
+        let expiring_owner = Arc::new(RwLock::new(GameObject::new_test(SAME_ID, 300.0)));
+        let mut expired = ProneUpdate::new(Arc::clone(&expiring_owner), module_data).unwrap();
+        drop(expiring_owner);
+        expired.go_prone(1);
+        assert!(
+            !foreign
+                .read()
+                .unwrap()
+                .test_status(crate::common::ObjectStatusTypes::NoAttack)
+        );
+        expired.update_simple();
+        assert!(
+            !foreign
+                .read()
+                .unwrap()
+                .test_status(crate::common::ObjectStatusTypes::NoAttack)
+        );
+
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(SAME_ID);
+    }
+
+    #[test]
     fn prone_update_exposes_typed_control_interface() {
         let data = Arc::new(ProneUpdateModuleData {
             damage_to_frames_ratio: 2.0,
             ..ProneUpdateModuleData::default()
         });
         let behavior = ProneUpdate {
-            object_id: crate::common::INVALID_ID,
+            owner: Weak::new(),
             module_data: data.clone(),
             next_call_frame_and_phase: 0,
             prone_frames: 0,

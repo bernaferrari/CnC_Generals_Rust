@@ -16,7 +16,7 @@ impl StateImplementation for ControlState {
     fn update_with_control(
         &mut self,
         control: &mut StateMachineControl,
-        _ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        _ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         machine_locked: bool,
         _owner: &mut dyn Any,
     ) -> StateReturnType {
@@ -44,7 +44,7 @@ struct TargetState;
 impl StateImplementation for TargetState {
     fn on_enter_with_ai(
         &mut self,
-        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        _ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         goal_id: crate::common::ObjectID,
         goal_pos: Coord3D,
     ) -> StateReturnType {

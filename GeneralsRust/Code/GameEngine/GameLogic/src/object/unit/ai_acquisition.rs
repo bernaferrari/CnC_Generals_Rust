@@ -12,18 +12,18 @@ use crate::object::update::ai_update_interface::{
 
 impl UnitAIUpdate {
     pub(super) fn can_auto_acquire(&self) -> bool {
-        if self.owner.is_some() {
+        if self.runtime.owner.is_some() {
             // AIUpdate.h:565 returns the whole mask as Bool, including NO.
-            return self.data.auto_acquire_enemies_when_idle != 0;
+            return self.runtime.data.auto_acquire_enemies_when_idle != 0;
         }
-        get_unit_arc(self.unit_id)
+        get_unit_arc(self.runtime.unit_id)
             .and_then(|unit| unit.read().ok().map(|guard| guard.auto_acquire_enemies))
             .unwrap_or(false)
     }
 
     pub(super) fn can_auto_acquire_while_stealthed(&self) -> bool {
-        if self.owner.is_some() {
-            let Some(owner) = self.owner.as_ref().and_then(Weak::upgrade) else {
+        if self.runtime.owner.is_some() {
+            let Some(owner) = self.runtime.owner.as_ref().and_then(Weak::upgrade) else {
                 return false;
             };
             return owner
@@ -31,7 +31,7 @@ impl UnitAIUpdate {
                 .ok()
                 .is_some_and(|source| self.can_auto_acquire_while_stealthed_for_source(&source));
         }
-        get_unit_arc(self.unit_id)
+        get_unit_arc(self.runtime.unit_id)
             .and_then(|unit| {
                 unit.read()
                     .ok()
@@ -41,13 +41,8 @@ impl UnitAIUpdate {
     }
 
     fn can_auto_acquire_while_stealthed_for_source(&self, source: &crate::object::Object) -> bool {
-        // AIUpdate.cpp:4459 checks the real stealth module before the mask.
-        source.get_stealth().is_some_and(|handle| {
-            handle
-                .lock()
-                .ok()
-                .is_some_and(|stealth| stealth.is_granted_by_special_power())
-        }) || self.data.auto_acquire_enemies_when_idle & AUTO_ACQUIRE_IDLE_STEALTHED != 0
+        self.runtime
+            .can_auto_acquire_while_stealthed_for_source(source)
     }
 
     pub(super) fn get_next_mood_target_id(
@@ -60,160 +55,25 @@ impl UnitAIUpdate {
 
     /// An in-state caller supplies the current State's real virtual classifier.
     /// External callers obtain it from the machine. No classification is cached.
+    /// An in-state caller supplies the current State's real virtual classifier.
+    /// External callers obtain it from the machine. No classification is cached.
     pub(super) fn get_next_mood_target_for_state(
         &mut self,
         called_by_ai: bool,
         called_during_idle: bool,
         is_attacking: Option<bool>,
     ) -> ObjectID {
-        if self.owner.is_none() {
-            return self.get_legacy_mood_target(called_by_ai, called_during_idle);
-        }
-        let Some(owner) = self.owner.as_ref().and_then(Weak::upgrade) else {
-            return INVALID_ID;
-        };
-        let Ok(source) = owner.read() else {
-            return INVALID_ID;
-        };
-        if source.is_effectively_dead() || source.test_status(ObjectStatusTypes::IsUsingAbility) {
-            return INVALID_ID;
-        }
-        let mask = self.data.auto_acquire_enemies_when_idle;
-        if called_during_idle && mask & AUTO_ACQUIRE_IDLE == 0 {
-            return INVALID_ID;
-        }
-        if mask & AUTO_ACQUIRE_IDLE_NOT_WHILE_ATTACKING != 0
-            && is_attacking.unwrap_or_else(|| self.is_attacking())
-        {
-            return INVALID_ID;
-        }
-        if called_during_idle && source.test_status(ObjectStatusTypes::Stealthed) {
-            if !self.can_auto_acquire_while_stealthed_for_source(&source) {
-                let passenger_may_fire = source
-                    .get_contained_by()
-                    .and_then(|id| {
-                        crate::object::registry::OBJECT_REGISTRY.with_object(id, |container| {
-                            container.get_contain().is_some_and(|contain| {
-                                contain.lock().ok().is_some_and(|contain| {
-                                    contain.is_passenger_allowed_to_fire(None)
-                                })
-                            })
-                        })
-                    })
-                    .unwrap_or(false);
-                if !passenger_may_fire {
-                    return INVALID_ID;
-                }
-            }
-        }
-        let now = TheGameLogic::get_frame();
-        if called_by_ai {
-            let common_target = source
-                .get_team()
-                .and_then(|team| {
-                    let team = team.read().ok()?;
-                    team.attack_common_target()
-                        .then(|| team.get_team_target_object())
-                })
-                .unwrap_or(INVALID_ID);
-            if common_target != INVALID_ID && common_target != source.get_id() {
-                let can_attack = crate::object::registry::OBJECT_REGISTRY
-                    .with_object(common_target, |target| {
-                        matches!(
-                            source.get_able_to_attack_specific_object_for_objects(
-                                crate::attack::AbleToAttackType::NewTarget,
-                                target,
-                                CommandSourceType::FromAi,
-                            ),
-                            crate::attack::CanAttackResult::Possible
-                                | crate::attack::CanAttackResult::PossibleAfterMoving
-                        )
-                    })
-                    .unwrap_or(false);
-                if can_attack
-                    && matches!(
-                        self.data.attitude,
-                        AIAttitudeType::Normal
-                            | AIAttitudeType::Defensive
-                            | AIAttitudeType::Aggressive
-                    )
-                {
-                    return common_target;
-                }
-            }
-            if now < self.data.next_mood_check_time {
-                return INVALID_ID;
-            }
-            let rate = self.data.mood_attack_check_rate_frames as i32;
-            self.data.next_mood_check_time = now.wrapping_add(rate as u32);
-            if self.data.randomly_offset_mood_check {
-                let half_rate = rate >> 1;
-                let offset = game_engine::common::random_value::get_game_logic_random_value(
-                    -half_rate, half_rate,
-                );
-                self.data.next_mood_check_time =
-                    self.data.next_mood_check_time.wrapping_add(offset as u32);
-                self.data.randomly_offset_mood_check = false;
-            }
-        }
-        let ai_store = the_ai();
-        let Ok(ai) = ai_store.read() else {
-            return INVALID_ID;
-        };
-        let mut range = ai.get_adjusted_vision_range_for_source(
-            &source,
-            vision_factors::OWNER_TYPE | vision_factors::MOOD,
-            Some(self.data.attitude),
-        );
-        if range <= 0.0 {
-            return INVALID_ID;
-        }
-        if let Some(container_id) = source.get_contained_by() {
-            if let Some(radius) = crate::object::registry::OBJECT_REGISTRY
-                .with_object(container_id, |container| {
-                    container.get_geometry_info().get_bounding_circle_radius()
-                })
-            {
-                range += radius;
-            }
-        }
-        let controller_is_human = source.with_controlling_player(|player| {
-            player.get_player_type() == crate::player::PlayerType::Human
-        });
-        let human = controller_is_human == Some(true);
-        if controller_is_human == Some(false) && self.data.attitude == AIAttitudeType::Passive {
-            if source.get_body_module().is_none() {
-                return INVALID_ID;
-            }
-            let Some(damage) = source.get_last_damage_info() else {
-                return INVALID_ID;
-            };
-            if damage.input.damage_type != crate::damage::DamageType::Healing {
-                return crate::object::registry::OBJECT_REGISTRY
-                    .get_object(damage.input.source_id)
-                    .map(|_| damage.input.source_id)
-                    .unwrap_or(INVALID_ID);
-            }
-        }
-        let rules = ai.get_ai_data();
-        let mut qualifiers = search_qualifiers::CAN_ATTACK;
-        if rules.attack_uses_line_of_sight && source.is_kind_of(KindOf::AttackNeedsLineOfSight) {
-            qualifiers |= search_qualifiers::CAN_SEE;
-        }
-        if rules.attack_ignore_insignificant_buildings {
-            qualifiers |= search_qualifiers::IGNORE_INSIGNIFICANT_BUILDINGS;
-        }
-        if mask & AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS != 0 {
-            qualifiers |= search_qualifiers::ATTACK_BUILDINGS;
-        }
-        if called_by_ai && human {
-            qualifiers |= search_qualifiers::WITHIN_ATTACK_RANGE | search_qualifiers::UNFOGGED;
-        }
-        let priorities = ai.attack_priority_info_for_source(&source);
-        ai.find_closest_enemy_for_source(&source, range, qualifiers, priorities.as_ref(), None)
-            .ok()
-            .flatten()
-            .unwrap_or(INVALID_ID)
+        let machine = self.ai_state_machine.as_ref();
+        let owner_exists = self.runtime.owner.is_some();
+        let unit_id = self.runtime.unit_id;
+        let mut parent_is_attacking =
+            || super::ai_runtime::is_attacking_for_runtime(machine, owner_exists, unit_id);
+        self.runtime.get_next_mood_target_for_state(
+            called_by_ai,
+            called_during_idle,
+            is_attacking,
+            &mut parent_is_attacking,
+        )
     }
 
     // Explicit standalone adapter; native Objects never enter the Unit lookup.
@@ -222,70 +82,7 @@ impl UnitAIUpdate {
         use_existing_target: bool,
         _ignore_attacked: bool,
     ) -> ObjectID {
-        // Wave 258: empty dual-world → invalid id.
-
-        if dual_world_registry_unavailable() {
-            return INVALID_ID;
-        }
-
-        let Some(unit) = get_unit_arc(self.unit_id) else {
-            return INVALID_ID;
-        };
-        let Ok(guard) = unit.read() else {
-            return INVALID_ID;
-        };
-        if !guard.can_auto_acquire_now() {
-            return INVALID_ID;
-        }
-
-        let max_range = guard.engagement_range;
-        if use_existing_target {
-            if let Some(existing_id) = self.get_current_victim() {
-                if let Some(existing_arc) =
-                    crate::object::registry::OBJECT_REGISTRY.get_object(existing_id)
-                {
-                    if let Ok(existing_guard) = existing_arc.read() {
-                        let relationship = guard
-                            .base_arc()
-                            .read()
-                            .ok()
-                            .map(|base| base.relationship_to(&existing_guard))
-                            .unwrap_or(Relationship::Neutral);
-                        if relationship == Relationship::Enemies {
-                            let target_pos = *existing_guard.get_position();
-                            let self_pos = guard.get_position();
-                            let dx = target_pos.x - self_pos.x;
-                            let dy = target_pos.y - self_pos.y;
-                            let dist = (dx * dx + dy * dy).sqrt();
-                            if dist <= max_range && guard.can_detect_target(&existing_guard, dist) {
-                                return existing_id;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        let ai_store = the_ai();
-        let Ok(ai) = ai_store.read() else {
-            return INVALID_ID;
-        };
-        let ai_data = ai.get_ai_data();
-
-        let mut qualifiers = search_qualifiers::CAN_ATTACK;
-        if ai_data.attack_uses_line_of_sight {
-            qualifiers |= search_qualifiers::CAN_SEE;
-        }
-        if ai_data.attack_ignore_insignificant_buildings {
-            qualifiers |= search_qualifiers::IGNORE_INSIGNIFICANT_BUILDINGS;
-        }
-        if guard.auto_acquire_attack_buildings {
-            qualifiers |= search_qualifiers::ATTACK_BUILDINGS;
-        }
-
-        ai.find_closest_enemy(guard.get_id(), max_range, qualifiers, None, None)
-            .ok()
-            .flatten()
-            .unwrap_or(INVALID_ID)
+        self.runtime
+            .get_legacy_mood_target(use_existing_target, _ignore_attacked)
     }
 }

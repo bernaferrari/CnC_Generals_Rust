@@ -77,19 +77,17 @@ fn path() -> [Coord3D; 3] {
         Coord3D::new(120.0, 30.0, 0.0),
     ]
 }
-fn machine(ai: &mut dyn AIUpdateInterface) -> Arc<Mutex<crate::ai::states::AIStateMachine>> {
+fn machine(ai: &mut dyn AIUpdateInterface) -> &mut crate::ai::states::AIStateMachine {
     ai.unit_ai_for_test()
         .expect("actual cached UnitAI")
         .ai_state_machine
-        .as_ref()
+        .as_mut()
         .unwrap()
-        .clone()
 }
 fn seeded_path(ai: &mut dyn AIUpdateInterface) {
     use crate::ai::states::follow_path::AIFollowExitProductionPathState;
     use crate::state_machine::cpp_state::CppStateAdapter;
-    let handle = machine(ai);
-    let mut machine = handle.lock().unwrap();
+    let machine = machine(ai);
     let state = machine
         .base
         .get_state_mut(AIStateType::FollowExitProductionPath as u32)
@@ -105,8 +103,7 @@ fn seeded_path(ai: &mut dyn AIUpdateInterface) {
 }
 fn entered(ai: &mut dyn AIUpdateInterface) {
     ai.do_quick_exit(&path());
-    let handle = machine(ai);
-    let mut state = handle.lock().unwrap();
+    let state = machine(ai);
     let registered = state
         .base
         .get_state_mut(AIStateType::FollowExitProductionPath as u32)
@@ -201,7 +198,7 @@ fn installed_failed_entry_cleans_follow_path_synchronously() {
         ai.friend_starting_move();
         ai.set_temporary_state(AIStateType::FollowPath, 300);
         assert_eq!(
-            machine(&mut *ai).lock().unwrap().get_temporary_state(),
+            machine(&mut *ai).get_temporary_state(),
             None,
             "empty registered FollowPath fails entry and is cleared"
         );

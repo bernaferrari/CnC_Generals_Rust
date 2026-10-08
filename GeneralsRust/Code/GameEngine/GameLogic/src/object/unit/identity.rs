@@ -6,7 +6,9 @@ use super::imports::*;
 use super::types::*;
 
 pub struct Unit {
-    /// Base object id (resolve for the duration of an op)
+    /// Exact base object admitted with this unit. IDs remain the serialized and
+    /// lookup identity, but never select this unit's own base object.
+    pub(super) base_object: Arc<RwLock<Object>>,
     pub(super) object_id: ObjectID,
 
     /// Movement and pathfinding
@@ -105,19 +107,19 @@ impl Unit {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let locomotor_set = LocomotorSet::new();
 
+        let object_id = base_object
+            .read()
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Unit base object lock poisoned during construction",
+                )
+            })?
+            .get_id();
+
         Ok(Unit {
-            object_id: {
-                let id = base_object
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(INVALID_ID);
-                if id != INVALID_ID {
-                    crate::object::registry::OBJECT_REGISTRY.register_object(id, &base_object);
-                    crate::ai::object_registry::register_legacy_object(&base_object);
-                }
-                id
-            },
+            base_object,
+            object_id,
             locomotor_set,
             movement_state: MovementState::Idle,
             target_position: None,
@@ -239,15 +241,10 @@ impl Unit {
         self.object_id
     }
     pub(super) fn get_base_object(&self) -> Option<Arc<RwLock<Object>>> {
-        if self.object_id == INVALID_ID {
-            return None;
-        }
-        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
-            .or_else(|| crate::ai::object_registry::get_legacy_object(self.object_id))
+        Some(Arc::clone(&self.base_object))
     }
     pub(super) fn base_arc(&self) -> Arc<RwLock<Object>> {
-        self.get_base_object()
-            .expect("Unit base object unavailable — register via Unit::new / OBJECT_REGISTRY")
+        Arc::clone(&self.base_object)
     }
     pub fn get_id(&self) -> ObjectID {
         self.object_id
@@ -291,4 +288,118 @@ pub trait UnitExt {
     /// Get unit-specific data if this object is a unit
     fn as_unit(&self) -> Option<&Unit>;
     fn as_unit_mut(&mut self) -> Option<&mut Unit>;
+}
+
+#[cfg(test)]
+mod base_object_owner_tests {
+    use super::*;
+    use crate::common::{Coord3D, DefaultThingTemplate};
+    use crate::object::registry::OBJECT_REGISTRY;
+    use std::sync::{Arc, RwLock, Weak};
+
+    const SAME_ID: ObjectID = 0x7F10_1001;
+
+    struct RegistryCleanup(ObjectID);
+
+    impl Drop for RegistryCleanup {
+        fn drop(&mut self) {
+            OBJECT_REGISTRY.unregister_object(self.0);
+            crate::ai::object_registry::unregister_legacy_object(self.0);
+        }
+    }
+
+    #[test]
+    fn unit_keeps_exact_base_owner_without_constructor_publication() {
+        let _serial = crate::object::registry::test_isolation_lock()
+            .lock()
+            .unwrap();
+        assert!(OBJECT_REGISTRY.get_object(SAME_ID).is_none());
+        assert!(crate::ai::object_registry::get_legacy_object(SAME_ID).is_none());
+
+        // A preexisting ambient row is a canary: constructing either unit must
+        // leave it alone, even though both native owners use the same ObjectID.
+        let ambient = Arc::new(RwLock::new(Object::new_test(SAME_ID, 50.0)));
+        OBJECT_REGISTRY.register_object(SAME_ID, &ambient);
+        crate::ai::object_registry::register_legacy_object(&ambient);
+        let _cleanup = RegistryCleanup(SAME_ID);
+
+        let first = Arc::new(RwLock::new(Object::new_test(SAME_ID, 100.0)));
+        let second = Arc::new(RwLock::new(Object::new_test(SAME_ID, 200.0)));
+        first
+            .write()
+            .unwrap()
+            .set_position(&Coord3D::new(11.0, 0.0, 0.0))
+            .unwrap();
+        second
+            .write()
+            .unwrap()
+            .set_position(&Coord3D::new(22.0, 0.0, 0.0))
+            .unwrap();
+        let first_weak = Arc::downgrade(&first);
+        let second_weak = Arc::downgrade(&second);
+        let template = DefaultThingTemplate::new("UnitBaseOwnerTest".to_string());
+
+        let mut first_unit = Unit::new(Arc::clone(&first), &template).unwrap();
+        let mut second_unit = Unit::new(Arc::clone(&second), &template).unwrap();
+        assert!(Arc::ptr_eq(
+            &OBJECT_REGISTRY.get_object(SAME_ID).unwrap(),
+            &ambient
+        ));
+        assert!(Arc::ptr_eq(
+            &crate::ai::object_registry::get_legacy_object(SAME_ID).unwrap(),
+            &ambient,
+        ));
+        first_unit.set_orientation(0.25).unwrap();
+        second_unit.set_orientation(1.25).unwrap();
+        drop(first);
+        drop(second);
+
+        assert_eq!(first_unit.get_orientation(), 0.25);
+        assert_eq!(second_unit.get_orientation(), 1.25);
+        assert_eq!(first_unit.object_id(), SAME_ID);
+        assert_eq!(second_unit.object_id(), SAME_ID);
+        let first_base = first_unit.base_object().unwrap();
+        let second_base = second_unit.base_object().unwrap();
+        assert!(Weak::ptr_eq(&first_weak, &Arc::downgrade(&first_base)));
+        assert!(Weak::ptr_eq(&second_weak, &Arc::downgrade(&second_base)));
+        assert_eq!(first_base.read().unwrap().get_position().x, 11.0);
+        assert_eq!(second_base.read().unwrap().get_position().x, 22.0);
+        assert!(Arc::ptr_eq(
+            &OBJECT_REGISTRY.get_object(SAME_ID).unwrap(),
+            &ambient
+        ));
+        assert!(Arc::ptr_eq(
+            &crate::ai::object_registry::get_legacy_object(SAME_ID).unwrap(),
+            &ambient,
+        ));
+
+        // Registry retirement does not detach either unit from its own object.
+        OBJECT_REGISTRY.unregister_object(SAME_ID);
+        crate::ai::object_registry::unregister_legacy_object(SAME_ID);
+        assert_eq!(
+            first_unit
+                .base_object()
+                .unwrap()
+                .read()
+                .unwrap()
+                .get_position()
+                .x,
+            11.0
+        );
+        assert_eq!(
+            second_unit
+                .base_object()
+                .unwrap()
+                .read()
+                .unwrap()
+                .get_position()
+                .x,
+            22.0
+        );
+        drop(first_base);
+        drop(second_base);
+        drop(first_unit);
+        assert!(first_weak.upgrade().is_none());
+        assert!(second_weak.upgrade().is_some());
+    }
 }

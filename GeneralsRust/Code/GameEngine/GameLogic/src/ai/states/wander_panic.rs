@@ -1,5 +1,7 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
+use crate::modules::ai_state_runtime::AiStateRuntime;
+
 use super::attack::*;
 use super::attack_machine::*;
 use super::dead::*;
@@ -45,8 +47,8 @@ use crate::damage::DamageInfo;
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
 use crate::locomotor::LocomotorAppearance;
 use crate::modules::{
-    AIUpdateInterface, AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt,
-    ContainWant, ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
+    AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt, ContainWant,
+    ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
 };
 use crate::object::production::AIFreeToExitType;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -95,7 +97,7 @@ impl AIWanderState {
         }
     }
 
-    pub(crate) fn update_group_offset(&mut self, ai: &dyn AIUpdateInterface) {
+    pub(crate) fn update_group_offset(&mut self, ai: &dyn AiStateRuntime) {
         ai.with_cur_locomotor(&mut |loco| {
             let factor = loco.template.wander_width_factor;
             if factor > 0.0 {
@@ -128,7 +130,7 @@ impl StateImplementation for AIWanderState {
 
     fn on_enter_with_waypoint(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         goal_id: crate::common::ObjectID,
         goal_pos: Coord3D,
         waypoint: Option<crate::waypoint::WaypointId>,
@@ -172,7 +174,7 @@ impl StateImplementation for AIWanderState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         let status = self.move_to.update_with_ai(ai);
         let Some(owner) = self.base.get_machine_owner() else {
@@ -252,7 +254,7 @@ impl CppState for AIWanderState {
 
     fn cpp_on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.wander_enter(Some(ai))
     }
@@ -263,7 +265,7 @@ impl CppState for AIWanderState {
 
     fn cpp_on_update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.wander_update(Some(ai))
     }
@@ -277,7 +279,7 @@ impl CppState for AIWanderState {
 impl AIWanderState {
     fn wander_enter(
         &mut self,
-        mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let machine = self.base.get_machine()?;
         let waypoint_id = machine
@@ -299,17 +301,17 @@ impl AIWanderState {
                 .map_err(|_| "wander owner lock poisoned".to_string())?;
             let ai_arc;
             let mut locked_ai;
-            let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+            let ai_guard: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime =
                 if let Some(ai) = borrowed.as_mut() {
                     *ai
                 } else {
                     ai_arc = owner_guard
                         .get_ai_update_interface()
-                        .ok_or_else(|| "wander missing AIUpdateInterface".to_string())?;
+                        .ok_or_else(|| "wander missing AiStateRuntime".to_string())?;
                     locked_ai = ai_arc
                         .lock()
                         .map_err(|_| "wander AI lock poisoned".to_string())?;
-                    &mut *locked_ai
+                    &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *locked_ai)
                 };
             if self.core.current_waypoint.is_none() {
                 return Ok(StateReturnType::Failure);
@@ -334,7 +336,7 @@ impl AIWanderState {
 
     fn wander_update(
         &mut self,
-        mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let has_ai = borrowed.is_some();
         let status = if let Some(ai) = borrowed.as_mut() {
@@ -351,17 +353,17 @@ impl AIWanderState {
             .map_err(|_| "wander owner lock poisoned".to_string())?;
         let ai_arc;
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+        let ai_guard: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime =
             if let Some(ai) = borrowed.as_mut() {
                 *ai
             } else {
                 ai_arc = owner_guard
                     .get_ai_update_interface()
-                    .ok_or_else(|| "wander missing AIUpdateInterface".to_string())?;
+                    .ok_or_else(|| "wander missing AiStateRuntime".to_string())?;
                 locked_ai = ai_arc
                     .lock()
                     .map_err(|_| "wander AI lock poisoned".to_string())?;
-                &mut *locked_ai
+                &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *locked_ai)
             };
         let _ = has_ai;
         if owner_guard.is_kind_of(KindOf::CanBeRepulsed) {
@@ -429,7 +431,7 @@ impl AIPanicState {
         }
     }
 
-    pub(crate) fn update_group_offset(&mut self, ai: &dyn AIUpdateInterface) {
+    pub(crate) fn update_group_offset(&mut self, ai: &dyn AiStateRuntime) {
         ai.with_cur_locomotor(&mut |loco| {
             let factor = loco.template.wander_width_factor;
             if factor > 0.0 {
@@ -462,7 +464,7 @@ impl StateImplementation for AIPanicState {
 
     fn on_enter_with_waypoint(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         goal_id: crate::common::ObjectID,
         _goal_pos: Coord3D,
         waypoint: Option<crate::waypoint::WaypointId>,
@@ -507,7 +509,7 @@ impl StateImplementation for AIPanicState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         let status = self.move_to.update_with_ai(ai);
         let Some(owner) = self.base.get_machine_owner() else {
@@ -571,7 +573,7 @@ impl CppState for AIPanicState {
 
     fn cpp_on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.panic_enter(Some(ai))
     }
@@ -582,7 +584,7 @@ impl CppState for AIPanicState {
 
     fn cpp_on_update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.panic_update(Some(ai))
     }
@@ -601,7 +603,7 @@ impl CppState for AIPanicState {
 impl AIPanicState {
     fn panic_enter(
         &mut self,
-        mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let machine = self.base.get_machine()?;
         let waypoint_id = machine
@@ -623,17 +625,17 @@ impl AIPanicState {
                 .map_err(|_| "panic owner lock poisoned".to_string())?;
             let ai_arc;
             let mut locked_ai;
-            let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+            let ai_guard: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime =
                 if let Some(ai) = borrowed.as_mut() {
                     *ai
                 } else {
                     ai_arc = owner_guard
                         .get_ai_update_interface()
-                        .ok_or_else(|| "panic missing AIUpdateInterface".to_string())?;
+                        .ok_or_else(|| "panic missing AiStateRuntime".to_string())?;
                     locked_ai = ai_arc
                         .lock()
                         .map_err(|_| "panic AI lock poisoned".to_string())?;
-                    &mut *locked_ai
+                    &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *locked_ai)
                 };
             if self.core.current_waypoint.is_none() {
                 return Ok(StateReturnType::Failure);
@@ -667,7 +669,7 @@ impl AIPanicState {
 
     fn panic_update(
         &mut self,
-        mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let status = if let Some(ai) = borrowed.as_mut() {
             self.move_to.cpp_on_update_with_ai(*ai)?
@@ -683,17 +685,17 @@ impl AIPanicState {
             .map_err(|_| "panic owner lock poisoned".to_string())?;
         let ai_arc;
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+        let ai_guard: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime =
             if let Some(ai) = borrowed.as_mut() {
                 *ai
             } else {
                 ai_arc = owner_guard
                     .get_ai_update_interface()
-                    .ok_or_else(|| "panic missing AIUpdateInterface".to_string())?;
+                    .ok_or_else(|| "panic missing AiStateRuntime".to_string())?;
                 locked_ai = ai_arc
                     .lock()
                     .map_err(|_| "panic AI lock poisoned".to_string())?;
-                &mut *locked_ai
+                &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *locked_ai)
             };
         if owner_guard.is_kind_of(KindOf::CanBeRepulsed) {
             self.timer -= 1;

@@ -2,6 +2,7 @@
 
 #![allow(unused_imports)]
 
+use super::UnitAiStateRuntime;
 use super::ai_data::UnitAiData;
 use super::ai_helpers::*;
 use super::identity::Unit;
@@ -31,42 +32,41 @@ pub(crate) struct UnitAiComponents {
 
 /// Basic AI update interface that bridges AI commands to unit orders.
 pub struct UnitAIUpdate {
-    /// Owning Object ID. Legacy order/pose paths still use UNIT_REGISTRY;
-    /// locomotors, current victim and mood timer belong to this runtime.
+    /// Parent FSM remains separate so a driver can borrow it alongside runtime data.
+    pub(super) ai_state_machine: Option<AIStateMachine>,
+    /// Simulation data/controllers that do not own parent-FSM control.
+    pub(super) runtime: UnitAiRuntime,
+}
+
+/// The exact non-parent state owned by one AIUpdate instance.
+///
+/// Field declaration order here is Rust ownership only; `UnitAIUpdate::xfer` keeps
+/// its explicit historical serialization order. Identity stays with this runtime.
+pub(super) struct UnitAiRuntime {
     pub(super) unit_id: ObjectID,
-    /// Constructor-bound identity, never reselected by a global ID lookup.
     pub(super) owner: Option<Weak<RwLock<Object>>>,
-    /// C++ AIUpdateInterface::m_currentVictimID; owned by this AI runtime.
     pub(super) current_victim_id: ObjectID,
     pub(super) crate_created: ObjectID,
-    pub(super) supply_truck_ai: Option<SupplyTruckAIUpdate>,
-    pub(super) chinook_ai: Option<ChinookAIUpdate>,
-    pub(super) jet_ai: Option<JetAIUpdate>,
-    pub(super) worker_ai: Option<WorkerAIUpdate>,
-    pub(super) dozer_ai: Option<DozerAIUpdate>,
-    #[cfg(feature = "allow_surrender")]
-    pub(super) pow_truck_ai: Option<POWTruckAIUpdate>,
-    pub(super) railed_transport_ai: Option<RailedTransportAIUpdate>,
-    pub(super) hack_internet_ai: Option<HackInternetAIUpdate>,
-    pub(super) assault_transport_ai: Option<AssaultTransportAIUpdate>,
-    pub(super) deliver_payload_ai: Option<DeliverPayloadAIUpdate>,
-    pub(super) transport_ai: Option<TransportAIUpdate>,
-    pub(super) deploy_style_ai: Option<DeployStyleAIUpdate>,
-    pub(super) wander_ai: Option<WanderAIUpdate>,
+    pub(super) components: UnitAiComponents,
     pub(super) dock_machine: Option<AIDockMachine>,
-    pub(super) ai_state_machine: Option<Arc<Mutex<AIStateMachine>>>,
     pub(super) data: UnitAiData,
 }
 
 impl std::fmt::Debug for UnitAIUpdate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UnitAIUpdate")
-            .field("can_path_through_units", &self.data.can_path_through_units)
-            .field("allow_chase", &self.data.allow_chase)
-            .field("last_command_source", &self.data.last_command_source)
-            .field("current_command", &self.data.current_command)
-            .field("pending_command", &self.data.pending_command)
-            .field("ai_dead", &self.data.ai_dead)
+            .field(
+                "can_path_through_units",
+                &self.runtime.data.can_path_through_units,
+            )
+            .field("allow_chase", &self.runtime.data.allow_chase)
+            .field(
+                "last_command_source",
+                &self.runtime.data.last_command_source,
+            )
+            .field("current_command", &self.runtime.data.current_command)
+            .field("pending_command", &self.runtime.data.pending_command)
+            .field("ai_dead", &self.runtime.data.ai_dead)
             .finish()
     }
 }
@@ -129,92 +129,51 @@ impl UnitAIUpdate {
         owner: Option<Weak<RwLock<Object>>>,
         components: UnitAiComponents,
     ) -> Self {
-        let ai_state_machine = owner.as_ref().map(|owner| {
-            Arc::new(Mutex::new(AIStateMachine::new(
-                owner.clone(),
-                "AIStateMachine",
-            )))
-        });
+        let ai_state_machine = owner
+            .as_ref()
+            .map(|owner| AIStateMachine::new(owner.clone(), "AIStateMachine"));
 
         Self {
-            unit_id,
-            owner,
-            current_victim_id: INVALID_ID,
-            crate_created: crate::common::INVALID_ID,
-            supply_truck_ai: components.supply_truck_ai,
-            chinook_ai: components.chinook_ai,
-            jet_ai: components.jet_ai,
-            worker_ai: components.worker_ai,
-            dozer_ai: components.dozer_ai,
-            #[cfg(feature = "allow_surrender")]
-            pow_truck_ai: components.pow_truck_ai,
-            railed_transport_ai: components.railed_transport_ai,
-            hack_internet_ai: components.hack_internet_ai,
-            assault_transport_ai: components.assault_transport_ai,
-            deliver_payload_ai: components.deliver_payload_ai,
-            transport_ai: components.transport_ai,
-            deploy_style_ai: components.deploy_style_ai,
-            wander_ai: components.wander_ai,
-            dock_machine: None,
             ai_state_machine,
-            data: UnitAiData::default(),
+            runtime: UnitAiRuntime {
+                unit_id,
+                owner,
+                current_victim_id: INVALID_ID,
+                crate_created: crate::common::INVALID_ID,
+                components,
+                dock_machine: None,
+                data: UnitAiData::default(),
+            },
         }
     }
-    /// Enter `state_id`. The machine stays on `self` so `on_enter` can see it.
-    /// Do not `take` it and do not swap in an empty shell: `on_enter` writes
-    /// through the `Arc` other owners hold, and a shell would discard those writes.
+    /// Enter a state through the owned machine and a disjoint runtime loan.
     pub(super) fn enter_ai_state(&mut self, state_id: u32) {
-        let Some(state_machine) = self.ai_state_machine.clone() else {
+        let Some(machine) = self.ai_state_machine.as_mut() else {
             return;
         };
-        let mut guard = state_machine.lock().unwrap_or_else(|err| err.into_inner());
-        let _ = guard.base.set_state_entering(state_id, Some(self));
+        let mut runtime = super::UnitAiStateRuntime::new(&mut self.runtime, true);
+        let _ = machine.driver().set_state_with_ai(state_id, &mut runtime);
     }
     pub(super) fn push_guard_target_type(&mut self, target_type: GuardTargetType) {
-        self.data.push_guard_target_type(target_type)
+        self.runtime.data.push_guard_target_type(target_type)
     }
     pub(super) fn clear_guard_target_type(&mut self) {
-        self.data.clear_guard_target_type()
+        self.runtime.clear_guard_target_type()
     }
     pub(super) fn friend_get_turret_sync(&self) -> TurretType {
-        self.data.friend_get_turret_sync()
+        self.runtime.friend_get_turret_sync()
     }
     pub(super) fn friend_set_turret_sync(&mut self, turret: TurretType) {
-        self.data.friend_set_turret_sync(turret)
+        self.runtime.friend_set_turret_sync(turret)
     }
     pub(super) fn owner_object_id(&self) -> Option<ObjectID> {
-        if self.unit_id != INVALID_ID {
-            Some(self.unit_id)
-        } else {
-            None
-        }
+        self.runtime.owner_object_id()
     }
     pub(super) fn wake_up_now(&self) {
-        let Some(owner_id) = self.owner_object_id() else {
-            return;
-        };
-        let now = TheGameLogic::get_frame();
-        if let Some(object) = crate::object::registry::OBJECT_REGISTRY.get_object(owner_id) {
-            if let Ok(guard) = object.read() {
-                guard.reschedule_ai_update(now.saturating_add(1));
-            }
-        }
+        self.runtime.wake_up_now()
     }
     pub(super) fn xfer_locomotor_set_state(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        // C++ AIUpdate.cpp:5130-5145 clears only the receiving set before load.
-        if xfer.is_loading() {
-            self.data.locomotor_set.clear();
-        }
-        let mut current_name = self.data.locomotor_set.active_name().map(str::to_owned);
-        self.data
-            .locomotor_set
-            .xfer_self_and_cur_loco_ptr(xfer, &mut current_name)?;
-        let mut current_set = self.data.current_locomotor_set as i32;
-        xfer.xfer_int(&mut current_set).map_err(|e| e.to_string())?;
-        if xfer.is_loading() {
-            self.data.current_locomotor_set = locomotor_set_type_from_i32(current_set)?;
-        }
-        Ok(())
+        self.runtime.xfer_locomotor_set_state(xfer)
     }
     pub fn apply_ai_update_module_data(
         &mut self,
@@ -228,49 +187,51 @@ impl UnitAIUpdate {
     }
 
     fn apply_module_data(&mut self, data: &AIUpdateModuleData, legacy_unit: bool) {
-        self.data.surrender_duration_frames = data.surrender_duration_frames();
-        self.data.auto_acquire_enemies_when_idle = data.auto_acquire_enemies_when_idle();
-        self.data.mood_attack_check_rate_frames = data.mood_attack_check_rate();
-        self.data.forbid_player_commands = data.forbid_player_commands();
-        self.data.turrets_linked = data.turrets_linked();
-        self.data.turret_primary_data = data.turret_primary().cloned();
-        self.data.turret_secondary_data = data.turret_secondary().cloned();
-        self.data.locomotor_sets = data.locomotor_sets().clone();
+        self.runtime.data.surrender_duration_frames = data.surrender_duration_frames();
+        self.runtime.data.auto_acquire_enemies_when_idle = data.auto_acquire_enemies_when_idle();
+        self.runtime.data.mood_attack_check_rate_frames = data.mood_attack_check_rate();
+        self.runtime.data.forbid_player_commands = data.forbid_player_commands();
+        self.runtime.data.turrets_linked = data.turrets_linked();
+        self.runtime.data.turret_primary_data = data.turret_primary().cloned();
+        self.runtime.data.turret_secondary_data = data.turret_secondary().cloned();
+        self.runtime.data.locomotor_sets = data.locomotor_sets().clone();
 
         if legacy_unit {
-            if let Some(unit) = get_unit_arc(self.unit_id) {
+            if let Some(unit) = get_unit_arc(self.runtime.unit_id) {
                 if let Ok(mut guard) = unit.write() {
-                    let allow = (self.data.auto_acquire_enemies_when_idle
+                    let allow = (self.runtime.data.auto_acquire_enemies_when_idle
                         & crate::object::update::AUTO_ACQUIRE_IDLE)
                         != 0;
-                    let deny = (self.data.auto_acquire_enemies_when_idle
+                    let deny = (self.runtime.data.auto_acquire_enemies_when_idle
                         & crate::object::update::AUTO_ACQUIRE_IDLE_NO)
                         != 0;
                     guard.auto_acquire_enemies = allow && !deny;
-                    guard.auto_acquire_while_stealthed = (self.data.auto_acquire_enemies_when_idle
-                        & crate::object::update::AUTO_ACQUIRE_IDLE_STEALTHED)
-                        != 0;
+                    guard.auto_acquire_while_stealthed =
+                        (self.runtime.data.auto_acquire_enemies_when_idle
+                            & crate::object::update::AUTO_ACQUIRE_IDLE_STEALTHED)
+                            != 0;
                     guard.auto_acquire_not_while_attacking =
-                        (self.data.auto_acquire_enemies_when_idle
+                        (self.runtime.data.auto_acquire_enemies_when_idle
                             & crate::object::update::AUTO_ACQUIRE_IDLE_NOT_WHILE_ATTACKING)
                             != 0;
                     guard.auto_acquire_attack_buildings =
-                        (self.data.auto_acquire_enemies_when_idle
+                        (self.runtime.data.auto_acquire_enemies_when_idle
                             & crate::object::update::AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS)
                             != 0;
                     guard.mood_attack_check_rate_frames = data.mood_attack_check_rate();
                 }
             }
         }
-        if let Some(mut jet_ai) = self.jet_ai.take() {
-            jet_ai.on_object_created(self);
-            self.jet_ai = Some(jet_ai);
+        if let Some(mut jet_ai) = self.runtime.components.jet_ai.take() {
+            let mut runtime = UnitAiStateRuntime::new(&mut self.runtime, true);
+            jet_ai.on_object_created(&mut runtime);
+            self.runtime.components.jet_ai = Some(jet_ai);
         }
 
-        if self.data.turret_primary_data.is_some() {
+        if self.runtime.data.turret_primary_data.is_some() {
             let _ = self.ensure_turret_machine(TurretType::Primary);
         }
-        if self.data.turret_secondary_data.is_some() {
+        if self.runtime.data.turret_secondary_data.is_some() {
             let _ = self.ensure_turret_machine(TurretType::Secondary);
         }
 
@@ -280,63 +241,18 @@ impl UnitAIUpdate {
         &mut self,
         turret: TurretType,
     ) -> Option<&mut TurretStateMachine> {
-        match turret {
-            TurretType::Primary => {
-                if self.data.turret_primary_machine.is_none() {
-                    self.data.turret_primary_machine =
-                        self.build_turret_machine(TurretType::Primary);
-                }
-                self.data.turret_primary_machine.as_mut()
-            }
-            TurretType::Secondary => {
-                if self.data.turret_secondary_machine.is_none() {
-                    self.data.turret_secondary_machine =
-                        self.build_turret_machine(TurretType::Secondary);
-                }
-                self.data.turret_secondary_machine.as_mut()
-            }
-            TurretType::Invalid => None,
-        }
+        self.runtime.ensure_turret_machine(turret)
     }
     /// C++ `UnitAI::UnitAI` turret build (AIUpdate.cpp): create the `TurretAI`,
     /// apply `TurretAIData`, then construct `TurretStateMachine`, which defines
     /// the states and enters IDLE (TurretAI.cpp:248-298). The turret bundle is
     /// owned outright — no shared handle.
+    /// C++ `UnitAI::UnitAI` turret build (AIUpdate.cpp): create the `TurretAI`,
+    /// apply `TurretAIData`, then construct `TurretStateMachine`, which defines
+    /// the states and enters IDLE (TurretAI.cpp:248-298). The turret bundle is
+    /// owned outright — no shared handle.
     pub(super) fn build_turret_machine(&self, turret: TurretType) -> Option<TurretStateMachine> {
-        let unit = get_unit_arc(self.unit_id)?;
-        let owner_id = unit
-            .read()
-            .ok()
-            .and_then(|guard| guard.base_arc().read().ok().map(|obj| obj.get_id()))
-            .unwrap_or(crate::common::INVALID_ID);
-        let mut turret_ai = TurretAI::new(owner_id);
-        let slot = match turret {
-            TurretType::Primary => WeaponSlotType::Primary,
-            TurretType::Secondary => WeaponSlotType::Secondary,
-            TurretType::Invalid => WeaponSlotType::Primary,
-        };
-        turret_ai.set_weapon_slot(slot);
-        let mask = match slot {
-            WeaponSlotType::Primary => 1u32 << 0,
-            WeaponSlotType::Secondary => 1u32 << 1,
-            WeaponSlotType::Tertiary => 1u32 << 2,
-        };
-        let data = match turret {
-            TurretType::Primary => self.data.turret_primary_data.as_ref(),
-            TurretType::Secondary => self.data.turret_secondary_data.as_ref(),
-            TurretType::Invalid => None,
-        };
-
-        if let Some(data) = data {
-            data.apply_to(&mut turret_ai);
-            if data.turret_weapon_slots == 0 {
-                error!("TurretAIData missing ControlledWeaponSlots; applying slot fallback.");
-                turret_ai.set_turret_weapon_slots_mask(mask);
-            }
-        } else {
-            turret_ai.set_turret_weapon_slots_mask(mask);
-        }
-        Some(TurretStateMachine::new(turret_ai))
+        self.runtime.build_turret_machine(turret)
     }
     pub(super) fn xfer_turret_ai(
         machine: &mut TurretStateMachine,
@@ -344,16 +260,9 @@ impl UnitAIUpdate {
     ) -> Result<(), String> {
         machine.turret_mut().xfer(xfer)
     }
-    /// Resolve the existing admitted owner; legacy Unit test fixtures retain
-    /// their actual base Object, rather than constructing a second owner.
+    /// Resolve the construction-bound owner retained by the Unit or factory.
     pub(super) fn rappel_owner(&self) -> Option<Arc<RwLock<Object>>> {
-        if let Some(owner) = self.owner.as_ref() {
-            // Expired native identity cannot select another world's same ID.
-            return owner.upgrade();
-        }
-        OBJECT_REGISTRY.get_object(self.unit_id).or_else(|| {
-            get_unit_arc(self.unit_id).and_then(|unit| unit.read().ok().map(|unit| unit.base_arc()))
-        })
+        self.runtime.rappel_owner()
     }
 
     pub(super) fn start_rappel_state(
@@ -361,64 +270,14 @@ impl UnitAIUpdate {
         owner: &Arc<RwLock<Object>>,
         target_id: Option<ObjectID>,
     ) -> Result<(), String> {
-        // C++ AIStates.cpp:481-514 — release the exact owner before callbacks
-        // that can synchronously inspect or reschedule that Object.
-        let physics = {
-            let mut obj = owner.write().map_err(|_| "base object lock poisoned")?;
-            if !obj.is_kind_of(KindOf::CanRappel) {
-                return Err("unit cannot rappel".to_string());
-            }
-            obj.set_model_condition_state(ModelConditionFlags::RAPPELLING);
-            obj.get_physics()
-        };
-        if let Some(physics) = physics {
-            physics.reset_dynamic_physics();
-        }
-
-        // No owner guard spans the target query, including target == owner.
-        let target = target_id.and_then(|id| {
-            OBJECT_REGISTRY
-                .with_object(id, |obj| {
-                    (!obj.is_effectively_dead() && obj.is_kind_of(KindOf::Structure))
-                        .then(|| (id, obj.get_geometry_info().get_max_height_above_position()))
-                })
-                .flatten()
-        });
-        let terrain = TheTerrainLogic::get().ok_or("terrain logic unavailable")?;
-        let mut obj = owner.write().map_err(|_| "base object lock poisoned")?;
-        let pos = *obj.get_position();
-        let layer = terrain.get_highest_layer_for_destination(&pos);
-        let mut dest_z = terrain.get_layer_height(pos.x, pos.y, layer);
-        if let Some((_, height)) = target {
-            dest_z += height;
-        } else {
-            obj.set_layer(layer);
-            obj.set_destination_layer(layer);
-        }
-        let max_rappel_rate = GRAVITY.abs() * (LOGICFRAMES_PER_SECOND as Real) * 2.5;
-        self.data.rappel_state = Some(RappelState {
-            rappel_rate: -self.data.desired_speed.min(max_rappel_rate),
-            dest_z,
-            target_is_bldg: target.is_some(),
-            target_id: target.map(|(id, _)| id),
-        });
-        Ok(())
+        self.runtime.start_rappel_state(owner, target_id)
     }
 
     pub(super) fn finish_rappel_state(&mut self) {
-        if let Some(owner) = self.rappel_owner() {
-            if let Ok(mut obj) = owner.write() {
-                obj.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
-            }
-        }
-        self.data.desired_speed = FAST_AS_POSSIBLE;
-        self.data.rappel_state = None;
-        if self.data.current_command == Some(crate::ai::AiCommandType::RappelInto) {
-            self.data.current_command = None;
-        }
+        self.runtime.finish_rappel_state()
     }
     pub(super) fn update_rappel_state(&mut self) {
-        let Some(mut state) = self.data.rappel_state.take() else {
+        let Some(mut state) = self.runtime.data.rappel_state.take() else {
             return;
         };
         let Some(owner) = self.rappel_owner() else {
@@ -464,7 +323,7 @@ impl UnitAIUpdate {
             state.dest_z = terrain.get_layer_height(pos.x, pos.y, layer);
         }
         if pos.z > state.dest_z {
-            self.data.rappel_state = Some(state);
+            self.runtime.data.rappel_state = Some(state);
             return;
         }
 
@@ -474,7 +333,7 @@ impl UnitAIUpdate {
             if let Err(err) = obj.set_position(&landing) {
                 log::debug!(
                     "Unit::update_rappel_state landing failed for {}: {}",
-                    self.unit_id,
+                    self.runtime.unit_id,
                     err
                 );
             }
@@ -484,7 +343,8 @@ impl UnitAIUpdate {
                 // C++ AIStates.cpp:562-584: score/kill callbacks can read and
                 // mutate the rappeller; no caller-held owner guard spans them.
                 let max_to_kill = 2;
-                let killed = kill_enemies_in_container(self.unit_id, target_id, max_to_kill);
+                let killed =
+                    kill_enemies_in_container(self.runtime.unit_id, target_id, max_to_kill);
                 if killed > 0 {
                     let name = owner
                         .read()
@@ -520,10 +380,10 @@ impl UnitAIUpdate {
                             // validation borrow before immediate enter effects.
                             if let Some(contain) = contain {
                                 if let Ok(mut contain) = contain.lock() {
-                                    if let Err(err) = contain.contain_object(self.unit_id) {
+                                    if let Err(err) = contain.contain_object(self.runtime.unit_id) {
                                         log::debug!(
                                             "Rappel containment failed for {}: {}",
-                                            self.unit_id,
+                                            self.runtime.unit_id,
                                             err
                                         );
                                     }
@@ -546,14 +406,14 @@ impl UnitAIUpdate {
                                 if let Err(err) = obj.set_position(&start) {
                                     log::debug!(
                                         "Rappel scatter position failed for {}: {}",
-                                        self.unit_id,
+                                        self.runtime.unit_id,
                                         err
                                     );
                                 }
                                 if let Err(err) = obj.set_orientation(exit_angle) {
                                     log::debug!(
                                         "Rappel scatter orientation failed for {}: {}",
-                                        self.unit_id,
+                                        self.runtime.unit_id,
                                         err
                                     );
                                 }
@@ -581,7 +441,7 @@ impl UnitAIUpdate {
                                 if let Err(err) = self.execute_command(&command) {
                                     log::warn!(
                                         "Rappel exit path requires its driving Unit for {}: {}",
-                                        self.unit_id,
+                                        self.runtime.unit_id,
                                         err
                                     );
                                 }
@@ -596,7 +456,7 @@ impl UnitAIUpdate {
 }
 
 /// C++ `obj->getTemplate()->getPerUnitFX("CombatDropKillFX")` then `FXList::doFXObj(fx, bldg, NULL)`.
-fn play_combat_drop_kill_fx(template_name: &str, building_id: ObjectID) {
+pub(super) fn play_combat_drop_kill_fx(template_name: &str, building_id: ObjectID) {
     let Some(guard) = game_engine::common::thing::thing_factory::try_get_thing_factory() else {
         return;
     };

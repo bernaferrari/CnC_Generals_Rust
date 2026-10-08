@@ -353,6 +353,22 @@ impl PhysicsBehaviorHandle {
         mass
     }
 
+    fn forward_speed_2d_for_direction(&self, dir_x: Real, dir_y: Real) -> Real {
+        let vel = self.state.vel;
+        crate::modules::signed_forward_speed_2d(vel.x, vel.y, dir_x, dir_y)
+    }
+
+    fn apply_motive_force_with_object_impl(&mut self, force: &Vec3, owner: Option<&GameObject>) {
+        let prev = self.state.motive_force_expires;
+        self.state.motive_force_expires = 0;
+        self.apply_force_with_obj(force, owner);
+        let now = TheGameLogic::get_frame();
+        self.state.motive_force_expires = now.saturating_add(MOTIVE_FRAMES);
+        if prev == 0 {
+            self.state.motive_force_expires = now.saturating_add(MOTIVE_FRAMES);
+        }
+    }
+
     fn apply_force_with_obj(&mut self, force: &Vec3, obj: Option<&GameObject>) {
         if !force.x.is_finite() || !force.y.is_finite() || !force.z.is_finite() {
             return;
@@ -484,6 +500,10 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
         self.mass_with_cargo(None)
     }
 
+    fn get_mass_with_object(&self, owner: &GameObject) -> Real {
+        self.mass_with_cargo(Some(owner))
+    }
+
     fn apply_angular_velocity(&mut self, angular_velocity: &Vec3) {
         // C++ applies angular rates via Rotate_X/Y/Z with pitchRollYawFactor scaling.
         // angular_velocity.x = roll rate, .y = pitch rate, .z = yaw rate (per frame).
@@ -503,14 +523,11 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
     }
 
     fn apply_motive_force(&mut self, force: &Vec3) {
-        let prev = self.state.motive_force_expires;
-        self.state.motive_force_expires = 0;
-        self.apply_force(force);
-        let now = TheGameLogic::get_frame();
-        self.state.motive_force_expires = now.saturating_add(MOTIVE_FRAMES);
-        if prev == 0 {
-            self.state.motive_force_expires = now.saturating_add(MOTIVE_FRAMES);
-        }
+        self.apply_motive_force_with_object_impl(force, None);
+    }
+
+    fn apply_motive_force_with_object(&mut self, force: &Vec3, owner: &GameObject) {
+        self.apply_motive_force_with_object_impl(force, Some(owner));
     }
 
     fn get_turning(&self) -> Real {
@@ -648,16 +665,20 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
     }
 
     fn get_forward_speed_2d(&self) -> Real {
-        let vel = self.state.vel;
-        let (dir_x, dir_y) = self
+        let direction = self
             .object_arc()
             .and_then(|arc| {
                 arc.try_read()
                     .ok()
-                    .map(|o| o.get_unit_direction_vector_2d())
+                    .map(|owner| owner.get_unit_direction_vector_2d())
             })
             .unwrap_or((1.0, 0.0));
-        crate::modules::signed_forward_speed_2d(vel.x, vel.y, dir_x, dir_y)
+        self.forward_speed_2d_for_direction(direction.0, direction.1)
+    }
+
+    fn get_forward_speed_2d_with_object(&self, owner: &GameObject) -> Real {
+        let (dir_x, dir_y) = owner.get_unit_direction_vector_2d();
+        self.forward_speed_2d_for_direction(dir_x, dir_y)
     }
 
     fn get_forward_speed_3d(&self) -> Real {
@@ -1151,6 +1172,15 @@ impl BehaviorModuleInterface for PhysicsBehaviorUpdate {
 
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
+    }
+
+    fn get_sleepy_update_interface(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
+        Some(self)
+    }
+
+    fn behavior_initial_wake_frame(&mut self) -> Option<u32> {
+        // PhysicsUpdate.cpp: constructor schedules UPDATE_SLEEP_NONE.
+        Some(0)
     }
 
     fn get_collide(&mut self) -> Option<&mut dyn CollideModuleInterface> {

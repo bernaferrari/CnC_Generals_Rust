@@ -40,7 +40,7 @@ fn start_guard_attack_object_with_optional_ai(
     nemesis_id: ObjectID,
     follow: bool,
     force: bool,
-    ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
 ) -> Result<(AIAttackObjectState, StateReturnType), String> {
     let scratch = StateMachine::new(Some(Arc::downgrade(owner)), "AIAttackObject");
     let mut attack_state = AIAttackObjectState::new(&scratch, force, follow);
@@ -818,7 +818,7 @@ impl AIGuardMachine {
 
     pub(crate) fn init_default_state_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         if self.state_machine.is_empty() {
             return StateReturnType::Failure;
@@ -842,7 +842,7 @@ impl AIGuardMachine {
     pub(crate) fn set_state_with_ai(
         &mut self,
         state: GuardStateType,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         if self.state_machine.is_empty() {
             return StateReturnType::Failure;
@@ -884,7 +884,7 @@ impl AIGuardMachine {
 
     pub(crate) fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         if self.state_machine.is_empty() {
             return StateReturnType::Failure;
@@ -1099,7 +1099,7 @@ impl AIGuardInnerState {
     fn classic_on_enter_with_ai(
         &mut self,
         machine: &mut AIGuardMachine,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.classic_on_enter_with_optional_ai(machine, Some(ai))
     }
@@ -1107,7 +1107,7 @@ impl AIGuardInnerState {
     fn classic_on_enter_with_optional_ai(
         &mut self,
         machine: &mut AIGuardMachine,
-        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let owner = machine
             .friend_owner_arc()
@@ -1213,7 +1213,7 @@ impl AIGuardInnerState {
     fn classic_on_update_with_ai(
         &mut self,
         machine: &mut AIGuardMachine,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.classic_on_update_with_optional_ai(machine, Some(ai))
     }
@@ -1221,7 +1221,7 @@ impl AIGuardInnerState {
     fn classic_on_update_with_optional_ai(
         &mut self,
         machine: &mut AIGuardMachine,
-        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         if let Some(attack_state) = self.attack_state.as_mut() {
             let target_to_guard = machine.friend_target_to_guard();
@@ -1261,7 +1261,7 @@ impl AIGuardInnerState {
     fn classic_on_exit_with_ai(
         &mut self,
         _exit: StateExitType,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<(), String> {
         self.classic_on_exit_with_optional_ai(_exit, Some(ai))
     }
@@ -1269,7 +1269,7 @@ impl AIGuardInnerState {
     fn classic_on_exit_with_optional_ai(
         &mut self,
         _exit: StateExitType,
-        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), String> {
         if let Some(mut attack_state) = self.attack_state.take() {
             if let Some(ai) = ai.as_deref_mut() {
@@ -1328,7 +1328,7 @@ impl StateImplementation for AIGuardInnerState {
 
     fn on_enter_with_ai_and_owner(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _goal_id: ObjectID,
         _goal_pos: Coord3D,
         _waypoint: Option<crate::waypoint::WaypointId>,
@@ -1344,7 +1344,7 @@ impl StateImplementation for AIGuardInnerState {
 
     fn update_with_ai_and_owner(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _machine_locked: bool,
         owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
@@ -1359,7 +1359,7 @@ impl StateImplementation for AIGuardInnerState {
     fn on_exit_with_ai_and_owner(
         &mut self,
         status: StateExitType,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         owner: &mut dyn std::any::Any,
     ) {
         if GuardState::downcast_machine(owner).is_some() {
@@ -1473,7 +1473,7 @@ impl AIGuardIdleState {
     fn classic_on_update_with_ai(
         &mut self,
         machine: &mut AIGuardMachine,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.classic_on_update_with_optional_ai(machine, Some(ai))
     }
@@ -1481,7 +1481,7 @@ impl AIGuardIdleState {
     fn classic_on_update_with_optional_ai(
         &mut self,
         machine: &mut AIGuardMachine,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let now = TheGameLogic::get_frame();
         if now < self.next_enemy_scan_time {
@@ -1595,7 +1595,7 @@ impl StateImplementation for AIGuardIdleState {
 
     fn update_with_ai_and_owner(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _machine_locked: bool,
         owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
@@ -1682,7 +1682,7 @@ impl AIGuardOuterState {
     fn classic_on_enter_with_ai(
         &mut self,
         machine: &mut AIGuardMachine,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.classic_on_enter_with_optional_ai(machine, Some(ai))
     }
@@ -1690,7 +1690,7 @@ impl AIGuardOuterState {
     fn classic_on_enter_with_optional_ai(
         &mut self,
         machine: &mut AIGuardMachine,
-        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         if matches!(machine.friend_guard_mode(), GuardMode::GuardWithoutPursuit) {
             return Ok(StateReturnType::Success);
@@ -1794,7 +1794,7 @@ impl AIGuardOuterState {
     fn classic_on_update_with_ai(
         &mut self,
         machine: &mut AIGuardMachine,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.classic_on_update_with_optional_ai(machine, Some(ai))
     }
@@ -1802,7 +1802,7 @@ impl AIGuardOuterState {
     fn classic_on_update_with_optional_ai(
         &mut self,
         machine: &mut AIGuardMachine,
-        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         // Wave 428: empty dual-world → Ok(Continue).
         if dual_world_registry_unavailable() {
@@ -1869,7 +1869,7 @@ impl AIGuardOuterState {
     fn classic_on_exit_with_ai(
         &mut self,
         _exit: StateExitType,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<(), String> {
         self.classic_on_exit_with_optional_ai(_exit, Some(ai))
     }
@@ -1877,7 +1877,7 @@ impl AIGuardOuterState {
     fn classic_on_exit_with_optional_ai(
         &mut self,
         _exit: StateExitType,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), String> {
         if let Some(mut attack_state) = self.attack_state.take() {
             if let Some(ai) = ai {
@@ -1916,7 +1916,7 @@ impl StateImplementation for AIGuardOuterState {
 
     fn on_enter_with_ai_and_owner(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _goal_id: ObjectID,
         _goal_pos: Coord3D,
         _waypoint: Option<crate::waypoint::WaypointId>,
@@ -1932,7 +1932,7 @@ impl StateImplementation for AIGuardOuterState {
 
     fn update_with_ai_and_owner(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _machine_locked: bool,
         owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
@@ -1947,7 +1947,7 @@ impl StateImplementation for AIGuardOuterState {
     fn on_exit_with_ai_and_owner(
         &mut self,
         status: StateExitType,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         owner: &mut dyn std::any::Any,
     ) {
         if GuardState::downcast_machine(owner).is_some() {
@@ -2051,7 +2051,7 @@ impl AIGuardReturnState {
     fn classic_on_enter_with_ai(
         &mut self,
         machine: &mut AIGuardMachine,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.classic_on_enter_with_optional_ai(machine, Some(ai))
     }
@@ -2059,7 +2059,7 @@ impl AIGuardReturnState {
     fn classic_on_enter_with_optional_ai(
         &mut self,
         machine: &mut AIGuardMachine,
-        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let now = TheGameLogic::get_frame();
         let scan_rate = get_guard_enemy_return_scan_rate();
@@ -2113,7 +2113,7 @@ impl AIGuardReturnState {
     fn classic_on_update_with_ai(
         &mut self,
         machine: &mut AIGuardMachine,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.classic_on_update_with_optional_ai(machine, Some(ai))
     }
@@ -2121,7 +2121,7 @@ impl AIGuardReturnState {
     fn classic_on_update_with_optional_ai(
         &mut self,
         machine: &mut AIGuardMachine,
-        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let now = TheGameLogic::get_frame();
         if now >= self.next_return_scan_time {
@@ -2186,7 +2186,7 @@ impl AIGuardReturnState {
     fn classic_on_exit_with_ai(
         &mut self,
         _exit: StateExitType,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<(), String> {
         self.move_helper.on_exit_with_ai(_exit, ai)
     }
@@ -2217,7 +2217,7 @@ impl StateImplementation for AIGuardReturnState {
 
     fn on_enter_with_ai_and_owner(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _goal_id: crate::common::ObjectID,
         _goal_pos: Coord3D,
         _waypoint: Option<crate::waypoint::WaypointId>,
@@ -2233,7 +2233,7 @@ impl StateImplementation for AIGuardReturnState {
 
     fn update_with_ai_and_owner(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _machine_locked: bool,
         owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
@@ -2248,7 +2248,7 @@ impl StateImplementation for AIGuardReturnState {
     fn on_exit_with_ai_and_owner(
         &mut self,
         status: StateExitType,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         owner: &mut dyn std::any::Any,
     ) {
         if GuardState::downcast_machine(owner).is_some() {
@@ -2326,7 +2326,7 @@ impl AIGuardPickUpCrateState {
     fn classic_on_enter_with_ai(
         &mut self,
         machine: &mut AIGuardMachine,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.classic_on_enter_with_optional_ai(machine, Some(ai))
     }
@@ -2334,7 +2334,7 @@ impl AIGuardPickUpCrateState {
     fn classic_on_enter_with_optional_ai(
         &mut self,
         machine: &mut AIGuardMachine,
-        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let owner = machine
             .friend_owner_arc()
@@ -2381,7 +2381,7 @@ impl AIGuardPickUpCrateState {
 
     fn classic_on_update_with_ai(
         &mut self,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let Some(crate_state) = self.crate_state.as_mut() else {
             return Ok(StateReturnType::Success);
@@ -2425,7 +2425,7 @@ impl StateImplementation for AIGuardPickUpCrateState {
 
     fn on_enter_with_ai_and_owner(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _goal_id: ObjectID,
         _goal_pos: Coord3D,
         _waypoint: Option<crate::waypoint::WaypointId>,
@@ -2441,7 +2441,7 @@ impl StateImplementation for AIGuardPickUpCrateState {
 
     fn update_with_ai_and_owner(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _machine_locked: bool,
         owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
@@ -2530,7 +2530,7 @@ impl AIGuardAttackAggressorState {
     fn classic_on_enter_with_ai(
         &mut self,
         machine: &mut AIGuardMachine,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.classic_on_enter_with_optional_ai(machine, Some(ai))
     }
@@ -2538,7 +2538,7 @@ impl AIGuardAttackAggressorState {
     fn classic_on_enter_with_optional_ai(
         &mut self,
         machine: &mut AIGuardMachine,
-        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let owner = machine
             .friend_owner_arc()
@@ -2634,7 +2634,7 @@ impl AIGuardAttackAggressorState {
     fn classic_on_update_with_ai(
         &mut self,
         machine: &mut AIGuardMachine,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.classic_on_update_with_optional_ai(machine, Some(ai))
     }
@@ -2642,7 +2642,7 @@ impl AIGuardAttackAggressorState {
     fn classic_on_update_with_optional_ai(
         &mut self,
         machine: &mut AIGuardMachine,
-        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let Some(attack_state) = self.attack_state.as_mut() else {
             return Ok(StateReturnType::Success);
@@ -2675,7 +2675,7 @@ impl AIGuardAttackAggressorState {
     fn classic_on_exit_with_ai(
         &mut self,
         _exit: StateExitType,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<(), String> {
         self.classic_on_exit_with_optional_ai(_exit, Some(ai))
     }
@@ -2683,7 +2683,7 @@ impl AIGuardAttackAggressorState {
     fn classic_on_exit_with_optional_ai(
         &mut self,
         _exit: StateExitType,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), String> {
         if let Some(mut attack_state) = self.attack_state.take() {
             if let Some(ai) = ai {
@@ -2732,7 +2732,7 @@ impl StateImplementation for AIGuardAttackAggressorState {
 
     fn on_enter_with_ai_and_owner(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _goal_id: ObjectID,
         _goal_pos: Coord3D,
         _waypoint: Option<crate::waypoint::WaypointId>,
@@ -2748,7 +2748,7 @@ impl StateImplementation for AIGuardAttackAggressorState {
 
     fn update_with_ai_and_owner(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _machine_locked: bool,
         owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
@@ -2763,7 +2763,7 @@ impl StateImplementation for AIGuardAttackAggressorState {
     fn on_exit_with_ai_and_owner(
         &mut self,
         status: StateExitType,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         owner: &mut dyn std::any::Any,
     ) {
         if GuardState::downcast_machine(owner).is_some() {

@@ -53,18 +53,18 @@ pub enum StateReturnType {
 
 /// Preserve the driver's concrete AI type while loaning its existing
 /// interface to state callbacks. Trait objects use the same protocol.
-pub(crate) trait StateMachineAI: crate::modules::AIUpdateInterface {
-    fn as_ai_update(&mut self) -> &mut dyn crate::modules::AIUpdateInterface;
+pub(crate) trait StateMachineAI: crate::modules::ai_state_runtime::AiStateRuntime {
+    fn as_state_runtime(&mut self) -> &mut dyn crate::modules::ai_state_runtime::AiStateRuntime;
 }
 
-impl<A: crate::modules::AIUpdateInterface> StateMachineAI for A {
-    fn as_ai_update(&mut self) -> &mut dyn crate::modules::AIUpdateInterface {
+impl<A: crate::modules::ai_state_runtime::AiStateRuntime> StateMachineAI for A {
+    fn as_state_runtime(&mut self) -> &mut dyn crate::modules::ai_state_runtime::AiStateRuntime {
         self
     }
 }
 
-impl StateMachineAI for dyn crate::modules::AIUpdateInterface + '_ {
-    fn as_ai_update(&mut self) -> &mut dyn crate::modules::AIUpdateInterface {
+impl StateMachineAI for dyn crate::modules::ai_state_runtime::AiStateRuntime + '_ {
+    fn as_state_runtime(&mut self) -> &mut dyn crate::modules::ai_state_runtime::AiStateRuntime {
         self
     }
 }
@@ -118,7 +118,13 @@ impl<A: StateMachineAI + ?Sized> StateStep<'_, A> {
             state_before_update,
             status,
         } = self;
-        machine.finish_state_body(now, state_before_update, status, ai.as_ai_update(), owner)
+        machine.finish_state_body(
+            now,
+            state_before_update,
+            status,
+            ai.as_state_runtime(),
+            owner,
+        )
     }
 }
 
@@ -295,10 +301,26 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
         StateReturnType::Continue
     }
 
+    /// Enter while the driving machine lends its live control for this callback.
+    fn on_enter_with_control(
+        &mut self,
+        _control: &mut StateMachineControl,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+        goal_id: crate::common::ObjectID,
+        goal_pos: Coord3D,
+        waypoint: Option<WaypointId>,
+        owner: &mut dyn Any,
+    ) -> StateReturnType {
+        match ai {
+            Some(ai) => self.on_enter_with_ai_and_owner(ai, goal_id, goal_pos, waypoint, owner),
+            None => self.on_enter_with_owner(owner),
+        }
+    }
+
     /// AI-machine enter. Default keeps the old [`on_enter`].
     fn on_enter_with_ai(
         &mut self,
-        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        _ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _goal_id: crate::common::ObjectID,
         _goal_pos: Coord3D,
     ) -> StateReturnType {
@@ -308,7 +330,7 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
     /// Same enter, plus the waypoint this machine already stores.
     fn on_enter_with_waypoint(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         goal_id: crate::common::ObjectID,
         goal_pos: Coord3D,
         _waypoint: Option<WaypointId>,
@@ -323,7 +345,7 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
     fn on_exit_with_ai(
         &mut self,
         _status: StateExitType,
-        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        _ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) {
         self.on_exit(_status)
     }
@@ -333,7 +355,7 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
         &mut self,
         _control: &mut StateMachineControl,
         status: StateExitType,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         owner: &mut dyn Any,
     ) {
         match ai {
@@ -356,7 +378,7 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
     fn on_exit_after_unlock(
         &mut self,
         _status: StateExitType,
-        _ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        _ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         _owner: &mut dyn Any,
     ) {
     }
@@ -393,7 +415,7 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
     fn update_with_control(
         &mut self,
         _control: &mut StateMachineControl,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         machine_locked: bool,
         owner: &mut dyn Any,
     ) -> StateReturnType {
@@ -430,7 +452,7 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
     /// AI-machine step. Dock and turret keep [`update`]. Default ignores the borrow.
     fn update_with_ai(
         &mut self,
-        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        _ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         self.update()
     }
@@ -439,7 +461,7 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
     /// on the machine this step already holds. Do not `lock()` it again.
     fn update_with_ai_held(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _machine_locked: bool,
     ) -> StateReturnType {
         self.update_with_ai(ai)
@@ -449,7 +471,7 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
     /// Defaults preserve existing AI-only dispatch, including waypoint handling.
     fn update_with_ai_and_owner(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         machine_locked: bool,
         _owner: &mut dyn Any,
     ) -> StateReturnType {
@@ -458,7 +480,7 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
 
     fn on_enter_with_ai_and_owner(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         goal_id: crate::common::ObjectID,
         goal_pos: Coord3D,
         waypoint: Option<WaypointId>,
@@ -474,7 +496,7 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
     fn on_exit_with_ai_and_owner(
         &mut self,
         status: StateExitType,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _owner: &mut dyn Any,
     ) {
         self.on_exit_with_ai(status, ai);
@@ -1067,12 +1089,13 @@ impl StateMachine {
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> StateReturnType {
-        self.update_with_ai_and_owner(ai, &mut ())
+        let mut runtime = crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(ai);
+        self.update_with_ai_and_owner(&mut runtime, &mut ())
     }
 
     pub(crate) fn update_with_ai_and_owner(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         owner: &mut dyn Any,
     ) -> StateReturnType {
         self.begin_update_with_ai_and_owner(ai, owner).finish()
@@ -1093,7 +1116,7 @@ impl StateMachine {
 
             return StateUpdate::Complete(self.check_for_sleep_transitions_ai(
                 StateReturnType::Sleep(self.control.sleep_till.wrapping_sub(now)),
-                Some(ai.as_ai_update()),
+                Some(ai.as_state_runtime()),
                 owner,
             ));
         }
@@ -1133,7 +1156,7 @@ impl StateMachine {
                 state.bind_goal_waypoint(goal_waypoint);
                 state.update_with_control(
                     &mut self.control,
-                    Some(ai.as_ai_update()),
+                    Some(ai.as_state_runtime()),
                     machine_locked,
                     owner,
                 )
@@ -1173,7 +1196,7 @@ impl StateMachine {
         now: UnsignedInt,
         state_before_update: StateId,
         mut status: StateReturnType,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         owner: &mut dyn Any,
     ) -> StateReturnType {
         if let Some(next) = self
@@ -1230,11 +1253,17 @@ impl StateMachine {
         self.clear_impl(None);
     }
 
-    pub(crate) fn clear_with_ai(&mut self, ai: &mut dyn crate::modules::AIUpdateInterface) {
+    pub(crate) fn clear_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) {
         self.clear_impl(Some(ai));
     }
 
-    fn clear_impl(&mut self, ai: Option<&mut dyn crate::modules::AIUpdateInterface>) {
+    fn clear_impl(
+        &mut self,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+    ) {
         if self.control.locked {
             return;
         }
@@ -1312,7 +1341,7 @@ impl StateMachine {
 
     pub(crate) fn init_default_state_with_ai_and_owner(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         owner: &mut dyn Any,
     ) -> StateReturnType {
         if self.control.default_state_inited || self.control.default_state_id == INVALID_STATE_ID {
@@ -1349,7 +1378,7 @@ impl StateMachine {
     pub(crate) fn set_current_state_with_ai_and_owner(
         &mut self,
         new_state_id: StateId,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         owner: &mut dyn Any,
     ) -> StateReturnType {
         if self.control.locked {
@@ -1367,7 +1396,7 @@ impl StateMachine {
     pub fn set_state_entering(
         &mut self,
         new_state_id: StateId,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> StateReturnType {
         self.set_state_entering_impl(new_state_id, ai, &mut ())
     }
@@ -1385,7 +1414,7 @@ impl StateMachine {
     fn set_state_entering_impl(
         &mut self,
         mut new_state_id: StateId,
-        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
         self.control.sleep_till = 0;
@@ -1495,17 +1524,17 @@ impl StateMachine {
                 new_state.bind_goal_squad(goal_squad);
                 new_state.bind_goal_polygon(goal_polygon);
                 new_state.bind_goal_waypoint(waypoint);
-                if let Some(ref mut ai_ref) = ai {
-                    new_state.on_enter_with_ai_and_owner(
-                        &mut **ai_ref,
-                        goal_id,
-                        goal_pos,
-                        waypoint,
-                        owner,
-                    )
-                } else {
-                    new_state.on_enter_with_owner(owner)
-                }
+                let ai_ref = ai.as_mut().map(|ai_ref| {
+                    &mut **ai_ref as &mut dyn crate::modules::ai_state_runtime::AiStateRuntime
+                });
+                new_state.on_enter_with_control(
+                    &mut self.control,
+                    ai_ref,
+                    goal_id,
+                    goal_pos,
+                    waypoint,
+                    owner,
+                )
             };
             if let Some(id) = self.control.current_state_id {
                 if let Some((pos, clear_object)) = self
@@ -1562,7 +1591,7 @@ impl StateMachine {
     fn check_for_transitions_ai(
         &mut self,
         status: StateReturnType,
-        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
         if status.is_sleep() {
@@ -1581,7 +1610,7 @@ impl StateMachine {
     fn check_for_transitions_inner(
         &mut self,
         status: StateReturnType,
-        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
         let Some(state_id) = self.control.current_state_id else {
@@ -1632,7 +1661,7 @@ impl StateMachine {
     fn check_for_sleep_transitions_ai(
         &mut self,
         status: StateReturnType,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
         if !matches!(status, StateReturnType::Sleep(_)) {
@@ -1652,7 +1681,7 @@ impl StateMachine {
     fn check_for_sleep_transitions_inner(
         &mut self,
         status: StateReturnType,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
         let Some(state_id) = self.control.current_state_id else {
@@ -1675,7 +1704,7 @@ impl StateMachine {
     fn check_condition_transitions_ai(
         &mut self,
         meta: &StateMeta,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
         let Some(state_id) = self.control.current_state_id else {
@@ -1700,7 +1729,7 @@ impl StateMachine {
         &mut self,
         meta: &StateMeta,
         status: StateReturnType,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
         let Some(state_id) = self.control.current_state_id else {
@@ -1875,6 +1904,27 @@ impl StateMachine {
         self.get_goal_object_id() == crate::common::INVALID_ID
     }
 
+    /// Run the current state's C++ destructor exit while its owner and AI
+    /// are still available (StateMachine.cpp:263-268). Unlike halt, destruction
+    /// exits even a locked state, before the state map is released.
+    pub(crate) fn finish_with_ai_and_owner(
+        &mut self,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+        owner: &mut dyn Any,
+    ) {
+        if let Some(current_id) = self.control.current_state_id {
+            if let Some(state) = self.state_map.get_mut(&current_id) {
+                state.on_exit_with_control(
+                    &mut self.control,
+                    StateExitType::Reset,
+                    Some(ai),
+                    owner,
+                );
+            }
+        }
+        self.control.current_state_id = None;
+    }
+
     /// Halt the state machine
     pub fn halt(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.control.locked = true;
@@ -1929,7 +1979,7 @@ impl StateMachine {
     pub(crate) fn update_registered_with_control(
         &mut self,
         id: StateId,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         owner: &mut dyn Any,
     ) -> Option<StateReturnType> {
         let locked = self.control.is_locked();

@@ -111,7 +111,7 @@ impl StateImplementation for AIAttackMoveToState {
 
     fn on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         goal_id: crate::common::ObjectID,
         goal_pos: Coord3D,
     ) -> StateReturnType {
@@ -134,7 +134,7 @@ impl StateImplementation for AIAttackMoveToState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         let Some(owner) = self.base.base.get_machine_owner() else {
             return StateReturnType::Failure;
@@ -271,7 +271,7 @@ impl CppState for AIAttackMoveToState {
 
     fn cpp_on_update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.attack_move_update(Some(ai))
     }
@@ -294,7 +294,7 @@ impl CppState for AIAttackMoveToState {
 impl AIAttackMoveToState {
     fn attack_move_update(
         &mut self,
-        mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let owner = self
             .base
@@ -309,7 +309,7 @@ impl AIAttackMoveToState {
         let ai_arc;
         let mut locked_ai;
         let has_ai = borrowed.is_some();
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+        let ai_guard: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime =
             if let Some(ai) = borrowed.as_mut() {
                 *ai
             } else {
@@ -321,7 +321,7 @@ impl AIAttackMoveToState {
                 locked_ai = ai_arc
                     .lock()
                     .map_err(|_| "attack move-to AI lock poisoned".to_string())?;
-                &mut *locked_ai
+                &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *locked_ai)
             };
         let mut force_retarget_this_frame = false;
         let mut should_repath_this_frame = false;
@@ -437,7 +437,7 @@ impl StateImplementation for AIAttackFollowWaypointPathAsTeamState {
 
     fn on_enter_with_waypoint(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         goal_id: crate::common::ObjectID,
         goal_pos: Coord3D,
         waypoint: Option<crate::waypoint::WaypointId>,
@@ -458,7 +458,7 @@ impl StateImplementation for AIAttackFollowWaypointPathAsTeamState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         let Some(owner) = self.base.base.get_machine_owner() else {
             return StateReturnType::Failure;
@@ -558,7 +558,7 @@ impl CppState for AIAttackFollowWaypointPathAsTeamState {
 
     fn cpp_on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         let result = self.base.cpp_on_enter_with_ai(ai)?;
         self.arm_attack_follow(result)
@@ -570,7 +570,7 @@ impl CppState for AIAttackFollowWaypointPathAsTeamState {
 
     fn cpp_on_update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.attack_follow_team_update(Some(ai))
     }
@@ -606,7 +606,7 @@ impl AIAttackFollowWaypointPathAsTeamState {
 
     fn attack_follow_team_update(
         &mut self,
-        mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let owner = self
             .base
@@ -621,7 +621,7 @@ impl AIAttackFollowWaypointPathAsTeamState {
         let ai_arc;
         let mut locked_ai;
         let has_ai = borrowed.is_some();
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+        let ai_guard: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime =
             if let Some(ai) = borrowed.as_mut() {
                 *ai
             } else {
@@ -633,7 +633,7 @@ impl AIAttackFollowWaypointPathAsTeamState {
                 locked_ai = ai_arc
                     .lock()
                     .map_err(|_| "attack follow path AI lock poisoned".to_string())?;
-                &mut *locked_ai
+                &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *locked_ai)
             };
         let mut force_retarget_this_frame = false;
         let mut should_repath_this_frame = false;
@@ -720,7 +720,7 @@ impl StateImplementation for AIAttackFollowWaypointPathAsIndividualsState {
 
     fn on_enter_with_waypoint(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         goal_id: crate::common::ObjectID,
         goal_pos: Coord3D,
         waypoint: Option<crate::waypoint::WaypointId>,
@@ -741,7 +741,7 @@ impl StateImplementation for AIAttackFollowWaypointPathAsIndividualsState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         let Some(owner) = self.base.base.get_machine_owner() else {
             return StateReturnType::Failure;
@@ -836,7 +836,7 @@ impl CppState for AIAttackFollowWaypointPathAsIndividualsState {
 
     fn cpp_on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         let result = self.base.cpp_on_enter_with_ai(ai)?;
         self.arm_attack_follow_individuals(result)
@@ -848,7 +848,7 @@ impl CppState for AIAttackFollowWaypointPathAsIndividualsState {
 
     fn cpp_on_update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.attack_follow_individuals_update(Some(ai))
     }
@@ -887,7 +887,7 @@ impl AIAttackFollowWaypointPathAsIndividualsState {
 
     fn attack_follow_individuals_update(
         &mut self,
-        mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let owner = self
             .base
@@ -902,7 +902,7 @@ impl AIAttackFollowWaypointPathAsIndividualsState {
         let has_ai = borrowed.is_some();
         let ai_arc;
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+        let ai_guard: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime =
             if let Some(ai) = borrowed.as_mut() {
                 *ai
             } else {
@@ -914,7 +914,7 @@ impl AIAttackFollowWaypointPathAsIndividualsState {
                 locked_ai = ai_arc
                     .lock()
                     .map_err(|_| "attack follow path AI lock poisoned".to_string())?;
-                &mut *locked_ai
+                &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *locked_ai)
             };
         let mut force_retarget_this_frame = false;
         let mut should_repath_this_frame = false;
@@ -1048,7 +1048,7 @@ pub(crate) fn forward_parent_goal_to_nested_machine(
 impl AIAttackObjectState {
     fn classic_on_enter_with_optional_ai(
         &mut self,
-        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
@@ -1231,7 +1231,7 @@ impl StateImplementation for AIAttackObjectState {
 
     fn on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         goal_id: crate::common::ObjectID,
         _goal_pos: Coord3D,
     ) -> StateReturnType {
@@ -1244,7 +1244,7 @@ impl StateImplementation for AIAttackObjectState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         self.attack_frame(Some(ai))
             .unwrap_or(StateReturnType::Failure)
@@ -1282,7 +1282,7 @@ impl CppState for AIAttackObjectState {
 
     fn cpp_on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.classic_on_enter_with_optional_ai(Some(ai))
     }
@@ -1293,7 +1293,7 @@ impl CppState for AIAttackObjectState {
 
     fn cpp_on_update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.attack_frame(Some(ai))
     }
@@ -1306,7 +1306,7 @@ impl CppState for AIAttackObjectState {
         &mut self,
         control: &mut StateMachineControl,
         _exit: StateExitType,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), String> {
         let live_ai = ai.is_some();
         self.exit_attack(ai)?;
@@ -1324,7 +1324,7 @@ impl CppState for AIAttackObjectState {
 impl AIAttackObjectState {
     fn exit_attack(
         &mut self,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), String> {
         self.target_id = INVALID_ID;
         self.issued_attack = false;
@@ -1363,7 +1363,7 @@ impl AIAttackObjectState {
 
     fn attack_frame(
         &mut self,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
@@ -1877,7 +1877,7 @@ impl AIPickUpCrateState {
 
     fn update_with_optional_ai(
         &mut self,
-        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         if self.delay_counter > 0 {
             self.delay_counter -= 1;
@@ -1905,7 +1905,7 @@ impl StateImplementation for AIPickUpCrateState {
 
     fn on_enter_with_ai(
         &mut self,
-        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        _ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _goal_id: ObjectID,
         _goal_pos: Coord3D,
     ) -> StateReturnType {
@@ -1926,7 +1926,7 @@ impl StateImplementation for AIPickUpCrateState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         self.cpp_on_update_with_ai(ai)
             .unwrap_or(StateReturnType::Failure)
@@ -1939,7 +1939,7 @@ impl StateImplementation for AIPickUpCrateState {
     fn on_exit_with_ai(
         &mut self,
         status: StateExitType,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) {
         let _ = self.base.on_exit_with_ai(status, ai);
     }
@@ -1996,7 +1996,7 @@ impl CppState for AIPickUpCrateState {
 
     fn cpp_on_update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.update_with_optional_ai(Some(ai))
     }

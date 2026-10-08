@@ -237,14 +237,17 @@ impl AIDockMachine {
     pub(crate) fn start_with_ai(
         &mut self,
         goal_id: ObjectID,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         self.state_machine.set_goal_object_by_id(Some(goal_id));
         self.state_machine
             .init_default_state_with_ai_and_owner(ai, &mut self.context)
     }
 
-    pub(crate) fn update_with_ai(&mut self, ai: &mut dyn AIUpdateInterface) -> StateReturnType {
+    pub(crate) fn update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> StateReturnType {
         self.state_machine
             .update_with_ai_and_owner(ai, &mut self.context)
     }
@@ -254,9 +257,10 @@ impl AIDockMachine {
         self.state_machine.set_goal_object_by_id(Some(goal_id));
         if let Some(ai) = self.owner_ai() {
             if let Ok(mut ai) = ai.lock() {
-                return self
-                    .state_machine
-                    .init_default_state_with_ai_and_owner(&mut *ai, &mut self.context);
+                return self.state_machine.init_default_state_with_ai_and_owner(
+                    &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *ai),
+                    &mut self.context,
+                );
             }
             return StateReturnType::Failure;
         }
@@ -267,7 +271,9 @@ impl AIDockMachine {
     pub(crate) fn update(&mut self) -> StateReturnType {
         if let Some(ai) = self.owner_ai() {
             if let Ok(mut ai) = ai.lock() {
-                return self.update_with_ai(&mut *ai);
+                return self.update_with_ai(
+                    &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *ai),
+                );
             }
             return StateReturnType::Failure;
         }
@@ -401,7 +407,7 @@ impl DockState for AIDockApproachState {
     fn dock_on_enter(
         &mut self,
         context: &mut DockContext,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let ai = ai.ok_or("dock move missing borrowed AI")?;
         let (owner_id, goal_id) = match self.goal_owner() {
@@ -445,7 +451,7 @@ impl DockState for AIDockApproachState {
     fn dock_on_update(
         &mut self,
         _context: &mut DockContext,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         if self
             .move_helper
@@ -463,7 +469,7 @@ impl DockState for AIDockApproachState {
     fn dock_on_exit(
         &mut self,
         exit: StateExitType,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.goal_owner() {
             let owner = self.base.get_machine_owner().ok_or("dock owner expired")?;
@@ -575,7 +581,7 @@ impl DockState for AIDockWaitForClearanceState {
     fn dock_on_enter(
         &mut self,
         context: &mut DockContext,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         self.enter_frame = TheGameLogic::try_get_frame()?;
         Ok(StateReturnType::Continue)
@@ -584,7 +590,7 @@ impl DockState for AIDockWaitForClearanceState {
     fn dock_on_update(
         &mut self,
         _context: &mut DockContext,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let (owner_id, goal_id) = match self.owner_and_goal() {
             Ok(values) => values,
@@ -621,7 +627,7 @@ impl DockState for AIDockWaitForClearanceState {
     fn dock_on_exit(
         &mut self,
         exit: StateExitType,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.owner_and_goal() {
             let owner = self.base.get_machine_owner().ok_or("dock owner expired")?;
@@ -692,7 +698,7 @@ impl DockState for AIDockAdvancePositionState {
     fn dock_on_enter(
         &mut self,
         context: &mut DockContext,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let ai = ai.ok_or("dock move missing borrowed AI")?;
         let (owner_id, goal_id) = match self.goal_owner() {
@@ -733,7 +739,7 @@ impl DockState for AIDockAdvancePositionState {
     fn dock_on_update(
         &mut self,
         _context: &mut DockContext,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         if self
             .move_helper
@@ -751,7 +757,7 @@ impl DockState for AIDockAdvancePositionState {
     fn dock_on_exit(
         &mut self,
         exit: StateExitType,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.goal_owner() {
             let owner = self.base.get_machine_owner().ok_or("dock owner expired")?;
@@ -827,7 +833,7 @@ impl DockState for AIDockMoveToEntryState {
     fn dock_on_enter(
         &mut self,
         context: &mut DockContext,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let ai = ai.ok_or("dock move missing borrowed AI")?;
         let (owner_id, goal_id) = match self.goal_owner() {
@@ -867,7 +873,7 @@ impl DockState for AIDockMoveToEntryState {
     fn dock_on_update(
         &mut self,
         _context: &mut DockContext,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         if self
             .move_helper
@@ -885,7 +891,7 @@ impl DockState for AIDockMoveToEntryState {
     fn dock_on_exit(
         &mut self,
         exit: StateExitType,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.goal_owner() {
             let owner = self.base.get_machine_owner().ok_or("dock owner expired")?;
@@ -961,7 +967,7 @@ impl DockState for AIDockMoveToDockState {
     fn dock_on_enter(
         &mut self,
         context: &mut DockContext,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let ai = ai.ok_or("dock move missing borrowed AI")?;
         let (owner_id, goal_id) = match self.goal_owner() {
@@ -1011,7 +1017,7 @@ impl DockState for AIDockMoveToDockState {
     fn dock_on_update(
         &mut self,
         _context: &mut DockContext,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         if self
             .move_helper
@@ -1041,7 +1047,7 @@ impl DockState for AIDockMoveToDockState {
     fn dock_on_exit(
         &mut self,
         exit: StateExitType,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.goal_owner() {
             let owner = self.base.get_machine_owner().ok_or("dock owner expired")?;
@@ -1068,7 +1074,7 @@ impl DockState for AIDockMoveToDockState {
     fn dock_after_exit(
         &mut self,
         exit: StateExitType,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), String> {
         self.move_helper
             .on_exit_with_ai(exit, ai.ok_or("dock move missing borrowed AI")?)
@@ -1132,7 +1138,7 @@ impl AIDockProcessDockState {
     fn set_next_dock_action_frame(
         &mut self,
         goal_id: ObjectID,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), String> {
         let now = TheGameLogic::try_get_frame()?;
         self.next_dock_action_frame = match ai.and_then(|ai| ai.get_supply_truck_ai_interface()) {
@@ -1204,7 +1210,7 @@ impl DockState for AIDockProcessDockState {
     fn dock_on_enter(
         &mut self,
         context: &mut DockContext,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         // Ensure dock exists
         if self.owner_and_goal().is_err() {
@@ -1218,7 +1224,7 @@ impl DockState for AIDockProcessDockState {
     fn dock_on_update(
         &mut self,
         _context: &mut DockContext,
-        mut ai: Option<&mut dyn AIUpdateInterface>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let (owner_id, goal_id) = match self.owner_and_goal() {
             Ok(values) => values,
@@ -1262,7 +1268,7 @@ impl DockState for AIDockProcessDockState {
     fn dock_on_exit(
         &mut self,
         _exit: StateExitType,
-        _ai: Option<&mut dyn AIUpdateInterface>,
+        _ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), String> {
         Ok(())
     }
@@ -1319,7 +1325,7 @@ impl DockState for AIDockMoveToExitState {
     fn dock_on_enter(
         &mut self,
         context: &mut DockContext,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let ai = ai.ok_or("dock move missing borrowed AI")?;
         let (owner_id, goal_id) = match self.goal_owner() {
@@ -1356,7 +1362,7 @@ impl DockState for AIDockMoveToExitState {
     fn dock_on_update(
         &mut self,
         _context: &mut DockContext,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         if self
             .move_helper
@@ -1374,7 +1380,7 @@ impl DockState for AIDockMoveToExitState {
     fn dock_on_exit(
         &mut self,
         exit: StateExitType,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.goal_owner() {
             let owner = self.base.get_machine_owner().ok_or("dock owner expired")?;
@@ -1396,7 +1402,7 @@ impl DockState for AIDockMoveToExitState {
     fn dock_after_exit(
         &mut self,
         exit: StateExitType,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), String> {
         self.move_helper
             .on_exit_with_ai(exit, ai.ok_or("dock move missing borrowed AI")?)
@@ -1446,7 +1452,7 @@ impl DockState for AIDockMoveToRallyState {
     fn dock_on_enter(
         &mut self,
         context: &mut DockContext,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let ai = ai.ok_or("dock move missing borrowed AI")?;
         let Some(goal_id) = self
@@ -1486,7 +1492,7 @@ impl DockState for AIDockMoveToRallyState {
     fn dock_on_update(
         &mut self,
         _context: &mut DockContext,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         self.move_helper
             .update_with_ai(ai.ok_or("dock move missing borrowed AI")?)
@@ -1495,7 +1501,7 @@ impl DockState for AIDockMoveToRallyState {
     fn dock_on_exit(
         &mut self,
         exit: StateExitType,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), String> {
         self.move_helper
             .on_exit_with_ai(exit, ai.ok_or("dock move missing borrowed AI")?)

@@ -1,5 +1,7 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
+use crate::modules::ai_state_runtime::AiStateRuntime;
+
 use super::attack::*;
 use super::attack_machine::*;
 use super::dead::*;
@@ -45,8 +47,8 @@ use crate::damage::DamageInfo;
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
 use crate::locomotor::LocomotorAppearance;
 use crate::modules::{
-    AIUpdateInterface, AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt,
-    ContainWant, ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
+    AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt, ContainWant,
+    ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
 };
 use crate::object::production::AIFreeToExitType;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -126,7 +128,7 @@ impl AIWanderInPlaceState {
         }
     }
 
-    pub(crate) fn choose_new_goal(&mut self, ai: &dyn AIUpdateInterface) {
+    pub(crate) fn choose_new_goal(&mut self, ai: &dyn AiStateRuntime) {
         let mut delta = 3;
         ai.with_cur_locomotor(&mut |loco| {
             delta = ((loco.template.wander_about_point_radius / PATHFIND_CELL_SIZE_F) + 0.5).floor()
@@ -165,7 +167,7 @@ impl StateImplementation for AIWanderInPlaceState {
 
     fn on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _goal_id: crate::common::ObjectID,
         _goal_pos: Coord3D,
     ) -> StateReturnType {
@@ -201,7 +203,7 @@ impl StateImplementation for AIWanderInPlaceState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         let Some(owner) = self.base.base.get_machine_owner() else {
             return StateReturnType::Failure;
@@ -214,8 +216,9 @@ impl StateImplementation for AIWanderInPlaceState {
             ai.with_cur_locomotor(&mut |loco| __close = loco.get_close_enough_dist());
             __close
         };
-        let arrived =
-            !ai.is_waiting_for_path() && ai.get_locomotor_distance_to_goal() <= close_enough;
+        let arrived = !ai.is_waiting_for_path()
+            && ai.get_locomotor_distance_to_goal(self.base.base.get_machine_goal_position())
+                <= close_enough;
         if owner_guard.is_kind_of(KindOf::CanBeRepulsed) {
             self.timer -= 1;
             if self.timer < 0 {
@@ -286,7 +289,7 @@ impl CppState for AIWanderInPlaceState {
 
     fn cpp_on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.wander_in_place_enter(Some(ai))
     }
@@ -297,7 +300,7 @@ impl CppState for AIWanderInPlaceState {
 
     fn cpp_on_update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.wander_in_place_update(Some(ai))
     }
@@ -310,7 +313,7 @@ impl CppState for AIWanderInPlaceState {
 impl AIWanderInPlaceState {
     fn wander_in_place_enter(
         &mut self,
-        mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let owner = self
             .base
@@ -331,10 +334,12 @@ impl AIWanderInPlaceState {
             } else {
                 let held_ai = owner_guard
                     .get_ai_update_interface()
-                    .ok_or_else(|| "wander in place missing AIUpdateInterface".to_string())?;
+                    .ok_or_else(|| "wander in place missing AiStateRuntime".to_string())?;
                 if let Ok(mut ai_guard) = held_ai.lock() {
                     let _ = ai_guard.choose_locomotor_set(LocomotorSetType::Wander);
-                    self.choose_new_goal(&*ai_guard);
+                    self.choose_new_goal(
+                        &crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *ai_guard),
+                    );
                 }
             }
         }
@@ -348,7 +353,7 @@ impl AIWanderInPlaceState {
 
     fn wander_in_place_update(
         &mut self,
-        mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let has_ai = borrowed.is_some();
         let status = if let Some(ai) = borrowed.as_mut() {
@@ -390,7 +395,7 @@ impl AIWanderInPlaceState {
                 Some(
                     owner_guard
                         .get_ai_update_interface()
-                        .ok_or_else(|| "wander in place missing AIUpdateInterface".to_string())?,
+                        .ok_or_else(|| "wander in place missing AiStateRuntime".to_string())?,
                 )
             } else {
                 None
@@ -401,8 +406,10 @@ impl AIWanderInPlaceState {
                 self.choose_new_goal(*ai);
                 let _ = self.base.cpp_on_enter_with_ai(*ai);
             } else if let Some(ai) = repulsed {
-                if let Ok(ai_guard) = ai.try_lock() {
-                    self.choose_new_goal(&*ai_guard);
+                if let Ok(mut ai_guard) = ai.try_lock() {
+                    self.choose_new_goal(
+                        &crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *ai_guard),
+                    );
                     drop(ai_guard);
                     let _ = self.base.cpp_on_enter();
                 }
@@ -459,7 +466,7 @@ impl StateImplementation for AIMoveOutOfTheWayState {
 
     fn on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _goal_id: crate::common::ObjectID,
         _goal_pos: Coord3D,
     ) -> StateReturnType {
@@ -489,7 +496,7 @@ impl StateImplementation for AIMoveOutOfTheWayState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         let stuck = ai.is_blocked_and_stuck();
         if let Some(owner) = self.base.base.get_machine_owner() {
@@ -525,7 +532,7 @@ impl CppState for AIMoveOutOfTheWayState {
 
     fn cpp_on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.move_aside_enter(Some(ai))
     }
@@ -536,7 +543,7 @@ impl CppState for AIMoveOutOfTheWayState {
 
     fn cpp_on_update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.move_aside_update(Some(ai))
     }
@@ -544,7 +551,7 @@ impl CppState for AIMoveOutOfTheWayState {
     fn cpp_on_exit_with_ai(
         &mut self,
         exit: StateExitType,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut dyn AiStateRuntime,
     ) -> Result<(), String> {
         // Generic temporary entry can fail before MoveOut's native path exists.
         // Its own C++ exit still destroys path, unlike base MoveTo's exit.
@@ -572,7 +579,7 @@ impl CppState for AIMoveOutOfTheWayState {
 impl AIMoveOutOfTheWayState {
     fn move_aside_enter(
         &mut self,
-        mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         self.base.set_adjusts_destination(true);
         let has_ai = borrowed.is_some();
@@ -590,7 +597,7 @@ impl AIMoveOutOfTheWayState {
                 .map_err(|_| "move out of the way owner lock poisoned".to_string())?;
             let ai = owner_guard
                 .get_ai_update_interface()
-                .ok_or_else(|| "move out of the way missing AIUpdateInterface".to_string())?;
+                .ok_or_else(|| "move out of the way missing AiStateRuntime".to_string())?;
             let ai_guard = ai
                 .lock()
                 .map_err(|_| "move out of the way AI lock poisoned".to_string())?;
@@ -617,7 +624,7 @@ impl AIMoveOutOfTheWayState {
 
     fn move_aside_update(
         &mut self,
-        borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         let live_stuck = self.live_stuck.take();
         let owner = self
@@ -677,7 +684,7 @@ impl StateImplementation for AIMoveAndTightenState {
 
     fn on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         goal_id: crate::common::ObjectID,
         goal_pos: Coord3D,
     ) -> StateReturnType {
@@ -724,7 +731,7 @@ impl StateImplementation for AIMoveAndTightenState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         if self.check_for_path && !ai.is_waiting_for_path() && ai.get_path_destination().is_some() {
             self.base.set_adjusts_destination(true);
@@ -740,7 +747,10 @@ impl StateImplementation for AIMoveAndTightenState {
             ai.with_cur_locomotor(&mut |loco| __close = loco.get_close_enough_dist());
             __close
         };
-        if !ai.is_waiting_for_path() && ai.get_locomotor_distance_to_goal() <= close_enough {
+        if !ai.is_waiting_for_path()
+            && ai.get_locomotor_distance_to_goal(self.base.base.get_machine_goal_position())
+                <= close_enough
+        {
             if let Some(owner) = self.base.base.get_machine_owner() {
                 if let Ok(mut owner_guard) = owner.write() {
                     owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
@@ -832,7 +842,7 @@ impl StateImplementation for AIMoveAndDeleteState {
 
     fn on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         goal_id: crate::common::ObjectID,
         goal_pos: Coord3D,
     ) -> StateReturnType {
@@ -876,7 +886,7 @@ impl StateImplementation for AIMoveAndDeleteState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         let Some(owner) = self.base.base.get_machine_owner() else {
             return StateReturnType::Failure;
@@ -892,7 +902,10 @@ impl StateImplementation for AIMoveAndDeleteState {
             ai.with_cur_locomotor(&mut |loco| __close = loco.get_close_enough_dist());
             __close
         };
-        if ai.is_waiting_for_path() || ai.get_locomotor_distance_to_goal() > close_enough {
+        if ai.is_waiting_for_path()
+            || ai.get_locomotor_distance_to_goal(self.base.base.get_machine_goal_position())
+                > close_enough
+        {
             return StateReturnType::Continue;
         }
         let owner_id = owner_guard.get_id();
@@ -983,7 +996,7 @@ impl StateImplementation for AIMoveAwayFromRepulsorsState {
 
     fn on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         _goal_id: crate::common::ObjectID,
         _goal_pos: Coord3D,
     ) -> StateReturnType {
@@ -1071,7 +1084,7 @@ impl StateImplementation for AIMoveAwayFromRepulsorsState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         let waiting = ai.is_waiting_for_path();
         if self.check_for_path && !waiting {
@@ -1094,7 +1107,10 @@ impl StateImplementation for AIMoveAwayFromRepulsorsState {
             ai.with_cur_locomotor(&mut |loco| __close = loco.get_close_enough_dist());
             __close
         };
-        if !waiting && ai.get_locomotor_distance_to_goal() <= close_enough {
+        if !waiting
+            && ai.get_locomotor_distance_to_goal(self.base.base.get_machine_goal_position())
+                <= close_enough
+        {
             if let Some(owner) = self.base.base.get_machine_owner() {
                 if let Ok(mut owner_guard) = owner.write() {
                     owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
@@ -1318,7 +1334,7 @@ impl AIMoveToState {
     }
 
     /// Compute path to goal - C++ AIInternalMoveToState::computePath() from AIStates.cpp line 1577
-    pub(crate) fn compute_path(&mut self, ai: &mut dyn AIUpdateInterface) -> Result<(), String> {
+    pub(crate) fn compute_path(&mut self, ai: &mut dyn AiStateRuntime) -> Result<(), String> {
         self.waiting_for_path = true;
         ai.request_path(&self.goal_position, self.adjust_destinations)?;
         ai.friend_starting_move();
@@ -1327,7 +1343,7 @@ impl AIMoveToState {
 
     pub(crate) fn start_from_borrowed_ai(
         &mut self,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut dyn AiStateRuntime,
         owner_guard: &Object,
     ) -> Result<(), String> {
         self.ambient_playing_handle = 0;
@@ -1391,7 +1407,7 @@ impl AIMoveToState {
     fn finish_move_update(
         &mut self,
         owner_guard: &mut Object,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         if self.waiting_for_path {
             self.path_timestamp = TheGameLogic::get_frame();
@@ -1560,7 +1576,8 @@ impl AIMoveToState {
             ai.with_cur_locomotor(&mut |loco| __close = loco.get_close_enough_dist());
             __close
         };
-        if ai.get_locomotor_distance_to_goal() <= close_enough {
+        if ai.get_locomotor_distance_to_goal(self.base.get_machine_goal_position()) <= close_enough
+        {
             owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
             return Ok(StateReturnType::Success);
         }
@@ -1583,7 +1600,7 @@ impl StateImplementation for AIMoveToState {
 
     fn on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         goal_id: crate::common::ObjectID,
         goal_pos: Coord3D,
     ) -> StateReturnType {
@@ -1628,7 +1645,7 @@ impl StateImplementation for AIMoveToState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         let owner = if let Some(owner) = self.preset_owner.clone() {
             owner
@@ -1673,7 +1690,7 @@ impl CppState for AIMoveToState {
 
     fn cpp_on_enter_with_ai(
         &mut self,
-        ai_ref: &mut dyn crate::modules::AIUpdateInterface,
+        ai_ref: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         self.enter_move(Some(ai_ref))
     }
@@ -1694,16 +1711,19 @@ impl CppState for AIMoveToState {
             .map_err(|_| "AIMoveToState owner lock poisoned".to_string())?;
         let ai_arc = owner_guard
             .get_ai_update_interface()
-            .ok_or_else(|| "AIMoveToState missing AIUpdateInterface".to_string())?;
+            .ok_or_else(|| "AIMoveToState missing AiStateRuntime".to_string())?;
         let mut ai_guard = ai_arc
             .lock()
             .map_err(|_| "AIMoveToState AI lock poisoned".to_string())?;
-        return self.finish_move_update(&mut owner_guard, &mut *ai_guard);
+        return self.finish_move_update(
+            &mut owner_guard,
+            &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *ai_guard),
+        );
     }
 
     fn cpp_on_update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
@@ -1761,7 +1781,7 @@ impl CppState for AIMoveToState {
     fn cpp_on_exit_with_ai(
         &mut self,
         _exit: StateExitType,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut dyn AiStateRuntime,
     ) -> Result<(), String> {
         // AIInternalMoveToState::onExit: sound, endingMove, exact ground
         // finalization. It does not destroyPath or reset path extra distance.
@@ -1829,20 +1849,20 @@ impl CppState for AIMoveToState {
 impl AIMoveToState {
     pub(crate) fn enter_authored_segment(
         &mut self,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut dyn AiStateRuntime,
         goal: Coord3D,
     ) -> Result<StateReturnType, String> {
         self.enter_move_impl(Some(ai), Some(goal))
     }
     fn enter_move(
         &mut self,
-        borrowed: Option<&mut dyn AIUpdateInterface>,
+        borrowed: Option<&mut dyn AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         self.enter_move_impl(borrowed, None)
     }
     fn enter_move_impl(
         &mut self,
-        mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         authored_goal: Option<Coord3D>,
     ) -> Result<StateReturnType, String> {
         if dual_world_registry_unavailable() {
@@ -1914,16 +1934,16 @@ impl AIMoveToState {
         drop(owner_guard);
         let ai_arc;
         let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
+        let ai_guard: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime =
             if let Some(ai_ref) = borrowed.as_mut() {
                 *ai_ref
             } else {
                 ai_arc = installed_ai
-                    .ok_or_else(|| "AIMoveToState missing AIUpdateInterface".to_string())?;
+                    .ok_or_else(|| "AIMoveToState missing AiStateRuntime".to_string())?;
                 locked_ai = ai_arc
                     .lock()
                     .map_err(|_| "AIMoveToState AI lock poisoned".to_string())?;
-                &mut *locked_ai
+                &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *locked_ai)
             };
 
         if parachuting {
@@ -2010,7 +2030,7 @@ impl StateImplementation for AIMoveAndEvacuateState {
 
     fn on_enter_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         goal_id: crate::common::ObjectID,
         goal_pos: Coord3D,
     ) -> StateReturnType {
@@ -2059,7 +2079,7 @@ impl StateImplementation for AIMoveAndEvacuateState {
 
     fn update_with_ai(
         &mut self,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> StateReturnType {
         let Some(owner) = self.base.base.get_machine_owner() else {
             return StateReturnType::Failure;
@@ -2075,7 +2095,10 @@ impl StateImplementation for AIMoveAndEvacuateState {
             ai.with_cur_locomotor(&mut |loco| __close = loco.get_close_enough_dist());
             __close
         };
-        if ai.is_waiting_for_path() || ai.get_locomotor_distance_to_goal() > close_enough {
+        if ai.is_waiting_for_path()
+            || ai.get_locomotor_distance_to_goal(self.base.base.get_machine_goal_position())
+                > close_enough
+        {
             return StateReturnType::Continue;
         }
         drop(owner_guard);
@@ -2093,7 +2116,7 @@ impl StateImplementation for AIMoveAndEvacuateState {
     fn on_exit_with_ai(
         &mut self,
         status: StateExitType,
-        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        _ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) {
         let _ = self.base.cpp_on_exit(status);
     }

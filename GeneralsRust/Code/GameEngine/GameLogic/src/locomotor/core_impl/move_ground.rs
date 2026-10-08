@@ -19,14 +19,13 @@ impl Locomotor {
 
         // Calculate relative angle to goal (with turn pivot offset)
         // C++ uses rotateTowardsPosition which also sets physics->setTurning
-        let desired_angle =
-            self.desired_angle_with_pivot(
-                current_pos,
-                current_angle,
-                goal_pos,
-                self.is_braking(),
-                pivot_radius,
-            );
+        let desired_angle = self.desired_angle_with_pivot(
+            current_pos,
+            current_angle,
+            goal_pos,
+            self.is_braking(),
+            pivot_radius,
+        );
         let rel_angle = Self::std_angle_diff(desired_angle, current_angle);
 
         // Modulate speed according to turning
@@ -140,8 +139,7 @@ impl Locomotor {
         let mut turn_speed = self.template.min_turn_speed;
         // C++ Locomotor.cpp:1277 center atan2. Pivot aim is applied at the
         // return so it cannot decide the > π/2 reverse test.
-        let mut desired_angle =
-            (goal_pos.y - current_pos.y).atan2(goal_pos.x - current_pos.x);
+        let mut desired_angle = (goal_pos.y - current_pos.y).atan2(goal_pos.x - current_pos.x);
         let mut rel_angle = Self::std_angle_diff(desired_angle, current_angle);
 
         let mut move_backwards = false;
@@ -372,7 +370,11 @@ impl Locomotor {
         }
         let offset_x = target_angle.cos() * distance;
         let offset_y = target_angle.sin() * distance;
-        let next_pos = Coord3D::new(current_pos.x + offset_x, current_pos.y + offset_y, current_pos.z);
+        let next_pos = Coord3D::new(
+            current_pos.x + offset_x,
+            current_pos.y + offset_y,
+            current_pos.z,
+        );
         let half_pos = Coord3D::new(
             current_pos.x + offset_x / 2.0,
             current_pos.y + offset_y / 2.0,
@@ -403,14 +405,13 @@ impl Locomotor {
         let mut desired_speed = desired_speed.min(max_speed);
         let max_acceleration = self.get_max_acceleration(condition);
 
-        let mut desired_angle =
-            self.desired_angle_with_pivot(
-                current_pos,
-                current_angle,
-                goal_pos,
-                self.is_braking(),
-                pivot_radius,
-            );
+        let mut desired_angle = self.desired_angle_with_pivot(
+            current_pos,
+            current_angle,
+            goal_pos,
+            self.is_braking(),
+            pivot_radius,
+        );
 
         // Wander logic for infantry - C++ Locomotor.cpp:1618-1633
         if self.template.wander_width_factor != 0.0 {
@@ -621,8 +622,15 @@ impl Locomotor {
         } else {
             -self.get_braking()
         };
+        // C++ compares mass * acceleration with mass * speedDelta before
+        // applying the force. Cap the equivalent acceleration here so even
+        // the default LOCO_BIGNUM braking cannot reverse the velocity.
+        let acceleration = if acceleration.abs() > speed_delta.abs() {
+            speed_delta
+        } else {
+            acceleration
+        };
 
         (current_pos, desired_angle, acceleration)
     }
-
 }

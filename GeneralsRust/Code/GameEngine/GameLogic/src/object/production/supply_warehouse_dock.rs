@@ -216,7 +216,7 @@ impl SupplyWarehouseDockUpdate {
     fn perform_supply_transfer(
         &mut self,
         docker: &Arc<RwLock<Object>>,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<bool, String> {
         // Resolve owner/docker via TheGameLogic even when OBJECT_REGISTRY is empty.
 
@@ -450,7 +450,7 @@ impl DockUpdateInterface for SupplyWarehouseDockUpdate {
         &mut self,
         docker: &Arc<RwLock<Object>>,
         _drone_id: Option<ObjectID>,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         self.perform_supply_transfer(docker, Some(ai))
             .map_err(Into::into)

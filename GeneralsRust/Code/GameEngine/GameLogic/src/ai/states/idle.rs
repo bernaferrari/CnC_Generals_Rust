@@ -1,5 +1,7 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
+use crate::modules::ai_state_runtime::AiStateRuntime;
+
 use super::attack::*;
 use super::attack_machine::*;
 use super::dead::*;
@@ -45,8 +47,8 @@ use crate::damage::DamageInfo;
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
 use crate::locomotor::LocomotorAppearance;
 use crate::modules::{
-    AIUpdateInterface, AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt,
-    ContainWant, ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
+    AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt, ContainWant,
+    ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
 };
 use crate::object::production::AIFreeToExitType;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -212,7 +214,7 @@ impl AIIdleState {
             }
 
             // Object *obj = getMachineOwner();
-            // AIUpdateInterface *ai = obj->getAI();
+            // AiStateRuntime *ai = obj->getAI();
 
             // Repulsor logic (C++ line 1388)
             // if (obj->isKindOf(KINDOF_CAN_BE_REPULSED) && ai->isIdle())
@@ -314,7 +316,7 @@ impl StateImplementation for AIIdleState {
 
     fn update_with_ai_held(
         &mut self,
-        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        _ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
         machine_locked: bool,
     ) -> StateReturnType {
         self.update_idle(Some(machine_locked))
@@ -324,7 +326,7 @@ impl StateImplementation for AIIdleState {
     fn update_with_control(
         &mut self,
         control: &mut StateMachineControl,
-        _ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        _ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         _machine_locked: bool,
         _owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
@@ -358,7 +360,7 @@ impl CppState for AIIdleState {
         // C++ AIIdleState::onEnter() from AIStates.cpp line 1290
         // Reset mood checking timers
         // Object *obj = getMachineOwner();
-        // AIUpdateInterface *ai = obj->getAI();
+        // AiStateRuntime *ai = obj->getAI();
         // if (ai) ai->resetNextMoodCheckTime();
 
         self.inited = true;
@@ -378,7 +380,7 @@ impl CppState for AIIdleState {
 
     fn cpp_on_enter_with_ai(
         &mut self,
-        ai: &mut dyn AIUpdateInterface,
+        ai: &mut dyn AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         // C++ resets before drawing the one initial countdown offset.
         ai.reset_next_mood_check_time();
@@ -391,7 +393,7 @@ impl CppState for AIIdleState {
     fn cpp_on_update_with_context(
         &mut self,
         control: &mut StateMachineControl,
-        ai: Option<&mut dyn AIUpdateInterface>,
+        ai: Option<&mut dyn AiStateRuntime>,
         _machine_locked: bool,
         owner: &mut dyn std::any::Any,
     ) -> Result<StateReturnType, String> {
@@ -404,7 +406,7 @@ impl CppState for AIIdleState {
     fn cpp_on_update_with_control(
         &mut self,
         control: &mut StateMachineControl,
-        _ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        _ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         _machine_locked: bool,
     ) -> Result<StateReturnType, String> {
         // C++ AIIdleState::update tests the real parent lock before looking

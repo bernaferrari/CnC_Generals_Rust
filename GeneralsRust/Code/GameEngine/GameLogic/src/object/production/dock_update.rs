@@ -1354,7 +1354,7 @@ impl SupplyCenterDockUpdate {
     fn perform_supply_delivery(
         &mut self,
         obj: &Arc<RwLock<Object>>,
-        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         let legacy_ai = if ai.is_none() {
             let Some(handle) = obj.read().unwrap().get_ai_update_interface() else {
@@ -1376,7 +1376,7 @@ impl SupplyCenterDockUpdate {
             .map(|player| player.get_supply_box_value())
             .unwrap_or(0);
 
-        let unload = |ai: &mut dyn crate::modules::AIUpdateInterface| {
+        let unload = |ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime| {
             let truck = ai.get_supply_truck_ai_interface_mut()?;
             let mut value: u32 = 0;
             while truck.lose_one_box() {
@@ -1392,7 +1392,9 @@ impl SupplyCenterDockUpdate {
         } else if let Some(handle) = legacy_ai {
             match handle.lock() {
                 Ok(mut guard) => {
-                    let Some(value) = unload(&mut *guard) else {
+                    let Some(value) = unload(
+                        &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *guard),
+                    ) else {
                         return Ok(false);
                     };
                     value
@@ -1637,7 +1639,7 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
         &mut self,
         docker: &Arc<RwLock<Object>>,
         _drone_id: Option<ObjectID>,
-        ai: &mut dyn crate::modules::AIUpdateInterface,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         self.perform_supply_delivery(docker, Some(ai))
     }

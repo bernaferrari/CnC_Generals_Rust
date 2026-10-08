@@ -110,6 +110,9 @@ fn guard_machine_callbacks_reuse_the_held_installed_ai() {
     // fixture deliberately has no UNIT_REGISTRY admission. Return enters the
     // real movement helper and reports its existing "unit no longer available"
     // failure instead of manufacturing a scheduler-visible Unit registration.
-    let transition = machine.set_state_with_ai(GuardStateType::Return, &mut *ai);
+    let transition = machine.set_state_with_ai(
+        GuardStateType::Return,
+        &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *ai),
+    );
     assert!(transition.is_failure());
 }

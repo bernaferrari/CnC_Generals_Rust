@@ -230,3 +230,124 @@ fn direct_object_constructor_keeps_its_existing_ai_preparation_policy() {
     OBJECT_REGISTRY.unregister_object(0xA1_F0_22);
     crate::ai::object_registry::unregister_legacy_object(0xA1_F0_22);
 }
+
+#[test]
+fn factory_unit_owner_survives_registry_replacement_destroy_and_reset_until_retirement() {
+    if !child(concat!(
+        module_path!(),
+        "::factory_unit_owner_survives_registry_replacement_destroy_and_reset_until_retirement"
+    )) {
+        return;
+    }
+
+    let _serial = crate::test_sync::lock();
+    register_ai_probe();
+    let team = {
+        let mut teams = crate::team::get_team_factory().lock().unwrap();
+        let mut prototype = crate::team::TeamPrototype::new("UnitOwnerRetirementTeam".into());
+        prototype.set_initial_team_attitude(crate::team::AttitudeType::Aggressive);
+        teams.replace_team_prototype(prototype);
+        teams
+            .create_inactive_team("UnitOwnerRetirementTeam")
+            .unwrap()
+    };
+    let mut factory = ObjectFactory::new();
+    factory.next_object_id = 0xA1_F0_31;
+    let template_name = "UnitOwnerRetirementProbe";
+    factory.template_cache.insert(
+        template_name.into(),
+        Arc::new(ai_template(template_name, true)),
+    );
+
+    // Both are real ObjectFactory Unit admissions into the existing GameLogic.
+    let destroy_id = factory
+        .create_object(
+            template_name,
+            Coord3D::new(11.0, 0.0, 0.0),
+            Some(Arc::clone(&team)),
+            ObjectCreationFlags::NO_DRAWABLE,
+        )
+        .unwrap();
+    let reset_id = factory
+        .create_object(
+            template_name,
+            Coord3D::new(22.0, 0.0, 0.0),
+            Some(Arc::clone(&team)),
+            ObjectCreationFlags::NO_DRAWABLE,
+        )
+        .unwrap();
+    assert!(factory.get_object(destroy_id).unwrap().is_unit());
+    assert!(factory.get_object(reset_id).unwrap().is_unit());
+
+    let destroy_owner = factory
+        .get_object(destroy_id)
+        .unwrap()
+        .get_base_object()
+        .unwrap();
+    let destroy_owner_weak = Arc::downgrade(&destroy_owner);
+    assert!(Arc::ptr_eq(
+        &OBJECT_REGISTRY.get_object(destroy_id).unwrap(),
+        &destroy_owner,
+    ));
+    let canary = Arc::new(RwLock::new(Object::new_test(destroy_id, 900.0)));
+    OBJECT_REGISTRY.register_object(destroy_id, &canary);
+    {
+        let GameObjectInstance::Unit(unit) = factory.get_object_mut(destroy_id).unwrap() else {
+            panic!("factory created a Unit wrapper");
+        };
+        unit.set_orientation(0.375).unwrap();
+        assert_eq!(unit.get_orientation(), 0.375);
+        assert!(Arc::ptr_eq(&unit.base_object().unwrap(), &destroy_owner));
+    }
+    assert_eq!(canary.read().unwrap().get_orientation(), 0.0);
+    assert!(Arc::ptr_eq(
+        &OBJECT_REGISTRY.get_object(destroy_id).unwrap(),
+        &canary,
+    ));
+
+    // Restore the actual world's public lookup before canonical destruction;
+    // the hostile replacement above exists only to prove Unit's own identity.
+    OBJECT_REGISTRY.register_object(destroy_id, &destroy_owner);
+    drop(canary);
+
+    {
+        let mut logic = crate::system::game_logic::get_game_logic().lock().unwrap();
+        factory.destroy_object(&mut logic, destroy_id);
+        logic.cleanup_dead_objects().unwrap();
+        assert!(factory.get_object(destroy_id).is_some());
+        let destroyed = destroy_owner_weak.upgrade().unwrap();
+        let destroyed_guard = destroyed.read().unwrap();
+        assert!(destroyed_guard.is_destroyed());
+        assert_eq!(destroyed_guard.get_id(), crate::common::INVALID_ID);
+        drop(destroyed_guard);
+        let GameObjectInstance::Unit(unit) = factory.get_object(destroy_id).unwrap() else {
+            panic!("destroyed Unit wrapper remains until factory retirement");
+        };
+        assert_eq!(unit.get_id(), destroy_id);
+        assert!(Arc::ptr_eq(&unit.base_object().unwrap(), &destroyed));
+        drop(destroyed);
+        factory.process_destruction_queue(&logic);
+        assert!(factory.get_object(destroy_id).is_none());
+    }
+    assert!(OBJECT_REGISTRY.get_object(destroy_id).is_none());
+    assert!(crate::helpers::TheGameLogic::find_object_by_id(destroy_id).is_none());
+    drop(destroy_owner);
+    assert!(destroy_owner_weak.upgrade().is_none());
+
+    let reset_owner = factory
+        .get_object(reset_id)
+        .unwrap()
+        .get_base_object()
+        .unwrap();
+    let reset_owner_weak = Arc::downgrade(&reset_owner);
+    {
+        let mut logic = crate::system::game_logic::get_game_logic().lock().unwrap();
+        factory.clear_all_objects(&mut logic).unwrap();
+        assert!(factory.get_object(reset_id).is_none());
+        assert!(reset_owner.read().unwrap().is_destroyed());
+    }
+    assert!(OBJECT_REGISTRY.get_object(reset_id).is_none());
+    assert!(crate::helpers::TheGameLogic::find_object_by_id(reset_id).is_none());
+    drop(reset_owner);
+    assert!(reset_owner_weak.upgrade().is_none());
+}

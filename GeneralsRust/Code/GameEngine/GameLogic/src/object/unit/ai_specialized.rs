@@ -15,12 +15,14 @@ impl UnitAIUpdate {
     pub(super) fn get_supply_truck_ai_interface(
         &self,
     ) -> Option<&dyn crate::modules::SupplyTruckAIInterface> {
-        if let Some(ai) = self.chinook_ai.as_ref() {
+        if let Some(ai) = self.runtime.components.chinook_ai.as_ref() {
             Some(ai as &dyn crate::modules::SupplyTruckAIInterface)
-        } else if let Some(ai) = self.worker_ai.as_ref() {
+        } else if let Some(ai) = self.runtime.components.worker_ai.as_ref() {
             Some(ai as &dyn crate::modules::SupplyTruckAIInterface)
         } else {
-            self.supply_truck_ai
+            self.runtime
+                .components
+                .supply_truck_ai
                 .as_ref()
                 .map(|ai| ai as &dyn crate::modules::SupplyTruckAIInterface)
         }
@@ -28,12 +30,14 @@ impl UnitAIUpdate {
     pub(super) fn get_supply_truck_ai_interface_mut(
         &mut self,
     ) -> Option<&mut dyn crate::modules::SupplyTruckAIInterface> {
-        if let Some(ai) = self.chinook_ai.as_mut() {
+        if let Some(ai) = self.runtime.components.chinook_ai.as_mut() {
             Some(ai as &mut dyn crate::modules::SupplyTruckAIInterface)
-        } else if let Some(ai) = self.worker_ai.as_mut() {
+        } else if let Some(ai) = self.runtime.components.worker_ai.as_mut() {
             Some(ai as &mut dyn crate::modules::SupplyTruckAIInterface)
         } else {
-            self.supply_truck_ai
+            self.runtime
+                .components
+                .supply_truck_ai
                 .as_mut()
                 .map(|ai| ai as &mut dyn crate::modules::SupplyTruckAIInterface)
         }
@@ -44,6 +48,8 @@ impl UnitAIUpdate {
         #[cfg(feature = "allow_surrender")]
         {
             return self
+                .runtime
+                .components
                 .pow_truck_ai
                 .as_mut()
                 .map(|ai| ai as &mut dyn crate::modules::POWTruckAIUpdateInterface);
@@ -56,35 +62,45 @@ impl UnitAIUpdate {
     pub(super) fn get_hack_internet_ai_update_interface(
         &mut self,
     ) -> Option<&mut dyn crate::modules::HackInternetAIUpdateInterface> {
-        self.hack_internet_ai
+        self.runtime
+            .components
+            .hack_internet_ai
             .as_mut()
             .map(|ai| ai as &mut dyn crate::modules::HackInternetAIUpdateInterface)
     }
     pub(super) fn get_assault_transport_ai_update_interface(
         &mut self,
     ) -> Option<&mut dyn crate::modules::AssaultTransportAIUpdateInterface> {
-        self.assault_transport_ai
+        self.runtime
+            .components
+            .assault_transport_ai
             .as_mut()
             .map(|ai| ai as &mut dyn crate::modules::AssaultTransportAIUpdateInterface)
     }
     pub(super) fn get_worker_ai_update_interface_mut(
         &mut self,
     ) -> Option<&mut dyn crate::modules::WorkerAIUpdateInterface> {
-        self.worker_ai
+        self.runtime
+            .components
+            .worker_ai
             .as_mut()
             .map(|ai| ai as &mut dyn crate::modules::WorkerAIUpdateInterface)
     }
     pub(super) fn get_dozer_ai_update_interface_mut(
         &mut self,
     ) -> Option<&mut dyn crate::modules::DozerAIUpdateInterface> {
-        self.dozer_ai
+        self.runtime
+            .components
+            .dozer_ai
             .as_mut()
             .map(|ai| ai as &mut dyn crate::modules::DozerAIUpdateInterface)
     }
     pub(super) fn get_deliver_payload_ai_update_interface(
         &mut self,
     ) -> Option<&mut dyn crate::modules::DeliverPayloadAIUpdateInterface> {
-        self.deliver_payload_ai
+        self.runtime
+            .components
+            .deliver_payload_ai
             .as_mut()
             .map(|ai| ai as &mut dyn crate::modules::DeliverPayloadAIUpdateInterface)
     }
@@ -102,10 +118,10 @@ impl UnitAIUpdate {
             .get_object(target_id)
             .and_then(|arc| arc.read().ok().map(|g| *g.get_position()))
             .ok_or("guard target not found")?;
-        let unit =
-            get_unit_arc(self.unit_id).ok_or_else(|| "unit no longer available".to_string())?;
+        let unit = get_unit_arc(self.runtime.unit_id)
+            .ok_or_else(|| "unit no longer available".to_string())?;
         self.push_guard_target_type(GuardTargetType::Object);
-        self.data.object_to_guard = target_id;
+        self.runtime.data.object_to_guard = target_id;
         let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
         guard.current_order = Some(UnitOrder::Guard {
             position: target_pos,
@@ -119,7 +135,7 @@ impl UnitAIUpdate {
         damage_info: &DamageInfo,
         _cmd_source: crate::ai::CommandSourceType,
     ) {
-        let Some(unit) = get_unit_arc(self.unit_id) else {
+        let Some(unit) = get_unit_arc(self.runtime.unit_id) else {
             return;
         };
         let Ok(unit_guard) = unit.read() else {

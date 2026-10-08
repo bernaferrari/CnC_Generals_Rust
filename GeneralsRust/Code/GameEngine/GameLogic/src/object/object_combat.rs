@@ -1189,7 +1189,7 @@ impl Object {
         target: &Object,
         criteria: WeaponChoiceCriteria,
         cmd_source: CommandSourceType,
-        ai: &dyn crate::modules::AIUpdateInterface,
+        ai: &dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> bool {
         let selection =
             self.weapon_set

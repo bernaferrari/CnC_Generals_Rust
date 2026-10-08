@@ -8,6 +8,7 @@ use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::Coord3D;
 use crate::contain_module_overrides::ensure_module_overrides_installed;
 use crate::locomotor::{LOCOMOTOR_STORE, LocomotorTemplate};
+use crate::modules::ai_state_runtime::AiStateRuntime;
 use crate::modules::{AIUpdateInterface, ContainModuleInterface};
 use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory};
 use crate::player::{Player, ThePlayerList};
@@ -22,6 +23,9 @@ use std::sync::{Arc, Mutex, RwLock};
 
 #[path = "factory_mood_query_tests.rs"]
 mod factory_mood_query_tests;
+
+#[path = "factory_native_command_button_tests.rs"]
+mod factory_native_command_button_tests;
 
 fn child(name: &str) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
@@ -55,15 +59,21 @@ fn definitions() {
     locomotor.max_speed = 3.0;
     locomotor.acceleration = 0.1;
     LOCOMOTOR_STORE.register_template(locomotor);
+    let mut physics_locomotor = LocomotorTemplate::new("EnterPathPhysicsLoco".into());
+    physics_locomotor.surfaces = crate::locomotor::SURFACE_GROUND;
+    physics_locomotor.max_speed = 3.0;
+    physics_locomotor.acceleration = 0.1;
+    physics_locomotor.max_turn_rate = 0.1; // radians per logic frame, as parsed in C++.
+    LOCOMOTOR_STORE.register_template(physics_locomotor);
 
     // OpenContain admits an enemy entrant while empty. Its C++-matched
     // IsValidContainerFor ignores checkCapacity, so the hostile occupied
     // target below exercises ActionManager's enemy-occupancy rejection.
     assert_eq!(
         get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(
-            "Object EnterCapacityAttacker\n KindOf = INFANTRY CAN_ATTACK\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface EnterCapacityAI\n End\n Locomotor = SET_NORMAL EnterCapacityLoco\n TransportSlotCount = 1\nEnd\nObject EnterForbidPlayerAttacker\n KindOf = INFANTRY CAN_ATTACK\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface EnterCapacityAI\n ForbidPlayerCommands = Yes\n End\n Locomotor = SET_NORMAL EnterCapacityLoco\n TransportSlotCount = 1\nEnd\nObject EnterCapacityNoWeapon\n KindOf = INFANTRY\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface EnterCapacityAI\n End\n Locomotor = SET_NORMAL EnterCapacityLoco\n TransportSlotCount = 1\nEnd\nObject EnterOpenTarget\n KindOf = STRUCTURE IMMOBILE\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = OpenContain Cargo\n ContainMax = 1\n AllowInsideKindOf = INFANTRY\n AllowEnemiesInside = Yes\n NumberOfExitPaths = 0\n End\nEnd\nObject EnterCapacityOccupant\n KindOf = INFANTRY\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n TransportSlotCount = 1\nEnd\n"
+            "Object EnterCapacityAttacker\n KindOf = INFANTRY CAN_ATTACK\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface EnterCapacityAI\n End\n Locomotor = SET_NORMAL EnterCapacityLoco\n TransportSlotCount = 1\nEnd\nObject EnterForbidPlayerAttacker\n KindOf = INFANTRY CAN_ATTACK\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface EnterCapacityAI\n ForbidPlayerCommands = Yes\n End\n Locomotor = SET_NORMAL EnterCapacityLoco\n TransportSlotCount = 1\nEnd\nObject EnterCapacityNoWeapon\n KindOf = INFANTRY\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface EnterCapacityAI\n End\n Locomotor = SET_NORMAL EnterCapacityLoco\n TransportSlotCount = 1\nEnd\nObject EnterPathPhysics\n KindOf = INFANTRY\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface EnterCapacityAI\n End\n Behavior = PhysicsBehavior EnterPathPhysics\n Mass = 1\n End\n Locomotor = SET_NORMAL EnterPathPhysicsLoco\n TransportSlotCount = 1\nEnd\nObject EnterOpenTarget\n KindOf = STRUCTURE IMMOBILE\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = OpenContain Cargo\n ContainMax = 1\n AllowInsideKindOf = INFANTRY\n AllowEnemiesInside = Yes\n NumberOfExitPaths = 0\n End\nEnd\nObject EnterCapacityOccupant\n KindOf = INFANTRY\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n TransportSlotCount = 1\nEnd\n"
         ),
-        5,
+        6,
     );
 }
 
@@ -539,6 +549,378 @@ fn factory_enter_unarmed_hostile_occupied_target_does_not_attack() {
     }
 }
 #[test]
+fn native_face_and_go_prone_commands_match_cpp_owner_behavior() {
+    if !child(concat!(
+        module_path!(),
+        "::native_face_and_go_prone_commands_match_cpp_owner_behavior"
+    )) {
+        return;
+    }
+    let _serial = crate::test_sync::lock();
+    definitions();
+    let count = get_thing_factory()
+        .unwrap()
+        .as_mut()
+        .unwrap()
+        .load_ini_text(
+            "Object NativeProneFaceAttacker\n KindOf = INFANTRY\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface EnterCapacityAI\n End\n Behavior = ProneUpdate Prone\n DamageToFramesRatio = 1.0\n End\n Locomotor = SET_NORMAL EnterCapacityLoco\nEnd\n",
+        );
+    assert_eq!(count, 1);
+
+    let team_a = team("NativeFaceProneA", 9441, 0);
+    let team_b = team("NativeFaceProneB", 9442, 1);
+    let mut factory = ObjectFactory::new();
+    let pos = Coord3D::new(24.0, 36.0, 0.0);
+    let target_id = create(
+        &mut factory,
+        "EnterCapacityOccupant",
+        pos,
+        Some(team_b),
+        ObjectCreationFlags::NO_AI,
+    );
+    let owner_id = create(
+        &mut factory,
+        "NativeProneFaceAttacker",
+        Coord3D::ZERO,
+        Some(Arc::clone(&team_a)),
+        ObjectCreationFlags::empty(),
+    );
+    let (owner, ai) = native_ai(&factory, owner_id);
+
+    {
+        ai.lock()
+            .unwrap()
+            .execute_command(&AiCommandParams::new(
+                AiCommandType::Idle,
+                CommandSourceType::FromAI,
+            ))
+            .unwrap();
+    }
+    let mut face_object =
+        AiCommandParams::new(AiCommandType::FaceObject, CommandSourceType::FromScript);
+    face_object.obj = Some(target_id);
+    {
+        let mut ai = ai.lock().unwrap();
+        let native = ai.unit_ai_for_test().expect("factory cached UnitAI");
+        native.runtime.data.blocked_frames = 3;
+        native.runtime.data.is_blocked = true;
+        native.runtime.data.blocked_and_stuck = true;
+        ai.execute_command(&face_object).unwrap();
+        let native = ai.unit_ai_for_test().unwrap();
+        assert_eq!(
+            native
+                .ai_state_machine
+                .as_ref()
+                .unwrap()
+                .get_current_state_id(),
+            Some(AIStateType::FaceObject as u32)
+        );
+        assert_eq!(
+            native
+                .ai_state_machine
+                .as_ref()
+                .unwrap()
+                .get_goal_object_id(),
+            target_id
+        );
+        assert_eq!(native.runtime.data.blocked_frames, 0);
+        assert!(!native.runtime.data.is_blocked);
+        assert!(!native.runtime.data.blocked_and_stuck);
+        assert_eq!(
+            native.runtime.data.last_command_source,
+            CommandSourceType::FromScript
+        );
+    }
+
+    let face_position = Coord3D::new(14.0, 28.0, 0.0);
+    let mut face_position_command =
+        AiCommandParams::new(AiCommandType::FacePosition, CommandSourceType::FromScript);
+    face_position_command.pos = face_position;
+    {
+        let mut ai = ai.lock().unwrap();
+        ai.execute_command(&face_position_command).unwrap();
+        let native = ai.unit_ai_for_test().unwrap();
+        let machine = native.ai_state_machine.as_ref().unwrap();
+        assert_eq!(
+            machine.get_current_state_id(),
+            Some(AIStateType::FacePosition as u32)
+        );
+        assert_eq!(machine.get_goal_position(), Some(face_position));
+        assert_eq!(
+            native.runtime.data.last_command_source,
+            CommandSourceType::FromScript
+        );
+    }
+
+    assert_eq!(
+        get_thing_factory()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .load_ini_text(
+                "Object NativeImmobileFaceAttacker\n KindOf = INFANTRY IMMOBILE\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface EnterCapacityAI\n End\nEnd\n",
+            ),
+        1,
+    );
+    let immobile_id = create(
+        &mut factory,
+        "NativeImmobileFaceAttacker",
+        Coord3D::ZERO,
+        Some(Arc::clone(&team_a)),
+        ObjectCreationFlags::empty(),
+    );
+    let (immobile_owner, immobile_ai) = native_ai(&factory, immobile_id);
+    assert!(!immobile_owner.read().unwrap().is_mobile());
+    {
+        let mut ai = immobile_ai.lock().unwrap();
+        ai.execute_command(&AiCommandParams::new(
+            AiCommandType::Idle,
+            CommandSourceType::FromScript,
+        ))
+        .unwrap();
+        let native = ai.unit_ai_for_test().unwrap();
+        native.runtime.data.last_command_source = CommandSourceType::FromScript;
+        native.runtime.data.blocked_frames = 9;
+        native.runtime.data.is_blocked = true;
+        native.runtime.data.blocked_and_stuck = true;
+        let machine = native.ai_state_machine.as_mut().unwrap();
+        machine.set_goal_object(target_id);
+        machine.set_goal_position(Coord3D::new(91.0, 92.0, 0.0));
+        let state_before = machine.get_current_state_id();
+        let goal_id_before = machine.get_goal_object_id();
+        let goal_position_before = machine.get_goal_position();
+
+        let mut face_object =
+            AiCommandParams::new(AiCommandType::FaceObject, CommandSourceType::FromAI);
+        face_object.obj = Some(target_id);
+        ai.execute_command(&face_object).unwrap();
+        let native = ai.unit_ai_for_test().unwrap();
+        let machine = native.ai_state_machine.as_ref().unwrap();
+        assert_eq!(machine.get_current_state_id(), state_before);
+        assert_eq!(machine.get_goal_object_id(), goal_id_before);
+        assert_eq!(machine.get_goal_position(), goal_position_before);
+        assert_eq!(native.runtime.data.blocked_frames, 9);
+        assert!(native.runtime.data.is_blocked);
+        assert!(native.runtime.data.blocked_and_stuck);
+        assert_eq!(
+            native.runtime.data.last_command_source,
+            CommandSourceType::FromScript
+        );
+
+        let mut face_position =
+            AiCommandParams::new(AiCommandType::FacePosition, CommandSourceType::FromAI);
+        face_position.pos = Coord3D::new(7.0, 8.0, 0.0);
+        ai.execute_command(&face_position).unwrap();
+        let native = ai.unit_ai_for_test().unwrap();
+        let machine = native.ai_state_machine.as_ref().unwrap();
+        assert_eq!(machine.get_current_state_id(), state_before);
+        assert_eq!(machine.get_goal_object_id(), goal_id_before);
+        assert_eq!(machine.get_goal_position(), goal_position_before);
+        assert_eq!(native.runtime.data.blocked_frames, 9);
+        assert!(native.runtime.data.is_blocked);
+        assert!(native.runtime.data.blocked_and_stuck);
+        assert_eq!(
+            native.runtime.data.last_command_source,
+            CommandSourceType::FromScript
+        );
+    }
+
+    // Make the legacy id lookup point at a same-ID foreign object. The module's
+    // captured owner must receive both start and expiry effects.
+    let foreign = Arc::new(RwLock::new(crate::object::Object::new_test(
+        owner_id, 200.0,
+    )));
+    foreign
+        .write()
+        .unwrap()
+        .set_status(crate::common::ObjectStatusMaskType::NO_ATTACK, true);
+    crate::system::game_logic::get_game_logic()
+        .lock()
+        .unwrap()
+        .register_object(Arc::clone(&foreign))
+        .unwrap();
+
+    let mut go_prone = AiCommandParams::new(AiCommandType::GoProne, CommandSourceType::FromAI);
+    go_prone.damage.output.actual_damage_dealt = 10.0;
+    {
+        let mut ai = ai.lock().unwrap();
+        ai.execute_command(&go_prone).unwrap();
+        let native = ai.unit_ai_for_test().unwrap();
+        assert_eq!(
+            native
+                .ai_state_machine
+                .as_ref()
+                .unwrap()
+                .get_current_state_id(),
+            Some(AIStateType::FacePosition as u32)
+        );
+        assert_eq!(
+            native.runtime.data.last_command_source,
+            CommandSourceType::FromScript
+        );
+    }
+    assert!(
+        owner
+            .read()
+            .unwrap()
+            .test_status(crate::common::ObjectStatusTypes::NoAttack)
+    );
+    assert!(
+        foreign
+            .read()
+            .unwrap()
+            .test_status(crate::common::ObjectStatusTypes::NoAttack)
+    );
+
+    let prone_module = owner
+        .read()
+        .unwrap()
+        .find_update_module("ProneUpdate")
+        .expect("factory owner ProneUpdate module");
+    for _ in 0..10 {
+        prone_module.with_module(|module| {
+            if let Some(update) = module.get_update_module_interface() {
+                update.update_simple();
+            }
+        });
+    }
+    assert!(
+        !owner
+            .read()
+            .unwrap()
+            .test_status(crate::common::ObjectStatusTypes::NoAttack)
+    );
+    assert!(
+        foreign
+            .read()
+            .unwrap()
+            .test_status(crate::common::ObjectStatusTypes::NoAttack)
+    );
+    crate::system::game_logic::get_game_logic()
+        .lock()
+        .unwrap()
+        .register_object(Arc::clone(&owner))
+        .unwrap();
+}
+
+#[test]
+fn native_enter_terminal_sink_error_preserves_borrowed_machine_and_runtime() {
+    if !child(concat!(
+        module_path!(),
+        "::native_enter_terminal_sink_error_preserves_borrowed_machine_and_runtime"
+    )) {
+        return;
+    }
+    let _serial = crate::test_sync::lock();
+    definitions();
+    {
+        let mut players = ThePlayerList().write().unwrap();
+        players.clear();
+        for id in [0, 1] {
+            let mut player = Player::new(id);
+            player.set_player_relationship_by_index(1 - id, crate::common::Relationship::Enemies);
+            players.add_player(Arc::new(RwLock::new(player)));
+        }
+    }
+    let _frame = super::RestoreAmbientFrame::set(17);
+    let team_a = team("EnterSinkErrorA", 9421, 0);
+    let team_b = team("EnterSinkErrorB", 9422, 1);
+    let mut factory = ObjectFactory::new();
+    let pos = Coord3D::new(250.0, 0.0, 0.0);
+    let (target_id, target) = make_target(&mut factory, &team_b, pos);
+    let (owner_id, owner, cached_ai) = make_attacker(
+        &mut factory,
+        "EnterCapacityAttacker",
+        &team_a,
+        Coord3D::ZERO,
+    );
+    assert!(matches!(
+        TheActionManager::get_can_attack_object(
+            &owner.read().unwrap(),
+            &target.read().unwrap(),
+            CommandSourceType::FromAI,
+            AbleToAttackType::NewTarget,
+        ),
+        CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+    ));
+
+    // Borrow the factory-cached machine and runtime in place; neither is moved out.
+    let mut cached_ai = cached_ai.lock().unwrap();
+    let native = cached_ai.unit_ai_for_test().expect("actual cached UnitAI");
+    let (machine_slot, runtime_data) = (&mut native.ai_state_machine, &mut native.runtime);
+    let machine = machine_slot.as_mut().expect("factory owner machine");
+    let mut runtime = crate::object::unit::UnitAiStateRuntime::new(runtime_data, true);
+    let runtime_identity = std::ptr::from_ref(&runtime);
+
+    let idle = AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromAI);
+    {
+        let mut driver = machine.driver();
+        runtime.execute_command_native(&idle, &mut driver).unwrap();
+    }
+    let mut enter = AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromAI);
+    enter.obj = Some(target_id);
+    {
+        let mut driver = machine.driver();
+        runtime.execute_command_native(&enter, &mut driver).unwrap();
+    }
+    assert_eq!(
+        machine.get_current_state_id(),
+        Some(AIStateType::Enter as u32)
+    );
+
+    fill_target(&mut factory, &target, &team_b, pos);
+
+    let marker = Coord3D::new(991.0, 992.0, 993.0);
+    let error = machine
+        .update_with_synchronous_commands(&mut runtime, |driver, callback_runtime, terminal| {
+            assert_eq!(std::ptr::from_ref(callback_runtime), runtime_identity);
+            assert_eq!(terminal.params().cmd, AiCommandType::AttackObject);
+            assert_eq!(terminal.params().obj, Some(target_id));
+            driver.set_goal_position(marker);
+            callback_runtime.set_last_command_source(CommandSourceType::FromPlayer);
+            Err::<(), Box<dyn std::error::Error + Send + Sync>>("terminal sink failed".into())
+        })
+        .expect_err("the native terminal sink error must escape the same-call update");
+    assert_eq!(error.to_string(), "terminal sink failed");
+    assert_eq!(
+        machine.get_current_state_id(),
+        Some(AIStateType::Enter as u32)
+    );
+    assert_eq!(machine.get_goal_position(), Some(marker));
+    assert_eq!(
+        runtime.get_last_command_source(),
+        CommandSourceType::FromPlayer
+    );
+
+    // Repeat through the temporary-state path: the same live driver and runtime
+    // are retained, and an error leaves that temporary state published.
+    let temp_pos = Coord3D::new(350.0, 0.0, 0.0);
+    let (temp_target_id, temp_target) = make_target(&mut factory, &team_b, temp_pos);
+    machine.driver().set_goal_object(temp_target_id);
+    machine.driver().set_goal_position(temp_pos);
+    let temporary = AIStateType::Enter as u32;
+    assert_eq!(
+        machine
+            .driver()
+            .enter_temporary_with_ai(temporary, 30, &mut runtime),
+        crate::state_machine::StateReturnType::Continue
+    );
+    fill_target(&mut factory, &temp_target, &team_b, temp_pos);
+    let temp_marker = Coord3D::new(881.0, 882.0, 883.0);
+    let error = machine
+        .update_with_synchronous_commands(&mut runtime, |driver, callback_runtime, terminal| {
+            assert_eq!(std::ptr::from_ref(callback_runtime), runtime_identity);
+            assert_eq!(terminal.params().cmd, AiCommandType::AttackObject);
+            driver.set_goal_position(temp_marker);
+            Err::<(), Box<dyn std::error::Error + Send + Sync>>("temporary sink failed".into())
+        })
+        .expect_err("temporary terminal sink error must propagate");
+    assert_eq!(error.to_string(), "temporary sink failed");
+    assert_eq!(machine.get_temporary_state(), Some(temporary));
+    assert_eq!(machine.get_goal_position(), Some(temp_marker));
+}
+
+#[test]
 fn factory_enter_terminal_player_attack_honors_authored_command_filter() {
     if !child(concat!(
         module_path!(),
@@ -651,7 +1033,6 @@ fn factory_enter_terminal_player_attack_honors_authored_command_filter() {
 }
 
 #[test]
-#[ignore = "hq-0ytus/hq-5ep2s: full AI tick still rediscovers its owner through registries"]
 fn factory_enter_filter_uses_actual_owner_with_locked_same_id_foreign_unit() {
     if !child(concat!(
         module_path!(),
@@ -745,6 +1126,8 @@ fn factory_enter_filter_uses_actual_owner_with_locked_same_id_foreign_unit() {
         )
         .unwrap(),
     ));
+    crate::object::registry::OBJECT_REGISTRY.register_object(source_id, &foreign_owner);
+    crate::ai::object_registry::register_legacy_object(&foreign_owner);
     super::super::register_unit(source_id, &foreign);
     assert!(Arc::ptr_eq(
         &foreign_owner,

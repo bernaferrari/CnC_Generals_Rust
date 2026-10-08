@@ -668,6 +668,8 @@ fn native_auto_acquire_getters_ignore_locked_foreign_owner() {
         unit.auto_acquire_enemies = false;
         unit.auto_acquire_while_stealthed = false;
     }
+    crate::object::registry::OBJECT_REGISTRY.register_object(fixture.source_id, &foreign_owner);
+    crate::ai::object_registry::register_legacy_object(&foreign_owner);
     super::super::super::super::registry::register_unit(fixture.source_id, &foreign);
     let _foreign_unit_guard = foreign.write().unwrap();
     let _foreign_owner_guard = foreign_owner.write().unwrap();

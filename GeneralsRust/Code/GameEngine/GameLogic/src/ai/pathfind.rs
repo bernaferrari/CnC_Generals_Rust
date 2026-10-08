@@ -232,6 +232,8 @@ pub struct Path {
     is_optimized: bool,
     /// Whether an ally is blocking this path
     blocked_by_ally: bool,
+    /// C++ m_cpopRecentStart, a nonserialized optimized-node cursor.
+    cpop_recent_start: Option<PathNodeKey>,
     /// Cached point-on-path computation info
     cpop_valid: bool,
     cpop_countdown: i32,
@@ -250,6 +252,7 @@ impl Path {
             tail: None,
             is_optimized: false,
             blocked_by_ally: false,
+            cpop_recent_start: None,
             cpop_valid: false,
             cpop_countdown: Self::MAX_CPOP,
             cpop_in: Coord3D::new(0.0, 0.0, 0.0),
@@ -264,6 +267,13 @@ impl Path {
     /// Get first node in the path
     pub fn get_first_node(&self) -> Option<&PathNode> {
         self.head.and_then(|key| self.nodes.get(key))
+    }
+
+    /// Position at the tail of the exact owned path (C++ `getLastNode`).
+    pub fn get_last_node_position(&self) -> Option<&Coord3D> {
+        self.tail
+            .and_then(|key| self.nodes.get(key))
+            .map(PathNode::get_position)
     }
 
     /// Iterate path from head to tail, calling `f` for each (key, node) pair.
@@ -347,6 +357,7 @@ impl Path {
 
         self.head = Some(new_key);
         self.is_optimized = false;
+        self.cpop_recent_start = None;
     }
 
     /// Add a new node at the end of the path
@@ -383,6 +394,7 @@ impl Path {
         }
 
         self.tail = Some(new_key);
+        self.cpop_recent_start = None;
     }
 
     /// Check if path is blocked by ally
@@ -400,6 +412,23 @@ impl Path {
         if let Some(node) = self.nodes.get_mut(from_key) {
             node.set_next_optimized(to_key, to_pos.as_ref());
         }
+    }
+
+    /// Mark the existing waypoint order as the optimized traversal chain.
+    /// Use only when the input nodes are already the pathfinder's optimized
+    /// waypoint result; unlike `optimize`, this does not recompute geometry.
+    pub(crate) fn connect_waypoints_as_optimized(&mut self) {
+        let keys = self.ordered_keys();
+        for pair in keys.windows(2) {
+            self.set_opti_link(pair[0], Some(pair[1]));
+        }
+        if let Some(&last) = keys.last() {
+            self.set_opti_link(last, None);
+        }
+        self.is_optimized = true;
+        self.cpop_recent_start = None;
+        self.cpop_valid = false;
+        self.cpop_countdown = Self::MAX_CPOP;
     }
 
     /// Optimize the path to discard redundant nodes
@@ -730,6 +759,51 @@ impl Path {
         out
     }
 
+    /// C++ `Path::computeFlightDistToGoal` (AIPathfind.cpp:1022-1079).
+    ///
+    /// Airborne movers follow optimized nodes directly and do not run the
+    /// ground obstacle projection. The recent start is path-local and is not
+    /// serialized, matching C++'s non-owning node cursor.
+    pub fn compute_flight_dist_to_goal(&mut self, pos: &Coord3D) -> (Real, Coord3D) {
+        let Some(head) = self.head else {
+            return (0.0, Coord3D::new(0.0, 0.0, 0.0));
+        };
+        let mut current_key = self
+            .cpop_recent_start
+            .filter(|key| self.nodes.contains_key(*key))
+            .unwrap_or(head);
+        self.cpop_recent_start = Some(current_key);
+        let mut next_key = self.nodes[current_key].next_opti;
+        let mut goal = self.nodes[current_key].pos;
+        let mut distance = 0.0;
+        let mut use_next = true;
+        while let Some(next) = next_key {
+            let start = self.nodes[current_key].pos;
+            let end = self.nodes[next].pos;
+            if use_next {
+                goal = end;
+            }
+            let dx = end.x - start.x;
+            let dy = end.y - start.y;
+            let length = (dx * dx + dy * dy).sqrt();
+            let (dir_x, dir_y) = if length > 0.0 {
+                (dx / length, dy / length)
+            } else {
+                (0.0, 0.0)
+            };
+            let dot = (end.x - pos.x) * dir_x + (end.y - pos.y) * dir_y;
+            if dot >= 0.0 {
+                distance += dot;
+                use_next = false;
+            } else if use_next {
+                self.cpop_recent_start = Some(next);
+            }
+            current_key = next;
+            next_key = self.nodes[current_key].next_opti;
+        }
+        (distance, goal)
+    }
+
     /// Peek at cached point on path
     pub fn peek_cached_point_on_path(&self) -> Coord3D {
         self.cpop_out.pos_on_path
@@ -866,6 +940,7 @@ impl Snapshotable for Path {
             self.nodes.clear();
             self.head = None;
             self.tail = None;
+            self.cpop_recent_start = None;
             self.cpop_valid = false;
             self.cpop_countdown = Self::MAX_CPOP;
         }

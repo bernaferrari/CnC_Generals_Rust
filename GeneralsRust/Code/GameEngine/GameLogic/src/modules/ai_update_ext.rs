@@ -805,7 +805,7 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
     }
 
     fn get_locomotor_distance_to_goal(&self) -> Real {
-        if let Ok(guard) = self.try_lock() {
+        if let Ok(mut guard) = self.try_lock() {
             guard.get_locomotor_distance_to_goal()
         } else {
             0.0

@@ -2,7 +2,7 @@
 
 #![allow(unused_imports)]
 
-use super::ai_core::UnitAIUpdate;
+use super::ai_core::{UnitAIUpdate, UnitAiRuntime};
 use super::ai_helpers::*;
 use super::identity::Unit;
 use super::imports::*;
@@ -68,19 +68,27 @@ pub fn leftover_compute_quick_path_coords(start: &Coord3D, destination: &Coord3D
 
 impl UnitAIUpdate {
     pub(super) fn set_current_path_snapshot_from_coords(&mut self, path: &[Coord3D]) {
-        self.data.set_current_path_snapshot_from_coords(path)
+        self.runtime.set_current_path_snapshot_from_coords(path)
+    }
+    pub(super) fn set_path_from_coords_with_pathfinder(
+        &mut self,
+        path: &[Coord3D],
+        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+    ) -> Result<(), String> {
+        self.runtime
+            .set_path_from_coords_with_pathfinder(path, pathfinder)
     }
     pub(super) fn remember_result_layers(&mut self, waypoints: &[Coord3D], layers: &[u8]) {
-        self.data.remember_result_layers(waypoints, layers)
+        self.runtime.data.remember_result_layers(waypoints, layers)
     }
     pub(super) fn apply_final_ground_path_layer(
         &mut self,
         waypoints: &[Coord3D],
     ) -> Result<(), String> {
-        if !(self.data.is_final_goal && self.is_doing_ground_movement()) {
+        if !(self.runtime.data.is_final_goal && self.is_doing_ground_movement()) {
             return Ok(());
         }
-        let Some(ordinal) = self.data.installed_path_layers.last().copied() else {
+        let Some(ordinal) = self.runtime.data.installed_path_layers.last().copied() else {
             return Ok(());
         };
         let installed = self.path_with_cpp_final_node(waypoints)?;
@@ -93,18 +101,10 @@ impl UnitAIUpdate {
         )
     }
     pub(super) fn append_current_path_snapshot_goal(&mut self, goal: &Coord3D) {
-        match self.data.current_path_snapshot.as_mut() {
-            Some(path) => {
-                path.append_node(goal, AiPathLayer::Ground);
-                if !self.data.installed_path_layers.is_empty() {
-                    self.data.installed_path_layers.push(1);
-                }
-            }
-            None => self.set_current_path_snapshot_from_coords(&[*goal]),
-        }
+        self.runtime.append_current_path_snapshot_goal(goal)
     }
     pub(super) fn should_force_direct_path_for_off_map_start(&self, destination: &Coord3D) -> bool {
-        let Some(unit) = get_unit_arc(self.unit_id) else {
+        let Some(unit) = get_unit_arc(self.runtime.unit_id) else {
             return false;
         };
         let Ok(guard) = unit.read() else {
@@ -119,22 +119,23 @@ impl UnitAIUpdate {
         &self,
         destination: &Coord3D,
     ) -> bool {
-        if self.data.is_final_goal {
+        if self.runtime.data.is_final_goal {
             return false;
         }
 
-        let Some(unit) = get_unit_arc(self.unit_id) else {
+        let Some(unit) = get_unit_arc(self.runtime.unit_id) else {
             return false;
         };
         let Ok(guard) = unit.read() else {
             return false;
         };
         let surfaces = {
-            let set_surfaces = self.data.locomotor_set.get_valid_surfaces();
+            let set_surfaces = self.runtime.data.locomotor_set.get_valid_surfaces();
             if set_surfaces != 0 {
                 set_surfaces
             } else {
-                self.data
+                self.runtime
+                    .data
                     .locomotor_set
                     .get_active()
                     .map(|loco| loco.get_legal_surfaces())
@@ -147,13 +148,13 @@ impl UnitAIUpdate {
         let position = guard.get_position();
         drop(guard);
 
-        let ignore = if self.data.ignore_obstacle_id == INVALID_ID {
+        let ignore = if self.runtime.data.ignore_obstacle_id == INVALID_ID {
             None
         } else {
-            Some(self.data.ignore_obstacle_id)
+            Some(self.runtime.data.ignore_obstacle_id)
         };
         leftover_should_use_direct_path_for_line_passable_non_final_goal(
-            self.data.is_final_goal,
+            self.runtime.data.is_final_goal,
             &position,
             destination,
             surfaces,
@@ -161,31 +162,16 @@ impl UnitAIUpdate {
         )
     }
     pub(super) fn has_current_path(&self) -> bool {
-        if self.data.current_path_snapshot.is_some() {
-            return true;
-        }
-        get_unit_arc(self.unit_id)
-            .and_then(|unit| unit.read().ok().map(|guard| guard.current_path.is_some()))
-            .unwrap_or(false)
+        self.runtime.data.current_path_snapshot.is_some()
     }
     pub(super) fn current_locomotor_is_ultra_accurate(&self) -> bool {
-        self.data.current_locomotor_is_ultra_accurate()
+        self.runtime.data.current_locomotor_is_ultra_accurate()
     }
     pub(super) fn path_with_cpp_final_node(
         &self,
         path: &[Coord3D],
     ) -> Result<Vec<Coord3D>, String> {
-        if path.is_empty() {
-            return Err("set_path_from_coords missing path points".to_string());
-        }
-
-        let mut installed_path = path.to_vec();
-        if self.current_locomotor_is_ultra_accurate() {
-            if let Some(last) = installed_path.last_mut() {
-                *last = self.data.requested_destination;
-            }
-        }
-        Ok(installed_path)
+        self.runtime.path_with_cpp_final_node(path)
     }
     pub(super) fn try_install_closest_path_for_invalid_destination(
         &mut self,
@@ -209,7 +195,7 @@ impl UnitAIUpdate {
                 return Ok(false);
             };
             if pf_guard.valid_movement_position(
-                &self.data.locomotor_set,
+                &self.runtime.data.locomotor_set,
                 request.is_crusher,
                 destination,
                 request.ignore_obstacle_id,
@@ -219,17 +205,17 @@ impl UnitAIUpdate {
             if self.has_current_path() {
                 None
             } else {
-                self.data.retry_path = true;
+                self.runtime.data.retry_path = true;
                 Some(pf_guard.find_closest_path_result(request))
             }
         };
         let Some(result) = result else {
-            if self.data.blocked_and_stuck {
+            if self.runtime.data.blocked_and_stuck {
                 self.stop_stuck_old_path_after_failed_path()?;
             } else {
-                self.data.path_timestamp = TheGameLogic::get_frame();
-                self.data.blocked_frames = 0;
-                self.data.blocked_and_stuck = false;
+                self.runtime.data.path_timestamp = TheGameLogic::get_frame();
+                self.runtime.data.blocked_frames = 0;
+                self.runtime.data.blocked_and_stuck = false;
             }
             return Ok(true);
         };
@@ -246,9 +232,9 @@ impl UnitAIUpdate {
             self.apply_final_ground_path_layer(&result.waypoints)?;
             Ok(true)
         } else {
-            self.data.path_timestamp = TheGameLogic::get_frame();
-            self.data.blocked_frames = 0;
-            self.data.blocked_and_stuck = false;
+            self.runtime.data.path_timestamp = TheGameLogic::get_frame();
+            self.runtime.data.blocked_frames = 0;
+            self.runtime.data.blocked_and_stuck = false;
             // C++ computePath returns failure when findClosestPath also
             // returns NULL. Do not turn an unreachable destination into a
             // successful no-op merely because its cell was invalid.
@@ -256,8 +242,8 @@ impl UnitAIUpdate {
         }
     }
     pub(super) fn stop_stuck_old_path_after_failed_path(&mut self) -> Result<(), String> {
-        let unit =
-            get_unit_arc(self.unit_id).ok_or_else(|| "unit no longer available".to_string())?;
+        let unit = get_unit_arc(self.runtime.unit_id)
+            .ok_or_else(|| "unit no longer available".to_string())?;
         let current_pos = unit
             .read()
             .map_err(|_| "unit lock poisoned".to_string())?
@@ -286,39 +272,58 @@ impl UnitAIUpdate {
             guard.movement_state = MovementState::Idle;
         }
         self.set_locomotor_goal_none();
-        self.data.path_timestamp = TheGameLogic::get_frame();
-        self.data.blocked_frames = 0;
-        self.data.is_blocked = false;
-        self.data.blocked_and_stuck = false;
+        self.runtime.data.path_timestamp = TheGameLogic::get_frame();
+        self.runtime.data.blocked_frames = 0;
+        self.runtime.data.is_blocked = false;
+        self.runtime.data.blocked_and_stuck = false;
         Ok(())
     }
     pub(super) fn do_queued_pathfind_now(&mut self) -> Result<bool, String> {
-        if !self.data.waiting_for_path {
+        // Native factory-owned AIs use the same borrowed-pathfinder kernel as
+        // the live queue callback. This avoids reacquiring TheAI's Pathfinder
+        // while process_queue already holds its write loan. The ownerless
+        // compatibility boundary below retains the former standalone path.
+        if !self.runtime.data.waiting_for_path {
+            return Ok(false);
+        }
+        if self.runtime.owner.is_some() {
+            let pathfinder = the_ai()
+                .read()
+                .ok()
+                .and_then(|ai| ai.pathfinder())
+                .ok_or_else(|| "pathfinder unavailable for native AI".to_string())?;
+            let mut pathfinder = pathfinder
+                .write()
+                .map_err(|_| "pathfinder lock poisoned".to_string())?;
+            return self.do_queued_pathfind_with_pathfinder(pathfinder.pathfinding_system_mut());
+        }
+
+        if !self.runtime.data.waiting_for_path {
             return Ok(false);
         }
 
-        self.data.waiting_for_path = false;
+        self.runtime.data.waiting_for_path = false;
         self.set_queue_for_path_time(0);
-        self.data.retry_path = false;
-        let mut destination = self.data.requested_destination;
+        self.runtime.data.retry_path = false;
+        let mut destination = self.runtime.data.requested_destination;
 
-        if self.data.is_safe_path {
+        if self.runtime.data.is_safe_path {
             return self.do_queued_safe_pathfind_now();
         }
 
-        if self.data.is_approach_path && !self.is_doing_ground_movement() {
-            self.data.is_approach_path = false;
+        if self.runtime.data.is_approach_path && !self.is_doing_ground_movement() {
+            self.runtime.data.is_approach_path = false;
         }
-        if self.data.is_approach_path {
+        if self.runtime.data.is_approach_path {
             return self.do_queued_approach_pathfind_now(destination);
         }
 
-        if self.data.is_attack_path {
+        if self.runtime.data.is_attack_path {
             if self.try_finish_attack_path_if_already_in_range()? {
                 return Ok(true);
             }
             self.prepare_queued_attack_path_fallback()?;
-            destination = self.data.requested_destination;
+            destination = self.runtime.data.requested_destination;
         }
 
         // C++ AIUpdate.cpp:1648-1696: ground shortcuts belong to computePath,
@@ -329,9 +334,9 @@ impl UnitAIUpdate {
             return Ok(true);
         }
         if (self.get_current_state_id() == Some(u32::from(AIStateType::FollowExitProductionPath))
-            || self.data.current_command
+            || self.runtime.data.current_command
                 == Some(crate::ai::AiCommandType::FollowExitProductionPath))
-            && self.data.can_path_through_units
+            && self.runtime.data.can_path_through_units
             && self.install_direct_path_from_current_position(&destination)
         {
             let _ = self.set_can_path_through_units(false);
@@ -376,17 +381,17 @@ impl UnitAIUpdate {
         }
 
         if self.has_current_path() {
-            if self.data.blocked_and_stuck {
+            if self.runtime.data.blocked_and_stuck {
                 self.stop_stuck_old_path_after_failed_path()?;
             } else {
-                self.data.path_timestamp = TheGameLogic::get_frame();
-                self.data.blocked_frames = 0;
-                self.data.blocked_and_stuck = false;
+                self.runtime.data.path_timestamp = TheGameLogic::get_frame();
+                self.runtime.data.blocked_frames = 0;
+                self.runtime.data.blocked_and_stuck = false;
             }
             return Ok(true);
         }
 
-        self.data.retry_path = true;
+        self.runtime.data.retry_path = true;
         let ai_store = the_ai();
         let closest_result = ai_store
             .read()
@@ -414,11 +419,397 @@ impl UnitAIUpdate {
             }
         }
 
-        self.data.path_timestamp = TheGameLogic::get_frame();
-        self.data.blocked_frames = 0;
-        self.data.blocked_and_stuck = false;
+        self.runtime.data.path_timestamp = TheGameLogic::get_frame();
+        self.runtime.data.blocked_frames = 0;
+        self.runtime.data.blocked_and_stuck = false;
         Ok(false)
     }
+    fn native_path_movement_policy(&self) -> (bool, bool) {
+        // C++ AIPathfind.cpp:6189 uses the entire LocomotorSet policy.
+        let downhill_only = self.runtime.data.locomotor_set.is_downhill_only();
+        let aircraft_goal_only = self.runtime.data.is_aircraft_that_adjusts_destination();
+        (downhill_only, aircraft_goal_only)
+    }
+
+    pub(super) fn do_queued_pathfind_with_pathfinder(
+        &mut self,
+        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+    ) -> Result<bool, String> {
+        if !self.runtime.data.waiting_for_path {
+            return Ok(false);
+        }
+        self.runtime.data.waiting_for_path = false;
+        self.set_queue_for_path_time(0);
+        self.runtime.data.retry_path = false;
+        let mut destination = self.runtime.data.requested_destination;
+
+        if self.runtime.data.is_safe_path {
+            return self.do_queued_safe_pathfind_with_pathfinder(pathfinder);
+        }
+        if self.runtime.data.is_approach_path && !self.is_doing_ground_movement() {
+            self.runtime.data.is_approach_path = false;
+        }
+        if self.runtime.data.is_approach_path {
+            return self.do_queued_approach_pathfind_with_pathfinder(destination, pathfinder);
+        }
+        if self.runtime.data.is_attack_path {
+            if self.try_finish_attack_path_with_pathfinder(pathfinder)? {
+                return Ok(true);
+            }
+            self.prepare_queued_attack_path_fallback()?;
+            destination = self.runtime.data.requested_destination;
+        }
+
+        // C++ AIUpdate.cpp:1648-1696. Native owner identity is resolved from
+        // the constructor-bound weak owner; same-ID legacy Units are irrelevant.
+        if self.native_should_force_direct_path_for_off_map_start(&destination)
+            && self.install_direct_path_from_current_position(&destination)
+        {
+            return Ok(true);
+        }
+        if self.native_follow_exit_direct_path(&destination) {
+            self.runtime.data.set_can_path_through_units(false).ok();
+            return Ok(true);
+        }
+        if self.native_line_passable_shortcut(&destination, pathfinder)
+            && self.install_direct_path_from_current_position(&destination)
+        {
+            return Ok(true);
+        }
+        if self.try_install_closest_path_for_invalid_destination_with_pathfinder(
+            &destination,
+            pathfinder,
+        )? {
+            return Ok(true);
+        }
+
+        let request = self.build_classic_path_request(destination, false)?;
+        let (downhill_only, _) = self.native_path_movement_policy();
+        let result =
+            pathfinder.find_path_with_movement_policy(request.clone(), Some(downhill_only));
+        if result.success && !result.waypoints.is_empty() {
+            self.install_path_result_with_pathfinder(&result, pathfinder)?;
+            return Ok(true);
+        }
+        if self.has_current_path() {
+            if self.runtime.data.blocked_and_stuck {
+                self.stop_stuck_old_path_after_failed_path_with_pathfinder(pathfinder)?;
+            } else {
+                self.runtime.data.path_timestamp = TheGameLogic::get_frame();
+                self.runtime.data.blocked_frames = 0;
+                self.runtime.data.blocked_and_stuck = false;
+            }
+            return Ok(true);
+        }
+        self.runtime.data.retry_path = true;
+        let (downhill_only, aircraft_goal_only) = self.native_path_movement_policy();
+        let closest = pathfinder.find_closest_path_with_movement_policy(
+            request,
+            Some(downhill_only),
+            Some(aircraft_goal_only),
+        );
+        if closest.success && !closest.waypoints.is_empty() {
+            self.install_path_result_with_pathfinder(&closest, pathfinder)?;
+            return Ok(true);
+        }
+        self.runtime.data.path_timestamp = TheGameLogic::get_frame();
+        self.runtime.data.blocked_frames = 0;
+        self.runtime.data.blocked_and_stuck = false;
+        Ok(false)
+    }
+
+    fn install_path_result_with_pathfinder(
+        &mut self,
+        result: &crate::ai::pathfind_complete::PathResult,
+        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+    ) -> Result<(), String> {
+        self.runtime
+            .set_path_from_coords_with_pathfinder(&result.waypoints, pathfinder)?;
+        self.runtime.data.remember_result_layers(
+            &result.waypoints,
+            &result
+                .layers
+                .iter()
+                .map(|layer| *layer as u8)
+                .collect::<Vec<_>>(),
+        );
+        self.apply_final_ground_path_layer_with_pathfinder(&result.waypoints, pathfinder)
+    }
+
+    fn apply_final_ground_path_layer_with_pathfinder(
+        &mut self,
+        waypoints: &[Coord3D],
+        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+    ) -> Result<(), String> {
+        if !(self.runtime.data.is_final_goal && self.is_doing_ground_movement()) {
+            return Ok(());
+        }
+        let Some(ordinal) = self.runtime.data.installed_path_layers.last().copied() else {
+            return Ok(());
+        };
+        let installed = self.runtime.path_with_cpp_final_node(waypoints)?;
+        let Some(last) = installed.last().copied() else {
+            return Ok(());
+        };
+        let layer = crate::common::PathfindLayerEnum::from_u32(u32::from(ordinal));
+        self.runtime
+            .update_goal_position_with_pathfinder(&last, layer, pathfinder)
+    }
+
+    fn native_should_force_direct_path_for_off_map_start(&self, destination: &Coord3D) -> bool {
+        let Some(owner) = self.runtime.native_owner() else {
+            return false;
+        };
+        let Ok(owner) = owner.read() else {
+            return false;
+        };
+        leftover_should_force_direct_path_for_off_map_start(owner.get_position(), destination)
+    }
+
+    fn native_follow_exit_direct_path(&mut self, destination: &Coord3D) -> bool {
+        (self.get_current_state_id() == Some(u32::from(AIStateType::FollowExitProductionPath))
+            || self.runtime.data.current_command
+                == Some(crate::ai::AiCommandType::FollowExitProductionPath))
+            && self.runtime.data.can_path_through_units
+            && self
+                .runtime
+                .install_direct_path_from_current_position(destination)
+    }
+
+    fn native_line_passable_shortcut(
+        &self,
+        destination: &Coord3D,
+        pathfinder: &crate::ai::pathfind_complete::PathfindingSystem,
+    ) -> bool {
+        if self.runtime.data.is_final_goal {
+            return false;
+        }
+        let Some(owner) = self.runtime.native_owner() else {
+            return false;
+        };
+        let Ok(owner) = owner.read() else {
+            return false;
+        };
+        let surfaces = {
+            let valid = self.runtime.data.locomotor_set.get_valid_surfaces();
+            if valid != 0 {
+                valid
+            } else {
+                self.runtime
+                    .data
+                    .locomotor_set
+                    .get_active()
+                    .map(|loco| loco.get_legal_surfaces())
+                    .unwrap_or(0)
+            }
+        };
+        if surfaces == 0 {
+            return false;
+        }
+        let ignore = (self.runtime.data.ignore_obstacle_id != INVALID_ID)
+            .then_some(self.runtime.data.ignore_obstacle_id);
+        pathfinder.is_line_passable_for_surfaces(
+            owner.get_position(),
+            destination,
+            surfaces,
+            ignore,
+        )
+    }
+
+    fn try_install_closest_path_for_invalid_destination_with_pathfinder(
+        &mut self,
+        destination: &Coord3D,
+        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+    ) -> Result<bool, String> {
+        let request = self.build_classic_path_request(*destination, false)?;
+        if pathfinder.valid_movement_position(
+            request.surfaces,
+            request.is_crusher,
+            destination,
+            request.ignore_obstacle_id,
+        ) {
+            return Ok(false);
+        }
+        if self.has_current_path() {
+            if self.runtime.data.blocked_and_stuck {
+                self.stop_stuck_old_path_after_failed_path_with_pathfinder(pathfinder)?;
+            } else {
+                self.runtime.data.path_timestamp = TheGameLogic::get_frame();
+                self.runtime.data.blocked_frames = 0;
+                self.runtime.data.blocked_and_stuck = false;
+            }
+            return Ok(true);
+        }
+        self.runtime.data.retry_path = true;
+        let (downhill_only, aircraft_goal_only) = self.native_path_movement_policy();
+        let result = pathfinder.find_closest_path_with_movement_policy(
+            request,
+            Some(downhill_only),
+            Some(aircraft_goal_only),
+        );
+        if result.success && !result.waypoints.is_empty() {
+            self.install_path_result_with_pathfinder(&result, pathfinder)?;
+            return Ok(true);
+        }
+        self.runtime.data.path_timestamp = TheGameLogic::get_frame();
+        self.runtime.data.blocked_frames = 0;
+        self.runtime.data.blocked_and_stuck = false;
+        Ok(false)
+    }
+
+    fn do_queued_approach_pathfind_with_pathfinder(
+        &mut self,
+        destination: Coord3D,
+        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+    ) -> Result<bool, String> {
+        self.destroy_path();
+        let request = self.build_classic_path_request(destination, false)?;
+        let (downhill_only, aircraft_goal_only) = self.native_path_movement_policy();
+        let result = pathfinder.find_closest_path_with_movement_policy(
+            request,
+            Some(downhill_only),
+            Some(aircraft_goal_only),
+        );
+        if result.success && !result.waypoints.is_empty() {
+            self.install_path_result_with_pathfinder(&result, pathfinder)?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    fn do_queued_safe_pathfind_with_pathfinder(
+        &mut self,
+        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+    ) -> Result<bool, String> {
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+        self.destroy_path();
+        let owner = self
+            .runtime
+            .native_owner()
+            .ok_or_else(|| "unit owner no longer available".to_string())?;
+        let owner = owner
+            .read()
+            .map_err(|_| "unit owner lock poisoned".to_string())?;
+        let owner_pos = *owner.get_position();
+        let vision_range = owner.get_vision_range();
+        drop(owner);
+        let repulsor_pos1 = get_legacy_object(self.runtime.data.repulsor1)
+            .and_then(|obj| obj.read().ok().map(|guard| *guard.get_position()))
+            .unwrap_or_else(|| Coord3D::new(-1000.0, -1000.0, 0.0));
+        let repulsor_pos2 = get_legacy_object(self.runtime.data.repulsor2)
+            .and_then(|obj| obj.read().ok().map(|guard| *guard.get_position()))
+            .unwrap_or(repulsor_pos1);
+        let repulsed_distance = the_ai()
+            .read()
+            .ok()
+            .map(|ai| ai.get_ai_data().repulsed_distance)
+            .unwrap_or(0.0);
+        let request = self.build_classic_path_request(owner_pos, false)?;
+        let (downhill_only, _) = self.native_path_movement_policy();
+        let result = pathfinder.find_safe_path_with_movement_policy(
+            request,
+            &repulsor_pos1,
+            &repulsor_pos2,
+            vision_range + repulsed_distance,
+            Some(downhill_only),
+        );
+        if result.success && !result.waypoints.is_empty() {
+            self.install_path_result_with_pathfinder(&result, pathfinder)?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    fn try_finish_attack_path_with_pathfinder(
+        &mut self,
+        pathfinder: &crate::ai::pathfind_complete::PathfindingSystem,
+    ) -> Result<bool, String> {
+        if dual_world_registry_unavailable() {
+            return Ok(false);
+        }
+        let owner = self
+            .runtime
+            .native_owner()
+            .ok_or_else(|| "unit owner no longer available".to_string())?;
+        let owner_guard = owner
+            .read()
+            .map_err(|_| "unit owner lock poisoned".to_string())?;
+        let owner_id = owner_guard.get_id();
+        let Some((weapon, _)) = owner_guard.get_current_weapon() else {
+            return Ok(false);
+        };
+        let victim = (self.runtime.data.requested_victim_id != INVALID_ID)
+            .then(|| get_legacy_object(self.runtime.data.requested_victim_id))
+            .flatten();
+        let target_pos = victim
+            .as_ref()
+            .and_then(|victim| victim.read().ok().map(|guard| *guard.get_position()))
+            .unwrap_or(self.runtime.data.requested_destination);
+        let in_range = if victim.is_some() {
+            weapon.is_within_attack_range(
+                owner_id,
+                Some(self.runtime.data.requested_victim_id),
+                None,
+            )
+        } else {
+            weapon.is_within_attack_range(owner_id, None, Some(&target_pos))
+        };
+        if !in_range {
+            return Ok(false);
+        }
+        let blocked = if self.is_doing_ground_movement() {
+            let victim_id = victim
+                .as_ref()
+                .and_then(|v| v.read().ok().map(|g| g.get_id()));
+            pathfinder.is_attack_view_blocked_by_obstacle(
+                owner_id,
+                owner_guard.get_position(),
+                victim_id,
+                &target_pos,
+            )
+        } else {
+            false
+        };
+        drop(owner_guard);
+        if blocked {
+            return Ok(false);
+        }
+        self.destroy_path();
+        self.runtime.data.path_timestamp = TheGameLogic::get_frame();
+        self.runtime.data.blocked_frames = 0;
+        self.runtime.data.is_blocked = false;
+        self.runtime.data.blocked_and_stuck = false;
+        Ok(true)
+    }
+
+    fn stop_stuck_old_path_after_failed_path_with_pathfinder(
+        &mut self,
+        pathfinder: &crate::ai::pathfind_complete::PathfindingSystem,
+    ) -> Result<(), String> {
+        let owner = self
+            .runtime
+            .native_owner()
+            .ok_or_else(|| "unit owner no longer available".to_string())?;
+        let owner = owner
+            .read()
+            .map_err(|_| "unit owner lock poisoned".to_string())?;
+        let current_pos = *owner.get_position();
+        let snapped = pathfinder.snap_position(&current_pos);
+        drop(owner);
+        self.destroy_path();
+        self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND);
+        self.runtime.set_locomotor_goal_none();
+        self.runtime.data.path_timestamp = TheGameLogic::get_frame();
+        self.runtime.data.blocked_frames = 0;
+        self.runtime.data.is_blocked = false;
+        self.runtime.data.blocked_and_stuck = false;
+        self.runtime.data.locomotor_goal_type = 0;
+        self.runtime.data.locomotor_goal_data = snapped;
+        Ok(())
+    }
+
     pub(super) fn try_finish_attack_path_if_already_in_range(&mut self) -> Result<bool, String> {
         // Wave 258: empty dual-world → Ok(false).
 
@@ -426,7 +817,7 @@ impl UnitAIUpdate {
             return Ok(false);
         }
 
-        let Some(unit) = get_unit_arc(self.unit_id) else {
+        let Some(unit) = get_unit_arc(self.runtime.unit_id) else {
             return Ok(false);
         };
         let unit_guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
@@ -439,8 +830,8 @@ impl UnitAIUpdate {
             return Ok(false);
         };
 
-        let victim = if self.data.requested_victim_id != INVALID_ID {
-            get_legacy_object(self.data.requested_victim_id)
+        let victim = if self.runtime.data.requested_victim_id != INVALID_ID {
+            get_legacy_object(self.runtime.data.requested_victim_id)
         } else {
             None
         };
@@ -450,10 +841,14 @@ impl UnitAIUpdate {
                 .map_err(|_| "victim lock poisoned".to_string())?;
             *victim_guard.get_position()
         } else {
-            self.data.requested_destination
+            self.runtime.data.requested_destination
         };
         let in_range = if victim.is_some() {
-            weapon.is_within_attack_range(owner_id, Some(self.data.requested_victim_id), None)
+            weapon.is_within_attack_range(
+                owner_id,
+                Some(self.runtime.data.requested_victim_id),
+                None,
+            )
         } else {
             weapon.is_within_attack_range(owner_id, None, Some(&target_pos))
         };
@@ -499,10 +894,10 @@ impl UnitAIUpdate {
         drop(owner_guard);
         drop(unit_guard);
         self.destroy_path();
-        self.data.path_timestamp = TheGameLogic::get_frame();
-        self.data.blocked_frames = 0;
-        self.data.is_blocked = false;
-        self.data.blocked_and_stuck = false;
+        self.runtime.data.path_timestamp = TheGameLogic::get_frame();
+        self.runtime.data.blocked_frames = 0;
+        self.runtime.data.is_blocked = false;
+        self.runtime.data.blocked_and_stuck = false;
         Ok(true)
     }
     pub(super) fn prepare_queued_attack_path_fallback(&mut self) -> Result<(), String> {
@@ -512,12 +907,12 @@ impl UnitAIUpdate {
             return Ok(());
         }
 
-        self.data.is_attack_path = false;
-        if self.data.requested_victim_id == INVALID_ID {
+        self.runtime.data.is_attack_path = false;
+        if self.runtime.data.requested_victim_id == INVALID_ID {
             return Ok(());
         }
 
-        let Some(victim) = get_legacy_object(self.data.requested_victim_id) else {
+        let Some(victim) = get_legacy_object(self.runtime.data.requested_victim_id) else {
             return Ok(());
         };
         let victim_pos = victim
@@ -525,7 +920,7 @@ impl UnitAIUpdate {
             .map_err(|_| "victim lock poisoned".to_string())?
             .get_position()
             .to_owned();
-        self.data.requested_destination = victim_pos;
+        self.runtime.data.requested_destination = victim_pos;
         let _ = self.ignore_obstacle(victim.read().ok().map(|g| g.get_id()));
         Ok(())
     }
@@ -575,8 +970,8 @@ impl UnitAIUpdate {
 
         self.destroy_path();
 
-        let unit =
-            get_unit_arc(self.unit_id).ok_or_else(|| "unit no longer available".to_string())?;
+        let unit = get_unit_arc(self.runtime.unit_id)
+            .ok_or_else(|| "unit no longer available".to_string())?;
         let guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
         let base_arc = guard.base_arc();
         let obj_guard = base_arc
@@ -587,7 +982,7 @@ impl UnitAIUpdate {
         drop(obj_guard);
         drop(guard);
 
-        let repulsor_pos1 = get_legacy_object(self.data.repulsor1)
+        let repulsor_pos1 = get_legacy_object(self.runtime.data.repulsor1)
             .and_then(|repulsor| {
                 repulsor
                     .read()
@@ -595,7 +990,7 @@ impl UnitAIUpdate {
                     .map(|repulsor_guard| *repulsor_guard.get_position())
             })
             .unwrap_or_else(|| Coord3D::new(-1000.0, -1000.0, 0.0));
-        let repulsor_pos2 = get_legacy_object(self.data.repulsor2)
+        let repulsor_pos2 = get_legacy_object(self.runtime.data.repulsor2)
             .and_then(|repulsor| {
                 repulsor
                     .read()
@@ -643,85 +1038,19 @@ impl UnitAIUpdate {
         &mut self,
         destination: &Coord3D,
     ) -> bool {
-        let Some(unit) = get_unit_arc(self.unit_id) else {
-            return false;
-        };
-        let Ok(mut guard) = unit.write() else {
-            return false;
-        };
-
-        let mut start = guard.get_position();
-        start.z = destination.z;
-        guard.current_path = Some(vec![
-            Coord2D::new(start.x, start.y),
-            Coord2D::new(destination.x, destination.y),
-        ]);
-        guard.path_following_state = None;
-        guard.path_index = 0;
-        guard.target_position = Some(*destination);
-        guard.movement_state = MovementState::Moving;
-        guard.current_speed = 0.0;
-        self.data.blocked_frames = 0;
-        self.data.blocked_and_stuck = false;
-        self.data.waiting_for_path = false;
-        self.data.path_timestamp = TheGameLogic::get_frame();
-        self.data.movement_complete = false;
-        self.data.locomotor_goal_type = 1;
-        self.data.locomotor_goal_data = Coord3D::ZERO;
-        drop(guard);
-        self.set_current_path_snapshot_from_coords(&[start, *destination]);
-        true
+        self.runtime
+            .install_direct_path_from_current_position(destination)
     }
     pub(super) fn build_classic_path_request(
         &self,
         destination: Coord3D,
         allow_partial: bool,
     ) -> Result<crate::ai::pathfind_complete::PathRequest, String> {
-        let unit =
-            get_unit_arc(self.unit_id).ok_or_else(|| "unit no longer available".to_string())?;
-        let guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
-        let base_arc = guard.base_arc();
-        let obj_guard = base_arc
-            .read()
-            .map_err(|_| "unit base object lock poisoned".to_string())?;
-        let surfaces = self
-            .data
-            .locomotor_set
-            .get_active()
-            .map(|loco| loco.get_legal_surfaces())
-            .unwrap_or(crate::locomotor::SURFACE_GROUND);
-        Ok(crate::ai::pathfind_complete::PathRequest {
-            object_id: obj_guard.get_id(),
-            from: *obj_guard.get_position(),
-            to: destination,
-            surfaces,
-            is_crusher: obj_guard.get_crusher_level() > 0,
-            unit_radius: obj_guard.get_geometry_info().get_major_radius(),
-            allow_partial,
-            move_allies: self.data.can_path_through_units,
-            ignore_obstacle_id: if self.data.ignore_obstacle_id == INVALID_ID {
-                None
-            } else {
-                Some(self.data.ignore_obstacle_id)
-            },
-            is_human: false,
-        })
+        self.runtime
+            .build_classic_path_request(destination, allow_partial)
     }
     pub(super) fn queue_path_request_now(&self, destination: Coord3D) -> Result<(), String> {
-        let request = self.build_classic_path_request(destination, false)?;
-
-        let ai_store = the_ai();
-        if let Some(ai) = ai_store.read().ok() {
-            if let Some(pathfinder) = ai.pathfinder() {
-                pathfinder
-                    .write()
-                    .map_err(|_| "pathfinder lock poisoned".to_string())?
-                    .queue_for_path_request(request)
-                    .map_err(|err| err.to_string())?;
-            }
-        }
-
-        Ok(())
+        self.runtime.queue_path_request_now(destination)
     }
     pub(super) fn clip_goal_position(
         &self,
@@ -737,6 +1066,7 @@ impl UnitAIUpdate {
         if let Ok(object) = owner.read() {
             if object.is_kind_of(KindOf::Aircraft) && object.is_significantly_above_terrain() {
                 let preferred = self
+                    .runtime
                     .data
                     .locomotor_set
                     .get_active()
@@ -761,46 +1091,10 @@ impl UnitAIUpdate {
         pos
     }
     pub(super) fn compute_pathfind_radius_and_center(unit: &Unit) -> (i32, bool) {
-        let radius = unit
-            .base_arc()
-            .read()
-            .ok()
-            .map(|obj| obj.get_geometry_info().get_bounding_circle_radius())
-            .unwrap_or(PATHFIND_CELL_SIZE_F * 0.5);
-        let mut diameter = 2.0 * radius;
-        if diameter > PATHFIND_CELL_SIZE_F && diameter < 2.0 * PATHFIND_CELL_SIZE_F {
-            diameter = 2.0 * PATHFIND_CELL_SIZE_F;
-        }
-
-        let mut radius = (diameter / PATHFIND_CELL_SIZE_F + 0.3).floor() as i32;
-        let mut center_in_cell = false;
-
-        if radius == 0 {
-            radius = 1;
-        }
-        if (radius & 1) != 0 {
-            center_in_cell = true;
-        }
-        radius /= 2;
-        if radius > 2 {
-            radius = 2;
-            center_in_cell = true;
-        }
-
-        (radius, center_in_cell)
+        UnitAiRuntime::compute_pathfind_radius_and_center(unit)
     }
     pub(super) fn compute_goal_cell(pos: &Coord3D, center_in_cell: bool) -> ICoord2D {
-        if center_in_cell {
-            ICoord2D::new(
-                (pos.x / PATHFIND_CELL_SIZE_F).floor() as i32,
-                (pos.y / PATHFIND_CELL_SIZE_F).floor() as i32,
-            )
-        } else {
-            ICoord2D::new(
-                (0.5 + pos.x / PATHFIND_CELL_SIZE_F).floor() as i32,
-                (0.5 + pos.y / PATHFIND_CELL_SIZE_F).floor() as i32,
-            )
-        }
+        UnitAiRuntime::compute_goal_cell(pos, center_in_cell)
     }
     pub(super) fn remove_goal_cells(
         &mut self,
@@ -809,37 +1103,11 @@ impl UnitAIUpdate {
         radius: i32,
         center_in_cell: bool,
     ) {
-        self.data
+        self.runtime
             .remove_goal_cells(pathfinder, unit_id, radius, center_in_cell)
     }
     pub(super) fn remove_stored_pathfinder_goal(&mut self) {
-        let Some(unit) = get_unit_arc(self.unit_id) else {
-            return;
-        };
-        let Ok(guard) = unit.read() else {
-            return;
-        };
-        let Some(base) = guard.get_base_object() else {
-            return;
-        };
-        let owner_id = base
-            .read()
-            .ok()
-            .map(|obj| obj.get_id())
-            .unwrap_or(INVALID_ID);
-        let (radius, center_in_cell) = Self::compute_pathfind_radius_and_center(&guard);
-        drop(guard);
-        let ai_store = the_ai();
-        let Ok(ai_lock) = ai_store.read() else {
-            return;
-        };
-        let Some(pathfinder) = ai_lock.pathfinder() else {
-            return;
-        };
-        let Ok(mut pf_guard) = pathfinder.write() else {
-            return;
-        };
-        self.remove_goal_cells(&mut pf_guard, owner_id, radius, center_in_cell);
+        self.runtime.remove_stored_pathfinder_goal()
     }
     pub(super) fn update_ground_goal_cells(
         &mut self,
@@ -851,34 +1119,15 @@ impl UnitAIUpdate {
         center_in_cell: bool,
         interacts_with_bridge_end: bool,
     ) {
-        let layer_changed = self.data.pathfind_goal_layer != layer;
-        if !layer_changed
-            && self.data.pathfind_goal_cell.x == new_cell.x
-            && self.data.pathfind_goal_cell.y == new_cell.y
-        {
-            return;
-        }
-
-        self.remove_goal_cells(pathfinder, unit_id, radius, center_in_cell);
-
-        self.data.pathfind_goal_cell = new_cell;
-        self.data.pathfind_goal_layer = layer;
-
-        let mut do_ground = layer == ClassicPathLayer::Ground;
-        let do_layer = layer != ClassicPathLayer::Ground;
-        if do_layer && interacts_with_bridge_end {
-            do_ground = true;
-        }
-
-        pathfinder.set_goal_cells(
+        self.runtime.update_ground_goal_cells(
+            pathfinder,
             unit_id,
             new_cell,
+            layer,
             radius,
             center_in_cell,
-            layer,
-            do_ground,
-            do_layer,
-        );
+            interacts_with_bridge_end,
+        )
     }
     pub(super) fn update_aircraft_goal_cells(
         &mut self,
@@ -888,30 +1137,25 @@ impl UnitAIUpdate {
         radius: i32,
         center_in_cell: bool,
     ) {
-        self.remove_goal_cells(pathfinder, unit_id, radius, center_in_cell);
-
-        if !self.is_aircraft_that_adjusts_destination() {
-            return;
-        }
-
-        self.data.pathfind_goal_cell = new_cell;
-        self.data.pathfind_goal_layer = ClassicPathLayer::Ground;
-
-        pathfinder.set_aircraft_goal_cells(unit_id, new_cell, radius, center_in_cell);
+        self.runtime.update_aircraft_goal_cells(
+            pathfinder,
+            unit_id,
+            new_cell,
+            radius,
+            center_in_cell,
+        )
     }
     pub(super) fn has_valid_locomotor_surfaces(&self) -> bool {
-        self.data.has_valid_locomotor_surfaces()
+        self.runtime.has_valid_locomotor_surfaces()
     }
     pub(super) fn safe_path_search_distance(vision_range: Real, repulsed_distance: Real) -> Real {
         vision_range + repulsed_distance
     }
     pub(super) fn current_path_extra_distance(&self) -> Real {
-        get_unit_arc(self.unit_id)
-            .and_then(|unit| unit.read().ok().map(|guard| guard.path_extra_distance))
-            .unwrap_or(0.0)
+        self.runtime.data.path_extra_distance
     }
     pub(super) fn finish_completed_movement_like_cpp(&mut self) {
-        if !self.data.movement_complete {
+        if !self.runtime.data.movement_complete {
             return;
         }
 
@@ -923,7 +1167,7 @@ impl UnitAIUpdate {
         // and update consumes completion after clearing path/goal (1018-1044).
         // Keep the Rust movement companion inactive too: idle/movement queries
         // read it. Do not stop_movement(), which also discards future waypoints.
-        let base = get_unit_arc(self.unit_id).and_then(|unit| {
+        let base = get_unit_arc(self.runtime.unit_id).and_then(|unit| {
             let mut guard = unit.write().ok()?;
             if guard.is_movement_active() {
                 guard.movement_state = MovementState::Idle;
@@ -938,17 +1182,19 @@ impl UnitAIUpdate {
             }
         }
 
-        if let Some((pos, radius, layer, id)) = get_unit_arc(self.unit_id).and_then(|unit| {
-            let guard = unit.read().ok()?;
-            let base = guard.base_arc();
-            let object = base.read().ok()?;
-            Some((
-                *object.get_position(),
-                object.get_geometry_info().get_bounding_circle_radius(),
-                object.get_layer(),
-                object.get_id(),
-            ))
-        }) {
+        if let Some((pos, radius, layer, id)) =
+            get_unit_arc(self.runtime.unit_id).and_then(|unit| {
+                let guard = unit.read().ok()?;
+                let base = guard.base_arc();
+                let object = base.read().ok()?;
+                Some((
+                    *object.get_position(),
+                    object.get_geometry_info().get_bounding_circle_radius(),
+                    object.get_layer(),
+                    object.get_id(),
+                ))
+            })
+        {
             let mut goal = Coord3D::new(0.0, 0.0, 0.0);
             let found = the_ai().read().ok().and_then(|ai| {
                 let pf = ai.pathfinder()?;
@@ -965,8 +1211,8 @@ impl UnitAIUpdate {
                 Some(goal)
             });
             if let Some(goal) = found {
-                self.data.final_position = goal;
-                self.data.do_final_position = false;
+                self.runtime.data.final_position = goal;
+                self.runtime.data.do_final_position = false;
                 let _ = crate::ai::pathfind::update_goal_for_object(
                     id,
                     &goal,
@@ -975,7 +1221,7 @@ impl UnitAIUpdate {
             }
         }
 
-        self.data.movement_complete = false;
-        self.data.ignore_obstacle_id = INVALID_ID;
+        self.runtime.data.movement_complete = false;
+        self.runtime.data.ignore_obstacle_id = INVALID_ID;
     }
 }
