@@ -1733,8 +1733,9 @@ impl ScriptEngine {
             .get_all_named_objects()
             .unwrap_or_default();
         self.with_inner(|inner| {
-            let attack_count = inner.num_attack_info.min(inner.attack_priority_info.len());
-            let attack_priorities = inner.attack_priority_info[..attack_count]
+            let attack_priorities = inner
+                .attack_priorities
+                .entries()
                 .iter()
                 .map(|info| {
                     let mut entries: Vec<(String, i32)> = info
@@ -1825,21 +1826,18 @@ impl ScriptEngine {
     pub fn restore_xfer_tail(&self, tail: &ScriptEngineXferTail) {
         {
             let mut inner = self.lock_inner_mut();
-            inner.attack_priority_info = tail
-                .attack_priorities
-                .iter()
-                .map(|(name, default_priority, entries)| {
-                    let mut info = AttackPriorityInfo::new();
-                    info.name = name.clone();
-                    info.default_priority = *default_priority;
-                    info.priority_map = entries.iter().cloned().collect();
-                    info
-                })
-                .collect();
-            if inner.attack_priority_info.is_empty() {
-                inner.attack_priority_info.push(AttackPriorityInfo::new());
-            }
-            inner.num_attack_info = inner.attack_priority_info.len();
+            inner.attack_priorities.restore(
+                tail.attack_priorities
+                    .iter()
+                    .map(|(name, default_priority, entries)| {
+                        let mut info = AttackPriorityInfo::new();
+                        info.name = name.clone();
+                        info.default_priority = *default_priority;
+                        info.priority_map = entries.iter().cloned().collect();
+                        info
+                    })
+                    .collect(),
+            );
             inner.object_attack_priority_sets = tail
                 .object_attack_priority_sets
                 .iter()

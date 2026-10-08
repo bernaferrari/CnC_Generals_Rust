@@ -1,12 +1,14 @@
 //! Wave 348 residual peels: ScriptEngine dual-world empty short-circuits.
 //! When `OBJECT_REGISTRY` is empty (host-only presentation path), named-cache/
-//! team/script helpers fail-closed without dual-world factory walks.
+//! team helpers use host adapters without dual-world factory walks. Sequential
+//! scripts still walk the list and clean up missing actors as C++ requires.
 //! Never flips shell `playable_claim`. Network deferred.
 //!
 //! Orthogonal to Wave 347 ActionManager dual-world empty-gate residual.
 //!
 //! Sources:
-//! - `GameLogic/src/scripting/engine.rs` dual_world_registry_unavailable
+//! - `GameLogic/src/scripting/engine/mod.rs` and its reachable fragments.
+//! - `GameLogic/src/scripting/engine/attack_priorities.rs` ungated table Xfer.
 //!
 //! Fail-closed:
 //! - Shell `playable_claim` stays false; network deferred
@@ -97,10 +99,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
                     depth -= 1;
                     if depth == 0 {
                         let body = &src[i..brace + off + 1];
-                        if body.contains("dual_world_registry_unavailable") {
-                            return Some(body);
-                        }
-                        break;
+                        return Some(body);
                     }
                 }
                 _ => {}
@@ -113,7 +112,10 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: ScriptEngine empty dual-world short-circuits.
 pub fn honesty_script_engine_dual_world_empty_gate_source() -> bool {
-    let g = gamelogic::scripting::engine::SCRIPT_ENGINE_SRC;
+    script_engine_source_contract(gamelogic::scripting::engine::SCRIPT_ENGINE_SRC)
+}
+
+fn script_engine_source_contract(g: &str) -> bool {
     if !(g.contains("Wave 348")
         && g.contains("fn dual_world_registry_unavailable")
         && g.contains("OBJECT_REGISTRY.is_empty()"))
@@ -123,11 +125,25 @@ pub fn honesty_script_engine_dual_world_empty_gate_source() -> bool {
     let helper_ok = g.contains(
         "fn dual_world_registry_unavailable() -> bool {\n    crate::object::registry::OBJECT_REGISTRY.is_empty()\n}",
     );
-    // xfer must remain ungated.
-    if let Some(xfer) = fn_body(g, "fn xfer(") {
-        if xfer.contains("dual_world_registry_unavailable") {
-            return false;
-        }
+    // Inspect the real Engine and extracted table, independent of other Xfer impls.
+    let Some((_, engine)) = g.split_once("impl XferSnapshot for ScriptEngine {") else {
+        return false;
+    };
+    let Some(engine_xfer) = fn_body(engine, "fn xfer(") else {
+        return false;
+    };
+    let Some((_, table)) = g.split_once("impl AttackPriorityTable {") else {
+        return false;
+    };
+    let Some(table_xfer) = fn_body(table, "fn xfer(") else {
+        return false;
+    };
+    if engine_xfer.contains("dual_world_registry_unavailable")
+        || table_xfer.contains("dual_world_registry_unavailable")
+        || !engine_xfer.contains("inner.attack_priorities.xfer(xfer)?")
+        || !table_xfer.contains("self.rows[i].xfer(xfer)?")
+    {
+        return false;
     }
     let Some(cache) = fn_body(g, "fn create_named_cache(") else {
         return false;
@@ -141,10 +157,20 @@ pub fn honesty_script_engine_dual_world_empty_gate_source() -> bool {
     let Some(xfer_name) = fn_body(g, "fn transfer_object_name(") else {
         return false;
     };
+    // C++ ScriptEngine.cpp:7860 walks the list even without Objects. Preserve
+    // missing-actor cleanup and the host-team adapter rather than skipping it.
+    let Some(loop_start) = eval.find("while i < self.sequential_script_count() {") else {
+        return false;
+    };
     helper_ok
+        && cache.contains("dual_world_registry_unavailable()")
         && cache.contains("return;")
-        && eval.contains("return Ok(())")
+        && !eval[..loop_start].contains("dual_world_registry_unavailable()")
+        && eval.contains("cleanup_sequential_script_by_token")
+        && team.contains("dual_world_registry_unavailable()")
+        && team.contains("return crate::scripting::host_team_sequential_status(&name)")
         && team.contains("return (false, true)")
+        && xfer_name.contains("dual_world_registry_unavailable()")
         && xfer_name.contains("return Ok(())")
         && g.contains("fn set_objects_should_receive_difficulty_bonus")
         && g.contains("fn add_object_to_cache")
@@ -186,5 +212,65 @@ mod tests {
             simulate_live_script_engine_dual_world_empty_gate_honesty(),
             "script engine dual-world empty gate residual must latch"
         );
+    }
+
+    #[test]
+    fn production_sequential_walk_satisfies_cpp_contract() {
+        assert!(script_engine_source_contract(
+            gamelogic::scripting::engine::SCRIPT_ENGINE_SRC
+        ));
+    }
+
+    #[test]
+    fn source_contract_rejects_sequential_empty_registry_skip() {
+        let source = gamelogic::scripting::engine::SCRIPT_ENGINE_SRC;
+        let marker = "while i < self.sequential_script_count() {";
+        assert_eq!(source.matches(marker).count(), 1);
+        let skipped = source.replacen(marker,
+            "if dual_world_registry_unavailable() { return Ok(()); }\n        while i < self.sequential_script_count() {", 1);
+        assert!(!script_engine_source_contract(&skipped));
+    }
+
+    #[test]
+    fn source_extraction_finds_ungated_engine_xfer() {
+        let source = gamelogic::scripting::engine::SCRIPT_ENGINE_SRC;
+        let (_, engine) = source
+            .split_once("impl XferSnapshot for ScriptEngine {")
+            .unwrap();
+        let body = fn_body(engine, "fn xfer(")
+            .expect("actual engine xfer must be inspected even without a registry gate");
+        assert!(!body.contains("dual_world_registry_unavailable"));
+    }
+
+    #[test]
+    fn source_extraction_finds_ungated_priority_table_xfer() {
+        let source = gamelogic::scripting::engine::SCRIPT_ENGINE_SRC;
+        let (_, table) = source.split_once("impl AttackPriorityTable {").unwrap();
+        let body = fn_body(table, "fn xfer(")
+            .expect("actual table xfer must be inspected even without a registry gate");
+        assert!(body.contains("self.rows[i].xfer(xfer)?"));
+        assert!(!body.contains("dual_world_registry_unavailable"));
+    }
+
+    #[test]
+    fn source_contract_rejects_gated_engine_xfer() {
+        let source = gamelogic::scripting::engine::SCRIPT_ENGINE_SRC;
+        let (prefix, engine) = source
+            .split_once("impl XferSnapshot for ScriptEngine {")
+            .unwrap();
+        let marker = "let inner = self.inner.get_mut();";
+        let engine = engine.replacen(marker, "if dual_world_registry_unavailable() { return Ok(()); }\n        let inner = self.inner.get_mut();", 1);
+        let gated = format!("{prefix}impl XferSnapshot for ScriptEngine {{{engine}");
+        assert!(!script_engine_source_contract(&gated));
+    }
+
+    #[test]
+    fn source_contract_rejects_gated_priority_table_xfer() {
+        let source = gamelogic::scripting::engine::SCRIPT_ENGINE_SRC;
+        let marker = "let mut attack_priority_size: u16 =";
+        assert_eq!(source.matches(marker).count(), 1);
+        let gated = source.replacen(marker,
+            "if dual_world_registry_unavailable() { return Ok(()); }\n        let mut attack_priority_size: u16 =", 1);
+        assert!(!script_engine_source_contract(&gated));
     }
 }

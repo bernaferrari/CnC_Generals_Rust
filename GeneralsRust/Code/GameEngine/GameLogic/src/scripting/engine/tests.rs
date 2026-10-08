@@ -1594,3 +1594,5 @@ mod facade_owner_tests;
 mod science_callback_owner_tests;
 
 mod remaining_camera_driver_tests;
+
+mod attack_priority_table_tests;

@@ -70,8 +70,7 @@ impl ScriptEngine {
                 num_counters: 1,
                 flags: vec![None; MAX_FLAGS],
                 num_flags: 1,
-                attack_priority_info: Vec::with_capacity(MAX_ATTACK_PRIORITIES),
-                num_attack_info: 1,
+                attack_priorities: AttackPriorityTable::new(),
 
                 end_game_timer: -1,
                 close_window_timer: -1,
@@ -144,9 +143,7 @@ impl ScriptEngine {
             if inner.flags[0].is_none() {
                 inner.flags[0] = Some(TFlag::new(String::new()));
             }
-            if inner.attack_priority_info.is_empty() {
-                inner.attack_priority_info.push(AttackPriorityInfo::new());
-            }
+            inner.attack_priorities.ensure_default();
         }
 
         engine.initialize_templates()?;
@@ -1138,65 +1135,21 @@ impl ScriptEngine {
         inner.object_types.insert(name, types);
     }
 
-    /// Mutate one attack-priority set without letting a `RefCell` borrow cross
-    /// template/factory lookup or AI dispatch.  C++ keeps the set in the
-    /// ScriptEngine, but its script actions may re-enter immediately.
+    /// Mutate one live row without retaining the engine borrow across dispatch.
     fn with_attack_info_mut<R>(
         &self,
         name: &str,
         add_if_missing: bool,
         f: impl FnOnce(&mut AttackPriorityInfo) -> R,
     ) -> Option<R> {
-        let mut inner = self.lock_inner_mut();
-        if inner.attack_priority_info.is_empty() {
-            inner.attack_priority_info.push(AttackPriorityInfo::new());
-        }
-        if inner.num_attack_info == 0 {
-            inner.num_attack_info = 1;
-        }
-
-        let existing_index = (1..inner.num_attack_info).find(|&i| {
-            inner
-                .attack_priority_info
-                .get(i)
-                .map(|info| info.name == name)
-                .unwrap_or(false)
-        });
-        if let Some(index) = existing_index {
-            return inner.attack_priority_info.get_mut(index).map(f);
-        }
-
-        if add_if_missing && inner.num_attack_info < MAX_ATTACK_PRIORITIES {
-            let mut info = AttackPriorityInfo::new();
-            info.name = name.to_string();
-            let index = inner.num_attack_info;
-            if inner.attack_priority_info.len() <= index {
-                inner.attack_priority_info.push(info);
-            } else {
-                inner.attack_priority_info[index] = info;
-            }
-            inner.num_attack_info += 1;
-            return inner.attack_priority_info.get_mut(index).map(f);
-        }
-
-        None
+        self.lock_inner_mut()
+            .attack_priorities
+            .with_mut(name, add_if_missing, f)
     }
 
-    /// Owned snapshot — never a borrow into `UnsafeCell`.
+    /// Owned snapshot; native reference ownership is tracked separately.
     pub fn get_attack_info(&self, name: &str) -> Option<AttackPriorityInfo> {
-        self.with_inner(|inner| {
-            if inner.attack_priority_info.is_empty() {
-                return None;
-            }
-            for i in 1..inner.num_attack_info {
-                if let Some(info) = inner.attack_priority_info.get(i) {
-                    if info.name == name {
-                        return Some(info.clone());
-                    }
-                }
-            }
-            inner.attack_priority_info.get(0).cloned()
-        })
+        self.with_inner(|inner| inner.attack_priorities.get(name).cloned())
     }
 
     pub fn set_object_attack_priority_set(&self, object_id: ObjectID, set_name: &str) {
@@ -1426,8 +1379,7 @@ impl ScriptEngine {
             inner.num_counters = 1;
             inner.flags.iter_mut().for_each(|f| *f = None);
             inner.num_flags = 1;
-            inner.attack_priority_info.clear();
-            inner.num_attack_info = 1;
+            inner.attack_priorities.clear();
 
             inner.end_game_timer = -1;
             inner.close_window_timer = -1;
@@ -1499,9 +1451,7 @@ impl ScriptEngine {
         if inner.flags[0].is_none() {
             inner.flags[0] = Some(TFlag::new(String::new()));
         }
-        if inner.attack_priority_info.is_empty() {
-            inner.attack_priority_info.push(AttackPriorityInfo::new());
-        }
+        inner.attack_priorities.ensure_default();
     }
 
     /// C++ `ScriptEngine::newMap` (`ScriptEngine.cpp:5409-5473`).

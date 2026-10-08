@@ -1092,8 +1092,7 @@ pub struct ScriptEngineInner {
     pub(crate) num_counters: usize,
     flags: Vec<Option<TFlag>>,
     num_flags: usize,
-    attack_priority_info: Vec<AttackPriorityInfo>,
-    num_attack_info: usize,
+    attack_priorities: AttackPriorityTable,
 
     // Game state
     end_game_timer: i32,

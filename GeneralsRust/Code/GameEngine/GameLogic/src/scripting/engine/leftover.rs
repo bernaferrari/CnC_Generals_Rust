@@ -3,7 +3,6 @@
 // Split from `scripting/engine.rs` for module-size parity.
 // Observable behavior is unchanged.
 
-
 fn xfer_list_ascii_string(xfer: &mut dyn Xfer, list: &mut Vec<String>) -> Result<(), XferStatus> {
     let current_version: XferVersion = 1;
     let mut version = current_version;
@@ -306,35 +305,13 @@ impl XferSnapshot for ScriptEngine {
             inner.num_flags = num_flags as usize;
         }
 
-        let mut attack_priority_size: u16 =
-            if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
-                inner.num_attack_info as u16
-            } else {
-                0
-            };
-        xfer.xfer_unsigned_short(&mut attack_priority_size)?;
-        if attack_priority_size as usize > MAX_ATTACK_PRIORITIES {
-            return Err(XferStatus::InvalidParameters);
-        }
-        if xfer.get_xfer_mode() == XferMode::Load {
-            inner.attack_priority_info.clear();
-            inner.attack_priority_info
-                .resize_with(attack_priority_size as usize, AttackPriorityInfo::new);
-        }
-        for i in 0..attack_priority_size as usize {
-            inner.attack_priority_info[i].xfer(xfer)?;
-        }
-
-        let mut num_attack_info = inner.num_attack_info as i32;
-        xfer.xfer_int(&mut num_attack_info)?;
-        if xfer.get_xfer_mode() == XferMode::Load {
-            inner.num_attack_info = num_attack_info as usize;
-        }
+        inner.attack_priorities.xfer(xfer)?;
 
         if version >= 6 {
             let mut object_priority_count: u16 =
                 if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
-                    inner.object_attack_priority_sets
+                    inner
+                        .object_attack_priority_sets
                         .len()
                         .min(u16::MAX as usize) as u16
                 } else {
@@ -366,7 +343,9 @@ impl XferSnapshot for ScriptEngine {
                         if object_id == crate::common::INVALID_ID || set_name.is_empty() {
                             continue;
                         }
-                        inner.object_attack_priority_sets.insert(object_id, set_name);
+                        inner
+                            .object_attack_priority_sets
+                            .insert(object_id, set_name);
                     }
                 }
                 XferMode::Invalid => return Err(XferStatus::ModeUnknown),
@@ -586,7 +565,8 @@ impl XferSnapshot for ScriptEngine {
 
             match xfer.get_xfer_mode() {
                 XferMode::Save | XferMode::Crc => {
-                    let mut ordered_lists: Vec<&ObjectTypes> = inner.object_types.values().collect();
+                    let mut ordered_lists: Vec<&ObjectTypes> =
+                        inner.object_types.values().collect();
                     ordered_lists
                         .sort_by(|a, b| a.list_name().as_str().cmp(b.list_name().as_str()));
                     for entry in ordered_lists.iter() {

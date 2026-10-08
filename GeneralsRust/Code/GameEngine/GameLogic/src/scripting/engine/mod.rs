@@ -35,6 +35,9 @@ fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
 
+mod attack_priorities;
+use attack_priorities::AttackPriorityTable;
+
 include!("types.rs");
 include!("init.rs");
 include!("update.rs");
@@ -47,6 +50,7 @@ mod tests;
 /// Concatenated live sources for residual `include_str!` scans.
 pub const SCRIPT_ENGINE_SRC: &str = concat!(
     include_str!("mod.rs"),
+    include_str!("attack_priorities.rs"),
     include_str!("init.rs"),
     include_str!("leftover.rs"),
     include_str!("named_trackers.rs"),
