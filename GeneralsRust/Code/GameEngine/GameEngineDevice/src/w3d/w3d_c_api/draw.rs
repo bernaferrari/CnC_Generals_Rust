@@ -24,7 +24,6 @@ use std::ffi::{CStr, CString, c_char, c_void};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
-use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::RwLock;
 
@@ -418,7 +417,7 @@ pub unsafe extern "C" fn W3DDevice_DrawIndexedPrimitiveUP(
 }
 pub(super) fn draw_indexed_primitive_internal(
     device_ref: &W3DDeviceC,
-    device: &Arc<RwLock<W3DDevice>>,
+    device: &RwLock<W3DDevice>,
     primitive_type: W3D_PRIMITIVE_TYPE,
     vertex_buffer: *const W3D_VERTEX,
     vertex_count: u32,
@@ -461,7 +460,7 @@ pub(super) fn draw_indexed_primitive_internal(
 }
 
 pub(super) fn submit_transient_draw_internal(
-    _device: &Arc<RwLock<W3DDevice>>,
+    _device: &RwLock<W3DDevice>,
     primitive_type: W3D_PRIMITIVE_TYPE,
     vertices: &[W3D_VERTEX],
     indices: &[u32],

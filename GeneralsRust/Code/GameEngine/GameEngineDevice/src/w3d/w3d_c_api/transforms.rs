@@ -19,12 +19,12 @@ use std::ffi::{CStr, CString, c_char, c_void};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
-use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::RwLock;
 
 /// Set transform - matches original W3DDevice::SetTransform(matrix)
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI entry. `device` live W3D_DEVICE; `matrix` readable for one
 // SAFETY: W3D_MATRIX, copied before the async call.
 pub unsafe extern "C" fn W3DDevice_SetTransform(
@@ -52,7 +52,8 @@ pub unsafe extern "C" fn W3DDevice_SetTransform(
 }
 
 /// Get transform - matches original W3DDevice::GetTransform(state, matrix)
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI entry. `matrix` must be writable for one W3D_MATRIX when
 // SAFETY: non-null; `device` must be a live W3D_DEVICE.
 pub unsafe extern "C" fn W3DDevice_GetTransform(
@@ -79,7 +80,7 @@ pub unsafe extern "C" fn W3DDevice_GetTransform(
 }
 
 pub(super) async fn set_transform_internal(
-    device: &Arc<RwLock<W3DDevice>>,
+    device: &RwLock<W3DDevice>,
     state: W3D_TRANSFORM_STATE,
     matrix: W3D_MATRIX,
 ) -> Result<()> {

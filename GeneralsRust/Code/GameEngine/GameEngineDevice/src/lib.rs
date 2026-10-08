@@ -278,7 +278,7 @@ pub struct GameEngineDevice {
 
     /// W3D device
     #[cfg(feature = "w3d")]
-    w3d_device: Arc<RwLock<Option<W3DDevice>>>,
+    w3d_device: RwLock<Option<Arc<W3DDevice>>>,
 
     /// Platform interface
     platform_interface: Arc<DeviceInterface>,
@@ -366,7 +366,7 @@ impl GameEngineDevice {
             video_device: Arc::new(RwLock::new(None)),
 
             #[cfg(feature = "w3d")]
-            w3d_device: Arc::new(RwLock::new(None)),
+            w3d_device: RwLock::new(None),
 
             platform_interface,
             config: Arc::new(RwLock::new(config)),
@@ -416,10 +416,10 @@ impl GameEngineDevice {
                 .await
                 .map_err(GameEngineDeviceError::W3D)?;
             device.init().await.map_err(GameEngineDeviceError::W3D)?;
-            *w3d_lock = Some(device);
+            *w3d_lock = Some(Arc::new(device));
         }
 
-        Ok(Arc::new(w3d_lock.as_ref().unwrap().clone()))
+        Ok(Arc::clone(w3d_lock.as_ref().unwrap()))
     }
 
     /// Get system status for all initialized devices
@@ -694,3 +694,7 @@ mod tests {
         assert_eq!(loader.texture_cache_len_for_test(), 0);
     }
 }
+
+#[cfg(all(test, feature = "w3d"))]
+#[path = "canonical_w3d_tests.rs"]
+mod canonical_w3d_tests;

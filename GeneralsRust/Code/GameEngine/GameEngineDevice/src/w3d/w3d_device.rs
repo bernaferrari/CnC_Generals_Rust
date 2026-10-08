@@ -17,7 +17,6 @@ use glam::Mat4;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::mem;
-use std::sync::Arc;
 use tokio::sync::RwLock;
 use wgpu::{
     Adapter, Backends, BufferUsages, CompositeAlphaMode, CurrentSurfaceTexture, Device, Features,
@@ -637,46 +636,46 @@ pub struct W3DMaterialData {
 /// Complete W3D device with modern wgpu backend
 pub struct W3DDevice {
     /// Device configuration
-    config: Arc<W3DConfig>,
+    config: W3DConfig,
 
     /// WGPU instance for creating adapters
-    instance: Arc<Instance>,
+    instance: Instance,
 
     /// WGPU adapter (GPU/integrated graphics)
-    adapter: Arc<RwLock<Option<Adapter>>>,
+    adapter: RwLock<Option<Adapter>>,
 
     /// WGPU logical device
-    device: Arc<RwLock<Option<Device>>>,
+    device: RwLock<Option<Device>>,
 
     /// WGPU command queue
-    queue: Arc<RwLock<Option<Queue>>>,
+    queue: RwLock<Option<Queue>>,
 
     /// Surface for rendering (window)
-    surface: Arc<RwLock<Option<Surface<'static>>>>,
+    surface: RwLock<Option<Surface<'static>>>,
 
     /// Surface configuration
-    surface_config: Arc<RwLock<Option<SurfaceConfiguration>>>,
+    surface_config: RwLock<Option<SurfaceConfiguration>>,
 
     /// W3D renderer with wgpu backend
-    renderer: Arc<RwLock<Option<W3DRenderer>>>,
+    renderer: RwLock<Option<W3DRenderer>>,
 
     /// Graphics context with wgpu state management
-    graphics_context: Arc<RwLock<Option<GraphicsContext>>>,
+    graphics_context: RwLock<Option<GraphicsContext>>,
 
     /// Device statistics and performance metrics
-    statistics: Arc<RwLock<W3DStatistics>>,
+    statistics: RwLock<W3DStatistics>,
 
     /// Resource management with GPU buffers
-    meshes: Arc<RwLock<HashMap<String, Mesh>>>,
-    materials: Arc<RwLock<HashMap<String, Material>>>,
-    textures: Arc<RwLock<HashMap<String, Texture>>>,
-    shaders: Arc<RwLock<HashMap<String, Shader>>>,
+    meshes: RwLock<HashMap<String, Mesh>>,
+    materials: RwLock<HashMap<String, Material>>,
+    textures: RwLock<HashMap<String, Texture>>,
+    shaders: RwLock<HashMap<String, Shader>>,
 
     /// Current scene with render objects
-    current_scene: Arc<RwLock<Scene>>,
+    current_scene: RwLock<Scene>,
 
     /// Initialization and lifecycle state
-    initialized: Arc<RwLock<bool>>,
+    initialized: RwLock<bool>,
 }
 
 impl W3DDevice {
@@ -701,22 +700,22 @@ impl W3DDevice {
         });
 
         Ok(Self {
-            config: Arc::new(config),
-            instance: Arc::new(instance),
-            adapter: Arc::new(RwLock::new(None)),
-            device: Arc::new(RwLock::new(None)),
-            queue: Arc::new(RwLock::new(None)),
-            surface: Arc::new(RwLock::new(None)),
-            surface_config: Arc::new(RwLock::new(None)),
-            renderer: Arc::new(RwLock::new(None)),
-            graphics_context: Arc::new(RwLock::new(None)),
-            statistics: Arc::new(RwLock::new(W3DStatistics::default())),
-            meshes: Arc::new(RwLock::new(HashMap::new())),
-            materials: Arc::new(RwLock::new(HashMap::new())),
-            textures: Arc::new(RwLock::new(HashMap::new())),
-            shaders: Arc::new(RwLock::new(HashMap::new())),
-            current_scene: Arc::new(RwLock::new(Scene::default())),
-            initialized: Arc::new(RwLock::new(false)),
+            config,
+            instance,
+            adapter: RwLock::new(None),
+            device: RwLock::new(None),
+            queue: RwLock::new(None),
+            surface: RwLock::new(None),
+            surface_config: RwLock::new(None),
+            renderer: RwLock::new(None),
+            graphics_context: RwLock::new(None),
+            statistics: RwLock::new(W3DStatistics::default()),
+            meshes: RwLock::new(HashMap::new()),
+            materials: RwLock::new(HashMap::new()),
+            textures: RwLock::new(HashMap::new()),
+            shaders: RwLock::new(HashMap::new()),
+            current_scene: RwLock::new(Scene::default()),
+            initialized: RwLock::new(false),
         })
     }
 
@@ -1391,29 +1390,6 @@ fn select_alpha_mode(modes: &[CompositeAlphaMode]) -> CompositeAlphaMode {
         .copied()
         .find(|mode| *mode == CompositeAlphaMode::Opaque)
         .unwrap_or(CompositeAlphaMode::Opaque)
-}
-
-impl Clone for W3DDevice {
-    fn clone(&self) -> Self {
-        Self {
-            config: self.config.clone(),
-            instance: self.instance.clone(),
-            adapter: self.adapter.clone(),
-            device: self.device.clone(),
-            queue: self.queue.clone(),
-            surface: self.surface.clone(),
-            surface_config: self.surface_config.clone(),
-            renderer: self.renderer.clone(),
-            graphics_context: self.graphics_context.clone(),
-            statistics: self.statistics.clone(),
-            meshes: self.meshes.clone(),
-            materials: self.materials.clone(),
-            textures: self.textures.clone(),
-            shaders: self.shaders.clone(),
-            current_scene: self.current_scene.clone(),
-            initialized: self.initialized.clone(),
-        }
-    }
 }
 
 impl Drop for W3DDevice {

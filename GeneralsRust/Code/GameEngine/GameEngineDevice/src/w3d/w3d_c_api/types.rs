@@ -16,7 +16,6 @@ use std::ffi::{CStr, CString, c_char, c_void};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
-use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::RwLock;
 
@@ -125,8 +124,6 @@ pub struct W3D_VIEWPORT {
     pub max_z: f32,
 }
 
-/// Complete C API implementation with all original W3D functions
-/// This provides 100% compatibility with the original C++ codebase
 /// W3D vertex structure matching original W3D API
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -156,7 +153,7 @@ pub struct W3D_VERTEX_ELEMENT {
 
 /// W3D Device C wrapper
 pub struct W3DDeviceC {
-    pub(super) device: Arc<RwLock<W3DDevice>>,
+    pub(super) device: RwLock<W3DDevice>,
     pub(super) runtime: tokio::runtime::Runtime,
     pub(super) render_states: Mutex<HashMap<W3D_RENDER_STATE, u32>>,
     pub(super) transform_states: Mutex<HashMap<W3D_TRANSFORM_STATE, W3D_MATRIX>>,

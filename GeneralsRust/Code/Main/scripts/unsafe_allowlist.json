@@ -252,6 +252,10 @@
       "constructs": 2,
       "undocumented": 0
     },
+    "Code/GameEngine/GameEngineDevice/src/w3d/w3d_c_api/opaque_owner_tests.rs": {
+      "constructs": 1,
+      "undocumented": 0
+    },
     "Code/GameEngine/GameEngineDevice/src/w3d/w3d_c_api/render_state.rs": {
       "constructs": 12,
       "undocumented": 0

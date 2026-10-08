@@ -18,7 +18,6 @@ use std::ffi::{CStr, CString, c_char, c_void};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
-use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::RwLock;
 
@@ -45,7 +44,7 @@ pub unsafe extern "C" fn W3DDevice_SetRenderState(
 
 #[allow(dead_code)]
 pub(super) async fn set_render_state_internal(
-    device: &Arc<RwLock<W3DDevice>>,
+    device: &RwLock<W3DDevice>,
     state: W3D_RENDER_STATE,
     value: u32,
 ) -> Result<()> {

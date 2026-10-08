@@ -9,7 +9,6 @@ use std::ffi::{CStr, CString, c_char, c_void};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
-use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::RwLock;
 

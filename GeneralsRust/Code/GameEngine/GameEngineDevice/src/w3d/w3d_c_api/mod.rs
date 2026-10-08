@@ -1,11 +1,11 @@
-//! # W3D C++ API Compatibility Layer
+//! # Gated W3D C adapters
 //!
-//! This module provides 100% compatibility with the original Westwood 3D C++ API
-//! while using the modern Rust/wgpu backend underneath. All function signatures
-//! match the original W3D API exactly.
+//! These legacy-shaped adapters are quarantined behind `w3d-c-abi` and the crate
+//! builds as an rlib. They are not a verified replacement for the original C++
+//! ABI: resource rendering, foreign caller lifetime and threading still need proof.
 //!
 //! Split from the former `w3d_c_api.rs` god-file. Public names stay identical so
-//! the C ABI / parity surface is unchanged. Live module via
+//! the declared adapter surface is unchanged. Gated module via
 //! `#[path = "w3d_c_api/mod.rs"]`.
 
 mod constants;
@@ -61,6 +61,9 @@ pub use types::{
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod opaque_owner_tests;
 
 /// Concatenated live sources for residual `include_str!` scans.
 pub const W3D_C_API_SRC: &str = concat!(

@@ -20,12 +20,12 @@ use std::ffi::{CStr, CString, c_char, c_void};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
-use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::RwLock;
 
 /// Set material - legacy compatibility entry point.
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI entry. `device` must be a live W3D_DEVICE; `material_data`
 // SAFETY: must be readable for one W3DMaterialData (null clears binding). The
 // SAFETY: struct is copied before any await point.
@@ -74,7 +74,8 @@ pub unsafe extern "C" fn W3DDevice_SetMaterial(
 }
 
 /// Get currently bound material - legacy compatibility entry point.
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI entry. `out_material_data` must be writable for one
 // SAFETY: W3DMaterialData when non-null; `device` must be a live W3D_DEVICE.
 pub unsafe extern "C" fn W3DDevice_GetMaterial(
@@ -107,7 +108,7 @@ pub unsafe extern "C" fn W3DDevice_GetMaterial(
     0
 }
 pub(super) async fn get_material_internal(
-    device: &Arc<RwLock<W3DDevice>>,
+    device: &RwLock<W3DDevice>,
     material_id: &str,
 ) -> Option<Material> {
     let device_lock = device.read().await;
@@ -115,7 +116,7 @@ pub(super) async fn get_material_internal(
 }
 
 pub(super) async fn set_material_internal(
-    device: &Arc<RwLock<W3DDevice>>,
+    device: &RwLock<W3DDevice>,
     material: Material,
 ) -> Result<()> {
     let device_lock = device.read().await;
@@ -124,7 +125,7 @@ pub(super) async fn set_material_internal(
 }
 
 pub(super) async fn ensure_bound_material_internal(
-    device: &Arc<RwLock<W3DDevice>>,
+    device: &RwLock<W3DDevice>,
     base_material_id: Option<&str>,
     texture_id: Option<&str>,
     detail_texture_id: Option<&str>,

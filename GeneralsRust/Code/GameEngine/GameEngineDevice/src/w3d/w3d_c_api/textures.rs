@@ -20,12 +20,12 @@ use std::ffi::{CStr, CString, c_char, c_void};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
-use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::RwLock;
 
 /// Load texture - matches original W3DDevice::LoadTexture(filename)
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI entry. `device` live W3D_DEVICE; `filename` null-terminated UTF-8
 // SAFETY: C string, converted to &str before any await point. Returns a new or
 // SAFETY: interned W3D_TEXTURE owned by the device's texture-handle table.
@@ -54,7 +54,8 @@ pub unsafe extern "C" fn W3DDevice_LoadTexture(
 }
 
 /// Bind texture to a stage - legacy compatibility entry point.
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI entry. `texture` must be null or a W3D_TEXTURE previously
 // SAFETY: returned by LoadTexture/GetTexture and still owned by the device's
 // SAFETY: handle table; only the wrapped Texture value is cloned here.
@@ -97,7 +98,8 @@ pub unsafe extern "C" fn W3DDevice_SetTexture(
 }
 
 /// Get texture bound to a stage - legacy compatibility entry point.
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI query. Returns either a handle already interned in the device's
 // SAFETY: table or interns a fresh Box allocation; the pointer stays valid while
 // SAFETY: the device lives (freed by W3DDevice_Destroy).
@@ -136,7 +138,8 @@ pub unsafe extern "C" fn W3DDevice_GetTexture(device: W3D_DEVICE, stage: u32) ->
 }
 
 /// Set texture stage state - legacy compatibility entry point.
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI entry; only the device handle is dereferenced and stage-state
 // SAFETY: mutation happens under its Mutex. No pointers are read.
 pub unsafe extern "C" fn W3DDevice_SetTextureStageState(
@@ -158,7 +161,8 @@ pub unsafe extern "C" fn W3DDevice_SetTextureStageState(
 }
 
 /// Get texture stage state - legacy compatibility entry point.
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI query; only the device handle is dereferenced under its Mutex.
 // SAFETY: Returns a by-value u32, no pointer is written.
 pub unsafe extern "C" fn W3DDevice_GetTextureStageState(
@@ -174,7 +178,7 @@ pub unsafe extern "C" fn W3DDevice_GetTextureStageState(
     stage_texture_state_value(device_ref, stage, state)
 }
 pub(super) async fn load_texture_internal(
-    device: &Arc<RwLock<W3DDevice>>,
+    device: &RwLock<W3DDevice>,
     filename: &str,
 ) -> Result<W3D_TEXTURE> {
     let texture = match load_texture_from_disk(filename) {
@@ -195,7 +199,7 @@ pub(super) async fn load_texture_internal(
 }
 
 pub(super) async fn set_texture_internal(
-    device: &Arc<RwLock<W3DDevice>>,
+    device: &RwLock<W3DDevice>,
     texture: Texture,
 ) -> Result<()> {
     let device_lock = device.read().await;
@@ -204,7 +208,7 @@ pub(super) async fn set_texture_internal(
 }
 
 pub(super) async fn get_texture_internal(
-    device: &Arc<RwLock<W3DDevice>>,
+    device: &RwLock<W3DDevice>,
     texture_id: &str,
 ) -> Option<Texture> {
     let device_lock = device.read().await;

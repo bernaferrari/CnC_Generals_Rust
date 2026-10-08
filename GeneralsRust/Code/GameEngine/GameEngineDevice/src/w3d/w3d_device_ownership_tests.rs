@@ -23,29 +23,30 @@ async fn constructor_leaves_device_uninitialized() {
 }
 
 #[tokio::test]
-async fn clone_shares_retained_device_state_and_shutdown() {
-    let device = W3DDevice::new().await.unwrap();
+async fn arc_handles_share_retained_device_state_and_shutdown() {
+    let device = std::sync::Arc::new(W3DDevice::new().await.unwrap());
     let clone = device.clone();
+    assert!(std::sync::Arc::ptr_eq(&device, &clone));
 
-    assert!(Arc::ptr_eq(&device.config, &clone.config));
-    assert!(Arc::ptr_eq(&device.instance, &clone.instance));
-    assert!(Arc::ptr_eq(&device.adapter, &clone.adapter));
-    assert!(Arc::ptr_eq(&device.device, &clone.device));
-    assert!(Arc::ptr_eq(&device.queue, &clone.queue));
-    assert!(Arc::ptr_eq(&device.surface, &clone.surface));
-    assert!(Arc::ptr_eq(&device.surface_config, &clone.surface_config));
-    assert!(Arc::ptr_eq(&device.renderer, &clone.renderer));
-    assert!(Arc::ptr_eq(
+    assert!(std::ptr::eq(&device.config, &clone.config));
+    assert!(std::ptr::eq(&device.instance, &clone.instance));
+    assert!(std::ptr::eq(&device.adapter, &clone.adapter));
+    assert!(std::ptr::eq(&device.device, &clone.device));
+    assert!(std::ptr::eq(&device.queue, &clone.queue));
+    assert!(std::ptr::eq(&device.surface, &clone.surface));
+    assert!(std::ptr::eq(&device.surface_config, &clone.surface_config));
+    assert!(std::ptr::eq(&device.renderer, &clone.renderer));
+    assert!(std::ptr::eq(
         &device.graphics_context,
         &clone.graphics_context
     ));
-    assert!(Arc::ptr_eq(&device.statistics, &clone.statistics));
-    assert!(Arc::ptr_eq(&device.meshes, &clone.meshes));
-    assert!(Arc::ptr_eq(&device.materials, &clone.materials));
-    assert!(Arc::ptr_eq(&device.textures, &clone.textures));
-    assert!(Arc::ptr_eq(&device.shaders, &clone.shaders));
-    assert!(Arc::ptr_eq(&device.current_scene, &clone.current_scene));
-    assert!(Arc::ptr_eq(&device.initialized, &clone.initialized));
+    assert!(std::ptr::eq(&device.statistics, &clone.statistics));
+    assert!(std::ptr::eq(&device.meshes, &clone.meshes));
+    assert!(std::ptr::eq(&device.materials, &clone.materials));
+    assert!(std::ptr::eq(&device.textures, &clone.textures));
+    assert!(std::ptr::eq(&device.shaders, &clone.shaders));
+    assert!(std::ptr::eq(&device.current_scene, &clone.current_scene));
+    assert!(std::ptr::eq(&device.initialized, &clone.initialized));
 
     let mut scene = device.get_scene().await;
     scene.id = "shared-scene".into();
@@ -70,8 +71,6 @@ async fn clone_shares_retained_device_state_and_shutdown() {
 async fn separately_constructed_devices_keep_scene_and_statistics_isolated() {
     let first = W3DDevice::new().await.unwrap();
     let second = W3DDevice::new().await.unwrap();
-    assert!(!Arc::ptr_eq(&first.current_scene, &second.current_scene));
-    assert!(!Arc::ptr_eq(&first.statistics, &second.statistics));
 
     let second_scene = second.get_scene().await;
     let mut first_scene = first.get_scene().await;

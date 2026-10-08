@@ -22,15 +22,12 @@ use std::ffi::{CStr, CString, c_char, c_void};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
-use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::RwLock;
 
-/// Complete C API implementation with all original W3D functions
-/// This provides 100% compatibility with the original C++ codebase
-
 /// Initialize W3D system
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI entry with no pointer parameters; touches no raw memory.
 pub unsafe extern "C" fn W3D_Init() -> W3D_ERROR_CODE {
     let _ = tracing_subscriber::fmt::try_init();
@@ -39,7 +36,8 @@ pub unsafe extern "C" fn W3D_Init() -> W3D_ERROR_CODE {
 }
 
 /// Create W3D device
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI entry. `device` must be writable for one W3D_DEVICE slot; on
 // SAFETY: success it receives a Box::into_raw allocation owned by the caller
 // SAFETY: and released exactly once by W3DDevice_Destroy.
@@ -80,7 +78,8 @@ pub unsafe extern "C" fn W3D_CreateDevice(
 /// Original W3D API Functions - Exact C++ Signatures
 
 /// Create W3D device - matches original W3DDevice::Create()
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI entry, no parameters. Returns either null or a fresh
 // SAFETY: Box::into_raw(W3DDeviceC) whose sole ownership transfers to the caller.
 pub unsafe extern "C" fn W3DDevice_Create() -> W3D_DEVICE {
@@ -107,7 +106,7 @@ pub(super) unsafe fn create_w3d_device_with_config(config: W3DConfig) -> Result<
     let device = runtime.block_on(async { W3DDevice::new_with_config(config).await })?;
 
     let device_c = Box::new(W3DDeviceC {
-        device: Arc::new(RwLock::new(device)),
+        device: RwLock::new(device),
         runtime,
         render_states: Mutex::new(default_render_states()),
         transform_states: Mutex::new(default_transform_states()),
@@ -139,7 +138,8 @@ pub(super) unsafe fn create_w3d_device_with_config(config: W3DConfig) -> Result<
     Ok(device_ptr)
 }
 /// Begin scene - legacy W3D compatibility entry point.
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI entry. `device` must be a live W3D_DEVICE; shared reference
 // SAFETY: only, scene-active flag is Mutex-guarded.
 pub unsafe extern "C" fn W3DDevice_BeginScene(device: W3D_DEVICE) -> i32 {
@@ -159,7 +159,8 @@ pub unsafe extern "C" fn W3DDevice_BeginScene(device: W3D_DEVICE) -> i32 {
 }
 
 /// End scene - legacy W3D compatibility entry point.
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI entry. `device` must be a live W3D_DEVICE; shared reference
 // SAFETY: only, scene-active flag is Mutex-guarded.
 pub unsafe extern "C" fn W3DDevice_EndScene(device: W3D_DEVICE) -> i32 {
@@ -178,7 +179,8 @@ pub unsafe extern "C" fn W3DDevice_EndScene(device: W3D_DEVICE) -> i32 {
     0
 }
 /// Set viewport - legacy compatibility entry point.
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI entry. `device` must be a live W3D_DEVICE and `viewport` must
 // SAFETY: point to one readable W3D_VIEWPORT; the value is copied immediately.
 pub unsafe extern "C" fn W3DDevice_SetViewport(
@@ -205,7 +207,8 @@ pub unsafe extern "C" fn W3DDevice_SetViewport(
 }
 
 /// Get viewport - legacy compatibility entry point.
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI entry. `viewport` must be writable for one W3D_VIEWPORT when
 // SAFETY: non-null; `device` must be a live W3D_DEVICE.
 pub unsafe extern "C" fn W3DDevice_GetViewport(
@@ -227,7 +230,7 @@ pub unsafe extern "C" fn W3DDevice_GetViewport(
 }
 
 pub(super) async fn set_viewport_internal(
-    device: &Arc<RwLock<W3DDevice>>,
+    device: &RwLock<W3DDevice>,
     viewport: W3D_VIEWPORT,
 ) -> Result<()> {
     if viewport.width == 0 || viewport.height == 0 {
@@ -242,7 +245,8 @@ pub(super) async fn set_viewport_internal(
 }
 
 /// Present frame - matches original W3DDevice::Present()
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI entry. `device` must be a live W3D_DEVICE; shared reference
 // SAFETY: only; present goes through the tokio-runtime-owned device lock.
 pub unsafe extern "C" fn W3DDevice_Present(device: W3D_DEVICE) -> i32 {
@@ -266,7 +270,7 @@ pub unsafe extern "C" fn W3DDevice_Present(device: W3D_DEVICE) -> i32 {
     }
 }
 
-pub(super) async fn present_internal(device: &Arc<RwLock<W3DDevice>>) -> Result<()> {
+pub(super) async fn present_internal(device: &RwLock<W3DDevice>) -> Result<()> {
     let device_lock = device.read().await;
     device_lock.render_scene().await?;
     let mut scene = device_lock.get_scene().await;
@@ -279,7 +283,8 @@ pub(super) async fn present_internal(device: &Arc<RwLock<W3DDevice>>) -> Result<
 }
 
 /// Clear buffers - matches original W3DDevice::Clear(flags, color, depth, stencil)
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI entry. `device` must be a live W3D_DEVICE; remaining
 // SAFETY: parameters are by-value scalars copied into scene state.
 pub unsafe extern "C" fn W3DDevice_Clear(
@@ -314,7 +319,7 @@ pub unsafe extern "C" fn W3DDevice_Clear(
 }
 
 pub(super) async fn clear_internal(
-    device: &Arc<RwLock<W3DDevice>>,
+    device: &RwLock<W3DDevice>,
     flags: u32,
     color: [f32; 4],
 ) -> Result<()> {
@@ -331,7 +336,8 @@ pub(super) async fn clear_internal(
 }
 
 /// Destroy device - cleanup
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: Takes exclusive ownership: `device` must be the W3D_DEVICE returned
 // SAFETY: by create and not destroyed before. Box::from_raw runs exactly once,
 // SAFETY: freeing texture handles created by intern_texture_handle, then clears
@@ -364,7 +370,8 @@ pub unsafe extern "C" fn W3DDevice_Destroy(device: W3D_DEVICE) -> i32 {
 }
 
 /// Get device capabilities - matches original API
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI entry. A null device returns early without dereference; the
 // SAFETY: capability mask is a constant, so no memory is read through the handle.
 pub unsafe extern "C" fn W3DDevice_GetDeviceCaps(device: W3D_DEVICE) -> u32 {

@@ -435,7 +435,7 @@ fn simple_stage_tfactor_tint_detects_selectarg_stage_without_texture() {
 }
 
 #[test]
-fn simple_stage_tfactor_tint_ignores_additive_stage() {
+fn simple_stage_tfactor_tint_detects_neutral_white_additive_stage() {
     let mut states = HashMap::new();
     states.insert((0, D3DTSS_COLOROP), D3DTOP_ADD);
     states.insert((0, D3DTSS_COLORARG1), D3DTA_TEXTURE);
@@ -453,7 +453,11 @@ fn simple_stage_tfactor_tint_ignores_additive_stage() {
         0x80402010,
     );
 
-    assert!(tint.is_none());
+    let tint = tint.expect("supported additive stage");
+    assert!((tint[0] - 1.0).abs() < 1e-6);
+    assert!((tint[1] - 1.0).abs() < 1e-6);
+    assert!((tint[2] - 1.0).abs() < 1e-6);
+    assert!((tint[3] - 1.0).abs() < 1e-6);
 }
 
 #[test]
@@ -464,6 +468,27 @@ fn simple_stage_tfactor_tint_detects_additive_tfactor_alpha_stage() {
     states.insert((0, D3DTSS_ALPHAARG1), D3DTA_TFACTOR | D3DTA_COMPLEMENT);
     states.insert((0, D3DTSS_ALPHAARG2), D3DTA_TFACTOR);
 
+    for texture_factor in [0x80402010, 0x00000000, 0xFFFFFFFF] {
+        let tint = simple_stage_tfactor_tint_with(
+            &mut |stage, state| {
+                states
+                    .get(&(stage, state))
+                    .copied()
+                    .unwrap_or_else(|| default_texture_stage_state(stage, state))
+            },
+            0,
+            texture_factor,
+        )
+        .expect("complemented TFACTOR alpha ADD tint");
+
+        assert!((tint[0] - 1.0).abs() < 1e-6);
+        assert!((tint[1] - 1.0).abs() < 1e-6);
+        assert!((tint[2] - 1.0).abs() < 1e-6);
+        assert!((tint[3] - 1.0).abs() < 1e-6);
+    }
+
+    // Without the complement modifier, ADD sums the two alpha factors and saturates.
+    states.insert((0, D3DTSS_ALPHAARG1), D3DTA_TFACTOR);
     let tint = simple_stage_tfactor_tint_with(
         &mut |stage, state| {
             states
@@ -472,13 +497,9 @@ fn simple_stage_tfactor_tint_detects_additive_tfactor_alpha_stage() {
                 .unwrap_or_else(|| default_texture_stage_state(stage, state))
         },
         0,
-        0x80402010,
+        0x40402010,
     )
-    .expect("tint");
-
-    assert!((tint[0] - 1.0).abs() < 1e-6);
-    assert!((tint[1] - 1.0).abs() < 1e-6);
-    assert!((tint[2] - 1.0).abs() < 1e-6);
+    .expect("unmodified TFACTOR alpha ADD tint");
     assert!((tint[3] - (0x80 as f32 / 255.0)).abs() < 1e-6);
 }
 
@@ -1670,10 +1691,10 @@ fn material_combiner_signature_detects_force_multiply_like_paths() {
 }
 
 #[test]
-fn effective_bound_texture_id_avoids_single_texture_override_for_multitexture_base_materials() {
+fn effective_bound_texture_id_keeps_primary_stage_for_multitexture_materials() {
     assert_eq!(
         effective_bound_texture_id(true, true, Some("stage_tex".to_string())),
-        None
+        Some("stage_tex".to_string())
     );
     assert_eq!(
         effective_bound_texture_id(false, true, Some("stage_tex".to_string())),
@@ -1683,6 +1704,7 @@ fn effective_bound_texture_id_avoids_single_texture_override_for_multitexture_ba
         effective_bound_texture_id(true, false, Some("stage_tex".to_string())),
         Some("stage_tex".to_string())
     );
+    assert_eq!(effective_bound_texture_id(true, true, None), None);
 }
 
 #[test]

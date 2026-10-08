@@ -20,12 +20,12 @@ use std::ffi::{CStr, CString, c_char, c_void};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
-use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::RwLock;
 
 /// Stage vertex stream data for legacy draw-call ordering.
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI entry forwarding to SetStreamSourceEx with offset 0; no
 // SAFETY: dereference here beyond that callee's validated staging contract.
 pub unsafe extern "C" fn W3DDevice_SetStreamSource(
@@ -39,7 +39,8 @@ pub unsafe extern "C" fn W3DDevice_SetStreamSource(
 }
 
 /// Stage vertex stream data with explicit byte offset semantics.
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI entry. `vertex_data` must remain readable for
 // SAFETY: vertex_offset_bytes + stride*count bytes through this call; the bytes
 // SAFETY: are copied into an owned Vec immediately (no retained pointer).
@@ -79,7 +80,8 @@ pub unsafe extern "C" fn W3DDevice_SetStreamSourceEx(
 }
 
 /// Alias for callers that use explicit UP naming.
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI immediate-mode variant of SetStreamSourceEx; same copy-out
 // SAFETY: contract — `vertex_data` readable for stride*count bytes during the call.
 pub unsafe extern "C" fn W3DDevice_SetStreamSourceUP(
@@ -93,7 +95,8 @@ pub unsafe extern "C" fn W3DDevice_SetStreamSourceUP(
 }
 
 /// Get staged vertex stream source for legacy compatibility/debug.
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI query. All out-pointers must be writable when non-null; the
 // SAFETY: returned pointer borrows from the device-owned staged stream data, valid
 // SAFETY: until the next SetStreamSource on this stream or device destruction.
@@ -134,7 +137,8 @@ pub unsafe extern "C" fn W3DDevice_GetStreamSource(
 }
 
 /// Get staged vertex stream source including explicit byte offset.
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI query like GetStreamSource; additionally reports the staged byte
 // SAFETY: offset. Returned pointer aliases device-owned data as documented there.
 pub unsafe extern "C" fn W3DDevice_GetStreamSourceEx(
@@ -178,7 +182,8 @@ pub unsafe extern "C" fn W3DDevice_GetStreamSourceEx(
 }
 
 /// Stage index buffer data for legacy draw-call ordering.
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI entry. `index_data` must remain readable for index_count u16s
 // SAFETY: through this call; contents are copied into device state immediately.
 pub unsafe extern "C" fn W3DDevice_SetIndices(
@@ -219,7 +224,8 @@ pub unsafe extern "C" fn W3DDevice_SetIndices(
 }
 
 /// Get staged index buffer for legacy compatibility/debug.
-#[no_mangle]
+// SAFETY: This W3D-prefixed export keeps its unique symbol name in the gated C API.
+#[unsafe(no_mangle)]
 // SAFETY: C ABI query. Out-pointers writable when non-null; returned pointer
 // SAFETY: borrows device-owned staged indices, valid until the next SetIndices or
 // SAFETY: device destruction.
