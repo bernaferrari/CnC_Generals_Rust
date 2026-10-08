@@ -2575,8 +2575,8 @@ fn live_host_from_named_and_skirmish_conditions_use_inject() {
                 "ParticleCannon".into(),
             ))
             .unwrap();
-        let mut evaluator =
-            ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
         assert_eq!(
             evaluator.evaluate_condition(&mut from_named).unwrap(),
             ScriptConditionResult::True

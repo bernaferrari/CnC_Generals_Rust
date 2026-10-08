@@ -179,8 +179,11 @@ fn standalone_display_adapter_preserves_defaults_errors_and_reentry() {
 
 #[test]
 fn invalid_display_parameters_do_not_reach_the_owner() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     let _guard = crate::test_sync::lock();
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let mut driver = DisplayDriver::default();
     for kind in [
         ScriptActionType::DisplayText,
@@ -207,8 +210,11 @@ fn invalid_display_parameters_do_not_reach_the_owner() {
 
 #[test]
 fn display_parameters_preserve_explicit_cinematic_values_and_caption_policy() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     let _guard = crate::test_sync::lock();
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let mut driver = DisplayDriver::default();
     let mut cinematic = action(ScriptActionType::DisplayCinematicText, "explicit");
     cinematic

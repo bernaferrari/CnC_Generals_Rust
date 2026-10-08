@@ -208,12 +208,9 @@ impl ScriptEngine {
         // (scripts_camera.rs), so this walk cannot re-lock TheScriptEngine.
 
         let mut action_dispatcher =
-            crate::scripting::executor::ScriptActionDispatcher::for_engine(self, execution.context);
+            crate::scripting::executor::ScriptActionDispatcher::new(self, execution.context);
         let mut condition_evaluator =
-            crate::scripting::executor::ScriptConditionEvaluator::for_engine(
-                self,
-                execution.context,
-            );
+            crate::scripting::executor::ScriptConditionEvaluator::new(self, execution.context);
 
         // Snapshot player names before dispatch.  A script action may change
         // player state or call a subroutine; no PlayerList lock may survive
@@ -678,7 +675,7 @@ impl ScriptEngine {
         });
 
         let mut dispatcher =
-            crate::scripting::executor::ScriptActionDispatcher::for_engine(self, execution.context);
+            crate::scripting::executor::ScriptActionDispatcher::new(self, execution.context);
 
         let mut i: usize = 0;
         let mut last_i: Option<usize> = None;

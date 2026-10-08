@@ -157,6 +157,8 @@ fn ini_cave_index_registers_on_create() {
 
 #[test]
 fn leftover_set_cave_index_drains_onto_live_host() {
+    let dispatch_engine = gamelogic::scripting::engine::ScriptEngine::new().expect("script engine");
+
     // C++ ScriptActions.cpp:5063 SET_CAVE_INDEX on empty leftover registry.
     let mut logic = GameLogic::new();
     let a = create_cave(&mut logic, "CaveScriptA", Vec3::ZERO, 0);
@@ -181,7 +183,8 @@ fn leftover_set_cave_index_drains_onto_live_host() {
     action
         .add_parameter(Parameter::with_int(ParameterType::Int, 2))
         .expect("cave index");
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     assert_eq!(
         dispatcher.execute_action(&action).expect("SET_CAVE_INDEX"),
         ScriptActionResult::Success

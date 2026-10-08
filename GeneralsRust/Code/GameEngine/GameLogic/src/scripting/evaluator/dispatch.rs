@@ -2369,7 +2369,7 @@ impl ScriptEvaluator {
                 let ctx = self.make_script_context();
                 self.with_evaluation_engine_ref(|engine| {
                     engine.with_active(|| {
-                        let mut evaluator = ScriptConditionEvaluator::for_engine(engine, &ctx);
+                        let mut evaluator = ScriptConditionEvaluator::new(engine, &ctx);
                         match evaluator.evaluate_condition(condition) {
                             Ok(ScriptConditionResult::True) => Ok(true),
                             Ok(ScriptConditionResult::False) => Ok(false),

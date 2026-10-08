@@ -6,8 +6,8 @@ use crate::modules::AIUpdateInterface;
 use crate::object::drawable::DrawableExt;
 use crate::object_manager::ObjectCreationFlags;
 use crate::scripting::engine::{
-    ScriptActionHandler, ScriptEngine, SequentialScript, initialize_script_engine,
-    with_script_engine_mut,
+    ScriptActionHandler, ScriptEngine, SequentialScript, get_script_engine,
+    initialize_script_engine, with_script_engine_mut,
 };
 use std::sync::Mutex;
 
@@ -513,3 +513,5 @@ mod actions_and_team_commands;
 mod conditions_and_live_queries;
 
 mod borrowed_engine_tests;
+
+mod public_dispatch_callback_tests;

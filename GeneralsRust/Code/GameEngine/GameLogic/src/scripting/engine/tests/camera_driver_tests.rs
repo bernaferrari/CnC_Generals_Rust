@@ -483,8 +483,11 @@ fn standalone_camera_adapter_preserves_defaults_errors_and_reentry() {
 
 #[test]
 fn invalid_camera_parameters_do_not_reach_the_owner() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     let _guard = crate::test_sync::lock();
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let mut driver = CameraDriver::default();
     for kind in [
         ScriptActionType::MoveCameraTo,

@@ -1443,10 +1443,12 @@ mod tech_building_latch_tests {
 
     #[test]
     fn empty_leftover_without_snapshot_does_not_latch() {
+        let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
         crate::object::registry::OBJECT_REGISTRY.clear();
         clear_host_script_query_snapshot();
-        let mut evaluator =
-            ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
         let mut condition = tech_condition();
         assert_eq!(
             evaluator.evaluate_condition(&mut condition).unwrap(),
@@ -1457,6 +1459,8 @@ mod tech_building_latch_tests {
 
     #[test]
     fn empty_leftover_host_census_latches_true() {
+        let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
         crate::object::registry::OBJECT_REGISTRY.clear();
         clear_host_script_query_snapshot();
         let mut snap = HostScriptQuerySnapshot::default();
@@ -1469,8 +1473,8 @@ mod tech_building_latch_tests {
             off_map: false,
         });
         set_host_script_query_snapshot(snap);
-        let mut evaluator =
-            ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
         let mut condition = tech_condition();
         assert_eq!(
             evaluator.evaluate_condition(&mut condition).unwrap(),

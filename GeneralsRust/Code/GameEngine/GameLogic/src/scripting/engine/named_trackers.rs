@@ -1563,7 +1563,7 @@ impl ScriptEngine {
                 let state =
                     std::cell::RefCell::new(crate::scripting::executor::ScriptContext::new());
                 let mut leftover =
-                    crate::scripting::executor::ScriptConditionEvaluator::for_engine(self, &state);
+                    crate::scripting::executor::ScriptConditionEvaluator::new(self, &state);
                 leftover.evaluate_or_condition(or_cond).unwrap_or(false)
             })
         } else {

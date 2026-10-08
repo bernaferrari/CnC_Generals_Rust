@@ -2682,6 +2682,8 @@ fn script_move_towards_nearest_writes_live() {
 
 #[test]
 fn script_wait_for_not_contained_uses_live_contained_by_census() {
+    let dispatch_engine = gamelogic::scripting::engine::ScriptEngine::new().expect("script engine");
+
     use gamelogic::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
     use gamelogic::scripting::executor::{
         ScriptActionDispatcher, ScriptActionResult, ScriptContext,
@@ -2704,7 +2706,8 @@ fn script_wait_for_not_contained_uses_live_contained_by_census() {
         Some(99)
     );
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let mut wait = ScriptAction::new(ScriptActionType::TeamWaitForNotContainedAll);
     wait.add_parameter(Parameter::with_string(
         ParameterType::Team,

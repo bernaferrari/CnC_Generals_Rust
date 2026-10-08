@@ -668,8 +668,8 @@ fn active_script_campaign_scene_actions_do_not_relock_the_global_engine() {
     initialize_script_engine().expect("script engine should initialize");
 
     let completed = with_script_engine_mut(|engine| {
-        let mut dispatcher =
-            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
 
         let reveal_name = "ActiveSceneControlReveal";
         let mut reveal = ScriptAction::new(ScriptActionType::MapRevealPermanentlyAtWaypoint);
@@ -1424,13 +1424,10 @@ fn eval_flag_true_when_ui_interaction_name_matches_like_cxx() {
     // C++ ScriptEngine::evaluateFlag (ScriptEngine.cpp:6450-6458): stored flag
     // miss is still true if m_uiInteractions contains the flag name.
     let _lock = crate::test_sync::lock();
-    initialize_script_engine().unwrap();
+    let engine = ScriptEngine::new().unwrap();
 
     const HOOK: &str = "ShellMainMenuOnlineHighlighted";
     {
-        let engine = get_script_engine();
-        let mut guard = engine.write().unwrap();
-        let engine = guard.as_mut().unwrap();
         engine.set_flag(HOOK, false).unwrap();
         engine.signal_ui_interact(HOOK);
         assert!(engine.has_ui_interaction(HOOK));
@@ -1459,9 +1456,8 @@ fn eval_flag_true_when_ui_interaction_name_matches_like_cxx() {
         .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
         .unwrap();
 
-    let mut evaluator = ScriptConditionEvaluator::new(std::sync::Arc::new(std::sync::RwLock::new(
-        ScriptContext::new(),
-    )));
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
     assert_eq!(
         evaluator.evaluate_condition(&mut pulse).unwrap(),
         ScriptConditionResult::True,

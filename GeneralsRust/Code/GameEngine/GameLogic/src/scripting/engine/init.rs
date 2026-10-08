@@ -244,7 +244,7 @@ impl ScriptEngine {
         execution: &mut ScriptExecution<'_>,
     ) {
         let mut dispatcher =
-            crate::scripting::executor::ScriptActionDispatcher::for_engine(self, execution.context);
+            crate::scripting::executor::ScriptActionDispatcher::new(self, execution.context);
         if let Err(err) = self.execute_action_chain(action, &mut dispatcher, execution) {
             log::warn!("friend_execute_action: {}", err);
         }
@@ -1008,12 +1008,9 @@ impl ScriptEngine {
             return Ok(false);
         };
         let mut action_dispatcher =
-            crate::scripting::executor::ScriptActionDispatcher::for_engine(self, execution.context);
+            crate::scripting::executor::ScriptActionDispatcher::new(self, execution.context);
         let mut condition_evaluator =
-            crate::scripting::executor::ScriptConditionEvaluator::for_engine(
-                self,
-                execution.context,
-            );
+            crate::scripting::executor::ScriptConditionEvaluator::new(self, execution.context);
 
         match self.find_subroutine_lookup(name)? {
             SubroutineLookup::Group {

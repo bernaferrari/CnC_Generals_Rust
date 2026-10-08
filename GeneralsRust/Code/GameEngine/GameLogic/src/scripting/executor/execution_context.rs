@@ -4,14 +4,12 @@ use super::*;
 use crate::scripting::engine::ScriptEngine;
 use std::cell::RefCell;
 
-/// The live engine owns the operation state. Standalone callers retain their
-/// existing shared context until their owner/retained-alias boundary is migrated.
-pub(super) enum ExecutionContext<'engine> {
-    Borrowed {
-        engine: &'engine ScriptEngine,
-        state: &'engine RefCell<ScriptContext>,
-    },
-    Standalone(Arc<RwLock<ScriptContext>>),
+/// Both dependencies belong to the operation's driving engine. Neither is
+/// resolved from ambient state or retained behind a synchronization handle.
+#[derive(Clone, Copy)]
+pub(super) struct ExecutionContext<'engine> {
+    engine: &'engine ScriptEngine,
+    state: &'engine RefCell<ScriptContext>,
 }
 
 impl<'engine> ExecutionContext<'engine> {
@@ -19,44 +17,38 @@ impl<'engine> ExecutionContext<'engine> {
         engine: &'engine ScriptEngine,
         state: &'engine RefCell<ScriptContext>,
     ) -> Self {
-        Self::Borrowed { engine, state }
+        Self { engine, state }
     }
 
     pub(super) fn with_state<R>(&self, f: impl FnOnce(&ScriptContext) -> R) -> R {
-        match self {
-            Self::Borrowed { state, .. } => f(&state.borrow()),
-            Self::Standalone(state) => f(&state.read().unwrap_or_else(|error| error.into_inner())),
-        }
+        f(&self.state.borrow())
     }
 
     pub(super) fn with_state_mut<R>(&self, f: impl FnOnce(&mut ScriptContext) -> R) -> R {
-        match self {
-            Self::Borrowed { state, .. } => f(&mut state.borrow_mut()),
-            Self::Standalone(state) => f(&mut state.write().unwrap()),
-        }
+        f(&mut self.state.borrow_mut())
+    }
+
+    /// Public operations establish this exact owner for retained callbacks.
+    /// Copies of this context borrow the same state; no storage is cloned.
+    pub(super) fn with_active_scope<R>(&self, f: impl FnOnce() -> R) -> R {
+        self.engine.with_active(f)
     }
 
     pub(super) fn with_engine_ref<R>(&self, f: impl FnOnce(&ScriptEngine) -> R) -> Option<R> {
-        match self {
-            Self::Borrowed { engine, .. } => engine.with_execution_read(f),
-            Self::Standalone(_) => with_script_engine_ref(f),
-        }
+        self.engine.with_execution_read(f)
     }
 
     pub(super) fn with_engine_mut<R>(&self, f: impl FnOnce(&ScriptEngine) -> R) -> Option<R> {
-        match self {
-            // Existing lexical scope is only a temporary adapter for callbacks
-            // still using ambient helpers. It never chooses the borrowed owner.
-            Self::Borrowed { engine, .. } => Some(engine.with_active(|| f(engine))),
-            Self::Standalone(_) => with_script_engine_mut(f),
-        }
+        // Existing lexical scope is only a temporary adapter for callbacks
+        // still using ambient helpers. It never chooses the borrowed owner.
+        Some(self.engine.with_active(|| f(self.engine)))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scripting::engine::ScriptEngine;
+    use crate::scripting::engine::{ScriptEngine, with_script_engine_ref};
 
     fn default_action(name: &str, value: i32) -> ScriptAction {
         let mut action = ScriptAction::new(ScriptActionType::SetDefaultAttackPriority);
@@ -80,7 +72,7 @@ mod tests {
         own.set_priority_default("Shared", 4);
         foreign.set_priority_default("Shared", 19);
         let state = RefCell::new(ScriptContext::new());
-        let mut dispatch = ScriptActionDispatcher::for_engine(&own, &state);
+        let mut dispatch = ScriptActionDispatcher::new(&own, &state);
         foreign.with_active(|| {
             dispatch
                 .execute_action(&default_action("Shared", 13))
@@ -108,7 +100,7 @@ mod tests {
         own.set_flag("Shared", true);
         foreign.set_flag("Shared", false);
         let state = RefCell::new(ScriptContext::new());
-        let mut evaluator = ScriptConditionEvaluator::for_engine(&own, &state);
+        let mut evaluator = ScriptConditionEvaluator::new(&own, &state);
         let mut condition = Condition::new(ConditionType::Flag);
         condition
             .add_parameter(Parameter::with_string(ParameterType::Flag, "Shared".into()))
@@ -133,8 +125,8 @@ mod tests {
         state.borrow_mut().current_frame = 47;
         state.borrow_mut().suppress_new_windows = true;
         assert!(!crate::scripting::engine::is_script_engine_active());
-        let dispatcher = ScriptActionDispatcher::for_engine(&engine, &state);
-        let evaluator = ScriptConditionEvaluator::for_engine(&engine, &state);
+        let dispatcher = ScriptActionDispatcher::new(&engine, &state);
+        let evaluator = ScriptConditionEvaluator::new(&engine, &state);
         assert!(!crate::scripting::engine::is_script_engine_active());
         dispatcher
             .context

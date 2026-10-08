@@ -207,10 +207,13 @@ impl ScriptActionDispatcher<'_> {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
-        self.execute_action_with_driver(
-            action,
-            &mut crate::scripting::engine::CanonicalScriptExecutionDriver,
-        )
+        let context = self.context;
+        context.with_active_scope(|| {
+            self.execute_action_with_driver(
+                action,
+                &mut crate::scripting::engine::CanonicalScriptExecutionDriver,
+            )
+        })
     }
 
     pub(crate) fn execute_action_with_driver(

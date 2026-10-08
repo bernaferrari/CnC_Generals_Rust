@@ -183,7 +183,10 @@ impl ScriptConditionEvaluator<'_> {
         &mut self,
         condition: &mut Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        self.evaluate_condition_with_driver(condition, &mut CanonicalScriptExecutionDriver)
+        let context = self.context;
+        context.with_active_scope(|| {
+            self.evaluate_condition_with_driver(condition, &mut CanonicalScriptExecutionDriver)
+        })
     }
 
     pub(crate) fn evaluate_condition_with_driver(
@@ -475,7 +478,13 @@ impl ScriptConditionEvaluator<'_> {
         &mut self,
         or_condition: &mut OrCondition,
     ) -> Result<bool, ScriptError> {
-        self.evaluate_or_condition_with_driver(or_condition, &mut CanonicalScriptExecutionDriver)
+        let context = self.context;
+        context.with_active_scope(|| {
+            self.evaluate_or_condition_with_driver(
+                or_condition,
+                &mut CanonicalScriptExecutionDriver,
+            )
+        })
     }
 
     pub(crate) fn evaluate_or_condition_with_driver(

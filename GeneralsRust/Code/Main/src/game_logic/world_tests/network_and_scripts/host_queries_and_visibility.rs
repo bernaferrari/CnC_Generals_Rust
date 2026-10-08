@@ -97,6 +97,8 @@ fn host_named_unit_found_with_empty_object_registry() {
 
 #[test]
 fn live_executor_named_team_conditions_use_host_snapshot() {
+    let dispatch_engine = gamelogic::scripting::engine::ScriptEngine::new().expect("script engine");
+
     use gamelogic::object::registry::OBJECT_REGISTRY;
     use gamelogic::scripting::clear_host_script_query_snapshot;
     use gamelogic::scripting::core::{Condition, ConditionType, Parameter, ParameterType};
@@ -129,7 +131,8 @@ fn live_executor_named_team_conditions_use_host_snapshot() {
     }
     logic.inject_host_named_unit_map_into_crate_tracker();
 
-    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
 
     let mut created = Condition::new(ConditionType::NamedCreated);
     created
@@ -185,6 +188,8 @@ fn live_executor_named_team_conditions_use_host_snapshot() {
 
 #[test]
 fn unit_health_injects_leftover_initial_health_not_current_max() {
+    let dispatch_engine = gamelogic::scripting::engine::ScriptEngine::new().expect("script engine");
+
     // hq-um3v2: C++ evaluateUnitHealth divides by BodyModule::getInitialHealth,
     // not current max. Live inject used to send max, so INI InitialHealth 80 /
     // MaxHealth 100 at authored start fired at ~80% instead of 100%.
@@ -225,7 +230,8 @@ fn unit_health_injects_leftover_initial_health_not_current_max() {
     );
     assert!((host.health - 80.0).abs() < 1e-4);
 
-    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     let mut ge = Condition::new(ConditionType::UnitHealth);
     ge.add_parameter(Parameter::with_string(
         ParameterType::Unit,

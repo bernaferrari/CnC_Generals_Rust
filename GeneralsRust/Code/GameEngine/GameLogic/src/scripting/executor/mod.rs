@@ -11,8 +11,7 @@
 use super::core::*;
 use super::engine::{
     CanonicalScriptExecutionDriver, ScriptCompletionQuery, ScriptExecutionDriver, TFade,
-    get_area_tracker, get_named_object_tracker, get_script_engine, with_script_engine_mut,
-    with_script_engine_ref,
+    get_area_tracker, get_named_object_tracker,
 };
 use crate::ai::integration::{IntegratedAiPlayer, with_ai_integration_mut};
 use crate::ai::{
@@ -1428,18 +1427,14 @@ impl<'engine> ScriptActionDispatcher<'engine> {
             .flatten()
     }
 
-    pub(super) fn for_engine(
+    /// Dispatch synchronously on this engine using caller-owned operation state.
+    /// Construction does not publish the engine or select an ambient world.
+    pub fn new(
         engine: &'engine crate::scripting::engine::ScriptEngine,
         state: &'engine std::cell::RefCell<ScriptContext>,
     ) -> Self {
         Self {
             context: ExecutionContext::borrowed(engine, state),
-        }
-    }
-
-    pub fn new(context: Arc<RwLock<ScriptContext>>) -> Self {
-        Self {
-            context: ExecutionContext::Standalone(context),
         }
     }
 }
@@ -1454,18 +1449,14 @@ pub struct ScriptConditionEvaluator<'engine> {
 }
 
 impl<'engine> ScriptConditionEvaluator<'engine> {
-    pub(super) fn for_engine(
+    /// Dispatch synchronously on this engine using caller-owned operation state.
+    /// Construction does not publish the engine or select an ambient world.
+    pub fn new(
         engine: &'engine crate::scripting::engine::ScriptEngine,
         state: &'engine std::cell::RefCell<ScriptContext>,
     ) -> Self {
         Self {
             context: ExecutionContext::borrowed(engine, state),
-        }
-    }
-
-    pub fn new(context: Arc<RwLock<ScriptContext>>) -> Self {
-        Self {
-            context: ExecutionContext::Standalone(context),
         }
     }
 

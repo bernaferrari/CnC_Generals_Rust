@@ -20,7 +20,8 @@ fn script_default(engine: &ScriptEngine, name: &str, value: i32) {
         .add_parameter(Parameter::with_int(ParameterType::Int, value))
         .unwrap();
     engine.with_active(|| {
-        let mut dispatch = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let dispatch_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut dispatch = ScriptActionDispatcher::new(&engine, &dispatch_state);
         assert_eq!(
             dispatch.execute_action(&action).unwrap(),
             ScriptActionResult::Success

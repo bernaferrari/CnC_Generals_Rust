@@ -3,6 +3,8 @@ use super::*;
 
 #[test]
 fn executor_named_attack_named_leaves_group_and_dispatches_force_attack() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     get_object_manager().write().unwrap().reset();
     get_named_object_tracker().clear().unwrap();
 
@@ -68,7 +70,8 @@ fn executor_named_attack_named_leaves_group_and_dispatches_force_attack() {
         ))
         .unwrap();
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_named_attack_named(&action).unwrap();
 
     assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
@@ -98,6 +101,8 @@ fn executor_named_attack_named_leaves_group_and_dispatches_force_attack() {
 
 #[test]
 fn executor_team_attack_team_dispatches_attack_team() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     get_object_manager().write().unwrap().reset();
     get_team_factory().lock().unwrap().reset();
 
@@ -177,7 +182,8 @@ fn executor_team_attack_team_dispatches_attack_team() {
         ))
         .unwrap();
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_team_attack_team(&action).unwrap();
 
     assert_eq!(locomotors.lock().unwrap().len(), 0);
@@ -195,6 +201,8 @@ fn executor_team_attack_team_dispatches_attack_team() {
 
 #[test]
 fn executor_named_attack_area_leaves_group_and_selects_normal_locomotor() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     get_object_manager().write().unwrap().reset();
     get_named_object_tracker().clear().unwrap();
     get_terrain_logic().write().unwrap().reset();
@@ -258,7 +266,8 @@ fn executor_named_attack_area_leaves_group_and_selects_normal_locomotor() {
         ))
         .unwrap();
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_named_attack_area(&action).unwrap();
 
     assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
@@ -288,6 +297,8 @@ fn executor_named_attack_area_leaves_group_and_selects_normal_locomotor() {
 
 #[test]
 fn executor_named_attack_team_validates_team_and_sets_max_shots() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     get_object_manager().write().unwrap().reset();
     get_named_object_tracker().clear().unwrap();
     get_team_factory().lock().unwrap().reset();
@@ -351,7 +362,8 @@ fn executor_named_attack_team_validates_team_and_sets_max_shots() {
         ))
         .unwrap();
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_named_attack_team(&action).unwrap();
 
     assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
@@ -381,6 +393,8 @@ fn executor_named_attack_team_validates_team_and_sets_max_shots() {
 
 #[test]
 fn executor_team_attack_named_ignores_stale_target_tracker_id() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     get_object_manager().write().unwrap().reset();
     get_named_object_tracker().clear().unwrap();
     get_team_factory().lock().unwrap().reset();
@@ -452,7 +466,8 @@ fn executor_team_attack_named_ignores_stale_target_tracker_id() {
         ))
         .unwrap();
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_team_attack_named(&action).unwrap();
 
     assert!(commands.lock().unwrap().is_empty());
@@ -461,6 +476,8 @@ fn executor_team_attack_named_ignores_stale_target_tracker_id() {
 
 #[test]
 fn executor_named_hunt_selects_normal_locomotor_before_hunt() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     get_object_manager().write().unwrap().reset();
     get_named_object_tracker().clear().unwrap();
 
@@ -504,7 +521,8 @@ fn executor_named_hunt_selects_normal_locomotor_before_hunt() {
         ))
         .unwrap();
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_named_hunt(&action).unwrap();
 
     assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
@@ -534,6 +552,8 @@ fn executor_named_hunt_selects_normal_locomotor_before_hunt() {
 
 #[test]
 fn executor_named_stop_dispatches_direct_ai_without_player_owner() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     get_object_manager().write().unwrap().reset();
     get_named_object_tracker().clear().unwrap();
 
@@ -577,7 +597,8 @@ fn executor_named_stop_dispatches_direct_ai_without_player_owner() {
         ))
         .unwrap();
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_named_stop(&action).unwrap();
 
     assert!(locomotors.lock().unwrap().is_empty());
@@ -595,6 +616,8 @@ fn executor_named_stop_dispatches_direct_ai_without_player_owner() {
 
 #[test]
 fn executor_named_guard_leaves_group_selects_locomotor_and_sets_guard_mode() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     get_object_manager().write().unwrap().reset();
     get_named_object_tracker().clear().unwrap();
 
@@ -638,7 +661,8 @@ fn executor_named_guard_leaves_group_selects_locomotor_and_sets_guard_mode() {
         ))
         .unwrap();
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_named_guard(&action).unwrap();
 
     assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
@@ -668,6 +692,8 @@ fn executor_named_guard_leaves_group_selects_locomotor_and_sets_guard_mode() {
 
 #[test]
 fn executor_team_guard_dispatches_direct_ai_without_player_owner() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     get_object_manager().write().unwrap().reset();
     get_team_factory().lock().unwrap().reset();
 
@@ -729,7 +755,8 @@ fn executor_team_guard_dispatches_direct_ai_without_player_owner() {
         ))
         .unwrap();
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_team_guard(&action).unwrap();
 
     assert!(locomotors.lock().unwrap().is_empty());
@@ -747,6 +774,8 @@ fn executor_team_guard_dispatches_direct_ai_without_player_owner() {
 
 #[test]
 fn executor_team_guard_for_framecount_dispatches_idle_like_cxx_switch() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     get_object_manager().write().unwrap().reset();
     get_team_factory().lock().unwrap().reset();
 
@@ -811,7 +840,8 @@ fn executor_team_guard_for_framecount_dispatches_idle_like_cxx_switch() {
         .add_parameter(Parameter::with_int(ParameterType::Int, 7))
         .unwrap();
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let result = dispatcher.execute_action(&action).unwrap();
 
     assert_eq!(result, ScriptActionResult::Pending(7.0));
@@ -830,6 +860,8 @@ fn executor_team_guard_for_framecount_dispatches_idle_like_cxx_switch() {
 
 #[test]
 fn executor_team_guard_object_ignores_stale_target_tracker_id() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     get_object_manager().write().unwrap().reset();
     get_named_object_tracker().clear().unwrap();
     get_team_factory().lock().unwrap().reset();
@@ -901,7 +933,8 @@ fn executor_team_guard_object_ignores_stale_target_tracker_id() {
         ))
         .unwrap();
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_team_guard_object(&action).unwrap();
 
     assert!(commands.lock().unwrap().is_empty());
@@ -910,6 +943,8 @@ fn executor_team_guard_object_ignores_stale_target_tracker_id() {
 
 #[test]
 fn executor_team_stop_and_disband_marks_members_recruitable_and_merges_default_team() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     get_object_manager().write().unwrap().reset();
     get_team_factory().lock().unwrap().reset();
     player_list().write().unwrap().clear();
@@ -995,7 +1030,8 @@ fn executor_team_stop_and_disband_marks_members_recruitable_and_merges_default_t
         ))
         .unwrap();
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_team_stop_and_disband(&action).unwrap();
 
     assert_eq!(
@@ -1031,11 +1067,8 @@ fn executor_team_execute_sequential_script_requires_script_before_idle() {
     get_object_manager().write().unwrap().reset();
     get_team_factory().lock().unwrap().reset();
 
-    let script_engine_lock = get_script_engine();
-    {
-        let mut engine_guard = script_engine_lock.write().unwrap();
-        *engine_guard = Some(ScriptEngine::new().expect("script engine"));
-    }
+    let engine = ScriptEngine::new().expect("script engine");
+    {}
 
     {
         let mut factory = get_team_factory().lock().unwrap();
@@ -1100,7 +1133,8 @@ fn executor_team_execute_sequential_script_requires_script_before_idle() {
         ))
         .unwrap();
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
     dispatcher
         .do_team_execute_sequential_script(&action)
         .unwrap();
@@ -1116,11 +1150,8 @@ fn executor_team_execute_sequential_script_requires_script_before_idle() {
 fn executor_team_stop_sequential_script_requires_live_team() {
     get_team_factory().lock().unwrap().reset();
 
-    let script_engine_lock = get_script_engine();
+    let engine = ScriptEngine::new().expect("script engine");
     {
-        let mut engine_guard = script_engine_lock.write().unwrap();
-        *engine_guard = Some(ScriptEngine::new().expect("script engine"));
-        let engine = engine_guard.as_mut().unwrap();
         let mut missing_team_script = SequentialScript::new();
         missing_team_script.team_to_exec_on = Some("MissingSequentialTeam".to_string());
         engine.append_sequential_script(missing_team_script);
@@ -1134,16 +1165,12 @@ fn executor_team_stop_sequential_script_requires_live_team() {
         ))
         .unwrap();
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
     dispatcher.do_team_stop_sequential_script(&action).unwrap();
 
     assert!(
-        script_engine_lock
-            .read()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .has_active_sequential_script_for_team("MissingSequentialTeam"),
+        engine.has_active_sequential_script_for_team("MissingSequentialTeam"),
         "C++ doTeamStopSequentialScript returns before removal when the team cannot be resolved"
     );
 
@@ -1162,18 +1189,13 @@ fn executor_team_stop_sequential_script_requires_live_team() {
 
     dispatcher.do_team_stop_sequential_script(&action).unwrap();
 
-    assert!(
-        !script_engine_lock
-            .read()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .has_active_sequential_script_for_team("MissingSequentialTeam")
-    );
+    assert!(!engine.has_active_sequential_script_for_team("MissingSequentialTeam"));
 }
 
 #[test]
 fn condition_player_destroyed_n_buildings_player_matches_cxx_todo_false() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     let mut condition = Condition::new(ConditionType::PlayerDestroyedNBuildingsPlayer);
     condition
         .add_parameter(Parameter::with_string(
@@ -1191,7 +1213,8 @@ fn condition_player_destroyed_n_buildings_player_matches_cxx_todo_false() {
         ))
         .unwrap();
 
-    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
 
     assert_eq!(
         evaluator.evaluate_condition(&mut condition).unwrap(),
@@ -1202,8 +1225,11 @@ fn condition_player_destroyed_n_buildings_player_matches_cxx_todo_false() {
 
 #[test]
 fn condition_mission_attempts_ignores_parameters_like_cxx_stub() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     let mut condition = Condition::new(ConditionType::MissionAttempts);
-    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
 
     assert_eq!(
         evaluator.evaluate_condition(&mut condition).unwrap(),
@@ -1214,6 +1240,8 @@ fn condition_mission_attempts_ignores_parameters_like_cxx_stub() {
 
 #[test]
 fn condition_player_has_credits_compares_threshold_to_player_money_like_cxx() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     // C++ ScriptEngine.cpp:4414-4416 template [INT, COMPARISON, SIDE]
     // ScriptConditions.cpp:952-966 compares credits param to countMoney().
     player_list().write().unwrap().clear();
@@ -1239,7 +1267,8 @@ fn condition_player_has_credits_compares_threshold_to_player_money_like_cxx() {
         ))
         .unwrap();
 
-    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
 
     assert_eq!(
         evaluator.evaluate_condition(&mut condition).unwrap(),
@@ -1277,6 +1306,8 @@ fn player_conditions_use_host_census_instead_of_stale_leftover_player() {
 }
 
 fn assert_live_player_census_conditions() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     crate::object::registry::OBJECT_REGISTRY.clear();
     crate::scripting::clear_host_script_query_snapshot();
     player_list().write().unwrap().clear();
@@ -1314,7 +1345,8 @@ fn assert_live_player_census_conditions() {
     );
     crate::scripting::set_host_script_query_snapshot(snap);
 
-    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
 
     let mut credits = Condition::new(ConditionType::PlayerHasCredits);
     credits
@@ -1528,6 +1560,8 @@ fn assert_live_player_census_conditions() {
 
 #[test]
 fn named_destroyed_false_if_name_never_existed_like_cxx() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     // C++ ScriptConditions::evaluateNamedUnitDestroyed (ScriptConditions.cpp:274-286)
     let _test_lock = crate::test_sync::lock();
     crate::object::registry::OBJECT_REGISTRY.clear();
@@ -1541,7 +1575,8 @@ fn named_destroyed_false_if_name_never_existed_like_cxx() {
             "NeverSpawnedHero".into(),
         ))
         .unwrap();
-    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     assert_eq!(
         evaluator.evaluate_condition(&mut condition).unwrap(),
         ScriptConditionResult::False,
@@ -1551,6 +1586,8 @@ fn named_destroyed_false_if_name_never_existed_like_cxx() {
 
 #[test]
 fn named_destroyed_and_dying_use_effectively_dead_while_object_exists_like_cxx() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     // C++ ScriptConditions.cpp:274-318 — existing unit uses isEffectivelyDead();
     // NAMED_DYING is false once the object is gone.
     let _test_lock = crate::test_sync::lock();
@@ -1580,7 +1617,8 @@ fn named_destroyed_and_dying_use_effectively_dead_while_object_exists_like_cxx()
         ))
         .unwrap();
 
-    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     assert_eq!(
         evaluator.evaluate_condition(&mut destroyed).unwrap(),
         ScriptConditionResult::True,
@@ -1639,16 +1677,16 @@ fn active_script_counter_and_victory_reenter_without_relocking_the_global_engine
             .add_parameter(Parameter::with_int(ParameterType::Int, 3))
             .expect("value parameter");
 
-        let mut evaluator =
-            ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
         assert_eq!(
             evaluator.evaluate_condition(&mut counter).unwrap(),
             ScriptConditionResult::True
         );
 
         let victory = ScriptAction::new(ScriptActionType::Victory);
-        let mut dispatcher =
-            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
         assert_eq!(
             dispatcher.execute_action(&victory).unwrap(),
             ScriptActionResult::Success
@@ -1687,8 +1725,8 @@ fn do_defeat_clears_campaign_victorious_flag() {
     let completed = with_script_engine_mut(|engine| {
         engine.set_campaign_victorious(true);
         let defeat = ScriptAction::new(ScriptActionType::Defeat);
-        let mut dispatcher =
-            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
         assert_eq!(
             dispatcher.execute_action(&defeat).unwrap(),
             ScriptActionResult::Success
@@ -1712,8 +1750,8 @@ fn do_victory_creates_victorious_window_layout() {
         engine.set_shown_mp_local_defeat_window(false);
         engine.close_windows(false);
         let victory = ScriptAction::new(ScriptActionType::Victory);
-        let mut dispatcher =
-            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
         assert_eq!(
             dispatcher.execute_action(&victory).unwrap(),
             ScriptActionResult::Success
@@ -1740,8 +1778,8 @@ fn do_defeat_creates_defeat_window_layout() {
         engine.set_shown_mp_local_defeat_window(false);
         engine.close_windows(false);
         let defeat = ScriptAction::new(ScriptActionType::Defeat);
-        let mut dispatcher =
-            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
         assert_eq!(
             dispatcher.execute_action(&defeat).unwrap(),
             ScriptActionResult::Success
@@ -1765,8 +1803,8 @@ fn do_local_defeat_creates_local_defeat_window_layout() {
         engine.set_shown_mp_local_defeat_window(false);
         engine.close_windows(false);
         let local_defeat = ScriptAction::new(ScriptActionType::Localdefeat);
-        let mut dispatcher =
-            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
         assert_eq!(
             dispatcher.execute_action(&local_defeat).unwrap(),
             ScriptActionResult::Success
@@ -1801,8 +1839,8 @@ fn active_world_actions_clone_the_handler_before_host_callback_reentry() {
         engine
             .set_counter("WorldHandlerImmediateReentry", 0)
             .expect("reentry counter");
-        let mut dispatcher =
-            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
 
         let mut fullscreen_movie = ScriptAction::new(ScriptActionType::MoviePlayFullscreen);
         fullscreen_movie
@@ -1931,8 +1969,8 @@ fn active_player_display_actions_clone_handler_before_reentry() {
         engine
             .set_counter("WorldHandlerImmediateReentry", 0)
             .expect("reentry counter");
-        let mut dispatcher =
-            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
 
         let mut display = ScriptAction::new(ScriptActionType::DisplayText);
         display
@@ -2015,8 +2053,8 @@ fn active_camera_actions_snapshot_handler_and_mutate_fade_without_relocking() {
         engine
             .set_counter("WorldHandlerImmediateReentry", 0)
             .expect("reentry counter");
-        let mut dispatcher =
-            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
 
         let mut zoom = ScriptAction::new(ScriptActionType::ZoomCamera);
         for value in [25.0, 1.5, 0.25, 0.5] {
@@ -2075,8 +2113,8 @@ fn active_attack_priority_and_object_list_actions_mutate_the_live_engine() {
     initialize_script_engine().expect("script engine should initialize");
 
     let completed = with_script_engine_mut(|engine| {
-        let mut dispatcher =
-            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
 
         let priority_set_name = "ActiveCampaignPrioritySet";
         let mut default_priority = ScriptAction::new(ScriptActionType::SetDefaultAttackPriority);
@@ -2221,8 +2259,8 @@ fn active_skirmish_prerequisite_condition_reads_the_live_object_type_list() {
             ))
             .expect("object type list parameter");
 
-        let mut evaluator =
-            ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
         assert_eq!(
             evaluator.evaluate_condition(&mut condition).unwrap(),
             ScriptConditionResult::False,
@@ -2272,8 +2310,8 @@ fn active_named_actions_do_not_relock_the_engine_or_hold_host_callbacks() {
             .set_script_list_for_player(0, Some(Box::new(list)))
             .expect("sequential target script list");
 
-        let mut dispatcher =
-            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
 
         for action_type in [
             ScriptActionType::NamedHideSpecialPowerDisplay,
@@ -2413,8 +2451,8 @@ fn active_team_sequential_actions_keep_cxx_lookup_idle_append_order() {
             .set_script_list_for_player(0, Some(Box::new(list)))
             .expect("sequential target script list");
 
-        let mut dispatcher =
-            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
         let mut start = ScriptAction::new(ScriptActionType::TeamExecuteSequentialScript);
         start
             .add_parameter(Parameter::with_string(
@@ -2485,8 +2523,8 @@ fn active_script_special_power_and_upgrade_events_are_immediate_and_one_shot_lik
             ))
             .expect("special-power parameter");
 
-        let mut evaluator =
-            ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
         assert_eq!(
             evaluator.evaluate_condition(&mut special_power).unwrap(),
             ScriptConditionResult::True
@@ -2529,6 +2567,8 @@ fn active_script_special_power_and_upgrade_events_are_immediate_and_one_shot_lik
 
 #[test]
 fn team_hunt_with_command_button_invokes_hunt_update() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     get_object_manager().write().unwrap().reset();
     get_team_factory().lock().unwrap().reset();
 
@@ -2620,7 +2660,8 @@ fn team_hunt_with_command_button_invokes_hunt_update() {
         ))
         .unwrap();
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let result = dispatcher
         .execute_action(&action)
         .expect("TEAM_HUNT_WITH_COMMAND_BUTTON should succeed");
@@ -2649,9 +2690,9 @@ fn active_team_build_actions_fail_closed_without_a_prototype_controller() {
         None,
     );
 
-    let completed = with_script_engine_mut(|_| {
-        let mut dispatcher =
-            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let completed = with_script_engine_mut(|engine| {
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
 
         let mut build = ScriptAction::new(ScriptActionType::BuildTeam);
         build
@@ -2687,6 +2728,8 @@ fn active_team_build_actions_fail_closed_without_a_prototype_controller() {
 
 #[test]
 fn build_and_recruit_team_queue_host_when_dual_world_empty() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     let _test_lock = crate::test_sync::lock();
     crate::object::registry::OBJECT_REGISTRY.clear();
     let _ = take_host_build_team_requests();
@@ -2703,7 +2746,8 @@ fn build_and_recruit_team_queue_host_when_dual_world_empty() {
         None,
     );
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let mut build = ScriptAction::new(ScriptActionType::BuildTeam);
     build
         .add_parameter(Parameter::with_string(
@@ -2744,6 +2788,8 @@ fn build_and_recruit_team_queue_host_when_dual_world_empty() {
 
 #[test]
 fn team_transfer_to_player_reassigns_team_controller_without_capture() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     get_object_manager().write().unwrap().reset();
     get_team_factory().lock().unwrap().reset();
     player_list().write().unwrap().clear();
@@ -2807,7 +2853,8 @@ fn team_transfer_to_player_reassigns_team_controller_without_capture() {
         ))
         .unwrap();
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let result = dispatcher
         .execute_action(&action)
         .expect("TEAM_TRANSFER_TO_PLAYER should succeed");
@@ -2830,6 +2877,8 @@ fn team_transfer_to_player_reassigns_team_controller_without_capture() {
 
 #[test]
 fn player_sell_everything_sells_faction_structures_like_cxx() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     get_object_manager().write().unwrap().reset();
     player_list().write().unwrap().clear();
     game_engine::common::system::build_assistant::init_build_assistant();
@@ -2878,7 +2927,8 @@ fn player_sell_everything_sells_faction_structures_like_cxx() {
         ))
         .unwrap();
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let result = dispatcher
         .execute_action(&action)
         .expect("PLAYER_SELL_EVERYTHING should succeed");
@@ -2910,6 +2960,8 @@ fn player_sell_everything_sells_faction_structures_like_cxx() {
 
 #[test]
 fn damage_members_of_team_applies_unresistable_damage() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     get_object_manager().write().unwrap().reset();
 
     const TEAM_NAME: &str = "ExecutorDamageTeam";
@@ -2946,7 +2998,8 @@ fn damage_members_of_team_applies_unresistable_damage() {
         .add_parameter(Parameter::with_real(ParameterType::Real, 25.0))
         .unwrap();
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let result = dispatcher
         .execute_action(&action)
         .expect("DAMAGE_MEMBERS_OF_TEAM should succeed");
@@ -2966,6 +3019,8 @@ fn damage_members_of_team_applies_unresistable_damage() {
 
 #[test]
 fn move_named_unit_to_leaves_group_and_dispatches_ai_move() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     get_object_manager().write().unwrap().reset();
     get_named_object_tracker().clear().unwrap();
     get_terrain_logic().write().unwrap().reset();
@@ -3040,7 +3095,8 @@ fn move_named_unit_to_leaves_group_and_dispatches_ai_move() {
         ))
         .unwrap();
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let result = dispatcher
         .execute_action(&action)
         .expect("MOVE_NAMED_UNIT_TO should succeed");
@@ -3076,6 +3132,8 @@ fn move_named_unit_to_leaves_group_and_dispatches_ai_move() {
 
 #[test]
 fn named_follow_waypoints_leaves_group_and_selects_normal_loco() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     // C++ ScriptActions.cpp:1621-1623 doNamedFollowWaypoints.
     get_object_manager().write().unwrap().reset();
     get_named_object_tracker().clear().unwrap();
@@ -3116,7 +3174,8 @@ fn named_follow_waypoints_leaves_group_and_selects_normal_loco() {
         ))
         .unwrap();
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_named_follow_waypoints(&action).unwrap();
 
     assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);

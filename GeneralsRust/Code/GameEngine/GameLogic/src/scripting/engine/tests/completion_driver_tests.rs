@@ -111,8 +111,8 @@ fn borrowed_completion_answer_is_authoritative_for_true_and_false() {
             let (handler, speech_calls, audio_calls) = retained_handler(!answer, !answer);
             let mut engine = ScriptEngine::new().unwrap();
             engine.set_action_handler(Some(handler));
-            let mut evaluator =
-                ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+            let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+            let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
             let mut condition = completion_condition(kind, name);
             let mut driver = CompletionDriver {
                 responses: vec![Some(answer)],
@@ -150,7 +150,8 @@ fn unavailable_driver_and_public_wrapper_keep_retained_handler_behavior() {
     let (handler, speech_calls, audio_calls) = retained_handler(true, false);
     let mut engine = ScriptEngine::new().unwrap();
     engine.set_action_handler(Some(handler));
-    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
     let mut driver = CompletionDriver::default();
 
     engine.with_active_for_test(|| {
@@ -187,7 +188,8 @@ fn malformed_completion_conditions_do_not_call_owner_or_fallback() {
     let (handler, speech_calls, audio_calls) = retained_handler(true, true);
     let mut engine = ScriptEngine::new().unwrap();
     engine.set_action_handler(Some(handler));
-    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
     let mut driver = CompletionDriver {
         responses: vec![Some(true)],
         ..Default::default()
@@ -220,8 +222,11 @@ fn and_chain(first: Condition, second: Condition) -> Box<Condition> {
 
 #[test]
 fn completion_queries_preserve_and_or_short_circuit_order() {
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+
     let _guard = crate::test_sync::lock();
-    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
 
     // A true AND branch evaluates both members, then skips later OR branches.
     let mut first_or = OrCondition::new();

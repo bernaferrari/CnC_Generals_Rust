@@ -47,7 +47,7 @@ impl ScriptEvaluator {
                 let ctx = self.make_script_context();
                 self.with_evaluation_engine_mut(|engine| {
                     engine.with_active(|| {
-                        let mut dispatcher = ScriptActionDispatcher::for_engine(engine, &ctx);
+                        let mut dispatcher = ScriptActionDispatcher::new(engine, &ctx);
                         match dispatcher.execute_action(action) {
                             Ok(ScriptActionResult::Success) => Ok(()),
                             Ok(ScriptActionResult::Pending(_frames)) => Ok(()),
