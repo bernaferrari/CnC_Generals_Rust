@@ -537,3 +537,6 @@ mod tests {
         assert_eq!(settings.output_rate, 44100);
     }
 }
+
+#[cfg(test)]
+mod audio_cache_owner_tests;
