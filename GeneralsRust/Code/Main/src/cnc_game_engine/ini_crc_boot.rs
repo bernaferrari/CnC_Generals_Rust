@@ -73,8 +73,7 @@ pub fn calculate_game_engine_ini_crc(load_text: impl Fn(&str) -> Option<String>)
         feed_ini_path(&mut ini, "Data/INI/GameDataDebug.ini", &load_text);
     }
 
-    let crc = ini.take_xfer().and_then(|mutex| {
-        let mut xfer_crc = mutex.into_inner().ok()?;
+    let crc = ini.take_xfer().and_then(|mut xfer_crc| {
         xfer_crc.close().ok()?;
         Some(xfer_crc.get_crc())
     });
@@ -104,3 +103,7 @@ pub fn publish_ini_crc(crc: u32) {
     let mut data = game_engine::common::global_data::write();
     data.ini_crc = crc;
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "ini_crc_owner_tests.rs"]
+mod ini_crc_owner_tests;

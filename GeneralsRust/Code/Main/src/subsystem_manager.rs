@@ -359,8 +359,7 @@ impl SubsystemInterface for GlobalDataSubsystem {
             }
         }
 
-        ini.take_xfer().and_then(|mutex| {
-            let mut xfer_crc = mutex.into_inner().ok()?;
+        ini.take_xfer().and_then(|mut xfer_crc| {
             xfer_crc.close().ok()?;
             Some(xfer_crc.get_crc())
         })

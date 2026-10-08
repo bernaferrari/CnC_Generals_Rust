@@ -156,8 +156,8 @@ fn inline_reader_file_and_cursor_preserve_lines_and_cpp_crc() {
     expected.push("End".to_string());
     assert_eq!(inline_lines, expected);
     assert_eq!(file_lines, expected);
-    let inline_crc = inline.take_xfer().unwrap().into_inner().unwrap().get_crc();
-    let file_crc = file.take_xfer().unwrap().into_inner().unwrap().get_crc();
+    let inline_crc = inline.take_xfer().unwrap().get_crc();
+    let file_crc = file.take_xfer().unwrap().get_crc();
     assert_eq!(inline_crc, file_crc);
     assert_eq!(
         inline_crc,

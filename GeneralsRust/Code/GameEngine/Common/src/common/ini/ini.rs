@@ -212,8 +212,9 @@ pub struct INI {
     /// archives interleave binary fragments mid-file; plain [`Self::load`]
     /// stays strict — only asset loaders that opt in get recovery.
     tolerant_blocks: bool,
-    /// C++ parity: INI.cpp line 48 - static Xfer *s_xfer
-    xfer: Option<std::sync::Mutex<XferCRC<XferLoad<Cursor<Vec<u8>>>>>>,
+    /// C++ INI.cpp:458-463 feeds the active load's CRC, in line order.
+    /// This parser already has exclusive access through `&mut self`.
+    xfer: Option<XferCRC<XferLoad<Cursor<Vec<u8>>>>>,
     #[cfg(debug_assertions)]
     cur_block_start: String,
 }
@@ -1208,14 +1209,14 @@ impl INI {
 
     /// C++ parity: INI.cpp line 48, 331
     pub fn set_xfer(&mut self, xfer: XferCRC<XferLoad<Cursor<Vec<u8>>>>) {
-        self.xfer = Some(std::sync::Mutex::new(xfer));
+        self.xfer = Some(xfer);
     }
 
     pub fn clear_xfer(&mut self) {
         self.xfer = None;
     }
 
-    pub fn take_xfer(&mut self) -> Option<std::sync::Mutex<XferCRC<XferLoad<Cursor<Vec<u8>>>>>> {
+    pub fn take_xfer(&mut self) -> Option<XferCRC<XferLoad<Cursor<Vec<u8>>>>> {
         self.xfer.take()
     }
 
@@ -1575,11 +1576,9 @@ impl INI {
 
         // C++ parity: INI.cpp lines 458-463
         // if (s_xfer) { s_xfer->xferUser(m_buffer, sizeof(char) * strlen(m_buffer)); }
-        if let Some(ref xfer_mutex) = self.xfer {
-            if let Ok(mut xfer) = xfer_mutex.lock() {
-                let mut bytes = self.buffer.as_bytes().to_vec();
-                let _ = xfer.xfer_user_bytes(&mut bytes);
-            }
+        if let Some(xfer) = self.xfer.as_mut() {
+            let mut bytes = self.buffer.as_bytes().to_vec();
+            let _ = xfer.xfer_user_bytes(&mut bytes);
         }
 
         Ok(())
@@ -2547,3 +2546,7 @@ End
 #[cfg(test)]
 #[path = "inline_source_owner_tests.rs"]
 mod inline_source_owner_boundary_tests;
+
+#[cfg(test)]
+#[path = "ini_crc_owner_tests.rs"]
+mod ini_crc_owner_tests;
