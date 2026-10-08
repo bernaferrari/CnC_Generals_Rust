@@ -56,10 +56,16 @@ pub enum GameObjectInstance {
     Structure(Structure),
     /// Owned by the factory registry (borrow via get_object_mut).
     SimpleObject(SimpleObject),
-    /// Base entry: identity only; resolve Object via registry.
-    BaseObject(ObjectID),
-    /// Projectile classification survives canonical lookup retirement.
-    Projectile(ObjectID),
+    /// Base entry retains its admitted object until factory retirement.
+    BaseObject {
+        object_id: ObjectID,
+        base_object: Arc<RwLock<Object>>,
+    },
+    /// Projectile classification and exact owner survive canonical lookup retirement.
+    Projectile {
+        object_id: ObjectID,
+        base_object: Arc<RwLock<Object>>,
+    },
 }
 
 impl std::fmt::Debug for GameObjectInstance {
@@ -70,8 +76,12 @@ impl std::fmt::Debug for GameObjectInstance {
             GameObjectInstance::SimpleObject(_) => {
                 f.write_str("GameObjectInstance::SimpleObject(..)")
             }
-            GameObjectInstance::BaseObject(id) => write!(f, "GameObjectInstance::BaseObject({id})"),
-            GameObjectInstance::Projectile(id) => write!(f, "GameObjectInstance::Projectile({id})"),
+            GameObjectInstance::BaseObject { object_id, .. } => {
+                write!(f, "GameObjectInstance::BaseObject({object_id})")
+            }
+            GameObjectInstance::Projectile { object_id, .. } => {
+                write!(f, "GameObjectInstance::Projectile({object_id})")
+            }
         }
     }
 }
@@ -83,18 +93,22 @@ impl GameObjectInstance {
             GameObjectInstance::Unit(unit) => unit.base_object(),
             GameObjectInstance::Structure(structure) => structure.base_object(),
             GameObjectInstance::SimpleObject(simple_object) => simple_object.base_object(),
-            GameObjectInstance::BaseObject(id) | GameObjectInstance::Projectile(id) => {
-                crate::object::registry::OBJECT_REGISTRY
-                    .get_object(*id)
-                    .or_else(|| crate::helpers::TheGameLogic::find_object_by_id(*id))
+            GameObjectInstance::BaseObject {
+                object_id,
+                base_object,
             }
+            | GameObjectInstance::Projectile {
+                object_id,
+                base_object,
+            } => (*object_id != INVALID_ID).then(|| Arc::clone(base_object)),
         }
     }
 
     /// Get object ID
     pub fn get_id(&self) -> ObjectID {
         match self {
-            GameObjectInstance::BaseObject(id) | GameObjectInstance::Projectile(id) => *id,
+            GameObjectInstance::BaseObject { object_id, .. }
+            | GameObjectInstance::Projectile { object_id, .. } => *object_id,
             _ => self
                 .get_base_object()
                 .and_then(|arc| arc.read().ok().map(|guard| guard.get_id()))
@@ -117,7 +131,7 @@ impl GameObjectInstance {
             GameObjectInstance::SimpleObject(simple_object) => {
                 simple_object.update(delta_time)?;
             }
-            GameObjectInstance::BaseObject(_) | GameObjectInstance::Projectile(_) => {
+            GameObjectInstance::BaseObject { .. } | GameObjectInstance::Projectile { .. } => {
                 // Base objects don't have additional update logic beyond their modules
             }
         }
@@ -136,8 +150,8 @@ impl GameObjectInstance {
 
     pub fn is_projectile(&self) -> bool {
         match self {
-            Self::Projectile(_) => true,
-            Self::BaseObject(_) => false,
+            Self::Projectile { .. } => true,
+            Self::BaseObject { .. } => false,
             // Preserve unusual authored combinations: a vehicle/structure
             // classification can also carry KINDOF_PROJECTILE.
             _ => self
@@ -157,8 +171,8 @@ impl GameObjectInstance {
             Self::Unit(_) => ObjectType::Unit,
             Self::Structure(_) => ObjectType::Structure,
             Self::SimpleObject(_) => ObjectType::SimpleObject,
-            Self::BaseObject(_) => ObjectType::BaseObject,
-            Self::Projectile(_) => ObjectType::Projectile,
+            Self::BaseObject { .. } => ObjectType::BaseObject,
+            Self::Projectile { .. } => ObjectType::Projectile,
         }
     }
 
@@ -321,9 +335,15 @@ impl ObjectFactory {
                 GameObjectInstance::SimpleObject(simple_object)
             }
 
-            ObjectType::BaseObject => GameObjectInstance::BaseObject(object_id),
+            ObjectType::BaseObject => GameObjectInstance::BaseObject {
+                object_id,
+                base_object: Arc::clone(&base_object),
+            },
 
-            ObjectType::Projectile => GameObjectInstance::Projectile(object_id),
+            ObjectType::Projectile => GameObjectInstance::Projectile {
+                object_id,
+                base_object: Arc::clone(&base_object),
+            },
         };
 
         // Create drawable if needed

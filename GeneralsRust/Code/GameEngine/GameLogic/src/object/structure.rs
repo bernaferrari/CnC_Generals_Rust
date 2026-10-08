@@ -64,10 +64,10 @@ pub enum ProductionState {
 }
 
 /// Structure-specific data and behavior
-#[derive(Debug)]
 #[allow(dead_code)]
 pub struct Structure {
-    /// Base object id (resolve for the duration of an op)
+    /// The exact base object admitted by the creating world.
+    base_object: Arc<RwLock<Object>>,
     object_id: ObjectID,
 
     /// Structure classification
@@ -248,6 +248,14 @@ pub struct VeterancyBonus {
     pub special_abilities: Vec<String>,
 }
 
+impl std::fmt::Debug for Structure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Structure")
+            .field("object_id", &self.object_id)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Structure {
     pub fn base_object(&self) -> Option<Arc<RwLock<Object>>> {
         self.get_base_object()
@@ -258,10 +266,7 @@ impl Structure {
     }
 
     fn get_base_object(&self) -> Option<Arc<RwLock<Object>>> {
-        if self.object_id == crate::common::INVALID_ID {
-            return None;
-        }
-        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+        (self.object_id != crate::common::INVALID_ID).then(|| Arc::clone(&self.base_object))
     }
 
     /// Create a new Structure
@@ -274,20 +279,14 @@ impl Structure {
         let can_be_captured = thing_template.is_kind_of(KindOf::Capturable)
             && !thing_template.is_kind_of(KindOf::ImmuneToCapture);
 
+        let object_id = base_object
+            .read()
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error.to_string()))?
+            .get_id();
+
         Ok(Structure {
-            object_id: {
-                let id = base_object
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID);
-
-                if id != crate::common::INVALID_ID {
-                    crate::object::registry::OBJECT_REGISTRY.register_object(id, &base_object);
-                }
-
-                id
-            },
+            base_object,
+            object_id,
             structure_type,
             is_faction_structure,
             is_key_structure: thing_template.is_kind_of(KindOf::KeyStructure),

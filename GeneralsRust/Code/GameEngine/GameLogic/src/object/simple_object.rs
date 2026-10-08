@@ -40,10 +40,10 @@ pub struct ResourceContent {
 }
 
 /// Simple object-specific data and behavior
-#[derive(Debug)]
 #[allow(dead_code)]
 pub struct SimpleObject {
-    /// Base object id (resolve for the duration of an op)
+    /// The exact base object admitted by the creating world.
+    base_object: Arc<RwLock<Object>>,
     object_id: ObjectID,
 
     /// Object classification
@@ -182,6 +182,14 @@ pub struct LightData {
     pub is_always_on: bool,
 }
 
+impl std::fmt::Debug for SimpleObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SimpleObject")
+            .field("object_id", &self.object_id)
+            .finish_non_exhaustive()
+    }
+}
+
 impl SimpleObject {
     pub fn base_object(&self) -> Option<Arc<RwLock<Object>>> {
         self.get_base_object()
@@ -192,10 +200,7 @@ impl SimpleObject {
     }
 
     fn get_base_object(&self) -> Option<Arc<RwLock<Object>>> {
-        if self.object_id == crate::common::INVALID_ID {
-            return None;
-        }
-        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+        (self.object_id != crate::common::INVALID_ID).then(|| Arc::clone(&self.base_object))
     }
 
     /// Create a new SimpleObject
@@ -208,20 +213,14 @@ impl SimpleObject {
             && !thing_template.is_kind_of(KindOf::ImmuneToCapture);
         let capture_time = if can_be_captured { 1.0 } else { 0.0 };
 
+        let object_id = base_object
+            .read()
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error.to_string()))?
+            .get_id();
+
         Ok(SimpleObject {
-            object_id: {
-                let id = base_object
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID);
-
-                if id != crate::common::INVALID_ID {
-                    crate::object::crate_registry_bind::bind_crate_object(id, &base_object);
-                }
-
-                id
-            },
+            base_object,
+            object_id,
             simple_object_type,
             is_interactive: false,
             is_destructible: thing_template.is_kind_of(KindOf::Structure),

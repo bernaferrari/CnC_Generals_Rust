@@ -443,6 +443,92 @@ fn factory_fixture_retirement_leaves_no_admitted_objects_for_later_reset() {
 }
 
 #[test]
+fn wrappers_retain_exact_same_id_owner_and_constructors_do_not_publish() {
+    let _lock = crate::test_sync::lock();
+    const ID: ObjectID = 91_480;
+    struct Cleanup(ObjectID);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            OBJECT_REGISTRY.unregister_object(self.0);
+        }
+    }
+    let _cleanup = Cleanup(ID);
+    OBJECT_REGISTRY.unregister_object(ID);
+
+    let first = Arc::new(RwLock::new(Object::new_test(ID, 100.0)));
+    let second = Arc::new(RwLock::new(Object::new_test(ID, 200.0)));
+    first
+        .write()
+        .unwrap()
+        .set_position(&Coord3D::new(1.0, 2.0, 3.0))
+        .unwrap();
+    second
+        .write()
+        .unwrap()
+        .set_position(&Coord3D::new(7.0, 8.0, 9.0))
+        .unwrap();
+    let first_template = first.read().unwrap().get_template().clone();
+    let second_template = second.read().unwrap().get_template().clone();
+
+    let structure_first = Structure::new(Arc::clone(&first), first_template.as_ref()).unwrap();
+    let structure_second = Structure::new(Arc::clone(&second), second_template.as_ref()).unwrap();
+    let simple_first = SimpleObject::new(Arc::clone(&first), first_template.as_ref()).unwrap();
+    let simple_second = SimpleObject::new(Arc::clone(&second), second_template.as_ref()).unwrap();
+    let base_first = GameObjectInstance::BaseObject {
+        object_id: ID,
+        base_object: Arc::clone(&first),
+    };
+    let base_second = GameObjectInstance::BaseObject {
+        object_id: ID,
+        base_object: Arc::clone(&second),
+    };
+    let projectile_first = GameObjectInstance::Projectile {
+        object_id: ID,
+        base_object: Arc::clone(&first),
+    };
+    let projectile_second = GameObjectInstance::Projectile {
+        object_id: ID,
+        base_object: Arc::clone(&second),
+    };
+
+    for actual in [
+        structure_first.base_object().unwrap(),
+        simple_first.base_object().unwrap(),
+        base_first.get_base_object().unwrap(),
+        projectile_first.get_base_object().unwrap(),
+    ] {
+        assert!(Arc::ptr_eq(&actual, &first));
+        assert_eq!(actual.read().unwrap().get_position().x, 1.0);
+    }
+    for actual in [
+        structure_second.base_object().unwrap(),
+        simple_second.base_object().unwrap(),
+        base_second.get_base_object().unwrap(),
+        projectile_second.get_base_object().unwrap(),
+    ] {
+        assert!(Arc::ptr_eq(&actual, &second));
+        assert_eq!(actual.read().unwrap().get_position().x, 7.0);
+    }
+    assert_eq!(structure_first.object_id(), ID);
+    assert_eq!(simple_first.object_id(), ID);
+    assert_eq!(base_first.get_id(), ID);
+    assert_eq!(projectile_first.get_id(), ID);
+    assert!(projectile_first.is_projectile());
+    assert!(!base_first.is_projectile());
+    assert!(
+        OBJECT_REGISTRY.get_object(ID).is_none(),
+        "constructing wrappers must not publish or redirect object identity"
+    );
+
+    let first_weak = Arc::downgrade(&first);
+    drop(first);
+    assert!(
+        first_weak.upgrade().is_some(),
+        "wrapper owners retain their exact Arc"
+    );
+}
+
+#[test]
 fn factory_destruction_preserves_canonical_callback_and_retirement_order() {
     let _lock = crate::test_sync::lock();
     register_creation_probe();
@@ -462,6 +548,10 @@ fn factory_destruction_preserves_canonical_callback_and_retirement_order() {
         )
         .unwrap();
     let retained = factory.get_object(id).unwrap().get_base_object().unwrap();
+    assert!(Arc::ptr_eq(
+        &retained,
+        &factory.get_object(id).unwrap().get_base_object().unwrap()
+    ));
     let entry = retained.read().unwrap().modules[0].clone();
     let mut logic = crate::system::game_logic::get_game_logic().lock().unwrap();
     factory.destroy_object(&mut logic, id);
@@ -487,6 +577,13 @@ fn factory_destruction_preserves_canonical_callback_and_retirement_order() {
         factory.get_object(id).is_some(),
         "pending canonical object retains its factory wrapper"
     );
+    assert!(
+        Arc::ptr_eq(
+            &retained,
+            &factory.get_object(id).unwrap().get_base_object().unwrap()
+        ),
+        "wrapper keeps the exact admitted Arc until canonical retirement"
+    );
     assert_eq!(factory.get_statistics().total_destroyed, 0);
     logic.cleanup_dead_objects().unwrap();
     assert!(logic.find_object_by_id(id).is_none());
@@ -504,9 +601,13 @@ fn projectile_bookkeeping_survives_canonical_retirement_without_object_borrows()
     let mut logic = crate::system::game_logic::GameLogic::new();
     logic.register_object(Arc::clone(&retained)).unwrap();
     let mut factory = ObjectFactory::new();
-    factory
-        .object_registry
-        .insert(id, GameObjectInstance::Projectile(id));
+    factory.object_registry.insert(
+        id,
+        GameObjectInstance::Projectile {
+            object_id: id,
+            base_object: Arc::clone(&retained),
+        },
+    );
     factory.update_pool_stats(&ObjectType::Projectile);
     factory.total_objects_created = 1;
     {
@@ -583,9 +684,13 @@ fn factory_retirement_queries_the_driving_world_with_identical_ids() {
     first_world.register_object(Arc::clone(&first)).unwrap();
     second_world.register_object(Arc::clone(&second)).unwrap();
     let mut factory = ObjectFactory::new();
-    factory
-        .object_registry
-        .insert(id, GameObjectInstance::BaseObject(id));
+    factory.object_registry.insert(
+        id,
+        GameObjectInstance::BaseObject {
+            object_id: id,
+            base_object: Arc::clone(&first),
+        },
+    );
     factory.destroy_object(&mut first_world, id);
     assert!(first.read().unwrap().is_destroyed());
     assert!(!second.read().unwrap().is_destroyed());
@@ -595,12 +700,228 @@ fn factory_retirement_queries_the_driving_world_with_identical_ids() {
         factory.get_object(id).is_some(),
         "other driving world's admission retains bookkeeping"
     );
+    assert!(
+        Arc::ptr_eq(
+            &factory.get_object(id).unwrap().get_base_object().unwrap(),
+            &first,
+        ),
+        "same-ID world cannot redirect this factory wrapper"
+    );
     factory.process_destruction_queue(&first_world);
     assert!(factory.get_object(id).is_none());
     // Global lookup publication remains a separate migration; this fixture
     // proves only that destruction/retirement use the passed canonical owner.
     second_world.destroy_object(id);
     second_world.cleanup_dead_objects().unwrap();
+}
+
+#[test]
+fn structure_constructor_does_not_publish_an_object_lookup() {
+    let _serial = crate::test_sync::lock();
+    const ID: ObjectID = 92_101;
+    struct Cleanup(ObjectID);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            OBJECT_REGISTRY.unregister_object(self.0);
+        }
+    }
+    let _cleanup = Cleanup(ID);
+    OBJECT_REGISTRY.unregister_object(ID);
+    let mut template = DefaultThingTemplate::new("InertStructureWrapper".into());
+    template.add_kind_of(KindOf::Structure);
+    let owner = Arc::new(RwLock::new(Object::new_test_from_template(
+        ID,
+        100.0,
+        Arc::new(template.clone()),
+    )));
+    let structure =
+        crate::object::structure::Structure::new(Arc::clone(&owner), &template).unwrap();
+    assert_eq!(structure.object_id(), ID);
+    assert!(
+        OBJECT_REGISTRY.get_object(ID).is_none(),
+        "constructing a Structure wrapper must not publish its Object"
+    );
+}
+
+#[test]
+fn simple_object_constructor_does_not_publish_an_object_lookup() {
+    let _serial = crate::test_sync::lock();
+    const ID: ObjectID = 92_102;
+    struct Cleanup(ObjectID);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            OBJECT_REGISTRY.unregister_object(self.0);
+        }
+    }
+    let _cleanup = Cleanup(ID);
+    OBJECT_REGISTRY.unregister_object(ID);
+    let mut template = DefaultThingTemplate::new("InertSimpleObjectWrapper".into());
+    template.add_kind_of(KindOf::ResourceNode);
+    let owner = Arc::new(RwLock::new(Object::new_test_from_template(
+        ID,
+        100.0,
+        Arc::new(template.clone()),
+    )));
+    let simple =
+        crate::object::simple_object::SimpleObject::new(Arc::clone(&owner), &template).unwrap();
+    assert_eq!(simple.object_id(), ID);
+    assert!(
+        OBJECT_REGISTRY.get_object(ID).is_none(),
+        "constructing a SimpleObject wrapper must not publish its Object"
+    );
+}
+
+#[test]
+fn same_id_wrappers_resolve_their_exact_object_not_the_registry_replacement() {
+    let _serial = crate::test_sync::lock();
+    const ID: ObjectID = 92_103;
+    struct Cleanup(ObjectID);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            OBJECT_REGISTRY.unregister_object(self.0);
+        }
+    }
+    let _cleanup = Cleanup(ID);
+    OBJECT_REGISTRY.unregister_object(ID);
+
+    let mut structure_template = DefaultThingTemplate::new("SameIdStructure".into());
+    structure_template.add_kind_of(KindOf::Structure);
+    let structure_template: Arc<dyn ThingTemplate> = Arc::new(structure_template);
+    let mut simple_template = DefaultThingTemplate::new("SameIdSimple".into());
+    simple_template.add_kind_of(KindOf::ResourceNode);
+    let simple_template: Arc<dyn ThingTemplate> = Arc::new(simple_template);
+    let first = Arc::new(RwLock::new(Object::new_test_from_template(
+        ID,
+        100.0,
+        Arc::clone(&structure_template),
+    )));
+    let second = Arc::new(RwLock::new(Object::new_test_from_template(
+        ID,
+        200.0,
+        Arc::clone(&structure_template),
+    )));
+    first
+        .write()
+        .unwrap()
+        .set_position(&Coord3D::new(1.0, 2.0, 3.0))
+        .unwrap();
+    second
+        .write()
+        .unwrap()
+        .set_position(&Coord3D::new(7.0, 8.0, 9.0))
+        .unwrap();
+
+    let structure_first =
+        crate::object::structure::Structure::new(Arc::clone(&first), structure_template.as_ref())
+            .unwrap();
+    let structure_second =
+        crate::object::structure::Structure::new(Arc::clone(&second), structure_template.as_ref())
+            .unwrap();
+    let simple_first = crate::object::simple_object::SimpleObject::new(
+        Arc::clone(&first),
+        simple_template.as_ref(),
+    )
+    .unwrap();
+    let simple_second = crate::object::simple_object::SimpleObject::new(
+        Arc::clone(&second),
+        simple_template.as_ref(),
+    )
+    .unwrap();
+    let base_first = GameObjectInstance::BaseObject {
+        object_id: ID,
+        base_object: Arc::clone(&first),
+    };
+    let projectile_first = GameObjectInstance::Projectile {
+        object_id: ID,
+        base_object: Arc::clone(&first),
+    };
+
+    // Model a different same-ID world becoming the current registry entry.
+    OBJECT_REGISTRY.register_object(ID, &second);
+    let results = [
+        structure_first.base_object().unwrap(),
+        simple_first.base_object().unwrap(),
+        base_first.get_base_object().unwrap(),
+        projectile_first.get_base_object().unwrap(),
+    ];
+    let all_first = results.iter().all(|actual| Arc::ptr_eq(actual, &first));
+    let canary = results
+        .iter()
+        .map(|actual| actual.read().unwrap().get_position().x)
+        .collect::<Vec<_>>();
+    drop(results);
+    assert!(structure_second.base_object().is_some());
+    assert!(simple_second.base_object().is_some());
+    assert_eq!(canary, [1.0; 4]);
+    assert!(
+        all_first,
+        "same-ID registry replacement redirected a wrapper owner"
+    );
+}
+
+#[test]
+fn real_factory_structure_and_simple_wrappers_survive_until_retirement_only() {
+    let _serial = crate::test_sync::lock();
+    register_creation_probe();
+
+    fn one(kind: KindOf, name: &str, id: ObjectID) -> bool {
+        let mut factory = ObjectFactory::new();
+        factory.next_object_id = id;
+        let mut template = AuthoredBodyTemplate::new(name, false);
+        template.inner.add_kind_of(kind);
+        factory
+            .template_cache
+            .insert(name.to_string(), Arc::new(template));
+        let created = factory
+            .create_object(
+                name,
+                Coord3D::default(),
+                None,
+                ObjectCreationFlags::NO_DRAWABLE,
+            )
+            .unwrap();
+        assert_eq!(created, id);
+        let admitted = factory.get_object(id).unwrap().get_base_object().unwrap();
+        let weak = Arc::downgrade(&admitted);
+        drop(admitted);
+
+        let mut logic = crate::system::game_logic::get_game_logic().lock().unwrap();
+        factory.destroy_object(&mut logic, id);
+        factory.process_destruction_queue(&logic);
+        let pending = factory.get_object(id).is_some();
+        logic.cleanup_dead_objects().unwrap();
+        assert!(OBJECT_REGISTRY.get_object(id).is_none());
+        let still_owned = factory
+            .get_object(id)
+            .and_then(GameObjectInstance::get_base_object)
+            .is_some_and(|actual| {
+                weak.upgrade()
+                    .is_some_and(|expected| Arc::ptr_eq(&actual, &expected))
+            });
+        factory.process_destruction_queue(&logic);
+        let retired = factory.get_object(id).is_none();
+        drop(logic);
+        assert!(
+            retired,
+            "factory retirement must remove wrapper bookkeeping"
+        );
+        assert!(
+            weak.upgrade().is_none(),
+            "retiring wrapper must release its Object Arc"
+        );
+        pending && still_owned
+    }
+
+    let structure = one(KindOf::Structure, "FactoryRetiredStructure", 92_110);
+    let simple = one(KindOf::ResourceNode, "FactoryRetiredSimple", 92_111);
+    assert!(
+        structure,
+        "factory Structure wrapper must retain its owner through canonical cleanup"
+    );
+    assert!(
+        simple,
+        "factory SimpleObject wrapper must retain its owner through canonical cleanup"
+    );
 }
 
 #[path = "factory_ai_creation_tests.rs"]
