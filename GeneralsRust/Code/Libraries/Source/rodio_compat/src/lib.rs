@@ -41,12 +41,7 @@ impl OutputStream {
         let mut device = DeviceSinkBuilder::open_default_sink()?;
         device.log_on_drop(false);
         let sink = std::sync::Arc::new(device);
-        Ok((
-            Self {
-                sink: sink.clone(),
-            },
-            OutputStreamHandle { sink },
-        ))
+        Ok((Self { sink: sink.clone() }, OutputStreamHandle { sink }))
     }
 }
 
@@ -62,9 +57,15 @@ pub struct Sink {
 
 impl Sink {
     pub fn try_new(handle: &OutputStreamHandle) -> Result<Self, StreamError> {
-        Ok(Self {
-            player: Player::connect_new(handle.mixer()),
-        })
+        Ok(Self::connect_new(handle.mixer()))
+    }
+
+    /// Connects a control sink to a mixer without opening an audio device.
+    /// This is also the shared implementation used by `try_new`.
+    pub fn connect_new(mixer: &Mixer) -> Self {
+        Self {
+            player: Player::connect_new(mixer),
+        }
     }
 
     pub fn append<S>(&self, source: S)
@@ -122,14 +123,25 @@ impl SpatialSink {
         left_ear: [f32; 3],
         right_ear: [f32; 3],
     ) -> Result<Self, StreamError> {
-        Ok(Self {
-            player: SpatialPlayer::connect_new(
-                handle.mixer(),
-                emitter_position,
-                left_ear,
-                right_ear,
-            ),
-        })
+        Ok(Self::connect_new(
+            handle.mixer(),
+            emitter_position,
+            left_ear,
+            right_ear,
+        ))
+    }
+
+    /// Connects a spatial control sink to a mixer without opening an audio device.
+    /// This is also the shared implementation used by `try_new`.
+    pub fn connect_new(
+        mixer: &Mixer,
+        emitter_position: [f32; 3],
+        left_ear: [f32; 3],
+        right_ear: [f32; 3],
+    ) -> Self {
+        Self {
+            player: SpatialPlayer::connect_new(mixer, emitter_position, left_ear, right_ear),
+        }
     }
 
     pub fn append<S>(&self, source: S)

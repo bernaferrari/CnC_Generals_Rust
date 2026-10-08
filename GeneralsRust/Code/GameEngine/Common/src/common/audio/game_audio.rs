@@ -2882,8 +2882,8 @@ struct RodioPlaybackHook {
 
 #[cfg(not(target_arch = "wasm32"))]
 struct RodioSinkState {
-    // THREAD: kept locked - rodio voice handle shared with the audio thread.
-    sink: Arc<Mutex<RodioVoice>>,
+    // Each voice is owned by its registry; rodio shares its internal player controls.
+    sink: RodioVoice,
     base_volume: Real,
     position: Option<Coord3D>,
     min_distance: Real,
@@ -2891,6 +2891,30 @@ struct RodioSinkState {
     is_music: bool,
     started_at: Instant,
     duration_ms: Option<Real>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl RodioSinkState {
+    fn new(
+        sink: RodioVoice,
+        base_volume: Real,
+        position: Option<Coord3D>,
+        ranges: (Real, Real),
+        is_music: bool,
+        duration_ms: Option<Real>,
+    ) -> Self {
+        let (min_distance, max_distance) = ranges;
+        Self {
+            sink,
+            base_volume,
+            position,
+            min_distance,
+            max_distance,
+            is_music,
+            started_at: Instant::now(),
+            duration_ms,
+        }
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -3004,9 +3028,7 @@ impl RodioPlaybackHook {
     }
 
     fn refresh_sink_volume(&self, state: &RodioSinkState) {
-        if let Ok(sink) = state.sink.lock() {
-            sink.set_volume(self.effective_volume(state));
-        }
+        state.sink.set_volume(self.effective_volume(state));
     }
 
     fn listener_pose(&self) -> (Coord3D, Coord3D) {
@@ -3035,9 +3057,7 @@ impl RodioPlaybackHook {
         };
         let (listener, orientation) = self.listener_pose();
         let pan = stereo_pan(&listener, orientation.x, orientation.y, &source);
-        if let Ok(sink) = state.sink.lock() {
-            sink.set_stereo_pan(pan);
-        }
+        state.sink.set_stereo_pan(pan);
     }
 }
 
@@ -3140,16 +3160,14 @@ impl SoundPlaybackHook for RodioPlaybackHook {
             sliders.global_min_range,
             sliders.global_max_range,
         );
-        let state = RodioSinkState {
-            sink: Arc::new(Mutex::new(voice)),
-            base_volume: volume,
+        let state = RodioSinkState::new(
+            voice,
+            volume,
             position,
-            min_distance,
-            max_distance,
+            (min_distance, max_distance),
             is_music,
-            started_at: Instant::now(),
             duration_ms,
-        };
+        );
         self.refresh_sink_volume(&state);
         self.sinks.lock().unwrap().insert(handle, state);
         Ok(())
@@ -3157,15 +3175,13 @@ impl SoundPlaybackHook for RodioPlaybackHook {
 
     fn stop(&self, handle: AudioHandle) {
         if let Some(state) = self.sinks.lock().unwrap().remove(&handle) {
-            let s = state.sink.lock().unwrap();
-            s.stop();
+            state.sink.stop();
         }
     }
 
     fn pause(&self, handle: AudioHandle) {
         if let Some(state) = self.sinks.lock().unwrap().get(&handle) {
-            let s = state.sink.lock().unwrap();
-            s.pause();
+            state.sink.pause();
         }
     }
     fn set_listener_position(&self, position: &Coord3D) {
@@ -3197,8 +3213,7 @@ impl SoundPlaybackHook for RodioPlaybackHook {
 
     fn resume(&self, handle: AudioHandle) {
         if let Some(state) = self.sinks.lock().unwrap().get(&handle) {
-            let s = state.sink.lock().unwrap();
-            s.play();
+            state.sink.play();
         }
     }
 
@@ -3208,11 +3223,7 @@ impl SoundPlaybackHook for RodioPlaybackHook {
             return false;
         };
 
-        let is_playing = if let Ok(s) = state.sink.lock() {
-            !s.empty()
-        } else {
-            false
-        };
+        let is_playing = !state.sink.empty();
 
         if !is_playing {
             sinks.remove(&handle);
@@ -3245,9 +3256,7 @@ impl SoundPlaybackHook for RodioPlaybackHook {
             return;
         };
         state.base_volume = volume.clamp(0.0, 1.0);
-        if let Ok(sink) = state.sink.lock() {
-            sink.set_volume(state.base_volume);
-        }
+        state.sink.set_volume(state.base_volume);
     }
 
     fn music_loop_count(&self, handle: AudioHandle) -> Int {
@@ -3269,7 +3278,7 @@ impl SoundPlaybackHook for RodioPlaybackHook {
         let sinks = self.sinks.lock().unwrap();
         sinks
             .get(&handle)
-            .and_then(|state| state.sink.lock().ok().map(|sink| sink.is_paused()))
+            .map(|state| state.sink.is_paused())
             .unwrap_or(false)
     }
 }

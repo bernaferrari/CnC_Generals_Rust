@@ -1818,6 +1818,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/audio/tests/positional_audio_divisor_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/audio/tests/rodio_voice_owner_tests.rs"
           }
         ],
         "mode": "explicit",
@@ -33825,6 +33832,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/Common/src/common/audio/tests/positional_audio_divisor_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/audio/tests/rodio_voice_owner_tests.rs"
           }
         ],
         "mode": "explicit",
@@ -157700,7 +157714,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "83bc87db7e2ecce4bae27e982846a8a640151a6b0add6775be01a69c804877a5",
+  "input_digest": "31d84a837d9183ab3ae959e17b48d9f910abbc0c1e7fa8becdf4d61ce60a6193",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -157957,11 +157971,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3667,
+        "end_line": 3676,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/audio/game_audio.rs",
-      "sha256": "02f15c7d3fae1da28d43a4e895d171b1b39dfb680fd26148f9c6c66b176fe05c",
+      "sha256": "179520a8c519898dbcb0eb9a0b9893978803f228f4c1ef069592f22c1501d655",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -159116,267 +159130,272 @@
         },
         {
           "kind": "fn",
-          "line": 2910,
-          "name": "build_path_candidates"
-        },
-        {
-          "kind": "fn",
-          "line": 2936,
-          "name": "portion_filename"
-        },
-        {
-          "kind": "fn",
-          "line": 2948,
-          "name": "resolve_audio_data"
-        },
-        {
-          "kind": "fn",
-          "line": 2977,
-          "name": "calculate_3d_volume_falloff"
-        },
-        {
-          "kind": "fn",
-          "line": 2996,
-          "name": "effective_volume"
-        },
-        {
-          "kind": "fn",
-          "line": 3005,
-          "name": "refresh_sink_volume"
-        },
-        {
-          "kind": "fn",
-          "line": 3011,
-          "name": "listener_pose"
-        },
-        {
-          "kind": "fn",
-          "line": 3031,
-          "name": "refresh_positional_pan"
-        },
-        {
-          "kind": "fn",
-          "line": 3046,
-          "name": "play"
-        },
-        {
-          "kind": "fn",
-          "line": 3157,
-          "name": "stop"
-        },
-        {
-          "kind": "fn",
-          "line": 3164,
-          "name": "pause"
-        },
-        {
-          "kind": "fn",
-          "line": 3171,
-          "name": "set_listener_position"
-        },
-        {
-          "kind": "fn",
-          "line": 3184,
-          "name": "set_listener_orientation"
-        },
-        {
-          "kind": "fn",
-          "line": 3197,
-          "name": "resume"
-        },
-        {
-          "kind": "fn",
-          "line": 3204,
-          "name": "is_playing"
-        },
-        {
-          "kind": "fn",
-          "line": 3223,
-          "name": "set_event_volume"
-        },
-        {
-          "kind": "fn",
-          "line": 3241,
-          "name": "set_sink_volume"
-        },
-        {
-          "kind": "fn",
-          "line": 3252,
-          "name": "music_loop_count"
-        },
-        {
-          "kind": "fn",
-          "line": 3267,
-          "name": "is_sink_paused"
-        },
-        {
-          "kind": "fn",
-          "line": 3278,
-          "name": "register_rodio_playback_hook"
-        },
-        {
-          "kind": "struct",
-          "line": 3285,
-          "name": "WasmPlaybackHook"
-        },
-        {
-          "kind": "fn",
-          "line": 3289,
-          "name": "play"
-        },
-        {
-          "kind": "fn",
-          "line": 3292,
-          "name": "stop"
-        },
-        {
-          "kind": "fn",
-          "line": 3293,
-          "name": "pause"
-        },
-        {
-          "kind": "fn",
-          "line": 3294,
-          "name": "resume"
-        },
-        {
-          "kind": "fn",
-          "line": 3295,
-          "name": "is_playing"
-        },
-        {
-          "kind": "fn",
-          "line": 3301,
-          "name": "register_wasm_playback_hook"
-        },
-        {
-          "kind": "const",
-          "line": 3304,
-          "name": "AHSV_NO_SOUND"
-        },
-        {
-          "kind": "const",
-          "line": 3306,
-          "name": "AHSV_ERROR"
-        },
-        {
-          "kind": "const",
-          "line": 3307,
-          "name": "AHSV_NOT_FOR_LOCAL"
-        },
-        {
-          "kind": "const",
-          "line": 3308,
-          "name": "AHSV_MUTED"
-        },
-        {
-          "kind": "const",
-          "line": 3309,
-          "name": "AHSV_STOP_THE_MUSIC"
-        },
-        {
-          "kind": "const",
-          "line": 3310,
-          "name": "AHSV_STOP_THE_MUSIC_FADE"
-        },
-        {
-          "kind": "const",
-          "line": 3311,
-          "name": "AHSV_FIRST_HANDLE"
-        },
-        {
-          "kind": "static",
-          "line": 3316,
-          "name": "THE_AUDIO"
-        },
-        {
-          "kind": "struct",
-          "line": 3317,
-          "name": "AnimatedSoundBridge"
-        },
-        {
-          "kind": "fn",
-          "line": 3325,
+          "line": 2922,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 3331,
-          "name": "normalized_key"
+          "line": 2934,
+          "name": "build_path_candidates"
+        },
+        {
+          "kind": "fn",
+          "line": 2960,
+          "name": "portion_filename"
+        },
+        {
+          "kind": "fn",
+          "line": 2972,
+          "name": "resolve_audio_data"
+        },
+        {
+          "kind": "fn",
+          "line": 3001,
+          "name": "calculate_3d_volume_falloff"
+        },
+        {
+          "kind": "fn",
+          "line": 3020,
+          "name": "effective_volume"
+        },
+        {
+          "kind": "fn",
+          "line": 3029,
+          "name": "refresh_sink_volume"
+        },
+        {
+          "kind": "fn",
+          "line": 3033,
+          "name": "listener_pose"
+        },
+        {
+          "kind": "fn",
+          "line": 3053,
+          "name": "refresh_positional_pan"
+        },
+        {
+          "kind": "fn",
+          "line": 3066,
+          "name": "play"
+        },
+        {
+          "kind": "fn",
+          "line": 3175,
+          "name": "stop"
+        },
+        {
+          "kind": "fn",
+          "line": 3181,
+          "name": "pause"
+        },
+        {
+          "kind": "fn",
+          "line": 3187,
+          "name": "set_listener_position"
+        },
+        {
+          "kind": "fn",
+          "line": 3200,
+          "name": "set_listener_orientation"
+        },
+        {
+          "kind": "fn",
+          "line": 3213,
+          "name": "resume"
+        },
+        {
+          "kind": "fn",
+          "line": 3219,
+          "name": "is_playing"
+        },
+        {
+          "kind": "fn",
+          "line": 3234,
+          "name": "set_event_volume"
+        },
+        {
+          "kind": "fn",
+          "line": 3252,
+          "name": "set_sink_volume"
+        },
+        {
+          "kind": "fn",
+          "line": 3261,
+          "name": "music_loop_count"
+        },
+        {
+          "kind": "fn",
+          "line": 3276,
+          "name": "is_sink_paused"
+        },
+        {
+          "kind": "fn",
+          "line": 3287,
+          "name": "register_rodio_playback_hook"
+        },
+        {
+          "kind": "struct",
+          "line": 3294,
+          "name": "WasmPlaybackHook"
+        },
+        {
+          "kind": "fn",
+          "line": 3298,
+          "name": "play"
+        },
+        {
+          "kind": "fn",
+          "line": 3301,
+          "name": "stop"
+        },
+        {
+          "kind": "fn",
+          "line": 3302,
+          "name": "pause"
+        },
+        {
+          "kind": "fn",
+          "line": 3303,
+          "name": "resume"
+        },
+        {
+          "kind": "fn",
+          "line": 3304,
+          "name": "is_playing"
+        },
+        {
+          "kind": "fn",
+          "line": 3310,
+          "name": "register_wasm_playback_hook"
+        },
+        {
+          "kind": "const",
+          "line": 3313,
+          "name": "AHSV_NO_SOUND"
+        },
+        {
+          "kind": "const",
+          "line": 3315,
+          "name": "AHSV_ERROR"
+        },
+        {
+          "kind": "const",
+          "line": 3316,
+          "name": "AHSV_NOT_FOR_LOCAL"
+        },
+        {
+          "kind": "const",
+          "line": 3317,
+          "name": "AHSV_MUTED"
+        },
+        {
+          "kind": "const",
+          "line": 3318,
+          "name": "AHSV_STOP_THE_MUSIC"
+        },
+        {
+          "kind": "const",
+          "line": 3319,
+          "name": "AHSV_STOP_THE_MUSIC_FADE"
+        },
+        {
+          "kind": "const",
+          "line": 3320,
+          "name": "AHSV_FIRST_HANDLE"
+        },
+        {
+          "kind": "static",
+          "line": 3325,
+          "name": "THE_AUDIO"
+        },
+        {
+          "kind": "struct",
+          "line": 3326,
+          "name": "AnimatedSoundBridge"
+        },
+        {
+          "kind": "fn",
+          "line": 3334,
+          "name": "new"
         },
         {
           "kind": "fn",
           "line": 3340,
+          "name": "normalized_key"
+        },
+        {
+          "kind": "fn",
+          "line": 3349,
           "name": "record_handle"
         },
         {
           "kind": "fn",
-          "line": 3359,
+          "line": 3368,
           "name": "take_handles"
         },
         {
           "kind": "fn",
-          "line": 3368,
+          "line": 3377,
           "name": "play_internal"
         },
         {
           "kind": "fn",
-          "line": 3405,
+          "line": 3414,
           "name": "play_3d_audio"
         },
         {
           "kind": "fn",
-          "line": 3414,
+          "line": 3423,
           "name": "play_2d_audio"
         },
         {
           "kind": "fn",
-          "line": 3418,
+          "line": 3427,
           "name": "stop_audio"
         },
         {
           "kind": "fn",
-          "line": 3432,
+          "line": 3441,
           "name": "register_animation_sound_library"
         },
         {
           "kind": "fn",
-          "line": 3442,
+          "line": 3451,
           "name": "initialize_global_audio_manager"
         },
         {
           "kind": "fn",
-          "line": 3467,
+          "line": 3476,
           "name": "get_global_audio_manager"
         },
         {
           "kind": "fn",
-          "line": 3475,
+          "line": 3484,
           "name": "load_audio_event_inis"
         },
         {
           "kind": "const",
-          "line": 3476,
+          "line": 3485,
           "name": "AUDIO_INI_FILES"
         },
         {
           "kind": "fn",
-          "line": 3522,
+          "line": 3531,
           "name": "read_audio_settings_from_game_fs"
         },
         {
           "kind": "fn",
-          "line": 3534,
+          "line": 3543,
           "name": "apply_loaded_audio_settings_to_manager"
         },
         {
           "kind": "fn",
-          "line": 3627,
+          "line": 3636,
           "name": "assets_root"
         },
         {
           "kind": "fn",
-          "line": 3637,
+          "line": 3646,
           "name": "archived_audio_settings_apply_retail_mix_values"
         }
       ]
@@ -159574,226 +159593,289 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 1206,
+        "end_line": 292,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/audio/tests/rodio_voice_owner_tests.rs",
+      "sha256": "0d2bc5a37450d47274babef0dac7cc265ce8c91ee5878049f5b1ac5b17420e57",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "const",
+          "line": 12,
+          "name": "CHILD_MODE"
+        },
+        {
+          "kind": "const",
+          "line": 14,
+          "name": "CHILD_TIMEOUT"
+        },
+        {
+          "kind": "fn",
+          "line": 15,
+          "name": "read_pipe"
+        },
+        {
+          "kind": "fn",
+          "line": 21,
+          "name": "run_exact_child"
+        },
+        {
+          "kind": "fn",
+          "line": 66,
+          "name": "empty_hook"
+        },
+        {
+          "kind": "fn",
+          "line": 78,
+          "name": "offline_mixer"
+        },
+        {
+          "kind": "fn",
+          "line": 85,
+          "name": "finite_pcm"
+        },
+        {
+          "kind": "fn",
+          "line": 91,
+          "name": "offline_flat_voice_preserves_pause_volume_completion_and_registry_removal"
+        },
+        {
+          "kind": "fn",
+          "line": 143,
+          "name": "offline_spatial_voice_preserves_listener_pan_and_volume_controls"
+        },
+        {
+          "kind": "fn",
+          "line": 203,
+          "name": "offline_voice_registry_serializes_concurrent_hook_controls"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 1209,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/audio/tests.rs",
-      "sha256": "d16e9a40df6d281ad9e5f1192e7cbe2e80db03d24250affd409c352d5c232e93",
+      "sha256": "a5f5784e87c01ff810630639a22548ef214c441a0ee6e19edd1d7eab179aad80",
       "symbol_index_status": "indexed",
       "symbols": [
         {
           "kind": "fn",
-          "line": 7,
+          "line": 10,
           "name": "audio_affect_system_setting_combinations_match_cpp_flags"
         },
         {
           "kind": "fn",
-          "line": 35,
+          "line": 38,
           "name": "audio_manager_get_effective_volume_matches_miles_category_and_3d"
         },
         {
           "kind": "fn",
-          "line": 114,
+          "line": 117,
           "name": "test_info"
         },
         {
           "kind": "fn",
-          "line": 144,
+          "line": 147,
           "name": "event_with"
         },
         {
           "kind": "fn",
-          "line": 153,
+          "line": 156,
           "name": "uninterruptable_streaming_stops_speech_and_sets_disallow"
         },
         {
           "kind": "fn",
-          "line": 184,
+          "line": 187,
           "name": "delayed_play_request_defers_until_under_one_logic_frame"
         },
         {
           "kind": "fn",
-          "line": 213,
+          "line": 216,
           "name": "does_violate_limit_sets_oldest_handle_and_interrupt_request_counts"
         },
         {
           "kind": "fn",
-          "line": 243,
+          "line": 246,
           "name": "next_music_track_stops_playing_and_queues_next"
         },
         {
           "kind": "fn",
-          "line": 266,
+          "line": 269,
           "name": "friend_force_play_uses_speech_slider_and_tracks_handle"
         },
         {
           "kind": "fn",
-          "line": 283,
+          "line": 286,
           "name": "wav_channel_count_reads_fmt_channels"
         },
         {
           "kind": "fn",
-          "line": 293,
+          "line": 296,
           "name": "the_audio_singleton_registers_rodio_not_wwaudio"
         },
         {
           "kind": "fn",
-          "line": 321,
+          "line": 324,
           "name": "initialize_global_audio_manager_applies_retail_slider_volumes"
         },
         {
           "kind": "fn",
-          "line": 336,
+          "line": 339,
           "name": "update_drains_queued_play_requests_like_miles_process_request_list"
         },
         {
           "kind": "fn",
-          "line": 355,
+          "line": 358,
           "name": "boot_equivalent_audio_ini_load_resolves_retail_event_names"
         },
         {
           "kind": "fn",
-          "line": 391,
+          "line": 394,
           "name": "rodio_play_does_not_reenter_the_audio_mutex"
         },
         {
           "kind": "fn",
-          "line": 409,
+          "line": 412,
           "name": "stop_all_speech_hard_releases_streaming_handles"
         },
         {
           "kind": "fn",
-          "line": 423,
+          "line": 426,
           "name": "play_audio_event_kills_oldest_same_name_immediately"
         },
         {
           "kind": "fn",
-          "line": 446,
+          "line": 449,
           "name": "stop_audio_releases_playing_events"
         },
         {
           "kind": "fn",
-          "line": 459,
+          "line": 462,
           "name": "has_3d_sensitive_streams_ignores_positional_sfx"
         },
         {
           "kind": "fn",
-          "line": 486,
+          "line": 489,
           "name": "game_underscore_music_is_not_3d_sensitive"
         },
         {
           "kind": "fn",
-          "line": 501,
+          "line": 504,
           "name": "play_audio_event_steals_lowest_priority_when_pool_full"
         },
         {
           "kind": "fn",
-          "line": 538,
+          "line": 541,
           "name": "is_playing_already_partitions_2d_from_3d"
         },
         {
           "kind": "fn",
-          "line": 581,
+          "line": 584,
           "name": "should_play_locally_player_allies_enemies_match_cpp"
         },
         {
           "kind": "fn",
-          "line": 716,
+          "line": 719,
           "name": "set_listener_position_stores_orientation"
         },
         {
           "kind": "fn",
-          "line": 748,
+          "line": 751,
           "name": "play_failure_session_set_logs_once_per_event"
         },
         {
           "kind": "fn",
-          "line": 774,
+          "line": 777,
           "name": "unresolved_add_audio_event_reports_failure_once"
         },
         {
           "kind": "fn",
-          "line": 798,
+          "line": 801,
           "name": "play_err_strings_reach_the_failure_report_not_a_discard"
         },
         {
           "kind": "struct",
-          "line": 824,
+          "line": 827,
           "name": "OwnerSubmissionLocality"
         },
         {
           "kind": "fn",
-          "line": 826,
-          "name": "get_local_player_index"
-        },
-        {
-          "kind": "fn",
           "line": 829,
-          "name": "is_player_active"
+          "name": "get_local_player_index"
         },
         {
           "kind": "fn",
           "line": 832,
-          "name": "player_exists"
-        },
-        {
-          "kind": "fn",
-          "line": 835,
-          "name": "has_default_team"
-        },
-        {
-          "kind": "fn",
-          "line": 838,
-          "name": "get_relationship_to_local_team"
-        },
-        {
-          "kind": "fn",
-          "line": 848,
-          "name": "borrowed_owner_locality_uses_supplied_player_without_changing_event_identity"
-        },
-        {
-          "kind": "fn",
-          "line": 872,
-          "name": "borrowed_owner_submission_keeps_object_identity_in_the_queued_sound"
-        },
-        {
-          "kind": "struct",
-          "line": 892,
-          "name": "SubmissionLocalityPlayers"
-        },
-        {
-          "kind": "fn",
-          "line": 902,
-          "name": "get_local_player_index"
-        },
-        {
-          "kind": "fn",
-          "line": 905,
-          "name": "get_observer_look_at_player_index"
-        },
-        {
-          "kind": "fn",
-          "line": 908,
           "name": "is_player_active"
         },
         {
           "kind": "fn",
-          "line": 911,
+          "line": 835,
           "name": "player_exists"
         },
         {
           "kind": "fn",
-          "line": 914,
+          "line": 838,
           "name": "has_default_team"
         },
         {
           "kind": "fn",
-          "line": 917,
+          "line": 841,
           "name": "get_relationship_to_local_team"
         },
         {
           "kind": "fn",
-          "line": 932,
+          "line": 851,
+          "name": "borrowed_owner_locality_uses_supplied_player_without_changing_event_identity"
+        },
+        {
+          "kind": "fn",
+          "line": 875,
+          "name": "borrowed_owner_submission_keeps_object_identity_in_the_queued_sound"
+        },
+        {
+          "kind": "struct",
+          "line": 895,
+          "name": "SubmissionLocalityPlayers"
+        },
+        {
+          "kind": "fn",
+          "line": 905,
+          "name": "get_local_player_index"
+        },
+        {
+          "kind": "fn",
+          "line": 908,
+          "name": "get_observer_look_at_player_index"
+        },
+        {
+          "kind": "fn",
+          "line": 911,
+          "name": "is_player_active"
+        },
+        {
+          "kind": "fn",
+          "line": 914,
+          "name": "player_exists"
+        },
+        {
+          "kind": "fn",
+          "line": 917,
+          "name": "has_default_team"
+        },
+        {
+          "kind": "fn",
+          "line": 920,
+          "name": "get_relationship_to_local_team"
+        },
+        {
+          "kind": "fn",
+          "line": 935,
           "name": "explicit_locality_admits_registered_events_with_complete_cpp_player_facts"
         }
       ]
