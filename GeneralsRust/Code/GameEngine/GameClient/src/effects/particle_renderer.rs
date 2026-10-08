@@ -15,7 +15,7 @@ use super::decals::DecalRenderItem;
 use super::particle_manager::*;
 use super::particle_system::{Particle, ParticleSystem};
 use super::weather_complete::WeatherParticle;
-use crate::system::smudge::{get_smudge_manager, SmudgeSetHandle};
+use crate::system::smudge::get_smudge_manager;
 use glam::{Mat4, Vec2, Vec3};
 
 /// C++ `W3DParticleSystemManager::MAX_POINTS_PER_GROUP`.
@@ -437,17 +437,6 @@ pub fn begin_particle_heat_smudge_frame() {
     let _ = manager.add_smudge_set();
 }
 
-fn current_particle_heat_smudge_set() -> Option<SmudgeSetHandle> {
-    let Ok(mut manager) = get_smudge_manager().lock() else {
-        return None;
-    };
-    Some(
-        manager
-            .last_used_set()
-            .unwrap_or_else(|| manager.add_smudge_set()),
-    )
-}
-
 /// Convert a SMUD* / SMUDGE system into `TheSmudgeManager` heat smudges.
 /// C++ `W3DParticleSys.cpp:142-172` — never drawn as sprites.
 pub fn feed_system_heat_smudges(system: &ParticleSystem) -> usize {
@@ -457,19 +446,15 @@ pub fn feed_system_heat_smudges(system: &ParticleSystem) -> usize {
     let use_heat = game_engine::common::global_data::read_safe()
         .map(|data| data.use_heat_effects)
         .unwrap_or(true);
-    {
-        let Ok(manager) = get_smudge_manager().lock() else {
-            return 0;
-        };
-        if !manager.get_hardware_support() || !use_heat {
-            return 0;
-        }
-    }
-    let Some(set) = current_particle_heat_smudge_set() else {
+    let Ok(mut manager) = get_smudge_manager().lock() else {
         return 0;
     };
-    let mut visible = 0usize;
-    if let Ok(mut set) = set.lock() {
+    if !manager.get_hardware_support() || !use_heat {
+        return 0;
+    }
+    let visible = {
+        let mut set = manager.current_smudge_set();
+        let mut visible = 0usize;
         for particle in system.particles() {
             if !particle.is_draw_alive() {
                 continue;
@@ -488,12 +473,11 @@ pub fn feed_system_heat_smudges(system: &ParticleSystem) -> usize {
             smudge.opacity = particle.alpha;
             visible += 1;
         }
-    }
-    if let Ok(mut manager) = get_smudge_manager().lock() {
-        let added = i32::try_from(visible).unwrap_or(i32::MAX);
-        let prev = manager.get_smudge_count_last_frame();
-        manager.set_smudge_count_last_frame(prev.saturating_add(added));
-    }
+        visible
+    };
+    let added = i32::try_from(visible).unwrap_or(i32::MAX);
+    let prev = manager.get_smudge_count_last_frame();
+    manager.set_smudge_count_last_frame(prev.saturating_add(added));
     visible
 }
 
@@ -2420,11 +2404,13 @@ mod tests {
         assert!(smudges[0].offset.y >= -0.03 && smudges[0].offset.y <= 0.03);
 
         begin_particle_heat_smudge_frame();
-        assert!(get_smudge_manager()
-            .lock()
-            .unwrap()
-            .collect_decal_render_items()
-            .is_empty());
+        assert!(
+            get_smudge_manager()
+                .lock()
+                .unwrap()
+                .collect_decal_render_items()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -2490,11 +2476,13 @@ mod tests {
         assert!(!system_is_heat_smudge(&system));
         assert_eq!(feed_system_heat_smudges(&system), 0);
         assert_eq!(bake_particle_system_gpu_mesh(&system).len(), 1);
-        assert!(get_smudge_manager()
-            .lock()
-            .unwrap()
-            .collect_decal_render_items()
-            .is_empty());
+        assert!(
+            get_smudge_manager()
+                .lock()
+                .unwrap()
+                .collect_decal_render_items()
+                .is_empty()
+        );
 
         begin_particle_heat_smudge_frame();
     }

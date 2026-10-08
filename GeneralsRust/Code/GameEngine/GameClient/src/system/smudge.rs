@@ -2,7 +2,7 @@
 
 use crate::effects::decals::DecalRenderItem;
 use glam::{Vec2, Vec3};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 
 #[derive(Debug, Clone, Copy)]
 pub struct SmudgeVertex {
@@ -44,62 +44,72 @@ impl Default for Smudge {
     }
 }
 
+/// Set storage is owned by one manager; mutable access borrows that manager.
 #[derive(Debug, Default)]
 pub struct SmudgeSet {
     used: Vec<Smudge>,
-    free_pool: Arc<Mutex<Vec<Smudge>>>,
 }
 
 impl SmudgeSet {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    fn with_free_pool(free_pool: Arc<Mutex<Vec<Smudge>>>) -> Self {
-        Self {
-            used: Vec::new(),
-            free_pool,
-        }
-    }
-
-    pub fn reset(&mut self) {
-        let mut free_pool = self.free_pool.lock().unwrap_or_else(|e| e.into_inner());
-        // C++ removes used smudges from the head and adds each to the free head.
-        // Appending in used order gives the same next-reused smudge with Vec::pop.
-        for smudge in self.used.drain(..) {
-            free_pool.push(smudge);
-        }
-    }
-
-    pub fn add_smudge_to_set(&mut self) -> &mut Smudge {
-        let smudge = self
-            .free_pool
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .pop()
-            .unwrap_or_default();
-        self.used.push(smudge);
-        let index = self.used.len().saturating_sub(1);
-        &mut self.used[index]
-    }
-
-    pub fn remove_smudge_from_set(&mut self, index: usize) {
-        if index < self.used.len() {
-            // C++ intrusive-list removal keeps the remaining used order.
-            let smudge = self.used.remove(index);
-            self.free_pool
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .push(smudge);
-        }
-    }
-
     pub fn used_smudges(&self) -> &[Smudge] {
         &self.used
     }
 
     pub fn used_smudge_count(&self) -> usize {
         self.used.len()
+    }
+}
+
+/// Exclusive access to a set and its manager's shared recycling pool.
+///
+/// The borrow cannot survive a manager reset or escape into a second owner.
+/// ```compile_fail,E0499
+/// use game_client_rust::system::smudge::SmudgeManager;
+/// let mut manager = SmudgeManager::new();
+/// let mut set = manager.add_smudge_set();
+/// manager.reset();
+/// set.add_smudge_to_set();
+/// ```
+pub struct SmudgeSetMut<'a> {
+    manager: &'a mut SmudgeManager,
+    index: usize,
+}
+
+impl std::ops::Deref for SmudgeSetMut<'_> {
+    type Target = SmudgeSet;
+
+    fn deref(&self) -> &Self::Target {
+        &self.manager.used_sets[self.index]
+    }
+}
+
+impl SmudgeSetMut<'_> {
+    pub fn reset(&mut self) {
+        // C++ removes used head and adds to free head, represented by Vec::pop.
+        self.manager
+            .free_smudges
+            .extend(self.manager.used_sets[self.index].used.drain(..));
+    }
+
+    pub fn add_smudge_to_set(&mut self) -> &mut Smudge {
+        let smudge = self.manager.free_smudges.pop().unwrap_or_default();
+        let used = &mut self.manager.used_sets[self.index].used;
+        used.push(smudge);
+        used.last_mut().expect("just inserted a smudge")
+    }
+
+    pub fn remove_smudge_from_set(&mut self, index: usize) {
+        let used = &mut self.manager.used_sets[self.index].used;
+        if index < used.len() {
+            // Intrusive-list removal leaves the remaining smudges in order.
+            self.manager.free_smudges.push(used.remove(index));
+        }
+    }
+
+    /// Return this set to the free head without resetting its smudges (C++).
+    pub fn remove(self) {
+        let set = self.manager.used_sets.remove(self.index);
+        self.manager.free_sets.push(set);
     }
 }
 
@@ -112,9 +122,10 @@ enum HardwareSmudgeSupport {
 
 #[derive(Debug)]
 pub struct SmudgeManager {
-    used_sets: Vec<SmudgeSetHandle>,
-    free_sets: Vec<SmudgeSetHandle>,
-    free_smudges: Arc<Mutex<Vec<Smudge>>>,
+    // Boxes preserve C++ set identity when moving between the used/free lists.
+    used_sets: Vec<Box<SmudgeSet>>,
+    free_sets: Vec<Box<SmudgeSet>>,
+    free_smudges: Vec<Smudge>,
     smudge_count_last_frame: i32,
     hardware_support: HardwareSmudgeSupport,
 }
@@ -130,7 +141,7 @@ impl SmudgeManager {
         Self {
             used_sets: Vec::new(),
             free_sets: Vec::new(),
-            free_smudges: Arc::new(Mutex::new(Vec::new())),
+            free_smudges: Vec::new(),
             smudge_count_last_frame: 0,
             hardware_support: HardwareSmudgeSupport::Unknown,
         }
@@ -141,40 +152,36 @@ impl SmudgeManager {
     }
 
     pub fn reset(&mut self) {
-        // C++ drains the used head first, then appends sets to the free tail.
-        // The free Vec's tail represents the list head, including older free sets.
-        for set in &self.used_sets {
-            if let Ok(mut guard) = set.lock() {
-                guard.reset();
-            }
+        // Used head first; append to free tail behind any already-free sets.
+        for set in &mut self.used_sets {
+            self.free_smudges.extend(set.used.drain(..));
         }
         self.free_sets.splice(0..0, self.used_sets.drain(..).rev());
     }
 
-    pub fn add_smudge_set(&mut self) -> SmudgeSetHandle {
-        let set = if let Some(set) = self.free_sets.pop() {
-            set
-        } else {
-            Arc::new(Mutex::new(SmudgeSet::with_free_pool(Arc::clone(
-                &self.free_smudges,
-            ))))
-        };
-        self.used_sets.push(Arc::clone(&set));
-        set
+    pub fn add_smudge_set(&mut self) -> SmudgeSetMut<'_> {
+        let set = self.free_sets.pop().unwrap_or_default();
+        self.used_sets.push(set);
+        self.borrow_set(self.used_sets.len() - 1)
     }
 
-    pub fn last_used_set(&self) -> Option<SmudgeSetHandle> {
-        self.used_sets.last().cloned()
+    pub fn last_used_set(&mut self) -> Option<SmudgeSetMut<'_>> {
+        let index = self.used_sets.len().checked_sub(1)?;
+        Some(self.borrow_set(index))
     }
 
-    pub fn remove_smudge_set(&mut self, set: &SmudgeSetHandle) {
-        if let Some(pos) = self
-            .used_sets
-            .iter()
-            .position(|candidate| Arc::ptr_eq(candidate, set))
-        {
-            let set = self.used_sets.remove(pos);
-            self.free_sets.push(set);
+    /// The particle feed may precede frame setup; retain its lazy first set.
+    pub fn current_smudge_set(&mut self) -> SmudgeSetMut<'_> {
+        if self.used_sets.is_empty() {
+            let _ = self.add_smudge_set();
+        }
+        self.last_used_set().expect("a current set exists")
+    }
+
+    fn borrow_set(&mut self, index: usize) -> SmudgeSetMut<'_> {
+        SmudgeSetMut {
+            manager: self,
+            index,
         }
     }
 
@@ -196,9 +203,7 @@ impl SmudgeManager {
     pub fn collect_used_smudges(&self) -> Vec<Smudge> {
         let mut items = Vec::new();
         for set in &self.used_sets {
-            if let Ok(guard) = set.lock() {
-                items.extend(guard.used_smudges().iter().cloned());
-            }
+            items.extend(set.used_smudges().iter().cloned());
         }
         items
     }
@@ -221,8 +226,6 @@ impl SmudgeManager {
             .collect()
     }
 }
-
-pub type SmudgeSetHandle = Arc<Mutex<SmudgeSet>>;
 
 static THE_SMUDGE_MANAGER: OnceLock<Mutex<SmudgeManager>> = OnceLock::new();
 
@@ -300,19 +303,13 @@ pub fn simulate_smudge_add(size: f32, opacity: f32) -> bool {
         let _ = manager.add_smudge_set();
         RESIDUAL_SMUDGE_SET_COUNT.store(1, std::sync::atomic::Ordering::Relaxed);
     }
-    let Some(set) = manager.used_sets.first().cloned() else {
-        return false;
+    let count = {
+        let mut set = manager.borrow_set(0);
+        let smudge = set.add_smudge_to_set();
+        smudge.size = size;
+        smudge.opacity = opacity;
+        set.used_smudge_count()
     };
-    // Drop manager before locking set to avoid lock-order inversion with reset().
-    drop(manager);
-    let Ok(mut guard) = set.lock() else {
-        return false;
-    };
-    let smudge = guard.add_smudge_to_set();
-    smudge.size = size;
-    smudge.opacity = opacity;
-    let count = guard.used_smudge_count();
-    drop(guard);
     RESIDUAL_SMUDGE_COUNT.store(count, std::sync::atomic::Ordering::Relaxed);
     RESIDUAL_SMUDGE_SET_COUNT.store(1, std::sync::atomic::Ordering::Relaxed);
     residual_smudge_action_store(ResidualSmudgeAction::AddSmudge);
@@ -321,22 +318,20 @@ pub fn simulate_smudge_add(size: f32, opacity: f32) -> bool {
 
 /// Residual: remove first residual smudge.
 pub fn simulate_smudge_remove_first() -> bool {
-    let Ok(manager) = get_smudge_manager().lock() else {
+    let Ok(mut manager) = get_smudge_manager().lock() else {
         return false;
     };
-    let Some(set) = manager.used_sets.first().cloned() else {
-        return false;
-    };
-    drop(manager);
-    let Ok(mut guard) = set.lock() else {
-        return false;
-    };
-    if guard.used_smudge_count() == 0 {
+    if manager.used_sets.is_empty() {
         return false;
     }
-    guard.remove_smudge_from_set(0);
-    let count = guard.used_smudge_count();
-    drop(guard);
+    let count = {
+        let mut set = manager.borrow_set(0);
+        if set.used_smudge_count() == 0 {
+            return false;
+        }
+        set.remove_smudge_from_set(0);
+        set.used_smudge_count()
+    };
     RESIDUAL_SMUDGE_COUNT.store(count, std::sync::atomic::Ordering::Relaxed);
     residual_smudge_action_store(ResidualSmudgeAction::RemoveSmudge);
     true
@@ -388,40 +383,34 @@ pub fn simulate_smudge_prepare_set_with_smudge(size: f32) -> bool {
 mod tests {
     use super::*;
 
+    fn identity(set: &SmudgeSetMut<'_>) -> *const SmudgeSet {
+        std::ptr::from_ref(&**set)
+    }
+
     #[test]
     fn remove_smudge_set_reuses_without_reset_like_cpp() {
         let mut manager = SmudgeManager::new();
-        let set = manager.add_smudge_set();
-
-        {
-            let mut guard = set.lock().unwrap();
-            guard.add_smudge_to_set().size = 42.0;
-        }
-
-        manager.remove_smudge_set(&set);
-        assert_eq!(set.lock().unwrap().used_smudge_count(), 1);
-
+        let mut set = manager.add_smudge_set();
+        let original = identity(&set);
+        set.add_smudge_to_set().size = 42.0;
+        set.remove();
+        assert_eq!(manager.free_sets.last().unwrap().used_smudge_count(), 1);
         let reused = manager.add_smudge_set();
-        assert!(Arc::ptr_eq(&set, &reused));
-
-        let guard = reused.lock().unwrap();
-        assert_eq!(guard.used_smudge_count(), 1);
-        assert_eq!(guard.used_smudges()[0].size, 42.0);
+        assert_eq!(original, identity(&reused));
+        assert_eq!(reused.used_smudge_count(), 1);
+        assert_eq!(reused.used_smudges()[0].size, 42.0);
     }
 
-    /// Residual smudges must become GPU decal items so the live frame can
-    /// draw them via `ParticleRenderer::render_decals` (C++ W3DSmudgeManager).
     #[test]
     fn collect_decal_render_items_skips_empty_and_keeps_used() {
         let mut manager = SmudgeManager::new();
-        let set = manager.add_smudge_set();
         {
-            let mut guard = set.lock().unwrap();
-            let drawn = guard.add_smudge_to_set();
+            let mut set = manager.add_smudge_set();
+            let drawn = set.add_smudge_to_set();
             drawn.pos = Vec3::new(4.0, 5.0, 6.0);
             drawn.size = 8.0;
             drawn.opacity = 0.5;
-            let skipped = guard.add_smudge_to_set();
+            let skipped = set.add_smudge_to_set();
             skipped.size = 0.0;
             skipped.opacity = 1.0;
         }
@@ -435,29 +424,27 @@ mod tests {
     #[test]
     fn reset_clears_used_sets_before_pooling() {
         let mut manager = SmudgeManager::new();
-        let set = manager.add_smudge_set();
-        set.lock().unwrap().add_smudge_to_set().size = 12.0;
-
+        let original = {
+            let mut set = manager.add_smudge_set();
+            set.add_smudge_to_set().size = 12.0;
+            identity(&set)
+        };
         manager.reset();
-
         let reused = manager.add_smudge_set();
-        assert!(Arc::ptr_eq(&set, &reused));
-        assert_eq!(reused.lock().unwrap().used_smudge_count(), 0);
+        assert_eq!(original, identity(&reused));
+        assert_eq!(reused.used_smudge_count(), 0);
     }
 
     #[test]
     fn free_smudges_follow_cpp_reuse_order_within_one_manager() {
         let mut manager = SmudgeManager::new();
-        let first_set = manager.add_smudge_set();
         {
-            let mut first = first_set.lock().unwrap();
+            let mut first = manager.add_smudge_set();
             first.add_smudge_to_set().size = 1.0;
             first.add_smudge_to_set().size = 2.0;
             first.reset();
         }
-
-        let second_set = manager.add_smudge_set();
-        let mut second = second_set.lock().unwrap();
+        let mut second = manager.add_smudge_set();
         assert_eq!(second.add_smudge_to_set().size, 2.0);
         assert_eq!(second.add_smudge_to_set().size, 1.0);
     }
@@ -465,12 +452,10 @@ mod tests {
     #[test]
     fn removing_a_smudge_keeps_the_remaining_cpp_list_order() {
         let mut manager = SmudgeManager::new();
-        let set = manager.add_smudge_set();
-        let mut set = set.lock().unwrap();
+        let mut set = manager.add_smudge_set();
         for size in [1.0, 2.0, 3.0] {
             set.add_smudge_to_set().size = size;
         }
-
         set.remove_smudge_from_set(1);
         assert_eq!(
             set.used_smudges()
@@ -485,16 +470,12 @@ mod tests {
     #[test]
     fn free_smudges_do_not_leak_between_managers() {
         let mut first_manager = SmudgeManager::new();
-        let first_set = first_manager.add_smudge_set();
-        {
-            let mut first = first_set.lock().unwrap();
-            first.add_smudge_to_set().size = 42.0;
-            first.reset();
-        }
-
+        let mut first = first_manager.add_smudge_set();
+        first.add_smudge_to_set().size = 42.0;
+        first.reset();
         let mut second_manager = SmudgeManager::new();
-        let second_set = second_manager.add_smudge_set();
-        assert_eq!(second_set.lock().unwrap().add_smudge_to_set().size, 0.0);
-        assert_eq!(first_set.lock().unwrap().add_smudge_to_set().size, 42.0);
+        let mut second = second_manager.add_smudge_set();
+        assert_eq!(second.add_smudge_to_set().size, 0.0);
+        assert_eq!(first.add_smudge_to_set().size, 42.0);
     }
 }

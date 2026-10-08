@@ -29,7 +29,7 @@ pub use particle_sys::{
 };
 pub use ray_effect::{RayEffect, RayEffectConfig, RayEffectId, RayEffectManager, RayType};
 pub use smudge::{
-    ResidualSmudgeAction, Smudge, SmudgeManager, SmudgeSet, SmudgeSetHandle, get_smudge_manager,
+    ResidualSmudgeAction, Smudge, SmudgeManager, SmudgeSet, SmudgeSetMut, get_smudge_manager,
     residual_smudge_count, residual_smudge_last_action, residual_smudge_set_count,
     simulate_smudge_add, simulate_smudge_add_set, simulate_smudge_prepare_set_with_smudge,
     simulate_smudge_remove_first, simulate_smudge_remove_set, simulate_smudge_reset,
