@@ -63,13 +63,23 @@ pub fn materialize_host_economy_pending(logic: &mut GameLogic) {
 }
 
 pub fn materialize_host_authority_logs(logic: &mut GameLogic) {
-    // --- Damage (DAMAGE_AUTHORITY freezes mid-frame HP) ---
+    // Damage observations and pending residuals share transport, but only
+    // pending effects change owner health here. Object's body already applied
+    // its ordinary damage synchronously, as C++ ActiveBody does.
     let damage_events = crate::game_logic::host_damage_log::drain();
     let mut destroy_ids = Vec::new();
     for e in damage_events {
         let Some(obj) = logic.host_object_mut(e.target) else {
             continue;
         };
+        if e.owner_health_already_applied() {
+            // Health and death state are committed; retain the existing
+            // destruction admission without replaying the health delta.
+            if e.destroyed {
+                destroy_ids.push(e.target);
+            }
+            continue;
+        }
         if e.destroyed || e.amount + 1e-3 >= obj.health.current {
             obj.health.current = 0.0;
             obj.status.destroyed = true;

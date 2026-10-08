@@ -3,6 +3,42 @@
 use super::*;
 
 #[test]
+fn no_shadow_boundary_still_admits_projected_lethal_damage() {
+    let env = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "1");
+    let mut logic = GameLogic::new();
+    logic.set_damage_authority(true);
+    apply_skirmish_config(&mut logic, &golden_skirmish_config("PendingLethal")).expect("config");
+    ensure_template(&mut logic, "PendingLethalTarget", 100.0);
+    let id = logic
+        .create_object("PendingLethalTarget", Team::USA, Vec3::ZERO)
+        .expect("target");
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&logic);
+    crate::game_logic::host_damage_log::clear();
+    let authority = *logic.gameworld_authority();
+    with_gameworld_authority(authority, || {
+        let _couple = ShadowCoupleGuard::enter();
+        with_coupled_shadow(&mut shadow, || {
+            assert!(gameworld_damage_authority_live());
+            assert!(logic.host_lethal_finish_object(id, None));
+            assert_eq!(logic.host_object(id).unwrap().health.current, 100.0);
+        });
+    });
+    let events = crate::game_logic::host_damage_log::snapshot();
+    assert_eq!(events.len(), 1);
+    assert!(!events[0].owner_health_already_applied());
+    let _env = env.set("GENERALS_GAMEWORLD_SHADOW", "0");
+    run_post_logic_shadow_boundary(None, &mut logic);
+    assert_eq!(logic.host_object(id).unwrap().health.current, 0.0);
+    assert!(logic.host_object(id).unwrap().status.destroyed);
+    assert!(logic.host_object(id).unwrap().status.effectively_dead);
+    assert!(crate::game_logic::host_damage_log::snapshot().is_empty());
+    run_post_logic_shadow_boundary(None, &mut logic);
+    assert_eq!(logic.host_object(id).unwrap().health.current, 0.0);
+    crate::game_logic::host_damage_log::clear();
+}
+
+#[test]
 fn gameworld_step_movement_advances_move_target() {
     let _env_guard = authority_env_lock();
 
@@ -1740,4 +1776,104 @@ fn snapshot_builder_uses_authoritative_health() {
     );
 
     drop(_couple);
+}
+
+#[test]
+fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
+    let _env = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "0");
+    use crate::game_logic::host_damage_log;
+
+    let mut logic = GameLogic::new();
+    apply_skirmish_config(&mut logic, &golden_skirmish_config("NoShadowDamage")).expect("config");
+    ensure_template(&mut logic, "NoShadowDamageTarget", 100.0);
+
+    let ordinary = logic
+        .create_object("NoShadowDamageTarget", Team::USA, Vec3::new(1.0, 0.0, 1.0))
+        .expect("ordinary target");
+    let zero = logic
+        .create_object("NoShadowDamageTarget", Team::USA, Vec3::new(2.0, 0.0, 1.0))
+        .expect("zero target");
+    let lethal = logic
+        .create_object("NoShadowDamageTarget", Team::USA, Vec3::new(3.0, 0.0, 1.0))
+        .expect("lethal target");
+
+    assert!(!gameworld_shadow_enabled());
+    assert!(!shadow_coupled_tick_active());
+    host_damage_log::clear();
+
+    // Production Object::take_damage path commits this owner mutation at once.
+    {
+        let object = logic.host_object_mut(ordinary).expect("ordinary");
+        assert!(!object.status.destroyed);
+        assert!(!object.take_damage(20.0));
+        assert_eq!(object.health.current, 80.0);
+        assert_eq!(object.previous_health, 100.0);
+        assert!(!object.status.destroyed);
+    }
+    let ordinary_event = host_damage_log::snapshot();
+    assert_eq!(ordinary_event.len(), 1);
+    assert_eq!(ordinary_event[0].target, ordinary);
+    assert_eq!(ordinary_event[0].amount, 20.0);
+    assert!(!ordinary_event[0].destroyed);
+
+    // Main's no-session branch calls this exact boundary. It must drain the
+    // residual without applying already committed HP a second time.
+    crate::gameworld_shadow::run_post_logic_shadow_boundary(None, &mut logic);
+    {
+        let object = logic
+            .host_object(ordinary)
+            .expect("ordinary after boundary");
+        assert_eq!(object.health.current, 80.0);
+        assert_eq!(object.previous_health, 100.0);
+        assert!(!object.status.destroyed);
+    }
+    assert!(host_damage_log::snapshot().is_empty());
+
+    // A second no-session boundary is a no-op after the event has been drained.
+    crate::gameworld_shadow::run_post_logic_shadow_boundary(None, &mut logic);
+    assert_eq!(logic.host_object(ordinary).unwrap().health.current, 80.0);
+    assert_eq!(logic.host_object(ordinary).unwrap().previous_health, 100.0);
+    assert!(!logic.host_object(ordinary).unwrap().status.destroyed);
+
+    // Zero damage produces no damage event and must leave health/history alone.
+    let zero_previous = logic.host_object(zero).unwrap().previous_health;
+    {
+        let object = logic.host_object_mut(zero).expect("zero");
+        assert!(!object.take_damage(0.0));
+        assert_eq!(object.health.current, 100.0);
+        assert_eq!(object.previous_health, zero_previous);
+    }
+    assert!(host_damage_log::snapshot().is_empty());
+    crate::gameworld_shadow::run_post_logic_shadow_boundary(None, &mut logic);
+    assert_eq!(logic.host_object(zero).unwrap().health.current, 100.0);
+    assert_eq!(
+        logic.host_object(zero).unwrap().previous_health,
+        zero_previous
+    );
+    assert!(!logic.host_object(zero).unwrap().status.destroyed);
+
+    // Lethal Object::take_damage has already committed HP=0 and death state;
+    // the queued event still has to retain destruction bookkeeping. Repeated
+    // boundaries must not duplicate the health transition or clear the death.
+    {
+        let object = logic.host_object_mut(lethal).expect("lethal");
+        assert!(object.take_damage(1000.0));
+        assert_eq!(object.health.current, 0.0);
+        assert_eq!(object.previous_health, 100.0);
+        assert!(object.status.destroyed);
+    }
+    let lethal_event = host_damage_log::snapshot();
+    assert_eq!(lethal_event.len(), 1);
+    assert_eq!(lethal_event[0].target, lethal);
+    assert!(lethal_event[0].destroyed);
+    crate::gameworld_shadow::run_post_logic_shadow_boundary(None, &mut logic);
+    assert_eq!(logic.host_object(lethal).unwrap().health.current, 0.0);
+    assert_eq!(logic.host_object(lethal).unwrap().previous_health, 100.0);
+    assert!(logic.host_object(lethal).unwrap().status.destroyed);
+    crate::gameworld_shadow::run_post_logic_shadow_boundary(None, &mut logic);
+    assert_eq!(logic.host_object(lethal).unwrap().health.current, 0.0);
+    assert_eq!(logic.host_object(lethal).unwrap().previous_health, 100.0);
+    assert!(logic.host_object(lethal).unwrap().status.destroyed);
+
+    host_damage_log::clear();
 }

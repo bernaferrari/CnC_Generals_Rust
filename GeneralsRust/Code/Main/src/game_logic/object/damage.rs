@@ -368,7 +368,7 @@ impl Object {
                         );
                         self.set_ai_state(AIState::Idle);
                         self.target = None;
-                        crate::game_logic::host_damage_log::record_typed(
+                        crate::game_logic::host_damage_log::record_applied(
                             self.id,
                             if self.health.maximum > 0.0 {
                                 self.health.maximum
@@ -717,7 +717,7 @@ impl Object {
         if actual_damage > 0.0 || destroyed {
             self.stamp_last_damage_cpp(source, destroyed, damage_type, frame);
         }
-        crate::game_logic::host_damage_log::record_typed(
+        crate::game_logic::host_damage_log::record_applied(
             self.id,
             actual_damage,
             source,

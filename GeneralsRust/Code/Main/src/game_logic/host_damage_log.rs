@@ -9,6 +9,13 @@
 use super::ObjectId;
 use std::cell::{Cell, RefCell};
 
+/// Whether the producer has already changed its object's health.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OwnerHealthChange {
+    Pending,
+    Applied,
+}
+
 /// One damage application observed on the host authority.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HostDamageEvent {
@@ -19,6 +26,13 @@ pub struct HostDamageEvent {
     pub destroyed: bool,
     /// C++ `DamageType` ordinal (`DAMAGE_EXPLOSION` = 0).
     pub damage_type_ordinal: u32,
+    owner_health_change: OwnerHealthChange,
+}
+
+impl HostDamageEvent {
+    pub(crate) fn owner_health_already_applied(&self) -> bool {
+        self.owner_health_change == OwnerHealthChange::Applied
+    }
 }
 
 thread_local! {
@@ -28,7 +42,7 @@ thread_local! {
     static CUM_KILLS: Cell<u32> = const { Cell::new(0) };
 }
 
-/// Record a damage event (called from Object::take_damage_from).
+/// Queue damage whose health effect still needs admission by the authority.
 /// Untyped callers default to C++ `DAMAGE_EXPLOSION` (ordinal 0).
 pub fn record(target: ObjectId, amount: f32, source: Option<ObjectId>, destroyed: bool) {
     record_typed(target, amount, source, destroyed, 0);
@@ -41,6 +55,44 @@ pub fn record_typed(
     source: Option<ObjectId>,
     destroyed: bool,
     damage_type_ordinal: u32,
+) {
+    record_damage_event(
+        target,
+        amount,
+        source,
+        destroyed,
+        damage_type_ordinal,
+        OwnerHealthChange::Pending,
+    );
+}
+
+/// Observe damage already committed by Object's C++-ordered body operation.
+/// Shadow consumers still receive the damage, but host fallback admission must
+/// not subtract it from that same object again.
+pub(crate) fn record_applied(
+    target: ObjectId,
+    amount: f32,
+    source: Option<ObjectId>,
+    destroyed: bool,
+    damage_type_ordinal: u32,
+) {
+    record_damage_event(
+        target,
+        amount,
+        source,
+        destroyed,
+        damage_type_ordinal,
+        OwnerHealthChange::Applied,
+    );
+}
+
+fn record_damage_event(
+    target: ObjectId,
+    amount: f32,
+    source: Option<ObjectId>,
+    destroyed: bool,
+    damage_type_ordinal: u32,
+    owner_health_change: OwnerHealthChange,
 ) {
     if amount <= 0.0 && !destroyed {
         return;
@@ -56,6 +108,7 @@ pub fn record_typed(
             source,
             destroyed,
             damage_type_ordinal,
+            owner_health_change,
         });
     });
 }
@@ -114,6 +167,22 @@ pub fn last_drain_snapshot() -> Vec<HostDamageEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn applied_observations_and_pending_damage_keep_their_admission_kind() {
+        clear();
+        record_applied(ObjectId(1), 20.0, None, false, 2);
+        record_typed(ObjectId(2), 30.0, Some(ObjectId(1)), true, 5);
+        let events = drain();
+        assert_eq!(events.len(), 2);
+        assert!(events[0].owner_health_already_applied());
+        assert!(!events[1].owner_health_already_applied());
+        assert_eq!(events[0].damage_type_ordinal, 2);
+        assert_eq!(events[1].damage_type_ordinal, 5);
+        assert_eq!(last_drain_snapshot(), events);
+        assert_eq!(cumulative_totals(), (50.0, 1));
+        clear();
+    }
 
     #[test]
     fn record_and_drain_preserves_order() {
