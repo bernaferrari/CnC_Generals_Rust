@@ -1400,7 +1400,7 @@ pub struct Template {
 impl Template {
     pub fn new() -> Self {
         Self {
-            ui_name: String::new(),
+            ui_name: "UNUSED/(placeholder)/placeholder".to_owned(),
             ui_name2: String::new(),
             internal_name: String::new(),
             internal_name_key: 0,

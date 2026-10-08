@@ -1599,3 +1599,6 @@ mod chunk_explicit_owner_tests;
 
 #[path = "tests/authored_template_tests.rs"]
 mod authored_template_tests;
+
+#[path = "tests/authored_metadata_tests.rs"]
+mod authored_metadata_tests;

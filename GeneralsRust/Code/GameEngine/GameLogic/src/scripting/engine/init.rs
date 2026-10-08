@@ -14,9 +14,6 @@ impl ScriptEngine {
         {
             template.base.internal_name = name.to_owned();
             template.base.internal_name_key = NameKeyGenerator::name_to_key(name);
-            if template.base.ui_name.is_empty() {
-                template.base.ui_name = name.to_owned();
-            }
         }
         for (template, name) in inner
             .action_templates
@@ -25,9 +22,6 @@ impl ScriptEngine {
         {
             template.base.internal_name = name.to_owned();
             template.base.internal_name_key = NameKeyGenerator::name_to_key(name);
-            if template.base.ui_name.is_empty() {
-                template.base.ui_name = name.to_owned();
-            }
         }
     }
 
@@ -1241,7 +1235,7 @@ impl ScriptEngine {
     /// Initialize action and condition templates
     fn initialize_templates(&mut self) -> GameLogicResult<()> {
         let inner = self.inner.get_mut();
-        // Initialize action templates (this would normally be done from INI files)
+        // C++ builds immutable definitions before applying optional editor INI labels.
         inner
             .action_templates
             .resize(ScriptActionType::NumItems as usize, ActionTemplate::new());
@@ -1249,92 +1243,9 @@ impl ScriptEngine {
             .condition_templates
             .resize(ConditionType::NumItems as usize, ConditionTemplate::new());
 
-        // Existing parameter/UI definitions are retained; C++ name/key identity is final.
-        self.setup_basic_templates()?;
+        // Full authored defaults, followed by C++ condition-first name/key allocation.
+        template_metadata::initialize(&mut inner.action_templates, &mut inner.condition_templates);
         self.seed_template_internal_names();
-
-        Ok(())
-    }
-
-    /// Set up basic templates for core actions and conditions
-    fn setup_basic_templates(&mut self) -> GameLogicResult<()> {
-        let inner = self.inner.get_mut();
-        // Victory action
-        if let Some(template) = inner
-            .action_templates
-            .get_mut(ScriptActionType::Victory as usize)
-        {
-            template.base.ui_name = "Victory".to_string();
-            template.base.help_text = "Triggers victory for the current player".to_string();
-        }
-
-        // Defeat action
-        if let Some(template) = inner
-            .action_templates
-            .get_mut(ScriptActionType::Defeat as usize)
-        {
-            template.base.ui_name = "Defeat".to_string();
-            template.base.help_text = "Triggers defeat for the current player".to_string();
-        }
-
-        // Set flag action
-        if let Some(template) = inner
-            .action_templates
-            .get_mut(ScriptActionType::SetFlag as usize)
-        {
-            template.base.ui_name = "Set Flag".to_string();
-            template.base.help_text = "Sets a script flag to true or false".to_string();
-            template.base.parameters = vec![ParameterType::Flag, ParameterType::Boolean];
-            template.base.num_parameters = 2;
-        }
-
-        // Set counter action
-        if let Some(template) = inner
-            .action_templates
-            .get_mut(ScriptActionType::SetCounter as usize)
-        {
-            template.base.ui_name = "Set Counter".to_string();
-            template.base.help_text = "Sets a script counter to a value".to_string();
-            template.base.parameters = vec![ParameterType::Counter, ParameterType::Int];
-            template.base.num_parameters = 2;
-        }
-
-        // Player all destroyed condition
-        if let Some(template) = inner
-            .condition_templates
-            .get_mut(ConditionType::PlayerAllDestroyed as usize)
-        {
-            template.base.ui_name = "Player All Destroyed".to_string();
-            template.base.help_text = "True if all of a player's units are destroyed".to_string();
-            template.base.parameters = vec![ParameterType::Side];
-            template.base.num_parameters = 1;
-        }
-
-        // Counter condition
-        if let Some(template) = inner
-            .condition_templates
-            .get_mut(ConditionType::Counter as usize)
-        {
-            template.base.ui_name = "Counter".to_string();
-            template.base.help_text = "Compares a counter value".to_string();
-            template.base.parameters = vec![
-                ParameterType::Counter,
-                ParameterType::Comparison,
-                ParameterType::Int,
-            ];
-            template.base.num_parameters = 3;
-        }
-
-        // Flag condition
-        if let Some(template) = inner
-            .condition_templates
-            .get_mut(ConditionType::Flag as usize)
-        {
-            template.base.ui_name = "Flag".to_string();
-            template.base.help_text = "Checks if a flag is set".to_string();
-            template.base.parameters = vec![ParameterType::Flag, ParameterType::Boolean];
-            template.base.num_parameters = 2;
-        }
 
         Ok(())
     }
