@@ -47,7 +47,7 @@ impl GameLogic {
                 None => return false,
             };
 
-        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
+        let decision_auth = self.ai_decision_authority_live();
         let apply_state = |logic: &mut Self, state: AIState| {
             let already = logic
                 .objects

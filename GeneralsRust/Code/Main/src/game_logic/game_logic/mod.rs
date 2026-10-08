@@ -219,3 +219,7 @@ mod radius_decal_clock_owner_tests;
 
 #[cfg(test)]
 mod pose_owner_tests;
+
+#[cfg(test)]
+#[path = "../victory_owner_tests.rs"]
+mod victory_owner_tests;

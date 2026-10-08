@@ -38,7 +38,7 @@ fn fire_at_records_fire_intent_residual() {
             ..Weapon::default()
         });
         o.status.weapons_jammed = false;
-        let fired = o.fire_at(vid, 1.0, logic.frame, &mut logic.combat_system);
+        let fired = o.fire_at(vid, 1.0, logic.frame, &mut logic.combat_system, false);
         assert!(fired, "close-range fire_at should discharge");
         // Host last_fire_* deferred under AI attack authority.
         assert_eq!(o.last_fire_victim_host, 0);
@@ -76,7 +76,7 @@ fn fire_at_records_fire_intent_residual() {
         if let Some(w) = o.weapon.as_mut() {
             w.last_fire_time = 0.0;
         }
-        let fired = o.fire_at(vid, 2.0, logic.frame, &mut logic.combat_system);
+        let fired = o.fire_at(vid, 2.0, logic.frame, &mut logic.combat_system, false);
         assert!(fired);
         assert_eq!(o.last_fire_victim_host, vid.0);
         assert!(o.fire_intent_count >= 1);
@@ -1071,11 +1071,14 @@ fn residual_auto_fire_records_fire_intent_source() {
         );
     }
     let obj = GAME_LOGIC_OBJECT_SRC;
-    let i = obj.find("fn fire_at_ex").expect("fire_at_ex");
-    let w = &obj[i..i + 8000];
+    let w = rust_fn_body(obj, "fire_at_ex_defer_weapon_barrel_advance")
+        .expect("actual Object shot implementation");
     assert!(
-        w.contains("gameworld_ai_decision_authority") && w.contains("record_set_state"),
-        "fire_at_ex pre-attack must honor AI decision authority"
+        w.contains("decision_authority_live: bool")
+            && w.contains("if decision_authority_live")
+            && w.contains("record_set_state")
+            && !w.contains("gameworld_ai_decision_authority_live()"),
+        "Object pre-attack must use the explicit driving-world decision policy"
     );
 }
 

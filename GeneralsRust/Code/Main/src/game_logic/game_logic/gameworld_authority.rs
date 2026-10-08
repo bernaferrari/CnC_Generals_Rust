@@ -11,11 +11,12 @@
 //! writer, commit 0c4d18623), and tests opt a channel in via explicit
 //! setters on their own instance instead of mutating process environment.
 //!
-//! Deep readers (host object/combat/AI code that has no `&GameLogic` handle)
-//! consult a thread-local snapshot of the currently executing instance,
-//! mirroring C++'s `TheGameLogic` process-global access from deep subsystems.
-//! `GameLogic::new()` publishes its (default) context so a fresh instance is
-//! always a clean authority barrier, and every setter re-publishes.
+//! Some deep readers still consult a temporary thread-local snapshot because
+//! they do not yet receive their driving instance. Scoped publication restores
+//! the previous selection around a synchronous operation. Constructors are
+//! inert: `GameLogic::new()` never selects or publishes a world. Setters still
+//! publish for those remaining adapters; that does not isolate their consumers.
+//! Owner-bearing AI decision operations read the receiver's field directly.
 
 use super::GameLogic;
 
@@ -76,12 +77,11 @@ thread_local! {
         const { std::cell::Cell::new(GameWorldAuthority::DEFAULT_OFF) };
 }
 
-/// Authority switches of the currently executing `GameLogic` context.
+/// Temporary authority snapshot for deep readers without a world borrow.
 ///
-/// Deep host readers (object/combat/AI code without a `&GameLogic` handle)
-/// resolve their last-writer gates through this snapshot instead of process
-/// environment, so one test can no longer re-author another instance's
-/// decision through `GENERALS_GAMEWORLD_*`.
+/// The driving operation must scope publication and restore the previous
+/// snapshot. Owner-bearing methods should read their own `GameLogic` policy;
+/// an unscoped setter can otherwise replace this selection with another world.
 #[inline]
 pub fn current_gameworld_authority() -> GameWorldAuthority {
     CURRENT_AUTHORITY.with(|c| c.get())
@@ -108,7 +108,7 @@ impl GameLogic {
         publish_gameworld_authority(self.gameworld_authority);
     }
 
-    /// Publish this instance's authority snapshot (fresh-instance barrier).
+    /// Publish this instance for a temporary, synchronous adapter operation.
     #[inline]
     pub(crate) fn publish_gameworld_authority_context(&self) {
         publish_gameworld_authority(self.gameworld_authority);

@@ -205,7 +205,7 @@ impl GameLogic {
         if !self.choose_best_weapon_for_target(unit_id, Some(victim_id), t) {
             return AttackMachineResult::Failure;
         }
-        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
+        let decision_auth = self.ai_decision_authority_live();
         let mut entered_attack = false;
         {
             let Some(u) = self.objects.get_mut(&unit_id) else {
@@ -502,7 +502,7 @@ impl GameLogic {
                 u.set_ai_state(AIState::Attacking);
             }
         }
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+        if self.ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_attack(unit_id, victim_id);
             if entered_attack {
                 crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
@@ -1651,7 +1651,7 @@ impl GameLogic {
                 u.set_ai_state(AIState::Attacking);
             }
         }
-        if entered_attack && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+        if entered_attack && self.ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
         }
         // C++ AIAttackAimAtTargetState sets turret target when tur != INVALID.
@@ -1705,6 +1705,7 @@ impl GameLogic {
             return AttackAimResult::Continue;
         }
 
+        let decision_authority_live = self.ai_decision_authority_live();
         let (body_aimed, range_ok, turret_enabled) = {
             let Some(u) = self.objects.get_mut(&unit_id) else {
                 return AttackAimResult::Failure;
@@ -1717,7 +1718,7 @@ impl GameLogic {
             }
             u.set_status_aiming_weapon(true);
             u.note_attack_target(victim_id);
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+            if decision_authority_live {
                 crate::game_logic::host_ai_decision_log::record_attack(unit_id, victim_id);
             }
             let Some(slot) = u.selected_weapon_slot() else {
@@ -1751,6 +1752,7 @@ impl GameLogic {
     }
 
     pub fn attack_fire_weapon_enter(&mut self, unit_id: ObjectId) -> bool {
+        let decision_authority_live = self.ai_decision_authority_live();
         {
             let Some(u) = self.objects.get_mut(&unit_id) else {
                 return false;
@@ -1767,7 +1769,7 @@ impl GameLogic {
             if entered_attack {
                 u.set_ai_state(AIState::Attacking);
             }
-            if entered_attack && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+            if entered_attack && decision_authority_live {
                 crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
             }
         }
@@ -1845,6 +1847,7 @@ impl GameLogic {
             .get(&victim_id)
             .map(|v| (v.is_kind_of(KindOf::Infantry), v.is_faerie_fire()))
             .unwrap_or((false, false));
+        let decision_authority_live = self.ai_decision_authority_live();
         let fired_slot = {
             let Some(u) = self.objects.get_mut(&unit_id) else {
                 return AttackFireResult::Failure;
@@ -1859,7 +1862,7 @@ impl GameLogic {
                 u.set_ai_state(AIState::Attacking);
             }
             u.set_status_attacking(true);
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+            if decision_authority_live {
                 crate::game_logic::host_ai_decision_log::record_attack(unit_id, victim_id);
                 if entered_attack {
                     crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
@@ -1873,6 +1876,7 @@ impl GameLogic {
                 victim_faerie,
                 self.frame,
                 &mut self.combat_system,
+                decision_authority_live,
             )
         };
 
@@ -2135,6 +2139,7 @@ impl GameLogic {
 
     /// C++ AIUpdateInterface::privateStop residual.
     pub fn private_stop(&mut self, unit_id: ObjectId) -> bool {
+        let decision_authority_live = self.ai_decision_authority_live();
         let Some(u) = self.objects.get_mut(&unit_id) else {
             return false;
         };
@@ -2153,7 +2158,7 @@ impl GameLogic {
             u.set_ai_state(AIState::Idle);
         }
         let ended_idle = matches!(u.ai_state, AIState::Idle);
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+        if decision_authority_live {
             crate::game_logic::host_ai_decision_log::record_stop_attack(unit_id);
             if ended_idle {
                 crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 0);

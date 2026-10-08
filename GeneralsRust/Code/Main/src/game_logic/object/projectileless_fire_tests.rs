@@ -102,7 +102,7 @@ fn fire_at_keeps_gattling_store_type() {
         .last_fire_time = -10.0;
     let target_position = Vec3::new(100.0, 0.0, 0.0);
     attacker.prev_victim_pos = Some(target_position);
-    assert!(attacker.fire_at(ObjectId(2), 1.0, 3, &mut combat));
+    assert!(attacker.fire_at(ObjectId(2), 1.0, 3, &mut combat, false));
     assert_eq!(
         crate::game_logic::combat::last_pending_projectile_damage_type_for_test(&combat),
         Some(crate::game_logic::combat::DamageType::Gattling),
@@ -165,7 +165,7 @@ fn fire_at_projectileless_queues_leftover_delayed_damage() {
         last_fire_time: -10.0,
         ..Weapon::default()
     });
-    assert!(attacker.fire_at(ObjectId(2), 1.0, 3, &mut combat));
+    assert!(attacker.fire_at(ObjectId(2), 1.0, 3, &mut combat, false));
     // Preserve the original immediate compatibility identity assertion BEFORE
     // materialization appends its separate native mirror entry. This does not
     // assert that the remaining compatibility mirror executes only once.

@@ -277,13 +277,13 @@ fn sold_and_under_construction_cannot_attack_or_fire() {
     obj.weapon.as_mut().unwrap().last_fire_time = -10.0;
     assert!(obj.can_attack());
     assert!(obj.can_fire(0.0));
-    assert!(obj.fire_at(ObjectId(2), 0.0, 0, &mut shot_combat));
+    assert!(obj.fire_at(ObjectId(2), 0.0, 0, &mut shot_combat, false));
 
     obj.status.under_construction = true;
     assert!(!obj.can_attack(), "UC Patriots/Stingers cannot acquire");
     assert!(!obj.can_fire(1.0), "UC cannot discharge");
     assert!(
-        !obj.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat),
+        !obj.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, false),
         "UC fire_at must fail"
     );
     obj.status.under_construction = false;
@@ -293,7 +293,7 @@ fn sold_and_under_construction_cannot_attack_or_fire() {
     assert!(!obj.can_attack(), "sold defenses cannot acquire");
     assert!(!obj.can_fire(2.0), "sold cannot discharge");
     assert!(
-        !obj.fire_at(ObjectId(2), 2.0, 0, &mut shot_combat),
+        !obj.fire_at(ObjectId(2), 2.0, 0, &mut shot_combat, false),
         "sold fire_at must fail"
     );
 }
@@ -381,7 +381,7 @@ fn temporary_tertiary_lock_releases_after_its_auto_clip_reloads() {
     });
     assert!(object.set_weapon_lock(2, WeaponLockType::LockedTemporarily));
 
-    assert!(object.fire_at(ObjectId(99), 1.0, 0, &mut shot_combat));
+    assert!(object.fire_at(ObjectId(99), 1.0, 0, &mut shot_combat, false));
 
     assert_eq!(object.last_fire_slot, 2);
     assert_eq!(
@@ -459,7 +459,7 @@ fn fire_at_breaks_stealth_when_forbidden_while_attacking() {
         last_fire_time: -1.0,
         ..Weapon::default()
     });
-    assert!(object.fire_at(ObjectId(2), 0.0, 0, &mut shot_combat));
+    assert!(object.fire_at(ObjectId(2), 0.0, 0, &mut shot_combat, false));
     assert!(!object.status.stealthed);
     assert!(!object.status.detected);
 }
@@ -574,17 +574,17 @@ fn pre_attack_delay_blocks_first_shot() {
     let tgt_id = ObjectId(2);
 
     // First call starts wind-up, must not fire (ammo unchanged).
-    assert!(!atk.fire_at(tgt_id, 10.0, 0, &mut shot_combat));
+    assert!(!atk.fire_at(tgt_id, 10.0, 0, &mut shot_combat, false));
     assert_eq!(atk.pre_attack_target, Some(tgt_id));
     assert!((atk.pre_attack_ready_at - 11.0).abs() < 1e-4);
     assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(5));
 
     // Still winding up.
-    assert!(!atk.fire_at(tgt_id, 10.5, 0, &mut shot_combat));
+    assert!(!atk.fire_at(tgt_id, 10.5, 0, &mut shot_combat, false));
     assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(5));
 
     // After delay, fires and consumes ammo.
-    assert!(atk.fire_at(tgt_id, 11.0, 0, &mut shot_combat));
+    assert!(atk.fire_at(tgt_id, 11.0, 0, &mut shot_combat, false));
     assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(4));
 }
 
@@ -604,10 +604,10 @@ fn pre_attack_resets_on_new_target() {
         pre_attack_delay: 2.0,
         ..Weapon::default()
     });
-    assert!(!atk.fire_at(ObjectId(10), 5.0, 0, &mut shot_combat));
+    assert!(!atk.fire_at(ObjectId(10), 5.0, 0, &mut shot_combat, false));
     assert!((atk.pre_attack_ready_at - 7.0).abs() < 1e-4);
     // Switch target restarts delay.
-    assert!(!atk.fire_at(ObjectId(11), 6.0, 0, &mut shot_combat));
+    assert!(!atk.fire_at(ObjectId(11), 6.0, 0, &mut shot_combat, false));
     assert_eq!(atk.pre_attack_target, Some(ObjectId(11)));
     assert!((atk.pre_attack_ready_at - 8.0).abs() < 1e-4);
 }
@@ -751,7 +751,7 @@ fn fire_at_scales_secondary_damage_with_damage_bonus() {
         ..Weapon::default()
     });
     atk.weapon_bonus_veteran = true;
-    assert!(atk.fire_at(ObjectId(2), 0.0, 0, &mut shot_combat));
+    assert!(atk.fire_at(ObjectId(2), 0.0, 0, &mut shot_combat, false));
     let raw = crate::game_logic::weapon_bootstrap::host_secondary_damage_for_weapon_name(
         "ScorpionTankGun",
     );
@@ -2147,7 +2147,7 @@ fn most_percent_ready_between_shots_progresses() {
         ..Weapon::default()
     });
     assert_eq!(o.get_most_percent_ready_to_fire_any_weapon(0.0), 100);
-    assert!(o.fire_at(tgt.id, 1.0, 0, &mut shot_combat));
+    assert!(o.fire_at(tgt.id, 1.0, 0, &mut shot_combat, false));
     assert_eq!(o.weapon_fire_status, WeaponFireStatus::BetweenFiringShots);
     let mid = o.get_most_percent_ready_to_fire_any_weapon(1.5);
     assert!(mid > 0 && mid < 100, "mid={mid}");
@@ -2213,7 +2213,7 @@ fn weapon_status_sets_between_firing_model_condition() {
         last_fire_time: -100.0,
         ..Weapon::default()
     });
-    assert!(atk.fire_at(tgt.id, 1.0, 0, &mut shot_combat));
+    assert!(atk.fire_at(tgt.id, 1.0, 0, &mut shot_combat, false));
     assert_eq!(atk.weapon_fire_status, WeaponFireStatus::BetweenFiringShots);
     assert_ne!(
         atk.model_condition_bits & (1u128 << MC_BIT_BETWEEN_FIRING_SHOTS_A),
@@ -2243,7 +2243,7 @@ fn weapon_fire_status_between_shots_after_fire() {
         ..Weapon::default()
     });
     assert_eq!(atk.weapon_fire_status, WeaponFireStatus::ReadyToFire);
-    assert!(atk.fire_at(tgt.id, 1.0, 0, &mut shot_combat));
+    assert!(atk.fire_at(tgt.id, 1.0, 0, &mut shot_combat, false));
     assert_eq!(atk.weapon_fire_status, WeaponFireStatus::BetweenFiringShots);
     atk.refresh_weapon_fire_status(2.0);
     assert_eq!(atk.weapon_fire_status, WeaponFireStatus::ReadyToFire);
@@ -2302,13 +2302,13 @@ fn max_shots_to_fire_blocks_after_budget() {
         ..Weapon::default()
     });
     atk.set_max_shots_to_fire(2);
-    assert!(atk.fire_at(tgt.id, 1.0, 0, &mut shot_combat));
+    assert!(atk.fire_at(tgt.id, 1.0, 0, &mut shot_combat, false));
     assert_eq!(atk.max_shots_to_fire, 1);
-    assert!(atk.fire_at(tgt.id, 2.0, 0, &mut shot_combat));
+    assert!(atk.fire_at(tgt.id, 2.0, 0, &mut shot_combat, false));
     assert_eq!(atk.max_shots_to_fire, 0);
-    assert!(!atk.fire_at(tgt.id, 3.0, 0, &mut shot_combat));
+    assert!(!atk.fire_at(tgt.id, 3.0, 0, &mut shot_combat, false));
     atk.set_max_shots_to_fire(-1);
-    assert!(atk.fire_at(tgt.id, 4.0, 0, &mut shot_combat));
+    assert!(atk.fire_at(tgt.id, 4.0, 0, &mut shot_combat, false));
     assert_eq!(atk.max_shots_to_fire, -1);
 }
 
@@ -2624,7 +2624,8 @@ fn fire_at_ex_faerie_fire_speeds_reload() {
             false,
             true,
             logic.frame,
-            &mut logic.combat_system
+            &mut logic.combat_system,
+            false
         ));
         // Without faerie, not ready at 0.7 (needs full 1.0s)
         assert!(!a.fire_at_ex(
@@ -2633,7 +2634,8 @@ fn fire_at_ex_faerie_fire_speeds_reload() {
             false,
             false,
             logic.frame,
-            &mut logic.combat_system
+            &mut logic.combat_system,
+            false
         ));
         // With faerie ROF 150%, ready at 0.7 (effective reload ~0.667)
         assert!(
@@ -2643,7 +2645,8 @@ fn fire_at_ex_faerie_fire_speeds_reload() {
                 false,
                 true,
                 logic.frame,
-                &mut logic.combat_system
+                &mut logic.combat_system,
+                false
             ),
             "TARGET_FAERIE_FIRE should ready at ~0.667s reload"
         );
@@ -2957,18 +2960,18 @@ fn pre_attack_type_per_shot_delays_every_discharge() {
     });
     let tgt = ObjectId(9);
     // First wind-up
-    assert!(!atk.fire_at(tgt, 10.0, 0, &mut shot_combat));
+    assert!(!atk.fire_at(tgt, 10.0, 0, &mut shot_combat, false));
     assert!((atk.pre_attack_ready_at - 10.5).abs() < 1e-4);
     // Still winding
-    assert!(!atk.fire_at(tgt, 10.2, 0, &mut shot_combat));
+    assert!(!atk.fire_at(tgt, 10.2, 0, &mut shot_combat, false));
     // Fire after delay
-    assert!(atk.fire_at(tgt, 10.5, 0, &mut shot_combat));
+    assert!(atk.fire_at(tgt, 10.5, 0, &mut shot_combat, false));
     assert_eq!(atk.consecutive_shots_at_target, 1);
     // PER_SHOT: next shot needs a new delay even vs same target
-    assert!(!atk.fire_at(tgt, 10.5, 0, &mut shot_combat));
+    assert!(!atk.fire_at(tgt, 10.5, 0, &mut shot_combat, false));
     assert!(atk.pre_attack_ready_at > 10.5);
-    assert!(!atk.fire_at(tgt, 10.7, 0, &mut shot_combat));
-    assert!(atk.fire_at(tgt, 11.0, 0, &mut shot_combat));
+    assert!(!atk.fire_at(tgt, 10.7, 0, &mut shot_combat, false));
+    assert!(atk.fire_at(tgt, 11.0, 0, &mut shot_combat, false));
     assert_eq!(atk.consecutive_shots_at_target, 2);
 }
 
@@ -2994,15 +2997,15 @@ fn pre_attack_type_per_attack_delays_once_per_target() {
         ..Weapon::default()
     });
     let tgt = ObjectId(9);
-    assert!(!atk.fire_at(tgt, 5.0, 0, &mut shot_combat)); // wind-up
-    assert!(atk.fire_at(tgt, 6.0, 0, &mut shot_combat)); // fire
+    assert!(!atk.fire_at(tgt, 5.0, 0, &mut shot_combat, false)); // wind-up
+    assert!(atk.fire_at(tgt, 6.0, 0, &mut shot_combat, false)); // fire
     // Same target: no second wind-up
-    assert!(atk.fire_at(tgt, 6.0, 0, &mut shot_combat));
+    assert!(atk.fire_at(tgt, 6.0, 0, &mut shot_combat, false));
     assert_eq!(atk.consecutive_shots_at_target, 2);
     // New target: delay again
     let tgt2 = ObjectId(10);
-    assert!(!atk.fire_at(tgt2, 6.0, 0, &mut shot_combat));
-    assert!(atk.fire_at(tgt2, 7.0, 0, &mut shot_combat));
+    assert!(!atk.fire_at(tgt2, 6.0, 0, &mut shot_combat, false));
+    assert!(atk.fire_at(tgt2, 7.0, 0, &mut shot_combat, false));
 }
 
 #[test]
@@ -3034,12 +3037,12 @@ fn pre_attack_type_per_clip_delays_on_full_clip_only() {
     });
     let tgt = ObjectId(9);
     // Full clip → delay
-    assert!(!atk.fire_at(tgt, 1.0, 0, &mut shot_combat));
-    assert!(atk.fire_at(tgt, 3.0, 0, &mut shot_combat));
+    assert!(!atk.fire_at(tgt, 1.0, 0, &mut shot_combat, false));
+    assert!(atk.fire_at(tgt, 3.0, 0, &mut shot_combat, false));
     assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(2));
     // Mid-clip → no delay
-    assert!(atk.fire_at(tgt, 3.0, 0, &mut shot_combat));
+    assert!(atk.fire_at(tgt, 3.0, 0, &mut shot_combat, false));
     assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(1));
-    assert!(atk.fire_at(tgt, 3.0, 0, &mut shot_combat));
+    assert!(atk.fire_at(tgt, 3.0, 0, &mut shot_combat, false));
     assert_eq!(atk.weapon.as_ref().unwrap().ammo, Some(0));
 }

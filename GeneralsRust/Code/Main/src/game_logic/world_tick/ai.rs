@@ -742,7 +742,7 @@ impl GameLogic {
         self.tick_command_button_hunt_updates();
 
         // Apply all AI commands (or log-only when GameWorld owns decision apply).
-        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
+        let decision_auth = self.ai_decision_authority_live();
         for command in ai_commands {
             if decision_auth {
                 // Record only — shadow applies SetAttackTarget/SetMoveTarget/SetAiState.

@@ -2207,6 +2207,12 @@ pub(in crate::game_logic) mod tests {
         }
     }
 
+    fn cpp_weapon_speed_per_frame_for_test(weapon_speed_per_second: f32) -> f32 {
+        // GameCommon.h: SECONDS_PER_LOGICFRAME_REAL = 1.0f / 30.0f;
+        // INI::parseVelocityReal multiplies the authored units/sec by it.
+        weapon_speed_per_second * (1.0_f32 / 30.0_f32)
+    }
+
     fn parse_test_weapon_speed() -> game_engine::common::ini::ini_weapon::WeaponTemplate {
         let mut properties = HashMap::new();
         properties.insert("WeaponSpeed".to_string(), "300.0".to_string());
@@ -2227,9 +2233,11 @@ pub(in crate::game_logic) mod tests {
         let _combat_serial = combat_test_guard();
 
         let parsed = parse_test_weapon_speed();
+        let expected_speed_per_frame = cpp_weapon_speed_per_frame_for_test(300.0);
+        let expected_speed_per_second = expected_speed_per_frame * 30.0_f32;
         assert_eq!(
-            parsed.projectile_speed, 10.0,
-            "300 units/sec parses as 10 units/frame"
+            parsed.projectile_speed, expected_speed_per_frame,
+            "300 units/sec parses through C++'s rounded 1/30f conversion"
         );
 
         let destination = Vec3::new(1_000.0, 0.0, 0.0);
@@ -2250,8 +2258,8 @@ pub(in crate::game_logic) mod tests {
             .next()
             .expect("parsed finite-speed shot materializes");
         assert_eq!(
-            projectile.speed, 300.0,
-            "runtime velocity is distance/second"
+            projectile.speed, expected_speed_per_second,
+            "frame speed is converted back to runtime units/second"
         );
 
         let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
@@ -2261,8 +2269,8 @@ pub(in crate::game_logic) mod tests {
             .next()
             .expect("projectile remains in flight");
         assert!(
-            (projectile.position.x - 10.0).abs() < 1e-4,
-            "C++ advances 10 world units at one logic frame; got {}",
+            (projectile.position.x - expected_speed_per_frame).abs() < 1e-4,
+            "C++ advances its parsed frame speed at one logic frame; got {}",
             projectile.position.x
         );
     }
@@ -2274,6 +2282,8 @@ pub(in crate::game_logic) mod tests {
 
         crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
         let parsed = parse_test_weapon_speed();
+        let expected_speed_per_frame = cpp_weapon_speed_per_frame_for_test(300.0);
+        let expected_speed_per_second = expected_speed_per_frame * 30.0_f32;
         let start = Vec3::ZERO;
         let destination = Vec3::new(1_000.0, 0.0, 0.0);
         let projectile_name = "RangerFlashBangGrenade";
@@ -2305,7 +2315,7 @@ pub(in crate::game_logic) mod tests {
             highest,
         );
         let expected_segments =
-            (curve.get_approximate_length() / parsed.projectile_speed).ceil() as usize;
+            (curve.get_approximate_length() / expected_speed_per_frame).ceil() as usize;
 
         let mut pending = lifecycle_test_pending_projectile(projectile_name, None, destination);
         pending.shooter_pos = start;
@@ -2320,8 +2330,12 @@ pub(in crate::game_logic) mod tests {
             .into_iter()
             .next()
             .expect("DumbProjectile materializes");
-        assert_eq!(projectile.speed, 300.0);
-        assert_eq!(projectile.flight_runtime.path_speed_per_frame, 10.0);
+        assert_eq!(projectile.speed, expected_speed_per_second);
+        assert_eq!(
+            projectile.flight_runtime.path_speed_per_frame,
+            expected_speed_per_second / 30.0_f32,
+            "the flight runtime converts its units/sec speed back to frame units",
+        );
         assert_eq!(projectile.flight_runtime.path_segments, expected_segments);
         assert_eq!(projectile.flight_runtime.path.len(), expected_segments);
         let first_path_position = projectile.flight_runtime.path[0];
@@ -2378,6 +2392,9 @@ pub(in crate::game_logic) mod tests {
 
         crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
         let parsed = parse_test_weapon_speed();
+        let expected_speed_per_frame = cpp_weapon_speed_per_frame_for_test(300.0);
+        let expected_speed_per_second = expected_speed_per_frame * 30.0_f32;
+        assert_eq!(parsed.projectile_speed, expected_speed_per_frame);
         let destination = Vec3::new(8.0, 0.0, 0.0);
         let mut pending = lifecycle_test_pending_projectile("PatriotMissile", None, destination);
         pending.speed = parsed.projectile_speed;
@@ -2393,7 +2410,7 @@ pub(in crate::game_logic) mod tests {
             .expect("missile materializes")
             .id;
         let projectile = combat.projectile_mut(projectile_id).unwrap();
-        assert_eq!(projectile.speed, 300.0);
+        assert_eq!(projectile.speed, expected_speed_per_second);
         let Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(missile)) =
             projectile.flight.as_mut()
         else {
@@ -2552,7 +2569,7 @@ pub(in crate::game_logic) mod tests {
             last_fire_time: -10.0,
             ..Weapon::default()
         });
-        assert!(atk.fire_at(ObjectId(2), 1.0, 3, &mut combat));
+        assert!(atk.fire_at(ObjectId(2), 1.0, 3, &mut combat, false));
         let mut objects = HashMap::new();
         objects.insert(
             ObjectId(2),

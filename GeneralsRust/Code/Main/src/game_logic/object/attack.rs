@@ -8,8 +8,17 @@ impl Object {
         current_time: f32,
         logic_frame: u32,
         combat: &mut super::combat::CombatSystem,
+        decision_authority_live: bool,
     ) -> bool {
-        self.fire_at_ex(target_id, current_time, false, false, logic_frame, combat)
+        self.fire_at_ex(
+            target_id,
+            current_time,
+            false,
+            false,
+            logic_frame,
+            combat,
+            decision_authority_live,
+        )
     }
 
     /// Fire at target with KindOf-aware scatter residual.
@@ -22,6 +31,7 @@ impl Object {
         target_has_faerie_fire: bool,
         logic_frame: u32,
         combat: &mut super::combat::CombatSystem,
+        decision_authority_live: bool,
     ) -> bool {
         let Some(slot) = self.fire_at_ex_defer_weapon_barrel_advance(
             target_id,
@@ -30,6 +40,7 @@ impl Object {
             target_has_faerie_fire,
             logic_frame,
             combat,
+            decision_authority_live,
         ) else {
             return false;
         };
@@ -56,6 +67,7 @@ impl Object {
         target_has_faerie_fire: bool,
         logic_frame: u32,
         combat: &mut super::combat::CombatSystem,
+        decision_authority_live: bool,
     ) -> Option<u8> {
         // C++ Weapon::getMaxShotCount residual — AI burst / scatter limits.
         if !self.has_max_shots_remaining() {
@@ -172,7 +184,7 @@ impl Object {
                 if entered_attack {
                     self.set_ai_state(AIState::Attacking);
                 }
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                if decision_authority_live {
                     crate::game_logic::host_ai_decision_log::record_attack(self.id, target_id);
                     if entered_attack {
                         crate::game_logic::host_ai_decision_log::record_set_state(self.id, 2);
@@ -194,7 +206,7 @@ impl Object {
         if entered_attack {
             self.set_ai_state(AIState::Attacking);
         }
-        if entered_attack && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+        if entered_attack && decision_authority_live {
             crate::game_logic::host_ai_decision_log::record_set_state(self.id, 2);
         }
 
@@ -965,7 +977,7 @@ mod tests {
         // authoritative and must retain tertiary identity while firing.
         attacker.set_active_weapon_slot(0);
 
-        assert!(attacker.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat));
+        assert!(attacker.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, false));
         assert_eq!(attacker.last_fire_slot, 2);
         assert!((attacker.last_fire_damage - 37.0).abs() < f32::EPSILON);
         assert_eq!(
@@ -996,7 +1008,7 @@ mod tests {
         unit.apply_grant_stealth();
         unit.stealth_breaks_on_attack = true;
         unit.stealth_delay_frames = 30;
-        assert!(unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat));
+        assert!(unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, false));
         assert!(!unit.status.stealthed);
         assert!(
             unit.innate_stealth,
@@ -1025,11 +1037,11 @@ mod tests {
             ..Weapon::default()
         });
         unit.status.under_construction = true;
-        assert!(!unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat));
+        assert!(!unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, false));
         unit.status.under_construction = false;
         unit.status.sold = true;
-        assert!(!unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat));
+        assert!(!unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, false));
         unit.status.sold = false;
-        assert!(unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat));
+        assert!(unit.fire_at(ObjectId(2), 1.0, 0, &mut shot_combat, false));
     }
 }

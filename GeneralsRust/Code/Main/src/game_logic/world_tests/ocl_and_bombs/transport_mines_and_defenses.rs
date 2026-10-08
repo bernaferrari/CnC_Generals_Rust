@@ -1445,7 +1445,8 @@ fn stealth_residual_fire_breaks_stealth() {
             target_id,
             0.0,
             game_logic.frame,
-            &mut game_logic.combat_system
+            &mut game_logic.combat_system,
+            false
         ));
         assert!(!s.status.stealthed, "fire_at must break stealth");
     }

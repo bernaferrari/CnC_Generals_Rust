@@ -480,7 +480,7 @@ fn do_weapon_uses_the_real_tertiary_slot_without_secondary_aliasing() {
     assert_eq!(unit.active_weapon_slot, 2);
     assert_eq!(unit.weapon_lock_type, WeaponLockType::LockedTemporarily);
     assert_eq!(unit.weapon_lock_slot, 2);
-    assert!(unit.fire_at(target, 1.0, logic.frame, &mut logic.combat_system));
+    assert!(unit.fire_at(target, 1.0, logic.frame, &mut logic.combat_system, false));
     assert_eq!(unit.last_fire_slot, 2);
     assert!((unit.last_fire_damage - 73.0).abs() < f32::EPSILON);
     assert_eq!(

@@ -415,9 +415,15 @@ pub fn breadth_economy_combat() -> BreadthCategoryResult {
         }
         // host_object_mut above synchronized and marked this exact host row.
         // Release that facade borrow before borrowing its disjoint combat owner.
+        let decision_authority_live = logic.ai_decision_authority_live();
         if let Some(u) = logic.objects.get_mut(&sid) {
-            fire_break_ok = u.fire_at(ObjectId(9999), 0.0, logic.frame, &mut logic.combat_system)
-                && !u.status.stealthed;
+            fire_break_ok = u.fire_at(
+                ObjectId(9999),
+                0.0,
+                logic.frame,
+                &mut logic.combat_system,
+                decision_authority_live,
+            ) && !u.status.stealthed;
         }
 
         stealth_ok = hidden && detected_ok && fire_break_ok;

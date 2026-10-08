@@ -13,16 +13,26 @@ fn queue_authored_shot(
 ) {
     use game_engine::common::ini::ini_weapon::IniWeapon;
     let name = format!("HqDelayedQueueOwner{damage}_{speed}");
+    let authored_weapon_speed_per_second = speed * 30.0_f32;
+    let cpp_seconds_per_logic_frame = 1.0_f32 / 30.0_f32;
+    let expected_cpp_speed_per_frame =
+        authored_weapon_speed_per_second * cpp_seconds_per_logic_frame;
     let properties = HashMap::from([
         ("PrimaryDamage".to_string(), damage.to_string()),
-        ("WeaponSpeed".to_string(), (speed * 30.0).to_string()),
+        (
+            "WeaponSpeed".to_string(),
+            authored_weapon_speed_per_second.to_string(),
+        ),
         ("ProjectileObject".to_string(), "NONE".to_string()),
         ("DamageType".to_string(), "SMALL_ARMS".to_string()),
     ]);
     let authored = IniWeapon::parse_weapon_template_block(name.clone().into(), properties)
         .expect("actual Common Weapon field parser");
     assert_eq!(authored.primary_damage, damage);
-    assert_eq!(authored.projectile_speed, speed);
+    assert_eq!(
+        authored.projectile_speed, expected_cpp_speed_per_frame,
+        "WeaponSpeed parses as units/sec times C++'s rounded 1/30f",
+    );
     assert!(
         authored
             .effects

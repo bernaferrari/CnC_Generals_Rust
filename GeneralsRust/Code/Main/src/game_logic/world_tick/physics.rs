@@ -1022,7 +1022,7 @@ impl GameLogic {
             u.set_status_force_attack(false);
             u.set_ai_state(AIState::FacingObject);
         }
-        if faced && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+        if faced && self.ai_decision_authority_live() {
             let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
                 &AIState::FacingObject,
             );
@@ -1055,7 +1055,7 @@ impl GameLogic {
             u.set_status_force_attack(false);
             u.set_ai_state(AIState::FacingPosition);
         }
-        if faced && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+        if faced && self.ai_decision_authority_live() {
             let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
                 &AIState::FacingPosition,
             );
@@ -1072,7 +1072,7 @@ impl GameLogic {
         if u.is_kind_of(crate::game_logic::KindOf::Projectile) {
             return false;
         }
-        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
+        let decision_auth = self.ai_decision_authority_live();
         if let Some(u) = self.objects.get_mut(&unit_id) {
             u.stop_moving();
             u.set_status_attacking(false);
@@ -1172,7 +1172,7 @@ impl GameLogic {
         if !new_alive {
             return 0;
         }
-        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
+        let decision_auth = self.ai_decision_authority_live();
         let mut transferred = 0usize;
         let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
         for id in ids {

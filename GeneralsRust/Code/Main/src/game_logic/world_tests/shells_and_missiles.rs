@@ -940,7 +940,8 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
                 enemy_id,
                 0.0,
                 game_logic.frame,
-                &mut game_logic.combat_system
+                &mut game_logic.combat_system,
+                false
             ) || true
         );
         // fire_at may fail without weapon; force residual break path.

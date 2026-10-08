@@ -4,6 +4,14 @@
 use super::super::*;
 
 impl GameLogic {
+    /// Owner-bound policy for host AI-decision writes. The authority bit comes
+    /// from this exact GameLogic; shadow/coupling remain frame-local gates.
+    #[inline]
+    pub(crate) fn ai_decision_authority_live(&self) -> bool {
+        self.gameworld_authority.ai_decision
+            && crate::gameworld_shadow::gameworld_shadow_enabled()
+            && crate::gameworld_shadow::shadow_coupled_tick_active()
+    }
     /// Process AI behavior for a single object
     /// Enhanced with proper enemy detection, attack decisions, and movement
     pub(in super::super) fn process_ai_behavior(
@@ -78,7 +86,7 @@ impl GameLogic {
                 if let Some(u) = self.objects.get_mut(&object_id) {
                     u.set_ai_state(AIState::Idle);
                 }
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                if self.ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_set_state(object_id, 0);
                 }
                 return None;
@@ -503,7 +511,7 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             obj.stop_attack();
         }
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+        if self.ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_stop_attack(unit_id);
         }
     }
@@ -519,7 +527,7 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             obj.set_target(None);
         }
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+        if self.ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_stop_attack(unit_id);
         }
     }
@@ -611,7 +619,7 @@ impl GameLogic {
         // Fire *decision* residual: under AI_DECISION_AUTHORITY, emit AttackTarget so
         // GameWorld last-writes host engagement target (parity with fire_at_ex).
         // Host still *chooses* the residual target; this peels the decision channel.
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+        if self.ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_attack(attacker_id, target_id);
             crate::game_logic::host_ai_decision_log::record_set_state(attacker_id, 2);
             // Attacking
@@ -775,7 +783,7 @@ impl GameLogic {
         if let Some(u) = self.objects.get_mut(&unit_id) {
             u.set_ai_state(state);
         }
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+        if self.ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, ordinal);
         }
     }
@@ -939,7 +947,7 @@ impl GameLogic {
                     crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
             }
         }
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+        if self.ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_attack(unit_id, target_id);
             if !matches!(
                 self.objects.get(&unit_id).map(|o| o.ai_state.clone()),
@@ -995,7 +1003,7 @@ impl GameLogic {
             obj.set_force_attack(false);
             obj.attack_target(target_id);
         }
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+        if self.ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_attack(unit_id, target_id);
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
             // Attacking
@@ -1015,7 +1023,7 @@ impl GameLogic {
     pub(in super::super) fn apply_ai_command(&mut self, command: AICommand) {
         // Host applies immediately so AI aggression/combat is same-frame.
         // Decision authority still logs every command for GameWorld last-write.
-        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
+        let decision_auth = self.ai_decision_authority_live();
         match command {
             AICommand::AttackTarget {
                 object_id,

@@ -35,6 +35,7 @@ impl GameLogic {
                                     .get(&target_id)
                                     .map(|t| (t.is_kind_of(KindOf::Infantry), t.is_faerie_fire()))
                                     .unwrap_or((false, false));
+                                let decision_authority_live = self.ai_decision_authority_live();
                                 if let Some(attacker) = self.objects.get_mut(&object_id) {
                                     // can_fire without target uses base ROF; fire_at_ex applies
                                     // TARGET_FAERIE_FIRE ROF residual against painted targets.
@@ -55,6 +56,7 @@ impl GameLogic {
                                             tgt_faerie,
                                             self.frame,
                                             &mut self.combat_system,
+                                            decision_authority_live,
                                         );
                                     }
                                 }

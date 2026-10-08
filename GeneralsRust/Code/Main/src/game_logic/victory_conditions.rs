@@ -13,10 +13,10 @@ use std::sync::OnceLock;
 use crate::config::{ConfigValue, IniParser, LoadMode};
 
 use super::{
+    KindOf, ObjectId, Team,
     game_logic::{GameMode, Player, PlayerTemplateIdentity},
     object::Object,
     victory::VictoryCondition,
-    KindOf, ObjectId, Team,
 };
 
 bitflags! {
@@ -267,9 +267,6 @@ fn is_playable_victory_player(
     if player.team == Team::Neutral || player.is_observer {
         return false;
     }
-    if leftover_player_is_observer(player.id) || leftover_player_is_faction_civilian(player.id) {
-        return false;
-    }
     if let Some(ident) = identities.get(&player.id) {
         match ident.resolve() {
             Some(template) => {
@@ -283,18 +280,6 @@ fn is_playable_victory_player(
         }
     }
     true
-}
-
-fn leftover_player_is_faction_civilian(player_id: u32) -> bool {
-    leftover_player_arc_for_host(player_id, "", false)
-        .and_then(|player| {
-            player.read().ok().map(|guard| {
-                guard.get_player_template().is_some_and(|template| {
-                    template.get_name().eq_ignore_ascii_case("FactionCivilian")
-                })
-            })
-        })
-        .unwrap_or(false)
 }
 
 fn leftover_player_is_markable(player: &gamelogic::player::Player) -> bool {
@@ -340,12 +325,6 @@ fn leftover_player_arc_for_host(
     None
 }
 
-fn leftover_player_is_observer(player_id: u32) -> bool {
-    leftover_player_arc_for_host(player_id, "", false)
-        .and_then(|player| player.read().ok().map(|guard| guard.is_player_observer()))
-        .unwrap_or(false)
-}
-
 fn mark_leftover_player_defeated(player_id: u32, host: &Player) {
     let Some(arc) = leftover_player_arc_for_host(player_id, &host.name, true) else {
         return;
@@ -357,14 +336,6 @@ fn mark_leftover_player_defeated(player_id: u32, host: &Player) {
     if host.is_local {
         gamelogic::helpers::TheVictoryConditions::set_local_player_defeated(true);
     }
-}
-
-fn leftover_local_is_observer(players: &HashMap<u32, Player>) -> bool {
-    let Some(local) = players.values().find(|player| player.is_local) else {
-        // C++ cachePlayerPtrs: no local slot → observer.
-        return true;
-    };
-    local.is_observer || leftover_player_is_observer(local.id)
 }
 
 /// C++ `Team::hasAnyBuildings(KINDOF_MP_COUNT_FOR_VICTORY)` — STRUCTURE is
@@ -655,9 +626,9 @@ impl VictoryConditions {
         if !self.is_single_alliance_remaining() {
             return false;
         }
-        if leftover_local_is_observer(players) {
-            return true;
-        }
+        // CPP observers return m_singleAllianceRemaining. The owning census
+        // already excludes observers from is_local_allied_victory, so this
+        // also covers an uncached local slot without another roster lookup.
         !self.is_local_allied_victory(players)
     }
 
@@ -1112,12 +1083,14 @@ mod tests {
         let mut objects = HashMap::new();
         let (a, oa) = obj(1, 0, Team::USA, &[KindOf::Infantry]);
         objects.insert(a, oa);
-        assert!(vc
-            .evaluate(&players, &objects, 3, GameMode::SinglePlayer)
-            .is_none());
-        assert!(vc
-            .evaluate(&players, &objects, 3, GameMode::Shell)
-            .is_none());
+        assert!(
+            vc.evaluate(&players, &objects, 3, GameMode::SinglePlayer)
+                .is_none()
+        );
+        assert!(
+            vc.evaluate(&players, &objects, 3, GameMode::Shell)
+                .is_none()
+        );
         assert!(vc.peek_defeat_events().is_empty());
     }
 

@@ -48,7 +48,7 @@ fn shorter_clip_deadline_stays_ready_across_refresh_and_actual_object_acceptance
     // Actual Object acceptance owns its real queue. This primitive control
     // does not claim a roster tick, victim materialization, or world save.
     let mut combat = crate::game_logic::combat::CombatSystem::new();
-    assert!(attacker.fire_at(ObjectId(2), 1.3, 88, &mut combat));
+    assert!(attacker.fire_at(ObjectId(2), 1.3, 88, &mut combat, false));
     assert_eq!(attacker.last_fire_frame, 88);
     assert_eq!(attacker.weapon.as_ref().unwrap().ammo, Some(1));
     assert_eq!(attacker.weapon.as_ref().unwrap().last_fire_time, 1.3);

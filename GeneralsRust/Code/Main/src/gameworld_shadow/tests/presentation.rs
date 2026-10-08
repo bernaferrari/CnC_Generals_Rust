@@ -697,7 +697,8 @@ fn residual_auto_fire_records_ai_decision_source() {
         last_rust_fn_body(GAME_LOGIC_HOST_SRC, "residual_auto_fire_apply_damage").expect("helper");
     assert!(
         body.contains("host_ai_decision_log::record_attack")
-            && body.contains("gameworld_ai_decision_authority")
+            && body.contains("self.ai_decision_authority_live()")
+            && !body.contains("gameworld_ai_decision_authority_live()")
             && body.contains("record_set_state"),
         "residual auto-fire must emit AI decision AttackTarget under AI_DECISION_AUTHORITY"
     );
@@ -719,6 +720,24 @@ fn residual_auto_fire_ai_decision_writeback_behavioral_source() {
 }
 
 #[test]
+fn strategy_center_fire_preserves_the_target_accepted_by_aim_source() {
+    // CPP AIAttackFireWeaponState::update uses getMachineGoalObject after AIM.
+    // Choosing a nearer target in FIRE would skip that target's AIM phase.
+    let body = last_rust_fn_body(
+        GAME_LOGIC_HOST_SRC,
+        "try_strategy_center_bombardment_turret_fire",
+    )
+    .expect("live Strategy Center FIRE");
+    assert!(body.contains("let Some(target_id) = attacker.turret_target_id"));
+    assert!(body.contains("attacker.target != Some(target_id)"));
+    assert!(body.contains("attacker.turret_substate != TurretSubState::Fire"));
+    assert!(body.contains("attacker.selected_weapon_slot() != Some(0)"));
+    assert!(body.contains("is_legal_strategy_center_gun_target("));
+    assert!(body.contains("is_within_attack_range_for_slot(0, victim)"));
+    assert!(!body.contains("pick_nearest_residual_target("));
+}
+
+#[test]
 fn residual_acquire_query_source() {
     let src = GAME_LOGIC_HOST_SRC;
     for name in [
@@ -727,7 +746,6 @@ fn residual_acquire_query_source() {
         "try_hellfire_drone_residual_fire",
         "try_garrison_residual_fire",
         "try_transport_passenger_residual_fire",
-        "try_strategy_center_bombardment_turret_fire",
     ] {
         let i = src
             .find(&format!("fn {name}"))
@@ -974,7 +992,7 @@ fn residual_acquire_query_source() {
     }
     // Harvest supply + ground-attack impact residual.
     for (source, name) in [
-        (src, "find_nearest_harvestable_supply"),
+        (src, "find_nearest_harvestable_supply_within"),
         (
             include_str!("../../game_logic/world_tick/combat/ground_target.rs"),
             "find_ground_attack_victim",
@@ -988,19 +1006,28 @@ fn residual_acquire_query_source() {
             "{name} must use pure residual acquire query"
         );
     }
-    // Strategy Center mood-target residual (nearest enemy in vision).
-    {
-        let name = "tick_strategy_center_turret_mood_target";
-        let i = src
-            .find(&format!("fn {name}"))
-            .unwrap_or_else(|| panic!("missing {name}"));
-        let body = &src[i..src.len().min(i + 12000)];
-        assert!(
-            body.contains("pick_nearest_residual_target_xz")
-                && body.contains("ResidualAcquireCandidate"),
-            "{name} must use pure residual XZ acquire for non-Passive mood"
-        );
-    }
+    // The public supply scan delegates its unbounded query to the owner helper.
+    let supply = last_rust_fn_body(src, "find_nearest_harvestable_supply").unwrap();
+    assert!(supply.contains(
+        "self.find_nearest_harvestable_supply_within(team, from, None, ObjectId(u32::MAX))"
+    ));
+    // CPP TurretAIIdleState acquires through getNextMoodTarget before AIM.
+    // The late Strategy pass retains or clears that selection; it cannot reacquire.
+    let idle = last_rust_fn_body(src, "turret_check_for_idle_mood_target").unwrap();
+    assert!(
+        idle.contains("self.acquire_strategy_center_turret_mood_target(unit_id, current_time)")
+    );
+    let acquire = last_rust_fn_body(src, "acquire_strategy_center_turret_mood_target").unwrap();
+    assert!(acquire.contains("pick_nearest_residual_target_xz"));
+    assert!(acquire.contains("ResidualAcquireCandidate"));
+    assert!(acquire.contains("self.set_turret_target_object(cid, Some(tid), false)"));
+    assert!(idle.contains("self.get_next_mood_target(unit_id, true, true, false)"));
+    assert!(idle.contains("self.set_turret_target_object(unit_id, Some(enemy), false)"));
+    let late = last_rust_fn_body(src, "tick_strategy_center_turret_mood_target").unwrap();
+    assert!(late.contains("strategy_center_mood_target_should_clear_with_vision("));
+    assert!(late.contains("self.set_turret_target_object(cid, None, false)"));
+    assert!(!late.contains("pick_nearest_residual_target_xz("));
+    assert!(!late.contains("get_next_mood_target("));
     // Dozer bored service residual + battle-drone master repair.
     // (BattleDroneAIUpdate doRepairLogic heals only its slaver — no acquire scan.)
     for name in [

@@ -111,7 +111,7 @@ impl GameLogic {
         } else {
             (false, false)
         };
-        if entered_move && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+        if entered_move && self.ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
         }
         if started {
@@ -380,7 +380,7 @@ impl GameLogic {
                 unit_id,
                 Some([destination.x, destination.y, destination.z]),
             );
-            if entered_move && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+            if entered_move && self.ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
             }
             self.start_move_sound(unit_id);
@@ -764,6 +764,7 @@ impl GameLogic {
         full_path: Vec<Vec3>,
         after_ground_search: bool,
     ) -> bool {
+        let decision_auth = self.ai_decision_authority_live();
         let Some(unit) = self.objects.get_mut(&unit_id) else {
             return false;
         };
@@ -836,7 +837,7 @@ impl GameLogic {
         if entered_move {
             unit.set_ai_state(AIState::Moving);
         }
-        if entered_move && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+        if entered_move && decision_auth {
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
         }
         unit.set_status_moving(true);
@@ -1994,7 +1995,7 @@ impl GameLogic {
                 }
             }
         }
-        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
+        let decision_auth = self.ai_decision_authority_live();
         if let Some(mut full_path) = path {
             if full_path.len() >= 2 {
                 if contact {
@@ -2267,7 +2268,7 @@ impl GameLogic {
         approach_path: bool,
     ) -> bool {
         let state = self.mood_adjusted_move_state(object_id, state);
-        let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
+        let decision_auth = self.ai_decision_authority_live();
         let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
         let attack_moving = matches!(state, AIState::AttackMoving);
         let already = self
@@ -2351,6 +2352,7 @@ impl GameLogic {
     }
 
     pub fn append_unit_waypoint(&mut self, unit_id: ObjectId, waypoint: Vec3) -> bool {
+        let decision_auth = self.ai_decision_authority_live();
         let (unit_pos, current_path, can_move) = match self.objects.get(&unit_id) {
             Some(unit) => (
                 unit.get_position(),
@@ -2435,7 +2437,7 @@ impl GameLogic {
         if entered_move {
             unit.set_ai_state(AIState::Moving);
         }
-        if entered_move && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+        if entered_move && decision_auth {
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
         }
         unit.set_status_moving(true);
