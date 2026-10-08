@@ -1596,3 +1596,6 @@ mod attack_priority_table_tests;
 mod chunk_decode_owner_tests;
 
 mod chunk_explicit_owner_tests;
+
+#[path = "tests/authored_template_tests.rs"]
+mod authored_template_tests;

@@ -269,19 +269,20 @@ mod map_name_key_tests {
         assert_eq!(offset, document.body_offset);
     }
     #[test]
-    fn absent_file_name_ids_keep_false_noop_in_both_paths() {
+    fn absent_file_name_ids_rematch_the_cpp_empty_template_slots() {
         let engine = ScriptEngine::new().unwrap();
         let record = Record::valid(&engine);
         let _restore = RestoreEngine::install(engine);
         for sides in [false, true] {
             let mut document = document(record, sides, 0);
             replace_packed_words(&mut document, 0x7fff_ee03, 0x7fff_ed03);
+            // C++ getName misses return ""; unused templates also have that key.
             assert_eq!(
                 read(&document),
                 (
-                    ConditionType::ConditionFalse,
-                    ScriptActionType::NoOp,
-                    ScriptActionType::NoOp
+                    ConditionType::ObsoleteScript1,
+                    ScriptActionType::NamedReceiveUpgrade,
+                    ScriptActionType::NamedReceiveUpgrade
                 )
             );
         }
@@ -308,9 +309,9 @@ mod map_name_key_tests {
             assert_eq!(
                 read(&document),
                 (
-                    ConditionType::ConditionFalse,
-                    ScriptActionType::NoOp,
-                    ScriptActionType::NoOp
+                    ConditionType::ObsoleteScript1,
+                    ScriptActionType::NamedReceiveUpgrade,
+                    ScriptActionType::NamedReceiveUpgrade
                 )
             );
         }

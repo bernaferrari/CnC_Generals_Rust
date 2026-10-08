@@ -36,6 +36,7 @@ fn dual_world_registry_unavailable() -> bool {
 }
 
 mod attack_priorities;
+mod template_names;
 use attack_priorities::AttackPriorityTable;
 
 include!("types.rs");
@@ -51,6 +52,7 @@ mod tests;
 pub const SCRIPT_ENGINE_SRC: &str = concat!(
     include_str!("mod.rs"),
     include_str!("attack_priorities.rs"),
+    include_str!("template_names.rs"),
     include_str!("init.rs"),
     include_str!("leftover.rs"),
     include_str!("named_trackers.rs"),

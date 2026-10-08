@@ -4,54 +4,29 @@
 // Observable behavior is unchanged.
 
 impl ScriptEngine {
-    fn enum_name_to_internal_name(name: &str) -> String {
-        let mut out = String::with_capacity(name.len() * 2);
-        let mut prev_is_upper = true;
-        for ch in name.chars() {
-            let is_upper = ch.is_ascii_uppercase();
-            if !out.is_empty() && is_upper && !prev_is_upper {
-                out.push('_');
-            }
-            out.push(ch.to_ascii_uppercase());
-            prev_is_upper = is_upper;
-        }
-        out
-    }
-
+    /// C++ assigns authored names, then interns conditions before actions.
     fn seed_template_internal_names(&mut self) {
         let inner = self.inner.get_mut();
-        for idx in 0..(ScriptActionType::NumItems as u32) {
-            let Some(action_type) = ScriptActionType::from_u32(idx) else {
-                continue;
-            };
-            if action_type == ScriptActionType::NumItems {
-                continue;
-            }
-            if let Some(template) = inner.action_templates.get_mut(idx as usize) {
-                let internal_name = Self::enum_name_to_internal_name(&format!("{:?}", action_type));
-                template.base.internal_name = internal_name.clone();
-                template.base.internal_name_key = NameKeyGenerator::name_to_key(&internal_name);
-                if template.base.ui_name.is_empty() {
-                    template.base.ui_name = internal_name;
-                }
+        for (template, name) in inner
+            .condition_templates
+            .iter_mut()
+            .zip(template_names::CONDITION_INTERNAL_NAMES)
+        {
+            template.base.internal_name = name.to_owned();
+            template.base.internal_name_key = NameKeyGenerator::name_to_key(name);
+            if template.base.ui_name.is_empty() {
+                template.base.ui_name = name.to_owned();
             }
         }
-
-        for idx in 0..(ConditionType::NumItems as u32) {
-            let Some(condition_type) = ConditionType::from_u32(idx) else {
-                continue;
-            };
-            if condition_type == ConditionType::NumItems {
-                continue;
-            }
-            if let Some(template) = inner.condition_templates.get_mut(idx as usize) {
-                let internal_name =
-                    Self::enum_name_to_internal_name(&format!("{:?}", condition_type));
-                template.base.internal_name = internal_name.clone();
-                template.base.internal_name_key = NameKeyGenerator::name_to_key(&internal_name);
-                if template.base.ui_name.is_empty() {
-                    template.base.ui_name = internal_name;
-                }
+        for (template, name) in inner
+            .action_templates
+            .iter_mut()
+            .zip(template_names::ACTION_INTERNAL_NAMES)
+        {
+            template.base.internal_name = name.to_owned();
+            template.base.internal_name_key = NameKeyGenerator::name_to_key(name);
+            if template.base.ui_name.is_empty() {
+                template.base.ui_name = name.to_owned();
             }
         }
     }
@@ -1274,10 +1249,9 @@ impl ScriptEngine {
             .condition_templates
             .resize(ConditionType::NumItems as usize, ConditionTemplate::new());
 
-        self.seed_template_internal_names();
-
-        // Set up basic templates (in real implementation, this would be loaded from INI)
+        // Existing parameter/UI definitions are retained; C++ name/key identity is final.
         self.setup_basic_templates()?;
+        self.seed_template_internal_names();
 
         Ok(())
     }
@@ -1291,7 +1265,6 @@ impl ScriptEngine {
             .get_mut(ScriptActionType::Victory as usize)
         {
             template.base.ui_name = "Victory".to_string();
-            template.base.internal_name = "Victory".to_string();
             template.base.help_text = "Triggers victory for the current player".to_string();
         }
 
@@ -1301,7 +1274,6 @@ impl ScriptEngine {
             .get_mut(ScriptActionType::Defeat as usize)
         {
             template.base.ui_name = "Defeat".to_string();
-            template.base.internal_name = "Defeat".to_string();
             template.base.help_text = "Triggers defeat for the current player".to_string();
         }
 
@@ -1311,7 +1283,6 @@ impl ScriptEngine {
             .get_mut(ScriptActionType::SetFlag as usize)
         {
             template.base.ui_name = "Set Flag".to_string();
-            template.base.internal_name = "SetFlag".to_string();
             template.base.help_text = "Sets a script flag to true or false".to_string();
             template.base.parameters = vec![ParameterType::Flag, ParameterType::Boolean];
             template.base.num_parameters = 2;
@@ -1323,7 +1294,6 @@ impl ScriptEngine {
             .get_mut(ScriptActionType::SetCounter as usize)
         {
             template.base.ui_name = "Set Counter".to_string();
-            template.base.internal_name = "SetCounter".to_string();
             template.base.help_text = "Sets a script counter to a value".to_string();
             template.base.parameters = vec![ParameterType::Counter, ParameterType::Int];
             template.base.num_parameters = 2;
@@ -1335,7 +1305,6 @@ impl ScriptEngine {
             .get_mut(ConditionType::PlayerAllDestroyed as usize)
         {
             template.base.ui_name = "Player All Destroyed".to_string();
-            template.base.internal_name = "PlayerAllDestroyed".to_string();
             template.base.help_text = "True if all of a player's units are destroyed".to_string();
             template.base.parameters = vec![ParameterType::Side];
             template.base.num_parameters = 1;
@@ -1347,7 +1316,6 @@ impl ScriptEngine {
             .get_mut(ConditionType::Counter as usize)
         {
             template.base.ui_name = "Counter".to_string();
-            template.base.internal_name = "Counter".to_string();
             template.base.help_text = "Compares a counter value".to_string();
             template.base.parameters = vec![
                 ParameterType::Counter,
@@ -1363,7 +1331,6 @@ impl ScriptEngine {
             .get_mut(ConditionType::Flag as usize)
         {
             template.base.ui_name = "Flag".to_string();
-            template.base.internal_name = "Flag".to_string();
             template.base.help_text = "Checks if a flag is set".to_string();
             template.base.parameters = vec![ParameterType::Flag, ParameterType::Boolean];
             template.base.num_parameters = 2;
