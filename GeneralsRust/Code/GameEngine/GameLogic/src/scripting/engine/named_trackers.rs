@@ -1008,7 +1008,8 @@ impl ScriptEngine {
     }
 
     fn timed_audio_frames_from_length_ms(audio_length_ms: f32) -> u32 {
-        ((audio_length_ms.max(0.0) / 1000.0) * LOGICFRAMES_PER_SECOND as f32) as u32
+        (audio_length_ms.max(0.0) / game_engine::common::game_common::MSEC_PER_LOGICFRAME_REAL)
+            as u32
     }
 
     fn is_timed_audio_complete(
@@ -1033,9 +1034,9 @@ impl ScriptEngine {
                 .max(0.0);
             // C++ uses REAL_TO_UNSIGNEDINT(audioLength / MSEC_PER_LOGICFRAME_REAL): truncate.
             let frame_count = Self::timed_audio_frames_from_length_ms(audio_length_ms);
-            let completion_frame = current_frame.saturating_add(frame_count);
-            list.push((event_name.to_string(), completion_frame));
-            list.len() - 1
+            let completion_frame = current_frame.wrapping_add(frame_count);
+            list.insert(0, (event_name.to_string(), completion_frame));
+            0
         };
 
         let completed = current_frame >= list[position].1;

@@ -1602,3 +1602,5 @@ mod authored_template_tests;
 
 #[path = "tests/authored_metadata_tests.rs"]
 mod authored_metadata_tests;
+
+mod timed_audio_parity_tests;
