@@ -10,6 +10,10 @@ pub struct SmudgeVertex {
     pub uv: Vec2,
 }
 
+#[cfg(test)]
+#[path = "smudge_order_tests.rs"]
+mod order_tests;
+
 impl Default for SmudgeVertex {
     fn default() -> Self {
         Self {
@@ -137,12 +141,14 @@ impl SmudgeManager {
     }
 
     pub fn reset(&mut self) {
-        while let Some(set) = self.used_sets.pop() {
+        // C++ drains the used head first, then appends sets to the free tail.
+        // The free Vec's tail represents the list head, including older free sets.
+        for set in &self.used_sets {
             if let Ok(mut guard) = set.lock() {
                 guard.reset();
             }
-            self.free_sets.push(set);
         }
+        self.free_sets.splice(0..0, self.used_sets.drain(..).rev());
     }
 
     pub fn add_smudge_set(&mut self) -> SmudgeSetHandle {
@@ -167,7 +173,7 @@ impl SmudgeManager {
             .iter()
             .position(|candidate| Arc::ptr_eq(candidate, set))
         {
-            let set = self.used_sets.swap_remove(pos);
+            let set = self.used_sets.remove(pos);
             self.free_sets.push(set);
         }
     }
