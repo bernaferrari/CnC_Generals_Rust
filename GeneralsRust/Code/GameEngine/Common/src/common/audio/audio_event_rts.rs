@@ -8,6 +8,7 @@
 //! Author: John K. McDonald, March 2002
 //! Converted to Rust
 
+use super::audio_paths::{AudioPathSettings, current_audio_path_settings};
 use crate::common::random_value::{
     get_game_audio_random_value, get_game_audio_random_value_real, get_game_logic_random_value,
 };
@@ -313,27 +314,6 @@ pub fn miles_get_effective_volume(
     volume
 }
 
-#[derive(Debug, Clone)]
-struct AudioPathSettings {
-    audio_root: String,
-    sounds_folder: String,
-    music_folder: String,
-    streaming_folder: String,
-    sounds_extension: String,
-}
-
-impl Default for AudioPathSettings {
-    fn default() -> Self {
-        Self {
-            audio_root: "Data\\Audio".to_string(),
-            sounds_folder: "Sounds".to_string(),
-            music_folder: "Music".to_string(),
-            streaming_folder: "Speech".to_string(),
-            sounds_extension: "wav".to_string(),
-        }
-    }
-}
-
 pub trait AudioEventOwnerResolver: Send + Sync {
     fn resolve_object_position(&self, object_id: ObjectId) -> Option<Coord3D>;
     fn resolve_drawable_position(&self, drawable_id: DrawableId) -> Option<Coord3D>;
@@ -387,40 +367,6 @@ fn current_localization_language() -> String {
         }
         Err(_) => "English".to_string(),
     }
-}
-
-fn current_audio_path_settings() -> AudioPathSettings {
-    let mut settings = AudioPathSettings::default();
-
-    if let Some(manager) = super::game_audio::get_global_audio_manager() {
-        // Use try_lock: generate_filename is often called while AudioManager is already
-        // locked (add_audio_event → generate_filename). A blocking re-lock deadlocks
-        // the calling thread forever (seen in special-power money withdraw tests).
-        match manager.try_lock() {
-            Ok(guard) => {
-                let audio_settings = guard.get_audio_settings();
-                settings.audio_root = audio_settings.audio_root.clone();
-                settings.sounds_folder = audio_settings.sounds_folder.clone();
-                settings.music_folder = audio_settings.music_folder.clone();
-                settings.streaming_folder = audio_settings.streaming_folder.clone();
-                settings.sounds_extension = audio_settings.sounds_extension.clone();
-            }
-            Err(std::sync::TryLockError::Poisoned(poisoned)) => {
-                let guard = poisoned.into_inner();
-                let audio_settings = guard.get_audio_settings();
-                settings.audio_root = audio_settings.audio_root.clone();
-                settings.sounds_folder = audio_settings.sounds_folder.clone();
-                settings.music_folder = audio_settings.music_folder.clone();
-                settings.streaming_folder = audio_settings.streaming_folder.clone();
-                settings.sounds_extension = audio_settings.sounds_extension.clone();
-            }
-            Err(std::sync::TryLockError::WouldBlock) => {
-                // Nested call under an existing AudioManager lock — defaults are fine.
-            }
-        }
-    }
-
-    settings
 }
 
 fn audio_file_exists(filename: &str) -> bool {
@@ -649,11 +595,20 @@ impl AudioEventRts {
     }
 
     pub fn generate_filename(&mut self) {
+        if self.event_info.is_none() {
+            return;
+        }
+        self.generate_filename_with_settings(&current_audio_path_settings());
+    }
+
+    /// The manager supplies its already-borrowed configuration, never a global lookup.
+    pub(crate) fn generate_filename_with_settings(&mut self, paths: &AudioPathSettings) {
         let Some(event_info) = self.event_info.as_ref().map(Arc::clone) else {
             return;
         };
 
-        self.filename_to_load = self.generate_filename_prefix(event_info.sound_type, false);
+        self.filename_to_load =
+            self.generate_filename_prefix_with_settings(event_info.sound_type, false, paths);
 
         if matches!(
             event_info.sound_type,
@@ -662,7 +617,7 @@ impl AudioEventRts {
             self.filename_to_load.push_str(&event_info.filename);
             let sound_type = event_info.sound_type;
             let mut localized = self.filename_to_load.clone();
-            self.adjust_for_localization(&mut localized, sound_type);
+            self.adjust_for_localization(&mut localized, sound_type, paths);
             self.filename_to_load = localized;
             if let Some(resolved) = resolve_extracted_audiozh_path(&self.filename_to_load) {
                 self.filename_to_load = resolved;
@@ -701,10 +656,10 @@ impl AudioEventRts {
 
         self.filename_to_load.push_str(&event_info.sounds[which]);
         self.filename_to_load
-            .push_str(&self.generate_filename_extension(event_info.sound_type));
+            .push_str(&paths.extension(event_info.sound_type));
         let sound_type = event_info.sound_type;
         let mut localized = self.filename_to_load.clone();
-        self.adjust_for_localization(&mut localized, sound_type);
+        self.adjust_for_localization(&mut localized, sound_type, paths);
         self.filename_to_load = localized;
         if let Some(resolved) = resolve_extracted_audiozh_path(&self.filename_to_load) {
             self.filename_to_load = resolved;
@@ -731,6 +686,14 @@ impl AudioEventRts {
     }
 
     pub fn generate_play_info(&mut self) {
+        if self.event_info.is_none() {
+            self.is_logical_audio = false;
+            return;
+        }
+        self.generate_play_info_with_settings(&current_audio_path_settings());
+    }
+
+    pub(crate) fn generate_play_info_with_settings(&mut self, paths: &AudioPathSettings) {
         let Some(event_info) = self.event_info.as_ref().map(Arc::clone) else {
             self.is_logical_audio = false;
             return;
@@ -747,14 +710,15 @@ impl AudioEventRts {
 
         let attack_size = event_info.attack_sounds.len();
         if attack_size > 0 {
-            self.attack_name = self.generate_filename_prefix(event_info.sound_type, false);
+            self.attack_name =
+                self.generate_filename_prefix_with_settings(event_info.sound_type, false, paths);
             let attack_index = self.pick_random_index(attack_size);
             self.attack_name
                 .push_str(&event_info.attack_sounds[attack_index]);
             self.attack_name
-                .push_str(&self.generate_filename_extension(event_info.sound_type));
+                .push_str(&paths.extension(event_info.sound_type));
             let mut localized = self.attack_name.clone();
-            self.adjust_for_localization(&mut localized, event_info.sound_type);
+            self.adjust_for_localization(&mut localized, event_info.sound_type, paths);
             self.attack_name = localized;
         } else {
             self.portion_to_play_next = PortionToPlay::Sound;
@@ -762,14 +726,15 @@ impl AudioEventRts {
 
         let decay_size = event_info.decay_sounds.len();
         if decay_size > 0 {
-            self.decay_name = self.generate_filename_prefix(event_info.sound_type, false);
+            self.decay_name =
+                self.generate_filename_prefix_with_settings(event_info.sound_type, false, paths);
             let decay_index = self.pick_random_index(decay_size);
             self.decay_name
                 .push_str(&event_info.decay_sounds[decay_index]);
             self.decay_name
-                .push_str(&self.generate_filename_extension(event_info.sound_type));
+                .push_str(&paths.extension(event_info.sound_type));
             let mut localized = self.decay_name.clone();
-            self.adjust_for_localization(&mut localized, event_info.sound_type);
+            self.adjust_for_localization(&mut localized, event_info.sound_type, paths);
             self.decay_name = localized;
         }
 
@@ -1485,43 +1450,43 @@ impl AudioEventRts {
         audio_type_to_play: AudioType,
         localized: Bool,
     ) -> String {
-        let settings = current_audio_path_settings();
+        self.generate_filename_prefix_with_settings(
+            audio_type_to_play,
+            localized,
+            &current_audio_path_settings(),
+        )
+    }
 
-        let mut ret_str = settings.audio_root;
-        ret_str.push('\\');
-        match audio_type_to_play {
-            AudioType::Music => ret_str.push_str(&settings.music_folder),
-            AudioType::Streaming => ret_str.push_str(&settings.streaming_folder),
-            _ => ret_str.push_str(&settings.sounds_folder),
-        }
-        ret_str.push('\\');
-        if localized {
-            ret_str.push_str(&current_localization_language());
-            ret_str.push('\\');
-        }
-        ret_str
+    fn generate_filename_prefix_with_settings(
+        &self,
+        audio_type_to_play: AudioType,
+        localized: Bool,
+        paths: &AudioPathSettings,
+    ) -> String {
+        let language = localized.then(current_localization_language);
+        paths.prefix(audio_type_to_play, language.as_deref())
     }
 
     pub fn generate_filename_extension(&self, audio_type_to_play: AudioType) -> String {
-        if audio_type_to_play != AudioType::Music {
-            let settings = current_audio_path_settings();
-            let extension = settings.sounds_extension.trim();
-            if extension.starts_with('.') {
-                extension.to_string()
-            } else {
-                format!(".{extension}")
-            }
-        } else {
+        if audio_type_to_play == AudioType::Music {
             String::new()
+        } else {
+            current_audio_path_settings().extension(audio_type_to_play)
         }
     }
 
-    fn adjust_for_localization(&self, filename: &mut String, audio_type_to_play: AudioType) {
+    fn adjust_for_localization(
+        &self,
+        filename: &mut String,
+        audio_type_to_play: AudioType,
+        paths: &AudioPathSettings,
+    ) {
         let Some(index) = filename.rfind('\\') else {
             return;
         };
 
-        let mut localized_path = self.generate_filename_prefix(audio_type_to_play, true);
+        let mut localized_path =
+            self.generate_filename_prefix_with_settings(audio_type_to_play, true, paths);
         localized_path.push_str(&filename[index..]);
 
         if audio_file_exists(&localized_path) {

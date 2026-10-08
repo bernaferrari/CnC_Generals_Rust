@@ -8,6 +8,7 @@
 //! Westwood Studios Pacific
 //! Converted to Rust
 
+use super::audio_paths::AudioPathSettings;
 use crate::common::audio::{
     audio_cache::AudioFileCache,
     audio_event_rts::{
@@ -939,10 +940,11 @@ impl AudioManager {
 
         let handle = self.allocate_new_handle();
         audio_event.set_playing_handle(handle);
-        audio_event.generate_filename();
+        let paths = self.audio_paths();
+        audio_event.generate_filename_with_settings(&paths);
         // C++ GameAudio.cpp:424 writes the chosen index back onto the caller's event.
         event_to_add.set_playing_audio_index(audio_event.get_playing_audio_index());
-        audio_event.generate_play_info();
+        audio_event.generate_play_info_with_settings(&paths);
 
         // Check volume adjustments
         for (name, volume) in &self.adjusted_volumes {
@@ -1074,8 +1076,9 @@ impl AudioManager {
             }
         }
 
-        tmp_event.generate_filename();
-        tmp_event.generate_play_info();
+        let paths = self.audio_paths();
+        tmp_event.generate_filename_with_settings(&paths);
+        tmp_event.generate_play_info_with_settings(&paths);
 
         self.get_file_length_ms(tmp_event.get_attack_filename())
             + self.get_file_length_ms(tmp_event.get_filename())
@@ -1731,6 +1734,10 @@ impl AudioManager {
             .retain(|_, info| !info.is_level_specific());
     }
 
+    fn audio_paths(&self) -> AudioPathSettings {
+        AudioPathSettings::from_settings(&self.audio_settings)
+    }
+
     pub fn get_audio_settings(&self) -> &AudioSettings {
         &self.audio_settings
     }
@@ -1888,8 +1895,9 @@ impl AudioManager {
             _ => {}
         }
 
-        event.generate_filename();
-        event.generate_play_info();
+        let paths = self.audio_paths();
+        event.generate_filename_with_settings(&paths);
+        event.generate_play_info_with_settings(&paths);
         for (name, volume) in &self.adjusted_volumes {
             if *name == event.get_event_name() {
                 event.set_volume(*volume);
@@ -2659,7 +2667,7 @@ impl AudioManager {
             return false;
         }
 
-        event.generate_filename();
+        event.generate_filename_with_settings(&self.audio_paths());
         if event.get_delay() > MSEC_PER_LOGICFRAME_REAL {
             let mut request = AudioRequest::new_with_event(RequestType::Play, event.clone());
             request.set_requires_check_for_sample(true);

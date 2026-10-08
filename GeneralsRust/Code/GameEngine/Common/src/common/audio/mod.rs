@@ -33,6 +33,7 @@ use std::sync::Arc;
 // Public modules
 pub mod audio_cache;
 pub mod audio_event_rts;
+mod audio_paths;
 pub mod audio_request;
 
 pub mod dynamic_audio_event_info;

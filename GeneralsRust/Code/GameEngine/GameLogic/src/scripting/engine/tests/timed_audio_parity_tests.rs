@@ -134,12 +134,9 @@ fn canonical_audio_deadlines_wrap_like_cpp_unsigned_frames() {
         .register_audio_event_info((*info).clone());
     let mut event = AudioEventRts::with_event_name(name);
     event.set_audio_event_info(info);
-    {
-        // Match the actual get_audio_length_ms call: it generates the filename
-        // while the existing AudioManager guard is held.
-        let _audio = manager.lock().unwrap();
-        event.generate_filename();
-    }
+    // Standalone generation reads the same configured paths that the manager
+    // now passes directly while it owns the duration-query guard.
+    event.generate_filename();
     let filename = std::path::Path::new(event.get_filename());
     assert!(
         !filename.is_absolute(),
