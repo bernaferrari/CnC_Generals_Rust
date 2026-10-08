@@ -1,7 +1,7 @@
-//! Wave 923: single tick_logic_frame authority boundary + queue via host residual.
+//! Wave 923: per-step host delivery through GameLogic fixed-step authority.
 //!
-//! host_update_logic_frame uses GameLogic::tick_logic_frame instead of four update
-//! dual-write variants. Resume/stop/force-attack queue through host_queue_command.
+//! The retained host_update_logic_frame preserves pause/timing policy and delegates
+//! callbacks to tick_logic_frame_with_boundary. Resume/stop/force-attack queue via host_queue_command.
 //! playable_claim stays false.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -15,6 +15,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 
 pub const LIVE_HOST_TICK_LOGIC_FRAME_BOUNDARY_METHOD_NAMES_WAVE923: &[&str] = &[
     "host_update_logic_frame",
+    "tick_logic_frame_with_boundary",
     "tick_logic_frame",
     "host_queue_command",
     "Wave 923",
@@ -68,7 +69,8 @@ fn non_comment_code(window: &str) -> String {
 
 pub fn honesty_host_tick_logic_frame_boundary_method_names_residual_wave923() -> bool {
     let names = LIVE_HOST_TICK_LOGIC_FRAME_BOUNDARY_METHOD_NAMES_WAVE923;
-    let ok = residual_name_index(names, "tick_logic_frame").is_some()
+    let ok = residual_name_index(names, "tick_logic_frame_with_boundary").is_some()
+        && residual_name_index(names, "host_update_logic_frame").is_some()
         && residual_name_index(names, "Wave 923").is_some();
     residual_action_store(ResidualHostTickLogicFrameBoundaryAction::MethodNames);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
@@ -87,12 +89,39 @@ pub fn honesty_host_tick_logic_frame_boundary_nav_commands_residual_wave923() ->
 pub fn honesty_host_tick_logic_frame_boundary_residual_pack_wave923() -> bool {
     let cnc = cnc_source();
     let gl = gl_source();
-    let upd_raw = code_window(cnc, "fn host_update_logic_frame", 2000);
-    let upd = non_comment_code(upd_raw);
-    let ok = upd_raw.contains("923")
-        && upd.contains("tick_logic_frame")
-        && !upd.contains("update_with_dt")
-        && !upd.contains("update_with_timing")
+    let host = non_comment_code(
+        super::harness::rust_fn_body(cnc, "host_update_logic_frame").unwrap_or(""),
+    );
+    let tick = non_comment_code(
+        super::harness::rust_fn_body(gl, "tick_logic_frame_with_boundary").unwrap_or(""),
+    );
+    let callbacks = non_comment_code(
+        super::harness::rust_fn_body(gl, "step_simulation_with_callbacks").unwrap_or(""),
+    );
+    let loop_body = non_comment_code(
+        super::harness::rust_fn_body(cnc, "host_run_coupled_fast_forward_loop").unwrap_or(""),
+    );
+    let ok = host.contains("tick_logic_frame_with_boundary")
+        && tick.contains("step_simulation_with_callbacks")
+        && super::harness::rust_fn_body(&callbacks, "step_simulation_with_callbacks").is_some_and(
+            |body| {
+                let advanced = body
+                    .split("SimulationStepOutcome::Advanced =>")
+                    .nth(1)
+                    .unwrap_or("");
+                let (advanced, frozen) = advanced
+                    .split_once("SimulationStepOutcome::Frozen =>")
+                    .unwrap_or(("", ""));
+                let frame = advanced.find("self.frame += 1");
+                let delivery = advanced.find("after_step(self)");
+                frame.zip(delivery).is_some_and(|(a, b)| a < b)
+                    && !frozen.contains("after_step(self)")
+                    && body.contains("with_logic_rng_owner")
+            },
+        )
+        && loop_body.contains("host_update_logic_frame")
+        && !tick.contains("update_with_dt")
+        && !tick.contains("update_with_timing")
         && gl.contains("fn tick_logic_frame")
         && !cnc.contains("self.game_logic\n            .queue_command")
         && !cnc.contains("playable_claim = true");

@@ -1,5 +1,5 @@
-//! Wave 597 residual peels: GameWorld shadow session after host logic is
-//! centralized through `host_run_gameworld_shadow_after_logic`.
+//! Wave 597 residual peels: GameWorld shadow session after each delivered logic step
+//! is centralized through `host_run_gameworld_shadow_after_logic`.
 //! Never flips shell `playable_claim`.
 //!
 //! Orthogonal to Wave 589 presentation finalize residual.
@@ -136,22 +136,21 @@ pub fn honesty_host_gameworld_shadow_session_helper_source_markers_residual_wave
         residual_action_store(ResidualHostGameworldShadowSessionHelperAction::SourceMarkers);
         return false;
     };
-    // 2026-08-14 (Wave 927 seam): the direct shadow_session_after_host_tick /
-    // maybe_shadow_after_host_tick / end_shadow_coupled_tick calls moved into
-    // gameworld_shadow::run_post_logic_shadow_boundary; the engine helper now
-    // delegates through it. The session markers are asserted in the shadow
-    // source view instead of the engine body.
     let sh = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
     let boundary_ok = sh.contains("run_post_logic_shadow_boundary")
         && sh.contains("shadow_session_after_host_tick")
         && sh.contains("maybe_shadow_after_host_tick");
-    let body_ok = body.contains("Wave 597")
-        && body.contains("run_post_logic_shadow_boundary")
-        && body.contains("presentation_view_from_shadow")
-        && body.contains("last_gameworld_presentation_entity_count")
-        && body.contains("&mut self.game_logic");
-    let call_ok = eng.contains("self.host_run_gameworld_shadow_after_logic(couple_shadow)")
-        && eng.contains("Wave 597: GameWorld shadow session after host logic residual");
+    let boundary = body.find("run_post_logic_shadow_boundary");
+    let view = body.find("presentation_view_from_shadow");
+    let destroy = body.find("ProcessDestroyListIfNeeded");
+    let body_ok = body.contains("logic: &mut crate::game_logic::GameLogic")
+        && body.contains("let entity_count")
+        && body.contains("unwrap_or(from_boundary)")
+        && boundary.zip(view).is_some_and(|(a, b)| a < b)
+        && view.zip(destroy).is_some_and(|(a, b)| a < b);
+    let host = fn_body(eng, "fn host_update_logic_frame(").unwrap_or("");
+    let call_ok = host.contains("tick_logic_frame_with_boundary")
+        && eng.contains("host_run_gameworld_shadow_after_logic(logic)");
     let ok = body_ok && boundary_ok && call_ok && !eng.contains("playable_claim = true");
     residual_action_store(ResidualHostGameworldShadowSessionHelperAction::SourceMarkers);
     ok
@@ -187,9 +186,18 @@ pub fn simulate_host_gameworld_shadow_session_helper_collect_source() -> bool {
 
 pub fn simulate_host_gameworld_shadow_session_helper_dispatch_source() -> bool {
     let eng = eng_source();
-    let ok = eng.contains("self.host_run_gameworld_shadow_after_logic(couple_shadow)")
-        && eng.contains("Wave 597: GameWorld shadow session after host logic residual")
-        && eng.contains("self.host_finalize_presentation_after_logic()");
+    let host = fn_body(eng, "fn host_update_logic_frame(").unwrap_or("");
+    let loop_body = fn_body(eng, "fn host_run_coupled_fast_forward_loop(").unwrap_or("");
+    let driver = fn_body(eng, "fn host_run_ingame_logic_presentation_frame(").unwrap_or("");
+    let gather = loop_body.find("host_drain_physical_gather_dropoffs");
+    let eager = loop_body.find("eager_apply_all_host_residuals_after_logic");
+    let shadow = loop_body.find("host_run_gameworld_shadow_after_logic(logic)");
+    let completed = driver.find("self.host_run_coupled_fast_forward_loop");
+    let finalize = driver.find("self.host_finalize_presentation_after_logic()");
+    let ok = host.contains("tick_logic_frame_with_boundary")
+        && gather.zip(eager).is_some_and(|(a, b)| a < b)
+        && eager.zip(shadow).is_some_and(|(a, b)| a < b)
+        && completed.zip(finalize).is_some_and(|(a, b)| a < b);
     residual_action_store(ResidualHostGameworldShadowSessionHelperAction::DispatchSource);
     ok
 }

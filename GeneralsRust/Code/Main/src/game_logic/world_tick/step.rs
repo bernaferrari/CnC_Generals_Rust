@@ -173,6 +173,34 @@ impl GameLogic {
         }
     }
 
+    /// Drive the owning instance and deliver each completed logic step before
+    /// another step can synchronize from its shadow. The callback is internal:
+    /// it admits residuals, not arbitrary lifecycle or RNG-field mutation.
+    pub(crate) fn tick_logic_frame_with_boundary(
+        &mut self,
+        dt: f32,
+        timing: Option<&FrameTiming>,
+        budget: Option<usize>,
+        after_step: impl FnMut(&mut Self),
+    ) -> SimTimingSnapshot {
+        let (delta_time, absolute_time) = timing
+            .map(|timing| (timing.delta_seconds(), Some(timing.total_seconds())))
+            .unwrap_or((dt, None));
+        self.step_simulation_with_callbacks(
+            delta_time,
+            absolute_time,
+            budget.map(|budget| budget.max(1)),
+            |logic, fixed_dt| {
+                crate::gameworld_shadow::with_gameworld_authority(
+                    *logic.gameworld_authority(),
+                    || logic.update_simulation(fixed_dt),
+                )
+            },
+            after_step,
+        );
+        self.sim_timing_snapshot()
+    }
+
     /// Menu/shell update path that bounds fixed-step catch-up work per frame.
     /// This prevents multi-second UI stalls after startup while still advancing shell scripts.
     pub fn update_shell_with_budget(
@@ -213,6 +241,23 @@ impl GameLogic {
         delta_time: f32,
         absolute_time: Option<f32>,
         max_fixed_steps: Option<usize>,
+    ) {
+        self.step_simulation_with_callbacks(
+            delta_time,
+            absolute_time,
+            max_fixed_steps,
+            |logic, fixed_dt| logic.update_simulation(fixed_dt),
+            |_| {},
+        );
+    }
+
+    fn step_simulation_with_callbacks(
+        &mut self,
+        delta_time: f32,
+        absolute_time: Option<f32>,
+        max_fixed_steps: Option<usize>,
+        mut run_step: impl FnMut(&mut Self, f32) -> SimulationStepOutcome,
+        mut after_step: impl FnMut(&mut Self),
     ) {
         if self.is_paused {
             return;
@@ -274,7 +319,7 @@ impl GameLogic {
                         }
                         break;
                     }
-                    match self.update_simulation(FIXED_TIMESTEP) {
+                    match run_step(self, FIXED_TIMESTEP) {
                         SimulationStepOutcome::Advanced => {
                             self.accumulated_time -= FIXED_TIMESTEP;
                             // C++ m_frame++ (GameLogic.cpp:3795-3803): this loop is
@@ -286,6 +331,10 @@ impl GameLogic {
                                 .set_current_frame(self.frame);
                             self.sim_time_seconds += FIXED_TIMESTEP;
                             steps_run += 1;
+                            // Residual admission belongs to this completed frame,
+                            // before the next host ingress. Keep the RNG owner
+                            // published through any factory/audio/effect draws.
+                            after_step(self);
                         }
                         SimulationStepOutcome::Frozen => {
                             // C++ GameLogic.cpp:3614-3616 returned early, but the
@@ -1969,5 +2018,166 @@ mod tests {
             logic.frame, 1,
             "the gated step must still advance exactly one frame"
         );
+    }
+    #[test]
+    fn step_boundary_callback_draws_from_the_driving_instance_in_sequence() {
+        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        drop_pending_clear_game_data();
+        use game_engine::common::random_value::{
+            get_game_logic_random_value, init_random_with_seed, with_logic_rng_owner,
+        };
+
+        const SEED: u32 = 0xB0A7_DA7A;
+        const DT: f32 = LOGIC_FRAME_TIMESTEP;
+        init_random_with_seed(SEED);
+        let mut actual = GameLogic::new();
+        let mut reference = GameLogic::new();
+        let mut draws = Vec::new();
+        let snapshot = actual.tick_logic_frame_with_boundary(2.0 * DT, None, Some(2), |_| {
+            draws.push(get_game_logic_random_value(0, 999))
+        });
+
+        let _ = reference.update_with_dt_budget(DT, 1);
+        let expected_first = with_logic_rng_owner(&mut reference.logic_random, || {
+            get_game_logic_random_value(0, 999)
+        });
+        let _ = reference.update_with_dt_budget(DT, 1);
+        let expected_second = with_logic_rng_owner(&mut reference.logic_random, || {
+            get_game_logic_random_value(0, 999)
+        });
+        let actual_next = with_logic_rng_owner(&mut actual.logic_random, || {
+            get_game_logic_random_value(0, 999)
+        });
+        let expected_next = with_logic_rng_owner(&mut reference.logic_random, || {
+            get_game_logic_random_value(0, 999)
+        });
+
+        assert_eq!(snapshot.steps_run, 2);
+        assert_eq!(draws, vec![expected_first, expected_second]);
+        assert_eq!(actual_next, expected_next);
+    }
+
+    #[test]
+    fn nested_foreign_fixed_step_restores_the_outer_instance_stream() {
+        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        drop_pending_clear_game_data();
+        use game_engine::common::random_value::{
+            get_game_logic_random_seed, get_game_logic_random_value, init_random_with_seed,
+            with_logic_rng_owner,
+        };
+
+        const SEED: u32 = 0xA101_0001;
+        const FOREIGN_SEED: u32 = 0xB202_0002;
+        const DT: f32 = LOGIC_FRAME_TIMESTEP;
+        init_random_with_seed(SEED);
+        let mut a = GameLogic::new();
+        let mut a_ref = GameLogic::new();
+        let mut b = GameLogic::new();
+        let mut b_ref = GameLogic::new();
+        // Distinguish B from A while preventing per-batch seed adoption from
+        // replacing B's deliberately independent test stream.
+        b.logic_random.seed_random(FOREIGN_SEED);
+        b_ref.logic_random.seed_random(FOREIGN_SEED);
+        b.logic_base_seed = get_game_logic_random_seed();
+        b_ref.logic_base_seed = get_game_logic_random_seed();
+
+        let mut got_a = Vec::new();
+        let mut got_b = Vec::new();
+        let _ = a.tick_logic_frame_with_boundary(DT, None, Some(1), |_| {
+            got_a.push(get_game_logic_random_value(0, 999));
+            let _ = b.tick_logic_frame_with_boundary(DT, None, Some(1), |_| {
+                got_b.push(get_game_logic_random_value(0, 999));
+            });
+            got_a.push(get_game_logic_random_value(0, 999));
+        });
+
+        let _ = a_ref.update_with_dt_budget(DT, 1);
+        let expected_a_first = with_logic_rng_owner(&mut a_ref.logic_random, || {
+            get_game_logic_random_value(0, 999)
+        });
+        let _ = b_ref.update_with_dt_budget(DT, 1);
+        let expected_b = with_logic_rng_owner(&mut b_ref.logic_random, || {
+            get_game_logic_random_value(0, 999)
+        });
+        let expected_a_second = with_logic_rng_owner(&mut a_ref.logic_random, || {
+            get_game_logic_random_value(0, 999)
+        });
+
+        assert_eq!(got_a, vec![expected_a_first, expected_a_second]);
+        assert_eq!(got_b, vec![expected_b]);
+        assert_eq!(a.get_frame(), 1);
+        assert_eq!(b.get_frame(), 1);
+    }
+
+    #[test]
+    fn callback_unwind_restores_an_enclosing_logic_rng_owner() {
+        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        drop_pending_clear_game_data();
+        use game_engine::common::random_value::{
+            RandomState, get_game_logic_random_value, init_random_with_seed, with_logic_rng_owner,
+        };
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+
+        init_random_with_seed(0xCA11_BACC);
+        let mut driver = GameLogic::new();
+        let mut outer = RandomState::default();
+        outer.seed_random(0x0A77_EA01);
+        let mut replay = RandomState::default();
+        replay.seed_random(0x0A77_EA01);
+        let expected_first =
+            with_logic_rng_owner(&mut replay, || get_game_logic_random_value(0, 999));
+        let expected_after =
+            with_logic_rng_owner(&mut replay, || get_game_logic_random_value(0, 999));
+
+        let (first, after) = with_logic_rng_owner(&mut outer, || {
+            let first = get_game_logic_random_value(0, 999);
+            let unwind = catch_unwind(AssertUnwindSafe(|| {
+                let _ = driver.tick_logic_frame_with_boundary(
+                    LOGIC_FRAME_TIMESTEP,
+                    None,
+                    Some(1),
+                    |_| {
+                        let _ = get_game_logic_random_value(0, 999);
+                        panic!("exercise callback unwind after an actual fixed update");
+                    },
+                );
+            }));
+            assert!(unwind.is_err());
+            // The tick's owner guard must have restored this enclosing owner.
+            let after = get_game_logic_random_value(0, 999);
+            (first, after)
+        });
+
+        assert_eq!(first, expected_first);
+        assert_eq!(after, expected_after);
+    }
+    #[test]
+    fn immutable_frame_timing_keeps_the_existing_absolute_clock_rule() {
+        let _lock = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        drop_pending_clear_game_data();
+        let timing = FrameTiming {
+            frame_number: 300,
+            delta_time: Duration::from_secs_f32(1.0 / 30.0),
+            total_time: Duration::from_secs(10),
+            fps: 30.0,
+            frame_start: Instant::now(),
+            sync_time: 10_000,
+            previous_sync_time: 9967,
+        };
+        let mut logic = GameLogic::new();
+        let mut callbacks = 0;
+        // timing.delta_seconds takes precedence over the dt argument as before.
+        let snap =
+            logic.tick_logic_frame_with_boundary(0.0, Some(&timing), Some(1), |_| callbacks += 1);
+        assert_eq!(callbacks, 1);
+        assert_eq!(snap.frame, 1);
+        assert_eq!(logic.sim_time_seconds, 10.0);
+        let mut frozen = GameLogic::new();
+        frozen.set_script_time_frozen_for_test(true);
+        let snap = frozen.tick_logic_frame_with_boundary(0.0, Some(&timing), Some(1), |_| {
+            panic!("frozen step cannot deliver")
+        });
+        assert_eq!(snap.steps_run, 0);
+        assert_eq!(frozen.sim_time_seconds, 0.0);
     }
 }

@@ -85,14 +85,14 @@ pub fn honesty_host_paused_tick_guard_refresh_peels_nav_commands_residual_wave91
 
 pub fn honesty_host_paused_tick_guard_refresh_peels_residual_pack_wave919() -> bool {
     let cnc = cnc_source();
-    let upd_raw = code_window(cnc, "fn host_update_logic_frame", 1200);
+    let upd_raw = super::harness::rust_fn_body(cnc, "host_update_logic_frame").unwrap_or("");
     let upd = non_comment_code(upd_raw);
     let gr_raw = code_window(cnc, "fn host_adjust_unit_guard_radius", 1000);
     let gr = non_comment_code(gr_raw);
     let enq_raw = code_window(cnc, "fn host_enqueue_production", 700);
     let enq = non_comment_code(enq_raw);
-    let ok = upd_raw.contains("919")
-        && upd.contains("game_paused")
+    let ok = upd.contains("if game_paused")
+        && upd.contains("tick_logic_frame_with_boundary")
         && gr_raw.contains("919")
         && gr.contains("f32::EPSILON")
         && enq_raw.contains("919")

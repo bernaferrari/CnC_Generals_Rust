@@ -1193,31 +1193,32 @@ impl CnCGameEngine {
     /// Consume economy events only from the real ReturningResources deposit
     /// branch. A resource-total delta, passive income, scripted income, or an
     /// untracked/remote carrier is deliberately insufficient.
-    pub(in crate::cnc_game_engine) fn host_drain_physical_gather_dropoffs(&mut self) {
-        // Clear any non-input Gather acceptances that arose during simulation;
-        // a physical context-click path consumes its own event synchronously above.
-        let _ = self.host_game_logic_mut().take_accepted_gather_commands();
-        let dropoffs = self.host_game_logic_mut().take_supply_dropoff_events();
-        if dropoffs.is_empty() || !self.host_physical_gather_evidence_eligible() {
+    pub(in crate::cnc_game_engine) fn host_drain_physical_gather_dropoffs(
+        logic: &mut crate::game_logic::GameLogic,
+        eligible: bool,
+        local_player_id: u32,
+        tracked_carriers: &HashSet<ObjectId>,
+        playability: &mut InteractivePlayabilityEvidence,
+    ) {
+        // Physical input consumes its own acceptance synchronously; drain any
+        // simulation-origin acceptances even when physical evidence is ineligible.
+        let _ = logic.take_accepted_gather_commands();
+        let dropoffs = logic.take_supply_dropoff_events();
+        if dropoffs.is_empty() || !eligible {
             return;
         }
-
-        let local_player_id = self.local_player_id_for_ui();
         for dropoff in dropoffs {
             let is_tracked_local_deposit = dropoff.carried_amount > 0
                 && dropoff.player_id == local_player_id
-                && self
-                    .physical_gather_carrier_ids
-                    .contains(&dropoff.carrier_id);
-            self.interactive_playability
-                .note_physical_gather_resources(is_tracked_local_deposit);
+                && tracked_carriers.contains(&dropoff.carrier_id);
+            playability.note_physical_gather_resources(is_tracked_local_deposit);
         }
     }
 
     /// A physical Gather proof is valid only in a visible, non-headless,
     /// offline match. This intentionally does not infer input provenance from
     /// `CommandSourceType::FromUser` or a runtime-host command name.
-    fn host_physical_gather_evidence_eligible(&self) -> bool {
+    pub(in crate::cnc_game_engine) fn host_physical_gather_evidence_eligible(&self) -> bool {
         !self.runtime_host_headless
             && self.runtime_host_window_visible()
             && matches!(self.current_state, GameState::InGame)

@@ -93,7 +93,12 @@ pub fn honesty_host_direct_order_boundary_residual_pack_wave929() -> bool {
     let stop = non_comment_code(code_window(cnc, "fn host_command_stop", 400));
     let mov = non_comment_code(code_window(cnc, "fn host_command_move", 400));
     let amov = non_comment_code(code_window(cnc, "fn host_command_attack_move", 400));
-    let tick = non_comment_code(code_window(cnc, "fn host_update_logic_frame", 1600));
+    let tick = non_comment_code(
+        super::harness::rust_fn_body(cnc, "host_run_coupled_fast_forward_loop").unwrap_or(""),
+    );
+    let host_tick = non_comment_code(
+        super::harness::rust_fn_body(cnc, "host_update_logic_frame").unwrap_or(""),
+    );
     let legal = non_comment_code(code_window(
         cnc,
         "fn host_legal_build_code_at_for_builder",
@@ -108,7 +113,8 @@ pub fn honesty_host_direct_order_boundary_residual_pack_wave929() -> bool {
         && stop.contains("host_issue_direct_player_order")
         && mov.contains("host_issue_direct_player_order")
         && amov.contains("host_issue_direct_player_order")
-        && tick.contains("tick_logic_frame")
+        && tick.contains("host_update_logic_frame")
+        && host_tick.contains("tick_logic_frame_with_boundary")
         && legal.contains("legal_build_code_at_for_builder")
         && legal.contains("host_legal_build_cache")
         && !cnc.contains("playable_claim = true");

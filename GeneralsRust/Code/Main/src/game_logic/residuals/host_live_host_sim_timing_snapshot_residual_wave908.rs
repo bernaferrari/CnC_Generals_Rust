@@ -1,7 +1,7 @@
 //! Wave 908: post-tick sim timing snapshot residual (no dual get_frame/diagnostics).
 //!
-//! GameLogic update helpers return `SimTimingSnapshot`; host stamps from the
-//! return payload (or one `sim_timing_snapshot()` probe on cold residual paths).
+//! GameLogic callback-aware tick returns `SimTimingSnapshot`; host stamps from
+//! its returned payload only after per-step boundary delivery completes.
 //! playable_claim stays false.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -92,14 +92,30 @@ pub fn honesty_host_sim_timing_snapshot_nav_commands_residual_wave908() -> bool 
 pub fn honesty_host_sim_timing_snapshot_residual_pack_wave908() -> bool {
     let cnc = cnc_source();
     let gl = gl_source();
-    let upd_raw = code_window(cnc, "fn host_update_logic_frame", 1200);
-    let upd = non_comment_code(upd_raw);
+    let host = non_comment_code(
+        super::harness::rust_fn_body(cnc, "host_update_logic_frame").unwrap_or(""),
+    );
+    let loop_body = non_comment_code(
+        super::harness::rust_fn_body(cnc, "host_run_coupled_fast_forward_loop").unwrap_or(""),
+    );
+    let tick = non_comment_code(
+        super::harness::rust_fn_body(&gl, "tick_logic_frame_with_boundary").unwrap_or(""),
+    );
+    let callbacks = non_comment_code(
+        super::harness::rust_fn_body(&gl, "step_simulation_with_callbacks").unwrap_or(""),
+    );
     let stamp_raw = code_window(cnc, "fn host_stamp_sim_timing_residuals", 900);
     let stamp = non_comment_code(stamp_raw);
     let snap_raw = code_window(&gl, "struct SimTimingSnapshot", 400);
-    let ok = upd_raw.contains("908")
-        && upd.contains("host_stamp_sim_timing_from_snapshot")
-        && !upd.contains("get_frame")
+    let returned = loop_body.find("host_update_logic_frame");
+    let stamped = loop_body.find("host_stamp_sim_timing_from_snapshot(snap)");
+    let ok = host.contains("tick_logic_frame_with_boundary")
+        && !host.contains("host_stamp_sim_timing_from_snapshot")
+        && tick.contains("step_simulation_with_callbacks")
+        && callbacks.contains("SimulationStepOutcome::Advanced")
+        && callbacks.contains("after_step(self)")
+        && returned.zip(stamped).is_some_and(|(a, b)| a < b)
+        && !host.contains("get_frame")
         && (stamp.contains("sim_timing_snapshot")
             || stamp.contains("SimTimingSnapshot")
             || stamp.contains("host_match_logic_frame"))

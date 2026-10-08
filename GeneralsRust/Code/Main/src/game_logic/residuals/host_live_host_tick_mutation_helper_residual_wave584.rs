@@ -160,20 +160,24 @@ pub fn honesty_host_tick_mutation_helper_source_markers_residual_wave584() -> bo
             defs_ok = false;
             break;
         };
-        if !body.contains("Wave 584") {
+        if sig != "fn host_update_logic_frame(" && !body.contains("Wave 584") {
             defs_ok = false;
             break;
         }
         let name = sig.trim_start_matches("fn ").trim_end_matches('(');
-        // no self-recursion
         if body.matches(&format!("self.{name}(")).count() > 0 {
             defs_ok = false;
             break;
         }
     }
-    // 2026-08-15: call is rustfmt-split (`self\n.host_update_logic_frame(`).
-    let call_ok = (eng.contains("self.host_update_logic_frame(")
-        || eng.contains(".host_update_logic_frame("))
+    let host_tick = fn_body(eng, "fn host_update_logic_frame(");
+    let game_tick = fn_body(
+        super::GAME_LOGIC_HOST_SRC,
+        "pub(crate) fn tick_logic_frame_with_boundary(",
+    );
+    let boundary_ok = host_tick.is_some_and(|body| body.contains("tick_logic_frame_with_boundary"))
+        && game_tick.is_some_and(|body| body.contains("step_simulation_with_callbacks"));
+    let call_ok = eng.contains("Self::host_update_logic_frame(")
         && eng.contains("self.host_update_shell_with_budget(")
         && eng.contains("self.host_is_in_multiplayer_game()")
         && eng.contains("self.presentation_or_boot_object_alive(")
@@ -195,6 +199,7 @@ pub fn honesty_host_tick_mutation_helper_source_markers_residual_wave584() -> bo
     let raw_destroy = eng.matches("self.game_logic.destroy_object(").count();
     let raw_alive = eng.matches("self.game_logic.object_is_alive(").count();
     let ok = defs_ok
+        && boundary_ok
         && call_ok
         && raw_shell == 0
         && raw_timing == 0
@@ -230,8 +235,15 @@ pub fn honesty_host_tick_mutation_helper_nav_commands_residual_wave584() -> bool
 
 pub fn simulate_host_tick_mutation_helper_collect_source() -> bool {
     let eng = eng_source();
+    let host = fn_body(eng, "fn host_update_logic_frame(").unwrap_or("");
+    let tick = fn_body(
+        super::GAME_LOGIC_HOST_SRC,
+        "pub(crate) fn tick_logic_frame_with_boundary(",
+    )
+    .unwrap_or("");
     let ok = eng.contains("Wave 584")
-        && eng.contains("fn host_update_logic_frame")
+        && host.contains("tick_logic_frame_with_boundary")
+        && tick.contains("step_simulation_with_callbacks")
         && eng.contains("fn host_update_shell_with_budget")
         && eng.contains("fn presentation_or_boot_object_alive")
         && eng.contains("fn presentation_or_boot_victory_summary")
@@ -243,9 +255,8 @@ pub fn simulate_host_tick_mutation_helper_collect_source() -> bool {
 
 pub fn simulate_host_tick_mutation_helper_dispatch_source() -> bool {
     let eng = eng_source();
-    // 2026-08-15: rustfmt-split call site in camera_drain.rs.
-    let ok = (eng.contains("self.host_update_logic_frame(dt, headless_step_budget)")
-        || eng.contains(".host_update_logic_frame(dt, headless_step_budget)"))
+    let ok = eng.contains("Self::host_update_logic_frame(")
+        && eng.contains("tick_logic_frame_with_boundary(")
         && eng.contains("self.host_update_shell_with_budget(dt, 1)")
         && eng.contains("self.presentation_or_boot_object_alive(pid)")
         && eng.contains("self.presentation_or_boot_victory_summary(winner)")

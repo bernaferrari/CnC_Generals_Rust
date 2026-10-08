@@ -2367,29 +2367,37 @@ impl CnCGameEngine {
         couple_shadow: bool,
     ) {
         for _ in 0..ff_steps {
-            let fixed_steps = self
-                .host_update_logic_frame(dt, headless_step_budget)
-                .steps_run;
-            for _ in 0..fixed_steps {
-                // Consume typed Gather/drop-off observation events immediately after
-                // each authoritative logic step. The evidence helper rejects passive,
-                // untracked, injected, remote, hidden, and non-offline paths.
-                self.host_drain_physical_gather_dropoffs();
-                // Wave 682/925: post-logic host→GameWorld residual batch under the
-                // coupled shadow tick. Single authority boundary replaces N eager
-                // apply dual-borrows.
-                if couple_shadow {
-                    crate::gameworld_shadow::with_active_shadow_mut(|shadow| {
-                        crate::gameworld_shadow::eager_apply_all_host_residuals_after_logic(
-                            shadow,
-                            &mut self.game_logic,
-                        );
-                    });
-                }
-                // Wave 597: GameWorld shadow session residual. This stays per
-                // completed fixed logic step even though presentation is coalesced
-                // after the fast-forward batch.
-                self.host_run_gameworld_shadow_after_logic(couple_shadow);
+            let gather_eligible = self.host_physical_gather_evidence_eligible();
+            let local_player_id = self.local_player_id_for_ui();
+            let presentation_entity_count = &mut self.last_gameworld_presentation_entity_count;
+            let tracked_carriers = &self.physical_gather_carrier_ids;
+            let playability = &mut self.interactive_playability;
+            let snap = Self::host_update_logic_frame(
+                &mut self.game_logic,
+                self.game_paused,
+                dt,
+                self.last_frame_timing.as_ref(),
+                headless_step_budget,
+                |logic| {
+                    Self::host_drain_physical_gather_dropoffs(
+                        logic,
+                        gather_eligible,
+                        local_player_id,
+                        tracked_carriers,
+                        playability,
+                    );
+                    if couple_shadow {
+                        crate::gameworld_shadow::with_active_shadow_mut(|shadow| {
+                            crate::gameworld_shadow::eager_apply_all_host_residuals_after_logic(
+                                shadow, logic,
+                            );
+                        });
+                    }
+                    *presentation_entity_count = Self::host_run_gameworld_shadow_after_logic(logic);
+                },
+            );
+            if !self.game_paused {
+                self.host_stamp_sim_timing_from_snapshot(snap);
             }
         }
     }
@@ -2398,40 +2406,23 @@ impl CnCGameEngine {
     ///
     /// Ends a coupled shadow tick when requested. Host remains temporary
     /// mid-frame owner; shadow is last-writer for HP/cash/pose.
-    pub(super) fn host_run_gameworld_shadow_after_logic(&mut self, couple_shadow: bool) {
-        // Wave 597/680/927: GameWorld shadow session residual via single boundary.
-        // AFTER host logic + projectiles + path; host temporary mid-frame owner.
-        // Keep the generation-checked couple handle live through writeback
-        // complete/spawn so `host_authoritative_*` still see GameWorld.
-        // Reach the live shadow through the ambient coupled accessor: the
-        // publication is owned by the caller's `with_coupled_shadow` scope.
+    pub(super) fn host_run_gameworld_shadow_after_logic(
+        logic: &mut crate::game_logic::GameLogic,
+    ) -> usize {
         let from_boundary = crate::gameworld_shadow::with_active_shadow_mut(|shadow| {
-            crate::gameworld_shadow::run_post_logic_shadow_boundary(
-                Some(shadow),
-                &mut self.game_logic,
-            )
+            crate::gameworld_shadow::run_post_logic_shadow_boundary(Some(shadow), logic)
         })
-        .unwrap_or_else(|| {
-            crate::gameworld_shadow::run_post_logic_shadow_boundary(None, &mut self.game_logic)
-        });
-        // Wave 186: stamp observe-path entity count from presentation_view_from_shadow
-        // after the coupled shadow session (status gameworld_presentation_entities).
-        self.last_gameworld_presentation_entity_count =
-            crate::gameworld_shadow::with_active_shadow(|shadow| {
-                crate::gameworld_shadow::presentation_view_from_shadow(shadow, 0)
-                    .entities
-                    .len()
-            })
-            .unwrap_or(from_boundary);
-        // Wave 621/912: after health writeback, drain destroy-ready log and process
-        // die side effects same couple-frame (host still owns ObjectId remove).
-        let _ = self
-            .game_logic
+        .unwrap_or_else(|| crate::gameworld_shadow::run_post_logic_shadow_boundary(None, logic));
+        let entity_count = crate::gameworld_shadow::with_active_shadow(|shadow| {
+            crate::gameworld_shadow::presentation_view_from_shadow(shadow, 0)
+                .entities
+                .len()
+        })
+        .unwrap_or(from_boundary);
+        // Destruction follows this step's health writeback.
+        let _ = logic
             .apply_host_support_op(crate::game_logic::HostSupportOp::ProcessDestroyListIfNeeded);
-        // Coupled-frame depth and the active shadow handle are owned by the
-        // caller's RAII guards so unwinding cannot leak either into a later
-        // frame.  They remain live through this writeback boundary only.
-        let _ = couple_shadow;
+        entity_count
     }
 
     /// Wave 589: post-logic presentation finalize residual.

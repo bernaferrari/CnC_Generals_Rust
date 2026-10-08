@@ -200,39 +200,27 @@ impl CnCGameEngine {
 
     /// Wave 584: host logic-frame tick residual (timing/dt + optional headless budget).
     ///
-    /// The tick runs inside a scoped GameWorld authority window opened from
-    /// this instance's own switches — the same save/restore seam as the
-    /// post-logic eager batch (gameworld_shadow/tick/dispatch.rs). C++ has a
-    /// single `TheGameLogic`, so its global gates always match the driving
-    /// world; this port's constructible GameLogic instances require the
-    /// window so a foreign construction/configuration mid-session (which
-    /// publishes its own snapshot) cannot re-author this frame's deep gates.
+    /// Each simulation update scopes its driving authority; the ordered
+    /// residual callback runs after that scope restores the previous snapshot.
+    /// Logic RNG ownership spans both update and delivery. The engine passes
+    /// its actual GameLogic rather than borrowing the entire application.
     #[inline]
     pub(super) fn host_update_logic_frame(
-        &mut self,
+        logic: &mut crate::game_logic::GameLogic,
+        game_paused: bool,
         dt: f32,
+        timing: Option<&FrameTiming>,
         budget: Option<usize>,
+        after_step: impl FnMut(&mut crate::game_logic::GameLogic),
     ) -> crate::game_logic::SimTimingSnapshot {
-        // Wave 584/870/908/919/923/929: single tick_logic_frame authority boundary + stamp snapshot.
-        // Skip authority tick dual-write when host residual is paused (GameLogic also
-        // no-ops is_paused; avoid the call entirely).
-        if self.game_paused {
-            let _ = (dt, budget);
+        if game_paused {
             return crate::game_logic::SimTimingSnapshot::default();
         }
-        // C++ GameEngine.cpp:749 reads TheGameLogic->isGamePaused() as the only
-        // pause flag. A leftover GameLogic.is_paused=true with engine unpaused
-        // pins logic_frame at 0 (hq-fx1z).
-        if self.game_logic.is_paused() {
-            self.game_logic.set_paused(false);
+        // C++ GameEngine.cpp:749 uses the engine pause decision.
+        if logic.is_paused() {
+            logic.set_paused(false);
         }
-        let snap = crate::gameworld_shadow::with_gameworld_authority(
-            *self.game_logic.gameworld_authority(),
-            || self.game_logic.tick_logic_frame(dt, self.last_frame_timing.as_ref(), budget),
-        );
-
-        self.host_stamp_sim_timing_from_snapshot(snap);
-        snap
+        logic.tick_logic_frame_with_boundary(dt, timing, budget, after_step)
     }
 
     /// Wave 908: stamp sim timing residuals from a post-tick snapshot payload.
@@ -1128,11 +1116,10 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         self.game_client.invalidate_presentation_drawable_world();
         #[cfg(feature = "game_client")]
-        self.game_client.bind_visual_world(
-            gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
+        self.game_client
+            .bind_visual_world(gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
                 &self.game_logic.engine_stores,
-            )),
-        );
+            )));
         self.render_pipeline.invalidate_world_visual_state();
         self.invalidate_presentation_terrain_cache();
         self.draw_module_name_cache.borrow_mut().clear();
@@ -1172,7 +1159,10 @@ impl CnCGameEngine {
     /// old UI/log ownership, install candidate globals, install matching host
     /// logic, then run TeamFactory post-unlock callbacks against that complete
     /// candidate world before rebuilding the shadow from host authority.
-    fn host_replace_staged_restore_world(&mut self, staged: StagedRestoreWorld) -> Result<(), String> {
+    fn host_replace_staged_restore_world(
+        &mut self,
+        staged: StagedRestoreWorld,
+    ) -> Result<(), String> {
         #[cfg(feature = "game_client")]
         self.host_invalidate_active_popup_for_world_boundary();
 
@@ -1199,18 +1189,19 @@ impl CnCGameEngine {
         let deferred_effects = runtime_world.install_globals();
         let old_logic = std::mem::replace(&mut self.game_logic, logic);
         #[cfg(feature = "game_client")]
-        self.game_client.bind_visual_world(
-            gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
+        self.game_client
+            .bind_visual_world(gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
                 &self.game_logic.engine_stores,
-            )),
-        );
+            )));
         #[cfg(feature = "game_client")]
         if let Some(bytes) = game_client_xfer_bytes.as_deref() {
             crate::save_load::snapshot::restore_game_client_from_xfer_bytes(
                 &mut self.game_client,
                 bytes,
             )
-            .map_err(|err| format!("failed to restore CHUNK_GameClient after world commit: {err}"))?;
+            .map_err(|err| {
+                format!("failed to restore CHUNK_GameClient after world commit: {err}")
+            })?;
         }
         #[cfg(feature = "game_client")]
         crate::save_load::snapshot::persist_v18::apply_drawable_xfer_to_client(
@@ -1304,9 +1295,8 @@ impl CnCGameEngine {
                 .map(|(slot, ids)| (*slot, ids.iter().map(|id| id.0).collect()))
                 .collect(),
         );
-        let visual_world = gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
-            &self.game_logic.engine_stores,
-        ));
+        let visual_world =
+            gamelogic::helpers::ClientVisualHandle::new(Arc::clone(&self.game_logic.engine_stores));
         let client_drawables = self
             .render_pipeline
             .capture_client_drawable_snapshot(&visual_world);
@@ -2184,9 +2174,16 @@ mod staged_restore_tests {
             .find("pub(super) fn host_load_game_from_ui")
             .expect("load UI boundary");
         let ui_body = &source[ui..];
-        let reset = ui_body.find("self.return_to_main_menu_after_match()").expect("failed commit reset");
-        let message = ui_body.find("Self::surface_load_game_ui_feedback(&save_path)").expect("load error dialog");
-        assert!(reset < message, "C++ resets before showing the failed-load dialog");
+        let reset = ui_body
+            .find("self.return_to_main_menu_after_match()")
+            .expect("failed commit reset");
+        let message = ui_body
+            .find("Self::surface_load_game_ui_feedback(&save_path)")
+            .expect("load error dialog");
+        assert!(
+            reset < message,
+            "C++ resets before showing the failed-load dialog"
+        );
     }
 
     #[test]
@@ -2314,8 +2311,8 @@ mod staged_restore_tests {
         };
         #[cfg(feature = "game_client")]
         let save_result = {
-            let mut client = game_client::core::game_client::GameClient::new()
-                .expect("source client");
+            let mut client =
+                game_client::core::game_client::GameClient::new().expect("source client");
             client.bind_visual_world(gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
                 &source.engine_stores,
             )));
@@ -2361,11 +2358,17 @@ mod staged_restore_tests {
         );
         #[cfg(feature = "game_client")]
         crate::save_load::snapshot::validate_game_client_xfer_bytes(
-            restored.game_client_xfer_bytes.as_deref().expect("staged client chunk"),
+            restored
+                .game_client_xfer_bytes
+                .as_deref()
+                .expect("staged client chunk"),
         )
         .expect("staged client chunk remains valid until commit");
         assert!(restored.logic.isInGame());
-        assert_eq!(restored.logic.get_current_map_name(), restored.info.map_name);
+        assert_eq!(
+            restored.logic.get_current_map_name(),
+            restored.info.map_name
+        );
         assert_eq!(restored.logic.get_current_frame(), 321);
         assert_eq!(restored.logic.host_ai_player_count(), 1);
         assert_eq!(
@@ -2521,17 +2524,16 @@ mod staged_restore_tests {
 
         #[cfg(feature = "game_client")]
         let mut live_client = {
-            let mut client = Box::new(
-                game_client::core::game_client::GameClient::new().expect("live client"),
-            );
+            let mut client =
+                Box::new(game_client::core::game_client::GameClient::new().expect("live client"));
             client.mark_initialized();
             client.set_frame(777);
             client
         };
         #[cfg(feature = "game_client")]
         let staged_client_bytes = {
-            let mut saved = game_client::core::game_client::GameClient::new()
-                .expect("saved client payload");
+            let mut saved =
+                game_client::core::game_client::GameClient::new().expect("saved client payload");
             saved.set_frame(42);
             Some(saved.capture_xfer_bytes().expect("valid client chunk"))
         };
@@ -2657,18 +2659,13 @@ mod staged_restore_tests {
         // tick's published-owner scope does — so the save-point words
         // provably sit past a fresh re-derivation of the base seed.
         let draw_through_instance = |logic: &mut GameLogic, draws: usize| -> Vec<i32> {
-            game_engine::common::random_value::with_logic_rng_owner(
-                &mut logic.logic_random,
-                || {
-                    (0..draws)
-                        .map(|_| {
-                            game_engine::common::random_value::get_game_logic_random_value(
-                                0, 1_000_000,
-                            )
-                        })
-                        .collect()
-                },
-            )
+            game_engine::common::random_value::with_logic_rng_owner(&mut logic.logic_random, || {
+                (0..draws)
+                    .map(|_| {
+                        game_engine::common::random_value::get_game_logic_random_value(0, 1_000_000)
+                    })
+                    .collect()
+            })
         };
         let _ = draw_through_instance(&mut source, 16);
         let saved_words = source.logic_random.seed_words();
@@ -2810,12 +2807,7 @@ mod staged_restore_tests {
         // Pre-v22 save (sentinel counter): legacy max-live-id + 1 fallback.
         snapshot.next_object_id = 0;
         let fallback_id = restore_and_create(&snapshot);
-        let max_live = snapshot
-            .objects
-            .keys()
-            .map(|id| id.0)
-            .max()
-            .unwrap_or(0);
+        let max_live = snapshot.objects.keys().map(|id| id.0).max().unwrap_or(0);
         assert_eq!(
             fallback_id,
             max_live.saturating_add(1),
@@ -2861,3 +2853,7 @@ mod staged_restore_tests {
         assert!(effects < reseed && reseed < shadow);
     }
 }
+
+#[cfg(test)]
+#[path = "fixed_step_boundary_tests.rs"]
+mod fixed_step_boundary_tests;
