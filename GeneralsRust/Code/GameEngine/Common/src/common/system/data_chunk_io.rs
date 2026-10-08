@@ -384,8 +384,8 @@ impl DataChunkInput {
     }
 
     pub fn read_name_key(&mut self) -> u32 {
-        let key_and_type = self.read_int() as u32;
-        let name_id = key_and_type >> 8;
+        // C++ shifts a signed Int before getName converts the id to UnsignedInt.
+        let name_id = (self.read_int() >> 8) as u32;
         let name = self.contents.get_name(name_id);
         NameKeyGenerator::name_to_key(&name)
     }

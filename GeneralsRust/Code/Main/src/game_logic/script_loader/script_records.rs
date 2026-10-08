@@ -361,10 +361,10 @@ fn parse_script(
                 or_nodes.push(parse_or_condition(payload, toc, chunk_version, templates)?)
             }
             SCRIPT_ACTION_LABEL => {
-                actions.push(parse_script_action(payload, chunk_version, templates)?)
+                actions.push(parse_script_action(payload, toc, chunk_version, templates)?)
             }
             SCRIPT_ACTION_FALSE_LABEL => {
-                false_actions.push(parse_script_action(payload, chunk_version, templates)?)
+                false_actions.push(parse_script_action(payload, toc, chunk_version, templates)?)
             }
             _ => debug!("Unhandled chunk '{}' inside Script", label),
         }
@@ -417,7 +417,7 @@ fn parse_or_condition(
     let mut conditions = Vec::new();
     parse_chunk_sequence(data, toc, |label, chunk_version, payload| {
         if label == CONDITION_LABEL {
-            conditions.push(parse_condition(payload, chunk_version, templates)?);
+            conditions.push(parse_condition(payload, toc, chunk_version, templates)?);
         } else {
             debug!("Unknown chunk '{}' inside OrCondition", label);
         }
@@ -429,6 +429,7 @@ fn parse_or_condition(
 
 fn parse_condition(
     data: &[u8],
+    toc: &HashMap<u32, String>,
     version: u16,
     templates: &ScriptTemplateLookup,
 ) -> LoaderResult<Condition> {
@@ -437,7 +438,7 @@ fn parse_condition(
     let mut cond_type = convert_condition_type(cond_value)?;
     let mut condition = Condition::new(cond_type);
     if version >= 4 {
-        let name_key = reader.read_u32()?;
+        let name_key = read_script_name_key(&mut reader, toc)?;
         cond_type = templates.resolve_condition(cond_type, name_key);
         condition.condition_type = cond_type;
     }
@@ -451,6 +452,7 @@ fn parse_condition(
 
 fn parse_script_action(
     data: &[u8],
+    toc: &HashMap<u32, String>,
     version: u16,
     templates: &ScriptTemplateLookup,
 ) -> LoaderResult<ScriptAction> {
@@ -458,7 +460,7 @@ fn parse_script_action(
     let mut action_type = convert_action_type(reader.read_i32()? as u32)?;
     let mut action = ScriptAction::new(action_type);
     if version >= 2 {
-        let name_key = reader.read_u32()?;
+        let name_key = read_script_name_key(&mut reader, toc)?;
         action_type = templates.resolve_action(action_type, name_key);
         action.action_type = action_type;
     }
@@ -468,6 +470,16 @@ fn parse_script_action(
         append_parameter(&mut action.parameters, &mut action.num_parms, param)?;
     }
     Ok(action)
+}
+
+/// C++ DataChunkInput::readNameKey: signed file id, then TOC name, then engine key.
+fn read_script_name_key(
+    reader: &mut BinaryReader<'_>,
+    toc: &HashMap<u32, String>,
+) -> LoaderResult<u32> {
+    let name_id = (reader.read_i32()? >> 8) as u32;
+    let name = toc.get(&name_id).map(String::as_str).unwrap_or("");
+    Ok(NameKeyGenerator::name_to_key(name))
 }
 
 fn parse_parameter(reader: &mut BinaryReader<'_>) -> LoaderResult<Parameter> {

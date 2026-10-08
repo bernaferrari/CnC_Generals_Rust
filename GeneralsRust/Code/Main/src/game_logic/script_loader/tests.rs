@@ -654,6 +654,8 @@ End\n";
         );
     }
     include!("owned_template_tests.rs");
+    include!("map_name_key_tests.rs");
+    include!("retail_script_key_tests.rs");
 }
 
 #[cfg(test)]
