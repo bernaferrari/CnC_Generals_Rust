@@ -552,6 +552,7 @@ impl GameLogic {
         use crate::game_logic::KindOf;
         use gamelogic::scripting::{HostScriptPlayerCensus, HostTechBuildingCensus};
 
+        let build_facilities = self.build_facility_template_names();
         let mut player_census = std::collections::HashMap::new();
         for player in self.players.values() {
             let mut census = HostScriptPlayerCensus {
@@ -567,11 +568,7 @@ impl GameLogic {
                 ..Default::default()
             };
             for obj in self.host_objects().values() {
-                let owned = match obj.owner_player_id {
-                    Some(pid) => pid == player.id,
-                    None => obj.team == player.team,
-                };
-                if !owned {
+                if !self.object_owned_by_player(obj, player.id) {
                     continue;
                 }
                 let dead = !obj.is_alive() || obj.status.destroyed || obj.status.effectively_dead;
@@ -595,11 +592,10 @@ impl GameLogic {
                         census.faction_building_count += 1;
                     }
                 }
-                if !dead
-                    && (obj.is_kind_of(KindOf::CommandCenter)
-                        || obj.is_kind_of(KindOf::FSBarracks)
-                        || obj.is_kind_of(KindOf::FSWarFactory)
-                        || obj.is_kind_of(KindOf::FSAirfield))
+                // C++ Team::hasAnyBuildFacility: template isBuildFacility, no
+                // liveness test (members leave the team when destroyed).
+                if !obj.status.destroyed
+                    && build_facilities.contains(&obj.template_name.to_ascii_lowercase())
                 {
                     census.has_any_build_facility = true;
                 }

@@ -2673,6 +2673,26 @@ fn leftover_factory_exit_blocker(
 }
 
 impl GameLogic {
+    /// C++ team membership: is `object` on one of `player_id`'s team
+    /// prototypes? Objects carry their controlling player; an object without
+    /// one belongs to its faction's player only when that player is unique,
+    /// so same-faction players never pool their objects.
+    pub(crate) fn object_owned_by_player(&self, object: &Object, player_id: u32) -> bool {
+        match object.owner_player_id {
+            Some(owner) => owner == player_id,
+            None => {
+                let mut same_faction = self
+                    .players
+                    .values()
+                    .filter(|player| player.team == object.team);
+                match (same_faction.next(), same_faction.next()) {
+                    (Some(player), None) => player.id == player_id,
+                    _ => false,
+                }
+            }
+        }
+    }
+
     /// Lower-cased names of templates for which C++ `ThingTemplate::isBuildFacility`
     /// is true: command centers, plus every template in the first OR-group of
     /// another template's unit prerequisites (`ThingTemplate::resolveNames`,

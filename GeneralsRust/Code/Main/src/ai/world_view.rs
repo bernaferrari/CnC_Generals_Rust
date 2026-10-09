@@ -91,24 +91,8 @@ impl<'a> AiWorldView<'a> {
     pub(super) fn get_player(&self, id: u32) -> Option<&'a Player> {
         self.world.get_player(id)
     }
-    /// C++ team membership: is `object` on one of `player_id`'s team
-    /// prototypes? Objects carry their controlling player; an object without
-    /// one belongs to the faction's player only when that player is unique,
-    /// so same-faction players never pool their objects.
     pub(super) fn object_owned_by_player(&self, object: &Object, player_id: u32) -> bool {
-        match object.owner_player_id {
-            Some(owner) => owner == player_id,
-            None => {
-                let mut same_faction = self
-                    .get_players()
-                    .values()
-                    .filter(|player| player.team == object.team);
-                match (same_faction.next(), same_faction.next()) {
-                    (Some(player), None) => player.id == player_id,
-                    _ => false,
-                }
-            }
-        }
+        self.world.object_owned_by_player(object, player_id)
     }
     pub(super) fn build_facility_template_names(&self) -> std::collections::HashSet<String> {
         self.world.build_facility_template_names()

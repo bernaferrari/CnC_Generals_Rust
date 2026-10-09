@@ -1086,15 +1086,6 @@ impl GameLogic {
         true
     }
 
-    fn object_owned_by_player(&self, object: &Object, player_id: u32) -> bool {
-        if object.owner_player_id == Some(player_id) {
-            return true;
-        }
-        self.players
-            .get(&player_id)
-            .is_some_and(|player| object.owner_player_id.is_none() && object.team == player.team)
-    }
-
     fn cash_bounty_module_percent(
         module: &crate::game_logic::SpecialPowerModuleMetadata,
         science_name: Option<&str>,

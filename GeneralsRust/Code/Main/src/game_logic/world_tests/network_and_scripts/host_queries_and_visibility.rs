@@ -326,6 +326,60 @@ fn host_player_census_injected_for_script_player_conditions() {
 }
 
 #[test]
+fn host_player_census_keeps_same_faction_players_distinct() {
+    use gamelogic::scripting::{clear_host_script_query_snapshot, host_query_player_census};
+    clear_host_script_query_snapshot();
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(1, Team::China, "PlyrChinaA", true));
+    logic.add_player(Player::new(2, Team::China, "PlyrChinaB", false));
+    let mut barracks = ThingTemplate::new("ChinaBarracks");
+    barracks.set_health(1000.0);
+    barracks.add_kind_of(KindOf::Structure);
+    logic.templates.insert("ChinaBarracks".into(), barracks);
+    // C++ isBuildFacility: the barracks is required by the infantry.
+    let mut needs_barracks = game_engine::common::rts::ProductionPrerequisite::new();
+    needs_barracks.add_unit_prereq("ChinaBarracks".into(), false);
+    let mut infantry = ThingTemplate::new("ChinaInfantryRedguard");
+    infantry.set_health(100.0);
+    infantry.add_kind_of(KindOf::Infantry);
+    infantry.production_prerequisites.push(needs_barracks);
+    logic
+        .templates
+        .insert("ChinaInfantryRedguard".into(), infantry);
+
+    logic
+        .create_object_for_player("ChinaBarracks", 1, Vec3::new(10.0, 0.0, 20.0))
+        .expect("barracks");
+    // A faction-only object is ambiguous between two China players.
+    logic
+        .create_object("ChinaInfantryRedguard", Team::China, Vec3::ZERO)
+        .expect("unowned infantry");
+    for object in logic.objects.values_mut() {
+        if object.template_name == "ChinaInfantryRedguard" {
+            object.owner_player_id = None;
+        }
+    }
+
+    logic.inject_host_script_query_snapshot();
+    let a = host_query_player_census("PlyrChinaA").expect("census A");
+    let b = host_query_player_census("PlyrChinaB").expect("census B");
+    assert!(a.has_any_objects);
+    assert!(
+        a.has_any_build_facility,
+        "prerequisite target is a build facility"
+    );
+    assert_eq!(a.building_count, 1);
+    assert!(
+        !b.has_any_objects,
+        "B must not see A's or ambiguous objects"
+    );
+    assert!(!b.has_any_build_facility);
+    assert_eq!(b.building_count, 0);
+    clear_host_script_query_snapshot();
+}
+
+#[test]
 fn host_player_census_excludes_kindof_inert_from_has_any_objects() {
     use gamelogic::object::registry::OBJECT_REGISTRY;
     use gamelogic::scripting::{clear_host_script_query_snapshot, host_query_player_census};
