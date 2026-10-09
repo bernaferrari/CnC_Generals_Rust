@@ -64,6 +64,42 @@ fn panic_path_reached_goal(unit: &crate::game_logic::Object) -> bool {
 }
 
 impl GameLogic {
+    /// Complete the terminal `AIInternalMoveToState` exit before this frame's
+    /// locomotor pass. C++ first exits the state, then consumes
+    /// `m_movementComplete` in `AIUpdate::update`: it drops the path, clears
+    /// the locomotor goal and ignored obstacle, and reconciles the pathfinder
+    /// goal through the ordinary final-position snap.
+    fn finish_host_panic_movement(&mut self, id: ObjectId) {
+        {
+            let Some(unit) = self.objects.get_mut(&id) else {
+                return;
+            };
+            unit.set_ai_state(AIState::Idle);
+            unit.set_locomotor_goal_none();
+        }
+
+        // This is the same pathfinder goal reconciliation used by other
+        // completed movement. Run it after the state exit while the stored
+        // pathfind goal cell is still available.
+        self.apply_arrival_goal_snap(id, None);
+
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.movement.path.clear();
+            unit.movement.current_path_index = 0;
+            unit.movement.target_position = None;
+            unit.waiting_for_path = false;
+            unit.queue_for_path_frames = 0;
+            unit.ignored_obstacle_id = None;
+            unit.is_attack_path = false;
+            unit.is_panicking = false;
+            let panicking_bit = crate::game_logic::host_enum_table_residual::panicking_model_bit();
+            unit.model_condition_bits &= !(1u128 << panicking_bit);
+            unit.record_host_model_condition();
+            unit.set_status_moving(false);
+            unit.set_locomotor_goal_none();
+        }
+    }
+
     /// Resolve the entry waypoint and the C++ AIFollowWaypointPath lookahead
     /// distance before mutating the unit. Terrain waypoint coordinates use
     /// XY; host Object coordinates use XZ.
@@ -276,9 +312,7 @@ impl GameLogic {
                 if panic.timer < 0 {
                     panic.timer = panic.wait_frames;
                     if leftover_wander_has_repulsor(self, id, vision) {
-                        if let Some(unit) = self.objects.get_mut(&id) {
-                            unit.set_ai_state(AIState::Idle);
-                        }
+                        self.finish_host_panic_movement(id);
                         let _ = self.host_wander_fail_to_repulse(id);
                         continue;
                     }
@@ -391,8 +425,8 @@ impl GameLogic {
                 if let Some(unit) = self.objects.get_mut(&id) {
                     unit.stamp_pending_waypoint_labels(labels);
                     unit.commit_completed_waypoint_labels();
-                    unit.set_ai_state(AIState::Idle);
                 }
+                self.finish_host_panic_movement(id);
                 continue;
             };
 

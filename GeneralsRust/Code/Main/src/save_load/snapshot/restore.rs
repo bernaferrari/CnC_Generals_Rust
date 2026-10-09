@@ -602,13 +602,9 @@ impl SnapshotBuilder {
                     .map(|pos| glam::Vec2::new(pos.x, pos.y))
                     .unwrap_or(glam::Vec2::ZERO);
                 object.set_formation(formation_id, offset);
-                if object.movement.path.is_empty() && !unit_snapshot.waypoints.is_empty() {
-                    object.movement.path = unit_snapshot.waypoints.clone();
-                    object.movement.current_path_index = 0;
-                    if object.movement.target_position.is_none() {
-                        object.movement.target_position = unit_snapshot.waypoints.first().copied();
-                    }
-                }
+                // `ObjectSnapshot::movement` is present in both accepted
+                // world schemas and owns the path, index, and target exactly;
+                // `UnitSnapshot::waypoints` is a derived legacy mirror.
             }
             ObjectTypeSnapshot::Building(building_snapshot) => {
                 object.object_type = ObjectType::Building;
@@ -981,45 +977,6 @@ impl SnapshotBuilder {
                         harvester.ai_state = AIState::Gathering;
                     }
                 }
-            }
-        }
-
-        Ok(())
-    }
-
-    pub(super) fn restore_pathfinding_cache(
-        &self,
-        cache_snapshot: &PathfindingCacheSnapshot,
-        game_logic: &mut GameLogic,
-    ) -> SaveLoadResult<()> {
-        if cache_snapshot.cached_paths.is_empty() {
-            return Ok(());
-        }
-
-        for object in game_logic.objects.values_mut() {
-            if !object.movement.path.is_empty() {
-                continue;
-            }
-            let Some(target_position) = object.movement.target_position else {
-                continue;
-            };
-
-            let key = (
-                SerializableVec3::from(object.get_position()),
-                SerializableVec3::from(target_position),
-            );
-            let Some(cached_path) = cache_snapshot.cached_paths.get(&key) else {
-                continue;
-            };
-            let restored_path: Vec<Vec3> = cached_path.iter().copied().map(Vec3::from).collect();
-            if restored_path.len() < 2 {
-                continue;
-            }
-            object.movement.path = restored_path;
-            object.movement.current_path_index = 0;
-            object.status.moving = true;
-            if matches!(object.ai_state, AIState::Idle) {
-                object.ai_state = AIState::Moving;
             }
         }
 

@@ -2,7 +2,7 @@
 use super::*;
 use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
 use gamelogic::scripting::{request_host_team_loco_set, take_host_team_loco_set_requests};
-use gamelogic::system::map_loader::{MapData, MapWaypoint};
+use gamelogic::system::map_loader::{ICoord2D, MapData, MapWaypoint};
 use gamelogic::terrain::get_terrain_logic;
 use glam::Vec3;
 
@@ -33,9 +33,22 @@ impl Drop for ResetGlobalTerrain {
     }
 }
 
-fn install_panic_waypoint_path() -> ResetGlobalTerrain {
-    let _cleanup = ResetGlobalTerrain;
+fn panic_map_data() -> MapData {
     let mut data = MapData::new();
+    data.width = 128;
+    data.height = 128;
+    data.heightmap = vec![0; 128 * 128];
+    data.boundaries.push(ICoord2D::new(128, 128));
+    data
+}
+
+fn install_panic_waypoint_path() -> ResetGlobalTerrain {
+    install_panic_waypoint_path_with_terminal_x(200.0)
+}
+
+fn install_panic_waypoint_path_with_terminal_x(terminal_x: f32) -> ResetGlobalTerrain {
+    let _cleanup = ResetGlobalTerrain;
+    let mut data = panic_map_data();
     data.waypoints.push(MapWaypoint {
         id: WAYPOINT_START,
         name: "PanicStart".into(),
@@ -48,7 +61,7 @@ fn install_panic_waypoint_path() -> ResetGlobalTerrain {
     data.waypoints.push(MapWaypoint {
         id: WAYPOINT_NEXT,
         name: "PanicNext".into(),
-        location: gamelogic::system::map_loader::Coord3D::new(200.0, 0.0, 0.0),
+        location: gamelogic::system::map_loader::Coord3D::new(terminal_x, 0.0, 0.0),
         path_label1: "PanicTerminal".into(),
         path_label2: String::new(),
         path_label3: String::new(),
@@ -64,7 +77,7 @@ fn install_panic_waypoint_path() -> ResetGlobalTerrain {
 
 fn install_panic_fork_path() -> ResetGlobalTerrain {
     let _cleanup = ResetGlobalTerrain;
-    let mut data = MapData::new();
+    let mut data = panic_map_data();
     for (id, name, x, label) in [
         (WAYPOINT_START, "PanicStart", 50.0, "PanicPath"),
         (WAYPOINT_NEXT, "PanicBranchA", 200.0, "PanicTerminal"),
@@ -216,7 +229,7 @@ fn authored_panic_waypoint_on_wall_keeps_wall_height_and_layer() {
 
 #[test]
 fn off_map_panic_entry_disables_destination_adjustment_without_waypoint_links() {
-    let _terrain = install_panic_waypoint_path();
+    let _terrain = install_panic_waypoint_path_with_terminal_x(1400.0);
     let mut logic = panic_logic();
     issue_authored_team_panic_for(&mut logic, "PanicTerminal");
 
@@ -465,6 +478,16 @@ fn panic_follows_multiple_waypoints_and_finishes_after_real_locomotor_arrivals()
         unit.movement.target_position.is_none() && !unit.status.moving,
         "terminal InternalMove cleanup stops movement"
     );
+    assert!(unit.movement.path.is_empty());
+    assert_eq!(unit.movement.current_path_index, 0);
+    assert!(unit.path_goal_position.is_some());
+    assert_eq!(unit.path_goal_position, unit.requested_destination);
+    assert_eq!(unit.queue_for_path_frames, 0);
+    assert_eq!(unit.ignored_obstacle_id, None);
+    assert!(!unit.waiting_for_path);
+    assert!(!unit.is_panicking);
+    let panicking_bit = crate::game_logic::host_enum_table_residual::panicking_model_bit();
+    assert_eq!(unit.model_condition_bits & (1u128 << panicking_bit), 0);
 }
 
 #[test]
@@ -512,6 +535,11 @@ fn panic_failure_does_not_advance_the_waypoint_and_terminal_uses_terminal_labels
     unit.movement.target_position = None;
     unit.waiting_for_path = false;
     unit.retry_path = true;
+    unit.path_goal_position = Some(current);
+    unit.requested_destination = Some(current);
+    unit.queue_for_path_frames = 7;
+    unit.ignored_obstacle_id = Some(ObjectId(999_999));
+    unit.try_one_more_repath = true;
     let rng_before = game_engine::common::random_value::get_game_logic_random_seed_state();
     let _restore_rng = RestoreLogicRng(rng_before);
     logic.tick_host_panic_states(&[PANIC_UNIT]);
@@ -519,6 +547,16 @@ fn panic_failure_does_not_advance_the_waypoint_and_terminal_uses_terminal_labels
     let unit = &logic.objects[&PANIC_UNIT];
     assert_eq!(unit.ai_state, AIState::Idle);
     assert_eq!(unit.completed_waypoint_labels, vec!["PanicTerminal"]);
+    assert!(unit.movement.path.is_empty());
+    assert_eq!(unit.movement.current_path_index, 0);
+    assert_eq!(unit.movement.target_position, None);
+    assert_eq!(unit.path_goal_position, Some(current));
+    assert_eq!(unit.requested_destination, Some(current));
+    assert_eq!(unit.queue_for_path_frames, 0);
+    assert_eq!(unit.ignored_obstacle_id, None);
+    assert!(!unit.waiting_for_path);
+    assert!(unit.retry_path);
+    assert!(unit.try_one_more_repath);
     assert_eq!(
         game_engine::common::random_value::get_game_logic_random_seed_state(),
         rng_before,

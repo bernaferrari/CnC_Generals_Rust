@@ -86,7 +86,9 @@ mod tests {
         );
 
         let id = ObjectId(9002);
-        logic.objects.insert(id, ranger_at(9002, start));
+        let mut unit = ranger_at(9002, start);
+        bind_fixture_locomotor(&mut unit, "BasicHumanLocomotor");
+        logic.objects.insert(id, unit);
         logic.move_object_with_pathfinding_for_test(id, goal, None);
 
         let obj = logic.objects.get(&id).expect("unit");
@@ -112,7 +114,9 @@ mod tests {
         );
 
         let id = ObjectId(9003);
-        logic.objects.insert(id, ranger_at(9003, start));
+        let mut unit = ranger_at(9003, start);
+        bind_fixture_locomotor(&mut unit, "BasicHumanLocomotor");
+        logic.objects.insert(id, unit);
         logic.move_object_with_pathfinding_for_test(id, goal, None);
 
         let obj = logic.objects.get(&id).expect("unit");
@@ -3907,6 +3911,7 @@ mod tests {
             ];
             obj.movement.current_path_index = 1;
             obj.movement.target_position = Some(Vec3::new(35.0, 0.0, 5.0));
+            obj.set_locomotor_goal_position_on_path();
             obj.is_blocked_and_stuck = true;
         }
         for y in 0..logic.pathfinding_system.grid.height() {

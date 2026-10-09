@@ -309,7 +309,9 @@ impl SnapshotBuilder {
         self.restore_client_drawable_visuals(snapshot, game_logic);
 
         self.restore_terrain(&snapshot.terrain, game_logic)?;
-        self.restore_pathfinding_cache(&snapshot.pathfinding_cache, game_logic)?;
+        // PathfindingCacheSnapshot is retained on the wire, but complete
+        // ObjectSnapshot movement records are authoritative and must not be
+        // reconstructed from a shared position-keyed cache.
         self.restore_weather(&snapshot.weather, game_logic)?;
         self.restore_resource_manager(&snapshot.resource_manager, game_logic)?;
         self.restore_combat_tracker(&snapshot.combat_tracker, game_logic)?;
@@ -410,9 +412,12 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
-        super::super::ai_team_persist::apply_from_lifecycle_tail(
+        let complete_object_records: std::collections::HashSet<_> =
+            snapshot.objects.keys().copied().collect();
+        super::super::ai_team_persist::apply_from_lifecycle_tail_with_object_records(
             &snapshot.lifecycle_tail,
             game_logic,
+            Some(&complete_object_records),
         )?;
         super::super::ability_hijack_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,

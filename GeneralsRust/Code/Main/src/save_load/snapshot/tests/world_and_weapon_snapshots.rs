@@ -836,7 +836,7 @@ fn snapshot_restore_preserves_weather_state() {
 }
 
 #[test]
-fn snapshot_restore_rehydrates_paths_from_pathfinding_cache() {
+fn snapshot_restore_does_not_replace_authoritative_empty_movement_from_path_cache() {
     let mut source = GameLogic::new();
     source
         .templates
@@ -883,11 +883,10 @@ fn snapshot_restore_rehydrates_paths_from_pathfinding_cache() {
     let mover = restored
         .host_object(mover_id)
         .expect("restored mover should exist");
-    assert_eq!(mover.movement.path.len(), 3);
-    assert_eq!(mover.movement.path[0], Vec3::new(1.0, 0.0, 1.0));
-    assert_eq!(mover.movement.path[2], Vec3::new(21.0, 0.0, 11.0));
-    assert!(mover.status.moving);
-    assert_eq!(mover.ai_state, AIState::Moving);
+    assert!(mover.movement.path.is_empty());
+    assert_eq!(mover.movement.current_path_index, 0);
+    assert!(!mover.status.moving);
+    assert_eq!(mover.ai_state, AIState::Idle);
 }
 
 #[test]

@@ -264,3 +264,96 @@ fn panic_snapshot_rejects_unreachable_repulsor_timer_capsules() {
         );
     }
 }
+
+fn moving_path_snapshot() -> crate::save_load::snapshot::WorldSnapshot {
+    let mut source = panic_logic();
+    let unit = source.objects.get_mut(&PANIC_UNIT).expect("moving unit");
+    unit.set_ai_state(AIState::Moving);
+    unit.movement.path = vec![
+        Vec3::new(0.0, 0.0, 0.0),
+        Vec3::new(30.0, 0.0, 0.0),
+        Vec3::new(60.0, 0.0, 0.0),
+    ];
+    unit.movement.current_path_index = 1;
+    unit.movement.target_position = Some(Vec3::new(60.0, 0.0, 0.0));
+    unit.requested_destination = Some(Vec3::new(75.0, 0.0, 0.0));
+    crate::save_load::snapshot::SnapshotBuilder::new()
+        .create_world_snapshot(&source)
+        .expect("capture ordinary moving path")
+}
+
+#[test]
+fn complete_world_restore_keeps_full_ordinary_moving_path_and_index() {
+    let snapshot = moving_path_snapshot();
+    let mut restored = GameLogic::new();
+    restored.templates = panic_logic().templates.clone();
+    crate::save_load::snapshot::SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore ordinary moving path");
+
+    let unit = restored.objects.get(&PANIC_UNIT).expect("restored unit");
+    assert_eq!(unit.ai_state, AIState::Moving);
+    assert_eq!(
+        unit.movement.path,
+        vec![
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(30.0, 0.0, 0.0),
+            Vec3::new(60.0, 0.0, 0.0),
+        ],
+        "ObjectSnapshot restores the full path, not TMAI's remaining suffix"
+    );
+    assert_eq!(unit.movement.current_path_index, 1);
+    assert_eq!(
+        unit.movement.target_position,
+        Some(Vec3::new(60.0, 0.0, 0.0))
+    );
+    assert_eq!(
+        unit.requested_destination,
+        Some(Vec3::new(75.0, 0.0, 0.0)),
+        "TMAI still supplies the AI-only requested destination"
+    );
+}
+
+#[test]
+fn complete_world_restore_does_not_resurrect_authoritative_empty_movement() {
+    let mut snapshot = moving_path_snapshot();
+    let object = snapshot
+        .objects
+        .get_mut(&PANIC_UNIT)
+        .expect("snapshot object");
+    object.movement.path.clear();
+    object.movement.current_path_index = 0;
+    object.movement.target_position = None;
+    // UnitSnapshot retains its legacy nonempty waypoints to prove that it
+    // cannot override the authoritative ObjectSnapshot Movement either.
+    match &mut object.object_type {
+        crate::save_load::snapshot::ObjectTypeSnapshot::Unit(unit) => {
+            assert!(
+                !unit.waypoints.is_empty(),
+                "legacy waypoint mirror is present"
+            );
+        }
+        _ => panic!("fixture is a unit"),
+    }
+    snapshot.pathfinding_cache.cached_paths.clear();
+    snapshot.pathfinding_cache.cache_timestamps.clear();
+
+    let mut restored = GameLogic::new();
+    restored.templates = panic_logic().templates.clone();
+    crate::save_load::snapshot::SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore authoritative empty movement");
+
+    let unit = restored.objects.get(&PANIC_UNIT).expect("restored unit");
+    assert!(
+        unit.movement.path.is_empty(),
+        "TMAI must not resurrect a path"
+    );
+    assert_eq!(unit.movement.current_path_index, 0);
+    assert_eq!(unit.movement.target_position, None);
+    assert_eq!(
+        unit.requested_destination,
+        Some(Vec3::new(75.0, 0.0, 0.0)),
+        "the non-Movement TMAI residual remains available"
+    );
+}

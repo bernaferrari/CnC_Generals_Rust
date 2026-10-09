@@ -9,6 +9,9 @@
 //! `m_doFinalPosition`, and `m_canPathThroughUnits`.
 //! Live `ObjectSnapshot` clones `movement` (path + index + target) but
 //! those AI-order residuals never left the live object.
+//! On complete world restore those object records remain authoritative for
+//! Movement; the TMAI suffix applies only the AI-order fields not represented
+//! there. The standalone tail API keeps its historical path-overlay behavior.
 //!
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No world snapshot version bump.
@@ -824,6 +827,18 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
 }
 
 pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+    apply_from_lifecycle_tail_with_object_records(bytes, game_logic, None)
+}
+
+/// Apply the TMAI residual after a complete world object snapshot has restored.
+/// The object records own the canonical Movement values, including an empty
+/// path or absent target; TMAI still supplies the AI-only order residuals.
+/// `None` preserves the historical standalone lifecycle-tail API semantics.
+pub(super) fn apply_from_lifecycle_tail_with_object_records(
+    bytes: &[u8],
+    game_logic: &mut GameLogic,
+    object_records: Option<&std::collections::HashSet<ObjectId>>,
+) -> SaveLoadResult<()> {
     let Some(suffix) = find_tmai_suffix(bytes) else {
         return Ok(());
     };
@@ -954,7 +969,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
         bincode_legacy::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("TMAI payload decode: {err}")))?
     };
-    apply_payload(game_logic, payload);
+    apply_payload(game_logic, payload, object_records);
     Ok(())
 }
 
@@ -1057,7 +1072,11 @@ fn capture(game_logic: &GameLogic) -> AiTeamPersistPayload {
         orders,
     }
 }
-fn apply_payload(game_logic: &mut GameLogic, payload: AiTeamPersistPayload) {
+fn apply_payload(
+    game_logic: &mut GameLogic,
+    payload: AiTeamPersistPayload,
+    object_records: Option<&std::collections::HashSet<ObjectId>>,
+) {
     game_logic.team_common_attack_targets.clear();
     for entry in payload.team_targets {
         if entry.team.is_empty() || entry.target_id == 0 {
@@ -1081,13 +1100,16 @@ fn apply_payload(game_logic: &mut GameLogic, payload: AiTeamPersistPayload) {
         let Some(object) = game_logic.host_objects_mut().get_mut(&id) else {
             continue;
         };
-        let path: Vec<Vec3> = order.path.iter().copied().map(arr_to_vec3).collect();
-        if !path.is_empty() {
-            object.movement.path = path;
-            object.movement.current_path_index = order.current_path_index as usize;
-        }
-        if let Some(pos) = order.target_position {
-            object.movement.target_position = Some(arr_to_vec3(pos));
+        let object_snapshot_owns_movement = object_records.is_some_and(|ids| ids.contains(&id));
+        if !object_snapshot_owns_movement {
+            let path: Vec<Vec3> = order.path.iter().copied().map(arr_to_vec3).collect();
+            if !path.is_empty() {
+                object.movement.path = path;
+                object.movement.current_path_index = order.current_path_index as usize;
+            }
+            if let Some(pos) = order.target_position {
+                object.movement.target_position = Some(arr_to_vec3(pos));
+            }
         }
         object.requested_destination = order.requested_destination.map(arr_to_vec3);
         object.requested_victim_id =
