@@ -6,6 +6,7 @@ use crate::object::drawable::DrawableArcExt;
 use crate::player::PlayerArcExt;
 use crate::prelude::*;
 use crate::upgrade::UpgradeStatus as CrateUpgradeStatus;
+use crate::upgrade::UpgradeTemplatePlayerExt;
 use crate::upgrade::template::UpgradeType;
 use std::sync::{Arc, RwLock};
 

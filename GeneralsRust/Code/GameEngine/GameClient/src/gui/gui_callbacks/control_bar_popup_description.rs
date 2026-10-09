@@ -430,12 +430,12 @@ fn leftover_production_count_for_obj(obj: &gamelogic::object::Object) -> Option<
 }
 
 fn leftover_upgrade_cost(upgrade_name: &str) -> i32 {
-    let center = game_engine::common::ini::ini_upgrade::get_upgrade_center();
-    let center = center.read().expect("UpgradeCenter poisoned");
-    center
-        .find_template(&upgrade_name.to_string().into())
-        .map(|template| template.requirements.cost as i32)
-        .unwrap_or(0)
+    gamelogic::upgrade::center::with_upgrade_center(|center| {
+        center
+            .find_upgrade(upgrade_name)
+            .map(|template| template.get_cost())
+            .unwrap_or(0)
+    })
 }
 
 fn populate_layout_for_command(
@@ -561,19 +561,13 @@ fn populate_layout_for_command(
             }
         }
     } else if !command_button.upgrade.is_empty() {
-        let center = game_engine::common::ini::ini_upgrade::get_upgrade_center();
-        let center = center.read().expect("UpgradeCenter poisoned");
-        let upgrade_name = command_button.upgrade.clone();
-        if let Some(template) = center.find_template(&upgrade_name.into()) {
+        let upgrade_template = gamelogic::upgrade::center::with_upgrade_center(|center| {
+            center.find_upgrade(command_button.upgrade.as_str())
+        });
+        if let Some(template) = upgrade_template {
             let has_upgrade = player_guard
                 .as_ref()
-                .and_then(|guard| {
-                    gamelogic::upgrade::center::with_upgrade_center(|center| {
-                        center.find_upgrade(command_button.upgrade.as_str())
-                    })
-                    .map(|upgrade| guard.has_upgrade_complete(upgrade.as_ref()))
-                })
-                .unwrap_or(false);
+                .is_some_and(|guard| guard.has_upgrade_complete(template.as_ref()));
             let missing_science = player_guard.as_ref().is_some_and(|guard| {
                 command_button
                     .sciences_ids
@@ -589,12 +583,8 @@ fn populate_layout_for_command(
             } else if !command_button.conflicting_label.is_empty() && has_upgrade {
                 description = GameText::fetch(&command_button.conflicting_label);
             } else {
-                cost_value = match player_guard.as_ref() {
-                    Some(guard) => leftover_upgrade_cost(&command_button.upgrade)
-                        .max(template.requirements.cost as i32),
-                    None => template.requirements.cost as i32,
-                };
-                let _ = player_guard.as_ref();
+                // C++ upgradeTemplate->calcCostToBuild(player) == m_cost.
+                cost_value = template.get_cost();
                 if cost_value > 0 {
                     let template_text = GameText::fetch("TOOLTIP:Cost");
                     cost = format_template(&template_text, &[cost_value.to_string()]);

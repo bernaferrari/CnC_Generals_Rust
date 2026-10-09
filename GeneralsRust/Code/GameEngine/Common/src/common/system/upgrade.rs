@@ -7,6 +7,21 @@
 use crate::common::system::{Snapshotable, Xfer, XferVersion};
 use std::collections::HashMap;
 
+pub mod center;
+pub mod mask;
+pub mod template;
+
+pub use center::{
+    UpgradeCenter, get_upgrade_center, initialize_upgrade_center, install_upgrade_center,
+    process_lifetime_upgrade_center, uninstall_upgrade_center_if_current, upgrade_mask_for_name,
+    with_upgrade_center,
+};
+pub use mask::{UPGRADE_MAX_COUNT, UpgradeMask};
+pub use template::{UpgradeTemplate, UpgradeType};
+
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug, Clone)]
 pub struct Upgrade {
     pub id: String,

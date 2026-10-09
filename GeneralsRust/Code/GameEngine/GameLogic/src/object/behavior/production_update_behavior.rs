@@ -31,6 +31,7 @@ use crate::common::{
 };
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::player::Player;
+use crate::upgrade::UpgradeTemplatePlayerExt;
 use crate::upgrade::center::get_upgrade_center;
 use std::collections::VecDeque;
 

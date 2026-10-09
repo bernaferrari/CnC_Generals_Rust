@@ -47,7 +47,7 @@ fn upgrade(name: &str) -> UpgradeTemplate {
 }
 
 fn mask(name: &str) -> UpgradeMaskType {
-    UpgradeMaskType::from_bits_retain(crate::upgrade::upgrade_mask_for_name(name).bits())
+    UpgradeMaskType::from_bits_retain(crate::upgrade::test_upgrade_mask(name).bits())
 }
 
 struct Installed {

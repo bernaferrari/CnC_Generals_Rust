@@ -15,7 +15,7 @@ use game_engine::common::thing::thing_factory::{ensure_thing_factory_exists, get
 use std::sync::RwLock;
 const TRIGGER: &str = "Upgrade_MaxHealthBodyCallback";
 fn mask() -> UpgradeMaskType {
-    UpgradeMaskType::from_bits_retain(crate::upgrade::upgrade_mask_for_name(TRIGGER).to_bits())
+    UpgradeMaskType::from_bits_retain(crate::upgrade::test_upgrade_mask(TRIGGER).to_bits())
 }
 use game_engine::common::global_data;
 

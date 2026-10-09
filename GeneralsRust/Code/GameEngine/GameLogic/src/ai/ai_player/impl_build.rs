@@ -4,6 +4,7 @@
 #![allow(unused_imports)]
 
 use super::*;
+use crate::upgrade::UpgradeCenterPlayerExt;
 
 impl AIPlayer {
     /// Build an upgrade (player upgrades only).

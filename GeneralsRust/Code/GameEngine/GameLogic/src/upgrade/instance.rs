@@ -6,6 +6,7 @@
 //! Original C++ Author: Colin Day, March 2002
 
 use super::UpgradeTemplate;
+use super::UpgradeTemplatePlayerExt;
 use crate::common::*;
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::Arc;

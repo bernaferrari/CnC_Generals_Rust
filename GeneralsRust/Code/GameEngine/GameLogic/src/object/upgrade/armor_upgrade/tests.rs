@@ -25,7 +25,7 @@ const UNRELATED: &str = "Upgrade_OwnedArmorUnrelated";
 const CHEM: &str = "Upgrade_AmericaChemicalSuits";
 
 fn mask(name: &str) -> UpgradeMaskType {
-    UpgradeMaskType::from_bits_retain(crate::upgrade::upgrade_mask_for_name(name).to_bits())
+    UpgradeMaskType::from_bits_retain(crate::upgrade::test_upgrade_mask(name).to_bits())
 }
 
 struct Installed {

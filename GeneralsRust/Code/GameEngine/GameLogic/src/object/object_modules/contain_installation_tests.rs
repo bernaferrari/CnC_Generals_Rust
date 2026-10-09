@@ -39,6 +39,10 @@ struct Installed {
 
 impl Installed {
     fn new(name: &str, module: &str, fields: &str) -> Self {
+        // Authored fixtures reference defined Upgrade.ini upgrades only.
+        for upgrade in [TRIGGER] {
+            crate::upgrade::test_upgrade_mask(upgrade);
+        }
         if get_thing_factory().unwrap().is_none() {
             init_thing_factory().unwrap();
         }
@@ -131,7 +135,7 @@ fn authored_transport_same_id_owners_attach_distinct_runtime_and_upgrade() {
     assert!(!first.fires());
     assert!(second.fires());
     let trigger =
-        UpgradeMaskType::from_bits_retain(crate::upgrade::upgrade_mask_for_name(TRIGGER).to_bits());
+        UpgradeMaskType::from_bits_retain(crate::upgrade::test_upgrade_mask(TRIGGER).to_bits());
     first.owner.write().unwrap().apply_upgrade_modules(trigger);
     assert!(
         first.fires(),

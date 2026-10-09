@@ -5,7 +5,6 @@ use crate::helpers::{TheGameClient, TheThingFactory};
 use crate::object::Object as GameLogicObject;
 use crate::object_manager::{ObjectCreationFlags, get_object_manager};
 use crate::team::get_team_factory;
-use crate::upgrade_legacy::upgrade_mask_for_ascii;
 use game_engine::common::thing::module as engine_module;
 use game_engine::common::thing::thing_factory::{
     DrawableCreator, DrawableStatus, ObjectCreator, ObjectStatusMaskType, Team as EngineTeam,
@@ -57,17 +56,14 @@ impl engine_module::Object for CommonObjectHandle {
 
     fn remove_upgrade(
         &self,
-        upgrade_template: Option<&game_engine::common::ini::ini_upgrade::UpgradeTemplate>,
+        upgrade_template: Option<&game_engine::common::system::upgrade::UpgradeTemplate>,
     ) {
         let Some(template) = upgrade_template else {
             return;
         };
-        let upgrade_name = template.name.as_str();
-        if upgrade_name.is_empty() {
-            return;
-        }
-
-        let mask_bits = upgrade_mask_for_ascii(upgrade_name);
+        // C++ Object::removeUpgrade clears the template's own mask bit.
+        let mask_bits =
+            crate::common::UpgradeMaskType::from_bits_retain(template.get_mask().bits());
         if mask_bits.is_empty() {
             return;
         }

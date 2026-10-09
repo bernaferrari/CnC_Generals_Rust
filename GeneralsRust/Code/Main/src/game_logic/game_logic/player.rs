@@ -10,6 +10,7 @@ use super::host::*;
 use super::prelude::*;
 use super::script_camera::*;
 use super::*;
+use gamelogic::upgrade::UpgradeTemplatePlayerExt;
 
 /// Map-authored SidesList leftovers applied onto a live host player.
 /// C++ `Player::initFromDict` + `PlayerList` relationship pass.
@@ -2168,7 +2169,7 @@ mod map_side_dict_tests {
         gamelogic::upgrade::center::with_upgrade_center_mut(|center| {
             let mut ini = game_engine::common::ini::INI::new();
             let source =
-                format!("{NAME}\nBuildCost = 800\nAcademyClassify = ACT_UPGRADE_RADAR\nEnd\n");
+                format!("Upgrade {NAME}\nBuildCost = 800\nAcademyClassify = ACT_UPGRADE_RADAR\nEnd\n");
             ini.with_inline_source(&source, |ini| {
                 // parse_upgrade_definition expects the upgrade-name line
                 // already staged in the tokenizer buffer (INI::get_next_token

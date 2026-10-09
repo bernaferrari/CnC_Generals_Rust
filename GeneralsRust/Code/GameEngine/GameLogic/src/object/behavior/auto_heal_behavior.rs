@@ -62,7 +62,7 @@ impl ModuleObjectTrait for AutoHealObjectHandle {
 
     fn remove_upgrade(
         &self,
-        upgrade_template: Option<&game_engine::common::ini::ini_upgrade::UpgradeTemplate>,
+        upgrade_template: Option<&game_engine::common::system::upgrade::UpgradeTemplate>,
     ) {
         // Wave 306: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
@@ -72,12 +72,9 @@ impl ModuleObjectTrait for AutoHealObjectHandle {
         let Some(template) = upgrade_template else {
             return;
         };
-        let upgrade_name = template.name.as_str();
-        if upgrade_name.is_empty() {
-            return;
-        }
-
-        let mask_bits = upgrade_mask_for_ascii(upgrade_name);
+        // C++ Object::removeUpgrade clears the template's own mask bit.
+        let mask_bits =
+            crate::common::UpgradeMaskType::from_bits_retain(template.get_mask().bits());
         if mask_bits.is_empty() {
             return;
         }

@@ -1,9 +1,8 @@
-use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::ini::ini_command_button::{get_control_bar_mut, initialize_control_bar};
 use game_engine::common::ini::ini_command_set::{
     get_command_set_manager, initialize_command_set_manager,
 };
-use game_engine::common::ini::ini_upgrade::IniUpgrade;
+use game_engine::common::system::upgrade::get_upgrade_center;
 use gamelogic::system::load_map_ini_ui_overrides_from_contents;
 
 #[test]
@@ -50,7 +49,32 @@ End
         Some("Command_ConstructAmericaBarracks")
     );
 
-    let upgrade = IniUpgrade::find_template_by_name(&AsciiString::from("MapIniRangerCapture"))
+    let center = get_upgrade_center();
+    let center = center.read().unwrap();
+    let upgrade = center
+        .find_upgrade("MapIniRangerCapture")
         .expect("map.ini Upgrade CREATE_OVERRIDES must apply");
-    assert_eq!(upgrade.display_name.as_str(), "MapOverrideCapture");
+    assert_eq!(upgrade.get_display_name().as_str(), "MapOverrideCapture");
+
+    // A map.ini-only upgrade gets its own fresh bit from the one canonical
+    // center (C++ newUpgrade), never a colliding fallback bit 0.
+    let mask = upgrade.get_mask().bits();
+    assert_eq!(mask.count_ones(), 1);
+    assert_ne!(mask, 1, "bit 0 belongs to Upgrade_Veterancy_VETERAN");
+    for other in center.get_all_upgrades() {
+        if other.get_name().as_str() != "MapIniRangerCapture" {
+            assert_eq!(
+                other.get_mask().bits() & mask,
+                0,
+                "{} shares the bit",
+                other.get_name()
+            );
+        }
+    }
+    drop(center);
+    assert_eq!(
+        gamelogic::upgrade::upgrade_mask_for_name("MapIniRangerCapture").bits(),
+        mask,
+        "GameLogic resolves the same store"
+    );
 }

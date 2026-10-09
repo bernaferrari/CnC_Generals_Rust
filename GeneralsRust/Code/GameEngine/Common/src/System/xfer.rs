@@ -5,24 +5,12 @@
 //       CRC computations etc
 
 use super::SaveGame::game_state::GameState;
-use crate::common::ini::ini_upgrade::get_upgrade_center;
 use crate::common::rts::science::{SCIENCE_INVALID, ScienceType, get_science_store};
 use crate::common::system::geometry::Matrix3D;
 use crate::common::system::kind_of::KIND_OF_BIT_NAMES;
+use crate::common::system::upgrade::with_upgrade_center;
 use crate::common::thing::thing::KindOfType;
 use std::fmt;
-
-fn get_upgrade_names_sorted() -> Vec<String> {
-    let center = get_upgrade_center();
-    let center = center.read().expect("UpgradeCenter poisoned");
-    let mut names = center
-        .get_template_names()
-        .into_iter()
-        .cloned()
-        .collect::<Vec<_>>();
-    names.sort();
-    names
-}
 
 /// Xfer version type
 ///
@@ -605,16 +593,10 @@ pub trait Xfer {
 
         match self.get_xfer_mode() {
             XferMode::Save => {
-                // Collect upgrade names in deterministic order, matching C++ linked-list iteration
-                let upgrade_names = get_upgrade_names_sorted();
-                let mut selected_names = Vec::new();
-
-                // PARITY_NOTE: C++ writes each set upgrade bit as a name string instead of raw bits.
-                for (index, upgrade_name) in upgrade_names.iter().enumerate() {
-                    if (*upgrade_mask_data & (1u128 << index)) != 0 {
-                        selected_names.push(upgrade_name.clone());
-                    }
-                }
+                // PARITY_NOTE: C++ Xfer::xferUpgradeMask writes the name of every
+                // template whose mask is set, walking TheUpgradeCenter's list.
+                let selected_names =
+                    with_upgrade_center(|center| center.upgrade_names_in_mask(*upgrade_mask_data));
 
                 let mut count = selected_names.len() as u16;
                 self.xfer_unsigned_short(&mut count)?;
@@ -628,12 +610,13 @@ pub trait Xfer {
                 self.xfer_unsigned_short(&mut count)?;
                 *upgrade_mask_data = 0;
 
-                let upgrade_names = get_upgrade_names_sorted();
                 for _ in 0..count {
                     let mut upgrade_name = String::new();
                     self.xfer_ascii_string(&mut upgrade_name)?;
 
-                    let Some(index) = upgrade_names.iter().position(|name| name == &upgrade_name)
+                    // C++: TheUpgradeCenter->findUpgrade(name), XFER_UNKNOWN_STRING if NULL.
+                    let Some(upgrade_mask) =
+                        with_upgrade_center(|center| center.mask_for_name(&upgrade_name))
                     else {
                         eprintln!(
                             "Xfer::xfer_upgrade_mask - Unknown upgrade '{}'",
@@ -642,7 +625,7 @@ pub trait Xfer {
                         return Err(XferStatus::UnknownString);
                     };
 
-                    *upgrade_mask_data |= 1u128 << index;
+                    *upgrade_mask_data |= upgrade_mask.bits();
                 }
                 Ok(())
             }

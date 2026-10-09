@@ -51,7 +51,7 @@ pub(crate) fn register_test_upgrade(
     cost: u32,
     seconds: u32,
 ) {
-    let source = format!("{name}\nType = {kind}\nBuildCost = {cost}\nBuildTime = {seconds}\nEnd\n");
+    let source = format!("Upgrade {name}\nType = {kind}\nBuildCost = {cost}\nBuildTime = {seconds}\nEnd\n");
     let mut center = logic.engine_stores.upgrade_center().write().unwrap();
     let mut ini = game_engine::common::ini::INI::new();
     ini.with_inline_source(&source, |ini| {

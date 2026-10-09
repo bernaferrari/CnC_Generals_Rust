@@ -6360,238 +6360,35 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/active_shroud_upgrade.rs"
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade.rs"
           },
           {
             "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/armor_upgrade.rs"
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/center.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/mask.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/template.rs"
           },
           {
             "cargo_reachable": true,
             "classification": "test",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/armor_upgrade/tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/command_set_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/cost_modifier_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/experience_scalar_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/experience_scalar_upgrade/tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/grant_science_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/locomotor_set_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade/installed_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade/owner_callback_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade/particle_callback_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade/w3d_owner_context_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/mod.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/model_condition_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "shim",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/object_creation_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/passengers_fire_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/passengers_fire_upgrade/tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/power_plant_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/radar_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/replace_object_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/status_bits_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/status_bits_upgrade/tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/stealth_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "shim",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/sub_objects_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/subobjects_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/subobjects_upgrade/tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/unpause_special_power_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/upgrade_module.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/upgrade_module/crc_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/weapon_bonus_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/weapon_bonus_upgrade/tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/weapon_set_upgrade.rs"
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/tests.rs"
           }
         ],
         "mode": "split_inferred",
@@ -36523,23 +36320,17 @@
         "status": "not_verified"
       },
       "blockers": [
+        "missing_mapping",
+        "no_reachable_implementation",
         "unreviewed_mapping",
         "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/Common/INI/INIUpgrade.cpp",
       "inventory_class": "required_runtime",
       "mapping": {
-        "candidate_status": "reachable_implementation_candidate",
-        "destinations": [
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_upgrade.rs"
-          }
-        ],
-        "mode": "stem_inferred",
+        "candidate_status": "no_reachable_implementation",
+        "destinations": [],
+        "mode": "missing",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -40232,27 +40023,7 @@
         "unreviewed_mapping",
         "unreviewed_symbol_ownership",
         "unreviewed_source_range_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/active_shroud_upgrade.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/armor_upgrade.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/command_set_upgrade.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/cost_modifier_upgrade.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/experience_scalar_upgrade.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/grant_science_upgrade.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/locomotor_set_upgrade.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/mod.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/model_condition_upgrade.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/passengers_fire_upgrade.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/power_plant_upgrade.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/radar_upgrade.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/replace_object_upgrade.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/status_bits_upgrade.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/stealth_upgrade.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/subobjects_upgrade.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/unpause_special_power_upgrade.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/upgrade_module.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/weapon_bonus_upgrade.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/weapon_set_upgrade.rs"
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/template.rs"
       ],
       "id": "game_engine:Source/Common/System/Upgrade.cpp",
       "inventory_class": "required_runtime",
@@ -40264,238 +40035,35 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/active_shroud_upgrade.rs"
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade.rs"
           },
           {
             "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/armor_upgrade.rs"
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/center.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/mask.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/template.rs"
           },
           {
             "cargo_reachable": true,
             "classification": "test",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/armor_upgrade/tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/command_set_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/cost_modifier_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/experience_scalar_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/experience_scalar_upgrade/tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/grant_science_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/locomotor_set_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade/installed_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade/owner_callback_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade/particle_callback_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade/w3d_owner_context_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/mod.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/model_condition_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "shim",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/object_creation_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/passengers_fire_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/passengers_fire_upgrade/tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/power_plant_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/radar_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/replace_object_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/status_bits_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/status_bits_upgrade/tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/stealth_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "shim",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/sub_objects_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/subobjects_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/subobjects_upgrade/tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/unpause_special_power_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/upgrade_module.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/upgrade_module/crc_tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/weapon_bonus_upgrade.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "test",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/weapon_bonus_upgrade/tests.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/weapon_set_upgrade.rs"
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/tests.rs"
           }
         ],
         "mode": "split_inferred",
@@ -58131,8 +57699,7 @@
       "blockers": [
         "unreviewed_mapping",
         "unreviewed_symbol_ownership",
-        "unreviewed_source_range_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/locomotor/core_impl/template.rs"
+        "unreviewed_source_range_ownership"
       ],
       "id": "game_engine:Source/GameLogic/Object/Locomotor.cpp",
       "inventory_class": "required_runtime",
@@ -58537,7 +58104,6 @@
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/grant_science_upgrade.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/locomotor_set_upgrade.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade.rs",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/mod.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/model_condition_upgrade.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/passengers_fire_upgrade.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/power_plant_upgrade.rs",
@@ -120992,7 +120558,7 @@
       "blockers": [
         "unreviewed_mapping",
         "unreviewed_symbol_ownership",
-        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/locomotor/core_impl/template.rs"
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/template.rs"
       ],
       "id": "libraries:Source/template.cpp",
       "inventory_class": "required_library",
@@ -121004,7 +120570,7 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/locomotor/core_impl/template.rs"
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/template.rs"
           }
         ],
         "mode": "stem_inferred",
@@ -121049,7 +120615,7 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/locomotor/core_impl/template.rs"
+            "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/template.rs"
           }
         ],
         "mode": "stem_inferred",
@@ -158025,7 +157591,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "6b4bcdb4433ddc742f0aada480bb3401b9b1ba668cc523edd868a287239eb34b",
+  "input_digest": "fe9a30241f3fb7033af786ea10e486039212c9f9e4e9da979a2281bbfeb0b6da",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -158090,11 +157656,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 814,
+        "end_line": 797,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/System/xfer.rs",
-      "sha256": "b95c961a216df95efd3cf76e6d3b2a0bd45aa06f45376b216efbd149bc948bd0",
+      "sha256": "6bcbe6c32bc5741b75f14ba79736b04983a24ecc1dcc53f306d7a7eee15dced2",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -161615,11 +161181,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2588,
+        "end_line": 2610,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini.rs",
-      "sha256": "697a31474c8b19d52738e79ae132c69153f60c7072c380b847177953a463ad37",
+      "sha256": "2443f1a39cbbb9148b13c9b048f16a3a0409dcf4004b334074fa90afe5ee7d9a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -161896,18 +161462,6 @@
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_terrain_road.rs",
       "sha256": "b87ea4ff92602237bbf4f8ee649dce3a5e3e448b7a5b5290147fe7f597597c97",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 1078,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_upgrade.rs",
-      "sha256": "e22a6fe3733d47ccbec2fbc1591f89d002fd40ae2678b2f62a7b951affcb7e8c",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -162995,6 +162549,66 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
+        "end_line": 305,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/center.rs",
+      "sha256": "25dd3904c2b5dc9ab6c04bdbbfa3ecebd2908c82b581ee7da798a51938196f88",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 139,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/mask.rs",
+      "sha256": "62385c593225b214b97845734c164dbd607563b4ca2128fdcbd01b4b0c52787b",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 443,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/template.rs",
+      "sha256": "a221ad539779a807635a619e1defa36746915d4e781a155daf347f9dfb56d61b",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 279,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/tests.rs",
+      "sha256": "6386fa2513658fb30927be655e7da59de1097e23089a7671b0318b914b15500a",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 187,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade.rs",
+      "sha256": "5c2e7cd15431df3d234eb93f6f7bd0c5ffb7422cf3d686bd05d3605524357415",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
         "end_line": 495,
         "start_line": 1
       },
@@ -163091,11 +162705,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1351,
+        "end_line": 1353,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module.rs",
-      "sha256": "a54747143315f71554866d35b8545fbeeb168ebc0d47ba3edd735aad3b0fa9fe",
+      "sha256": "281a8fb0930709ffc942ec3929d97022568df3c86f40ccd63399dca143a45b31",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -168100,11 +167714,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 82,
+        "end_line": 83,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_impl/mod.rs",
-      "sha256": "51b3a46eaa9cf75913546388844a9c8838af4fca993fc36aebeaf2e8341731f9",
+      "sha256": "b88233e526024c1dd0d7aabf71fcb15c30323f99b77a832300439cb6f72b07a4",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -168124,11 +167738,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 692,
+        "end_line": 675,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_impl/tests.rs",
-      "sha256": "6f623b78743bd9e7c4e06f0fa8acd54e0bdd5775bc5affba5e2f295b213ae566",
+      "sha256": "8275d14339674428fee3a3b7e18879bba6c0ad4965097cc7bdfba033a561be2f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -168148,11 +167762,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 321,
+        "end_line": 312,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_impl/types.rs",
-      "sha256": "6678aca6bc06358d1d239e8fe6b2b03c51f010f0ba13970d89ba9d0a12f0a017",
+      "sha256": "63f4af6e1b45a59d76dcb2f5d31e91ef4dfd1b12ee74bfea11f99f90c98d12ed",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -168796,11 +168410,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 941,
+        "end_line": 931,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/control_bar_popup_description.rs",
-      "sha256": "c89da66a8b089223c3a7f22a148f3759452d29c5514d72a87c0a1a7cb72ee662",
+      "sha256": "d491c2fb446a24d4c8191b91d7bab29857add424747546bd9692798f52c47f3e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173753,76 +173367,76 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1136,
+        "end_line": 1137,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/impl_build.rs",
-      "sha256": "672aae040621cb43f7f2823d2532567233f675077b0f7c3998f6ca0f5cc75288",
+      "sha256": "b4eb4cabdd0393197403c6f6bd4eb796d03d374984d2106f9f4a0cba7fb2f782",
       "symbol_index_status": "indexed",
       "symbols": [
         {
           "kind": "fn",
-          "line": 14,
+          "line": 15,
           "name": "build_upgrade"
         },
         {
           "kind": "fn",
-          "line": 153,
+          "line": 154,
           "name": "build_by_supplies"
         },
         {
           "kind": "fn",
-          "line": 242,
+          "line": 243,
           "name": "build_specific_building_near_location"
         },
         {
           "kind": "fn",
-          "line": 270,
+          "line": 271,
           "name": "build_specific_ai_building_at"
         },
         {
           "kind": "fn",
-          "line": 282,
+          "line": 283,
           "name": "build_specific_building_nearest_team"
         },
         {
           "kind": "fn",
-          "line": 331,
+          "line": 332,
           "name": "find_supply_center"
         },
         {
           "kind": "fn",
-          "line": 444,
+          "line": 445,
           "name": "find_valid_build_location"
         },
         {
           "kind": "fn",
-          "line": 542,
+          "line": 543,
           "name": "compute_superweapon_target"
         },
         {
           "kind": "fn",
-          "line": 693,
+          "line": 694,
           "name": "on_unit_produced"
         },
         {
           "kind": "fn",
-          "line": 850,
+          "line": 851,
           "name": "on_structure_produced"
         },
         {
           "kind": "fn",
-          "line": 1002,
+          "line": 1003,
           "name": "set_team_delay_seconds"
         },
         {
           "kind": "fn",
-          "line": 1012,
+          "line": 1013,
           "name": "calc_closest_construction_zone_location"
         },
         {
           "kind": "fn",
-          "line": 1126,
+          "line": 1127,
           "name": "calc_closest_construction_zone_near_base"
         }
       ]
@@ -177615,606 +177229,606 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2802,
+        "end_line": 2803,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/group.rs",
-      "sha256": "c36c4af0db1d6a12bd23e9e3742d81e18dd182d2a79e609e1266691acc3acacc",
+      "sha256": "1ed65494b99134bed6114f4c28abae36b2a80ebd7f91b6494aae4cc350dcedfb",
       "symbol_index_status": "indexed",
       "symbols": [
         {
           "kind": "struct",
-          "line": 47,
+          "line": 48,
           "name": "AIGroup"
         },
         {
           "kind": "fn",
-          "line": 70,
+          "line": 71,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 86,
+          "line": 87,
           "name": "dual_world_registry_unavailable"
         },
         {
           "kind": "fn",
-          "line": 91,
+          "line": 92,
           "name": "new_with_formation"
         },
         {
           "kind": "fn",
-          "line": 106,
+          "line": 107,
           "name": "get_id"
         },
         {
           "kind": "fn",
-          "line": 111,
+          "line": 112,
           "name": "get_all_ids"
         },
         {
           "kind": "fn",
-          "line": 120,
+          "line": 121,
           "name": "get_all_ids_snapshot"
         },
         {
           "kind": "fn",
-          "line": 134,
+          "line": 135,
           "name": "get_speed"
         },
         {
           "kind": "fn",
-          "line": 142,
+          "line": 143,
           "name": "is_member"
         },
         {
           "kind": "fn",
-          "line": 150,
+          "line": 151,
           "name": "is_member_id"
         },
         {
           "kind": "fn",
-          "line": 153,
+          "line": 154,
           "name": "prune_dead_members"
         },
         {
           "kind": "fn",
-          "line": 175,
+          "line": 176,
           "name": "add_by_id"
         },
         {
           "kind": "fn",
-          "line": 219,
+          "line": 220,
           "name": "add"
         },
         {
           "kind": "fn",
-          "line": 229,
+          "line": 230,
           "name": "remove"
         },
         {
           "kind": "fn",
-          "line": 238,
+          "line": 239,
           "name": "remove_by_id"
         },
         {
           "kind": "fn",
-          "line": 257,
+          "line": 258,
           "name": "contains_any_objects_not_owned_by_player"
         },
         {
           "kind": "fn",
-          "line": 277,
+          "line": 278,
           "name": "remove_any_objects_not_owned_by_player"
         },
         {
           "kind": "fn",
-          "line": 305,
+          "line": 306,
           "name": "get_center"
         },
         {
           "kind": "fn",
-          "line": 359,
+          "line": 360,
           "name": "get_min_max_and_center"
         },
         {
           "kind": "fn",
-          "line": 414,
+          "line": 415,
           "name": "get_count"
         },
         {
           "kind": "fn",
-          "line": 419,
+          "line": 420,
           "name": "is_empty"
         },
         {
           "kind": "fn",
-          "line": 426,
+          "line": 427,
           "name": "compute_individual_destination"
         },
         {
           "kind": "fn",
-          "line": 490,
+          "line": 491,
           "name": "recompute"
         },
         {
           "kind": "fn",
-          "line": 526,
+          "line": 527,
           "name": "recompute_group_speed"
         },
         {
           "kind": "fn",
-          "line": 531,
+          "line": 532,
           "name": "group_move_to_position"
         },
         {
           "kind": "fn",
-          "line": 732,
+          "line": 733,
           "name": "group_tighten_to_position"
         },
         {
           "kind": "fn",
-          "line": 787,
+          "line": 788,
           "name": "group_move_to_and_evacuate"
         },
         {
           "kind": "fn",
-          "line": 804,
+          "line": 805,
           "name": "group_move_to_and_evacuate_and_exit"
         },
         {
           "kind": "fn",
-          "line": 822,
+          "line": 823,
           "name": "group_hunt"
         },
         {
           "kind": "fn",
-          "line": 836,
+          "line": 837,
           "name": "group_enter"
         },
         {
           "kind": "fn",
-          "line": 850,
+          "line": 851,
           "name": "group_dock"
         },
         {
           "kind": "fn",
-          "line": 864,
+          "line": 865,
           "name": "group_exit"
         },
         {
           "kind": "fn",
-          "line": 871,
+          "line": 872,
           "name": "group_evacuate"
         },
         {
           "kind": "fn",
-          "line": 898,
+          "line": 899,
           "name": "group_scatter"
         },
         {
           "kind": "fn",
-          "line": 957,
+          "line": 958,
           "name": "group_repair"
         },
         {
           "kind": "fn",
-          "line": 964,
+          "line": 965,
           "name": "group_resume_construction"
         },
         {
           "kind": "fn",
-          "line": 971,
+          "line": 972,
           "name": "group_get_healed"
         },
         {
           "kind": "fn",
-          "line": 978,
+          "line": 979,
           "name": "group_get_repaired"
         },
         {
           "kind": "fn",
-          "line": 985,
+          "line": 986,
           "name": "group_guard_area"
         },
         {
           "kind": "fn",
-          "line": 998,
+          "line": 999,
           "name": "group_attack_area"
         },
         {
           "kind": "fn",
-          "line": 1005,
+          "line": 1006,
           "name": "group_hack_internet"
         },
         {
           "kind": "fn",
-          "line": 1011,
+          "line": 1012,
           "name": "group_do_special_power"
         },
         {
           "kind": "fn",
-          "line": 1016,
+          "line": 1017,
           "name": "group_do_special_power_at_location"
         },
         {
           "kind": "fn",
-          "line": 1034,
+          "line": 1035,
           "name": "group_do_special_power_at_object"
         },
         {
           "kind": "fn",
-          "line": 1050,
+          "line": 1051,
           "name": "group_override_special_power_destination"
         },
         {
           "kind": "fn",
-          "line": 1073,
+          "line": 1074,
           "name": "do_special_power_common"
         },
         {
           "kind": "fn",
-          "line": 1165,
+          "line": 1166,
           "name": "fan_ai_command"
         },
         {
           "kind": "fn",
-          "line": 1180,
+          "line": 1181,
           "name": "group_follow_waypoint_path"
         },
         {
           "kind": "fn",
-          "line": 1196,
+          "line": 1197,
           "name": "group_follow_waypoint_path_exact"
         },
         {
           "kind": "fn",
-          "line": 1212,
+          "line": 1213,
           "name": "group_follow_waypoint_path_as_team"
         },
         {
           "kind": "fn",
-          "line": 1232,
+          "line": 1233,
           "name": "group_follow_waypoint_path_as_team_exact"
         },
         {
           "kind": "fn",
-          "line": 1252,
+          "line": 1253,
           "name": "group_idle"
         },
         {
           "kind": "fn",
-          "line": 1307,
+          "line": 1308,
           "name": "group_toggle_overcharge"
         },
         {
           "kind": "fn",
-          "line": 1324,
+          "line": 1325,
           "name": "group_surrender"
         },
         {
           "kind": "fn",
-          "line": 1347,
+          "line": 1348,
           "name": "group_cheer"
         },
         {
           "kind": "fn",
-          "line": 1365,
+          "line": 1366,
           "name": "group_pick_up_prisoner"
         },
         {
           "kind": "fn",
-          "line": 1388,
+          "line": 1389,
           "name": "group_return_to_prison"
         },
         {
           "kind": "fn",
-          "line": 1410,
+          "line": 1411,
           "name": "group_combat_drop"
         },
         {
           "kind": "fn",
-          "line": 1437,
+          "line": 1438,
           "name": "group_do_command_button"
         },
         {
           "kind": "fn",
-          "line": 1451,
+          "line": 1452,
           "name": "group_do_command_button_at_position"
         },
         {
           "kind": "fn",
-          "line": 1470,
+          "line": 1471,
           "name": "group_do_command_button_using_waypoints"
         },
         {
           "kind": "fn",
-          "line": 1489,
+          "line": 1490,
           "name": "group_do_command_button_at_object"
         },
         {
           "kind": "fn",
-          "line": 1508,
+          "line": 1509,
           "name": "group_attack_object"
         },
         {
           "kind": "fn",
-          "line": 1522,
+          "line": 1523,
           "name": "group_force_attack_object"
         },
         {
           "kind": "fn",
-          "line": 1536,
+          "line": 1537,
           "name": "group_attack_object_private"
         },
         {
           "kind": "fn",
-          "line": 1652,
+          "line": 1653,
           "name": "group_attack_team"
         },
         {
           "kind": "fn",
-          "line": 1671,
+          "line": 1672,
           "name": "group_attack_position"
         },
         {
           "kind": "fn",
-          "line": 1733,
+          "line": 1734,
           "name": "group_guard_position"
         },
         {
           "kind": "fn",
-          "line": 1755,
+          "line": 1756,
           "name": "group_sell"
         },
         {
           "kind": "fn",
-          "line": 1783,
+          "line": 1784,
           "name": "group_guard_object"
         },
         {
           "kind": "fn",
-          "line": 1805,
+          "line": 1806,
           "name": "set_mine_clearing_detail"
         },
         {
           "kind": "fn",
-          "line": 1818,
+          "line": 1819,
           "name": "set_weapon_lock_for_group"
         },
         {
           "kind": "fn",
-          "line": 1834,
+          "line": 1835,
           "name": "release_weapon_lock_for_group"
         },
         {
           "kind": "fn",
-          "line": 1843,
+          "line": 1844,
           "name": "set_weapon_set_flag"
         },
         {
           "kind": "fn",
-          "line": 1854,
+          "line": 1855,
           "name": "queue_upgrade"
         },
         {
           "kind": "fn",
-          "line": 1892,
+          "line": 1893,
           "name": "get_special_power_source_object"
         },
         {
           "kind": "fn",
-          "line": 1916,
+          "line": 1917,
           "name": "get_command_button_source_object"
         },
         {
           "kind": "fn",
-          "line": 1945,
+          "line": 1946,
           "name": "is_idle"
         },
         {
           "kind": "fn",
-          "line": 1971,
+          "line": 1972,
           "name": "is_busy"
         },
         {
           "kind": "fn",
-          "line": 1997,
+          "line": 1998,
           "name": "is_group_ai_dead"
         },
         {
           "kind": "fn",
-          "line": 2011,
+          "line": 2012,
           "name": "set_attitude"
         },
         {
           "kind": "fn",
-          "line": 2022,
+          "line": 2023,
           "name": "get_attitude"
         },
         {
           "kind": "fn",
-          "line": 2040,
+          "line": 2041,
           "name": "set_formation"
         },
         {
           "kind": "fn",
-          "line": 2085,
+          "line": 2086,
           "name": "get_formation_type"
         },
         {
           "kind": "fn",
-          "line": 2090,
+          "line": 2091,
           "name": "group_move_in_formation"
         },
         {
           "kind": "fn",
-          "line": 2117,
+          "line": 2118,
           "name": "group_attack_move_to_position"
         },
         {
           "kind": "fn",
-          "line": 2142,
+          "line": 2143,
           "name": "break_formation"
         },
         {
           "kind": "fn",
-          "line": 2156,
+          "line": 2157,
           "name": "reform_formation"
         },
         {
           "kind": "fn",
-          "line": 2169,
+          "line": 2170,
           "name": "is_in_formation"
         },
         {
           "kind": "fn",
-          "line": 2174,
+          "line": 2175,
           "name": "update_formation"
         },
         {
           "kind": "fn",
-          "line": 2200,
+          "line": 2201,
           "name": "set_formation_manager"
         },
         {
           "kind": "fn",
-          "line": 2205,
+          "line": 2206,
           "name": "friend_compute_ground_path"
         },
         {
           "kind": "const",
-          "line": 2339,
+          "line": 2340,
           "name": "PATH_DIAMETER_IN_CELLS"
         },
         {
           "kind": "fn",
-          "line": 2351,
+          "line": 2352,
           "name": "friend_move_infantry_to_pos"
         },
         {
           "kind": "fn",
-          "line": 2361,
+          "line": 2362,
           "name": "friend_move_vehicle_to_pos"
         },
         {
           "kind": "fn",
-          "line": 2369,
+          "line": 2370,
           "name": "friend_move_column_to_pos"
         },
         {
           "kind": "const",
-          "line": 2397,
+          "line": 2398,
           "name": "PATH_DIAMETER_IN_CELLS"
         },
         {
           "kind": "fn",
-          "line": 2542,
+          "line": 2543,
           "name": "friend_move_formation_to_pos"
         },
         {
           "kind": "const",
-          "line": 2551,
+          "line": 2552,
           "name": "PATH_DIAMETER_IN_CELLS"
         },
         {
           "kind": "fn",
-          "line": 2610,
+          "line": 2611,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 2626,
+          "line": 2627,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 2631,
+          "line": 2632,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 2634,
+          "line": 2635,
           "name": "normalize_coord2"
         },
         {
           "kind": "fn",
-          "line": 2647,
+          "line": 2648,
           "name": "crc"
         },
         {
           "kind": "fn",
-          "line": 2650,
+          "line": 2651,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 2654,
+          "line": 2655,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 2661,
+          "line": 2662,
           "name": "drop"
         },
         {
           "kind": "fn",
-          "line": 2670,
+          "line": 2671,
           "name": "to_module_attitude"
         },
         {
           "kind": "fn",
-          "line": 2680,
+          "line": 2681,
           "name": "from_module_attitude"
         },
         {
           "kind": "fn",
-          "line": 2696,
+          "line": 2697,
           "name": "test_formation_creation"
         },
         {
           "kind": "fn",
-          "line": 2710,
+          "line": 2711,
           "name": "test_formation_break_and_reform"
         },
         {
           "kind": "fn",
-          "line": 2726,
+          "line": 2727,
           "name": "test_group_speed_calculation"
         },
         {
           "kind": "fn",
-          "line": 2734,
+          "line": 2735,
           "name": "test_formation_manager_reference"
         },
         {
           "kind": "enum",
-          "line": 2750,
+          "line": 2751,
           "name": "GuardMode"
         },
         {
           "kind": "fn",
-          "line": 2761,
+          "line": 2762,
           "name": "from"
         },
         {
           "kind": "fn",
-          "line": 2767,
+          "line": 2768,
           "name": "from"
         },
         {
           "kind": "fn",
-          "line": 2773,
+          "line": 2774,
           "name": "default"
         },
         {
           "kind": "const",
-          "line": 2780,
+          "line": 2781,
           "name": "fn"
         },
         {
           "kind": "const",
-          "line": 2790,
+          "line": 2791,
           "name": "fn"
         }
       ]
@@ -199282,11 +198896,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1667,
+        "end_line": 1664,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/auto_heal_behavior.rs",
-      "sha256": "c29574c6dee9445e7d3bf8ea5d9c1c86a3da334b5cca419dd080d56e6289b27a",
+      "sha256": "20d4ee2780e48cdf98d67a130050e794c78294d675da9498ce500887c5ccb5b9",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -199298,7 +198912,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/auto_heal_query_owner_tests.rs",
-      "sha256": "513b7af81918d572923a890fbe9f8e8dbb060a3bef61804b30e8ef0ead512648",
+      "sha256": "46b1acdcd687feaf8626da8327c9a0ee60458281c0f8086fa4c82c3038f56438",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200206,11 +199820,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 948,
+        "end_line": 949,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/production_update_behavior.rs",
-      "sha256": "2202b3c0e290991b23764d3e273b36f1f49dbc23ae04bd7c4dfd453543775555",
+      "sha256": "89dc00232d38ae26f4b276a7aabad3816a07319eb0ccdc089d4c48bf295fc6e0",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -203002,11 +202616,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 294,
+        "end_line": 298,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_modules/contain_installation_tests.rs",
-      "sha256": "c140bfe6db4c0528107ac21a4646364b51dd298df83c9929fc2343b7da095fc8",
+      "sha256": "fcca8ec21591f665b68123fa83f950660006e61b3b7bb61ecf5687ab2f6db641",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -203086,11 +202700,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 439,
+        "end_line": 436,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_thing.rs",
-      "sha256": "ef7a3d88627178d6e040fd416c4b41fe16e7a1091d618a4e0e924e4e67b5ef32",
+      "sha256": "781f306aff3b51044a3aef7b949c38fa57086ff1ccebeaa25868d5bbfda3cb15",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -203134,11 +202748,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1184,
+        "end_line": 1185,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_upgrade.rs",
-      "sha256": "b6a1a177789b119926ff25d7c6b6b78412e4761e310852fe17ee6945454639af",
+      "sha256": "b2c6a3082da52ac11815aaf9f9ba486265dbd50f8fd802252b58b3bbd47cdc53",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -203150,7 +202764,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_upgrade_admission_tests.rs",
-      "sha256": "7fa2a8d5e3cf92da2c476fcc0ee31e89f82409a7b6ea3be75bf1a7fce336b27c",
+      "sha256": "6b6c81683531dd0848a4fa587af086b65bd4493026485b60d120b2d90ca04f08",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -203362,11 +202976,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2227,
+        "end_line": 2228,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/production/production_update_complete.rs",
-      "sha256": "4745f43a2161a7f22729b993e87f055bb19a4ecf9cad7d2fc4194dba46f23eb7",
+      "sha256": "8e5943d08a27d3b1169ac14f9976f3bfc70287c98f5f56b17dcc85788abb032b",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205390,11 +205004,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1290,
+        "end_line": 1291,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/production_update.rs",
-      "sha256": "28093191130e40faf776ee7ad7b4fc164d6d26fd7c4f424542bf6f7b17f78fb8",
+      "sha256": "c83d17a9a6021309db7bcc1ef98aef1161137cb986ed282d881f89a9e0a7b109",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205706,7 +205320,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/armor_upgrade/tests.rs",
-      "sha256": "55d038e66afa4113c03db6aed180028213514b803937ff1963099b72d8bc43b0",
+      "sha256": "65d6cca9297fe141b3a8e89501fc8b84e32a61c9a8bcaa189e57fe93f06e6bf4",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205798,11 +205412,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 481,
+        "end_line": 485,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade/installed_tests.rs",
-      "sha256": "c4e541bb97b00dfe9f541f42c2b3c1c191623a48368b9275d1be7def3dc41daf",
+      "sha256": "31e037f51d18e4e9a0678ed61c1758844ced61a77139bcc736c50f8500001612",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205814,7 +205428,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade/owner_callback_tests.rs",
-      "sha256": "9772b3daa8019c13a3b4b6c96adc1c8fa69c29f78af789950df98a572b825a23",
+      "sha256": "d02719f9d42cfa8049729d6a4f6729397635f2be5eaf5414d29ce88b2c3c510a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205826,7 +205440,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade/particle_callback_tests.rs",
-      "sha256": "513d1429b375198f7c841aa6bb5ed5f34fa2d7889e63429b05a2cf664086d991",
+      "sha256": "33b203fdd980d87ff955d7ce1745966f0dc56a09f3b5a8f04ebdd29b672f3372",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205894,11 +205508,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 347,
+        "end_line": 351,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/passengers_fire_upgrade/tests.rs",
-      "sha256": "b28ed37b08d36ef52650fc2ed7d349f2b7997821499e42e4679e7e7a61b8b6a9",
+      "sha256": "3e97323966022c195d89baf05249bf5719667f98354522f2a6c8404e388667f4",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205958,7 +205572,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/status_bits_upgrade/tests.rs",
-      "sha256": "6f3cf4d5a7414062cf5b35e430c15da383e385f348d939dbd4832939c4d997ba",
+      "sha256": "c578d11d731b4dd4046e1f70879fd6aa1316fc9607504371311d1fd3e962ecc7",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -205982,7 +205596,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/stealth_upgrade.rs",
-      "sha256": "736a608758e7416900e0866a8d4b7295f3333ee4de597dad4b45bba265fbea4d",
+      "sha256": "99ff677c241afa92e6ee45d73367fb6984ad3823192432e53b4d020b030a865a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -206002,11 +205616,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 461,
+        "end_line": 465,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/subobjects_upgrade/tests.rs",
-      "sha256": "57a3b811f5c6d0d92089e4cbf9a6f0f650f591d894aa0ca8810f463d7e5f3b9a",
+      "sha256": "3512301b9cf145a6071aa0af8384a9cd5d0354dedeb1639cbbec2e84aa9654ed",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -206054,7 +205668,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/upgrade_module.rs",
-      "sha256": "d16abbd480746043081907f8f9ccfbaf460f94641de1773ef4cb62518da1d4b4",
+      "sha256": "b86e854a19b1dd03e3376879739a3baf421471a84b7e50d5de2eea403a70b730",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -206234,7 +205848,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/player/list.rs",
-      "sha256": "b0e6b699a5a44d2e4af82d90a9c6b08bebf622481e1f679693d1e6331be4c7e0",
+      "sha256": "19d869cac6fafeb897f5b9108af5831bf0838d276f742cb7449e6603e5270388",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -220619,9 +220233,9 @@
     },
     "behavior_verified": 1,
     "blockers_by_kind": {
-      "duplicate_implementation_destination": 676,
-      "missing_mapping": 22,
-      "no_reachable_implementation": 685,
+      "duplicate_implementation_destination": 654,
+      "missing_mapping": 23,
+      "no_reachable_implementation": 686,
       "ownership_symbol": 6,
       "unreviewed_mapping": 1381,
       "unreviewed_source_range_ownership": 44,
@@ -220632,7 +220246,7 @@
         "behavior_evidence_units": 1,
         "behavior_verified": 1,
         "deferred_network": 47,
-        "reachable_implementation_candidates": 488,
+        "reachable_implementation_candidates": 487,
         "required": 539,
         "reviewed_path_implementations": 8,
         "source_range_ownership_reviewed": 3,
@@ -220685,13 +220299,13 @@
       }
     },
     "deferred_network_translation_units": 47,
-    "duplicate_implementation_destinations": 308,
+    "duplicate_implementation_destinations": 307,
     "orphan_ownership_records": 0,
-    "reachable_implementation_candidates": 704,
+    "reachable_implementation_candidates": 703,
     "required_translation_units": 1389,
     "reviewed_path_implementations": 8,
     "source_range_ownership_reviewed": 3,
-    "strict_blockers": 4202,
+    "strict_blockers": 4182,
     "symbol_ownership_reviewed": 1,
     "translation_units": 1436
   }

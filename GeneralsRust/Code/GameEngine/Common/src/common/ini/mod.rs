@@ -66,7 +66,6 @@ pub mod ini_special_power;
 pub mod ini_terrain;
 pub mod ini_terrain_bridge;
 pub mod ini_terrain_road;
-pub mod ini_upgrade;
 pub mod ini_video;
 pub mod ini_water;
 pub mod ini_weapon;

@@ -12,7 +12,7 @@ pub use crate::common::rts::NameKeyType;
 use crate::common::{
     ascii_string::AsciiString,
     ini::ini_fx_list::{fx_list_obj_runtime, get_fx_list_store},
-    ini::ini_upgrade::{UpgradeTemplate, get_upgrade_center},
+    system::upgrade::{UpgradeCenter, UpgradeTemplate, get_upgrade_center},
     system::{Snapshotable, Xfer, build_assistant::ObjectID},
 };
 use std::{
@@ -1096,7 +1096,7 @@ impl UpgradeMuxData {
                 let the_template = if lookup_name.is_empty() || lookup_name.is_none() {
                     None
                 } else {
-                    upgrade_center.find_template(&lookup_name)
+                    upgrade_center.find_upgrade(lookup_name.as_str())
                 };
 
                 if the_template.is_none() && !lookup_name.is_empty() && !lookup_name.is_none() {
@@ -1106,7 +1106,7 @@ impl UpgradeMuxData {
                     );
                 }
 
-                obj.remove_upgrade(the_template);
+                obj.remove_upgrade(the_template.as_deref());
             }
         }
     }
@@ -1148,16 +1148,16 @@ impl UpgradeMuxData {
     }
 
     fn resolve_upgrade_mask(
-        upgrade_center: &crate::common::ini::ini_upgrade::UpgradeCenter,
+        upgrade_center: &UpgradeCenter,
         upgrade_names: &[AsciiString],
         mask_kind: &str,
     ) -> u128 {
         let mut mask = 0u128;
 
         for upgrade_name in upgrade_names {
-            let the_template = upgrade_center.find_template(upgrade_name);
+            let the_template = upgrade_center.find_upgrade(upgrade_name.as_str());
             if let Some(template) = the_template {
-                mask |= template.get_upgrade_mask();
+                mask |= template.get_mask().bits();
             } else if !upgrade_name.is_empty() && !upgrade_name.is_none() {
                 panic!(
                     "An upgrade module references {} as a {} upgrade, which is not an Upgrade",
@@ -1223,7 +1223,7 @@ mod definition_snapshot_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::ini::ini_upgrade::{get_upgrade_center, initialize_upgrade_center};
+    use crate::common::system::upgrade::{get_upgrade_center, initialize_upgrade_center};
     use crate::common::system::xfer_save::XferSave;
     use std::io::Cursor;
 
@@ -1301,11 +1301,13 @@ mod tests {
             let center = get_upgrade_center();
             let mut center = center.write().expect("UpgradeCenter poisoned");
             let activation_mask = center
-                .get_or_create_template(&activation_name)
-                .get_upgrade_mask();
+                .new_upgrade(activation_name.clone())
+                .get_mask()
+                .bits();
             let conflicting_mask = center
-                .get_or_create_template(&conflicting_name)
-                .get_upgrade_mask();
+                .new_upgrade(conflicting_name.clone())
+                .get_mask()
+                .bits();
             (activation_mask, conflicting_mask)
         };
 

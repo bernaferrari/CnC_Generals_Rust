@@ -5,7 +5,9 @@
 //!
 //! Original C++ reference: ProductionUpdate.cpp, BuildListInfo.cpp
 
-use super::{PlayerUpgradeManager, UpgradeError, UpgradeResult, UpgradeTemplate};
+use super::{
+    PlayerUpgradeManager, UpgradeError, UpgradeResult, UpgradeTemplate, UpgradeTemplatePlayerExt,
+};
 use crate::common::*;
 use std::sync::{Arc, RwLock};
 

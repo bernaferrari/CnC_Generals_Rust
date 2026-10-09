@@ -11,11 +11,13 @@
 //!
 //! 1. Weapon INIs from `Data/INI/Weapon.ini`, `Data/INI/Default/Weapon.ini`,
 //!    and `Data/INI/Weapon/`
-//! 2. Upgrade INIs from `Data/INI/Default/Upgrade.ini`
+//! 2. Upgrade INIs: `Data/INI/Default/Upgrade.ini` then `Data/INI/Upgrade.ini`
+//!    (C++ GameEngine.cpp:468), parsed by the Common INI `Upgrade` block
+//!    handler into the one canonical engine-lifetime UpgradeCenter
 //! 3. Science INIs from `Data/INI/Default/Science.ini` then `Data/INI/Science.ini`
 //!
 //! These templates are registered into the GameLogic WeaponStore, the
-//! GameLogic UpgradeCenter, and the Common ScienceStore respectively.
+//! canonical Common UpgradeCenter, and the Common ScienceStore respectively.
 
 use crate::assets::archive::ArchiveFileSystem;
 use log::{debug, info, warn};
@@ -325,26 +327,25 @@ fn discover_weapon_ini_files(archive_system: &ArchiveFileSystem) -> Vec<String> 
     discover_weapon_ini_files_from_paths(archive_system.list_all_files())
 }
 
-/// Discover upgrade INI files from the archive system.
-///
-/// In the C++ original, upgrade INIs are loaded from:
-/// - `Data/INI/Default/Upgrade.ini`
-fn discover_upgrade_ini_files(archive_system: &ArchiveFileSystem) -> Vec<String> {
-    let all_files = archive_system.list_all_files();
+/// C++ GameEngine.cpp:468 loads `Default/Upgrade.ini` then `Upgrade.ini`, in
+/// that fixed order (mask bits are assigned in first-definition order).
+const UPGRADE_INI_LOAD_ORDER: [&str; 2] = ["data/ini/default/upgrade.ini", "data/ini/upgrade.ini"];
 
-    let mut discovered: Vec<String> = all_files
+/// Resolve the archive paths for the upgrade INIs in C++ load order.
+fn upgrade_ini_files_in_load_order(all_files: Vec<String>) -> Vec<String> {
+    let normalized: Vec<String> = all_files
         .into_iter()
         .map(|path| normalize_archive_path(&path))
-        .filter(|path| {
-            let normalized = path.to_ascii_lowercase();
-            archive_key_matches_suffix(&normalized, "data/ini/default/upgrade.ini")
-                || archive_key_matches_suffix(&normalized, "data/ini/upgrade.ini")
-        })
         .collect();
-
-    discovered.sort();
-    discovered.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
-    discovered
+    UPGRADE_INI_LOAD_ORDER
+        .iter()
+        .filter_map(|suffix| {
+            normalized
+                .iter()
+                .find(|path| archive_key_matches_suffix(&path.to_ascii_lowercase(), suffix))
+                .cloned()
+        })
+        .collect()
 }
 
 /// Discover science INI files from the archive system.
@@ -438,36 +439,27 @@ pub async fn load_weapon_templates(
     Ok(total_weapons)
 }
 
-/// Load upgrade templates from BIG archives and register them in the GameLogic UpgradeCenter.
+/// Load `Default/Upgrade.ini` then `Upgrade.ini` from BIG archives into the
+/// engine-lifetime UpgradeCenter (C++ `TheUpgradeCenter`, GameEngine.cpp:468).
+///
+/// Every `Upgrade` block goes through the Common INI dispatch, i.e. C++
+/// `UpgradeCenter::parseUpgradeDefinition` — the single upgrade load path
+/// (engine boot and map.ini alike). Runs during engine setup, before any
+/// GameLogic world snapshots the center. Returns the number of templates
+/// the files added.
 pub async fn load_upgrade_templates(
     archive_system: &mut ArchiveFileSystem,
 ) -> Result<usize, String> {
-    // C++ UpgradeCenter::init creates Upgrade_Veterancy_* before Upgrade.ini.
-    gamelogic::upgrade::center::with_upgrade_center_mut(|center| {
-        center.init();
-    });
+    let center = game_engine::common::system::upgrade::process_lifetime_upgrade_center();
+    let count_before = center.read().map(|c| c.count()).unwrap_or(0);
 
-    let upgrade_files = discover_upgrade_ini_files(archive_system);
+    let upgrade_files = upgrade_ini_files_in_load_order(archive_system.list_all_files());
     if upgrade_files.is_empty() {
         info!("No upgrade INI files found in archives");
         return Ok(0);
     }
 
-    info!(
-        "Loading upgrade templates from {} INI files",
-        upgrade_files.len()
-    );
-
-    let mut total_upgrades = 0usize;
-
-    for (idx, ini_file) in upgrade_files.iter().enumerate() {
-        debug!(
-            "Loading upgrade INI file {}/{}: {}",
-            idx + 1,
-            upgrade_files.len(),
-            ini_file
-        );
-
+    for ini_file in &upgrade_files {
         let data = match archive_system.open_file(ini_file).await {
             Ok(d) => d,
             Err(e) => {
@@ -475,7 +467,6 @@ pub async fn load_upgrade_templates(
                 continue;
             }
         };
-
         let content = match String::from_utf8(data) {
             Ok(c) => c,
             Err(_) => {
@@ -483,27 +474,29 @@ pub async fn load_upgrade_templates(
                 continue;
             }
         };
-
-        let sections = parse_ini_sections(&content);
-        let mut file_upgrade_count = 0usize;
-
-        for (block_type, block_name, properties) in &sections {
-            if block_type.eq_ignore_ascii_case("Upgrade")
-                && register_upgrade_template(block_name, properties)
-            {
-                file_upgrade_count += 1;
-            }
+        if let Err(err) = load_upgrade_ini_text(&content) {
+            warn!("Failed parsing upgrade INI '{}': {}", ini_file, err);
         }
-
-        total_upgrades += file_upgrade_count;
-        debug!(
-            "Loaded {} upgrade templates from {}",
-            file_upgrade_count, ini_file
-        );
     }
 
-    info!("Loaded {} upgrade templates total", total_upgrades);
-    Ok(total_upgrades)
+    let total = center
+        .read()
+        .map(|c| c.count())
+        .unwrap_or(0)
+        .saturating_sub(count_before);
+    info!("Loaded {} upgrade templates total", total);
+    Ok(total)
+}
+
+/// Parse one Upgrade.ini text into the engine-lifetime UpgradeCenter through
+/// the Common INI `Upgrade` block handler.
+pub fn load_upgrade_ini_text(content: &str) -> Result<(), String> {
+    let mut ini = game_engine::common::ini::INI::new();
+    ini.set_upgrade_center_target(
+        game_engine::common::system::upgrade::process_lifetime_upgrade_center(),
+    );
+    ini.with_inline_source(content, |ini| ini.parse_current_file())
+        .map_err(|err| err.to_string())
 }
 
 /// Load science templates from BIG archives and register them in the Common ScienceStore.
@@ -1487,101 +1480,6 @@ fn apply_weapon_effect_references(
     }
 }
 
-/// C++ `UpgradeTemplate::m_upgradeFieldParseTable` keys applied by GameLogic
-/// `parse_from_ini` / setters (Upgrade.cpp:90-103).
-const UPGRADE_INI_SETTER_FIELDS: &[&str] = &[
-    "DisplayName",
-    "Type",
-    "BuildTime",
-    "BuildCost",
-    "ButtonImage",
-    "ResearchSound",
-    "UnitSpecificSound",
-    "AcademyClassify",
-];
-
-/// Look up an INI property with C++-style case-insensitive field names.
-fn find_ini_property<'a>(properties: &'a HashMap<String, String>, key: &str) -> Option<&'a str> {
-    if let Some(value) = properties.get(key) {
-        return Some(value.as_str());
-    }
-    properties
-        .iter()
-        .find(|(k, _)| k.eq_ignore_ascii_case(key))
-        .map(|(_, v)| v.as_str())
-}
-
-/// Apply C++ `initFromINI` fields onto an already-registered GameLogic template.
-///
-/// `UpgradeCenter::new_upgrade` stores `Arc<UpgradeTemplate>`, so setters cannot
-/// mutate the live entry. `parse_upgrade_definition` clones the existing
-/// template (C++ `findNonConstUpgradeByKey` + `initFromINI`), applies the
-/// parse table, and stores it back.
-fn apply_upgrade_template_ini_fields(
-    name: &str,
-    properties: &HashMap<String, String>,
-) -> Result<(), String> {
-    use game_engine::common::ini::{INI, INIError};
-    use gamelogic::upgrade::center::with_upgrade_center_mut;
-
-    let mut source = String::new();
-    source.push_str(name);
-    source.push('\n');
-
-    let mut has_fields = false;
-    for key in UPGRADE_INI_SETTER_FIELDS {
-        if let Some(value) = find_ini_property(properties, key) {
-            source.push_str(key);
-            source.push_str(" = ");
-            source.push_str(value);
-            source.push('\n');
-            has_fields = true;
-        }
-    }
-
-    if !has_fields {
-        return Ok(());
-    }
-
-    source.push_str("End\n");
-
-    let mut ini = INI::new();
-    ini.with_inline_source(&source, |ini| {
-        ini.read_line()?;
-        with_upgrade_center_mut(|center| {
-            center
-                .parse_upgrade_definition(ini)
-                .map_err(|_| INIError::InvalidData)
-        })
-    })
-    .map_err(|e| format!("{:?}", e))
-}
-
-/// Register an upgrade template parsed from INI into the GameLogic UpgradeCenter.
-fn register_upgrade_template(name: &str, properties: &HashMap<String, String>) -> bool {
-    use game_engine::common::ascii_string::AsciiString;
-    use gamelogic::upgrade::center::with_upgrade_center_mut;
-
-    let ascii_name = AsciiString::from(name);
-
-    with_upgrade_center_mut(|center| {
-        // C++ parseUpgradeDefinition: find existing or newUpgrade (inherits
-        // DefaultUpgrade). Duplicate Upgrade blocks must not spam warnings.
-        if center.find_upgrade(name).is_none() {
-            let _template = center.new_upgrade(ascii_name);
-        }
-    });
-
-    // C++ initFromINI on the (possibly pre-existing) template. Always apply
-    // ButtonImage / DisplayName / BuildCost / BuildTime / Type when present.
-    if let Err(e) = apply_upgrade_template_ini_fields(name, properties) {
-        warn!("Failed to apply Upgrade.ini fields for '{}': {}", name, e);
-    }
-
-    debug!("Registered upgrade template: {}", name);
-    true
-}
-
 /// Register a science template parsed from INI into leftover leftover + live ScienceStore.
 fn register_science_template(name: &str, properties: &HashMap<String, String>) -> bool {
     use game_engine::common::ascii_string::AsciiString;
@@ -2079,53 +1977,63 @@ End
         assert_eq!(sections[0].1, "AmericaTankCompositeArmor");
     }
 
-    #[test]
-    fn register_upgrade_template_copies_button_image() {
-        let mut properties = HashMap::new();
-        properties.insert("ButtonImage".to_string(), "SSTestCameo".to_string());
-
-        assert!(register_upgrade_template(
-            "Upgrade_TestButtonImageCameo",
-            &properties
-        ));
-
-        gamelogic::upgrade::center::with_upgrade_center(|center| {
-            let template = center
-                .find_upgrade("Upgrade_TestButtonImageCameo")
-                .expect("upgrade registered");
-            assert_eq!(template.get_button_image_name().as_str(), "SSTestCameo");
-        });
+    fn engine_upgrade(name: &str) -> std::sync::Arc<gamelogic::upgrade::UpgradeTemplate> {
+        game_engine::common::system::upgrade::process_lifetime_upgrade_center()
+            .read()
+            .unwrap()
+            .find_upgrade(name)
+            .expect("upgrade registered")
     }
 
     #[test]
-    fn register_upgrade_template_updates_existing_button_image() {
+    fn upgrade_ini_text_copies_button_image() {
+        load_upgrade_ini_text(
+            "Upgrade Upgrade_TestButtonImageCameo\n  ButtonImage = SSTestCameo\nEnd\n",
+        )
+        .expect("canonical Upgrade block");
+        let template = engine_upgrade("Upgrade_TestButtonImageCameo");
+        assert_eq!(template.get_button_image_name().as_str(), "SSTestCameo");
+    }
+
+    #[test]
+    fn upgrade_ini_override_overlays_existing_template() {
         let name = "Upgrade_TestButtonImageCameoExisting";
 
-        // First pass creates the template with no ButtonImage (C++ newUpgrade).
-        assert!(register_upgrade_template(name, &HashMap::new()));
-        gamelogic::upgrade::center::with_upgrade_center(|center| {
-            let template = center.find_upgrade(name).expect("upgrade registered");
-            assert!(template.get_button_image_name().as_str().is_empty());
-        });
+        // First block creates the template (C++ newUpgrade) and sets a field.
+        load_upgrade_ini_text(&format!("Upgrade {name}\n  BuildTime = 15.0\nEnd\n")).unwrap();
+        let first = engine_upgrade(name);
+        assert!(first.get_button_image_name().as_str().is_empty());
 
-        // C++ initFromINI on existing: case-insensitive ButtonImage still applies.
-        let mut properties = HashMap::new();
-        properties.insert("buttonimage".to_string(), "SSTestCameo".to_string());
-        properties.insert(
-            "DisplayName".to_string(),
-            "CONTROLBAR:TestCameo".to_string(),
+        // C++ initFromINI on the existing template: overlay, same mask bit.
+        load_upgrade_ini_text(&format!(
+            "Upgrade {name}\n  ButtonImage = SSTestCameo\n  DisplayName = CONTROLBAR:TestCameo\n  BuildCost = 500\nEnd\n"
+        ))
+        .unwrap();
+        let template = engine_upgrade(name);
+        assert_eq!(template.get_button_image_name().as_str(), "SSTestCameo");
+        assert_eq!(template.get_display_name().as_str(), "CONTROLBAR:TestCameo");
+        assert_eq!(template.get_cost(), 500);
+        assert_eq!(template.get_build_time(), 15.0, "earlier field kept");
+        assert_eq!(template.get_mask(), first.get_mask(), "no new bit");
+    }
+
+    #[test]
+    fn upgrade_ini_files_load_default_before_override_regardless_of_case() {
+        // A case-sensitive sort would put "Data/INI/Upgrade.ini" before
+        // "data/ini/default/upgrade.ini"; C++ always loads Default first.
+        let files = upgrade_ini_files_in_load_order(vec![
+            "Data/INI/Upgrade.ini".to_string(),
+            "Data/INI/Weapon.ini".to_string(),
+            "data/ini/default/upgrade.ini".to_string(),
+        ]);
+        assert_eq!(files.len(), 2);
+        assert!(
+            files[0]
+                .to_ascii_lowercase()
+                .ends_with("default/upgrade.ini")
         );
-        properties.insert("BuildCost".to_string(), "500".to_string());
-        properties.insert("BuildTime".to_string(), "15.0".to_string());
-        assert!(register_upgrade_template(name, &properties));
-
-        gamelogic::upgrade::center::with_upgrade_center(|center| {
-            let template = center.find_upgrade(name).expect("upgrade still registered");
-            assert_eq!(template.get_button_image_name().as_str(), "SSTestCameo");
-            assert_eq!(template.get_display_name().as_str(), "CONTROLBAR:TestCameo");
-            assert_eq!(template.get_cost(), 500);
-            assert_eq!(template.get_build_time(), 15.0);
-        });
+        assert!(files[1].to_ascii_lowercase().ends_with("ini/upgrade.ini"));
+        assert!(!files[1].to_ascii_lowercase().contains("default"));
     }
 
     #[test]

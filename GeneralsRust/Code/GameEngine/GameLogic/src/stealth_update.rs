@@ -1,3 +1,4 @@
+use crate::upgrade::UpgradeTemplatePlayerExt;
 use std::any::Any;
 use std::sync::{Arc, Mutex};
 

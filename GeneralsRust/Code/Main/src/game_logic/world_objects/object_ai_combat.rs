@@ -1024,7 +1024,7 @@ mod live_upgrade_mux_tests {
         research_sound: Option<&str>,
         unit_specific_sound: Option<&str>,
     ) {
-        let mut source = format!("{name}\nDisplayName = CONTROLBAR:{name}\n");
+        let mut source = format!("Upgrade {name}\nDisplayName = CONTROLBAR:{name}\n");
         if let Some(sound) = research_sound {
             source.push_str(&format!("ResearchSound = {sound}\n"));
         }

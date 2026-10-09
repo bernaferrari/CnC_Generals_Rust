@@ -41,6 +41,7 @@ use crate::object::ProductionBehaviorQueueKindMut;
 use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::system::game_logic;
 use crate::upgrade::UpgradeStatus;
+use crate::upgrade::UpgradeTemplatePlayerExt;
 use crate::upgrade::center::get_upgrade_center;
 use crate::upgrade::template::UpgradeType;
 use game_engine::bit_flags::create_model_condition_flags;
