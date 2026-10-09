@@ -9,7 +9,7 @@
 //! Architecture residual - BuildAssistant sell completion is immediate remove, not combat death.
 //!
 //! Sources:
-//! - game_logic.rs mark_object_for_destruction_with_mode sold branch
+//! - game_logic.rs begin_object_death sold branch
 //!   (re-anchored from the pre-split mark_object_for_destruction body when
 //!   destroy_object direct-destroy parity split the fn, 2026-08-30)
 //! - update_sell_list → destroy_object on finish
@@ -25,7 +25,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 }
 
 pub const SELL_FINISH_SKIPS_TOPPLE_DESTROY_METHOD_NAMES_WAVE482: &[&str] = &[
-    "mark_object_for_destruction_with_mode",
+    "begin_object_death",
     "status.sold",
     "try_begin_structure_topple_instead_of_destroy",
     "try_begin_slow_death_instead_of_destroy",
@@ -35,7 +35,7 @@ pub const SELL_FINISH_SKIPS_TOPPLE_DESTROY_METHOD_NAMES_WAVE482: &[&str] = &[
 
 pub const SELL_FINISH_SKIPS_TOPPLE_DESTROY_SOURCE_MARKERS_WAVE482: &[&str] = &[
     "Wave 482: BuildAssistant sell finish removes the object immediately",
-    "let defer_death_animations = !sold",
+    "!sold && !under_construction",
     "try_begin_structure_topple_instead_of_destroy",
     "objects_to_destroy",
 ];
@@ -120,7 +120,7 @@ pub fn honesty_sell_finish_skips_topple_destroy_method_names_residual_wave482() 
     SELL_FINISH_SKIPS_TOPPLE_DESTROY_METHOD_NAMES_WAVE482.len() == 6
         && residual_name_index(
             SELL_FINISH_SKIPS_TOPPLE_DESTROY_METHOD_NAMES_WAVE482,
-            "mark_object_for_destruction_with_mode",
+            "begin_object_death",
         ) == Some(0)
         && residual_name_index(
             SELL_FINISH_SKIPS_TOPPLE_DESTROY_METHOD_NAMES_WAVE482,
@@ -136,7 +136,7 @@ pub fn honesty_sell_finish_skips_topple_destroy_source_markers_residual_wave482(
         ) == Some(0)
         && residual_name_index(
             SELL_FINISH_SKIPS_TOPPLE_DESTROY_SOURCE_MARKERS_WAVE482,
-            "let defer_death_animations = !sold",
+            "!sold && !under_construction",
         ) == Some(1)
 }
 
@@ -159,12 +159,12 @@ pub fn honesty_sell_finish_skips_topple_destroy_nav_commands_residual_wave482() 
 
 pub fn simulate_sell_finish_skips_topple_destroy_mark_source() -> bool {
     let gl = gl_source();
-    let Some(body) = function_body(gl, "fn mark_object_for_destruction_with_mode(") else {
+    let Some(body) = function_body(gl, "fn begin_object_death(") else {
         return false;
     };
     let ok = body.contains("Wave 482: BuildAssistant sell finish removes the object immediately")
         && body.contains("status.sold")
-        && body.contains("let defer_death_animations = !sold")
+        && body.contains("!sold && !under_construction")
         && body.contains("try_begin_structure_topple_instead_of_destroy")
         && body.contains("objects_to_destroy")
         && gl_source().contains("fn destroy_object_for_sell_residual")

@@ -1715,10 +1715,9 @@ fn fire_weapon_when_dead_terrorist_splash() {
     // Force mark then process destroy.
     logic.objects.get_mut(&terror_id).unwrap().health.current = 0.0;
     // Bypass slow death: mark after clearing wants by using apply path
-    logic.objects_to_destroy.push_back(DestructionEvent {
-        id: terror_id,
-        killer: None,
-    });
+    logic
+        .objects_to_destroy
+        .push_back(DestructionEvent::after_death(terror_id, None));
     logic.process_destroy_list();
     let tank = logic.objects.get(&tank_id);
     assert!(
@@ -2517,7 +2516,12 @@ fn troop_crawler_death_gives_final_orders() {
         game_logic.apply_troop_crawler_assault_deploy_for_test(crawler_id, enemy),
         1
     );
-    game_logic.destroy_object(crawler_id);
+    // The authored callback is onDie; direct destroyObject does not invoke it.
+    game_logic.apply_owned_kill(
+        crawler_id,
+        crate::game_logic::combat::DamageType::Unresistable,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+    );
     let member = game_logic.host_object(healthy_id).expect("member");
     assert_eq!(
         member.last_command_source, HUNT_CMD_FROM_PLAYER,

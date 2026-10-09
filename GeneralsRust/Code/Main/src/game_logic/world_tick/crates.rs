@@ -521,8 +521,7 @@ impl GameLogic {
                 .filter(|v| *v > 0.0)
                 .or_else(|| {
                     gamelogic::ai::the_ai().read().ok().and_then(|ai| {
-                        Some(ai.get_ai_data())
-                            .map(|d| d.attack_priority_distance_modifier)
+                        Some(ai.get_ai_data()).map(|d| d.attack_priority_distance_modifier)
                     })
                 })
                 .filter(|v| *v > 0.0)
@@ -1520,17 +1519,12 @@ impl GameLogic {
                 if let Some(body) = bus.battle_bus_body.as_mut() {
                     body.mark_real_death();
                 }
-                let hp = bus.health.current.max(1.0) + 1.0;
-                let _ = bus.take_damage_from_typed(hp, None, DamageType::Unresistable);
             }
-            if self
-                .objects
-                .get(&bus_id)
-                .map(|o| !o.is_alive() || o.status.destroyed)
-                .unwrap_or(false)
-            {
-                let _ = self.destroy_object(bus_id);
-            }
+            let _ = self.apply_owned_kill(
+                bus_id,
+                DamageType::Penalty,
+                crate::game_logic::host_usa_pilot::HostDeathType::Extra4,
+            );
         }
     }
 

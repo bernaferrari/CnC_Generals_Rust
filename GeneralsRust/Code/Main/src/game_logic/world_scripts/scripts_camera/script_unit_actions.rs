@@ -742,7 +742,6 @@ impl GameLogic {
     pub(super) fn apply_host_kill_delete_damage_script_requests(&mut self) {
         use crate::game_logic::KindOf;
         use gamelogic::scripting::HostScriptKillDeleteDamageRequest;
-        const HUGE_DAMAGE_AMOUNT: f32 = 999999.0;
         for req in gamelogic::scripting::take_host_script_kill_delete_damage_requests() {
             match req {
                 HostScriptKillDeleteDamageRequest::NamedDelete { unit } => {
@@ -752,12 +751,12 @@ impl GameLogic {
                 }
                 HostScriptKillDeleteDamageRequest::NamedKill { unit } => {
                     if let Some(id) = self.host_object_id_by_script_name(&unit) {
-                        self.host_script_kill_object(id, HUGE_DAMAGE_AMOUNT);
+                        self.host_script_kill_object(id);
                     }
                 }
                 HostScriptKillDeleteDamageRequest::NamedDamage { unit, amount } => {
                     if let Some(id) = self.host_object_id_by_script_name(&unit) {
-                        self.host_script_apply_unresistable(id, amount as f32, HUGE_DAMAGE_AMOUNT);
+                        self.host_script_apply_unresistable(id, amount as f32);
                     }
                 }
                 HostScriptKillDeleteDamageRequest::TeamDelete { team, ignore_dead } => {
@@ -788,7 +787,7 @@ impl GameLogic {
                             }
                             continue;
                         }
-                        self.host_script_kill_object(id, HUGE_DAMAGE_AMOUNT);
+                        self.host_script_kill_object(id);
                     }
                 }
                 HostScriptKillDeleteDamageRequest::TeamDamage { team, amount } => {
@@ -801,7 +800,13 @@ impl GameLogic {
                         if skip {
                             continue;
                         }
-                        self.host_script_apply_unresistable(id, amount, HUGE_DAMAGE_AMOUNT);
+                        // CPP Team::damageTeamMembers2461 distinguishes kill;
+                        // NamedDamage forwards the signed amount unchanged.
+                        if amount < 0.0 {
+                            self.host_script_kill_object(id);
+                        } else {
+                            self.host_script_apply_unresistable(id, amount);
+                        }
                     }
                 }
                 HostScriptKillDeleteDamageRequest::DestroyAllContained { unit } => {
@@ -821,7 +826,7 @@ impl GameLogic {
                     occupants.sort_by_key(|id| id.0);
                     occupants.dedup();
                     for occ in occupants {
-                        self.host_script_kill_object(occ, HUGE_DAMAGE_AMOUNT);
+                        self.host_script_kill_object(occ);
                     }
                     if let Some(obj) = self.host_object_mut(container) {
                         if let Some(building) = obj.building_data.as_mut() {
@@ -834,30 +839,27 @@ impl GameLogic {
         }
     }
 
-    /// C++ `Object::kill()` — HUGE unresistable damage with death effects.
-    pub(super) fn host_script_kill_object(&mut self, id: ObjectId, huge: f32) {
-        let dead = self
-            .host_object_mut(id)
-            .map(|obj| obj.take_damage_from(huge, None))
-            .unwrap_or(false);
-        if dead {
-            self.destroy_object(id);
-        }
+    /// CPP Object::kill uses a max-health input and m_kill, with invalid source.
+    pub(super) fn host_script_kill_object(&mut self, id: ObjectId) {
+        let _ = self.apply_owned_kill(
+            id,
+            crate::game_logic::combat::DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+        );
     }
 
-    /// C++ `attemptDamage` UNRESISTABLE; amount < 0 is `Object::kill()`.
-    pub(super) fn host_script_apply_unresistable(&mut self, id: ObjectId, amount: f32, huge: f32) {
-        if amount < 0.0 {
-            self.host_script_kill_object(id, huge);
-            return;
-        }
-        let dead = self
-            .host_object_mut(id)
-            .map(|obj| obj.take_damage_from(amount, None))
-            .unwrap_or(false);
-        if dead {
-            self.destroy_object(id);
-        }
+    /// CPP attemptDamage UNRESISTABLE with the original signed amount.
+    pub(super) fn host_script_apply_unresistable(&mut self, id: ObjectId, amount: f32) {
+        let context = crate::game_logic::object::DamageHitContext::default();
+        let _ = self.apply_owned_damage(
+            id,
+            amount,
+            None,
+            crate::game_logic::combat::DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            &context,
+        );
     }
 
     /// C++ ScriptActions TEAM/NAMED FOLLOW_WAYPOINTS and EXACT.

@@ -391,6 +391,19 @@ fn construction_complete_heal_log_sets_full_hp_via_writeback() {
         o.construction_percent = 0.99;
         o.health.current = 50.0;
     }
+    // CPP VictoryConditions87–95/168–196: skirmish requires a live
+    // victory-counting structure. Otherwise the session defeats this player
+    // and kills its army while this control is checking health writeback.
+    let mut keep_alive = ThingTemplate::new("HealthVictoryKeepAlive");
+    keep_alive
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::MpCountForVictory);
+    logic
+        .templates
+        .insert("HealthVictoryKeepAlive".into(), keep_alive);
+    logic
+        .create_object("HealthVictoryKeepAlive", Team::USA, glam::Vec3::ZERO)
+        .unwrap();
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     // Simulate completion residual: log full HP without host mutate.

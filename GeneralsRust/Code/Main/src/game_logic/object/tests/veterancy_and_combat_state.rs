@@ -1472,6 +1472,7 @@ fn slow_death_infantry_defers_and_sinks() {
     assert!(o.begin_slow_death_from_ini(0, &HostSlowDeathIni::infantry_retail()));
     assert!(!o.status.destroyed);
     assert!(o.slow_death.as_ref().unwrap().is_active());
+    let body_before_completion = o.health.current;
     let mut done = false;
     for f in 0..400 {
         if o.tick_slow_death(f) {
@@ -1480,7 +1481,8 @@ fn slow_death_infantry_defers_and_sinks() {
         }
     }
     assert!(done);
-    assert!(o.status.destroyed);
+    assert!(!o.status.destroyed, "timer reports deletion to its owner");
+    assert_eq!(o.health.current, body_before_completion);
     assert!(o.presentation_slow_death_sink_offset() <= 0.0);
 }
 

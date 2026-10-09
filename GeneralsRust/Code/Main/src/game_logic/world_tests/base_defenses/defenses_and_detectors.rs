@@ -504,10 +504,9 @@ fn toxin_tractor_residual_stream_spray_and_death_field() {
         let _ = t.take_damage(max_hp + 1.0);
         t.status.destroyed = true;
     }
-    game_logic.objects_to_destroy.push_back(DestructionEvent {
-        id: toxin_id,
-        killer: Some(Team::USA),
-    });
+    game_logic
+        .objects_to_destroy
+        .push_back(DestructionEvent::after_death(toxin_id, Some(Team::USA)));
     game_logic.process_destroy_list();
 
     assert!(

@@ -246,7 +246,11 @@ impl GameLogic {
             }
             // C++ Team::killTeam keeps beacons in the kill list (effectively-dead
             // exception) and kill()s them. Do not name-sniff skip.
-            self.destroy_object(id);
+            let _ = self.apply_owned_kill(
+                id,
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            );
         }
 
         // C++ Player.cpp:2055-2063 — SP PLAYER_COMPUTER resurrect before cash wipe.

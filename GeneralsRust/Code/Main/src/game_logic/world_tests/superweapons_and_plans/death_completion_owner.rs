@@ -133,7 +133,10 @@ fn assert_final(logic: &mut GameLogic, id: ObjectId) {
         .host_object(id)
         .expect("deferred final destruction remains discoverable");
     assert!(object.status.destroyed);
-    assert_eq!(object.health.current, 0.0);
+    // This fixture starts only the timer at positive HP. CPP final callbacks
+    // delete the object without manufacturing a second body damage operation.
+    assert_eq!(object.health.current, 100.0);
+    assert!(!object.status.on_die_started);
     assert_eq!(
         logic
             .objects_to_destroy

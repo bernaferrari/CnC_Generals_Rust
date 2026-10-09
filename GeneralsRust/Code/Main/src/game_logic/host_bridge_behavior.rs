@@ -488,21 +488,25 @@ impl HostBridgeBehaviorRegistry {
             .is_some_and(|s| s.scaffold_present)
     }
 
-    /// Step rise/build-across and return (id, new_pos) for live objects.
-    pub fn tick_scaffolds(&mut self) -> Vec<(ObjectId, Vec3)> {
+    /// Advance each owned scaffold; the final flag requests direct deletion
+    /// when the original sink phase completes.
+    pub fn tick_scaffolds(&mut self) -> Vec<(ObjectId, Vec3, bool)> {
         let mut moved = Vec::new();
         for span in self.spans.values_mut() {
             if span.scaffold_motion_frames > 0 {
                 span.scaffold_motion_frames -= 1;
             }
-            for anim in &mut span.scaffold_anims {
+            span.scaffold_anims.retain_mut(|anim| {
                 if anim.motion == HostScaffoldMotion::Still {
-                    continue;
+                    return true;
                 }
+                let was_sinking = anim.motion == HostScaffoldMotion::Sink;
                 let next = anim.step(anim.last_pos);
                 anim.last_pos = next;
-                moved.push((anim.id, next));
-            }
+                let finished_sink = was_sinking && anim.motion == HostScaffoldMotion::Still;
+                moved.push((anim.id, next, finished_sink));
+                !finished_sink
+            });
             if !span.scaffold_anims.is_empty()
                 && span
                     .scaffold_anims
@@ -519,9 +523,23 @@ impl HostBridgeBehaviorRegistry {
         let Some(span) = self.spans.get_mut(&bridge.0) else {
             return Vec::new();
         };
+        if !span.scaffold_present {
+            return Vec::new();
+        }
+        // CPP BridgeBehavior1262 / BridgeScaffoldBehavior87: reverse course,
+        // keep the live animation until its sink explicitly requests deletion.
+        for anim in &mut span.scaffold_anims {
+            anim.motion = match anim.motion {
+                HostScaffoldMotion::Still | HostScaffoldMotion::BuildAcross => {
+                    HostScaffoldMotion::TearDownAcross
+                }
+                HostScaffoldMotion::Rise => HostScaffoldMotion::Sink,
+                HostScaffoldMotion::TearDownAcross => HostScaffoldMotion::BuildAcross,
+                HostScaffoldMotion::Sink => HostScaffoldMotion::Rise,
+            };
+        }
         span.scaffold_present = false;
         span.scaffold_motion_frames = 0;
-        span.scaffold_anims.clear();
         std::mem::take(&mut span.scaffold_ids)
     }
 

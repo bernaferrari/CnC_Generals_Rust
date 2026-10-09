@@ -338,9 +338,30 @@ fn repair_complete_removes_scaffolding() {
         !logic.bridge_behavior.is_scaffold_present(span),
         "repair-complete must clear scaffold_present"
     );
+    // CPP BridgeBehavior1262 reverses each scaffold's motion. Removal is
+    // requested only when BridgeScaffoldBehavior215 finishes sinking.
+    for &sid in &scaffold_ids {
+        let object = logic
+            .host_object(sid)
+            .expect("teardown keeps its live object");
+        assert!(!object.status.destroyed && !object.status.on_die_started);
+        assert!(object.health.current > 0.0);
+    }
+    for _ in 0..2048 {
+        logic.sync_host_bridge_rubble_and_scaffolds();
+        logic.process_destroy_list();
+        if scaffold_ids
+            .iter()
+            .all(|sid| logic.host_object(*sid).is_none())
+        {
+            break;
+        }
+    }
     for sid in scaffold_ids {
-        let gone = logic.host_object(sid).is_none_or(|o| o.status.destroyed);
-        assert!(gone, "scaffold object {sid:?} must be destroyed");
+        assert!(
+            logic.host_object(sid).is_none(),
+            "completed sink must remove {sid:?}"
+        );
     }
 }
 
@@ -462,17 +483,22 @@ fn killing_tower_collapses_span_and_span_death_kills_towers() {
 
     let mut logic = GameLogic::new();
     let (span, t0, t1) = spawn_linked_bridge(&mut logic);
-    logic.destroy_object(span);
+    // CPP BridgeBehavior::onDie kills the towers; direct deletion does not.
+    let _ = logic.apply_owned_kill(
+        span,
+        crate::game_logic::combat::DamageType::Unresistable,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+    );
     logic.sync_host_bridge_rubble_and_scaffolds();
     let t0_obj = logic.host_object(t0).expect("t0");
     let t1_obj = logic.host_object(t1).expect("t1");
     assert!(
         t0_obj.status.keep_as_rubble || t0_obj.health.current <= 0.0,
-        "span destroy_object must kill towers"
+        "span body death must kill towers"
     );
     assert!(
         t1_obj.status.keep_as_rubble || t1_obj.health.current <= 0.0,
-        "span destroy_object must kill both towers"
+        "span body death must kill both towers"
     );
 }
 

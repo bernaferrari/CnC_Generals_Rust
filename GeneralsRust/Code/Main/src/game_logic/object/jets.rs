@@ -194,9 +194,8 @@ impl Object {
         self.set_orientation(ori + d_roll);
         self.apply_jet_death_phase(ev);
         if done {
-            self.health.current = 0.0;
-            self.status.destroyed = true;
-            self.refresh_model_condition_bits();
+            // Final phase reports completion; destroyObject owns admission.
+            // Preserve the body state established before this timer tick.
             return true;
         }
         false
@@ -305,9 +304,8 @@ impl Object {
         self.set_position(np);
         self.set_orientation(ori + dori);
         if done {
-            self.health.current = 0.0;
-            self.status.destroyed = true;
-            self.refresh_model_condition_bits();
+            // Final phase reports completion; destroyObject owns admission.
+            // Preserve the body state established before this timer tick.
             self.apply_heli_death_phase(ev);
             return true;
         }

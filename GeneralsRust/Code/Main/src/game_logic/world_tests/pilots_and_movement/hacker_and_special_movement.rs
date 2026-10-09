@@ -2308,10 +2308,15 @@ fn special_power_completion_die_notifies_script() {
     if let Some(obj) = logic.objects.get_mut(&id) {
         obj.set_special_power_completion("SuperweaponScudStorm", 42);
     }
-    logic.destroy_object(id);
+    // The authored callback is onDie; direct destroyObject does not invoke it.
+    logic.apply_owned_kill(
+        id,
+        crate::game_logic::combat::DamageType::Unresistable,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+    );
     assert!(
         logic.special_power_completion_log.notifications >= 1,
-        "SpecialPowerCompletionDie must notify on destroy"
+        "SpecialPowerCompletionDie must notify on body death"
     );
     let evs = script_events::drain_events();
     assert!(

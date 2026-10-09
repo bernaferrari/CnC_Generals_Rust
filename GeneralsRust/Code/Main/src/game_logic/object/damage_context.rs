@@ -10,6 +10,8 @@ use gamelogic::common::ObjectStatusTypes;
 pub(in crate::game_logic) struct DamageHitContext {
     source: Option<HostDamageFxVictim>,
     status: Option<ObjectStatusTypes>,
+    // C++ DamageInfoInput::m_kill: an input to this one body operation.
+    kill: bool,
 }
 
 impl DamageHitContext {
@@ -19,6 +21,7 @@ impl DamageHitContext {
         kind: DamageType,
     ) -> Self {
         Self {
+            kill: false,
             source: source.map(snapshot_damage_fx_source),
             status: if kind == DamageType::Status {
                 weapon.and_then(
@@ -34,7 +37,19 @@ impl DamageHitContext {
         Self {
             source: None,
             status: Some(status),
+            kill: false,
         }
+    }
+
+    pub(in crate::game_logic) fn for_kill() -> Self {
+        Self {
+            kill: true,
+            ..Self::default()
+        }
+    }
+
+    pub(super) fn is_kill(&self) -> bool {
+        self.kill
     }
 
     pub(super) fn source(&self) -> Option<&HostDamageFxVictim> {

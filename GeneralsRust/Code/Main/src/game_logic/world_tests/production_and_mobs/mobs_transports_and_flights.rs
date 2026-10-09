@@ -2504,21 +2504,19 @@ fn upgrade_die_removes_producer_drone_upgrade() {
         assert!(d.upgrade_die.is_some());
     }
     // Kill drone → UpgradeDie frees master upgrade.
-    game_logic.destroy_object(drone_id);
-    // Process destruction queue if needed.
-    if let Some(d) = game_logic.host_object_mut(drone_id) {
-        // Wave 753: under damage authority, do not zero host HP mid-frame
-        // (dual with GW HP writeback). Project lethal via damage log + flags.
-        if crate::gameworld_shadow::gameworld_damage_authority_live() {
-            let hp = d.health.current.max(1.0);
-            let oid = d.id;
-            crate::game_logic::host_damage_log::record(oid, hp, None, true);
-        } else {
-            d.health.current = 0.0;
-        }
-        d.status.destroyed = true;
-    }
-    // destroy_object should have already run upgrade die via mark.
+    // The authored callback is onDie; direct destroyObject does not invoke it.
+    game_logic.apply_owned_kill(
+        drone_id,
+        crate::game_logic::combat::DamageType::Unresistable,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+    );
+    assert!(
+        game_logic
+            .host_object(drone_id)
+            .unwrap()
+            .status
+            .on_die_started
+    );
     let m = game_logic.host_object(master_id).unwrap();
     assert!(
         !m.has_upgrade_tag(crate::game_logic::host_slave_drones::UPGRADE_AMERICA_SCOUT_DRONE),

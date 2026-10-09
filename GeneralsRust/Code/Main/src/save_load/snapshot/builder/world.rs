@@ -32,6 +32,15 @@ impl SnapshotBuilder {
         game_logic: &GameLogic,
         #[cfg(feature = "game_client")] client: Option<&game_client::core::game_client::GameClient>,
     ) -> SaveLoadResult<WorldSnapshot> {
+        // The runtime destruction queue is not part of Xfer. Capture only
+        // after end-of-frame physical removal, rather than restoring an
+        // immortal DESTROYED object whose deletion request was discarded.
+        if game_logic.has_pending_object_removals() {
+            return Err(SaveLoadError::Serialization(
+                "Cannot snapshot before pending object removals finish".to_string(),
+            ));
+        }
+
         log::info!("Creating world snapshot from game state");
 
         // Snapshot all objects from game state

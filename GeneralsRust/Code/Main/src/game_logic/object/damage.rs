@@ -661,7 +661,11 @@ impl Object {
             incoming,
         );
         let battle_plan_armor = self.battle_plan_armor_damage_scalar();
-        let mut actual_damage = if matches!(
+        // CPP ActiveBody500–515: m_kill replaces the post-armor/scalar
+        // amount with current HP. ImmortalBody's internal floor still applies.
+        let mut actual_damage = if context.is_kill() {
+            prev_health
+        } else if matches!(
             damage_type,
             crate::game_logic::combat::DamageType::Unresistable
         ) {

@@ -39,7 +39,7 @@ impl GameLogic {
         let _ = self.apply_ocl_random_force(id);
         self.maybe_apply_upgrade_die(id);
         self.objects_to_destroy
-            .push_back(DestructionEvent { id, killer: None });
+            .push_back(DestructionEvent::after_death(id, None));
     }
 
     /// C++ FireWeaponWhenDeadBehavior::onDie leftover — death weapon splash.
@@ -136,10 +136,8 @@ impl GameLogic {
         for id in destroy_ids {
             // Avoid re-entrancy loops: queue destroy without re-firing this dying unit.
             if id != dying_id {
-                self.objects_to_destroy.push_back(DestructionEvent {
-                    id,
-                    killer: Some(team),
-                });
+                self.objects_to_destroy
+                    .push_back(DestructionEvent::after_death(id, Some(team)));
             }
         }
     }
@@ -450,26 +448,28 @@ impl GameLogic {
     }
 
     pub(crate) fn mark_object_for_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
-        self.mark_object_for_destruction_with_mode(id, killer, false);
+        self.begin_object_death(id, killer);
     }
 
-    /// Explicit final-deletion entry. C++ GameLogic::destroyObject queues
-    /// destruction independently of the object's earlier onDie callbacks.
-    /// The existing alive-object compatibility adapter remains below until
-    /// its complete onDestroy/creation-effects contract is migrated.
+    /// C++ GameLogic::destroyObject requests deletion independently of body
+    /// death. Already-started death retains its pending completion effects;
+    /// a live direct request never manufactures an onDie operation.
     pub fn destroy_object(&mut self, id: ObjectId) {
-        if self
-            .objects
-            .get(&id)
-            .is_some_and(|object| object.status.on_die_started)
-        {
-            // C++ destroyObject is independent of Object::onDie. An explicit
-            // final deletion must not replay die callbacks or restart a timer.
+        let Some(object) = self.objects.get(&id) else {
+            return;
+        };
+        if self.objects_to_destroy.iter().any(|event| event.id == id) {
+            return;
+        }
+        if object.status.on_die_started {
+            if let Some(object) = self.objects.get_mut(&id) {
+                object.set_locomotor_goal_none();
+                object.movement.path.clear();
+            }
             self.enqueue_object_destruction(id, None);
+            self.apply_object_delete_callbacks(id);
         } else {
-            // Preserve the existing alive-direct callback adapter in this
-            // bounded migration; complete onDestroy parity is separate work.
-            self.mark_object_for_destruction_with_mode(id, None, true);
+            self.destroy_live_object(id);
         }
     }
 
@@ -483,19 +483,14 @@ impl GameLogic {
         }
         self.apply_pending_create_object_die(id);
         self.objects_to_destroy
-            .push_back(DestructionEvent { id, killer });
+            .push_back(DestructionEvent::after_death(id, killer));
         if let Some(object) = self.objects.get_mut(&id) {
             object.status.destroyed = true;
         }
         let _ = crate::gameworld_shadow::eager_mark_host_destroy_if_coupled(id);
     }
 
-    fn mark_object_for_destruction_with_mode(
-        &mut self,
-        id: ObjectId,
-        killer: Option<Team>,
-        direct_destroy: bool,
-    ) {
+    fn begin_object_death(&mut self, id: ObjectId, killer: Option<Team>) {
         if self
             .objects
             .get(&id)
@@ -560,7 +555,7 @@ impl GameLogic {
         // C++ InstantDeathBehavior::onDie — FX/OCL/Weapon then destroyObject.
         if self.try_apply_instant_death(id) {
             self.objects_to_destroy
-                .push_back(DestructionEvent { id, killer });
+                .push_back(DestructionEvent::after_death(id, killer));
             if let Some(obj) = self.objects.get_mut(&id) {
                 obj.status.destroyed = true;
             }
@@ -599,11 +594,7 @@ impl GameLogic {
         // mines are not buildings, so they must never defer into StructureTopple/
         // Collapse / SlowDeath / KeepObjectDie residuals even when their residual
         // template carries KindOf::Structure.
-        // Direct destroy_object() calls (script/engine authority, no killer /
-        // damage source) match C++ GameLogic::destroyObject → DestroyDie /
-        // InstantDeath immediate removal; only world-tick combat deaths may
-        // defer into those death animations, or a host-only destroy would
-        // leave a live husk behind (status.destroyed stays false).
+        // Body death follows its authored delayed or retained death behavior.
         let is_mine = self.objects.get(&id).is_some_and(|o| o.mine_data.is_some());
         // C++ CaveContain::onDie (CaveContain.cpp:197-211) overrides
         // OpenContain::onDie with no super call: death immediately
@@ -616,13 +607,8 @@ impl GameLogic {
             .objects
             .get(&id)
             .is_some_and(|o| o.is_cave_style_container());
-        let direct_destroy = direct_destroy && killer.is_none();
-        let defer_death_animations = !sold
-            && !under_construction
-            && !is_rebuild_hole
-            && !is_mine
-            && !is_cave
-            && !direct_destroy;
+        let defer_death_animations =
+            !sold && !under_construction && !is_rebuild_hole && !is_mine && !is_cave;
         if defer_death_animations {
             // C++ StructureTopple/Collapse residual: buildings fall/sink before remove.
             if self.try_begin_structure_topple_instead_of_destroy(id) {

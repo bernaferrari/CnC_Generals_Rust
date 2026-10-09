@@ -22,6 +22,31 @@ pub(in crate::game_logic) struct OwnedDamageResult {
 }
 
 impl GameLogic {
+    /// CPP Object1930–1940: preserve the requested damage/death types and
+    /// invalid source, with the kill bit carried by this owned impact context.
+    pub(in crate::game_logic) fn apply_owned_kill(
+        &mut self,
+        victim_id: ObjectId,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+    ) -> Option<OwnedDamageResult> {
+        let victim = self.objects.get(&victim_id)?;
+        let amount = if victim.health.maximum > 0.0 {
+            victim.health.maximum
+        } else {
+            victim.max_health.max(1.0)
+        };
+        self.apply_owned_damage(
+            victim_id,
+            amount,
+            None,
+            damage_type,
+            death_type,
+            None,
+            &DamageHitContext::for_kill(),
+        )
+    }
+
     pub(in crate::game_logic) fn apply_owned_damage(
         &mut self,
         victim_id: ObjectId,

@@ -560,9 +560,10 @@ impl GameLogic {
                     jet.set_ai_state(AIState::Moving);
                 }
             }
-            let need_path = self.objects.get(&jet_id).is_some_and(|jet| {
-                jet.movement.path.is_empty() && !jet.waiting_for_path
-            });
+            let need_path = self
+                .objects
+                .get(&jet_id)
+                .is_some_and(|jet| jet.movement.path.is_empty() && !jet.waiting_for_path);
             if need_path {
                 if let Some(goal) = goal {
                     let _ = self.assign_unit_path(jet_id, goal, &[]);
@@ -1153,9 +1154,16 @@ impl GameLogic {
             kill.push(jet_id);
         }
         for jet_id in kill {
-            self.destroy_object(jet_id);
-            let _ = self.release_airfield_parking_space_for_jet(jet_id);
-            self.release_airfield_runway_for_jet(jet_id);
+            let killed = self.apply_owned_kill(
+                jet_id,
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            );
+            // CPP purgeDead must retain reservations for a surviving body.
+            if killed.is_some_and(|result| result.destroyed) {
+                let _ = self.release_airfield_parking_space_for_jet(jet_id);
+                self.release_airfield_runway_for_jet(jet_id);
+            }
         }
     }
 
@@ -1816,7 +1824,9 @@ impl GameLogic {
         if !grid.is_valid_pos(cell) {
             return 0;
         }
-        crate::game_logic::locomotor_bootstrap::valid_locomotor_surfaces_for_cell_type(grid.cell_type(cell))
+        crate::game_logic::locomotor_bootstrap::valid_locomotor_surfaces_for_cell_type(
+            grid.cell_type(cell),
+        )
     }
 
     /// C++ `ParkingPlaceBehavior::exitObjectViaDoor` hangar/parking bone pose.

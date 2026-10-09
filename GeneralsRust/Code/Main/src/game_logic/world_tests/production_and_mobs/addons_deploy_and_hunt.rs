@@ -1742,14 +1742,20 @@ fn battle_bus_undead_damages_passengers_and_empty_hulk_destroys() {
         game_logic.frame = f;
         game_logic.tick_battle_bus_slow_deaths();
     }
+    let bus = game_logic
+        .host_object(bus_id)
+        .expect("body death precedes physical removal");
+    assert_eq!(bus.health.current, 0.0);
     assert!(
-        game_logic.battle_bus.honesty_empty_hulk_destruction_ok()
-            || game_logic
-                .host_object(bus_id)
-                .map(|b| !b.is_alive())
-                .unwrap_or(true),
-        "empty hulk should self-destruct"
+        bus.status.on_die_started,
+        "empty-hulk penalty must enter onDie"
     );
+    assert_eq!(
+        bus.status.death_type.ordinal(),
+        15,
+        "CPP DEATH_EXTRA_4 selects the real death module"
+    );
+    assert!(bus.battle_bus_body.as_ref().unwrap().is_real_death);
 }
 
 #[test]

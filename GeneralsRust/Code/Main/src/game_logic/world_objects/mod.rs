@@ -8,6 +8,7 @@ mod crates_radar_power;
 mod create_destroy_die;
 mod damage_application;
 mod destroy_list_bounty;
+mod direct_destroy;
 mod host_ops_writeback;
 mod object_ai_combat;
 mod object_queries;

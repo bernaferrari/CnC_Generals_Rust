@@ -417,8 +417,8 @@ impl Object {
         if !done {
             return false;
         }
-        self.health.current = 0.0;
-        self.status.destroyed = true;
+        // CPP SlowDeathBehavior359–381: final phase requests destroyObject.
+        // The driving owner admits deletion; the timer does not damage the body.
         true
     }
 

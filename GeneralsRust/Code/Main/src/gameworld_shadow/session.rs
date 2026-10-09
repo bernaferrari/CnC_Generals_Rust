@@ -1244,15 +1244,6 @@ pub fn shadow_session_after_host_tick(
             .take_shadow_death_completions(gamelogic::world::ShadowDeathCompletionKind::Jet)
         {
             let id = ObjectId(host_id);
-            // Wave 941: force-kill residual via host residual mutation authority.
-            logic.apply_host_residual_mutation_op(
-                crate::game_logic::HostResidualMutationOp::ForceKill {
-                    id,
-                    death_type: None,
-                    refresh_model_condition: true,
-                    mark_destroy: false,
-                },
-            );
             // The original final phase calls destroyObject, not kill/onDie.
             logic.destroy_object(id);
         }
@@ -1299,14 +1290,6 @@ pub fn shadow_session_after_host_tick(
                 );
             }
             logic.apply_pending_create_object_die(id);
-            logic.apply_host_residual_mutation_op(
-                crate::game_logic::HostResidualMutationOp::ForceKill {
-                    id,
-                    death_type: None,
-                    refresh_model_condition: true,
-                    mark_destroy: false,
-                },
-            );
             // The original final phase calls destroyObject, not kill/onDie.
             logic.destroy_object(id);
         }
@@ -1316,15 +1299,6 @@ pub fn shadow_session_after_host_tick(
             .take_shadow_death_completions(gamelogic::world::ShadowDeathCompletionKind::Slow)
         {
             let id = ObjectId(host_id);
-            // Wave 941: force-kill residual via host residual mutation authority.
-            logic.apply_host_residual_mutation_op(
-                crate::game_logic::HostResidualMutationOp::ForceKill {
-                    id,
-                    death_type: None,
-                    refresh_model_condition: false,
-                    mark_destroy: false,
-                },
-            );
             // The original final phase calls destroyObject, not kill/onDie.
             logic.destroy_object(id);
         }

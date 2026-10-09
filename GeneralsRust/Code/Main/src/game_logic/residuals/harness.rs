@@ -50,6 +50,7 @@ pub const GAME_LOGIC_HOST_SRC: &str = concat!(
     include_str!("../combat/tests.rs"),
     include_str!("../world_tick/step.rs"),
     include_str!("../world_objects/destroy_list_bounty.rs"),
+    include_str!("../world_objects/direct_destroy.rs"),
     include_str!("../world_scripts/ambush_leaflet.rs"),
     include_str!("../world_objects/object_queries.rs"),
     include_str!("../world_objects/create_destroy_die.rs"),

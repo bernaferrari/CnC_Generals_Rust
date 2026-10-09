@@ -218,7 +218,7 @@ impl GameLogic {
         target: Vec3,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_cluster_mines_flight::{
-            HostClusterMinesFlightData, CLUSTER_MINES_BOMB_OBJECT,
+            CLUSTER_MINES_BOMB_OBJECT, HostClusterMinesFlightData,
         };
         use crate::game_logic::host_mines::CLUSTER_MINES_OCL_TRANSPORT;
         use crate::game_logic::{KindOf, ThingTemplate};
@@ -280,7 +280,7 @@ impl GameLogic {
 
     pub fn update_cluster_mines_flights(&mut self) {
         use crate::game_logic::host_cluster_mines_flight::{
-            cluster_mines_payload_drop_pos, CLUSTER_MINES_BOMB_OBJECT,
+            CLUSTER_MINES_BOMB_OBJECT, cluster_mines_payload_drop_pos,
         };
 
         let tids: Vec<ObjectId> = self
@@ -780,21 +780,9 @@ impl GameLogic {
                 .map(|o| o.frenzy_invisible_marker)
                 .unwrap_or(false)
             {
-                // Invisible marker has no SlowDeath residual — hard-remove.
-                if let Some(o) = self.objects.get_mut(&id) {
-                    // Wave 752: under damage authority, do not zero host HP mid-frame
-                    // (dual with GW HP writeback). Project lethal via damage log + flags.
-                    if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                        let hp = o.health.current.max(1.0);
-                        let oid = o.id;
-                        crate::game_logic::host_damage_log::record(oid, hp, None, true);
-                    } else {
-                        o.health.current = 0.0;
-                    }
-                    o.status.destroyed = true;
-                    o.status.effectively_dead = true;
-                }
-                self.mark_object_for_destruction(id, None);
+                // C++ DeletionUpdate: Destroy (NOT kill). Keep body HP and
+                // run the owning instance's direct deletion operation.
+                self.destroy_object(id);
             }
         }
     }
@@ -832,26 +820,15 @@ impl GameLogic {
         {
             return;
         }
-        if let Some(o) = self.objects.get_mut(&id) {
-            if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                let hp = o.health.current.max(1.0);
-                let oid = o.id;
-                crate::game_logic::host_damage_log::record(oid, hp, None, true);
-            } else {
-                o.health.current = 0.0;
-            }
-            o.status.destroyed = true;
-            o.status.effectively_dead = true;
-        }
-        self.mark_object_for_destruction(id, None);
+        self.destroy_object(id);
     }
 
     /// C++ GrantStealthBehavior radius grow pulse residual (Start 20 → Final 100).
     pub fn update_gps_scrambler_grow(&mut self) {
         use crate::game_logic::host_gps_scrambler::{
-            gps_scrambler_grow_is_final, gps_scrambler_scan_radius_after_updates,
-            in_gps_scrambler_radius_2d, is_gps_scrambler_disguise_name,
-            is_legal_gps_scrambler_target, GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL,
+            GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL, gps_scrambler_grow_is_final,
+            gps_scrambler_scan_radius_after_updates, in_gps_scrambler_radius_2d,
+            is_gps_scrambler_disguise_name, is_legal_gps_scrambler_target,
         };
 
         // Collect grow work without holding registry mut across object mut.
@@ -1032,8 +1009,8 @@ impl GameLogic {
     /// Expands the spawned scout's shroud-clearing range 0→250; look follows the unit.
     pub fn update_spy_drone_grow(&mut self) {
         use crate::game_logic::host_spy_drone::{
-            spy_drone_grow_is_final, spy_drone_scan_radius_after_updates,
-            SPY_DRONE_GROW_UPDATES_TO_FINAL, SPY_DRONE_VISION_RANGE,
+            SPY_DRONE_GROW_UPDATES_TO_FINAL, SPY_DRONE_VISION_RANGE, spy_drone_grow_is_final,
+            spy_drone_scan_radius_after_updates,
         };
 
         let work: Vec<(usize, Option<crate::game_logic::ObjectId>, f32)> = {
@@ -1090,7 +1067,7 @@ impl GameLogic {
         source_team: Team,
     ) -> u32 {
         use crate::game_logic::host_firewall::{
-            HostFireWallRegistry, FIREWALL_DURATION_FRAMES, FIREWALL_SEGMENT_MAX_HEALTH,
+            FIREWALL_DURATION_FRAMES, FIREWALL_SEGMENT_MAX_HEALTH, HostFireWallRegistry,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -1834,14 +1811,7 @@ impl GameLogic {
 
     /// C++ `WorkerAIUpdate.cpp:830` / `DozerAIUpdate::removeBridgeScaffolding`.
     pub(crate) fn remove_bridge_scaffolding(&mut self, span_id: ObjectId) {
-        let ids = self.bridge_behavior.remove_scaffolding(span_id);
-        for sid in ids {
-            if let Some(obj) = self.objects.get_mut(&sid) {
-                obj.status.destroyed = true;
-                obj.health.current = 0.0;
-            }
-            self.destroy_object(sid);
-        }
+        let _ = self.bridge_behavior.remove_scaffolding(span_id);
         let rubble = self.objects.get(&span_id).is_some_and(|o| {
             o.body_damage_state
                 == crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
@@ -2082,7 +2052,10 @@ impl GameLogic {
 
     pub(in super::super) fn sync_host_bridge_rubble_and_scaffolds(&mut self) {
         let moved = self.bridge_behavior.tick_scaffolds();
-        for (sid, pos) in moved {
+        for (sid, pos, finished_sink) in moved {
+            if finished_sink {
+                self.destroy_object(sid);
+            }
             if let Some(obj) = self.objects.get_mut(&sid) {
                 obj.set_position(pos);
             }
@@ -2664,9 +2637,9 @@ impl GameLogic {
         position: Vec3,
     ) {
         use crate::game_logic::host_listening_outpost::{
-            preferred_payload_template, tank_hunter_missile_weapon,
             LISTENING_OUTPOST_INITIAL_PAYLOAD_COUNT, LISTENING_OUTPOST_PAYLOAD_TEMPLATE,
-            LISTENING_OUTPOST_PAYLOAD_TEMPLATE_ALT,
+            LISTENING_OUTPOST_PAYLOAD_TEMPLATE_ALT, preferred_payload_template,
+            tank_hunter_missile_weapon,
         };
 
         // Ensure a payload template is available (retail or host seed).
@@ -2762,8 +2735,8 @@ impl GameLogic {
         position: Vec3,
     ) {
         use crate::game_logic::host_troop_crawler::{
-            resolve_payload_template_name, TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT,
-            TROOP_CRAWLER_PAYLOAD_TEMPLATE, TROOP_CRAWLER_PAYLOAD_TEMPLATE_ALIAS,
+            TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT, TROOP_CRAWLER_PAYLOAD_TEMPLATE,
+            TROOP_CRAWLER_PAYLOAD_TEMPLATE_ALIAS, resolve_payload_template_name,
         };
         use crate::game_logic::weapon_bootstrap::REDGUARD_PRIMARY_WEAPON;
 
@@ -2853,7 +2826,7 @@ impl GameLogic {
         target_id: ObjectId,
     ) -> u32 {
         use crate::game_logic::host_troop_crawler::{
-            is_assault_member_wounded, HostAssaultTransportState, TROOP_CRAWLER_DEPLOY_AUDIO,
+            HostAssaultTransportState, TROOP_CRAWLER_DEPLOY_AUDIO, is_assault_member_wounded,
         };
 
         let Some(crawler) = self.objects.get(&crawler_id) else {

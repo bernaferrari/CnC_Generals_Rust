@@ -44,6 +44,38 @@ impl GameLogic {
 pub(super) struct DestructionEvent {
     pub(super) id: ObjectId,
     pub(super) killer: Option<Team>,
+    completion: RemovalCompletion,
+}
+
+/// The owner-local removal list is not evidence that body death occurred.
+/// Existing death producers still have deferred effects to complete; a direct
+/// destroy request must never enter that phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RemovalCompletion {
+    PhysicalRemoval,
+    FinishDeathEffects,
+}
+
+impl DestructionEvent {
+    pub(super) fn after_death(id: ObjectId, killer: Option<Team>) -> Self {
+        Self {
+            id,
+            killer,
+            completion: RemovalCompletion::FinishDeathEffects,
+        }
+    }
+
+    pub(super) fn direct(id: ObjectId) -> Self {
+        Self {
+            id,
+            killer: None,
+            completion: RemovalCompletion::PhysicalRemoval,
+        }
+    }
+
+    pub(super) fn needs_death_effects(&self) -> bool {
+        self.completion == RemovalCompletion::FinishDeathEffects
+    }
 }
 
 /// An authoritative Gather command that the command executor accepted.

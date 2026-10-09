@@ -227,14 +227,15 @@ fn explicit_destroy_after_producer_death_preserves_one_refund_and_queue_identity
 }
 
 #[test]
-fn repeated_alive_direct_destroy_keeps_the_existing_single_event_control() {
+fn repeated_alive_direct_destroy_queues_once_without_entering_die() {
     let mut world = GameLogic::new();
     ensure_test_infantry_template(&mut world);
     let id = world
         .create_object("TestInfantry", Team::USA, Vec3::ZERO)
         .unwrap();
     world.destroy_object(id);
-    assert!(world.host_object(id).unwrap().status.on_die_started);
+    // CPP GameLogic3935 / Object722: direct deletion has no onDie.
+    assert!(!world.host_object(id).unwrap().status.on_die_started);
     assert_eq!(
         world
             .objects_to_destroy
@@ -331,6 +332,7 @@ fn declared_movement_authority_shadow_final_deletion_does_not_reenter_death_star
                 GameWorldAuthority::DEFAULT_OFF,
                 || {
                     let (mut world, id, due) = parsed_slow_death_owner();
+                    let body_before_final_timer = world.host_object(id).unwrap().health.current;
                     // Existing actual world declaration plus synchronous borrowed
                     // context, matching the real engine's authority dispatch boundary.
                     world.set_movement_authority(true);
@@ -370,8 +372,8 @@ fn declared_movement_authority_shadow_final_deletion_does_not_reenter_death_star
                         let owner = world.host_object(id).unwrap();
                         assert!(owner.status.on_die_started);
                         assert_eq!(
-                            owner.health.current, 0.0,
-                            "actual declared shadow final ForceKill materialized health"
+                            owner.health.current, body_before_final_timer,
+                            "CPP final destroyObject preserves earlier body state"
                         );
                         assert_eq!(owner.slow_death.as_ref().unwrap().destroy_at_frame, due);
                         assert_eq!(
@@ -477,4 +479,51 @@ fn parsed_active_slow_death_snapshot_preserves_latch_and_original_deadline_conti
             );
         },
     );
+}
+
+#[test]
+fn explicit_container_delete_detaches_a_dying_slow_death_passenger_immediately() {
+    let (mut world, child, due) = parsed_slow_death_owner();
+    let mut template = ThingTemplate::new("DyingPassengerContainer");
+    template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+    template.contain_module.kind = ContainModuleKind::Transport;
+    template.contain_module.slots = Some(2);
+    world.templates.insert(template.name.clone(), template);
+    let container = world
+        .create_object("DyingPassengerContainer", Team::USA, Vec3::ZERO)
+        .unwrap();
+    assert!(
+        world
+            .host_object_mut(container)
+            .unwrap()
+            .add_occupant(child)
+    );
+    world
+        .host_object_mut(child)
+        .unwrap()
+        .set_contained_by(Some(container));
+    world.destroy_object(container);
+    assert!(
+        world
+            .host_object(container)
+            .unwrap()
+            .contained_units()
+            .is_empty()
+    );
+    let passenger = world.host_object(child).unwrap();
+    assert_eq!(passenger.contained_by, None);
+    assert!(passenger.status.destroyed && passenger.status.on_die_started);
+    assert_eq!(passenger.slow_death.as_ref().unwrap().destroy_at_frame, due);
+    assert_eq!(
+        world
+            .objects_to_destroy
+            .iter()
+            .map(|e| e.id)
+            .collect::<Vec<_>>(),
+        vec![container, child]
+    );
+    world.destroy_object(child);
+    assert_eq!(world.objects_to_destroy.len(), 2);
+    world.process_destroy_list();
+    assert!(world.host_object(child).is_none());
 }

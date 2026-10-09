@@ -120,6 +120,8 @@ pub enum HostDeathType {
     PoisonedBeta,
     /// DEATH_POISONED_GAMMA residual.
     PoisonedGamma,
+    /// CPP DEATH_EXTRA_4: Battle Bus empty-hulk penalty selects another die module.
+    Extra4,
 }
 
 impl HostDeathType {
@@ -141,6 +143,7 @@ impl HostDeathType {
             G::Splatted => Self::Splatted,
             G::PoisonedBeta => Self::PoisonedBeta,
             G::PoisonedGamma => Self::PoisonedGamma,
+            G::Extra4 => Self::Extra4,
             _ => Self::Normal,
         }
     }
@@ -177,6 +180,7 @@ impl HostDeathType {
             Self::Splatted => "SPLATTED",
             Self::PoisonedBeta => "POISONED_BETA",
             Self::PoisonedGamma => "POISONED_GAMMA",
+            Self::Extra4 => "EXTRA_4",
         }
     }
 
@@ -198,6 +202,7 @@ impl HostDeathType {
             HostDeathType::PoisonedBeta => 12,
             // C++ Damage.h:165-172 EXTRA_2..EXTRA_8 = 13..19, POISONED_GAMMA = 20.
             HostDeathType::PoisonedGamma => 20,
+            HostDeathType::Extra4 => 15,
         }
     }
 
@@ -216,7 +221,8 @@ impl HostDeathType {
             10 => HostDeathType::Detonated,
             11 => HostDeathType::Splatted,
             12 => HostDeathType::PoisonedBeta,
-            // 13..=19 are C++ DEATH_EXTRA_2..EXTRA_8 (unused on live host).
+            15 => HostDeathType::Extra4,
+            // Other EXTRA ordinals remain outside this host subset.
             20 => HostDeathType::PoisonedGamma,
             _ => HostDeathType::Normal,
         }

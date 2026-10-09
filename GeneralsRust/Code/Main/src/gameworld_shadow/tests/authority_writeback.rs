@@ -166,6 +166,19 @@ fn heal_authority_commits_host_hp_before_shadow_writeback() {
         let o = logic.host_object_mut(oid).expect("o");
         o.health.current = 40.0;
     }
+    // CPP VictoryConditions87–95/168–196: skirmish requires a live
+    // victory-counting structure. Otherwise the session defeats this player
+    // and kills its army while this control is checking health writeback.
+    let mut keep_alive = ThingTemplate::new("HealthVictoryKeepAlive");
+    keep_alive
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::MpCountForVictory);
+    logic
+        .templates
+        .insert("HealthVictoryKeepAlive".into(), keep_alive);
+    logic
+        .create_object("HealthVictoryKeepAlive", Team::USA, glam::Vec3::ZERO)
+        .unwrap();
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     host_heal_log::clear();

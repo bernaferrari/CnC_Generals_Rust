@@ -231,6 +231,10 @@ impl GameLogic {
         let mut destroyed_structure = false;
         let mut rubble_stamps: Vec<(glam::Vec3, i32)> = Vec::new();
         while let Some(event) = self.objects_to_destroy.pop_front() {
+            if !event.needs_death_effects() {
+                destroyed_structure |= self.finish_direct_object_removal(event.id);
+                continue;
+            }
             #[cfg(feature = "game_client")]
             if let Some(draw_id) = self
                 .objects
@@ -307,10 +311,8 @@ impl GameLogic {
                             crate::game_logic::combat::DamageType::Falling,
                             crate::game_logic::host_usa_pilot::HostDeathType::Splatted,
                         ) {
-                            self.objects_to_destroy.push_back(DestructionEvent {
-                                id: sid,
-                                killer: event.killer,
-                            });
+                            self.objects_to_destroy
+                                .push_back(DestructionEvent::after_death(sid, event.killer));
                         }
                     }
                 }
@@ -830,38 +832,7 @@ impl GameLogic {
                 );
                 self.record_destruction(&obj, event.killer);
 
-                // Remove from player selections
-                for (_, player) in self.players.iter_mut() {
-                    player.selected_objects.retain(|&x| x != event.id);
-                }
-
-                // C++ parity: clear stale target references from all other objects.
-                // When an object is destroyed, anything targeting it should stop.
-                let destroyed_id = event.id;
-                let clear_ids: Vec<ObjectId> = self
-                    .objects
-                    .iter()
-                    .filter(|(_, o)| o.target == Some(destroyed_id))
-                    .map(|(id, _)| *id)
-                    .collect();
-                for cid in clear_ids {
-                    self.stop_attack_decision_aware(cid);
-                }
-                let mut guard_idle: Vec<ObjectId> = Vec::new();
-                for (oid, other_obj) in self.objects.iter_mut() {
-                    if other_obj.guard_target == Some(destroyed_id) {
-                        other_obj.guard_target = None;
-                        if other_obj.ai_state == AIState::GuardingObject {
-                            other_obj.set_ai_state(AIState::Idle);
-                            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                                guard_idle.push(*oid);
-                            }
-                        }
-                    }
-                }
-                for gid in guard_idle {
-                    crate::game_logic::host_ai_decision_log::record_set_state(gid, 0);
-                }
+                self.clear_removed_object_references(event.id);
             }
         }
 
