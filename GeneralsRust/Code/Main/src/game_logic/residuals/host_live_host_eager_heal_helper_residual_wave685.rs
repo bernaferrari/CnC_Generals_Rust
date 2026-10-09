@@ -1,7 +1,7 @@
-//! Wave 685 residual peels: post-logic heal apply on coupled tick.
-//! Host records `host_heal_log` mid-frame; engine drains into GameWorld SetHealth
-//! immediately after the host frame. Session reuses the batch without double-apply.
-//! Never flips `playable_claim`.
+//! Wave 684/685 residual peels: ordered post-logic health apply on coupled tick.
+//! Host damage and absolute-health records share an insertion-ordered stream.
+//! Engine drains it once after the host frame; session reuses that batch without
+//! double-applying. Never flips `playable_claim`.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 static RESIDUAL_OK: AtomicBool = AtomicBool::new(false);
@@ -10,10 +10,10 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
     table.iter().position(|n| *n == name)
 }
 pub const LIVE_HOST_EAGER_HEAL_HELPER_METHOD_NAMES_WAVE685: &[&str] = &[
-    "eager_apply_host_heal_after_logic",
-    "host_heal_log",
-    "take_early_heal_batch",
-    "Wave 685",
+    "eager_apply_host_health_after_logic",
+    "host_health_log",
+    "take_early_health_batch",
+    "Wave 684/685",
     "playable_claim = false",
 ];
 pub const LIVE_HOST_EAGER_HEAL_HELPER_NAV_STEPS_WAVE685: &[&str] = &[
@@ -71,13 +71,13 @@ fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
 // 2026-08-15: engine dispatches via eager_apply_all_host_residuals_after_logic
-// (Wave 682/925); per-channel eager_apply_* stays on GAMEWORLD_SHADOW_SRC.
+// (Wave 682/925); the combined health helper stays on GAMEWORLD_SHADOW_SRC.
 pub fn honesty_host_eager_heal_helper_method_names_residual_wave685() -> bool {
     let names = LIVE_HOST_EAGER_HEAL_HELPER_METHOD_NAMES_WAVE685;
-    let ok = residual_name_index(names, "eager_apply_host_heal_after_logic").is_some()
-        && residual_name_index(names, "host_heal_log").is_some()
-        && residual_name_index(names, "take_early_heal_batch").is_some()
-        && residual_name_index(names, "Wave 685").is_some()
+    let ok = residual_name_index(names, "eager_apply_host_health_after_logic").is_some()
+        && residual_name_index(names, "host_health_log").is_some()
+        && residual_name_index(names, "take_early_health_batch").is_some()
+        && residual_name_index(names, "Wave 684/685").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
     residual_action_store(ResidualHostEagerHealHelperAction::MethodNames);
     ok
@@ -85,12 +85,12 @@ pub fn honesty_host_eager_heal_helper_method_names_residual_wave685() -> bool {
 pub fn honesty_host_eager_heal_helper_source_markers_residual_wave685() -> bool {
     let eng = eng_source();
     let sh = shadow_source();
-    let api_ok = sh.contains("pub fn eager_apply_host_heal_after_logic")
-        && sh.contains("Wave 685")
-        && sh.contains("host_heal_log::drain")
-        && sh.contains("apply_host_heal_events")
-        && sh.contains("take_early_heal_batch")
-        && sh.contains("early_heal_applied");
+    let api_ok = sh.contains("pub(crate) fn eager_apply_host_health_after_logic")
+        && sh.contains("Wave 684/685")
+        && sh.contains("host_health_log::drain_ordered")
+        && sh.contains("apply_host_health_events")
+        && sh.contains("take_early_health_batch")
+        && sh.contains("early_health_applied");
     let eng_ok =
         eng.contains("eager_apply_all_host_residuals_after_logic") && eng.contains("Wave 682/925");
     let ok = api_ok && eng_ok && !eng.contains("playable_claim = true");
@@ -115,14 +115,14 @@ pub fn honesty_host_eager_heal_helper_nav_commands_residual_wave685() -> bool {
     ok
 }
 pub fn simulate_host_eager_heal_helper_collect_source() -> bool {
-    let ok = shadow_source().contains("eager_apply_host_heal_after_logic")
+    let ok = shadow_source().contains("eager_apply_host_health_after_logic")
         && eng_source().contains("eager_apply_all_host_residuals_after_logic")
-        && shadow_source().contains("early_heal_applied");
+        && shadow_source().contains("early_health_applied");
     residual_action_store(ResidualHostEagerHealHelperAction::CollectSource);
     ok
 }
 pub fn simulate_host_eager_heal_helper_dispatch_source() -> bool {
-    let ok = eng_source().contains("Wave 682/925") && shadow_source().contains("Wave 685");
+    let ok = eng_source().contains("Wave 682/925") && shadow_source().contains("Wave 684/685");
     residual_action_store(ResidualHostEagerHealHelperAction::DispatchSource);
     ok
 }
@@ -148,7 +148,7 @@ mod tests {
     use crate::game_logic::host_heal_log;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::gameworld_shadow::{
-        GameWorldShadow, begin_shadow_coupled_tick, eager_apply_host_heal_after_logic,
+        GameWorldShadow, begin_shadow_coupled_tick, eager_apply_host_health_after_logic,
         eager_map_host_spawn_if_coupled, end_shadow_coupled_tick, shadow_session_after_host_tick,
         with_coupled_shadow,
     };
@@ -218,8 +218,8 @@ mod tests {
                 },
             ));
         });
-        let n = eager_apply_host_heal_after_logic(&mut shadow, &logic);
-        assert!(n >= 1, "eager heal should queue/apply");
+        let n = eager_apply_host_health_after_logic(&mut shadow, &logic);
+        assert!(n >= 1, "eager health should queue/apply");
         assert!(
             host_heal_log::drain().is_empty(),
             "log drained by eager path"

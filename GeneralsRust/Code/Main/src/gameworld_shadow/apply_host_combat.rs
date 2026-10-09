@@ -79,16 +79,12 @@ impl GameWorldShadow {
         &mut self,
         events: &[crate::game_logic::host_heal_log::HostHealEvent],
     ) -> usize {
-        let mut n = 0usize;
-        for ev in events {
-            if self.queue_set_health_for_host(ev.target, ev.health) {
-                n += 1;
-            }
-        }
-        if n > 0 {
-            let _ = self.apply_pending();
-        }
-        n
+        let ordered: Vec<_> = events
+            .iter()
+            .copied()
+            .map(crate::game_logic::host_health_log::HostHealthEvent::Heal)
+            .collect();
+        self.apply_host_health_events(&ordered).2
     }
 
     pub fn apply_host_max_health_events(

@@ -145,7 +145,7 @@ fn damage_authority_defers_host_hp_until_writeback() {
 }
 
 #[test]
-fn heal_authority_defers_host_hp_until_writeback() {
+fn heal_authority_commits_host_hp_before_shadow_writeback() {
     use crate::game_logic::{KindOf, Team, ThingTemplate, host_heal_log};
     let mut logic = GameLogic::new();
     logic.set_damage_authority(true);
@@ -176,23 +176,19 @@ fn heal_authority_defers_host_hp_until_writeback() {
     });
     drop(_couple);
     let mid = logic.host_objects().get(&oid).expect("o").health.current;
-    assert!((mid - 40.0).abs() < 1e-5, "host heal deferred mid={mid}");
-    let events = host_heal_log::drain();
+    assert!((mid - 70.0).abs() < 1e-5, "host heal committed mid={mid}");
+    let events = host_heal_log::snapshot();
     assert!(
-        events
-            .iter()
-            .any(|e| e.target == oid && (e.health - 70.0).abs() < 1e-5),
+        events.iter().any(|e| e.target == oid
+            && (e.health - 70.0).abs() < 1e-5
+            && e.owner_health_already_applied()),
         "events {:?}",
         events
     );
-    host_heal_log::clear();
-    {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.heal(30.0);
-    }
     let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
     let after = logic.host_objects().get(&oid).expect("o").health.current;
     assert!((after - 70.0).abs() < 1e-3, "writeback heal after={after}");
+    assert!(host_heal_log::snapshot().is_empty());
 }
 
 #[test]
@@ -561,13 +557,21 @@ fn host_max_health_log_drives_set_max_health_channel() {
 #[test]
 fn sync_from_host_copies_host_orientation() {
     let src = GAMEWORLD_SHADOW_SRC;
-    let idx = src
+    let wrapper = src
         .find("pub fn sync_from_host_with")
         .expect("sync_from_host_with");
+    let idx = src
+        .find("pub(crate) fn sync_from_host_preserving_early_experience")
+        .expect("receipt-aware sync implementation");
+    assert!(
+        src[wrapper..idx]
+            .contains("self.sync_from_host_preserving_early_experience(logic, write_health, &[])"),
+        "ordinary sync must call the same implementation without eager receipts"
+    );
     let window = &src[idx..idx + 2200];
     assert!(
         window.contains("obj.get_orientation()"),
-        "sync_from_host_with must copy host orientation into Transform"
+        "sync implementation must copy host orientation into Transform"
     );
     assert!(
         !window.contains("Transform::new([pos.x, pos.y, pos.z], 0.0)"),
@@ -1927,7 +1931,7 @@ fn no_shadow_boundary_preserves_committed_heal_damage_order() {
 }
 
 #[test]
-fn no_shadow_boundary_still_admits_projected_healing() {
+fn no_shadow_boundary_preserves_completed_coupled_healing() {
     let env = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "1");
     use crate::game_logic::host_heal_log;
     let mut logic = GameLogic::new();
@@ -1947,13 +1951,13 @@ fn no_shadow_boundary_still_admits_projected_healing() {
         with_coupled_shadow(&mut shadow, || {
             assert!(gameworld_damage_authority_live());
             logic.host_object_mut(id).unwrap().heal(30.0);
-            assert_eq!(logic.host_object(id).unwrap().health.current, 40.0);
+            assert_eq!(logic.host_object(id).unwrap().health.current, 70.0);
         });
     });
     let events = host_heal_log::snapshot();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].health, 70.0);
-    assert!(!events[0].owner_health_already_applied());
+    assert!(events[0].owner_health_already_applied());
     let _env = env.set("GENERALS_GAMEWORLD_SHADOW", "0");
     for _ in 0..2 {
         run_post_logic_shadow_boundary(None, &mut logic);

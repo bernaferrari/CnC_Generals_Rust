@@ -5,7 +5,6 @@
 
 use super::ObjectId;
 use crate::game_logic::host_damage_log::OwnerHealthChange;
-use std::cell::RefCell;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HostHealEvent {
@@ -19,11 +18,6 @@ impl HostHealEvent {
     pub(crate) fn owner_health_already_applied(&self) -> bool {
         self.owner_health_change == OwnerHealthChange::Applied
     }
-}
-
-thread_local! {
-    static LOG: RefCell<Vec<HostHealEvent>> = RefCell::new(Vec::new());
-    static LAST_DRAIN: RefCell<Vec<HostHealEvent>> = RefCell::new(Vec::new());
 }
 
 /// Queue an absolute health effect not yet applied to the owner.
@@ -40,49 +34,43 @@ fn record_health_event(target: ObjectId, health: f32, owner_health_change: Owner
     if !health.is_finite() || health < 0.0 {
         return;
     }
-    LOG.with(|log| {
-        log.borrow_mut().push(HostHealEvent {
-            target,
-            health,
-            owner_health_change,
-        });
+    crate::game_logic::host_health_log::record_heal(HostHealEvent {
+        target,
+        health,
+        owner_health_change,
     });
 }
 
+/// Snapshot pending absolute-health events in their host-recorded order.
 pub fn snapshot() -> Vec<HostHealEvent> {
-    LOG.with(|log| log.borrow().clone())
+    crate::game_logic::host_health_log::snapshot_heal()
 }
 
 pub fn has_pending(object: ObjectId) -> bool {
-    LOG.with(|log| log.borrow().iter().any(|e| e.target == object))
+    crate::game_logic::host_health_log::has_heal(object)
 }
 
+/// Drain only absolute-health records, leaving pending damage records untouched.
 pub fn drain() -> Vec<HostHealEvent> {
-    let v = LOG.with(|log| std::mem::take(&mut *log.borrow_mut()));
-    // Keep last non-empty batch for PresentationFrame after shadow session.
-    if !v.is_empty() {
-        LAST_DRAIN.with(|last| *last.borrow_mut() = v.clone());
-    }
-    v
+    crate::game_logic::host_health_log::drain_heal()
 }
 
 pub fn len() -> usize {
-    LOG.with(|log| log.borrow().len())
+    crate::game_logic::host_health_log::len_heal()
 }
 
 pub fn clear() {
-    LOG.with(|log| log.borrow_mut().clear());
-    LAST_DRAIN.with(|last| last.borrow_mut().clear());
+    crate::game_logic::host_health_log::clear_heal();
 }
 
 /// Take events from the most recent non-empty `drain()` (PresentationFrame sole consumer).
 pub fn take_last_drain() -> Vec<HostHealEvent> {
-    LAST_DRAIN.with(|last| std::mem::take(&mut *last.borrow_mut()))
+    crate::game_logic::host_health_log::take_last_heal()
 }
 
 /// Non-destructive peek (tests).
 pub fn last_drain_snapshot() -> Vec<HostHealEvent> {
-    LAST_DRAIN.with(|last| last.borrow().clone())
+    crate::game_logic::host_health_log::snapshot_last_heal()
 }
 
 #[cfg(test)]

@@ -109,6 +109,7 @@ impl GameWorldShadow {
         host: ObjectId,
         actual_damage: f32,
         frame: u32,
+        body: Option<crate::game_logic::host_damage_log::BodyHealthObservation>,
     ) {
         use crate::game_logic::host_enum_table_residual::{
             HostBodyDamageType, host_calc_body_damage_state,
@@ -122,8 +123,11 @@ impl GameWorldShadow {
         if !e.fwwd_active || actual_damage < e.fwwd_damage_amount {
             return;
         }
-        let max_h = e.max_health.max(e.health).max(1.0);
-        let state = host_calc_body_damage_state(e.health, max_h);
+        let (health, max_h) = body.map_or_else(
+            || (e.health, e.max_health.max(e.health).max(1.0)),
+            |body| (body.current, body.maximum),
+        );
+        let state = host_calc_body_damage_state(health, max_h);
         let name = match state {
             HostBodyDamageType::Pristine => e.fwwd_reaction_pristine.as_str(),
             HostBodyDamageType::Damaged => e.fwwd_reaction_damaged.as_str(),
@@ -137,31 +141,105 @@ impl GameWorldShadow {
         crate::game_logic::host_fwwd_reaction_log::record(host, name.to_string());
     }
 
+    /// Apply typed damage events through the shared ordered health batch.
+    /// The adapter preserves the historical `(queued, applied)` damage counts.
     pub fn apply_host_damage_events(
         &mut self,
         events: &[crate::game_logic::host_damage_log::HostDamageEvent],
     ) -> (usize, usize) {
-        let mut queued = 0usize;
-        for ev in events {
-            if ev.destroyed {
-                if self.queue_destroy_for_host(ev.target) {
-                    queued += 1;
-                } else if self.queue_damage_for_host(ev.target, ev.amount) {
-                    queued += 1;
-                }
-            } else if self.queue_damage_for_host(ev.target, ev.amount) {
-                queued += 1;
-            }
-        }
-        let applied = self.apply_pending();
-        // Wave 779: after GW HP mutations, sole-emit FWWDB onDamage reactions.
-        let frame = self.world.frame() as u32;
-        for ev in events {
-            if ev.amount > 0.0 {
-                self.try_fwwd_reaction_for_host(ev.target, ev.amount, frame);
-            }
-        }
+        let ordered: Vec<_> = events
+            .iter()
+            .copied()
+            .map(crate::game_logic::host_health_log::HostHealthEvent::Damage)
+            .collect();
+        let (queued, applied, _) = self.apply_host_health_events(&ordered);
+        // The historical damage adapter flushes pending mutations even when
+        // every event is unmapped or the input is empty. Keep that contract.
+        let applied = if queued == 0 {
+            applied.saturating_add(self.apply_pending())
+        } else {
+            applied
+        };
         (queued, applied)
+    }
+
+    /// Admit mixed health mutations in host insertion order, emitting damage
+    /// reactions before a later healing operation can change their damage state.
+    /// Returns `(damage_queued, total_mutations_applied, heals_queued)`.
+    /// The flush may include other pending mutations; its count is not a
+    /// damage-only count and is never inferred by subtracting queued heals.
+    pub(crate) fn apply_host_health_events(
+        &mut self,
+        events: &[crate::game_logic::host_health_log::HostHealthEvent],
+    ) -> (usize, usize, usize) {
+        let mut damage_queued = 0usize;
+        let mut heal_queued = 0usize;
+        let mut damage_events = Vec::new();
+        let mut applied_total = 0usize;
+        for event in events {
+            match *event {
+                crate::game_logic::host_health_log::HostHealthEvent::Damage(ev) => {
+                    if !damage_events.is_empty() {
+                        applied_total += self.flush_health_damage_reactions(&mut damage_events);
+                    }
+                    damage_events.push(ev);
+                    let queued = if let Some(body) = ev.body_observation() {
+                        // Completed damage is an absolute observation. A new
+                        // mapping may already contain its post-operation HP.
+                        self.queue_set_health_for_host(ev.target, body.current)
+                    } else if ev.destroyed {
+                        // Pending producers also encode direct destroyObject,
+                        // which does not change body HP. Preserve their existing
+                        // admission until those intents have distinct types.
+                        self.queue_destroy_for_host(ev.target)
+                            || self.queue_damage_for_host(ev.target, ev.amount)
+                    } else {
+                        self.queue_damage_for_host(ev.target, ev.amount)
+                    };
+                    if queued {
+                        damage_queued = damage_queued.saturating_add(1);
+                    }
+                    if ev.destroyed {
+                        applied_total += self.flush_health_damage_reactions(&mut damage_events);
+                        // Preserve onDamage before death admission, including
+                        // zero-amount explicit kills whose owner HP is already zero.
+                        if ev.owner_health_already_applied()
+                            && self.queue_destroy_for_host(ev.target)
+                        {
+                            applied_total += self.apply_pending();
+                        }
+                    }
+                }
+                crate::game_logic::host_health_log::HostHealthEvent::Heal(ev) => {
+                    if !damage_events.is_empty() {
+                        // C++ onDamage observes the body at the damage point,
+                        // before the next healing operation.
+                        applied_total += self.flush_health_damage_reactions(&mut damage_events);
+                    }
+                    if self.queue_set_health_for_host(ev.target, ev.health) {
+                        heal_queued = heal_queued.saturating_add(1);
+                    }
+                }
+            }
+        }
+        if damage_queued > 0 || heal_queued > 0 || !damage_events.is_empty() {
+            applied_total += self.flush_health_damage_reactions(&mut damage_events);
+        }
+        (damage_queued, applied_total, heal_queued)
+    }
+
+    fn flush_health_damage_reactions(
+        &mut self,
+        damage_events: &mut Vec<crate::game_logic::host_damage_log::HostDamageEvent>,
+    ) -> usize {
+        let applied = self.apply_pending();
+        let frame = self.world.frame() as u32;
+        for ev in damage_events.drain(..) {
+            if ev.amount > 0.0 {
+                self.try_fwwd_reaction_for_host(ev.target, ev.amount, frame, ev.body_observation());
+            }
+        }
+        applied
     }
 
     /// Sync from host, then apply any drained damage events for end-of-tick parity.
@@ -512,7 +590,9 @@ impl GameWorldShadow {
                 host_supplies_sum,
                 shadow_supplies_sum,
                 health_match,
-                (!health_match).then(|| self.first_health_mismatch(logic)).flatten(),
+                (!health_match)
+                    .then(|| self.first_health_mismatch(logic))
+                    .flatten(),
                 pose_match,
                 attack_target_match,
                 move_target_match,

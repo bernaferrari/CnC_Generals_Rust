@@ -719,24 +719,22 @@ impl Object {
         };
         let projected = (before + amount).min(cap);
         if projected <= before {
-            if projected == before && !crate::gameworld_shadow::gameworld_damage_authority_live() {
+            if projected == before {
                 self.previous_health = before;
             }
             return;
         }
         // C++ PoisonedBehavior::onHealing residual.
         self.clear_poisoned_on_healing();
-        // GameWorld HP authority: log absolute health; defer host mutate to writeback.
-        if crate::gameworld_shadow::gameworld_damage_authority_live() {
-            crate::game_logic::host_heal_log::record(self.id, projected);
-        } else {
-            if self.health.maximum <= 0.0 && cap > 0.0 {
-                self.health.maximum = cap;
-            }
-            self.previous_health = before;
-            self.health.current = projected;
-            crate::game_logic::host_heal_log::record_applied(self.id, self.health.current);
-            self.refresh_model_condition_bits_with_source(source);
+        // C++ ActiveBody::attemptHealing -> internalChangeHealth commits the
+        // body before subsequent callbacks/readers. Shadow admission observes
+        // this completed write; it must not decide when the owner sees healing.
+        if self.health.maximum <= 0.0 && cap > 0.0 {
+            self.health.maximum = cap;
         }
+        self.previous_health = before;
+        self.health.current = projected;
+        crate::game_logic::host_heal_log::record_applied(self.id, self.health.current);
+        self.refresh_model_condition_bits_with_source(source);
     }
 }

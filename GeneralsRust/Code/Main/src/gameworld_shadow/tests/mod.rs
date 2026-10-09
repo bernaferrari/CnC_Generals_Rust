@@ -51,3 +51,4 @@ mod weapon_movement_authority;
 mod upgrade_completion_owner;
 
 mod ai_decision_owner;
+mod health_owner_order;

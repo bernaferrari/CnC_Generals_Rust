@@ -130,7 +130,11 @@ pub fn honesty_host_ai_shadow_host_object_seal_residual_pack_wave956() -> bool {
     let gl = gl_source();
     let cnc = cnc_source();
     // gameworld_shadow embeds early #[cfg(test)] helpers — probe production sync body.
-    let sync = non_comment_window(fn_window(shadow_src, "fn sync_from_host_with"));
+    let sync_wrapper = non_comment_window(fn_window(shadow_src, "fn sync_from_host_with"));
+    let sync = non_comment_window(fn_window(
+        shadow_src,
+        "fn sync_from_host_preserving_early_experience",
+    ));
     let mil = non_comment_window(fn_window(ai_source(), "fn calculate_military_strength"));
     let build = non_comment_window(fn_window(pf, "fn build_from_logic"));
     let ok = ai_source().contains("Wave 956")
@@ -140,6 +144,8 @@ pub fn honesty_host_ai_shadow_host_object_seal_residual_pack_wave956() -> bool {
         && ai.contains("host_objects()")
         && mil.contains("host_objects()")
         && !mil.contains("get_objects()")
+        && sync_wrapper
+            .contains("self.sync_from_host_preserving_early_experience(logic, write_health, &[])")
         && sync.contains("host_objects()")
         && !sync.contains("get_objects()")
         && (build.contains("host_objects()") || pf.contains("host_objects()"))

@@ -909,7 +909,7 @@ impl GameLogic {
     ) -> usize {
         let mut fallback = 0usize;
         for ev in events {
-            if shadow_mapped(ev.target) {
+            if ev.owner_health_already_applied() || shadow_mapped(ev.target) {
                 continue;
             }
             let eligible = self
@@ -1205,7 +1205,8 @@ impl GameLogic {
         // the skip flags BEFORE the shadow visit so a fully log-owned object
         // skips building the fat view (it clones Vecs per object) and so the
         // per-field clones below are skipped for log-owned fields.
-        let skip_hp = crate::game_logic::host_damage_log::has_pending(id);
+        let skip_hp = crate::game_logic::host_damage_log::has_pending(id)
+            || crate::game_logic::host_heal_log::has_pending(id);
         let skip_weapon = crate::game_logic::host_weapon_stats_log::has_pending(id);
         let skip_ai = crate::game_logic::host_ai_state_log::has_pending(id)
             || crate::game_logic::host_combat_attack_log::has_pending(id);
@@ -1362,8 +1363,10 @@ impl GameLogic {
             return;
         };
         let pos = obj.get_position();
-        // Mid-frame damage logs own HP until writeback; do not stomp GameWorld.
-        if !crate::game_logic::host_damage_log::has_pending(id) {
+        // Mid-frame health records own HP until admission; do not stomp GameWorld.
+        if !crate::game_logic::host_damage_log::has_pending(id)
+            && !crate::game_logic::host_heal_log::has_pending(id)
+        {
             let _ = push_coupled_world_mutation(WorldMutation::SetHealth {
                 target: eid,
                 health: obj.health.current,

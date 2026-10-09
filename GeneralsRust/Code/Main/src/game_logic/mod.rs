@@ -45,6 +45,7 @@ mod host_mods_units;
 pub use host_mods_units::*;
 mod host_mods_logs_a;
 pub use host_mods_logs_a::*;
+pub(crate) mod host_health_log;
 mod host_mods_logs_b;
 pub use host_mods_logs_b::*;
 mod host_mods_logs_c;

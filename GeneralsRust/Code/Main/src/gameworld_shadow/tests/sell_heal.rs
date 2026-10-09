@@ -616,7 +616,7 @@ fn heal_armor_absolute_hp_authority_source() {
 }
 
 #[test]
-fn heal_crate_defers_host_hp_under_damage_authority() {
+fn pending_absolute_health_record_waits_for_admission() {
     let _env_guard = authority_env_lock();
 
     use crate::game_logic::host_heal_log;
@@ -640,11 +640,8 @@ fn heal_crate_defers_host_hp_under_damage_authority() {
         o.health.current = 40.0;
         o.health.maximum = 100.0;
     }
-    // Call helper via heal crate path if available; else direct helper through crate.
-    // execute_heal_crate_behavior may need crate object — use write path via public residual.
-    let src_check = GAME_LOGIC_HOST_SRC;
-    assert!(src_check.contains("write_object_health_authority_aware"));
-    // Simulate absolute heal through battle drone style residual: apply via heal log only.
+    // This tests the transport's genuinely deferred producer contract. It does
+    // not execute a crate collision or claim to verify the crate behavior.
     crate::game_logic::host_heal_log::record(oid, 100.0);
     assert!(
         (logic.host_objects().get(&oid).unwrap().health.current - 40.0).abs() < 1e-3,

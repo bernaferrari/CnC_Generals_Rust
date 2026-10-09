@@ -532,20 +532,20 @@ impl GameLogic {
         }
     }
 
-    /// Absolute HP write honoring damage authority (heal channel last-writer).
+    /// Commit absolute HP on the existing owner; the health channel observes it.
     pub(in super::super) fn set_health_absolute_authority_aware(
         &mut self,
         object_id: ObjectId,
         health: f32,
     ) {
         let hp = health.max(0.0);
-        if crate::gameworld_shadow::gameworld_damage_authority_live() {
-            crate::game_logic::host_heal_log::record(object_id, hp);
-            return;
-        }
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.health.current = hp.min(obj.health.maximum.max(hp));
             crate::game_logic::host_heal_log::record_applied(object_id, obj.health.current);
+        } else if crate::gameworld_shadow::gameworld_damage_authority_live() {
+            // No admitted owner yet: preserve the existing deferred producer
+            // contract for creation paths, rather than claiming a completed write.
+            crate::game_logic::host_heal_log::record(object_id, hp);
         }
     }
 
@@ -555,12 +555,8 @@ impl GameLogic {
         health: f32,
     ) {
         let hp = health.max(0.0);
-        if crate::gameworld_shadow::gameworld_damage_authority_live() {
-            crate::game_logic::host_heal_log::record(obj.id, hp);
-        } else {
-            obj.health.current = hp.min(obj.health.maximum.max(hp));
-            crate::game_logic::host_heal_log::record_applied(obj.id, obj.health.current);
-        }
+        obj.health.current = hp.min(obj.health.maximum.max(hp));
+        crate::game_logic::host_heal_log::record_applied(obj.id, obj.health.current);
     }
 
     /// Consume/suicide destroy residual: log lethal HP under damage authority.
@@ -1066,6 +1062,76 @@ impl GameLogic {
     #[cfg(test)]
     pub fn apply_ai_command_for_test(&mut self, command: AICommand) {
         self.apply_ai_command(command);
+    }
+}
+
+#[cfg(test)]
+mod health_owner_tests {
+    use super::*;
+    use crate::game_logic::host_heal_log;
+    use crate::gameworld_shadow::{GameWorldShadow, ShadowCoupleGuard, with_coupled_shadow};
+
+    #[test]
+    fn absolute_writes_commit_existing_owner_and_preserve_creation_cap() {
+        let mut logic = GameLogic::new();
+        logic.set_damage_authority(true);
+        let id = ObjectId(1);
+        let mut template = ThingTemplate::new("AbsoluteOwnerBody");
+        template.set_health(100.0);
+        let mut object = Object::new(template, id, Team::USA);
+        object.health.current = 40.0;
+        logic.objects.insert(id, object);
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        host_heal_log::clear();
+        let _couple = ShadowCoupleGuard::enter();
+        with_coupled_shadow(&mut shadow, || {
+            logic
+                .with_host_logic_after_sync(|owner| {
+                    owner.set_health_absolute_authority_aware(id, 70.0);
+                    assert_eq!(owner.host_authoritative_health(id), Some(70.0));
+                    let object = owner.host_object_mut(id).unwrap();
+                    // Projectile/upgraded-body setup resolves the new cap before
+                    // its absolute write. The setter must use that held object.
+                    object.health.maximum = 250.0;
+                    object.max_health = 250.0;
+                    GameLogic::write_object_health_authority_aware(object, 225.0);
+                    assert_eq!(object.health.current, 225.0);
+                    assert_eq!(object.health.maximum, 250.0);
+                    assert!(!object.status.destroyed);
+                    assert_eq!(owner.host_authoritative_health(id), Some(225.0));
+                })
+                .unwrap();
+        });
+        let events = host_heal_log::drain();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].health, 70.0);
+        assert_eq!(events[1].health, 225.0);
+        assert!(
+            events
+                .iter()
+                .all(|event| event.owner_health_already_applied())
+        );
+        host_heal_log::clear();
+    }
+
+    #[test]
+    fn absent_owner_absolute_write_remains_pending_under_live_authority() {
+        let mut logic = GameLogic::new();
+        logic.set_damage_authority(true);
+        let mut shadow = GameWorldShadow::new(8);
+        host_heal_log::clear();
+        let _couple = ShadowCoupleGuard::enter();
+        with_coupled_shadow(&mut shadow, || {
+            assert!(crate::gameworld_shadow::gameworld_damage_authority_live());
+            logic.set_health_absolute_authority_aware(ObjectId(99), 125.0);
+        });
+        assert!(!logic.objects.contains_key(&ObjectId(99)));
+        let events = host_heal_log::drain();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].health, 125.0);
+        assert!(!events[0].owner_health_already_applied());
+        host_heal_log::clear();
     }
 }
 

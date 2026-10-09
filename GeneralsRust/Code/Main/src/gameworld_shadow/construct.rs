@@ -245,6 +245,18 @@ impl GameWorldShadow {
     /// Like [`sync_from_host`]; `write_health=false` keeps existing entity HP
     /// (damage-authority path so mutations are last writer).
     pub fn sync_from_host_with(&mut self, logic: &GameLogic, write_health: bool) {
+        self.sync_from_host_preserving_early_experience(logic, write_health, &[]);
+    }
+
+    /// Session ingress must not overwrite experience already admitted by its
+    /// eager receipt. Other objects still import their owner's current values;
+    /// the existing late experience writeback preserves the visibility phase.
+    pub(crate) fn sync_from_host_preserving_early_experience(
+        &mut self,
+        logic: &GameLogic,
+        write_health: bool,
+        early_experience: &[crate::game_logic::host_experience_log::HostExperienceEvent],
+    ) {
         self.sync_players(logic);
 
         let mut obj_ids: Vec<ObjectId> = logic.host_objects().keys().copied().collect();
@@ -357,8 +369,10 @@ impl GameWorldShadow {
                     e.guard_target_host = obj.guard_target.map(|id| id.0).unwrap_or(0);
                     e.ai_state_ordinal = Self::host_ai_state_ordinal(&obj.ai_state);
                     e.occupant_count = obj.occupants.len().min(u16::MAX as usize) as u16;
-                    e.experience_points = obj.experience.current;
-                    e.veterancy_ordinal = Self::host_veterancy_ordinal(obj.experience.level);
+                    if !early_experience.iter().any(|event| event.object == oid) {
+                        e.experience_points = obj.experience.current;
+                        e.veterancy_ordinal = Self::host_veterancy_ordinal(obj.experience.level);
+                    }
                     e.stored_supplies = obj.stored_resources.supplies;
                     e.stealthed = obj.status.stealthed;
                     e.detected = obj.status.detected;
@@ -1874,8 +1888,10 @@ impl GameWorldShadow {
                 e.guard_target_host = obj.guard_target.map(|id| id.0).unwrap_or(0);
                 e.ai_state_ordinal = Self::host_ai_state_ordinal(&obj.ai_state);
                 e.occupant_count = obj.occupants.len().min(u16::MAX as usize) as u16;
-                e.experience_points = obj.experience.current;
-                e.veterancy_ordinal = Self::host_veterancy_ordinal(obj.experience.level);
+                if !early_experience.iter().any(|event| event.object == oid) {
+                    e.experience_points = obj.experience.current;
+                    e.veterancy_ordinal = Self::host_veterancy_ordinal(obj.experience.level);
+                }
                 e.stored_supplies = obj.stored_resources.supplies;
                 e.stealthed = obj.status.stealthed;
                 e.detected = obj.status.detected;

@@ -378,6 +378,14 @@ impl Object {
                             source,
                             true,
                             damage_type.to_store() as u32,
+                            crate::game_logic::host_damage_log::BodyHealthObservation {
+                                current: self.health.current,
+                                maximum: if self.health.maximum > 0.0 {
+                                    self.health.maximum
+                                } else {
+                                    self.max_health.max(0.0)
+                                },
+                            },
                         );
                         self.stamp_last_damage_cpp(source, false, damage_type, frame);
                         let _ =
@@ -723,6 +731,14 @@ impl Object {
             source,
             destroyed,
             damage_type.to_store() as u32,
+            crate::game_logic::host_damage_log::BodyHealthObservation {
+                current: self.health.current,
+                maximum: if self.health.maximum > 0.0 {
+                    self.health.maximum
+                } else {
+                    self.max_health.max(0.0)
+                },
+            },
         );
         // C++ ActiveBody.cpp:574-581 setAttackedBy + :653 doDamageFX.
         crate::game_logic::host_transition_damage_fx::queue_attacked_by(

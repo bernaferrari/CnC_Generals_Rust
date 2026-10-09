@@ -63,47 +63,47 @@ pub fn materialize_host_economy_pending(logic: &mut GameLogic) {
 }
 
 pub fn materialize_host_authority_logs(logic: &mut GameLogic) {
-    // Damage observations and pending residuals share transport, but only
-    // pending effects change owner health here. Object's body already applied
-    // its ordinary damage synchronously, as C++ ActiveBody does.
-    let damage_events = crate::game_logic::host_damage_log::drain();
-    let mut destroy_ids = Vec::new();
-    for e in damage_events {
-        let Some(obj) = logic.host_object_mut(e.target) else {
-            continue;
-        };
-        if e.owner_health_already_applied() {
-            // Health and death state are committed; retain the existing
-            // destruction admission without replaying the health delta.
-            if e.destroyed {
-                destroy_ids.push(e.target);
+    // Consume damage and absolute-health events in the single order in which
+    // their owner operations recorded them. Completed owner writes are
+    // observations; pending events are admitted without type reordering.
+    for event in crate::game_logic::host_health_log::drain_ordered() {
+        match event {
+            crate::game_logic::host_health_log::HostHealthEvent::Damage(e) => {
+                let Some(obj) = logic.host_object_mut(e.target) else {
+                    continue;
+                };
+                let admit_destroy = if e.owner_health_already_applied() {
+                    e.destroyed
+                } else if e.destroyed || e.amount + 1e-3 >= obj.health.current {
+                    obj.health.current = 0.0;
+                    obj.status.destroyed = true;
+                    true
+                } else if e.amount > 0.0 {
+                    obj.health.current = (obj.health.current - e.amount).max(0.0);
+                    false
+                } else {
+                    false
+                };
+                // Release the object loan before its death effects. A later
+                // absolute-health record must not change what onDie observes.
+                if admit_destroy {
+                    logic.apply_host_object_id_op(
+                        crate::game_logic::HostObjectIdOp::MarkForDestruction {
+                            id: e.target,
+                            team: None,
+                        },
+                    );
+                }
             }
-            continue;
-        }
-        if e.destroyed || e.amount + 1e-3 >= obj.health.current {
-            obj.health.current = 0.0;
-            obj.status.destroyed = true;
-            destroy_ids.push(e.target);
-        } else if e.amount > 0.0 {
-            obj.health.current = (obj.health.current - e.amount).max(0.0);
-        }
-    }
-    for id in destroy_ids {
-        logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-            id: id,
-            team: None,
-        });
-    }
-
-    // Pending absolute writes still need admission. Completed owner writes
-    // are observations: replaying one could erase later damage in this frame.
-    for e in crate::game_logic::host_heal_log::drain() {
-        if e.owner_health_already_applied() {
-            continue;
-        }
-        if let Some(obj) = logic.host_object_mut(e.target) {
-            let max_hp = obj.health.maximum.max(0.0);
-            obj.health.current = e.health.clamp(0.0, max_hp);
+            crate::game_logic::host_health_log::HostHealthEvent::Heal(e) => {
+                if e.owner_health_already_applied() {
+                    continue;
+                }
+                if let Some(obj) = logic.host_object_mut(e.target) {
+                    let max_hp = obj.health.maximum.max(0.0);
+                    obj.health.current = e.health.clamp(0.0, max_hp);
+                }
+            }
         }
     }
 
@@ -173,16 +173,26 @@ pub fn shadow_session_after_host_tick(
 
     // Wave 761: GW sole-expires status timers under coupled dual-tick; host peels.
     let _status_timer_exp = shadow.tick_status_timer_expirations(logic.get_frame());
-    // Wave 684: prefer post-logic damage batch (already applied to GW when present).
-    let (events, early_damage_applied) = match take_early_damage_batch() {
-        Some((ev, applied)) => (ev, applied),
-        None => (crate::game_logic::host_damage_log::drain(), false),
+    // Damage and absolute-health records share one ordered handoff/drain. Keep
+    // typed views for existing scoring, fallback, and presentation consumers.
+    let (health_events, early_health_applied) = match take_early_health_batch() {
+        Some((events, applied)) => (events, applied),
+        None => (crate::game_logic::host_health_log::drain_ordered(), false),
     };
-    // Wave 685: prefer post-logic heal batch (already applied to GW when present).
-    let (heal_events, early_heal_applied) = match take_early_heal_batch() {
-        Some((ev, applied)) => (ev, applied),
-        None => (crate::game_logic::host_heal_log::drain(), false),
-    };
+    let events: Vec<_> = health_events
+        .iter()
+        .filter_map(|event| match event {
+            crate::game_logic::host_health_log::HostHealthEvent::Damage(event) => Some(*event),
+            crate::game_logic::host_health_log::HostHealthEvent::Heal(_) => None,
+        })
+        .collect();
+    let heal_events: Vec<_> = health_events
+        .iter()
+        .filter_map(|event| match event {
+            crate::game_logic::host_health_log::HostHealthEvent::Damage(_) => None,
+            crate::game_logic::host_health_log::HostHealthEvent::Heal(event) => Some(*event),
+        })
+        .collect();
     // Wave 686: prefer post-logic max-health / experience batches.
     let (max_health_events, early_max_health_applied) = match take_early_max_health_batch() {
         Some((ev, applied)) => (ev, applied),
@@ -482,8 +492,16 @@ pub fn shadow_session_after_host_tick(
         };
     let auth = gameworld_damage_authority_enabled();
     // Keep pre-tick shadow HP when we will re-apply damage/heal events as mutations.
-    let write_health = !(auth && (!events.is_empty() || !heal_events.is_empty()));
-    shadow.sync_from_host_with(logic, write_health);
+    let write_health = !(auth && !health_events.is_empty());
+    shadow.sync_from_host_preserving_early_experience(
+        logic,
+        write_health,
+        if early_experience_applied {
+            &experience_events
+        } else {
+            &[]
+        },
+    );
     // Spawn channel: map any create_object events not yet present (usually no-op after sync).
     // Wave 712: skip GW re-apply when post-logic eager path already ran.
     let spawns_applied = if early_spawn_applied {
@@ -611,11 +629,17 @@ pub fn shadow_session_after_host_tick(
     } else {
         shadow.apply_host_destroy_events(&destroy_events)
     };
-    // Wave 685: skip GW re-apply when post-logic eager path already ran.
-    let _heals = if !early_heal_applied {
-        shadow.apply_host_heal_events(&heal_events)
+    // Match the eager production batch: health follows spawn/destroy admission
+    // and precedes max-health/experience. The ordered batch is flushed once;
+    // the late scoring/writeback block consumes the receipt without replay.
+    let health_admission = if !early_health_applied && auth {
+        shadow.apply_host_health_events(&health_events)
     } else {
-        heal_events.len()
+        if !early_health_applied && !auth {
+            // Keep the existing heal-only path when damage authority is off.
+            let _ = shadow.apply_host_heal_events(&heal_events);
+        }
+        (events.len(), 0, heal_events.len())
     };
     // Wave 686: skip GW re-apply when post-logic eager path already ran.
     let _maxh_applied = if !early_max_health_applied {
@@ -2270,21 +2294,20 @@ pub fn shadow_session_after_host_tick(
     let _owner_ready = logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Owner);
     let mut writebacks = 0usize;
     // HP last-writer: damage mutations and/or absolute heal SetHealth events.
-    if auth && (!events.is_empty() || !heal_events.is_empty() || !experience_events.is_empty()) {
+    if auth && (!health_events.is_empty() || !experience_events.is_empty()) {
         let (mut queued, mut applied) = (0usize, 0usize);
-        if !events.is_empty() {
-            // Wave 684: skip GW re-apply when post-logic eager path already ran.
-            if !early_damage_applied {
-                let pair = shadow.apply_host_damage_events(&events);
-                queued = pair.0;
-                applied = pair.1;
+        if !health_events.is_empty() {
+            // Wave 684/685: consume the ordered health flush receipt.
+            if !early_health_applied {
+                queued = health_admission.0;
+                applied = health_admission.1;
             } else {
                 queued = events.len();
                 applied = events.len();
             }
             // Host objects with no shadow entity mapping would otherwise lose combat HP.
             // `ev.amount` is already post-armor — apply raw HP via mutation authority (Wave 943).
-            if queued < events.len() || early_damage_applied {
+            if queued < events.len() || early_health_applied {
                 let fallback = logic.apply_host_unmapped_damage_fallback(&events, |id| {
                     shadow.entity_for_host(id).is_some()
                 });
@@ -2296,7 +2319,7 @@ pub fn shadow_session_after_host_tick(
                 }
             }
         }
-        if !events.is_empty() || !heal_events.is_empty() {
+        if !health_events.is_empty() {
             writebacks = shadow.writeback_health_to_host(logic);
         }
         let _xp_wb = shadow.writeback_experience_to_host(logic);
@@ -2568,7 +2591,7 @@ pub fn shadow_session_after_host_tick(
         let _cst_ready =
             logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::CombatStatus);
         log::trace!(
-            "gameworld_damage_authority events={} queued={} applied={} writebacks={}",
+            "gameworld_health_admission damage_events={} damage_queued={} mutations_applied={} writebacks={}",
             events.len(),
             queued,
             applied,
