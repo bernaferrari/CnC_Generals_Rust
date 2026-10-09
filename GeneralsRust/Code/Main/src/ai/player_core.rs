@@ -1306,24 +1306,17 @@ impl AIPlayer {
         );
     }
 
+    /// C++ `AISkirmishPlayer::acquireEnemy` candidate filter:
+    /// `m_player->getRelationship(curPlayer->getDefaultTeam()) == ENEMIES`.
+    /// Faction is not identity: same-faction players can be enemies and
+    /// different factions default to NEUTRAL.
     pub(super) fn player_is_enemy(
         &self,
-        _game_logic: &(impl AiReadSource + ?Sized),
+        game_logic: &(impl AiReadSource + ?Sized),
         player: &Player,
     ) -> bool {
-        let _game_logic = &AiWorldView::new(_game_logic);
-        if player.team == self.team {
-            return false;
-        }
-        if player.alliance_team >= 0 {
-            if let Some(me) = _game_logic.get_player(self.player_id) {
-                if me.alliance_team >= 0 && me.alliance_team == player.alliance_team {
-                    return false;
-                }
-            }
-        }
-
-        true
+        AiWorldView::new(game_logic).player_relationship_to_default_team(self.player_id, player.id)
+            == gamelogic::common::Relationship::Enemies
     }
 
     /// C++ `Player::hasAnyObjects` → `Team::hasAnyObjects` over the player's

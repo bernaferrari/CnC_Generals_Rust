@@ -36,6 +36,38 @@ mod sides_host_apply_tests {
     }
 
     #[test]
+    fn skirmish_sides_make_no_team_slots_enemies_and_teammates_allies() {
+        // C++ GameLogic.cpp:1332-1368: team -1 or a different team => enemy.
+        use gamelogic::common::Relationship;
+        let mut logic = GameLogic::new();
+        logic.game_mode = GameMode::Skirmish;
+        for (id, team, alliance) in [
+            (0, Team::USA, -1),
+            (1, Team::China, -1),
+            (2, Team::GLA, 3),
+            (3, Team::USA, 3),
+        ] {
+            let mut player = Player::new(id, team, &format!("Slot{id}"), id == 0);
+            player.alliance_team = alliance;
+            player.is_alive = true;
+            logic.add_player(player);
+        }
+        let mut sides = gamelogic::sides_list::SidesList::new();
+        logic.add_host_players_as_sides(&mut sides);
+        let dicts: Vec<Dict> = (0..sides.get_num_sides())
+            .filter_map(|i| sides.get_side_info(i).map(|side| side.get_dict().clone()))
+            .collect();
+        logic.apply_host_players_from_side_dicts(&dicts, false);
+
+        assert_eq!(logic.player_relationship(0, 1), Relationship::Enemies);
+        assert_eq!(logic.player_relationship(1, 0), Relationship::Enemies);
+        assert_eq!(logic.player_relationship(0, 2), Relationship::Enemies);
+        assert_eq!(logic.player_relationship(2, 0), Relationship::Enemies);
+        assert_eq!(logic.player_relationship(2, 3), Relationship::Allies);
+        assert_eq!(logic.player_relationship(3, 2), Relationship::Allies);
+    }
+
+    #[test]
     fn authored_build_list_replaces_hardcoded_ai_layout() {
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", false));

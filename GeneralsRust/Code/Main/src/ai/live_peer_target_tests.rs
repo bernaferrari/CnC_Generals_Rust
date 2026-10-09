@@ -24,7 +24,10 @@ fn world_with_enemy_objects(rows: &[(u32, Team, Vec3, bool)]) -> GameLogic {
         .production_prerequisites
         .push(needs_barracks);
     for &(id, team, center, units) in rows {
-        world.add_player(Player::new(id, team, "Peer slot", false));
+        // Distinct lobby teams: every slot is an enemy of the others.
+        let mut player = Player::new(id, team, "Peer slot", false);
+        player.alliance_team = id as i32;
+        world.add_player(player);
         world
             .create_object_for_player("PeerBarracks", id, center)
             .unwrap();
@@ -109,6 +112,10 @@ fn fixed_tick_peer_subtraction_clamps_before_later_slot_penalty() {
         (4, Team::USA, center, true),
         (5, Team::GLA, Vec3::new(200.0, 0.0, 101.0), true),
     ]);
+    // The three China slots share a lobby team; USA and GLA are their enemies.
+    for id in [1, 2, 3] {
+        world.get_player_mut(id).unwrap().alliance_team = 10;
+    }
     for id in [3, 2, 1] {
         add_assessing_ai(&mut world, id, center);
     }

@@ -13,7 +13,10 @@ fn roster_with_first_enemy(first: u32, insertion: [u32; 3]) -> GameLogic {
                 3 => Team::GLA,
                 _ => unreachable!(),
             };
-            world.add_player(Player::new(id, team, "Numeric slot", false));
+            // Distinct lobby teams: every slot is an enemy of the others.
+            let mut player = Player::new(id, team, "Numeric slot", false);
+            player.alliance_team = id as i32;
+            world.add_player(player);
         }
         if world.get_players().keys().copied().find(|id| *id != 1) == Some(first) {
             return world;

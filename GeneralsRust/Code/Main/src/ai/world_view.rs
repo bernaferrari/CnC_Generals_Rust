@@ -155,6 +155,27 @@ impl<'a> AiWorldView<'a> {
         self.world
             .modified_build_cost_supplies(player, template, base)
     }
+    /// C++ `Player::getRelationship(otherPlayer->getDefaultTeam())`: a team
+    /// override for the target's default team wins, then the player-index
+    /// relation, else NEUTRAL (Player.cpp:542-572).
+    pub(super) fn player_relationship_to_default_team(
+        &self,
+        source: u32,
+        target: u32,
+    ) -> gamelogic::common::Relationship {
+        let Some(target_player) = self.get_player(target) else {
+            return gamelogic::common::Relationship::Neutral;
+        };
+        let target_team = self.default_host_team_instance_name(Some(target), target_player.team);
+        GameLogic::object_relationship_from_owners(
+            &self.world.team_factory,
+            self.get_players(),
+            Some(source),
+            "",
+            Some(target),
+            &target_team,
+        )
+    }
     pub(super) fn player_relationship(
         &self,
         source: u32,

@@ -569,6 +569,17 @@ impl GameLogic {
     ) {
         let mut pids: Vec<u32> = self.players.keys().copied().collect();
         pids.sort_unstable();
+        // Side names of the slots that become MP sides, with their lobby team.
+        let slot_sides: Vec<(String, i32)> = pids
+            .iter()
+            .enumerate()
+            .filter_map(|(index, pid)| {
+                let player = self.players.get(pid)?;
+                let skipped = player.name == "ReplayObserver"
+                    || (player.team == Team::Neutral && player.name.is_empty());
+                (!skipped).then(|| (format!("player{index}"), player.alliance_team))
+            })
+            .collect();
         for (index, pid) in pids.iter().enumerate() {
             let Some(player) = self.players.get(pid) else {
                 continue;
@@ -614,8 +625,21 @@ impl GameLogic {
             };
             dict.set_unicode_string(key_player_display_name(), display);
             dict.set_ascii_string(key_player_faction(), faction);
-            dict.set_ascii_string(key_player_allies(), String::new());
-            dict.set_ascii_string(key_player_enemies(), String::new());
+            // C++ GameLogic.cpp:1332-1368: another occupied slot is an enemy
+            // when our team is None (-1) or differs from theirs, else an ally.
+            let (mut allies, mut enemies) = (Vec::new(), Vec::new());
+            for (other_name, other_team) in &slot_sides {
+                if *other_name == player_name {
+                    continue;
+                }
+                if player.alliance_team == -1 || *other_team != player.alliance_team {
+                    enemies.push(other_name.as_str());
+                } else {
+                    allies.push(other_name.as_str());
+                }
+            }
+            dict.set_ascii_string(key_player_allies(), allies.join(" "));
+            dict.set_ascii_string(key_player_enemies(), enemies.join(" "));
             let start_index = if player.start_position >= 0 {
                 player.start_position
             } else {

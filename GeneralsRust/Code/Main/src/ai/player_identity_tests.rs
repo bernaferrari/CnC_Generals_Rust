@@ -99,24 +99,16 @@ fn acquire_enemy_scores_same_faction_players_by_their_own_objects() {
         .templates
         .insert("AmericaInfantryRanger".into(), ranger);
 
-    logic.add_player(crate::game_logic::Player::new(
-        1,
-        Team::USA,
-        "PlyrUSA_A",
-        true,
-    ));
-    logic.add_player(crate::game_logic::Player::new(
-        2,
-        Team::USA,
-        "PlyrUSA_B",
-        false,
-    ));
-    logic.add_player(crate::game_logic::Player::new(
-        3,
-        Team::China,
-        "PlyrChina",
-        false,
-    ));
+    for (id, team, name) in [
+        (1, Team::USA, "PlyrUSA_A"),
+        (2, Team::USA, "PlyrUSA_B"),
+        (3, Team::China, "PlyrChina"),
+    ] {
+        // Free-for-all lobby teams: everyone is an enemy.
+        let mut player = crate::game_logic::Player::new(id, team, name, id == 1);
+        player.alliance_team = id as i32;
+        logic.add_player(player);
+    }
     // Player 1: a real base far from the AI.
     logic
         .create_object_for_player("AmericaCommandCenter", 1, Vec3::new(1000.0, 0.0, 1000.0))
@@ -147,5 +139,70 @@ fn acquire_enemy_scores_same_faction_players_by_their_own_objects() {
         ai.enemy_player_id,
         Some(1),
         "the crippled near player is deprioritized; the healthy far one is chosen"
+    );
+}
+
+fn relationship_match() -> crate::game_logic::GameLogic {
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut cc = crate::game_logic::ThingTemplate::new("RelCommandCenter");
+    cc.add_kind_of(crate::game_logic::KindOf::Structure)
+        .add_kind_of(crate::game_logic::KindOf::CommandCenter)
+        .set_health(1000.0);
+    logic.templates.insert("RelCommandCenter".into(), cc);
+    let mut ranger = crate::game_logic::ThingTemplate::new("RelRanger");
+    ranger
+        .add_kind_of(crate::game_logic::KindOf::Infantry)
+        .set_health(100.0);
+    logic.templates.insert("RelRanger".into(), ranger);
+    for (id, team, x) in [
+        (1, Team::China, 0.0),
+        (2, Team::China, 500.0),
+        (3, Team::USA, 900.0),
+    ] {
+        logic.add_player(crate::game_logic::Player::new(
+            id,
+            team,
+            &format!("Rel{id}"),
+            false,
+        ));
+        if id != 1 {
+            logic
+                .create_object_for_player("RelCommandCenter", id, Vec3::new(x, 0.0, 0.0))
+                .expect("cc");
+            logic
+                .create_object_for_player("RelRanger", id, Vec3::new(x, 0.0, 10.0))
+                .expect("ranger");
+        }
+    }
+    logic
+}
+
+#[test]
+fn acquire_enemy_follows_relationships_not_factions() {
+    // C++ acquireEnemy: m_player->getRelationship(cur->getDefaultTeam()) == ENEMIES.
+    use gamelogic::common::Relationship;
+    let mut logic = relationship_match();
+    // Same faction, explicit ENEMIES; different faction, no relation (NEUTRAL).
+    logic
+        .get_player_mut(1)
+        .unwrap()
+        .set_map_relationship(2, Relationship::Enemies);
+    let mut ai = AIPlayer::new(1, Team::China, AIDifficulty::Medium);
+    ai.base_center = Vec3::ZERO;
+    ai.update_enemy_assessment(&mut logic, 10.0);
+    assert_eq!(ai.enemy_player_id, Some(2));
+
+    // A team override on the candidate's default team beats the player relation.
+    let default_team = logic.default_host_team_instance_name(Some(2), Team::China);
+    logic
+        .get_player_mut(1)
+        .unwrap()
+        .set_team_relationship_override(&default_team, Relationship::Allies);
+    let mut ai = AIPlayer::new(1, Team::China, AIDifficulty::Medium);
+    ai.base_center = Vec3::ZERO;
+    ai.update_enemy_assessment(&mut logic, 10.0);
+    assert_eq!(
+        ai.enemy_player_id, None,
+        "allied default team and neutral USA"
     );
 }
