@@ -250,14 +250,14 @@ impl FlammableUpdate {
         self.start_burning_sound();
 
         self.status = FlammabilityStatus::Aflame;
-        self.aflame_end_frame = current_frame + aflame_duration;
+        self.aflame_end_frame = current_frame.wrapping_add(aflame_duration);
         self.burned_end_frame = if burned_delay > 0 {
-            current_frame + burned_delay
+            current_frame.wrapping_add(burned_delay)
         } else {
             0
         };
         self.damage_end_frame = if aflame_damage_delay > 0 {
-            current_frame + aflame_damage_delay
+            current_frame.wrapping_add(aflame_damage_delay)
         } else {
             0
         };
@@ -349,12 +349,13 @@ impl FlammableUpdate {
             .get_status_bits()
             .contains(crate::common::ObjectStatusMaskType::AFLAME);
         let fire_spread = object.find_update_module("FireSpreadUpdate")?;
-        fire_spread.try_with_module(|module| {
-            module
-                .get_fire_spread_control_interface()
-                .and_then(|fire_spread| fire_spread.wake_delay_if_aflame(is_aflame))
-        })
-        .flatten()
+        fire_spread
+            .try_with_module(|module| {
+                module
+                    .get_fire_spread_control_interface()
+                    .and_then(|fire_spread| fire_spread.wake_delay_if_aflame(is_aflame))
+            })
+            .flatten()
     }
 
     /// Last `setWakeFrame` request issued on ignite (C++ FlammableUpdate.cpp:196). Test/debug.
@@ -476,7 +477,9 @@ impl FlammableUpdate {
 
         let current_frame = crate::helpers::TheGameLogic::get_frame();
         if self.aflame_end_frame <= current_frame {
-            return UpdateSleepTime::None;
+            // C++ calcSleepTime returns FOREVER when the unsigned deadline
+            // is not in the future, including after frame addition wraps.
+            return UpdateSleepTime::Forever;
         }
 
         // Find soonest event
@@ -535,7 +538,7 @@ impl UpdateModuleInterface for FlammableUpdate {
 
         // Check damage timer
         if self.damage_end_frame > 0 && current_frame >= self.damage_end_frame {
-            self.damage_end_frame = current_frame + data.aflame_damage_delay;
+            self.damage_end_frame = current_frame.wrapping_add(data.aflame_damage_delay);
             self.do_aflame_damage();
             if self.needs_aflame_side_effects {
                 self.apply_deferred_aflame_side_effects();
@@ -791,27 +794,46 @@ mod tests {
 
     #[test]
     fn try_to_ignite_wakes_burn_state_machine_like_cpp() {
+        let _guard = crate::test_sync::lock();
         // C++ FlammableUpdate.cpp:196 — setWakeFrame(getObject(), calcSleepTime()).
         let object = Arc::new(RwLock::new(GameObject::new_test(9201, 100.0)));
         let data = Arc::new(FlammableUpdateModuleData {
             aflame_duration: 90,
+            burned_delay: 45,
             aflame_damage_delay: 30,
             aflame_damage_amount: 5.0,
             ..Default::default()
         });
-        let mut flammable = FlammableUpdate::new(Arc::clone(&object), data).expect("flammable");
-
-        flammable.try_to_ignite();
-
-        assert_eq!(
-            flammable.last_wake_sleep(),
-            Some(UpdateSleepTime::Frames(30)),
-            "ignite must wake the module at the soonest burn event (damage tick)"
-        );
+        {
+            let _frame = crate::system::game_logic::enter_update_frame(0);
+            let mut flammable =
+                FlammableUpdate::new(Arc::clone(&object), data.clone()).expect("flammable");
+            flammable.try_to_ignite();
+            assert_eq!(
+                flammable.last_wake_sleep(),
+                Some(UpdateSleepTime::Frames(30)),
+                "ignite must wake the module at the soonest burn event (damage tick)"
+            );
+        }
+        {
+            // C++ FlammableUpdate.cpp:189-196 uses UnsignedInt addition;
+            // calcSleepTime:150-165 returns FOREVER for wrapped deadlines.
+            let now = u32::MAX - 10;
+            let _frame = crate::system::game_logic::enter_update_frame(now);
+            let mut flammable = FlammableUpdate::new(Arc::clone(&object), data).expect("flammable");
+            flammable.try_to_ignite();
+            assert_eq!(flammable.status, FlammabilityStatus::Aflame);
+            assert_eq!(flammable.aflame_end_frame, now.wrapping_add(90));
+            assert_eq!(flammable.burned_end_frame, now.wrapping_add(45));
+            assert_eq!(flammable.damage_end_frame, now.wrapping_add(30));
+            assert_eq!(flammable.last_wake_sleep(), Some(UpdateSleepTime::Forever));
+        }
     }
 
     #[test]
     fn try_to_ignite_arms_fire_spread_update_like_cpp() {
+        let _guard = crate::test_sync::lock();
+        let _frame = crate::system::game_logic::enter_update_frame(0);
         // C++ FlammableUpdate.cpp:180-186 (startFireSpreading) re-arms
         // FireSpreadUpdate with UPDATE_SLEEP(calcNextSpreadDelay())
         // (FireSpreadUpdate.cpp:139-145).
@@ -832,11 +854,13 @@ mod tests {
         );
         object.write().unwrap().install_update_module(
             "FireSpreadUpdate",
-            Box::new(crate::object::update::fire_spread_update::FireSpreadUpdateModule::new(
-                behavior,
-                &AsciiString::from("FireSpreadUpdate"),
-                Arc::clone(&spread_data),
-            )),
+            Box::new(
+                crate::object::update::fire_spread_update::FireSpreadUpdateModule::new(
+                    behavior,
+                    &AsciiString::from("FireSpreadUpdate"),
+                    Arc::clone(&spread_data),
+                ),
+            ),
             spread_data,
         );
 
@@ -917,5 +941,4 @@ mod tests {
         }
         crate::object::registry::OBJECT_REGISTRY.unregister_object(survivor_id);
     }
-
 }

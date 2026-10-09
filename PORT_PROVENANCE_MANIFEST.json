@@ -157569,7 +157569,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "fa8a4ffc4cbcef36bf0cb11af3befc8bf2a7de3556e21d367cf1a880e78777a5",
+  "input_digest": "6d1ea6220a37a6efef60e5b24bdc2066dc69002ca9d16050e1cb6ad14bbf4196",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -193909,11 +193909,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 517,
+        "end_line": 519,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/state_machine_driver.rs",
-      "sha256": "2c0e8bb7d15de15d77da1dbda3f7344bcea214b637a84e2c7977b1235c86f97f",
+      "sha256": "580f66ef2347689aacdd911bcba806effa16f91d6ed5c39eb00d07e13b01bd19",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -194018,112 +194018,112 @@
         },
         {
           "kind": "fn",
-          "line": 251,
+          "line": 253,
           "name": "ai_do_command_with_ai"
         },
         {
           "kind": "fn",
-          "line": 258,
+          "line": 260,
           "name": "ai_do_command_impl"
         },
         {
           "kind": "fn",
-          "line": 434,
+          "line": 436,
           "name": "get_current_state_id"
         },
         {
           "kind": "fn",
-          "line": 437,
+          "line": 439,
           "name": "get_current_state_name"
         },
         {
           "kind": "fn",
-          "line": 449,
+          "line": 451,
           "name": "get_goal_object"
         },
         {
           "kind": "fn",
-          "line": 462,
+          "line": 464,
           "name": "get_goal_object_id"
         },
         {
           "kind": "fn",
-          "line": 465,
+          "line": 467,
           "name": "get_goal_path_size"
         },
         {
           "kind": "fn",
-          "line": 468,
+          "line": 470,
           "name": "get_goal_position"
         },
         {
           "kind": "fn",
-          "line": 471,
+          "line": 473,
           "name": "get_temporary_state"
         },
         {
           "kind": "fn",
-          "line": 474,
+          "line": 476,
           "name": "is_attack_state"
         },
         {
           "kind": "fn",
-          "line": 477,
+          "line": 479,
           "name": "is_busy"
         },
         {
           "kind": "fn",
-          "line": 480,
+          "line": 482,
           "name": "is_idle"
         },
         {
           "kind": "fn",
-          "line": 483,
+          "line": 485,
           "name": "is_in_attack_state"
         },
         {
           "kind": "fn",
-          "line": 486,
+          "line": 488,
           "name": "is_in_guard_idle_state"
         },
         {
           "kind": "fn",
-          "line": 489,
+          "line": 491,
           "name": "is_locked"
         },
         {
           "kind": "fn",
-          "line": 492,
+          "line": 494,
           "name": "lock"
         },
         {
           "kind": "fn",
-          "line": 495,
+          "line": 497,
           "name": "unlock"
         },
         {
           "kind": "fn",
-          "line": 498,
+          "line": 500,
           "name": "get_goal_path_position"
         },
         {
           "kind": "fn",
-          "line": 501,
+          "line": 503,
           "name": "get_goal_squad"
         },
         {
           "kind": "fn",
-          "line": 504,
+          "line": 506,
           "name": "get_goal_waypoint"
         },
         {
           "kind": "fn",
-          "line": 507,
+          "line": 509,
           "name": "notify_state_machine_changed"
         },
         {
           "kind": "fn",
-          "line": 510,
+          "line": 512,
           "name": "ai_do_command"
         }
       ]
@@ -194132,11 +194132,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 892,
+        "end_line": 893,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/tests.rs",
-      "sha256": "0f3db959bb01765ca26704156649b92b1bec397ccfe6346034ef851758c5ca5b",
+      "sha256": "c3cf82db630439e671756096afa8be1ae50f42f9e3d6fc8fba51217ae47c2888",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -194152,156 +194152,151 @@
         {
           "kind": "fn",
           "line": 66,
-          "name": "set_frame"
-        },
-        {
-          "kind": "fn",
-          "line": 73,
           "name": "unique_missing_waypoint_name"
         },
         {
           "kind": "static",
-          "line": 75,
+          "line": 68,
+          "name": "NEXT_ID"
+        },
+        {
+          "kind": "fn",
+          "line": 72,
+          "name": "unique_polygon_trigger_id"
+        },
+        {
+          "kind": "static",
+          "line": 74,
           "name": "NEXT_ID"
         },
         {
           "kind": "fn",
           "line": 79,
-          "name": "unique_polygon_trigger_id"
-        },
-        {
-          "kind": "static",
-          "line": 81,
-          "name": "NEXT_ID"
-        },
-        {
-          "kind": "fn",
-          "line": 86,
           "name": "add_to_goal_path_deduplicates_terminal_point"
         },
         {
           "kind": "fn",
-          "line": 102,
+          "line": 95,
           "name": "set_state_returns_base_state_machine_result"
         },
         {
           "kind": "fn",
-          "line": 117,
+          "line": 110,
           "name": "clear_uses_base_clear_semantics"
         },
         {
           "kind": "fn",
-          "line": 130,
+          "line": 123,
           "name": "set_goal_squad_copies_instead_of_aliasing"
         },
         {
           "kind": "fn",
-          "line": 145,
+          "line": 138,
           "name": "waypoint_load_with_missing_name_clears_existing_goal_waypoint"
         },
         {
           "kind": "fn",
-          "line": 183,
+          "line": 176,
           "name": "ai_do_command_polygon_updates_machine_goal_polygon"
         },
         {
           "kind": "fn",
-          "line": 230,
+          "line": 223,
           "name": "xfer_roundtrip_preserves_path_squad_temp_and_waypoint_lookup_rules"
         },
         {
           "kind": "fn",
-          "line": 275,
+          "line": 268,
           "name": "follow_path_state_snapshot_roundtrip_preserves_runtime_fields"
         },
         {
           "kind": "fn",
-          "line": 316,
+          "line": 309,
           "name": "follow_exit_production_path_snapshot_delegates_to_base_state"
         },
         {
           "kind": "fn",
-          "line": 349,
+          "line": 342,
           "name": "pick_up_crate_state_snapshot_roundtrip_preserves_delay_and_goal"
         },
         {
           "kind": "fn",
-          "line": 380,
+          "line": 373,
           "name": "attack_pursue_state_snapshot_roundtrip_preserves_base_and_runtime_fields"
         },
         {
           "kind": "fn",
-          "line": 433,
+          "line": 426,
           "name": "attack_approach_state_snapshot_roundtrip_preserves_base_and_runtime_fields"
         },
         {
           "kind": "fn",
-          "line": 486,
+          "line": 479,
           "name": "attack_aim_state_snapshot_roundtrip_preserves_runtime_flags"
         },
         {
           "kind": "fn",
-          "line": 515,
+          "line": 508,
           "name": "idle_state_snapshot_roundtrip_preserves_runtime_flags"
         },
         {
           "kind": "fn",
-          "line": 544,
+          "line": 537,
           "name": "wander_and_panic_state_snapshot_roundtrip_preserves_runtime_fields"
         },
         {
           "kind": "fn",
-          "line": 610,
+          "line": 603,
           "name": "exit_states_snapshot_roundtrip_preserves_entry_to_clear"
         },
         {
           "kind": "fn",
-          "line": 649,
+          "line": 642,
           "name": "hunt_state_snapshot_roundtrip_preserves_scan_time_without_machine"
         },
         {
           "kind": "fn",
-          "line": 676,
+          "line": 669,
           "name": "enter_state_snapshot_roundtrip_preserves_base_and_entry_runtime_fields"
         },
         {
           "kind": "fn",
-          "line": 720,
+          "line": 713,
           "name": "rappel_into_state_snapshot_roundtrip_preserves_runtime_fields"
         },
         {
           "kind": "fn",
-          "line": 749,
+          "line": 742,
           "name": "combat_drop_state_snapshot_roundtrip_preserves_issued_command"
         },
         {
           "kind": "fn",
-          "line": 774,
-          "name": "temporary_state_frame_end_uses_saturating_add"
+          "line": 767,
+          "name": "temporary_state_frame_end_clamps_and_wraps_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 786,
+          "line": 787,
           "name": "idle_restake_plan_runs_for_ultra_accurate_and_loco_less"
         },
         {
           "kind": "fn",
-          "line": 810,
+          "line": 811,
           "name": "fire_weapon_seeds_attack_common_target_only_when_empty"
         },
         {
           "kind": "fn",
-          "line": 819,
+          "line": 820,
           "name": "team_change_abort_clears_matching_team_target"
         },
         {
           "kind": "fn",
-          "line": 831,
+          "line": 832,
           "name": "nested_attack_machine_picks_up_parent_goal_change"
         },
         {
           "kind": "fn",
-          "line": 845,
+          "line": 846,
           "name": "attack_on_exit_clears_leech_range_mode"
         }
       ]
@@ -198357,11 +198352,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 922,
+        "end_line": 945,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/flammable_update.rs",
-      "sha256": "9dd0a01f28ac4b7566de22a790af5c489a9f46292e495a85f43aad310b80dcc1",
+      "sha256": "393cd907c3a299e43c63f94985adeffd28a33ee4fe5c1fe44a820c6ef7351402",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

@@ -183,6 +183,7 @@ fn isolated(name: &str) -> bool {
     let mut child = Command::new(std::env::current_exe().unwrap())
         .args([&name, "--exact", "--test-threads=1", "--nocapture"])
         .env(MARKER, &name)
+        .env("GENERALS_GAMEWORLD_SHADOW", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -240,8 +241,11 @@ End
     parser
         .parse_ini_content(
             r#"
-Object HqAwymHoverAircraft
+Object AmericaVehicleComanche
   KindOf = VEHICLE AIRCRAFT PRODUCED_AT_HELIPAD
+  Geometry = CYLINDER
+  GeometryMajorRadius = 8
+  GeometryHeight = 12
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 220
   End
@@ -251,6 +255,9 @@ Object HqAwymHoverAircraft
 End
 Object HqAwymWingAircraft
   KindOf = VEHICLE AIRCRAFT
+  Geometry = CYLINDER
+  GeometryMajorRadius = 8
+  GeometryHeight = 12
   Body = ActiveBody ModuleTag_Body
     MaxHealth = 220
   End
@@ -264,7 +271,7 @@ End
         )
         .expect("authored aircraft definitions");
     let mut world = GameLogic::new();
-    for name in ["HqAwymHoverAircraft", "HqAwymWingAircraft"] {
+    for name in ["AmericaVehicleComanche", "HqAwymWingAircraft"] {
         world.templates.insert(
             name.to_owned(),
             GameLogic::build_template_from_object_definition(
@@ -275,7 +282,7 @@ End
         );
     }
     let hover = world
-        .create_object("HqAwymHoverAircraft", Team::USA, goal)
+        .create_object("AmericaVehicleComanche", Team::USA, goal)
         .unwrap();
     let wings = world
         .create_object(
@@ -287,7 +294,10 @@ End
     world.override_world_size(600.0, 600.0);
     for id in [hover, wings] {
         let object = world.objects.get_mut(&id).unwrap();
-        object.selection_radius = 8.0;
+        assert_eq!(
+            object.selection_radius, 8.0,
+            "authored geometry owns the footprint radius"
+        );
         object.movement.target_position = Some(goal);
         assert!(PathfindingGrid::is_aircraft_that_adjusts_destination(
             object
@@ -407,6 +417,15 @@ fn authored_aircraft_save_load_continues_owned_goal_changes() {
         .pathfinding_system
         .grid
         .update_dynamic_obstacles(&source.objects);
+    // These are mutable locomotor values, different from the authored defaults.
+    // Reconstructing immutable appearance must not reapply an entire binding.
+    {
+        let object = source.objects.get_mut(&wings).unwrap();
+        object.movement.max_speed = 0.5;
+        object.braking = 3.0;
+        object.wander_angle_offset = 0.37;
+        object.is_braking = true;
+    }
     let dir = tempfile::TempDir::new().unwrap();
     let mut manager = crate::save_load::SaveFileManager::with_save_directory(dir.path());
     manager.init().unwrap();
@@ -418,9 +437,31 @@ fn authored_aircraft_save_load_continues_owned_goal_changes() {
         .expect("actual save decoder");
     let mut restored = GameLogic::new();
     restored.templates = source.templates.clone();
+    // Common saves transfer runtime into an already prepared map candidate.
+    // This synthetic open map has the same known extent on both instances.
+    restored.override_world_size(600.0, 600.0);
     manager
         .restore_game_snapshot(&decoded, &mut restored)
         .expect("actual detached restore route");
+    assert_eq!(restored.world_bounds(), source.world_bounds());
+    for id in [hover, wings] {
+        let loaded = &restored.objects[&id];
+        let original = &source.objects[&id];
+        assert_eq!(loaded.selection_radius, original.selection_radius);
+        assert_eq!(loaded.cur_locomotor_name, original.cur_locomotor_name);
+        assert_eq!(
+            loaded.loco_appearance, original.loco_appearance,
+            "current immutable locomotor definition must be resolved after load"
+        );
+    }
+    let loaded = &restored.objects[&wings];
+    assert_eq!(loaded.movement.max_speed, 0.5);
+    assert_eq!(loaded.braking, 3.0);
+    assert_eq!(loaded.wander_angle_offset, 0.37);
+    assert!(
+        loaded.is_braking,
+        "saved runtime flags are not definition defaults"
+    );
     assert_eq!(
         restored.objects[&wings].movement.target_position,
         source.objects[&wings].movement.target_position
@@ -474,4 +515,125 @@ fn authored_aircraft_save_load_continues_owned_goal_changes() {
         reference,
         "reset cannot clear the other world's goals"
     );
+}
+
+#[test]
+fn authored_aircraft_liveness_ignores_same_id_foreign_shadow_health() {
+    if isolated("authored_aircraft_liveness_ignores_same_id_foreign_shadow_health") {
+        return;
+    }
+    use crate::gameworld_shadow::{
+        CoupledTickGuard, GameWorldShadow, coupled_entity_health, with_coupled_shadow,
+    };
+    let dest = Vec3::new(75.0, 40.0, 75.0);
+    let (mut driving, hover, wings) = authored_world(dest);
+    // Only the hover reserves this goal; the wings is the attack seeker.
+    driving
+        .objects
+        .get_mut(&wings)
+        .unwrap()
+        .movement
+        .target_position = None;
+    let (foreign, foreign_hover, foreign_wings) = authored_world(Vec3::new(175.0, 40.0, 175.0));
+    assert_eq!((hover, wings), (foreign_hover, foreign_wings));
+    let mut shadow = GameWorldShadow::new(16);
+    shadow.sync_from_host(&foreign);
+    let entity = shadow
+        .entity_for_host(foreign_hover)
+        .expect("actual foreign mapping");
+    assert_eq!(
+        shadow.world().entity(entity).unwrap().health,
+        foreign.objects[&foreign_hover].health.current
+    );
+    let baseline_claims = driving
+        .pathfinding_system
+        .grid
+        .aircraft_goal_claims(&driving.objects, wings.0);
+    let baseline_attack = adjusted(&driving, wings, dest);
+    assert!(!baseline_claims.is_empty());
+    shadow
+        .world_mut()
+        .world_mut()
+        .entity_mut(entity)
+        .unwrap()
+        .health = 0.0;
+    {
+        let _couple = CoupledTickGuard::enter();
+        with_coupled_shadow(&mut shadow, || {
+            assert_eq!(
+                coupled_entity_health(hover),
+                Some(0.0),
+                "positive control reads the dead foreign shadow"
+            );
+            assert!(
+                !driving.objects[&hover].is_alive(),
+                "ambient liveness sees the conflicting foreign HP"
+            );
+            assert!(driving.objects[&hover].is_alive_from_host_state());
+            assert_eq!(
+                driving
+                    .pathfinding_system
+                    .grid
+                    .aircraft_goal_claims(&driving.objects, wings.0),
+                baseline_claims
+            );
+            assert_eq!(adjusted(&driving, wings, dest), baseline_attack);
+            driving
+                .pathfinding_system
+                .grid
+                .update_dynamic_obstacles(&driving.objects);
+            for cell in &baseline_claims {
+                assert_eq!(
+                    driving.pathfinding_system.grid.goal_aircraft(*cell),
+                    hover.0,
+                    "alive host reserves despite dead foreign HP"
+                );
+            }
+        });
+    }
+    // Reverse the disagreement. A dead host cannot acquire a reservation from
+    // a healthy foreign same-ID entity, nor retain its earlier cached footprint.
+    driving.objects.get_mut(&hover).unwrap().health.current = 0.0;
+    shadow
+        .world_mut()
+        .world_mut()
+        .entity_mut(entity)
+        .unwrap()
+        .health = 220.0;
+    let dead_attack = adjusted(&driving, wings, dest);
+    assert_ne!(
+        dead_attack, baseline_attack,
+        "the local HP change has a real effect"
+    );
+    {
+        let _couple = CoupledTickGuard::enter();
+        with_coupled_shadow(&mut shadow, || {
+            assert_eq!(
+                coupled_entity_health(hover),
+                Some(220.0),
+                "positive control reads the live foreign shadow"
+            );
+            assert!(driving.objects[&hover].is_alive());
+            assert!(!driving.objects[&hover].is_alive_from_host_state());
+            assert!(
+                driving
+                    .pathfinding_system
+                    .grid
+                    .aircraft_goal_claims(&driving.objects, wings.0)
+                    .is_empty()
+            );
+            assert_eq!(adjusted(&driving, wings, dest), dead_attack);
+            driving
+                .pathfinding_system
+                .grid
+                .update_dynamic_obstacles(&driving.objects);
+            for cell in &baseline_claims {
+                assert_eq!(
+                    driving.pathfinding_system.grid.goal_aircraft(*cell),
+                    0,
+                    "dead host clears the old footprint despite healthy foreign HP"
+                );
+            }
+        });
+    }
 }

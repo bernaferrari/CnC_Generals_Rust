@@ -64,13 +64,6 @@ fn test_guard() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|err| err.into_inner())
 }
 
-fn set_frame(frame: u64) {
-    let mut logic = crate::system::game_logic::get_game_logic()
-        .lock()
-        .expect("game logic lock poisoned");
-    logic.set_current_frame(frame);
-}
-
 fn unique_missing_waypoint_name() -> String {
     static NEXT_ID: AtomicU64 = AtomicU64::new(1);
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
@@ -229,7 +222,7 @@ fn ai_do_command_polygon_updates_machine_goal_polygon() {
 #[test]
 fn xfer_roundtrip_preserves_path_squad_temp_and_waypoint_lookup_rules() {
     let _guard = test_guard();
-    set_frame(1_000);
+    let _frame = crate::system::game_logic::enter_update_frame(1_000);
 
     let missing_name = unique_missing_waypoint_name();
     let mut source = AIStateMachine::new(Weak::<RwLock<Object>>::new(), "ai-roundtrip-source");
@@ -771,15 +764,23 @@ fn combat_drop_state_snapshot_roundtrip_preserves_issued_command() {
 }
 
 #[test]
-fn temporary_state_frame_end_uses_saturating_add() {
+fn temporary_state_frame_end_clamps_and_wraps_like_cpp() {
     let _guard = test_guard();
-    set_frame((u32::MAX as u64).saturating_sub(10));
+    // C++ AIStates.cpp:944-946 clamps this positive Int-representable count
+    // to 1800, then adds it to the unsigned frame. Each case has its own
+    // clock scope and state machine, so neither leaks frame state.
+    for (now, expected_deadline) in [(1_000, 2_800), (u32::MAX - 10, 1_789)] {
+        let _frame = crate::system::game_logic::enter_update_frame(now);
+        let mut machine = AIStateMachine::new(Weak::<RwLock<Object>>::new(), "ai-temp");
+        let ret = machine.set_temporary_state(AIStateType::Idle as u32, 1_801);
 
-    let mut machine = AIStateMachine::new(Weak::<RwLock<Object>>::new(), "ai-temp");
-    let ret = machine.set_temporary_state(AIStateType::Idle as u32, u32::MAX);
-
-    assert_eq!(ret, StateReturnType::Continue);
-    assert_eq!(machine.data.temporary_state_frame_end, u32::MAX);
+        assert_eq!(ret, StateReturnType::Continue);
+        assert_eq!(machine.data.temporary_state_frame_end, expected_deadline);
+        assert_eq!(
+            machine.data.temporary_state_id,
+            Some(AIStateType::Idle as u32)
+        );
+    }
 }
 
 #[test]

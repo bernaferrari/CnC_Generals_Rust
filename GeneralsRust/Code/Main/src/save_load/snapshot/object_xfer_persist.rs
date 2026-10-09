@@ -1877,6 +1877,14 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
                 object.cur_locomotor_name = entry.cur_locomotor_name;
                 object.locomotor_surfaces = entry.valid_locomotor_surfaces;
                 object.downhill_only = entry.downhill_only;
+                // C++ Locomotor::getAppearance reads its immutable template
+                // (Locomotor.h:227). Resolve the saved current pointer's fact;
+                // applying the full binding would reset transferred runtime.
+                if let Some(binding) = object.cur_locomotor_name.as_deref().and_then(
+                    crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding,
+                ) {
+                    object.loco_appearance = binding.appearance;
+                }
             }
             let locomotor_body_saved = entry.has_locomotor_template
                 || entry.has_locomotor_motion

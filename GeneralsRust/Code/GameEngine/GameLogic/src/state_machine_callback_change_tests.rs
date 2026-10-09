@@ -144,6 +144,7 @@ fn driver_changes_state_after_body_before_outgoing_sleep() {
 
 #[test]
 fn sleeping_step_has_no_body_to_resume() {
+    let _frame = crate::system::game_logic::enter_update_frame(100);
     let (mut core, enters) = machine();
     core.lock();
     let mut ai = TestAI;

@@ -76,8 +76,7 @@ mod presentation_mouse_bounds_tests {
             "shared probe must prefer presentation world_env bounds"
         );
         assert!(
-            probe.contains("self.host_world_bounds()")
-                && eng.contains("game_logic.world_bounds()"),
+            probe.contains("self.host_world_bounds()") && eng.contains("game_logic.world_bounds()"),
             "boot residual without frame may still use host bounds"
         );
     }
@@ -106,8 +105,7 @@ mod presentation_camera_bounds_tests {
             "shared probe must prefer presentation world_env bounds"
         );
         assert!(
-            probe.contains("self.host_world_bounds()")
-                && eng.contains("game_logic.world_bounds()"),
+            probe.contains("self.host_world_bounds()") && eng.contains("game_logic.world_bounds()"),
             "boot residual without frame may still use host bounds"
         );
     }
@@ -117,39 +115,50 @@ mod presentation_camera_bounds_tests {
 mod presentation_minimap_bounds_tests {
     #[test]
     fn minimap_viewport_prefers_presentation_bounds() {
+        fn function_body<'a>(source: &'a str, signature: &str) -> &'a str {
+            let start = source.find(signature).expect("source function signature");
+            let open = source[start..].find('{').expect("source function body") + start;
+            let mut depth = 0;
+            for (offset, ch) in source[open..].char_indices() {
+                match ch {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return &source[open + 1..open + offset];
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            panic!("unclosed source function: {signature}");
+        }
         let eng = crate::cnc_game_engine::ENGINE_SRC;
-        let idx = eng
-            .find("fn update_minimap_viewport")
-            .expect("update_minimap_viewport");
-        // Wave 461 refactor: viewport prefers bounds via the shared
-        // `presentation_world_bounds` probe (freeze-first, host residual else).
-        let window = &eng[idx..idx + 420];
+        let viewport = function_body(eng, "fn update_minimap_viewport(");
         assert!(
-            window.contains("presentation_world_bounds()"),
+            viewport.contains("self.presentation_world_bounds()"),
             "minimap viewport must prefer presentation world_env bounds via shared probe"
         );
-        let probe_idx = eng
-            .find("fn presentation_world_bounds")
-            .expect("presentation_world_bounds");
-        let probe = &eng[probe_idx..probe_idx + 560];
+        let probe = function_body(eng, "fn presentation_world_bounds(");
         assert!(
             probe.contains("last_presentation_frame") && probe.contains("world_bounds_vec3"),
             "shared probe must prefer presentation world_env bounds"
         );
         assert!(
-            probe.contains("self.host_world_bounds()")
-                && eng.contains("game_logic.world_bounds()"),
+            probe.contains("self.host_world_bounds()") && eng.contains("game_logic.world_bounds()"),
             "boot residual without frame may still use host bounds"
         );
-        // Radar pings also prefer presentation bounds near the UI overlay path;
-        // host_finalize_render_ui_state probes shared bounds before forwarding.
-        let radar_idx = eng
-            .find(".update_radar_pings(&ui_state.radar_pings")
-            .expect("update_radar_pings");
-        let radar_window = &eng[radar_idx.saturating_sub(420)..radar_idx + 80];
+        let finalize = function_body(eng, "fn host_finalize_render_ui_state(");
+        // Formatting must not change the checked data dependency or call order.
+        let compact: String = finalize.chars().filter(|ch| !ch.is_whitespace()).collect();
+        let bounds = compact
+            .find("letworld_bounds=self.presentation_world_bounds();")
+            .expect("radar presentation bounds");
+        let radar = compact
+            .find(".update_radar_pings(&ui_state.radar_pings,world_bounds.0,world_bounds.1,")
+            .expect("radar pings with the shared presentation bounds");
         assert!(
-            radar_window.contains("presentation_world_bounds")
-                && radar_window.contains("Prefer presentation world_env for radar/minimap"),
+            bounds < radar && finalize.contains("Prefer presentation world_env for radar/minimap"),
             "radar pings must prefer presentation world_env bounds"
         );
     }
@@ -190,7 +199,9 @@ mod presentation_local_team_tests {
                 let body = &window[..end];
                 assert!(
                     body.contains("presentation-only pick")
-                        && body.contains("self.host_find_object_at_position(position, command_context)")
+                        && body.contains(
+                            "self.host_find_object_at_position(position, command_context)"
+                        )
                         && !body.contains("game_logic.get_objects()"),
                     "engine find_object_at_position must stay a presentation-only delegate"
                 );
@@ -201,8 +212,7 @@ mod presentation_local_team_tests {
                 assert!(
                     host_window.contains("last_presentation_frame")
                         && host_window.contains("local_team()")
-                        && host_window
-                            .contains("pick_object_id_at_world_from_presentation")
+                        && host_window.contains("pick_object_id_at_world_from_presentation")
                         && !host_window.contains("game_logic.get_objects()"),
                     "host pick must be presentation-frame-driven with frozen local_team"
                 );

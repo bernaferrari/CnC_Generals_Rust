@@ -22,6 +22,24 @@ fn presentation_victory_summary_residual() {
 
 #[test]
 fn presentation_victory_prefers_snapshot_match_over() {
+    fn function_body<'a>(source: &'a str, signature: &str) -> &'a str {
+        let start = source.find(signature).expect("source function signature");
+        let open = source[start..].find('{').expect("source function body") + start;
+        let mut depth = 0;
+        for (offset, ch) in source[open..].char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return &source[open + 1..open + offset];
+                    }
+                }
+                _ => {}
+            }
+        }
+        panic!("unclosed source function: {signature}");
+    }
     let eng = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
         eng.contains("build_with_victory")
@@ -31,11 +49,18 @@ fn presentation_victory_prefers_snapshot_match_over() {
         "InGame victory must prefer presentation match_over residual"
     );
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
+    assert!(pf.contains("fn build_with_victory"));
+    let build = function_body(pf, "fn build_with_victory_with_tint_update(");
     assert!(
-        pf.contains("fn build_with_victory")
-            && pf.contains("evaluate_victory_condition")
-            && pf.contains("PresentationEvent::Victory"),
-        "snapshot must freeze victory residual once"
+        build.contains("logic.current_victory_observation()")
+            && build.contains("frame.match_over = victory.match_over")
+            && build.contains("PresentationEvent::Victory")
+            && build.contains("logic.build_victory_summary(winner)"),
+        "snapshot must freeze the logic-owned victory observation and summary"
+    );
+    assert!(
+        !build.contains("evaluate_victory_condition(") && !build.contains("kill_player("),
+        "presentation must not evaluate victory or run defeat callbacks"
     );
 }
 

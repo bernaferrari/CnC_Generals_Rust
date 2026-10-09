@@ -2242,22 +2242,6 @@ impl StateMachine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex as StdMutex, OnceLock};
-
-    fn test_guard() -> std::sync::MutexGuard<'static, ()> {
-        static TEST_LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
-        TEST_LOCK
-            .get_or_init(|| StdMutex::new(()))
-            .lock()
-            .expect("state machine test lock poisoned")
-    }
-
-    fn set_frame(frame: u64) {
-        let mut logic = crate::system::game_logic::get_game_logic()
-            .lock()
-            .expect("game logic lock poisoned");
-        logic.set_current_frame(frame);
-    }
 
     #[derive(Debug)]
     struct FixedState {
@@ -2348,14 +2332,14 @@ mod tests {
 
     #[test]
     fn update_without_current_state_returns_failure() {
-        let _guard = test_guard();
+        let _frame = crate::system::game_logic::enter_update_frame(0);
         let mut machine = StateMachine::new(None::<Weak<RwLock<Object>>>, "no-state");
         assert_eq!(machine.update(), StateReturnType::Failure);
     }
 
     #[test]
     fn external_set_state_is_blocked_when_locked() {
-        let _guard = test_guard();
+        let _frame = crate::system::game_logic::enter_update_frame(0);
         let mut machine = StateMachine::new(None::<Weak<RwLock<Object>>>, "locked");
         machine.define_state(
             1,
@@ -2389,7 +2373,7 @@ mod tests {
 
     #[test]
     fn internal_transitions_still_work_while_locked() {
-        let _guard = test_guard();
+        let _frame = crate::system::game_logic::enter_update_frame(0);
         let mut machine = StateMachine::new(None::<Weak<RwLock<Object>>>, "internal-locked");
         machine.define_state(
             1,
@@ -2424,7 +2408,6 @@ mod tests {
 
     #[test]
     fn sleep_uses_absolute_frame_deadline() {
-        let _guard = test_guard();
         let mut machine = StateMachine::new(None::<Weak<RwLock<Object>>>, "sleep");
         machine.define_state(
             1,
@@ -2435,23 +2418,23 @@ mod tests {
         );
         assert_eq!(machine.set_current_state(1), StateReturnType::Continue);
 
-        set_frame(100);
-        assert_eq!(machine.update(), StateReturnType::Sleep(5));
-
-        set_frame(101);
-        assert_eq!(machine.update(), StateReturnType::Sleep(4));
+        // Each operation owns its clock scope, ending before the next
+        // operation begins instead of mutating the shared singleton clock.
+        let mut update_at = |frame| {
+            let _frame = crate::system::game_logic::enter_update_frame(frame);
+            machine.update()
+        };
+        assert_eq!(update_at(100), StateReturnType::Sleep(5));
+        assert_eq!(update_at(101), StateReturnType::Sleep(4));
 
         // Jump frames to validate absolute wake deadline semantics.
-        set_frame(104);
-        assert_eq!(machine.update(), StateReturnType::Sleep(1));
-
-        set_frame(105);
-        assert_eq!(machine.update(), StateReturnType::Continue);
+        assert_eq!(update_at(104), StateReturnType::Sleep(1));
+        assert_eq!(update_at(105), StateReturnType::Continue);
     }
 
     #[test]
     fn clear_respects_lock_and_preserves_default_init_flag() {
-        let _guard = test_guard();
+        let _frame = crate::system::game_logic::enter_update_frame(0);
         let mut machine = StateMachine::new(None::<Weak<RwLock<Object>>>, "clear");
         machine.define_state(
             1,
@@ -2478,7 +2461,7 @@ mod tests {
 
     #[test]
     fn stateless_attack_state_is_true_and_goal_destroyed_never_set_is_false() {
-        let _guard = test_guard();
+        let _frame = crate::system::game_logic::enter_update_frame(0);
         let machine = StateMachine::new(None::<Weak<RwLock<Object>>>, "stateless");
 
         assert!(machine.is_in_attack_state());
@@ -2487,7 +2470,7 @@ mod tests {
 
     #[test]
     fn halt_locks_and_keeps_internal_goal_data() {
-        let _guard = test_guard();
+        let _frame = crate::system::game_logic::enter_update_frame(0);
         let mut machine = StateMachine::new(None::<Weak<RwLock<Object>>>, "halt");
         machine.set_goal_position(Coord3D::new(10.0, 20.0, 30.0));
 
@@ -2506,7 +2489,7 @@ mod tests {
 
     #[test]
     fn transition_recursion_guard_returns_failure() {
-        let _guard = test_guard();
+        let _frame = crate::system::game_logic::enter_update_frame(0);
         let mut machine = StateMachine::new(None::<Weak<RwLock<Object>>>, "transition-recursion");
 
         machine.define_state(
@@ -2527,7 +2510,7 @@ mod tests {
 
     #[test]
     fn sleep_transition_recursion_guard_returns_failure() {
-        let _guard = test_guard();
+        let _frame = crate::system::game_logic::enter_update_frame(0);
         let mut machine = StateMachine::new(None::<Weak<RwLock<Object>>>, "sleep-recursion");
 
         let conditions = [StateConditionInfo::new(

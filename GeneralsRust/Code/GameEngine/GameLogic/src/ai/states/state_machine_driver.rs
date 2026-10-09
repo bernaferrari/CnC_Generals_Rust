@@ -244,8 +244,10 @@ impl AIStateMachineDriver<'_> {
                 .observe("failed_cleared", new_state_id, ordinary, ai.as_deref());
             return ret;
         }
+        // C++ AIStates.cpp:944-946 clamps the count, then adds it to the
+        // UnsignedInt frame; the deadline wraps rather than saturating.
         self.data.temporary_state_frame_end =
-            TheGameLogic::get_frame().saturating_add(frame_limit.min(60 * LOGICFRAMES_PER_SECOND));
+            TheGameLogic::get_frame().wrapping_add(frame_limit.min(60 * LOGICFRAMES_PER_SECOND));
         ret
     }
     pub(crate) fn ai_do_command_with_ai(
