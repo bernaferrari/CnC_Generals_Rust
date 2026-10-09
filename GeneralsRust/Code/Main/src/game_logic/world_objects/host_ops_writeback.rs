@@ -1197,7 +1197,10 @@ impl GameLogic {
 
     /// Copy GameWorld HP / pose / target / fat fields onto the HashMap view.
     fn overlay_object_from_gameworld(&mut self, id: ObjectId) {
-        use crate::gameworld_shadow::{with_active_shadow, CoupledFatView};
+        if self.host_logic_after_sync {
+            return;
+        }
+        use crate::gameworld_shadow::{CoupledFatView, with_active_shadow};
         // Mid-frame authority logs own these fields until writeback; resolve
         // the skip flags BEFORE the shadow visit so a fully log-owned object
         // skips building the fat view (it clones Vecs per object) and so the
@@ -1320,6 +1323,9 @@ impl GameLogic {
 
     /// Refresh every mapped object from GameWorld so the HashMap is a view.
     pub fn sync_authoritative_view_from_gameworld(&mut self) {
+        if self.host_logic_after_sync {
+            return;
+        }
         if !crate::gameworld_shadow::gameworld_shadow_enabled() {
             return;
         }
@@ -1707,8 +1713,12 @@ impl GameLogic {
             .map(|p| [p.x, p.y, p.z])
     }
 
-    /// Authoritative HP: GameWorld when the coupled session is live, else host field.
+    /// During the post-ingress logic phase, observe this instance's live body.
+    /// Outside that phase, coupled observation still reads GameWorld.
     pub fn host_authoritative_health(&self, id: ObjectId) -> Option<f32> {
+        if self.host_logic_after_sync {
+            return self.objects.get(&id).map(|o| o.health.current);
+        }
         if let Some(h) = crate::gameworld_shadow::coupled_entity_health(id) {
             return Some(h);
         }
@@ -1741,6 +1751,9 @@ impl GameLogic {
 
     /// Authoritative pose: GameWorld when the coupled session is live, else host field.
     pub fn host_authoritative_pose(&self, id: ObjectId) -> Option<[f32; 3]> {
+        if self.host_logic_after_sync {
+            return self.objects.get(&id).map(|o| o.get_position().to_array());
+        }
         if let Some(p) = crate::gameworld_shadow::coupled_entity_pose(id) {
             return Some(p);
         }
@@ -1758,11 +1771,14 @@ impl GameLogic {
         self.get_player(player_id).map(|p| p.resources.supplies)
     }
 
-    /// Authoritative attack target: GameWorld when coupled, else host field.
+    /// Live owner target during the logic phase; coupled view outside it.
     ///
     /// If a fat view is mapped, `None` target is authoritative (no target).
     /// Do not fall back to a disagreeing HashMap target.
     pub fn host_authoritative_target(&self, id: ObjectId) -> Option<ObjectId> {
+        if self.host_logic_after_sync {
+            return self.objects.get(&id).and_then(|o| o.target);
+        }
         if crate::gameworld_shadow::coupled_entity_fat_view(id).is_some() {
             return crate::gameworld_shadow::coupled_entity_target_host(id);
         }

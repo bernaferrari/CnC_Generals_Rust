@@ -4,6 +4,29 @@ use super::super::*;
 #[cfg(test)]
 #[path = "ai_phase_tests.rs"]
 mod ai_phase_tests;
+/// A bounded loan of this instance across its synchronous logic phases.
+/// Drop also restores observation policy on freeze and unwinding.
+struct HostLogicAfterSync<'a> {
+    logic: &'a mut GameLogic,
+}
+
+impl std::ops::Deref for HostLogicAfterSync<'_> {
+    type Target = GameLogic;
+    fn deref(&self) -> &GameLogic {
+        self.logic
+    }
+}
+impl std::ops::DerefMut for HostLogicAfterSync<'_> {
+    fn deref_mut(&mut self) -> &mut GameLogic {
+        self.logic
+    }
+}
+impl Drop for HostLogicAfterSync<'_> {
+    fn drop(&mut self) {
+        self.logic.host_logic_after_sync = false;
+    }
+}
+
 /// Outcome of one `update_simulation` step (one C++ `GameLogic::update` pass,
 /// GameLogic.cpp:3548-3803).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -423,12 +446,36 @@ impl GameLogic {
     ///           no outcome variant invented for it]
     /// ```
     pub(in super::super) fn update_simulation(&mut self, dt: f32) -> SimulationStepOutcome {
+        assert!(
+            !self.host_logic_after_sync,
+            "nested update on the same GameLogic"
+        );
         // Presentation spawn/destruction events are logic-frame scoped. Keep
         // active particle systems themselves, but never replay old spawn events
         // forever on later presentation frames.
         self.combat_particles.clear_frame_events();
         // HashMap starts the tick as a GameWorld view (HP/pose/target/fat fields).
         self.sync_authoritative_view_from_gameworld();
+        self.with_host_logic_after_sync(|logic| logic.update_simulation_after_sync(dt))
+            .expect("a fixed step enters its owner phase once")
+    }
+
+    /// Borrow live Object state after the actual begin-step sync. No new
+    /// ingress is allowed until this operation returns. A second world owns
+    /// its own phase independently; a nested loan of this one is rejected.
+    pub(crate) fn with_host_logic_after_sync<R>(
+        &mut self,
+        run: impl FnOnce(&mut Self) -> R,
+    ) -> Option<R> {
+        if self.host_logic_after_sync {
+            return None;
+        }
+        self.host_logic_after_sync = true;
+        let mut owner = HostLogicAfterSync { logic: self };
+        Some(run(&mut owner))
+    }
+
+    fn update_simulation_after_sync(&mut self, dt: f32) -> SimulationStepOutcome {
         // Pathfinding dynamic obstacles rebuild once per host logic frame.
         self.pathfinding_system.note_logic_frame(self.frame as u64);
         self.refresh_pathfind_ally_masks();
@@ -2191,5 +2238,53 @@ mod tests {
         });
         assert_eq!(snap.steps_run, 0);
         assert_eq!(frozen.sim_time_seconds, 0.0);
+    }
+    #[test]
+    fn host_logic_after_sync_phase_restores_after_real_frozen_and_advanced_steps() {
+        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        drop_pending_clear_game_data();
+
+        let mut logic = GameLogic::new();
+        logic.scripts_loaded = true;
+        logic.set_script_time_frozen_for_test(true);
+        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
+        assert_eq!(logic.frame, 0, "frozen update does not advance frame");
+        assert_eq!(logic.fixed_step_diagnostics().frozen_steps, 1);
+        assert!(
+            logic.with_host_logic_after_sync(|_| ()).is_some(),
+            "real frozen return must drop the owner phase"
+        );
+
+        logic.set_script_time_frozen_for_test(false);
+        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
+        assert_eq!(logic.frame, 1, "advanced update advances one frame");
+        assert_eq!(logic.fixed_step_diagnostics().steps_run, 1);
+        assert!(
+            logic.with_host_logic_after_sync(|_| ()).is_some(),
+            "real advanced return must drop the owner phase"
+        );
+        drop_pending_clear_game_data();
+    }
+
+    #[test]
+    fn another_world_step_does_not_replace_the_driving_object_phase() {
+        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        drop_pending_clear_game_data();
+        let mut first = GameLogic::new();
+        first
+            .with_host_logic_after_sync(|first| {
+                // Construction is inert even while a different instance is driving.
+                let mut second = GameLogic::new();
+                assert!(!second.host_logic_after_sync);
+                assert!(first.host_logic_after_sync);
+                second.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, Some(1));
+                assert_eq!(second.frame, 1);
+                assert!(!second.host_logic_after_sync);
+                assert!(first.host_logic_after_sync);
+                assert!(first.with_host_logic_after_sync(|_| ()).is_none());
+            })
+            .expect("first owner scope");
+        assert!(!first.host_logic_after_sync);
+        drop_pending_clear_game_data();
     }
 }

@@ -1963,3 +1963,253 @@ fn no_shadow_boundary_still_admits_projected_healing() {
     assert!(host_heal_log::snapshot().is_empty());
     host_heal_log::clear();
 }
+
+#[test]
+fn coupled_tick_group_speed_reads_script_damage_from_host_owner_before_shadow_boundary() {
+    use crate::command_executor::CommandExecutor;
+    use crate::command_system::{CommandResult, CommandType, GameCommand, ModifierKeys};
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+    use gamelogic::scripting::{
+        HostScriptKillDeleteDamageRequest, request_host_script_kill_delete_damage,
+    };
+    use glam::Vec3;
+
+    let _env_guard = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "1");
+    crate::game_logic::host_damage_log::clear();
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.scripts_loaded = true;
+    let mut template = ThingTemplate::new("OwnerGroupSpeedVehicle");
+    template
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic.templates.insert(template.name.clone(), template);
+
+    let fast = logic
+        .create_object("OwnerGroupSpeedVehicle", Team::USA, Vec3::ZERO)
+        .expect("fast member");
+    let slow = logic
+        .create_object(
+            "OwnerGroupSpeedVehicle",
+            Team::USA,
+            Vec3::new(20.0, 0.0, 0.0),
+        )
+        .expect("slow member");
+    {
+        let object = logic.host_object_mut(fast).expect("fast");
+        object.movement.max_speed = 20.0;
+        object.movement.max_speed_damaged = 20.0;
+        object.health.current = 100.0;
+        object.health.maximum = 100.0;
+        object.refresh_model_condition_bits();
+    }
+    {
+        let object = logic.host_object_mut(slow).expect("slow");
+        object.movement.max_speed = 10.0;
+        object.movement.max_speed_damaged = 10.0;
+        object.health.current = 100.0;
+        object.health.maximum = 100.0;
+        object.name = "SlowOwnerPhaseMember".into();
+        object.refresh_model_condition_bits();
+    }
+
+    // Use the actual command executor to establish the authored formation
+    // stamp; the later Move is processed by GameLogic::process_commands.
+    let formation = CommandExecutor::new(&mut logic, 0).execute_create_formation(&[fast, slow]);
+    assert_eq!(formation, CommandResult::Success);
+
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&logic);
+    let slow_eid = shadow.entity_for_host(slow).expect("slow shadow mapping");
+    request_host_script_kill_delete_damage(HostScriptKillDeleteDamageRequest::NamedDamage {
+        unit: "SlowOwnerPhaseMember".into(),
+        amount: 70,
+    });
+    logic.queue_command(GameCommand {
+        command_type: CommandType::Move {
+            destination: Vec3::new(200.0, 0.0, 0.0),
+        },
+        player_id: 0,
+        command_id: 1,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![fast, slow],
+        modifier_keys: ModifierKeys::default(),
+    });
+
+    let _couple = ShadowCoupleGuard::enter();
+    with_coupled_shadow(&mut shadow, || {
+        // One real Advanced update: begin sync → script damage → queued Move →
+        // formation group_speed, before any Main post-step shadow boundary.
+        logic.tick_logic_frame_with_boundary(1.0 / 30.0, None, None, |_| {});
+
+        let fast_object = logic.host_objects().get(&fast).expect("fast after move");
+        let slow_object = logic.host_objects().get(&slow).expect("slow after damage");
+        assert_eq!(
+            slow_object.health.current, 30.0,
+            "named damage applied on host"
+        );
+        assert_eq!(
+            fast_object.group_speed_factor, 1.0,
+            "the really-damaged 10-speed member is excluded; healthy group speed is 20"
+        );
+        assert!(
+            crate::game_logic::host_damage_log::snapshot()
+                .iter()
+                .any(|event| event.target == slow),
+            "the in-step script damage passed through the production damage channel"
+        );
+
+        // The owner phase is over when tick_logic_frame returns. Until normal
+        // boundary writeback, the coupled shadow remains at its synced 100 HP.
+        assert_eq!(logic.host_authoritative_health(slow), Some(100.0));
+        let shadow_hp = crate::gameworld_shadow::with_active_shadow(|active| {
+            active.world().entity(slow_eid).expect("slow entity").health
+        })
+        .expect("active shadow");
+        assert_eq!(shadow_hp, 100.0);
+    });
+    crate::game_logic::host_damage_log::clear();
+}
+
+#[test]
+fn host_logic_after_sync_keeps_repeated_object_mutations_and_getters_on_owner() {
+    let _env_guard = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "1");
+    let mut logic = GameLogic::new();
+    apply_skirmish_config(&mut logic, &golden_skirmish_config("OwnerPhase")).expect("config");
+    ensure_template(&mut logic, "OwnerPhaseUnit", 80.0);
+
+    let source = logic
+        .create_object("OwnerPhaseUnit", Team::USA, Vec3::new(1.0, 0.0, 2.0))
+        .expect("source");
+    let target = logic
+        .create_object("OwnerPhaseUnit", Team::USA, Vec3::new(5.0, 0.0, 6.0))
+        .expect("target");
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&logic);
+    let source_eid = shadow.entity_for_host(source).expect("source mapping");
+    let owner_position = [17.0, 0.0, 19.0];
+    let final_owner_position = [23.0, 0.0, 29.0];
+
+    let _couple = ShadowCoupleGuard::enter();
+    with_coupled_shadow(&mut shadow, || {
+        // This is the same begin-of-step ingress used by update_simulation.
+        logic.sync_authoritative_view_from_gameworld();
+        assert_eq!(logic.host_authoritative_target(source), None);
+        let before = crate::gameworld_shadow::with_active_shadow(|active| {
+            active
+                .world()
+                .entity(source_eid)
+                .expect("source")
+                .transform
+                .position
+        })
+        .expect("active shadow");
+        assert_eq!([before.x, before.y, before.z], [1.0, 0.0, 2.0]);
+
+        logic
+            .with_host_logic_after_sync(|owner| {
+                owner
+                    .with_host_object_mut(source, |object| {
+                        object.set_order_target(Some(target));
+                        object.set_position(glam::Vec3::from_array(owner_position));
+                    })
+                    .expect("first owner mutation");
+
+                // A second ordinary mutable borrow used to re-overlay the old
+                // GameWorld pose/target, erasing the first host operation.
+                owner
+                    .with_host_object_mut(source, |object| {
+                        assert_eq!(object.target, Some(target));
+                        assert_eq!(
+                            object.get_position().to_array(),
+                            owner_position,
+                            "the first host mutation must survive the second borrow"
+                        );
+                        object.set_position(glam::Vec3::from_array(final_owner_position));
+                    })
+                    .expect("second owner mutation");
+
+                assert_eq!(
+                    owner.host_authoritative_target(source),
+                    Some(target),
+                    "in-phase target reads must use the same live Object"
+                );
+                assert_eq!(
+                    owner.host_authoritative_pose(source),
+                    Some(final_owner_position),
+                    "in-phase pose reads must use the same live Object"
+                );
+                assert_eq!(
+                    owner.host_authoritative_pose(target),
+                    Some([5.0, 0.0, 6.0]),
+                    "unmodified owner data remains intact"
+                );
+
+                // A nested phase cannot replace/reset the active guard. It is
+                // rejected while the original owner scope remains active.
+                assert!(owner.with_host_logic_after_sync(|_| ()).is_none());
+                assert_eq!(owner.host_authoritative_target(source), Some(target));
+            })
+            .expect("enter host-owned post-sync phase");
+
+        // The guard has restored observation policy. GameWorld still owns the
+        // coupled view until the normal boundary; no early writeback occurred.
+        assert_eq!(logic.host_authoritative_target(source), None);
+        assert_eq!(logic.host_authoritative_pose(source), Some([1.0, 0.0, 2.0]));
+        let source_after = crate::gameworld_shadow::with_active_shadow(|active| {
+            active
+                .world()
+                .entity(source_eid)
+                .expect("source after")
+                .transform
+                .position
+        })
+        .expect("active shadow after phase");
+        assert_eq!(source_after, glam::Vec3::new(1.0, 0.0, 2.0));
+    });
+}
+
+// Keep the existing test host_object_mut_overlays_and_commits_view_to_gameworld
+// unchanged. It is the out-of-phase 40 (GameWorld) vs 33 (host poked view)
+// sentinel; the new guard test above asserts that owner preference is temporary.
+
+#[test]
+fn host_logic_after_sync_guard_restores_on_return_and_unwind() {
+    let mut logic = GameLogic::new();
+    logic
+        .with_host_logic_after_sync(|_| ())
+        .expect("first phase entry");
+    assert!(logic.with_host_logic_after_sync(|_| ()).is_some());
+
+    let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = logic.with_host_logic_after_sync(|_| panic!("exercise guard drop"));
+    }));
+    assert!(unwind.is_err());
+    assert!(logic.with_host_logic_after_sync(|_| ()).is_some());
+}
+
+#[test]
+fn update_simulation_enters_owner_phase_between_sync_and_scripts() {
+    let wrapper = rust_fn_body(GAME_LOGIC_HOST_SRC, "update_simulation").expect("step wrapper");
+    let sync = wrapper
+        .find("sync_authoritative_view_from_gameworld()")
+        .expect("sync");
+    let phase = wrapper
+        .find("with_host_logic_after_sync")
+        .expect("owner phase");
+    assert!(sync < phase, "begin sync precedes owner-phase entry");
+
+    let body =
+        rust_fn_body(GAME_LOGIC_HOST_SRC, "update_simulation_after_sync").expect("owned phases");
+    let scripts = body
+        .find("evaluate_and_execute_scripts(dt)")
+        .expect("scripts");
+    assert!(
+        scripts
+            < body
+                .find("is_time_frozen_for_simulation()")
+                .expect("freeze")
+    );
+}

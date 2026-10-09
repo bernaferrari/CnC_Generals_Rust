@@ -52,13 +52,17 @@ pub struct GameLogic {
     /// Defaults all-off: host `GameLogic` is the sole writer (C++ single store).
     pub(crate) gameworld_authority:
         crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority,
+    /// Transient borrowing phase after this instance's begin-step ingress.
+    /// The driving step owns Object writes until its RAII scope ends; never
+    /// serialized or published by construction.
+    pub(in crate::game_logic) host_logic_after_sync: bool,
     /// Objects in the world.
     ///
     /// Own field (not a method on `&mut GameLogic`) so ticks can
     /// `self.objects.get_mut` while still reading `self.frame`.
     /// When a GameWorld shadow session is coupled this map is an ID roster /
-    /// read-view. HP / pose / attack-target live in GameWorld;
-    /// [`Self::host_object_mut`] overlays those fields from GameWorld.
+    /// read-view outside the synchronous owner phase. Begin-step ingress
+    /// overlays it once; scripts/commands then borrow the live Object values.
     /// Coupled ticks do not dirty-push HashMap mutations back. Fail-open host
     /// fields only when shadow is off. Main still allocates ObjectId.
     pub objects: HostObjectStore,

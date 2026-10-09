@@ -68,6 +68,7 @@ impl GameLogic {
             enable_repulsors: false,
             retaliate_friends_radius: 120.0,
             max_retaliate_distance: 210.0,
+            host_logic_after_sync: false,
             gameworld_authority:
                 crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority::DEFAULT_OFF,
             objects: HostObjectStore::new(),
