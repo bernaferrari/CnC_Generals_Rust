@@ -382,7 +382,7 @@ fn rubble_span_is_repairable() {
     // Exercise body revival directly, not the rejected ordinary repair command.
     let mut logic = GameLogic::new();
     let (span, _, _) = spawn_linked_bridge(&mut logic);
-    if let Some((s, health_events)) = logic.host_object_and_health_events_mut(span) {
+    if let Some(s) = logic.host_object_mut(span) {
         s.convert_bridge_to_rubble_husk();
     }
     assert!(!logic.host_object(span).expect("span").is_alive());
