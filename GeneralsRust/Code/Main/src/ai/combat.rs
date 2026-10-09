@@ -270,7 +270,6 @@ impl AIPlayer {
                     unit.is_attack_path = true;
                     unit.requested_destination = Some(enemy_base);
                 }
-                game_logic.dispatch_ai_attack_move(unit_id, enemy_base, focus_enemy);
             } else {
                 if let Some(unit) = game_logic.host_object_mut(unit_id) {
                     unit.move_to(enemy_base);
@@ -278,7 +277,6 @@ impl AIPlayer {
                     unit.requested_destination = Some(enemy_base);
                 }
                 game_logic.set_ai_state_decision_aware_for_ai(unit_id, AIState::AttackMoving);
-                game_logic.dispatch_ai_attack_move(unit_id, enemy_base, focus_enemy);
                 if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_move_to(unit_id, enemy_base);
                 }

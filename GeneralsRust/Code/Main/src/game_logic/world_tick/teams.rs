@@ -2381,6 +2381,9 @@ mod tests {
         let seed = game_engine::common::random_value::get_game_logic_random_seed_state();
         let expected = leftover_wander_group_offset(2.0);
         game_engine::common::random_value::set_game_logic_random_seed_state(seed);
+        // C++ privateWander clears/re-enters the state for each order. Issue
+        // this changed route in the same frame: a prior path timestamp must
+        // not make the replacement reuse the zero-width route (hq-h4jfb).
         logic.test_host_wander_issue_path(id, &[via, goal]);
         let unit = logic.host_object(id).unwrap();
         let dest = unit.requested_destination.expect("offset final goal");

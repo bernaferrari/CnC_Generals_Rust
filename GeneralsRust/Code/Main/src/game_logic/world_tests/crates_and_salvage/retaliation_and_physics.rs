@@ -2059,6 +2059,12 @@ fn private_face_turns_toward_target() {
         o
     });
     let yaw0 = logic.objects.get(&aid).unwrap().get_orientation();
+    // C++ AIFaceState::onEnter/update fail if the goal object does not exist.
+    assert!(!logic.private_face_object(aid, ObjectId(u32::MAX)));
+    let unchanged = logic.objects.get(&aid).unwrap();
+    assert_eq!(unchanged.get_orientation(), yaw0);
+    assert!(!unchanged.face_active);
+    assert_eq!(unchanged.target, None);
     assert!(logic.private_face_object(aid, vid));
     let after_cmd = logic.objects.get(&aid).unwrap();
     assert_eq!(after_cmd.ai_state, crate::game_logic::AIState::FacingObject);

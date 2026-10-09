@@ -28,7 +28,11 @@ pub(super) fn admitted_cell_position(logic: &GameLogic, unit: &Object, point: Ve
     let grid = &logic.pathfinding_system.grid;
     let (_, center) = PathfindingGrid::radius_and_center(unit.selection_radius, grid.grid_size());
     let cell = grid.world_to_grid(point);
-    let position = grid.adjust_coord_to_ground_cell(cell, center);
+    // Stay within the admitted cell, near its forward edge. This lets a
+    // sub-20-unit order cross an intervening 10-unit column rather than put
+    // the goal in the wall, where C++ destination adjustment may succeed.
+    let position = grid.adjust_coord_to_ground_cell(cell, center)
+        + Vec3::new(grid.grid_size() * 0.4, 0.0, 0.0);
     assert_eq!(grid.cell_for_unit_position(position, center), cell);
     assert_eq!(grid.world_to_grid(position), cell);
     position

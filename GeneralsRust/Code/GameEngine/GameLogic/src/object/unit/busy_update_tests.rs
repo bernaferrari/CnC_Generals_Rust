@@ -132,7 +132,6 @@ fn busy_callback_enter_needs_no_owner() {
     )) {
         return;
     }
-    let _serial = crate::test_sync::lock();
     let context = StateMachine::new(None::<std::sync::Weak<RwLock<Object>>>, "busy-enter-oracle");
     let mut direct = AIBusyState::new(&context);
     let mut registered = CppStateAdapter::new(AIBusyState::new(&context));

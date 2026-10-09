@@ -282,6 +282,15 @@ fn idle_crate_transition_enters_pickup_synchronously_with_the_borrowed_ai() {
             machine.set_loaned(GuardRetaliateStateType::Idle, &mut *ai),
             StateReturnType::Continue
         );
+        // C++ AIGuardRetaliate.cpp:631-648 delays the first scan by a
+        // random value in [0, guardEnemyScanRate]. Advance the actual clock
+        // to the latest possible deadline, independent of the seeded draw.
+        let scan_rate = get_guard_enemy_scan_rate();
+        {
+            let mut logic = crate::system::game_logic::get_game_logic().lock().unwrap();
+            let scan_frame = logic.get_current_frame() + u64::from(scan_rate);
+            logic.set_current_frame(scan_frame);
+        }
         assert_eq!(
             machine.update_loaned(&mut *ai),
             StateReturnType::Continue,

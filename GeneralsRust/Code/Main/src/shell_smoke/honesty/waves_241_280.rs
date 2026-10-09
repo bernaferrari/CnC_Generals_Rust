@@ -83,9 +83,6 @@ pub(super) struct Waves241280 {
     pub live_partition_filters_dual_world_empty_gate_method_names_wave266_ok: bool,
     pub live_partition_filters_dual_world_empty_gate_nav_commands_wave266_ok: bool,
     pub live_partition_filters_dual_world_empty_gate_live_wave266_ok: bool,
-    pub live_ai_state_machine_dual_world_empty_gate_method_names_wave267_ok: bool,
-    pub live_ai_state_machine_dual_world_empty_gate_nav_commands_wave267_ok: bool,
-    pub live_ai_state_machine_dual_world_empty_gate_live_wave267_ok: bool,
     pub live_player_dual_world_empty_gate_method_names_wave268_ok: bool,
     pub live_player_dual_world_empty_gate_nav_commands_wave268_ok: bool,
     pub live_player_dual_world_empty_gate_live_wave268_ok: bool,
@@ -278,12 +275,6 @@ pub(super) fn evaluate(
             honesty_live_partition_filters_dual_world_empty_gate_nav_commands_residual_wave266(),
         live_partition_filters_dual_world_empty_gate_live_wave266_ok:
             simulate_live_partition_filters_dual_world_empty_gate_honesty(),
-        live_ai_state_machine_dual_world_empty_gate_method_names_wave267_ok:
-            honesty_live_ai_state_machine_dual_world_empty_gate_method_names_residual_wave267(),
-        live_ai_state_machine_dual_world_empty_gate_nav_commands_wave267_ok:
-            honesty_live_ai_state_machine_dual_world_empty_gate_nav_commands_residual_wave267(),
-        live_ai_state_machine_dual_world_empty_gate_live_wave267_ok:
-            simulate_live_ai_state_machine_dual_world_empty_gate_honesty(),
         live_player_dual_world_empty_gate_method_names_wave268_ok:
             honesty_live_player_dual_world_empty_gate_method_names_residual_wave268(),
         live_player_dual_world_empty_gate_nav_commands_wave268_ok:

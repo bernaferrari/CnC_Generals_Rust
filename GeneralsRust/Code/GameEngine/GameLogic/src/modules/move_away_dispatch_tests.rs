@@ -111,7 +111,6 @@ fn receiver(
 
 #[test]
 fn move_away_forwards_to_receiving_policy_with_original_source() {
-    let _serial = crate::test_sync::lock();
     let (ai, commands) = receiver(false);
     ai.ai_move_away_from_unit(0xA1_2A_0001, CommandSourceType::FromScript);
     let observed = commands.lock().unwrap().clone();

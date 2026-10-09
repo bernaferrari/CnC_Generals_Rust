@@ -2752,13 +2752,11 @@ fn launch_attack_uses_assign_unit_path_surface() {
 }
 
 #[test]
-fn launch_attack_dispatches_crate_attack_move_state() {
-    // C++ AIAttackMoveState / AIInternalMoveToState::onEnter (AIStates.cpp).
-    // Live host AIState is a flat enum; launch_attack must also record
-    // crate AiStateType::AttackMoveTo via dispatch_host_move_attack.
+fn launch_attack_installs_owned_attack_move_state_and_path() {
+    // C++ AIAttackMoveToState / AIInternalMoveToState::onEnter (AIStates.cpp).
+    // Observe the path request and attack-move state on the live host object.
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
-    use gamelogic::ai::state_machine::{AiStateType, host_move_attack_state};
 
     // Opt into AI decision authority via GameLogic::set_ai_decision_authority(true)
     // (retired GENERALS_GAMEWORLD_AI_DECISION_AUTHORITY env).
@@ -2772,7 +2770,12 @@ fn launch_attack_dispatches_crate_attack_move_state() {
         if !logic.templates.contains_key(name) {
             let mut tmpl = ThingTemplate::new(name);
             tmpl.set_health(100.0);
-            tmpl.add_kind_of(KindOf::Infantry);
+            if team == Team::GLA {
+                tmpl.add_kind_of(KindOf::Structure);
+                tmpl.add_kind_of(KindOf::CommandCenter);
+            } else {
+                tmpl.add_kind_of(KindOf::Infantry);
+            }
             tmpl.add_kind_of(KindOf::Attackable);
             logic.templates.insert(name.into(), tmpl);
         }
@@ -2805,16 +2808,18 @@ fn launch_attack_dispatches_crate_attack_move_state() {
         });
     }
 
+    let destination = ai.find_enemy_base_center(&logic, gla_id.expect("GLA player"));
+    assert_eq!(destination, glam::Vec3::new(80.0, 0.0, 0.0));
     ai.launch_attack(&mut logic, 1000.0);
 
-    assert_eq!(
-        host_move_attack_state(&logic.host_move_attack_machines, usa_unit.0),
-        Some(AiStateType::AttackMoveTo),
-        "launch_attack must record crate AttackMoveTo for the live unit"
-    );
-    assert_eq!(
-        logic.host_object(usa_unit).map(|o| o.ai_state.clone()),
-        Some(AIState::AttackMoving)
+    let unit = logic.host_object(usa_unit).expect("live attacking unit");
+    assert_eq!(unit.ai_state, AIState::AttackMoving);
+    assert_eq!(unit.requested_destination, Some(destination));
+    assert!(unit.is_attack_path);
+    assert!(unit.status.moving);
+    assert!(
+        unit.waiting_for_path || !unit.movement.path.is_empty(),
+        "attack-move must request or install a path on the live unit"
     );
 
     crate::gameworld_shadow::end_shadow_coupled_tick();

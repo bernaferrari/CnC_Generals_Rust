@@ -74,8 +74,8 @@ mod tests {
         let start = admitted_cell_position(&logic, &unit, Vec3::new(100.0, 0.0, 100.0));
         let start_cell = logic.pathfinding_system.grid.world_to_grid(start);
         unit.set_position(start);
-        // distance 15 < 20: pre-fix skipped A* and marched through the wall.
-        let goal = start + Vec3::new(15.0, 0.0, 0.0);
+        // distance 19.5 < 20: pre-fix skipped A* and marched through the wall.
+        let goal = start + Vec3::new(19.5, 0.0, 0.0);
         let goal_cell = logic.pathfinding_system.grid.world_to_grid(goal);
         assert_ne!(start_cell, goal_cell, "short move must span two cells");
         let wall_x = if start_cell.x < goal_cell.x {
@@ -83,6 +83,10 @@ mod tests {
         } else {
             start_cell.x - 1
         };
+        assert!(
+            wall_x < goal_cell.x,
+            "goal must be beyond the sealed column"
+        );
         seal_column(&mut logic, wall_x);
         assert!(
             logic

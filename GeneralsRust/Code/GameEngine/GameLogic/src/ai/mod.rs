@@ -53,9 +53,7 @@ pub use game_engine::common::rts::ScienceType;
 pub mod enhanced_player;
 pub mod groups;
 pub mod integration;
-pub mod native;
 pub mod object_registry;
-pub mod state_machine;
 mod target_acquisition;
 
 // Constants

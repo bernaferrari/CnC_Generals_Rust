@@ -266,13 +266,6 @@ pub use super::host_live_ai_player_dual_world_empty_gate_residual_wave255::{
     simulate_live_ai_player_dual_world_empty_gate_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_ai_state_machine_dual_world_empty_gate_residual_wave267::{
-    honesty_live_ai_state_machine_dual_world_empty_gate_method_names_residual_wave267,
-    honesty_live_ai_state_machine_dual_world_empty_gate_nav_commands_residual_wave267,
-    honesty_live_ai_state_machine_dual_world_empty_gate_residual_pack_wave267,
-    simulate_live_ai_state_machine_dual_world_empty_gate_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_ai_targeting_dual_world_empty_gate_residual_wave421::{
     honesty_live_ai_targeting_dual_world_empty_gate_method_names_residual_wave421,
     honesty_live_ai_targeting_dual_world_empty_gate_nav_commands_residual_wave421,

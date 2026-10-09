@@ -39,11 +39,6 @@ pub struct GameLogic {
     pub attack_priority_sets: std::collections::HashMap<String, AttackPriorityInfo>,
     /// C++ `Team::m_commonAttackTarget` residual, keyed by team instance name.
     pub team_common_attack_targets: std::collections::HashMap<String, ObjectId>,
-    /// Crate move/attack machines for this world only. ObjectIDs are not unique
-    /// across games, so this is not a process map.
-    pub(crate) host_move_attack_machines:
-        HashMap<u32, gamelogic::ai::state_machine::AiStateMachine>,
-
     /// C++ TAiData::m_enableRepulsors residual (AI.ini EnableRepulsors).
     pub enable_repulsors: bool,
     /// C++ TAiData::m_retaliateFriendsRadius residual (default 120).

@@ -157597,7 +157597,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "92923fd637d8f60cbd7127338ae08e96d7b125017ff873c0dae6f03b797f973c",
+  "input_digest": "8d2f96b670e776c0ff4d83ff0b028d6dd7963086638f89ff1c9a423613dfb35e",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -180639,11 +180639,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 408,
+        "end_line": 417,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/guard_retaliate_owner_tests.rs",
-      "sha256": "d1de1298d735fcd56567c621830bb27836271f93d6fea3510591942b69634b46",
+      "sha256": "bcfc53c58df053f47b8fc9febcecaee8baff005adc3925befd428249c9bb4bc4",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -180843,12 +180843,12 @@
         },
         {
           "kind": "fn",
-          "line": 303,
+          "line": 312,
           "name": "native_parent_retaliation_forwards_held_ai_through_enter_update_and_exit"
         },
         {
           "kind": "fn",
-          "line": 376,
+          "line": 385,
           "name": "borrowed_outer_update_checks_exit_predicate_before_child_effects"
         }
       ]

@@ -808,6 +808,10 @@ impl Object {
 }
 
 #[cfg(test)]
+#[path = "face_behavior_tests.rs"]
+mod face_behavior_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::game_logic::weapon_bootstrap::{HostReloadType, host_reload_type_for_weapon_name};

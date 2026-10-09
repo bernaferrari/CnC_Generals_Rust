@@ -174,8 +174,8 @@ impl PathfindingSystem {
         dest: Vec3,
         target_pos: Vec3,
         unit_radius: f32,
-        surfaces: u32,
-        is_crusher: bool,
+        _surfaces: u32,
+        _is_crusher: bool,
         source_radius: f32,
         target_radius: f32,
         attack_range: f32,
@@ -191,50 +191,9 @@ impl PathfindingSystem {
                 target_radius,
             )
         };
-        let mut dest = dest;
-
-        let ai_store = gamelogic::ai::the_ai();
-        if let Ok(ai) = ai_store.read() {
-            if let Some(pf) = ai.pathfinder() {
-                if let Ok(pf) = pf.read() {
-                    let mut dest3 = gamelogic::common::Coord3D::new(dest.x, dest.z, dest.y);
-                    let _ = pf.adjust_target_destination_for(
-                        surfaces,
-                        is_crusher,
-                        unit_radius,
-                        Some(seeker),
-                        &mut dest3,
-                        |goal| in_range(Vec3::new(goal.x, goal.z, goal.y)),
-                    );
-                    dest = Vec3::new(dest3.x, dest.y, dest3.y);
-                }
-            }
-        }
-
-        let mut claimed = HashSet::new();
-        let cell_size = self.grid.grid_size();
-        for (id, obj) in objects {
-            if id.0 == seeker {
-                continue;
-            }
-            if !PathfindingGrid::is_aircraft_that_adjusts_destination(obj) {
-                continue;
-            }
-            let Some(goal) = PathfindingGrid::aircraft_goal_dest(obj) else {
-                continue;
-            };
-            let (or, oc) = PathfindingGrid::radius_and_center(obj.selection_radius, cell_size);
-            let cell = self.grid.world_to_grid(goal);
-            let mut num_above = or;
-            if oc {
-                num_above += 1;
-            }
-            for i in (cell.x - or)..(cell.x + num_above) {
-                for j in (cell.y - or)..(cell.y + num_above) {
-                    claimed.insert(GridPos::new(i, j));
-                }
-            }
-        }
+        // The driving roster supplies the only goal reservations for this
+        // query. Core's standalone AI model may belong to another match.
+        let claimed = self.grid.aircraft_goal_claims(objects, seeker);
 
         let mut out = dest;
         if self

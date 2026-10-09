@@ -137,7 +137,7 @@ MANUAL_CPP_TO_RUST: dict[tuple[str, str], str] = {
     ("Include", "GameLogic/AIGuardRetaliate.h"): "GameLogic/src/ai/guard_retaliate.rs",
     ("Include", "GameLogic/AIPathfind.h"): "GameLogic/src/ai/pathfind.rs",
     ("Include", "GameLogic/AISkirmishPlayer.h"): "GameLogic/src/ai/skirmish_player.rs",
-    ("Include", "GameLogic/AIStateMachine.h"): "GameLogic/src/ai/state_machine.rs",
+    ("Include", "GameLogic/AIStateMachine.h"): "GameLogic/src/ai/states/state_machine.rs",
     ("Include", "GameLogic/AITNGuard.h"): "GameLogic/src/ai/tn_guard.rs",
     ("Include", "GameLogic/FPUControl.h"): "GameLogic/src/system/game_logic.rs",
     (

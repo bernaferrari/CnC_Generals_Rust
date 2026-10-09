@@ -285,7 +285,11 @@ impl GameLogic {
             return true;
         }
         let quick_installed = self.objects.get(&unit_id).is_some_and(|unit| {
-            unit.path_timestamp == self.frame
+            // Only the empty-waypoint request above can install a quick path.
+            // An explicit route may replace another order in this same frame;
+            // its predecessor's timestamp does not validate the new route.
+            waypoints.is_empty()
+                && unit.path_timestamp == self.frame
                 && !unit.waiting_for_path
                 && !unit.movement.path.is_empty()
         });

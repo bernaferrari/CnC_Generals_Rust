@@ -64,7 +64,6 @@ impl GameLogic {
             drawable_tint_envelopes: crate::game_logic::DrawableTintEnvelopes::default(),
             attack_priority_sets: std::collections::HashMap::new(),
             team_common_attack_targets: std::collections::HashMap::new(),
-            host_move_attack_machines: HashMap::new(),
 
             enable_repulsors: false,
             retaliate_friends_radius: 120.0,
@@ -779,7 +778,6 @@ impl GameLogic {
         self.warehouse_crippling_states.clear();
         self.mission_scripts.clear_warehouse_set_values();
         self.host_dock_approach_queues.get_mut().clear();
-        self.host_move_attack_machines.clear();
         self.host_view_dirty.clear();
         self.vision_last_looks.clear();
         self.vision_last_reveal_all.clear();
