@@ -27,7 +27,7 @@ use crate::scripting::engine::{
 use crate::scripting::events::{AreaTrackerState, NamedObjectTrackerState};
 use crate::sides_list::{SidesList, get_sides_list};
 use crate::system::engine_stores::{self, EngineStores};
-use crate::system::shroud_manager::{ShroudManager, get_shroud_manager};
+use crate::system::shroud_manager::ShroudManager;
 use crate::team::{
     TeamFactory, TeamFactoryDeferredEffects, TeamScriptEventQueue, get_team_factory,
     replace_pending_team_script_events_for_world_boundary,
@@ -224,8 +224,8 @@ impl RuntimeWorldGlobals {
                 std::mem::take(&mut *guard)
             };
             let shroud = {
-                let shroud_manager = get_shroud_manager();
-                let mut guard = shroud_manager
+                let mut guard = bundle
+                    .shroud()
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
                 std::mem::replace(&mut *guard, ShroudManager::new())
@@ -302,8 +302,8 @@ impl RuntimeWorldGlobals {
                 std::mem::replace(&mut *guard, script_engine)
             };
             let old_shroud = {
-                let shroud_manager = get_shroud_manager();
-                let mut guard = shroud_manager
+                let mut guard = bundle
+                    .shroud()
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
                 std::mem::replace(&mut *guard, shroud)

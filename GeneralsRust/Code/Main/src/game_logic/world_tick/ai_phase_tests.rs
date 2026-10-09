@@ -197,6 +197,34 @@ fn interleaved_matches_tick_only_their_owned_ai() {
 }
 
 #[test]
+fn older_match_steps_resolve_its_own_engine_stores() {
+    if isolated("older_match_steps_resolve_its_own_engine_stores") {
+        return;
+    }
+    let mut first = match_with_player();
+    let mut second = match_with_player();
+    let first_stores = std::sync::Arc::clone(&first.engine_stores);
+    let second_stores = std::sync::Arc::clone(&second.engine_stores);
+    // Activate the newer match: outside a step, ambient resolution follows it.
+    second.install_as_active_stores();
+    assert!(std::sync::Arc::ptr_eq(
+        &gamelogic::system::engine_stores::active(),
+        &second_stores
+    ));
+    // The older match's step resolves its own stores (debug-asserted inside
+    // the step) and restores the newer match's resolution afterwards.
+    first.update_with_dt(LOGIC_FRAME_TIMESTEP);
+    assert_eq!(first.frame, 1);
+    assert!(std::sync::Arc::ptr_eq(
+        &gamelogic::system::engine_stores::active(),
+        &second_stores
+    ));
+    second.update_with_dt(LOGIC_FRAME_TIMESTEP);
+    assert_eq!(second.frame, 1);
+    assert!(!std::sync::Arc::ptr_eq(&first_stores, &second_stores));
+}
+
+#[test]
 fn frozen_steps_preserve_queued_paths_until_the_owned_ai_phase() {
     if isolated("frozen_steps_preserve_queued_paths_until_the_owned_ai_phase") {
         return;

@@ -450,14 +450,21 @@ impl GameLogic {
             !self.host_logic_after_sync,
             "nested update on the same GameLogic"
         );
-        // Presentation spawn/destruction events are logic-frame scoped. Keep
-        // active particle systems themselves, but never replay old spawn events
-        // forever on later presentation frames.
-        self.combat_particles.clear_frame_events();
-        // HashMap starts the tick as a GameWorld view (HP/pose/target/fat fields).
-        self.sync_authoritative_view_from_gameworld();
-        self.with_host_logic_after_sync(|logic| logic.update_simulation_after_sync(dt))
-            .expect("a fixed step enters its owner phase once")
+        // Pin this world's engine stores for the whole step. Compatibility
+        // accessors that still resolve TheAI / TheUpgradeCenter / the shroud
+        // ambiently must see the driving world, not whichever world was
+        // installed last (a second match, or a staged load candidate).
+        let stores = std::sync::Arc::clone(&self.engine_stores);
+        gamelogic::system::engine_stores::with_active_stores(&stores, || {
+            // Presentation spawn/destruction events are logic-frame scoped.
+            // Keep active particle systems themselves, but never replay old
+            // spawn events forever on later presentation frames.
+            self.combat_particles.clear_frame_events();
+            // HashMap starts the tick as a GameWorld view (HP/pose/target/fat fields).
+            self.sync_authoritative_view_from_gameworld();
+            self.with_host_logic_after_sync(|logic| logic.update_simulation_after_sync(dt))
+                .expect("a fixed step enters its owner phase once")
+        })
     }
 
     /// Borrow live Object state after the actual begin-step sync. No new
@@ -476,6 +483,13 @@ impl GameLogic {
     }
 
     fn update_simulation_after_sync(&mut self, dt: f32) -> SimulationStepOutcome {
+        debug_assert!(
+            std::sync::Arc::ptr_eq(
+                &gamelogic::system::engine_stores::active(),
+                &self.engine_stores
+            ),
+            "a logic step must resolve its own engine stores"
+        );
         // Pathfinding dynamic obstacles rebuild once per host logic frame.
         self.pathfinding_system.note_logic_frame(self.frame as u64);
         self.refresh_pathfind_ally_masks();
