@@ -532,9 +532,33 @@ impl CollisionManager {
         loc: &Coord3D,
         normal: &Coord3D,
     ) -> Result<(), CollisionError> {
+        self.handle_collision_with_owner(object_id, None, other, loc, normal)
+    }
+
+    /// Dispatch a collision through the exact owner retained by the collision
+    /// system's contact pass. The ID-based API remains for standalone callers.
+    pub(crate) fn handle_collision_for_owner(
+        &self,
+        object_id: ObjectId,
+        owner: &Arc<RwLock<Object>>,
+        other: Option<&dyn GameObject>,
+        loc: &Coord3D,
+        normal: &Coord3D,
+    ) -> Result<(), CollisionError> {
+        self.handle_collision_with_owner(object_id, Some(owner), other, loc, normal)
+    }
+
+    fn handle_collision_with_owner(
+        &self,
+        object_id: ObjectId,
+        owner: Option<&Arc<RwLock<Object>>>,
+        other: Option<&dyn GameObject>,
+        loc: &Coord3D,
+        normal: &Coord3D,
+    ) -> Result<(), CollisionError> {
         // C++ Object::onCollide (Object.cpp:2369-2389) iterates every behavior
         // getCollide() — PhysicsBehaviorUpdate is one of those modules.
-        dispatch_behavior_collides(object_id, other);
+        dispatch_behavior_collides_for_owner(object_id, owner, other);
 
         let mut modules = self
             .modules
@@ -542,7 +566,9 @@ impl CollisionManager {
             .map_err(|e| CollisionError::InvalidObject(format!("Failed to acquire lock: {}", e)))?;
 
         if let Some(object_modules) = modules.get_mut(&object_id) {
-            let object_handle = crate::helpers::TheGameLogic::find_object_by_id(object_id);
+            let object_handle = owner
+                .cloned()
+                .or_else(|| crate::helpers::TheGameLogic::find_object_by_id(object_id));
             for module in object_modules.iter_mut() {
                 if let Some(handle) = &object_handle {
                     if let Ok(obj_guard) = handle.read() {
@@ -622,8 +648,14 @@ impl Default for CollisionManager {
 }
 
 /// C++ Object.cpp:2369 — call CollideModuleInterface on each behavior module.
-fn dispatch_behavior_collides(object_id: ObjectId, other: Option<&dyn GameObject>) {
-    let obj = crate::object::registry::OBJECT_REGISTRY.get_object(object_id);
+fn dispatch_behavior_collides_for_owner(
+    object_id: ObjectId,
+    owner: Option<&Arc<RwLock<Object>>>,
+    other: Option<&dyn GameObject>,
+) {
+    let obj = owner
+        .cloned()
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id));
     let Some(obj) = obj else {
         return;
     };
@@ -637,7 +669,10 @@ fn dispatch_behavior_collides(object_id: ObjectId, other: Option<&dyn GameObject
     drop(guard);
     let other_id = other.map(|o| o.get_id()).unwrap_or(INVALID_ID);
     for mut behavior in behaviors {
-        if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) {
+        let obj = owner
+            .cloned()
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id));
+        if let Some(obj) = obj {
             if let Ok(guard) = obj.try_read() {
                 if guard.test_status(ObjectStatusTypes::NoCollisions) {
                     break;
@@ -652,7 +687,10 @@ fn dispatch_behavior_collides(object_id: ObjectId, other: Option<&dyn GameObject
         }
     }
     if other_id != INVALID_ID {
-        if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) {
+        let obj = owner
+            .cloned()
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id));
+        if let Some(obj) = obj {
             let contain = obj.try_read().ok().and_then(|guard| guard.get_contain());
             if let Some(contain) = contain {
                 if let Ok(mut contain_guard) = contain.try_lock() {

@@ -1013,8 +1013,11 @@ impl Object {
             self.dock_cancel_epoch = self.dock_cancel_epoch.wrapping_add(1);
         }
         let was_entering = matches!(self.ai_state, AIState::Entering);
-        let entering_move =
-            matches!(state, AIState::Moving | AIState::AttackMoving) && self.ai_state != state;
+        let leaving_panic_state = self.ai_state == AIState::Panic && state != AIState::Panic;
+        let entering_move = matches!(
+            state,
+            AIState::Moving | AIState::AttackMoving | AIState::Panic
+        ) && self.ai_state != state;
         let ordinal = match state {
             AIState::Idle => 0u8,
             AIState::Moving => 1,
@@ -1039,6 +1042,7 @@ impl Object {
             AIState::GuardRetaliating => 20,
             AIState::FacingObject => 21,
             AIState::FacingPosition => 22,
+            AIState::Panic => 23,
         };
         if !matches!(
             state,
@@ -1056,8 +1060,13 @@ impl Object {
         } else if !matches!(state, AIState::Idle) {
             self.idle_mood_reset_pending = false;
         }
-        let leaving_move = matches!(self.ai_state, AIState::Moving | AIState::AttackMoving)
-            && !matches!(state, AIState::Moving | AIState::AttackMoving);
+        let leaving_move = matches!(
+            self.ai_state,
+            AIState::Moving | AIState::AttackMoving | AIState::Panic
+        ) && !matches!(
+            state,
+            AIState::Moving | AIState::AttackMoving | AIState::Panic
+        );
         if leaving_move {
             self.set_status_moving(false);
             if let Some(name) = self.move_loop_audio.take() {
@@ -1088,6 +1097,10 @@ impl Object {
             self.attack_move_command_src = Some(self.last_command_source);
         }
         self.ai_state = state;
+        if leaving_panic_state {
+            self.panic_runtime = None;
+            self.is_panicking = false;
+        }
         if entering_move && self.is_kind_of(crate::game_logic::KindOf::Immobile) {
             self.ai_state = AIState::Idle;
             self.set_status_moving(false);

@@ -263,6 +263,36 @@ impl SnapshotBuilder {
     ) -> SaveLoadResult<HashMap<String, ModuleSnapshot>> {
         let mut modules = HashMap::new();
 
+        if object.ai_state == crate::game_logic::AIState::Panic && object.panic_runtime.is_none() {
+            return Err(SaveLoadError::Corrupted(
+                "AI_PANIC object is missing its owned continuation".to_owned(),
+            ));
+        }
+        if object.ai_state != crate::game_logic::AIState::Panic && object.panic_runtime.is_some() {
+            return Err(SaveLoadError::Corrupted(
+                "AI_PANIC continuation is attached to a non-panic object".to_owned(),
+            ));
+        }
+
+        if let Some(panic) = &object.panic_runtime {
+            let save_state = crate::game_logic::object::PanicSaveState::capture(panic, object);
+            let encoded = serde_json::to_string(&save_state).map_err(|error| {
+                SaveLoadError::Corrupted(format!("Could not encode AIPanic continuation: {error}"))
+            })?;
+            let mut state_machine_data = HashMap::new();
+            state_machine_data.insert("AIPanicState".to_owned(), encoded);
+            modules.insert(
+                "AIUpdate".to_owned(),
+                ModuleSnapshot::AIUpdate(AIUpdateModuleSnapshot {
+                    current_state: "AI_PANIC".to_owned(),
+                    state_machine_data,
+                    target_object: None,
+                    current_task: None,
+                    task_queue: Vec::new(),
+                }),
+            );
+        }
+
         if let Some(building_data) = &object.building_data {
             let production_queue = building_data
                 .production_queue

@@ -170,6 +170,7 @@ impl GameWorldShadow {
             A::Capturing => 19,
             A::FacingObject => 21,
             A::FacingPosition => 22,
+            A::Panic => 23,
         }
     }
 
@@ -198,6 +199,7 @@ impl GameWorldShadow {
             20 => A::GuardRetaliating,
             21 => A::FacingObject,
             22 => A::FacingPosition,
+            23 => A::Panic,
             _ => A::Idle,
         }
     }

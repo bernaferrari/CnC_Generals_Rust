@@ -72,21 +72,18 @@ fn assert_changed(core: &StateMachine, enters: &AtomicUsize, result: StateReturn
 }
 #[test]
 fn owner_callback_change_precedes_sleep_processing() {
-    let _serial = crate::test_sync::lock();
     let (mut core, enters) = machine();
     let result = core.update_with_owner(&mut ());
     assert_changed(&core, &enters, result);
 }
 #[test]
 fn borrowed_ai_callback_change_precedes_sleep_processing() {
-    let _serial = crate::test_sync::lock();
     let (mut core, enters) = machine();
     let result = core.update_with_ai(&mut TestAI);
     assert_changed(&core, &enters, result);
 }
 #[test]
 fn locked_machine_rejects_callback_request_and_preserves_sleep() {
-    let _serial = crate::test_sync::lock();
     let (mut core, enters) = machine();
     core.lock();
     assert_eq!(
@@ -99,7 +96,6 @@ fn locked_machine_rejects_callback_request_and_preserves_sleep() {
 
 #[test]
 fn body_returns_before_requested_transition_and_sleep_processing() {
-    let _serial = crate::test_sync::lock();
     let (mut core, enters) = machine();
     let mut ai = TestAI;
     let mut owner = ();
@@ -118,7 +114,6 @@ fn body_returns_before_requested_transition_and_sleep_processing() {
 
 #[test]
 fn driver_changes_state_after_body_before_outgoing_sleep() {
-    let _serial = crate::test_sync::lock();
     #[derive(Debug)]
     struct SleepState;
     impl StateImplementation for SleepState {
@@ -149,7 +144,6 @@ fn driver_changes_state_after_body_before_outgoing_sleep() {
 
 #[test]
 fn sleeping_step_has_no_body_to_resume() {
-    let _serial = crate::test_sync::lock();
     let (mut core, enters) = machine();
     core.lock();
     let mut ai = TestAI;

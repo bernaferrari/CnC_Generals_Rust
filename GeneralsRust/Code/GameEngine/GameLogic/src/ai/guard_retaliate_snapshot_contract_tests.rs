@@ -65,7 +65,6 @@ fn pickup_with_fixture() -> AIPickUpCrateState {
 
 #[test]
 fn pickup_wire_matches_cpp_nested_versions_fields_and_enum_width() {
-    let _serial = crate::test_sync::lock();
     let expected = pickup_fixture();
     let mut pickup = pickup_with_fixture();
     assert_eq!(save(&mut pickup), expected);
@@ -90,7 +89,6 @@ fn pickup_wire_matches_cpp_nested_versions_fields_and_enum_width() {
 
 #[test]
 fn guard_retaliate_embedded_pickup_uses_shared_pickup_wire_payload() {
-    let _serial = crate::test_sync::lock();
     let machine = StateMachine::new(None, "retaliate pickup snapshot fixture");
     let mut state = AIGuardRetaliatePickUpCrateState::new(&machine);
     state.install_test_pickup(pickup_with_fixture());
@@ -100,7 +98,6 @@ fn guard_retaliate_embedded_pickup_uses_shared_pickup_wire_payload() {
 
 #[test]
 fn pickup_rejects_unsupported_versions_and_truncated_inherited_payload() {
-    let _serial = crate::test_sync::lock();
     let mut pickup = pickup_with_fixture();
     let mut unsupported_base_version = Cursor::new(vec![1, 2, 0, 0, 0]);
     assert!(
@@ -117,7 +114,6 @@ fn pickup_rejects_unsupported_versions_and_truncated_inherited_payload() {
 
 #[test]
 fn retaliation_child_payloads_match_cpp_versions_and_only_declared_fields() {
-    let _serial = crate::test_sync::lock();
     let machine = StateMachine::new(None, "retaliate child snapshots");
     let mut inner = AIGuardRetaliateInnerState::new(&machine);
     let mut outer = AIGuardRetaliateOuterState::new(&machine);
@@ -147,7 +143,6 @@ fn retaliation_child_payloads_match_cpp_versions_and_only_declared_fields() {
 
 #[test]
 fn unsupported_or_truncated_child_payloads_fail_without_postprocess_callbacks() {
-    let _serial = crate::test_sync::lock();
     let machine = StateMachine::new(None, "invalid snapshot inputs");
     let mut idle = AIGuardRetaliateIdleState::new(&machine);
     let mut unsupported = Cursor::new(vec![2, 0, 0, 0, 0]);
@@ -178,7 +173,6 @@ impl TestPickupInstall for AIGuardRetaliatePickUpCrateState {
 
 #[test]
 fn pickup_roundtrip_preserves_raw_cpp_enum_width_without_truncation() {
-    let _serial = crate::test_sync::lock();
     let mut expected = pickup_fixture();
     expected[14..18].copy_from_slice(&0xfedc_ba98u32.to_le_bytes());
     let mut pickup = AIPickUpCrateState::new(&StateMachine::new(None, "raw enum restore"));
@@ -241,7 +235,6 @@ fn retaliate_v2_fixture(all_states: bool, current: u32) -> Vec<u8> {
 
 #[test]
 fn retaliate_v2_all_states_loads_cpp_sorted_children_then_saves_current_only() {
-    let _serial = crate::test_sync::lock();
     let mut machine = AIGuardRetaliateMachine::new(Weak::new());
     let all_states = retaliate_v2_fixture(true, 5001);
     machine
@@ -280,7 +273,6 @@ fn retaliate_v2_all_states_loads_cpp_sorted_children_then_saves_current_only() {
 
 #[test]
 fn retaliate_v1_fixture_is_load_only_and_skips_nested_machine() {
-    let _serial = crate::test_sync::lock();
     let mut bytes = vec![1]; // old machine envelope version
     append_u32(&mut bytes, 0x1234_5678);
     append_coord(&mut bytes, Coord3D::new(1.5, -2.25, 3.0));

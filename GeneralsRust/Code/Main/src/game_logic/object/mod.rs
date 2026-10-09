@@ -704,6 +704,10 @@ pub struct Object {
     /// C++ AI panic state residual (AI_PANIC → bounce force allowed).
     #[serde(default)]
     pub is_panicking: bool,
+    /// C++ `AIPanicState`/`AIFollowWaypointPathState` continuation. The current
+    /// path itself remains canonical in `Movement` and the Object path fields.
+    #[serde(default)]
+    pub(crate) panic_runtime: Option<PanicRuntime>,
     /// C++ PhysicsBehavior m_mass residual.
     #[serde(default = "default_physics_mass")]
     pub physics_mass: f32,
@@ -3019,6 +3023,9 @@ pub enum AIState {
     FacingObject,
     /// C++ `AI_FACE_POSITION`.
     FacingPosition,
+    /// C++ AI_PANIC: follow authored waypoint links while allowing infantry bounce.
+    /// Appended to preserve existing bincode variant indices.
+    Panic,
 }
 
 /// C++ `SpecialAbilityUpdate::PackingState` subset for capture abilities.
@@ -3219,6 +3226,7 @@ mod entity_lifecycle_tags;
 mod install;
 mod jets;
 mod orders;
+mod panic_runtime;
 mod physics;
 mod physics_motion;
 mod pose;
@@ -3234,6 +3242,7 @@ pub use entity_lifecycle_envelope::{
     decode_lifecycle_snapshot_block, encode_lifecycle_snapshot_block,
 };
 pub use entity_lifecycle_tags::INVENTORY_TAGS;
+pub(crate) use panic_runtime::{PanicRuntime, PanicSaveState};
 
 pub use barrels::WeaponBarrelState;
 mod damage_context;

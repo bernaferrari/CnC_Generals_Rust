@@ -550,10 +550,7 @@ pub struct ResourceSnapshot {
 impl ObjectSnapshot {
     /// Transfer the current Rust object record. The enclosing world validates
     /// its schema before any positional object body is consumed.
-    pub(super) fn xfer_current_fields(
-        &mut self,
-        xfer: &mut dyn Xfer,
-    ) -> SaveLoadResult<()> {
+    pub(super) fn xfer_current_fields(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
         xfer.xfer_marker_label("ObjectSnapshot")?;
 
         xfer.xfer_marker_label("Id")?;
@@ -613,11 +610,7 @@ impl ObjectSnapshot {
         xfer_option(
             xfer,
             &mut self.hacker_disable_channel,
-            HackerDisableChannelState::new(
-                ObjectId(0),
-                HackerDisableChannelPhase::Unpacking,
-                0,
-            ),
+            HackerDisableChannelState::new(ObjectId(0), HackerDisableChannelPhase::Unpacking, 0),
         )?;
 
         xfer.xfer_marker_label("WeaponBarrelStates")?;
@@ -1237,6 +1230,7 @@ impl XferData for AIState {
             AIState::Capturing => 19,
             AIState::FacingObject => 21,
             AIState::FacingPosition => 22,
+            AIState::Panic => 23,
         };
         xfer.xfer_u32(&mut value)?;
         *self = match value {
@@ -1263,6 +1257,7 @@ impl XferData for AIState {
             19 => AIState::Capturing,
             21 => AIState::FacingObject,
             22 => AIState::FacingPosition,
+            23 => AIState::Panic,
             other => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid AIState value in object snapshot: {}",

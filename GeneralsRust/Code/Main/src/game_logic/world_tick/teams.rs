@@ -1,5 +1,6 @@
 //! Host tick `impl GameLogic` — `teams`.
 #![allow(unused_imports, non_snake_case)]
+mod panic;
 use super::super::*;
 
 /// C++ `PATHFIND_CELL_SIZE_F`.
@@ -91,14 +92,9 @@ fn leftover_wander_tick_timer(can_be_repulsed: bool, timer: i32, wait_frames: i3
 
 /// Leftover `the_ai.find_closest_repulsor` then live leftover-faithful host port.
 fn leftover_wander_has_repulsor(logic: &GameLogic, id: ObjectId, vision: f32) -> bool {
-    let ai_store = gamelogic::ai::the_ai();
-    let leftover_hit = ai_store
-        .read()
-        .ok()
-        .and_then(|ai| ai.find_closest_repulsor(id.0, vision).ok())
-        .flatten()
-        .is_some();
-    leftover_hit || logic.find_closest_repulsor(id, vision).is_some()
+    // Query the driving world's objects; `the_ai()` is a different owner and
+    // can resolve a same-ID object from another match.
+    logic.find_closest_repulsor(id, vision).is_some()
 }
 
 /// C++ `AIWanderInPlaceState::chooseNewGoal` delta (cells).
@@ -1373,6 +1369,17 @@ impl GameLogic {
                 continue;
             };
             if let Some(label) = waypoint {
+                if set.eq_ignore_ascii_case("panic") {
+                    let Some((waypoint_id, goal, has_links, extra_distance)) =
+                        self.host_panic_waypoint_from(label, pos)
+                    else {
+                        // C++ doTeamPanic returns from the member loop when
+                        // the requested waypoint path cannot be resolved.
+                        return;
+                    };
+                    self.host_start_panic(id, waypoint_id, goal, has_links, extra_distance, set);
+                    continue;
+                }
                 let Some(path) = self.host_wander_waypoint_path_from(label, pos) else {
                     // C++ doTeamWander/doTeamPanic: first missing waypoint returns.
                     return;

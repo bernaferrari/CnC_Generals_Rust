@@ -1,6 +1,21 @@
 use super::*;
 
 impl Object {
+    /// Finish the locomotor's current path leg. Native AI_PANIC runs its
+    /// state update before this pass; preserve its completed path until the
+    /// next state update can observe the same last-node success that C++
+    /// `AIInternalMoveToState::update` returns before `doLocomotor`.
+    pub(crate) fn finish_locomotor_path_leg(&mut self) {
+        if self.ai_state == AIState::Panic {
+            self.movement.target_position = None;
+            self.movement.velocity = glam::Vec3::ZERO;
+            self.set_status_moving(false);
+            self.is_braking = false;
+        } else {
+            self.stop_moving();
+        }
+    }
+
     pub fn tick_timers(&mut self, dt: f32) -> bool {
         if self.cheer_timer > 0.0 {
             self.cheer_timer -= dt;
@@ -217,7 +232,8 @@ impl Object {
         }
         let treat_as_aircraft = !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(self)
             || matches!(self.loco_appearance, LocomotorAppearance::Hover)
-            || self.path_extra_distance > 1.0;
+            || self.path_extra_distance
+                > crate::game_logic::host_ai_path_combat_residual_wave105::PATHFIND_CLOSE_ENOUGH;
         if !treat_as_aircraft {
             let last = self.movement.path.last().copied().unwrap_or(goal);
             let ldx = last.x - current.x;
@@ -414,11 +430,13 @@ impl Object {
                     self.movement.target_position = None;
                     self.set_status_moving(false);
                 } else {
-                    self.commit_completed_waypoint_labels();
-                    self.ignored_obstacle_id = None;
-                    self.queue_for_path_frames = 0;
-                    self.set_locomotor_goal_none();
-                    self.stop_moving();
+                    if !matches!(self.ai_state, AIState::Panic) {
+                        self.commit_completed_waypoint_labels();
+                        self.ignored_obstacle_id = None;
+                        self.queue_for_path_frames = 0;
+                        self.set_locomotor_goal_none();
+                    }
+                    self.finish_locomotor_path_leg();
                 }
                 return;
             }
@@ -619,11 +637,13 @@ impl Object {
                     self.is_braking = false;
                     self.refresh_follow_path_extra_distance();
                 } else {
-                    self.commit_completed_waypoint_labels();
-                    self.ignored_obstacle_id = None;
-                    self.queue_for_path_frames = 0;
-                    self.set_locomotor_goal_none();
-                    self.stop_moving();
+                    if !matches!(self.ai_state, AIState::Panic) {
+                        self.commit_completed_waypoint_labels();
+                        self.ignored_obstacle_id = None;
+                        self.queue_for_path_frames = 0;
+                        self.set_locomotor_goal_none();
+                    }
+                    self.finish_locomotor_path_leg();
                     self.is_braking = false;
                 }
             }

@@ -1055,7 +1055,13 @@ impl GameLogic {
                                 advanced_index_this_frame = true;
                                 let do_evac = obj.pending_evacuate_on_stop;
                                 let and_exit = obj.pending_exit_after_evacuate;
-                                if obj.holds_air_position_when_idle() {
+                                if matches!(obj.ai_state, AIState::Panic) {
+                                    plant_goal = obj.movement.path.last().copied();
+                                    obj.finish_locomotor_path_leg();
+                                    if obj.holds_air_position_when_idle() {
+                                        let _ = obj.loco_maintain_appearance(dt);
+                                    }
+                                } else if obj.holds_air_position_when_idle() {
                                     obj.movement.path.clear();
                                     obj.movement.current_path_index = 0;
                                     obj.movement.target_position = None;
@@ -1392,7 +1398,12 @@ impl GameLogic {
                                         || obj.movement.current_path_index + 1
                                             >= obj.movement.path.len()
                                     {
-                                        if obj.holds_air_position_when_idle() {
+                                        if matches!(obj.ai_state, AIState::Panic) {
+                                            obj.finish_locomotor_path_leg();
+                                            if obj.holds_air_position_when_idle() {
+                                                let _ = obj.loco_maintain_appearance(dt);
+                                            }
+                                        } else if obj.holds_air_position_when_idle() {
                                             obj.movement.path.clear();
                                             obj.movement.current_path_index = 0;
                                             obj.movement.target_position = None;
@@ -1834,7 +1845,13 @@ impl GameLogic {
                                     || obj.movement.current_path_index + 1
                                         >= obj.movement.path.len()
                                 {
-                                    if obj.holds_air_position_when_idle() {
+                                    if matches!(obj.ai_state, AIState::Panic) {
+                                        plant_goal = obj.movement.path.last().copied();
+                                        obj.finish_locomotor_path_leg();
+                                        if obj.holds_air_position_when_idle() {
+                                            let _ = obj.loco_maintain_appearance(dt);
+                                        }
+                                    } else if obj.holds_air_position_when_idle() {
                                         obj.end_temporary_move_overlay();
                                         obj.maintain_pos_valid = false;
                                         obj.can_path_through_units = false;
@@ -2384,7 +2401,7 @@ impl GameLogic {
     }
 }
 
-fn adjusts_destination_now(obj: &crate::game_logic::Object) -> bool {
+pub(super) fn adjusts_destination_now(obj: &crate::game_logic::Object) -> bool {
     if obj.is_parachuting() {
         return false;
     }

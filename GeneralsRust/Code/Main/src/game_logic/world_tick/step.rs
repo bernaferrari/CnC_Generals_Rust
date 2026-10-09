@@ -602,6 +602,11 @@ impl GameLogic {
                     self.update_rebuild_holes();
                 }
                 super::HostSleepyKind::Movement => {
+                    // C++ AIUpdate updates the active state before
+                    // AIUpdate::doLocomotor. Panic continuation must therefore
+                    // inspect the path completed by the preceding locomotor
+                    // pass, then install the next waypoint before this pass.
+                    self.tick_host_panic_states(&object_ids);
                     self.update_movement(&object_ids, dt);
                 }
                 super::HostSleepyKind::SpecialPowers => {

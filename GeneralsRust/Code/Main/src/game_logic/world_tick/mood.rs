@@ -370,8 +370,7 @@ impl GameLogic {
                         .filter(|v| *v > 0.0)
                         .or_else(|| {
                             gamelogic::ai::the_ai().read().ok().and_then(|ai| {
-                                Some(ai.get_ai_data())
-                                    .map(|d| d.attack_priority_distance_modifier)
+                                Some(ai.get_ai_data()).map(|d| d.attack_priority_distance_modifier)
                             })
                         })
                         .filter(|v| *v > 0.0)
@@ -736,10 +735,7 @@ impl GameLogic {
         gamelogic::ai::the_ai()
             .read()
             .ok()
-            .and_then(|ai| {
-                Some(ai.get_ai_data())
-                    .map(|d| d.attack_ignore_insignificant_buildings)
-            })
+            .and_then(|ai| Some(ai.get_ai_data()).map(|d| d.attack_ignore_insignificant_buildings))
             .unwrap_or(false)
     }
 
@@ -752,10 +748,7 @@ impl GameLogic {
         gamelogic::ai::the_ai()
             .read()
             .ok()
-            .and_then(|ai| {
-                Some(ai.get_ai_data())
-                    .map(|d| d.attack_uses_line_of_sight)
-            })
+            .and_then(|ai| Some(ai.get_ai_data()).map(|d| d.attack_uses_line_of_sight))
             .unwrap_or(true)
     }
 
@@ -1812,8 +1805,18 @@ mod common_target_parity {
         });
 
         // Center: infantry 180 < building 200. Hull: building 145 < infantry 170.
+        // C++ AI.cpp:624 applies PartitionFilterRejectBuildings without the
+        // ATTACK_BUILDINGS qualifier, independently of distance ranking.
         assert_eq!(
             logic.find_closest_enemy(aid, 9999.9, find_enemy_flags::CAN_ATTACK),
+            Some(iid)
+        );
+        assert_eq!(
+            logic.find_closest_enemy(
+                aid,
+                9999.9,
+                find_enemy_flags::CAN_ATTACK | find_enemy_flags::ATTACK_BUILDINGS,
+            ),
             Some(bid),
             "FROM_BOUNDINGSPHERE_2D ranks nearer hull (building) over nearer center (infantry)"
         );
@@ -1973,6 +1976,14 @@ mod common_target_parity {
         let id = logic
             .create_object("Ranger", Team::USA, start)
             .expect("ranger");
+        let binding = crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(
+            "BasicHumanLocomotor",
+        )
+        .expect("authored infantry locomotor");
+        let unit = logic.host_object_mut(id).expect("ranger");
+        unit.locomotor_set_names = vec!["BasicHumanLocomotor".into()];
+        unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
+        crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(unit, &binding);
         let radius = logic.host_object(id).expect("ranger").selection_radius;
         let cell_size = logic.pathfinding_system.grid.grid_size();
         let (_, center) = crate::game_logic::PathfindingGrid::radius_and_center(radius, cell_size);
@@ -2106,38 +2117,40 @@ mod common_target_parity {
     #[test]
     fn ground_movement_keeps_the_cpp_exceptions() {
         use crate::game_logic::PathfindingGrid;
-        let mut heli = Object::new(
-            ThingTemplate::new("AmericaVehicleComanche"),
-            ObjectId(1),
-            Team::USA,
-        );
+        let mut heli_template = ThingTemplate::new("AmericaVehicleComanche");
+        heli_template.add_kind_of(KindOf::Aircraft);
+        let mut heli = Object::new(heli_template, ObjectId(1), Team::USA);
         heli.loco_appearance = crate::game_logic::object::LocomotorAppearance::Thrust;
+        heli.cur_locomotor_name = Some("ComancheLocomotor".into());
+        heli.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_AIR;
+        assert!(GameLogic::object_is_produced_at_helipad(&heli));
         assert!(
             !PathfindingGrid::is_doing_ground_movement(&heli),
-            "the occupancy helper stays the air early-out"
+            "an air-only locomotor is not ground movement"
         );
         heli.status.disabled_unmanned = true;
-        assert!(!PathfindingGrid::is_doing_ground_movement(&heli));
+        assert!(PathfindingGrid::is_doing_ground_movement(&heli));
         assert!(PathfindingGrid::is_doing_ground_movement_full(&heli));
 
         let mut tank = Object::new(ThingTemplate::new("Tank"), ObjectId(2), Team::USA);
         tank.locomotor_set_names = vec!["Basic".into()];
-        assert!(PathfindingGrid::is_doing_ground_movement(&tank));
+        assert!(!PathfindingGrid::is_doing_ground_movement(&tank));
         assert!(
             !PathfindingGrid::is_doing_ground_movement_full(&tank),
             "a set with no current locomotor is not ground movement"
         );
         tank.cur_locomotor_name = Some("Basic".into());
         tank.status.disabled_held = true;
-        assert!(PathfindingGrid::is_doing_ground_movement(&tank));
+        assert!(!PathfindingGrid::is_doing_ground_movement(&tank));
         assert!(!PathfindingGrid::is_doing_ground_movement_full(&tank));
         tank.status.disabled_held = false;
         tank.set_position(glam::Vec3::new(0.0, 5.0, 0.0));
         tank.ground_height = 0.0;
         tank.allow_to_fall = true;
-        assert!(PathfindingGrid::is_doing_ground_movement(&tank));
+        assert!(!PathfindingGrid::is_doing_ground_movement(&tank));
         assert!(!PathfindingGrid::is_doing_ground_movement_full(&tank));
         tank.allow_to_fall = false;
+        assert!(PathfindingGrid::is_doing_ground_movement(&tank));
         assert!(PathfindingGrid::is_doing_ground_movement_full(&tank));
     }
 }

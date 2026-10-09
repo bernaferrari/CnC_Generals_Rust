@@ -49,8 +49,25 @@ impl Drop for PreserveRng {
     }
 }
 fn machine(owner: &Arc<RwLock<Object>>, values: [u32; 2]) -> (StateMachine, Arc<Callbacks>) {
+    let machine = StateMachine::new(Some(Arc::downgrade(owner)), "snapshot contract");
+    define_payload_states(machine, values)
+}
+// The wire/error cases below only need the owner ID copied into State metadata;
+// allocating Object would also run its process-global destructor callbacks.
+fn machine_with_owner_id(
+    owner_id: crate::common::ObjectID,
+    values: [u32; 2],
+) -> (StateMachine, Arc<Callbacks>) {
+    define_payload_states(
+        StateMachine::new_with_owner_id(owner_id, "snapshot contract"),
+        values,
+    )
+}
+fn define_payload_states(
+    mut machine: StateMachine,
+    values: [u32; 2],
+) -> (StateMachine, Arc<Callbacks>) {
     let callbacks = Arc::new(Callbacks::default());
-    let mut machine = StateMachine::new(Some(Arc::downgrade(owner)), "snapshot contract");
     // C++ std::map orders by ID, regardless of definition order. First defined
     // remains the default, so use the larger ID first to distinguish both rules.
     for (id, payload) in [(20, values[1]), (10, values[0])] {
@@ -160,10 +177,8 @@ fn all_states_load_restores_sorted_payloads_and_consumes_exact_goal_tail() {
 }
 #[test]
 fn all_states_count_mismatch_errors_before_any_state_payload_or_goal() {
-    let _serial = crate::test_sync::lock();
     for count in [-1, 0, 1, 3, i32::MAX] {
-        let owner = owner(100.0);
-        let (mut machine, callbacks) = machine(&owner, [1, 2]);
+        let (mut machine, callbacks) = machine_with_owner_id(0x7AF12010, [1, 2]);
         let mut reader = Cursor::new(all_states_fixture(count, [10, 20]));
         let error = machine
             .xfer(&mut XferLoad::new(&mut reader, 1))
@@ -181,10 +196,8 @@ fn all_states_count_mismatch_errors_before_any_state_payload_or_goal() {
 }
 #[test]
 fn all_states_id_mismatch_errors_before_the_mismatched_payload() {
-    let _serial = crate::test_sync::lock();
     for ids in [[20, 10], [99, 20], [10, 10]] {
-        let owner = owner(100.0);
-        let (mut machine, callbacks) = machine(&owner, [1, 2]);
+        let (mut machine, callbacks) = machine_with_owner_id(0x7AF12010, [1, 2]);
         let mut reader = Cursor::new(all_states_fixture(2, ids));
         let error = machine
             .xfer(&mut XferLoad::new(&mut reader, 1))
@@ -198,9 +211,7 @@ fn all_states_id_mismatch_errors_before_the_mismatched_payload() {
 }
 #[test]
 fn null_save_serializes_invalid_then_heals_default_without_state_entry() {
-    let _serial = crate::test_sync::lock();
-    let owner = owner(100.0);
-    let (mut machine, callbacks) = machine(&owner, [1, 2]);
+    let (mut machine, callbacks) = machine_with_owner_id(0x7AF12010, [1, 2]);
     assert_eq!(machine.get_current_state_id(), None);
     let first = save(&mut machine);
     assert_eq!(
@@ -215,10 +226,8 @@ fn null_save_serializes_invalid_then_heals_default_without_state_entry() {
 }
 #[test]
 fn retail_load_unknown_state_recovers_default_without_entry_and_preserves_tail() {
-    let _serial = crate::test_sync::lock();
     for current in [INVALID_STATE_ID, 1234567] {
-        let owner = owner(100.0);
-        let (mut machine, callbacks) = machine(&owner, [1, 2]);
+        let (mut machine, callbacks) = machine_with_owner_id(0x7AF12010, [1, 2]);
         let mut bytes = prefix(current, false);
         append_u32(&mut bytes, 0xAABBCCDD);
         append_tail(&mut bytes);
@@ -270,9 +279,7 @@ fn snapshot_calls(machine: &mut StateMachine, id: StateId) -> u32 {
 }
 #[test]
 fn all_states_dispatches_empty_and_nonempty_hooks_once_in_map_order() {
-    let _serial = crate::test_sync::lock();
-    let owner = owner(100.0);
-    let (mut machine, callbacks) = machine(&owner, [1, 2]);
+    let (mut machine, callbacks) = machine_with_owner_id(0x7AF12010, [1, 2]);
     machine.define_state(
         5,
         Box::new(EmptyPayloadState {
@@ -319,9 +326,7 @@ fn all_states_dispatches_empty_and_nonempty_hooks_once_in_map_order() {
 }
 #[test]
 fn all_states_truncated_payload_propagates_xfer_error_before_goal_tail() {
-    let _serial = crate::test_sync::lock();
-    let owner = owner(100.0);
-    let (mut machine, callbacks) = machine(&owner, [1, 2]);
+    let (mut machine, callbacks) = machine_with_owner_id(0x7AF12010, [1, 2]);
     let mut bytes = all_states_fixture(2, [10, 20]);
     bytes.truncate(26); // First state restored; missing the next ID and body.
     let mut reader = Cursor::new(bytes);
@@ -334,10 +339,8 @@ fn all_states_truncated_payload_propagates_xfer_error_before_goal_tail() {
 
 #[test]
 fn load_without_current_or_default_state_errors_before_snapshot_flag() {
-    let _serial = crate::test_sync::lock();
     for all_states in [false, true] {
-        let owner = owner(100.0);
-        let mut machine = StateMachine::new(Some(Arc::downgrade(&owner)), "empty map");
+        let mut machine = StateMachine::new_with_owner_id(0x7AF12010, "empty map");
         let mut bytes = prefix(10, all_states);
         bytes.extend_from_slice(&0i32.to_le_bytes());
         append_tail(&mut bytes);

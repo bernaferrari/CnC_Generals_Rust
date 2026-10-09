@@ -103,7 +103,7 @@ impl GameLogic {
             unit.path_timestamp = self.frame;
             unit.path_extra_distance = unit.waypoint_link_extra_distance();
             unit.start_move();
-            let entered_move = unit.ai_state != AIState::Moving;
+            let entered_move = !matches!(unit.ai_state, AIState::Moving | AIState::Panic);
             if entered_move {
                 unit.set_ai_state(AIState::Moving);
             }
@@ -369,6 +369,7 @@ impl GameLogic {
                         | AIState::Docking
                         | AIState::Docked
                         | AIState::Moving
+                        | AIState::Panic
                 );
                 if entered_move {
                     unit.set_ai_state(AIState::Moving);
@@ -833,6 +834,7 @@ impl GameLogic {
                 | AIState::Docking
                 | AIState::Docked
                 | AIState::Moving
+                | AIState::Panic
         );
         if entered_move {
             unit.set_ai_state(AIState::Moving);
@@ -1276,7 +1278,7 @@ impl GameLogic {
         for (id, dest, task, ignore, approach_path) in ready {
             if matches!(
                 task,
-                AIState::Moving | AIState::AttackMoving | AIState::Idle
+                AIState::Moving | AIState::AttackMoving | AIState::Panic | AIState::Idle
             ) {
                 if let Some(unit) = self.objects.get_mut(&id) {
                     let landed_chinook = unit.chinook_ai.as_ref().is_some_and(|ai| {
@@ -1798,6 +1800,12 @@ impl GameLogic {
             unit.end_temporary_move_overlay();
             unit.ignored_obstacle_id = None;
             unit.set_locomotor_goal_none();
+        } else if unit.ai_state == AIState::Panic {
+            // C++ AIInternalMoveToState reports FAILURE for a missing waited
+            // path, but AIPanicState::update deliberately converts failure
+            // to CONTINUE and stays on the same waypoint.
+            unit.stop_moving();
+            unit.retry_path = true;
         } else if matches!(unit.ai_state, AIState::Moving) {
             unit.stop_moving();
         }
@@ -2433,7 +2441,7 @@ impl GameLogic {
             unit_id,
             Some([waypoint.x, waypoint.y, waypoint.z]),
         );
-        let entered_move = unit.ai_state != AIState::Moving;
+        let entered_move = !matches!(unit.ai_state, AIState::Moving | AIState::Panic);
         if entered_move {
             unit.set_ai_state(AIState::Moving);
         }

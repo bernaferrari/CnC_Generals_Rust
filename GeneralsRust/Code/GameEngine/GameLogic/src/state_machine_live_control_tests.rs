@@ -4,7 +4,7 @@ use super::*;
 #[derive(Debug)]
 struct ControlState {
     owner: Arc<RwLock<Object>>,
-    enclosing: Weak<Mutex<StateMachine>>,
+    enclosing: Option<Weak<Mutex<StateMachine>>>,
     attack: bool,
     requested: Option<StateId>,
     request_transition: bool,
@@ -20,7 +20,9 @@ impl StateImplementation for ControlState {
         machine_locked: bool,
         _owner: &mut dyn Any,
     ) -> StateReturnType {
-        assert!(self.enclosing.upgrade().unwrap().try_lock().is_err());
+        if let Some(enclosing) = &self.enclosing {
+            assert!(enclosing.upgrade().unwrap().try_lock().is_err());
+        }
         assert!(Arc::ptr_eq(&control.get_owner().unwrap(), &self.owner));
         assert_eq!(control.get_current_state_id(), Some(5));
         assert_eq!(control.is_locked(), machine_locked);
@@ -78,25 +80,40 @@ fn machine(transition: bool) -> Arc<Mutex<StateMachine>> {
         Some(Arc::downgrade(&owner)),
         "live control",
     )));
-    {
-        let mut guard = core.lock().unwrap();
-        guard.define_state(
-            5,
-            Box::new(ControlState {
-                owner,
-                enclosing: Arc::downgrade(&core),
-                attack: false,
-                requested: None,
-                request_transition: transition,
-            }),
-            None,
-            None,
-            None,
-        );
-        guard.define_state(7, Box::new(TargetState), None, None, None);
-        assert_eq!(guard.init_default_state(), StateReturnType::Continue);
-    }
+    let mut guard = core.lock().unwrap();
+    define_states(&mut guard, owner, Some(Arc::downgrade(&core)), transition);
+    drop(guard);
     core
+}
+
+fn owned_machine(transition: bool) -> StateMachine {
+    let owner = Arc::new(RwLock::new(Object::new_test(0x7af10101, 100.0)));
+    let mut core = StateMachine::new(Some(Arc::downgrade(&owner)), "live control");
+    define_states(&mut core, owner, None, transition);
+    core
+}
+
+fn define_states(
+    core: &mut StateMachine,
+    owner: Arc<RwLock<Object>>,
+    enclosing: Option<Weak<Mutex<StateMachine>>>,
+    transition: bool,
+) {
+    core.define_state(
+        5,
+        Box::new(ControlState {
+            owner,
+            enclosing,
+            attack: false,
+            requested: None,
+            request_transition: transition,
+        }),
+        None,
+        None,
+        None,
+    );
+    core.define_state(7, Box::new(TargetState), None, None, None);
+    assert_eq!(core.init_default_state(), StateReturnType::Continue);
 }
 #[test]
 fn borrowed_owner_callback_changes_actual_goal_and_body_classification() {
@@ -115,8 +132,7 @@ fn borrowed_owner_callback_changes_actual_goal_and_body_classification() {
 #[test]
 fn borrowed_ai_callback_goal_reaches_next_entry_before_sleep() {
     let _serial = crate::test_sync::lock();
-    let core = machine(true);
-    let mut guard = core.lock().unwrap();
+    let mut guard = owned_machine(true);
     assert_eq!(guard.update_with_ai(&mut TestAI), StateReturnType::Continue);
     assert_eq!(guard.get_current_state_id(), Some(7));
     assert_eq!(guard.control.sleep_till, 0);
@@ -125,8 +141,7 @@ fn borrowed_ai_callback_goal_reaches_next_entry_before_sleep() {
 #[test]
 fn logical_lock_rejects_goal_writes_and_tail_transition_on_live_control() {
     let _serial = crate::test_sync::lock();
-    let core = machine(true);
-    let mut guard = core.lock().unwrap();
+    let mut guard = owned_machine(true);
     guard.set_goal_position(Coord3D::new(1.0, 2.0, 3.0));
     guard.lock();
     assert_eq!(

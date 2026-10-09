@@ -45,6 +45,10 @@ impl GameLogic {
 }
 
 #[cfg(test)]
+#[path = "movement_fixtures.rs"]
+mod fixtures;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::game_logic::{
@@ -53,27 +57,11 @@ mod tests {
     };
     use glam::Vec3;
 
-    fn ranger_at(id: u32, pos: Vec3) -> Object {
-        let mut tmpl = ThingTemplate::new("Ranger");
-        tmpl.add_kind_of(KindOf::Infantry);
-        let mut unit = Object::new(tmpl, ObjectId(id), Team::USA);
-        unit.set_position(pos);
-        unit
-    }
+    use super::fixtures::*;
 
-    fn seal_column(logic: &mut GameLogic, cell_x: i32) {
-        // Cover the whole host grid (GameLogic world is 512/10 cells).
-        for y in -8..80 {
-            logic
-                .pathfinding_system
-                .grid
-                .set_blocked(GridPos::new(cell_x, y), true);
-        }
-    }
-
-    /// C++ `AIInternalMoveToState::update`: `thePath==NULL` → `STATE_FAILURE`
-    /// (AIStates.cpp:1771-1778). Host must not `move_to` through a sealed wall,
-    /// including the former `distance < 20` skip (hq-3plv).
+    /// C++ computePath can retain a findClosestPath prefix after findPath fails
+    /// (AIUpdate.cpp:1692-1701). It must never install a direct target through
+    /// the sealed wall, including the former `distance < 20` skip (hq-3plv).
     #[test]
     fn blocked_astar_does_not_install_direct_through_obstacle_move() {
         let mut logic = GameLogic::new();
@@ -102,20 +90,11 @@ mod tests {
         logic.move_object_with_pathfinding_for_test(id, goal, None);
 
         let obj = logic.objects.get(&id).expect("unit");
-        assert!(
-            obj.movement.path.is_empty(),
-            "null A* must not install a through-obstacle path"
-        );
-        assert!(
-            obj.movement.target_position.is_none(),
-            "null A* must not fail-open to direct move_to"
-        );
-        assert!(!obj.status.moving);
-        assert_ne!(obj.ai_state, AIState::Moving);
+        assert_reachable_side_of_wall(&logic, obj, wall_x);
         assert_eq!(obj.get_position(), start);
     }
 
-    /// Same contract beyond the old 20-unit skip (AIStates.cpp:1577-1585).
+    /// Same closest-path/no-crossing contract beyond the old 20-unit skip.
     #[test]
     fn blocked_astar_long_range_does_not_fail_open() {
         let mut logic = GameLogic::new();
@@ -137,9 +116,8 @@ mod tests {
         logic.move_object_with_pathfinding_for_test(id, goal, None);
 
         let obj = logic.objects.get(&id).expect("unit");
-        assert!(obj.movement.path.is_empty());
-        assert!(obj.movement.target_position.is_none());
-        assert!(!obj.status.moving);
+        assert_reachable_side_of_wall(&logic, obj, wall_x);
+        assert_eq!(obj.get_position(), start);
     }
 
     #[test]
@@ -161,8 +139,8 @@ mod tests {
 
     /// C++ Pathfinder::validMovementTerrain uses locomotor surfaces
     /// (AIPathfind.cpp:4779-4782). Water is WATER|AIR only, so a ground
-    /// infantry right-click must fail A* across a water wall while an
-    /// amphibious unit with SURFACE_WATER succeeds.
+    /// infantry right-click must stay on the reachable side of a water wall
+    /// while an amphibious unit with SURFACE_WATER succeeds.
     #[test]
     fn right_click_move_uses_unit_locomotor_surfaces() {
         use crate::game_logic::{LOCO_SURFACE_GROUND, LOCO_SURFACE_WATER};
@@ -173,7 +151,7 @@ mod tests {
         let start_cell = logic.pathfinding_system.grid.world_to_grid(start);
         let goal_cell = logic.pathfinding_system.grid.world_to_grid(goal);
         let wall_x = (start_cell.x + goal_cell.x) / 2;
-        for y in -8..80 {
+        for y in 0..logic.pathfinding_system.grid.height() {
             logic
                 .pathfinding_system
                 .grid
@@ -186,10 +164,7 @@ mod tests {
         logic.objects.insert(ground_id, ranger);
         logic.move_object_with_pathfinding_for_test(ground_id, goal, None);
         let ground = logic.objects.get(&ground_id).expect("ranger");
-        assert!(
-            ground.movement.path.is_empty(),
-            "ground-only locomotor must not path through WATER cells"
-        );
+        assert_reachable_side_of_wall(&logic, ground, wall_x);
 
         let amph_id = ObjectId(9102);
         let mut tmpl = ThingTemplate::new("AmphibHover");
@@ -221,7 +196,7 @@ mod tests {
         let start_cell = logic.pathfinding_system.grid.world_to_grid(start);
         let goal_cell = logic.pathfinding_system.grid.world_to_grid(goal);
         let wall_x = (start_cell.x + goal_cell.x) / 2;
-        for y in -8..80 {
+        for y in 0..logic.pathfinding_system.grid.height() {
             logic
                 .pathfinding_system
                 .grid
@@ -235,10 +210,7 @@ mod tests {
         logic.objects.insert(inf_id, ranger);
         logic.move_object_with_pathfinding_for_test(inf_id, goal, None);
         let inf = logic.objects.get(&inf_id).expect("ranger");
-        assert!(
-            inf.movement.path.is_empty(),
-            "non-crusher must not path CELL_RUBBLE without SURFACE_RUBBLE"
-        );
+        assert_reachable_side_of_wall(&logic, inf, wall_x);
 
         let tank_id = ObjectId(9202);
         let mut tmpl = ThingTemplate::new("Overlord");
@@ -349,9 +321,13 @@ mod tests {
         let mut logic = GameLogic::new();
         let mut make = |id: u32, inc: f32, increasing: bool| {
             let mut unit = ranger_at(id, Vec3::ZERO);
+            bind_fixture_locomotor(&mut unit, "BasicHumanLocomotor");
             unit.movement.max_speed = 30.0;
             unit.movement.acceleration = 10_000.0;
+            // C++ scales phase advance by the pre-motive forward speed.
+            unit.movement.velocity = Vec3::new(30.0, 0.0, 0.0);
             unit.movement.target_position = Some(Vec3::new(80.0, 0.0, 0.0));
+            unit.set_locomotor_goal_position_on_path();
             unit.set_orientation(0.0);
             unit.loco_appearance = LocomotorAppearance::LegsTwo;
             unit.wander_width_factor = 1.0;
@@ -454,7 +430,8 @@ mod tests {
         let mut tmpl = ThingTemplate::new("Comanche");
         tmpl.add_kind_of(KindOf::Aircraft);
         let mut heli = Object::new(tmpl, id, Team::USA);
-        heli.set_position(Vec3::new(0.0, 0.0, 0.0));
+        bind_fixture_locomotor(&mut heli, "ComancheLocomotor");
+        heli.set_position(Vec3::new(0.0, 20.0, 0.0));
         heli.ground_height = 20.0;
         heli.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
         heli.loco_appearance = LocomotorAppearance::Hover;
@@ -465,12 +442,13 @@ mod tests {
         heli.movement.max_speed = 30.0;
         heli.movement.acceleration = 10_000.0;
         heli.movement.target_position = Some(Vec3::new(40.0, 0.0, 0.0));
+        heli.set_locomotor_goal_position_on_path();
         logic.objects.insert(id, heli);
         logic.update_movement_for_test(&[id], 1.0 / 30.0);
         let obj = logic.objects.get(&id).expect("heli");
         let y = obj.get_position().y;
         assert!(
-            y > 0.5 && y < 15.0,
+            y > 20.5 && y < 35.0,
             "hover must rise by lift (maxLift=5), not snap to 30; y={}",
             y
         );
@@ -1010,13 +988,18 @@ mod tests {
         let mut tmpl = ThingTemplate::new("Jet");
         tmpl.add_kind_of(KindOf::Aircraft);
         let mut unit = Object::new(tmpl, ObjectId(9535), Team::USA);
+        bind_fixture_locomotor(&mut unit, "RaptorJetLocomotor");
         unit.loco_appearance = LocomotorAppearance::Wings;
         unit.set_ai_state(AIState::Moving);
         unit.queue_for_path_frames = 15;
         unit.ignored_obstacle_id = Some(ObjectId(7));
         unit.ground_height = 0.0;
         unit.set_position(Vec3::ZERO);
+        // C++ InternalMoveToState requires an installed Path, even at its goal.
+        unit.movement.path = vec![Vec3::ZERO, Vec3::ZERO];
+        unit.movement.current_path_index = 1;
         unit.movement.target_position = Some(Vec3::ZERO);
+        unit.set_locomotor_goal_position_on_path();
         unit.set_status_moving(true);
         logic.objects.insert(ObjectId(9535), unit);
         logic.update_movement_for_test(&[ObjectId(9535)], 1.0 / 30.0);
@@ -1059,6 +1042,7 @@ mod tests {
         let mut tmpl = ThingTemplate::new("Ranger");
         tmpl.add_kind_of(KindOf::Infantry);
         let mut unit = Object::new(tmpl, ObjectId(9602), Team::USA);
+        bind_fixture_locomotor(&mut unit, "BasicHumanLocomotor");
         unit.selection_radius = 8.0;
         unit.set_position(Vec3::new(3.0, 0.0, 3.0));
         logic.objects.insert(ObjectId(9602), unit);
@@ -1099,6 +1083,7 @@ mod tests {
         let mut tmpl = ThingTemplate::new("Ranger");
         tmpl.add_kind_of(KindOf::Infantry);
         let mut unit = Object::new(tmpl, ObjectId(9603), Team::USA);
+        bind_fixture_locomotor(&mut unit, "BasicHumanLocomotor");
         unit.selection_radius = 8.0;
         unit.pathfind_goal_cell = (-1, -1);
         unit.is_final_goal = true;
@@ -1185,6 +1170,7 @@ mod tests {
         let mut tmpl = ThingTemplate::new("Ranger");
         tmpl.add_kind_of(KindOf::Infantry);
         let mut unit = Object::new(tmpl, ObjectId(9608), Team::USA);
+        bind_fixture_locomotor(&mut unit, "BasicHumanLocomotor");
         unit.selection_radius = 8.0;
         unit.is_final_goal = true;
         unit.pathfind_goal_cell = (-1, -1);
@@ -1376,6 +1362,7 @@ mod tests {
         let mut logic = GameLogic::new();
         let id = ObjectId(9701);
         let mut unit = Object::new(ThingTemplate::new("Dozer"), id, Team::USA);
+        bind_fixture_locomotor(&mut unit, "AmericaVehicleDozerLocomotor");
         unit.ultra_accurate = true;
         unit.movement.max_speed = 10.0;
         logic.objects.insert(id, unit);
@@ -1413,9 +1400,9 @@ mod tests {
             assert_eq!(unit.movement.path.last().copied(), Some(snapped));
             assert_eq!(
                 unit.locomotor_goal_type,
-                crate::game_logic::object::LocoGoalType::None
+                crate::game_logic::object::LocoGoalType::PositionOnPath
             );
-            assert_eq!(unit.locomotor_goal_angle, 1.5);
+            assert_eq!(unit.locomotor_goal_angle, 0.0);
         }
     }
 
@@ -1509,7 +1496,10 @@ mod tests {
         let open = logic.objects.get(&ObjectId(9712)).expect("open");
         assert!(open.movement.path.is_empty());
         assert!(!open.do_final_position);
-        assert!(!open.retry_path);
+        assert!(
+            open.retry_path,
+            "C++ retries after an unsuccessful closest-path attempt"
+        );
         assert_eq!(open.num_frames_blocked, 0);
         assert!(!open.is_blocked_and_stuck);
 
@@ -1854,10 +1844,20 @@ mod tests {
         let mut tmpl = ThingTemplate::new("Ranger");
         tmpl.add_kind_of(KindOf::Infantry);
         let mut attack = Object::new(tmpl, atk_id, Team::USA);
+        bind_fixture_locomotor(&mut attack, "BasicHumanLocomotor");
+        attack.weapon = Some(crate::game_logic::Weapon {
+            range: 5.0,
+            ..Default::default()
+        });
         attack.movement.max_speed = 20.0;
-        assert!(attack.begin_request_attack_path(None, Vec3::new(10.0, 0.0, 0.0), 200));
+        let victim_id = ObjectId(9626);
+        let mut victim = ranger_at(victim_id.0, Vec3::new(30.0, 0.0, 0.0));
+        victim.team = Team::China;
+        logic.objects.insert(victim_id, victim);
+        assert!(attack.weapon.is_some());
+        assert!(attack.begin_request_attack_path(Some(victim_id), Vec3::new(10.0, 0.0, 0.0), 200));
         attack.path_timestamp = 200;
-        assert!(!attack.begin_request_attack_path(None, Vec3::new(30.0, 0.0, 0.0), 202));
+        assert!(!attack.begin_request_attack_path(Some(victim_id), Vec3::new(30.0, 0.0, 0.0), 202));
         assert!(attack.is_attack_path);
         attack.queue_for_path_frames = 2;
         logic.objects.insert(atk_id, attack);
@@ -2065,6 +2065,7 @@ mod tests {
         let mut tmpl = ThingTemplate::new("Truck");
         tmpl.add_kind_of(KindOf::Vehicle);
         let mut unit = Object::new(tmpl, ObjectId(9525), Team::USA);
+        bind_fixture_locomotor(&mut unit, "HumveeLocomotor");
         unit.loco_appearance = LocomotorAppearance::WheelsFour;
         unit.allow_invalid_position = true;
         unit.is_blocked = true;
@@ -2073,10 +2074,13 @@ mod tests {
         unit.movement.max_speed = 40.0;
         unit.movement.acceleration = 1.0e6;
         unit.movement.velocity = Vec3::new(1.0, 0.0, 0.0);
-        unit.set_orientation(0.0);
+        // C++ clears blocked when pivot yaw is TURN_NONE.
+        // Exercise the speed cap while the locomotor still needs to rotate.
+        unit.set_orientation(std::f32::consts::FRAC_PI_4);
         unit.ground_height = 0.0;
         unit.set_position(Vec3::ZERO);
         unit.movement.target_position = Some(Vec3::new(40.0, 0.0, 0.0));
+        unit.set_locomotor_goal_position_on_path();
         unit.set_status_moving(true);
         logic.objects.insert(ObjectId(9525), unit);
         logic.update_movement_for_test(&[ObjectId(9525)], 1.0 / 30.0);
@@ -2863,10 +2867,14 @@ mod tests {
     #[test]
     fn blocked_and_stuck_when_other_stopped() {
         let mut self_u = ranger_at(9705, Vec3::ZERO);
+        bind_fixture_locomotor(&mut self_u, "BasicHumanLocomotor");
         self_u.set_orientation(0.0);
+        self_u.set_ai_state(AIState::Moving);
+        self_u.set_locomotor_goal_position_on_path();
         self_u.movement.velocity = Vec3::new(10.0, 0.0, 0.0);
         self_u.movement.target_position = Some(Vec3::new(80.0, 0.0, 0.0));
         let mut other = ranger_at(9706, Vec3::new(8.0, 0.0, 0.0));
+        bind_fixture_locomotor(&mut other, "BasicHumanLocomotor");
         other.set_orientation(0.0);
         other.movement.velocity = Vec3::ZERO;
         assert!(self_u.ai_process_collision(&other, 1, true, true) == false);
@@ -3044,16 +3052,27 @@ mod tests {
     #[test]
     fn arrival_arms_final_position_at_path_last_node() {
         let mut logic = GameLogic::new();
-        let goal = Vec3::new(80.0, 0.0, 80.0);
-        let stop = Vec3::new(79.4, 0.0, 80.0);
-        let mut arriver = ranger_at(7002, stop);
+        let mut arriver = ranger_at(7002, Vec3::ZERO);
+        bind_fixture_locomotor(&mut arriver, "BasicHumanLocomotor");
+        let (_, center) = PathfindingGrid::radius_and_center(
+            arriver.selection_radius,
+            logic.pathfinding_system.grid.grid_size(),
+        );
+        let goal = logic
+            .pathfinding_system
+            .grid
+            .snap_position(Vec3::new(80.0, 0.0, 80.0), center);
+        let stop = goal - Vec3::new(0.6, 0.0, 0.0);
+        arriver.set_position(stop);
         arriver.movement.path = vec![Vec3::new(70.0, 0.0, 80.0), goal];
         arriver.movement.current_path_index = 1;
         arriver.movement.target_position = Some(goal);
+        arriver.set_locomotor_goal_position_on_path();
         arriver.set_status_moving(true);
         arriver.set_ai_state(AIState::Moving);
         let arriver_id = ObjectId(7002);
         logic.objects.insert(arriver_id, arriver);
+        logic.register_ground_path_goal(arriver_id, goal);
         logic.update_movement_for_test(&[arriver_id], 1.0 / 30.0);
         let obj = logic.objects.get(&arriver_id).expect("arriver");
         let pos = obj.get_position();
@@ -3821,13 +3840,14 @@ mod tests {
     /// C++ AIUpdate.cpp:1731-1748: patchPath failing while blocked-and-stuck
     /// must concede (destroyPath, snap final position, locomotor goal none,
     /// queue-for-path 1s, reset blocked flags) instead of ordering another
-    /// A* every frame; AIStates.cpp:2143-2148 arms the canPathThroughUnits
-    /// tunnel for the jam.
+    /// A* every frame. The separate AIMoveOutOfTheWayState owns its tunnel
+    /// (AIStates.cpp:2143-2148).
     #[test]
     fn stuck_unit_with_failing_patch_concedes_and_backs_off() {
         let mut logic = GameLogic::new();
         let id = ObjectId(98301);
         let mut unit = ranger_at(98301, Vec3::new(5.0, 0.0, 5.0));
+        bind_fixture_locomotor(&mut unit, "BasicHumanLocomotor");
         unit.movement.path = vec![
             Vec3::new(5.0, 0.0, 5.0),
             Vec3::new(35.0, 0.0, 5.0),
@@ -3835,6 +3855,7 @@ mod tests {
         ];
         unit.movement.current_path_index = 1;
         unit.movement.target_position = Some(Vec3::new(35.0, 0.0, 5.0));
+        unit.set_locomotor_goal_position_on_path();
         unit.is_blocked = true;
         unit.is_blocked_and_stuck = true;
         unit.num_frames_blocked = 90;
@@ -3870,8 +3891,8 @@ mod tests {
             "final position must be a snapped cell"
         );
         assert!(
-            obj.can_path_through_units,
-            "blocked-and-stuck jam must arm the can_path_through_units tunnel"
+            !obj.can_path_through_units,
+            "computePath concession does not enter the separate move-out-of-way state"
         );
 
         // No repath before the deadline: reinstall a path (as the AI state
@@ -3888,7 +3909,7 @@ mod tests {
             obj.movement.target_position = Some(Vec3::new(35.0, 0.0, 5.0));
             obj.is_blocked_and_stuck = true;
         }
-        for y in -8..80 {
+        for y in 0..logic.pathfinding_system.grid.height() {
             logic
                 .pathfinding_system
                 .grid
@@ -3920,13 +3941,15 @@ mod tests {
         );
     }
 
-    /// num_frames_blocked > 60 without the hard jam concedes but does not
-    /// arm the tunnel (C++ concede only; AIMoveOutOfTheWayState arms it).
+    /// C++ computePath can accept a closest prefix after a non-jammed repath.
+    /// Only a failed jammed patch concedes for 30 frames; the separate
+    /// AIMoveOutOfTheWayState is responsible for arming its tunnel.
     #[test]
     fn blocked_not_jammed_unit_concedes_without_tunnel() {
         let mut logic = GameLogic::new();
         let id = ObjectId(98302);
         let mut unit = ranger_at(98302, Vec3::new(5.0, 0.0, 5.0));
+        bind_fixture_locomotor(&mut unit, "BasicHumanLocomotor");
         unit.movement.path = vec![
             Vec3::new(5.0, 0.0, 5.0),
             Vec3::new(35.0, 0.0, 5.0),
@@ -3934,6 +3957,7 @@ mod tests {
         ];
         unit.movement.current_path_index = 1;
         unit.movement.target_position = Some(Vec3::new(35.0, 0.0, 5.0));
+        unit.set_locomotor_goal_position_on_path();
         unit.num_frames_blocked = 90;
         logic.objects.insert(id, unit);
         // Goal-node column seal: patchPath's reverse walk hits the blocked
@@ -3946,11 +3970,9 @@ mod tests {
 
         logic.update_movement_for_test(&[id], 1.0 / 30.0);
         let obj = logic.objects.get(&id).expect("unit");
-        assert!(
-            obj.movement.path.is_empty(),
-            "slow-blocked unit still concedes"
-        );
-        assert_eq!(obj.queue_for_path_frames, 30);
+        assert_reachable_side_of_wall(&logic, obj, start_cell.x + 9);
+        assert!(obj.retry_path, "C++ retries a closest-path prefix");
+        assert_eq!(obj.queue_for_path_frames, 0);
         assert!(
             !obj.can_path_through_units,
             "tunnel arms only for blocked-and-stuck jams"

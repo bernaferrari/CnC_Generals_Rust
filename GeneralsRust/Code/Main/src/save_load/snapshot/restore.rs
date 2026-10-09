@@ -394,8 +394,74 @@ impl SnapshotBuilder {
         object: &mut Object,
         game_logic: &GameLogic,
     ) -> SaveLoadResult<()> {
+        let mut restored_panic = None;
         for module_snapshot in modules.values() {
             match module_snapshot {
+                ModuleSnapshot::AIUpdate(snapshot) => {
+                    if snapshot.current_state == "AI_PANIC" {
+                        let encoded =
+                            snapshot
+                                .state_machine_data
+                                .get("AIPanicState")
+                                .ok_or_else(|| {
+                                    SaveLoadError::Corrupted(
+                                        "AI_PANIC snapshot is missing its state continuation"
+                                            .to_owned(),
+                                    )
+                                })?;
+                        let panic: crate::game_logic::object::PanicSaveState =
+                            serde_json::from_str(encoded).map_err(|error| {
+                                SaveLoadError::Corrupted(format!(
+                                    "Invalid AI_PANIC continuation: {error}"
+                                ))
+                            })?;
+                        // C++ AIFollowWaypointPathState::computeGoal initializes
+                        // m_goalLayer to LAYER_GROUND and changes it only to
+                        // LAYER_WALL when the waypoint is on a wall. Reject
+                        // malformed enum bytes instead of accepting an
+                        // arbitrary u8 into the restored continuation.
+                        if !matches!(panic.panic.goal_layer, 1 | 15) {
+                            return Err(SaveLoadError::Corrupted(format!(
+                                "Invalid AI_PANIC goal layer {}",
+                                panic.panic.goal_layer
+                            )));
+                        }
+                        let expected_wait_frames = 10 + (object.id.0 & 0x7) as i32;
+                        if panic.panic.wait_frames != expected_wait_frames
+                            || panic.panic.timer < 0
+                            || panic.panic.timer > expected_wait_frames
+                        {
+                            return Err(SaveLoadError::Corrupted(
+                                "Invalid AI_PANIC repulsor timer continuation".to_owned(),
+                            ));
+                        }
+                        let terrain =
+                            gamelogic::terrain::get_terrain_logic()
+                                .read()
+                                .map_err(|_| {
+                                    SaveLoadError::Corrupted(
+                                        "AI_PANIC waypoint catalog is unavailable".to_owned(),
+                                    )
+                                })?;
+                        if terrain
+                            .get_waypoint_by_id(panic.panic.current_waypoint_id)
+                            .is_none()
+                            || panic
+                                .panic
+                                .prior_waypoint_id
+                                .is_some_and(|id| terrain.get_waypoint_by_id(id).is_none())
+                        {
+                            return Err(SaveLoadError::Corrupted(
+                                "AI_PANIC continuation references a missing waypoint".to_owned(),
+                            ));
+                        }
+                        restored_panic = Some(panic);
+                    } else if snapshot.state_machine_data.contains_key("AIPanicState") {
+                        return Err(SaveLoadError::Corrupted(
+                            "AIPanic continuation is attached to a non-panic AI state".to_owned(),
+                        ));
+                    }
+                }
                 ModuleSnapshot::Production(snapshot) => {
                     if object.building_data.is_none() {
                         let building_type = BuildingType::from_template_name(&object.template_name);
@@ -494,6 +560,23 @@ impl SnapshotBuilder {
                 }
                 _ => {}
             }
+        }
+
+        match (&object.ai_state, restored_panic) {
+            (AIState::Panic, Some(panic)) => {
+                panic.restore_into(object);
+            }
+            (AIState::Panic, None) => {
+                return Err(SaveLoadError::Corrupted(
+                    "AI_PANIC object is missing its module continuation".to_owned(),
+                ));
+            }
+            (_, Some(_)) => {
+                return Err(SaveLoadError::Corrupted(
+                    "AI_PANIC module continuation disagrees with object status".to_owned(),
+                ));
+            }
+            (_, None) => {}
         }
 
         Ok(())

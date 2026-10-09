@@ -410,6 +410,13 @@ impl Object {
         if self_moving {
             let blocked = self.ai_blocked_by(other, is_ally);
             if blocked {
+                // C++ AIUpdate::processCollision (AIUpdate.cpp:1410-1444):
+                // a panicking infantry unit bounces before m_isBlocked is set.
+                if self.ai_state == super::AIState::Panic
+                    && self.is_kind_of(crate::game_logic::KindOf::Infantry)
+                {
+                    return true;
+                }
                 self.is_blocked = true;
                 if other.host_ai_is_moving() && other.waiting_for_path {
                     return false;

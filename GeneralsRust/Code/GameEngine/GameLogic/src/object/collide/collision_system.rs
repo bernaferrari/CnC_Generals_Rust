@@ -271,13 +271,32 @@ impl CollisionSystem {
 
         self.handle_ai_collision(&obj_a, &obj_b);
 
-        // C++ processContactList always calls Object::onCollide on both sides
-        // unless OBJECT_STATUS_NO_COLLISIONS. wouldLikeToCollideWith is not a gate.
+        // C++ processContactList calls the first side then the second if both
+        // objects remain alive. wouldLikeToCollideWith is not a callback gate.
         let loc = Coord3D::new(cinfo.loc.x, cinfo.loc.y, cinfo.loc.z);
         let normal = Coord3D::new(cinfo.normal.x, cinfo.normal.y, cinfo.normal.z);
-        let _ = COLLISION_MANAGER.handle_collision(id_a, Some(&obj_b), &loc, &normal);
+        let _ =
+            COLLISION_MANAGER.handle_collision_for_owner(id_a, &obj_a, Some(&obj_b), &loc, &normal);
         let inv_normal = Coord3D::new(-normal.x, -normal.y, -normal.z);
-        let _ = COLLISION_MANAGER.handle_collision(id_b, Some(&obj_a), &loc, &inv_normal);
+        // C++ PartitionContactList::processContactList suppresses the paired
+        // callback if either object was destroyed by the first side.
+        let object_a_alive = obj_a
+            .read()
+            .map(|object| !object.is_destroyed())
+            .unwrap_or(false);
+        let object_b_alive = obj_b
+            .read()
+            .map(|object| !object.is_destroyed())
+            .unwrap_or(false);
+        if object_a_alive && object_b_alive {
+            let _ = COLLISION_MANAGER.handle_collision_for_owner(
+                id_b,
+                &obj_b,
+                Some(&obj_a),
+                &loc,
+                &inv_normal,
+            );
+        }
 
         if let Some(cfg) = self.object_configs.get(&id_a) {
             let mut a_handle = obj_a.clone();
@@ -906,6 +925,58 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
+    enum ProbeAction {
+        None,
+        ReplaceRegistry {
+            id: ObjectId,
+            object: Arc<RwLock<crate::object::Object>>,
+        },
+        MarkDestroyed(Arc<RwLock<crate::object::Object>>),
+    }
+
+    struct RegistrySwapCollideProbe {
+        label: &'static str,
+        events: Arc<Mutex<Vec<(&'static str, ObjectId, ObjectId)>>>,
+        action: ProbeAction,
+    }
+
+    impl crate::modules::BehaviorModuleInterface for RegistrySwapCollideProbe {
+        fn get_collide(&mut self) -> Option<&mut dyn crate::modules::CollideModuleInterface> {
+            Some(self)
+        }
+    }
+
+    impl crate::modules::CollideModuleInterface for RegistrySwapCollideProbe {
+        fn on_collision(&mut self, object_id: ObjectId, other_id: ObjectId) {
+            self.events
+                .lock()
+                .unwrap()
+                .push((self.label, object_id, other_id));
+            match std::mem::replace(&mut self.action, ProbeAction::None) {
+                ProbeAction::None => {}
+                ProbeAction::ReplaceRegistry { id, object } => {
+                    OBJECT_REGISTRY.register_object(id, &object);
+                }
+                ProbeAction::MarkDestroyed(object) => {
+                    object
+                        .write()
+                        .unwrap()
+                        .set_status(ObjectStatusTypes::Destroyed.into(), true);
+                }
+            }
+        }
+    }
+
+    struct RegistryCleanup(Vec<(ObjectId, Arc<RwLock<crate::object::Object>>)>);
+
+    impl Drop for RegistryCleanup {
+        fn drop(&mut self) {
+            for (id, object) in &self.0 {
+                OBJECT_REGISTRY.unregister_object_if_same(*id, object);
+            }
+        }
+    }
+
     #[derive(Debug)]
     struct RecordingCollisionAi {
         move_away_commands: Arc<Mutex<Vec<ObjectId>>>,
@@ -1175,6 +1246,128 @@ mod tests {
             .unwrap();
 
         assert!(system.object_configs.contains_key(&1));
+    }
+
+    #[test]
+    fn collision_pair_keeps_retained_owner_after_same_id_registry_replacement() {
+        let _test_lock = crate::test_sync::lock();
+        let id_a = 0xC011_1501;
+        let id_b = 0xC011_1502;
+        let owner_a = Arc::new(RwLock::new(crate::object::Object::new_test(id_a, 100.0)));
+        let owner_b = Arc::new(RwLock::new(crate::object::Object::new_test(id_b, 100.0)));
+        let mut foreign_b_object = crate::object::Object::new_test(id_b, 100.0);
+        foreign_b_object.set_status(ObjectStatusTypes::NoCollisions.into(), true);
+        let foreign_b = Arc::new(RwLock::new(foreign_b_object));
+        let _registry_cleanup = RegistryCleanup(vec![
+            (id_a, Arc::clone(&owner_a)),
+            (id_b, Arc::clone(&owner_b)),
+            (id_b, Arc::clone(&foreign_b)),
+        ]);
+        OBJECT_REGISTRY.register_object(id_a, &owner_a);
+        OBJECT_REGISTRY.register_object(id_b, &owner_b);
+
+        let events = Arc::new(Mutex::new(Vec::new()));
+        owner_a
+            .write()
+            .unwrap()
+            .push_behavior_module_for_test(Arc::new(Mutex::new(RegistrySwapCollideProbe {
+                label: "owner-a",
+                events: Arc::clone(&events),
+                action: ProbeAction::ReplaceRegistry {
+                    id: id_b,
+                    object: Arc::clone(&foreign_b),
+                },
+            })));
+        owner_b
+            .write()
+            .unwrap()
+            .push_behavior_module_for_test(Arc::new(Mutex::new(RegistrySwapCollideProbe {
+                label: "owner-b",
+                events: Arc::clone(&events),
+                action: ProbeAction::None,
+            })));
+        foreign_b
+            .write()
+            .unwrap()
+            .push_behavior_module_for_test(Arc::new(Mutex::new(RegistrySwapCollideProbe {
+                label: "foreign-b",
+                events: Arc::clone(&events),
+                action: ProbeAction::None,
+            })));
+
+        let mut system = CollisionSystem::new();
+        let geometry = GeometryInfo::new_sphere(2.0, false);
+        system
+            .register_object(id_a, Coord3D::ZERO, geometry, None)
+            .unwrap();
+        system
+            .register_object(id_b, Coord3D::ZERO, geometry, None)
+            .unwrap();
+
+        assert!(system.test_and_respond_collision(id_a, id_b).unwrap());
+        assert_eq!(
+            *events.lock().unwrap(),
+            vec![("owner-a", id_a, id_b), ("owner-b", id_b, id_a)]
+        );
+    }
+
+    fn assert_a_destruction_suppresses_second_collision(destroy_a: bool) {
+        let id_a = if destroy_a { 0xC011_1511 } else { 0xC011_1521 };
+        let id_b = id_a + 1;
+        let owner_a = Arc::new(RwLock::new(crate::object::Object::new_test(id_a, 100.0)));
+        let owner_b = Arc::new(RwLock::new(crate::object::Object::new_test(id_b, 100.0)));
+        let _registry_cleanup = RegistryCleanup(vec![
+            (id_a, Arc::clone(&owner_a)),
+            (id_b, Arc::clone(&owner_b)),
+        ]);
+        OBJECT_REGISTRY.register_object(id_a, &owner_a);
+        OBJECT_REGISTRY.register_object(id_b, &owner_b);
+
+        let events = Arc::new(Mutex::new(Vec::new()));
+        owner_a
+            .write()
+            .unwrap()
+            .push_behavior_module_for_test(Arc::new(Mutex::new(RegistrySwapCollideProbe {
+                label: "owner-a",
+                events: Arc::clone(&events),
+                action: ProbeAction::MarkDestroyed(if destroy_a {
+                    Arc::clone(&owner_a)
+                } else {
+                    Arc::clone(&owner_b)
+                }),
+            })));
+        owner_b
+            .write()
+            .unwrap()
+            .push_behavior_module_for_test(Arc::new(Mutex::new(RegistrySwapCollideProbe {
+                label: "owner-b",
+                events: Arc::clone(&events),
+                action: ProbeAction::None,
+            })));
+
+        let mut system = CollisionSystem::new();
+        let geometry = GeometryInfo::new_sphere(2.0, false);
+        system
+            .register_object(id_a, Coord3D::ZERO, geometry, None)
+            .unwrap();
+        system
+            .register_object(id_b, Coord3D::ZERO, geometry, None)
+            .unwrap();
+
+        assert!(system.test_and_respond_collision(id_a, id_b).unwrap());
+        assert_eq!(*events.lock().unwrap(), vec![("owner-a", id_a, id_b)]);
+    }
+
+    #[test]
+    fn collision_pair_suppresses_second_side_when_first_destroys_itself() {
+        let _test_lock = crate::test_sync::lock();
+        assert_a_destruction_suppresses_second_collision(true);
+    }
+
+    #[test]
+    fn collision_pair_suppresses_second_side_when_first_destroys_other() {
+        let _test_lock = crate::test_sync::lock();
+        assert_a_destruction_suppresses_second_collision(false);
     }
 
     #[test]

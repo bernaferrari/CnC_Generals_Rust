@@ -4,43 +4,8 @@ use crate::ai::squad::Squad;
 use crate::object::Object;
 use game_engine::common::system::{Snapshotable, xfer_load::XferLoad, xfer_save::XferSave};
 use std::io::Cursor;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
-// The same assertions exercise the old synchronized and new immutable owners.
-trait TestGoal: Clone {
-    fn from_ids(ids: &[u32]) -> Self;
-    fn ids(&self) -> Vec<u32>;
-    fn add_id(&mut self, id: u32);
-    fn live_ids(&mut self) -> Vec<u32>;
-}
-impl TestGoal for Arc<Mutex<Squad>> {
-    fn from_ids(ids: &[u32]) -> Self {
-        Arc::new(Mutex::new(squad(ids)))
-    }
-    fn ids(&self) -> Vec<u32> {
-        self.lock().unwrap().get_object_ids().clone()
-    }
-    fn add_id(&mut self, id: u32) {
-        self.lock().unwrap().add_object_id(id);
-    }
-    fn live_ids(&mut self) -> Vec<u32> {
-        self.lock().unwrap().get_live_object_ids()
-    }
-}
-impl TestGoal for Arc<Squad> {
-    fn from_ids(ids: &[u32]) -> Self {
-        Arc::new(squad(ids))
-    }
-    fn ids(&self) -> Vec<u32> {
-        self.get_object_ids().clone()
-    }
-    fn add_id(&mut self, id: u32) {
-        Arc::make_mut(self).add_object_id(id);
-    }
-    fn live_ids(&mut self) -> Vec<u32> {
-        Arc::make_mut(self).get_live_object_ids()
-    }
-}
 fn squad(ids: &[u32]) -> Squad {
     let mut result = Squad::new();
     for &id in ids {
@@ -48,8 +13,11 @@ fn squad(ids: &[u32]) -> Squad {
     }
     result
 }
-fn goal<T: TestGoal>(ids: &[u32]) -> T {
-    T::from_ids(ids)
+fn goal(ids: &[u32]) -> Arc<Squad> {
+    Arc::new(squad(ids))
+}
+fn ids(goal: &Arc<Squad>) -> Vec<u32> {
+    goal.get_object_ids().clone()
 }
 fn machine(owner: &Arc<RwLock<Object>>) -> AIStateMachine {
     AIStateMachine::new(Arc::downgrade(owner), "owned squad")
@@ -70,11 +38,11 @@ fn assigning_squad_copies_membership_and_keeps_source_independent() {
     let mut source = source_machine.get_goal_squad().unwrap().clone();
     let mut destination = machine(&owner);
     destination.set_goal_squad(Some(source.clone()));
-    source.add_id(23);
-    assert_eq!(destination.get_goal_squad().unwrap().ids(), vec![19, 7, 11]);
-    assert_eq!(source.ids(), vec![19, 7, 11, 23]);
+    Arc::make_mut(&mut source).add_object_id(23);
+    assert_eq!(ids(&destination.get_goal_squad().unwrap()), vec![19, 7, 11]);
+    assert_eq!(ids(&source), vec![19, 7, 11, 23]);
     assert_eq!(
-        destination.base.get_goal_squad().unwrap().ids(),
+        ids(&destination.base.get_goal_squad().unwrap()),
         vec![19, 7, 11]
     );
 }
@@ -88,12 +56,12 @@ fn same_id_machine_goals_stay_separate_during_interleaved_replacement_and_clear(
     a.set_goal_squad(Some(goal(&[3, 5])));
     b.set_goal_squad(Some(goal(&[13, 17])));
     a.set_goal_squad(Some(goal(&[29, 31])));
-    assert_eq!(a.base.get_goal_squad().unwrap().ids(), vec![29, 31]);
-    assert_eq!(b.base.get_goal_squad().unwrap().ids(), vec![13, 17]);
+    assert_eq!(ids(&a.base.get_goal_squad().unwrap()), vec![29, 31]);
+    assert_eq!(ids(&b.base.get_goal_squad().unwrap()), vec![13, 17]);
     a.clear();
     assert!(a.get_goal_squad().is_none());
     assert!(a.base.get_goal_squad().is_none());
-    assert_eq!(b.get_goal_squad().unwrap().ids(), vec![13, 17]);
+    assert_eq!(ids(&b.get_goal_squad().unwrap()), vec![13, 17]);
 }
 #[test]
 fn restoring_squad_replaces_existing_membership_and_resaves_identical_bytes() {
@@ -111,9 +79,9 @@ fn restoring_squad_replaces_existing_membership_and_resaves_identical_bytes() {
     loaded
         .xfer(&mut XferLoad::new(Cursor::new(bytes.clone()), 1))
         .unwrap();
-    assert_eq!(loaded.get_goal_squad().unwrap().ids(), vec![41, 43, 47]);
+    assert_eq!(ids(&loaded.get_goal_squad().unwrap()), vec![41, 43, 47]);
     assert_eq!(
-        loaded.base.get_goal_squad().unwrap().ids(),
+        ids(&loaded.base.get_goal_squad().unwrap()),
         vec![41, 43, 47]
     );
     assert_eq!(save(&mut loaded), bytes);
@@ -125,8 +93,8 @@ fn live_member_query_does_not_change_authored_membership() {
     let mut machine = machine(&owner);
     machine.set_goal_squad(Some(goal(&[0x7AF11101, 0x7AF11102])));
     let mut goal = machine.get_goal_squad().unwrap().clone();
-    let before = goal.ids();
-    assert_eq!(goal.live_ids(), before);
-    assert_eq!(goal.ids(), before);
-    assert_eq!(machine.get_goal_squad().unwrap().ids(), before);
+    let before = ids(&goal);
+    assert_eq!(Arc::make_mut(&mut goal).get_live_object_ids(), before);
+    assert_eq!(ids(&goal), before);
+    assert_eq!(ids(&machine.get_goal_squad().unwrap()), before);
 }

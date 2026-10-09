@@ -59,5 +59,6 @@ fn dock_helipad_comanche(logic: &mut GameLogic) -> (ObjectId, ObjectId) {
 }
 
 // Behavior-named suites keep each test file below the 4k LOC ceiling.
+mod panic_runtime;
 mod physics_combat_and_airfields;
 mod retaliation_and_physics;
