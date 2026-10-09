@@ -95,8 +95,12 @@ pub fn materialize_host_authority_logs(logic: &mut GameLogic) {
         });
     }
 
-    // --- Heal / absolute HP ---
+    // Pending absolute writes still need admission. Completed owner writes
+    // are observations: replaying one could erase later damage in this frame.
     for e in crate::game_logic::host_heal_log::drain() {
+        if e.owner_health_already_applied() {
+            continue;
+        }
         if let Some(obj) = logic.host_object_mut(e.target) {
             let max_hp = obj.health.maximum.max(0.0);
             obj.health.current = e.health.clamp(0.0, max_hp);

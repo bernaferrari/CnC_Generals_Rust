@@ -1015,7 +1015,10 @@ impl GameLogic {
                 Self::write_object_health_authority_aware(master, new_hp);
                 let gained = master.health.current - before;
                 if gained > 0.0 {
-                    crate::game_logic::host_heal_log::record(slaver_id, master.health.current);
+                    crate::game_logic::host_heal_log::record_applied(
+                        slaver_id,
+                        master.health.current,
+                    );
                     self.battle_drone_residual_repairs =
                         self.battle_drone_residual_repairs.saturating_add(1);
                     self.battle_drone_residual_repair_amount += gained;

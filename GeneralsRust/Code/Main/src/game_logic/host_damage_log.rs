@@ -11,7 +11,7 @@ use std::cell::{Cell, RefCell};
 
 /// Whether the producer has already changed its object's health.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OwnerHealthChange {
+pub(in crate::game_logic) enum OwnerHealthChange {
     Pending,
     Applied,
 }

@@ -545,7 +545,7 @@ impl GameLogic {
         }
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.health.current = hp.min(obj.health.maximum.max(hp));
-            crate::game_logic::host_heal_log::record(object_id, obj.health.current);
+            crate::game_logic::host_heal_log::record_applied(object_id, obj.health.current);
         }
     }
 
@@ -559,7 +559,7 @@ impl GameLogic {
             crate::game_logic::host_heal_log::record(obj.id, hp);
         } else {
             obj.health.current = hp.min(obj.health.maximum.max(hp));
-            crate::game_logic::host_heal_log::record(obj.id, obj.health.current);
+            crate::game_logic::host_heal_log::record_applied(obj.id, obj.health.current);
         }
     }
 

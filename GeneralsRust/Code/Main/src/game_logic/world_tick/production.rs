@@ -254,7 +254,10 @@ impl GameLogic {
                             crate::game_logic::host_heal_log::record(id, build_hp);
                         } else {
                             obj.health.current = build_hp;
-                            crate::game_logic::host_heal_log::record(id, obj.health.current);
+                            crate::game_logic::host_heal_log::record_applied(
+                                id,
+                                obj.health.current,
+                            );
                         }
                     }
                     if may_complete && projected >= 1.0 {
@@ -676,7 +679,7 @@ impl GameLogic {
             obj.clear_under_construction_model_conditions();
             // C++ DozerAIUpdate.cpp:538-561: complete does not set health.
             // Persist scaffold HP (damage authority writeback already owns it).
-            crate::game_logic::host_heal_log::record(id, obj.health.current);
+            crate::game_logic::host_heal_log::record_applied(id, obj.health.current);
             crate::game_logic::host_construction_progress_log::record(id, 1.0, false, 0.0);
             crate::game_logic::host_construction_log::record(id, obj.template_name.clone());
             completed_superweapon_detects.push(id);

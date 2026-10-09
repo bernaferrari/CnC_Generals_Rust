@@ -1466,7 +1466,7 @@ impl GameLogic {
             {
                 obj.health.current = obj.health.maximum;
             }
-            crate::game_logic::host_heal_log::record(obj.id, obj.health.current);
+            crate::game_logic::host_heal_log::record_applied(obj.id, obj.health.current);
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_AMERICA_COMPOSITE_ARMOR);
             affected = affected.saturating_add(1);

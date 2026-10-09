@@ -1877,3 +1877,89 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
 
     host_damage_log::clear();
 }
+
+#[test]
+fn no_shadow_boundary_preserves_committed_heal_damage_order() {
+    let _env = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "0");
+    use crate::game_logic::{host_damage_log, host_heal_log};
+    let mut logic = GameLogic::new();
+    apply_skirmish_config(&mut logic, &golden_skirmish_config("HealDamageOrder")).expect("config");
+    ensure_template(&mut logic, "HealDamageOrderTarget", 200.0);
+    for heal_first in [true, false] {
+        host_damage_log::clear();
+        host_heal_log::clear();
+        let id = logic
+            .create_object("HealDamageOrderTarget", Team::USA, Vec3::ZERO)
+            .expect("target");
+        let previous;
+        {
+            let object = logic.host_object_mut(id).expect("target");
+            object.health.current = 40.0;
+            object.previous_health = 40.0;
+            if heal_first {
+                object.heal(50.0);
+                assert_eq!(object.health.current, 90.0);
+                assert!(!object.take_damage(20.0));
+                previous = 90.0;
+            } else {
+                assert!(!object.take_damage(20.0));
+                assert_eq!(object.health.current, 20.0);
+                object.heal(50.0);
+                previous = 20.0;
+            }
+            assert_eq!(object.health.current, 70.0);
+            assert_eq!(object.previous_health, previous);
+        }
+        assert_eq!(host_damage_log::snapshot().len(), 1);
+        assert_eq!(host_heal_log::snapshot().len(), 1);
+        for _ in 0..2 {
+            crate::gameworld_shadow::run_post_logic_shadow_boundary(None, &mut logic);
+            let object = logic.host_object(id).expect("target after boundary");
+            assert_eq!(object.health.current, 70.0, "heal_first={heal_first}");
+            assert_eq!(object.previous_health, previous);
+            assert!(!object.status.destroyed);
+        }
+        assert!(host_damage_log::snapshot().is_empty());
+        assert!(host_heal_log::snapshot().is_empty());
+    }
+    host_damage_log::clear();
+    host_heal_log::clear();
+}
+
+#[test]
+fn no_shadow_boundary_still_admits_projected_healing() {
+    let env = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "1");
+    use crate::game_logic::host_heal_log;
+    let mut logic = GameLogic::new();
+    logic.set_damage_authority(true);
+    apply_skirmish_config(&mut logic, &golden_skirmish_config("PendingHealing")).expect("config");
+    ensure_template(&mut logic, "PendingHealingTarget", 100.0);
+    let id = logic
+        .create_object("PendingHealingTarget", Team::USA, Vec3::ZERO)
+        .expect("target");
+    logic.host_object_mut(id).unwrap().health.current = 40.0;
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&logic);
+    host_heal_log::clear();
+    let authority = *logic.gameworld_authority();
+    with_gameworld_authority(authority, || {
+        let _couple = ShadowCoupleGuard::enter();
+        with_coupled_shadow(&mut shadow, || {
+            assert!(gameworld_damage_authority_live());
+            logic.host_object_mut(id).unwrap().heal(30.0);
+            assert_eq!(logic.host_object(id).unwrap().health.current, 40.0);
+        });
+    });
+    let events = host_heal_log::snapshot();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].health, 70.0);
+    assert!(!events[0].owner_health_already_applied());
+    let _env = env.set("GENERALS_GAMEWORLD_SHADOW", "0");
+    for _ in 0..2 {
+        run_post_logic_shadow_boundary(None, &mut logic);
+        assert_eq!(logic.host_object(id).unwrap().health.current, 70.0);
+        assert!(!logic.host_object(id).unwrap().status.destroyed);
+    }
+    assert!(host_heal_log::snapshot().is_empty());
+    host_heal_log::clear();
+}

@@ -735,7 +735,7 @@ impl Object {
             }
             self.previous_health = before;
             self.health.current = projected;
-            crate::game_logic::host_heal_log::record(self.id, self.health.current);
+            crate::game_logic::host_heal_log::record_applied(self.id, self.health.current);
             self.refresh_model_condition_bits_with_source(source);
         }
     }
