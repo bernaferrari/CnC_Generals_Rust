@@ -1700,11 +1700,14 @@ fn scripting_registry_empty_peels() {
 
 #[test]
 fn remaining_dual_world_registry_empty() {
-    let unit = include_str!("../../../../GameEngine/GameLogic/src/object/unit/combat.rs");
+    // Native mood targeting uses its constructor-bound Object. The remaining
+    // ownerless Unit adapter has the explicit empty-world gate; an empty
+    // auxiliary handle index alone does not mean the canonical world is empty.
+    // Wave 258 traces those actual owners, rather than the deleted combat scan.
     assert!(
-        unit.contains("OBJECT_REGISTRY.is_empty()")
-            || unit.contains("crate::object::registry::OBJECT_REGISTRY.is_empty()"),
-        "unit targeting must gate dual-world bulk scans"
+        crate::game_logic::host_live_unit_dual_world_empty_gate_residual_wave258::
+            honesty_unit_dual_world_empty_gate_source(),
+        "Unit adapter gate and native owner dispatch must retain their distinct contracts"
     );
     let build = include_str!("../../../../GameEngine/GameLogic/src/ai/ai_build_list.rs");
     assert!(

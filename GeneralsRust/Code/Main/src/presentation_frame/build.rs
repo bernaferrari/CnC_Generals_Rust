@@ -2302,7 +2302,7 @@ impl PresentationFrame {
         frame
     }
 
-    /// Build after evaluating victory (mutates victory subsystem once).
+    /// Build from completed victory state; consumes pending presentation discharges.
     pub fn build_with_victory(logic: &mut GameLogic, local_player_id: u32) -> Self {
         Self::build_with_victory_with_runtime_heightmap(logic, local_player_id, None)
     }
@@ -2322,10 +2322,10 @@ impl PresentationFrame {
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
         freeze_tints: bool,
     ) -> Self {
-        // C++ GameLogic.cpp:3769 completes victory and killPlayer before the
-        // next GameClient consumes this logic frame. Freeze its final state
-        // and any accepted discharges produced by those callbacks together.
-        let victory = logic.evaluate_victory_condition();
+        // C++ GameLogic.cpp:3769 owns victory and killPlayer in the logic step.
+        // Read its completed result and accepted discharges together; building
+        // a frame must not run defeat callbacks or change their timing.
+        let victory = logic.current_victory_observation();
         let discharges = logic.take_weapon_discharges_for_presentation();
         let mut frame = Self::build_from_logic_with_tint_update(
             logic,
@@ -2334,8 +2334,8 @@ impl PresentationFrame {
             false,
             discharges,
         );
-        if let Some(v) = victory {
-            frame.match_over = true;
+        frame.match_over = victory.match_over;
+        if let Some(v) = victory.outcome {
             frame.victory_label = Some(format!("{v:?}"));
             let winner = match v {
                 crate::game_logic::VictoryCondition::Winner(id) => Some(id),

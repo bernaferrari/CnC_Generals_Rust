@@ -271,6 +271,10 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
+        // This direct API mutates the receiver below and may subsequently fail.
+        // Its transient result must not describe the previous world after a
+        // partial restore. Production loading isolates this work in a candidate.
+        game_logic.clear_victory_observation();
         log::info!(
             "Restoring world from snapshot: {} objects, {} players",
             snapshot.objects.len(),

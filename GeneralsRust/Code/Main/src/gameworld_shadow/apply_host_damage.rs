@@ -546,7 +546,7 @@ impl GameWorldShadow {
         true
     }
 
-    pub fn probe(&self, logic: &mut GameLogic) -> GameWorldShadowProbe {
+    pub fn probe(&self, logic: &GameLogic) -> GameWorldShadowProbe {
         let snap: WorldSnapshot = self.world.snapshot();
         let host_objects = logic.host_objects().len().min(self.max_entities);
         let host_players = logic.get_players().len();
@@ -603,11 +603,9 @@ impl GameWorldShadow {
             )
         };
 
-        let (host_match_over, victory_label) = if let Some(v) = logic.evaluate_victory_condition() {
-            (true, Some(format!("{v:?}")))
-        } else {
-            (false, None)
-        };
+        let victory = logic.current_victory_observation();
+        let host_match_over = victory.match_over;
+        let victory_label = victory.outcome.map(|v| format!("{v:?}"));
 
         GameWorldShadowProbe {
             host_frame,

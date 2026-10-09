@@ -337,8 +337,8 @@ fn host_update_movement_skips_when_gameworld_movement_authority() {
         o.move_to(glam::Vec3::new(50.0, 0.0, 0.0));
         o.record_host_movement();
     }
-    // The trailing session probe runs GameLogic::evaluate_victory_condition
-    // (apply_host_damage.rs probe → game_logic/mod.rs:112). Per C++
+    // A real logic step (not the trailing observational probe) evaluates
+    // victory. Per C++
     // VictoryConditions.cpp:87-95/168-196 the skirmish NO_BUILDINGS rule
     // defeats a structure-less playable player on frame 0-1 and
     // kill_player_for_victory destroys its army — the unit under test would

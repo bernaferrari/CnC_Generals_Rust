@@ -86,13 +86,18 @@ fn apply_physics_force_motive_lateral_only() {
 
 #[test]
 fn vehicle_requests_infantry_move_away() {
-    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut vt = ThingTemplate::new("VMove");
     vt.add_kind_of(KindOf::Vehicle);
     let vid = ObjectId(811);
     let mut v = Object::new(vt, vid, Team::USA);
+    v.cur_locomotor_name = Some("GattlingTankLocomotor".into());
+    v.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
+    v.ai_state = AIState::Moving;
+    v.set_status_moving(true);
+    assert!(crate::game_logic::pathfinding::PathfindingGrid::is_doing_ground_movement_full(&v));
     v.movement.velocity = Vec3::new(0.0, 0.0, 3.0);
     v.set_position(Vec3::new(0.0, 0.0, 0.0));
     // Face +Z: orientation = -PI/2 with (-dz).atan2(dx) convention.
@@ -106,6 +111,9 @@ fn vehicle_requests_infantry_move_away() {
     it.add_kind_of(KindOf::Infantry);
     let iid = ObjectId(812);
     let mut inf = Object::new(it, iid, Team::USA);
+    inf.cur_locomotor_name = Some("BasicHumanLocomotor".into());
+    inf.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
+    assert!(crate::game_logic::pathfinding::PathfindingGrid::is_doing_ground_movement_full(&inf));
     inf.set_position(Vec3::new(0.0, 0.0, 4.0));
     inf.set_orientation(-std::f32::consts::FRAC_PI_2);
     inf.selection_radius = 5.0;
@@ -140,13 +148,18 @@ fn vehicle_requests_infantry_move_away() {
 
 #[test]
 fn ai_blocked_sets_speed_cap() {
-    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("BlkA");
     at.add_kind_of(KindOf::Vehicle);
     let aid = ObjectId(701);
     let mut a = Object::new(at, aid, Team::USA);
+    a.cur_locomotor_name = Some("GattlingTankLocomotor".into());
+    a.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
+    a.ai_state = AIState::Moving;
+    a.set_status_moving(true);
+    assert!(crate::game_logic::pathfinding::PathfindingGrid::is_doing_ground_movement_full(&a));
     a.movement.velocity = Vec3::new(3.0, 0.0, 0.0); // moving +X
     a.set_position(Vec3::new(0.0, 0.0, 0.0));
     a.set_orientation(0.0); // face +X
@@ -158,6 +171,9 @@ fn ai_blocked_sets_speed_cap() {
     bt.add_kind_of(KindOf::Vehicle);
     let bid = ObjectId(702);
     let mut b = Object::new(bt, bid, Team::USA);
+    b.cur_locomotor_name = Some("GattlingTankLocomotor".into());
+    b.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
+    assert!(crate::game_logic::pathfinding::PathfindingGrid::is_doing_ground_movement_full(&b));
     b.set_position(Vec3::new(5.0, 0.0, 0.0)); // in front +X
     b.set_orientation(0.0);
     b.selection_radius = 8.0;
@@ -167,10 +183,15 @@ fn ai_blocked_sets_speed_cap() {
 
     assert!(logic.try_physics_collide(aid, bid, 8.0));
     let a = logic.objects.get(&aid).unwrap();
-    assert!(a.is_blocked || a.last_collidee == Some(bid));
-    if a.is_blocked {
-        assert!(a.movement.velocity.length() <= 4.0 + 1e-3);
-    }
+    assert_eq!(a.last_collidee, Some(bid));
+    assert!(
+        a.is_blocked,
+        "valid ground movers must reach the blocked branch"
+    );
+    // C++ calculateMaxBlockedSpeed: a stationary aligned blocker gives
+    // awaySpeed/toward = 0. Verify the cap and its actual velocity effect.
+    assert_eq!(a.cur_max_blocked_speed, 0.0);
+    assert_eq!(a.movement.velocity, Vec3::ZERO);
 }
 
 #[test]
@@ -182,6 +203,9 @@ fn panicking_infantry_stays_on_the_blocked_path() {
     at.add_kind_of(KindOf::Infantry);
     let aid = ObjectId(711);
     let mut a = Object::new(at, aid, Team::USA);
+    a.cur_locomotor_name = Some("BasicHumanLocomotor".into());
+    a.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
+    assert!(crate::game_logic::pathfinding::PathfindingGrid::is_doing_ground_movement_full(&a));
     a.is_panicking = true;
     a.ai_state = AIState::Moving;
     a.locomotor_goal_type = LocoGoalType::PositionOnPath;
@@ -196,6 +220,9 @@ fn panicking_infantry_stays_on_the_blocked_path() {
     bt.add_kind_of(KindOf::Infantry);
     let bid = ObjectId(712);
     let mut b = Object::new(bt, bid, Team::USA);
+    b.cur_locomotor_name = Some("BasicHumanLocomotor".into());
+    b.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
+    assert!(crate::game_logic::pathfinding::PathfindingGrid::is_doing_ground_movement_full(&b));
     b.set_position(Vec3::new(5.0, 0.0, 0.0));
     b.set_orientation(0.0);
     b.selection_radius = 5.0;
@@ -207,6 +234,47 @@ fn panicking_infantry_stays_on_the_blocked_path() {
     assert!(
         a.is_blocked,
         "MODELCONDITION_PANICKING is not AI_PANIC and must not skip the block"
+    );
+}
+
+#[test]
+fn collision_without_current_locomotor_does_not_mark_blocked() {
+    use crate::game_logic::{AIState, KindOf, LocoGoalType, Object, ObjectId, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut at = ThingTemplate::new("NoLocoA");
+    at.add_kind_of(KindOf::Infantry);
+    let aid = ObjectId(713);
+    let mut a = Object::new(at, aid, Team::USA);
+    a.ai_state = AIState::Moving;
+    a.locomotor_goal_type = LocoGoalType::PositionOnPath;
+    a.set_status_moving(true);
+    a.movement.velocity = Vec3::new(2.0, 0.0, 0.0);
+    a.set_position(Vec3::ZERO);
+    a.set_orientation(0.0);
+    a.selection_radius = 5.0;
+    assert!(!crate::game_logic::pathfinding::PathfindingGrid::is_doing_ground_movement_full(&a));
+    logic.objects.insert(aid, a);
+
+    let mut bt = ThingTemplate::new("NoLocoB");
+    bt.add_kind_of(KindOf::Infantry);
+    let bid = ObjectId(714);
+    let mut b = Object::new(bt, bid, Team::USA);
+    b.cur_locomotor_name = Some("BasicHumanLocomotor".into());
+    b.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
+    b.set_position(Vec3::new(5.0, 0.0, 0.0));
+    b.set_orientation(0.0);
+    b.selection_radius = 5.0;
+    assert!(crate::game_logic::pathfinding::PathfindingGrid::is_doing_ground_movement_full(&b));
+    logic.objects.insert(bid, b);
+
+    assert!(logic.try_physics_collide(aid, bid, 5.0));
+    let a = logic.objects.get(&aid).unwrap();
+    assert_eq!(a.last_collidee, Some(bid));
+    assert!(
+        !a.is_blocked,
+        "a missing current locomotor fails the C++ ground-movement gate"
     );
 }
 
@@ -1756,10 +1824,16 @@ fn contact_weapon_approach_reaches_target_noncontact_stands_off() {
             ..Weapon::default()
         });
     }
-    let c_app =
-        logic.approach_pos_for_attack(contact, tgt_pos, 5.0, Some("DozerMineDisarmingWeapon"), None);
+    let c_app = logic.approach_pos_for_attack(
+        contact,
+        tgt_pos,
+        5.0,
+        Some("DozerMineDisarmingWeapon"),
+        None,
+    );
     assert!((c_app - tgt_pos).length() < 1e-2, "contact → target");
-    let g_app = logic.approach_pos_for_attack(gun, tgt_pos, 50.0, Some("AmericaTankCrusaderGun"), None);
+    let g_app =
+        logic.approach_pos_for_attack(gun, tgt_pos, 50.0, Some("AmericaTankCrusaderGun"), None);
     let expected = compute_approach_target_pos(glam::Vec3::new(0.0, 0.0, 20.0), tgt_pos, 50.0);
     assert!(
         (g_app - expected).length() < 1.0,

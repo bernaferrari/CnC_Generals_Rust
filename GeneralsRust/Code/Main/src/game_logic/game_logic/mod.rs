@@ -132,7 +132,37 @@ impl GameLogic {
         for player_id in pending {
             self.kill_player_for_victory(player_id);
         }
+        // Publish only after defeat callbacks complete. C++ GameLogic.cpp:3769
+        // owns the update; observers must not rerun its player census or kills.
+        self.completed_victory_observation = Some((
+            self.game_mode,
+            VictoryObservation {
+                match_over: super::victory_conditions::is_multiplayer_or_skirmish_victory(
+                    self.game_mode,
+                ) && self.victory_conditions.end_frame().is_some(),
+                outcome,
+            },
+        ));
         outcome
+    }
+
+    /// Read the last completed update, including a later update returning None.
+    /// This is a presentation projection, not C++'s live per-player victory query.
+    pub(crate) fn current_victory_condition(&self) -> Option<VictoryCondition> {
+        self.current_victory_observation().outcome
+    }
+
+    /// Match completion and the current outcome are distinct in C++.
+    pub(crate) fn current_victory_observation(&self) -> VictoryObservation {
+        self.completed_victory_observation
+            .filter(|(mode, _)| *mode == self.game_mode)
+            .map(|(_, result)| result)
+            .unwrap_or_default()
+    }
+
+    /// Reset/load must not display a result from the previously observed world.
+    pub(crate) fn clear_victory_observation(&mut self) {
+        self.completed_victory_observation = None;
     }
 
     pub fn victory_type(&self) -> VictoryType {

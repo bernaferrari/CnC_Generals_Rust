@@ -101,6 +101,7 @@ impl GameLogic {
             world_min,
             world_max,
             victory_conditions: VictoryConditions::new(),
+            completed_victory_observation: None,
             objects_to_destroy: VecDeque::new(),
             combat_particles: CombatParticleRegistry::new(),
             special_power_strikes:
@@ -1188,6 +1189,7 @@ impl GameLogic {
         self.last_fixed_step_diagnostics = FixedStepDiagnostics::default();
         self.map_loaded = false;
         self.victory_conditions.reset();
+        self.clear_victory_observation();
         self.scripts_loaded = false;
         self.replay_observer_player_id = None;
         self.install_multiplayer_scripts = false;

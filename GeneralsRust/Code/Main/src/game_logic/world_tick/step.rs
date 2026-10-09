@@ -1536,7 +1536,7 @@ impl GameLogic {
         // Phase 15: Victory Conditions (C++ line 3769)
         // -----------------------------------------------------------------------
         // C++: TheVictoryConditions->UPDATE();
-        // Evaluate inside every logic frame, not only PresentationFrame::build.
+        // This logic phase owns evaluation; presentation and probes only observe.
         let _ = self.evaluate_victory_condition();
 
         // -----------------------------------------------------------------------

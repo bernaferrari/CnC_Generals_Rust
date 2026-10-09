@@ -7,7 +7,6 @@
 //! Wave 957: host_object/host_objects authority dual-read seal.
 use crate::game_logic::GameLogic;
 
-
 /// Snapshot of authoritative match state for probes and golden checkpoints.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthorityProbe {
@@ -36,13 +35,12 @@ impl AuthorityProbe {
         }
     }
 
-    /// Capture probe after evaluating victory on the authoritative world (mutating).
-    pub fn capture_with_victory(logic: &mut GameLogic, local_player_id: u32) -> Self {
+    /// Capture the completed owner victory result without advancing simulation.
+    pub fn capture_with_victory(logic: &GameLogic, local_player_id: u32) -> Self {
         let mut probe = Self::capture(logic, local_player_id);
-        if let Some(v) = logic.evaluate_victory_condition() {
-            probe.match_over = true;
-            probe.victory_label = Some(format!("{v:?}"));
-        }
+        let victory = logic.current_victory_observation();
+        probe.match_over = victory.match_over;
+        probe.victory_label = victory.outcome.map(|v| format!("{v:?}"));
         probe
     }
 

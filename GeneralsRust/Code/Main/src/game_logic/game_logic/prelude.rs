@@ -15,7 +15,7 @@ pub(super) use super::super::partition_manager::PartitionManager;
 pub(super) use super::super::radar_notifications::{self, RadarEntry, RadarNotifications};
 pub(super) use super::super::script_events::{self, ScriptEvent};
 pub(super) use super::super::victory::{
-    PlayerOutcome, PlayerResult, VictoryCondition, VictorySummary,
+    PlayerOutcome, PlayerResult, VictoryCondition, VictoryObservation, VictorySummary,
 };
 pub(super) use super::super::victory_conditions::{
     AllianceNotification, VictoryConditions, victory_rules_for_map,

@@ -25,7 +25,7 @@ pub fn sync_shadow_from_host(shadow: &mut GameWorldShadow, logic: &GameLogic) {
 }
 
 /// Build shadow session + probe.
-pub fn probe_host_vs_gameworld(logic: &mut GameLogic) -> (GameWorldShadow, GameWorldShadowProbe) {
+pub fn probe_host_vs_gameworld(logic: &GameLogic) -> (GameWorldShadow, GameWorldShadowProbe) {
     const MAX_ENTITIES: usize = 4096;
     let mut shadow = GameWorldShadow::new(MAX_ENTITIES);
     shadow.sync_from_host(logic);

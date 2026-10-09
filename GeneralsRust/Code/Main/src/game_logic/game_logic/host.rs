@@ -148,6 +148,11 @@ pub struct GameLogic {
     /// Victory conditions subsystem (mirrors SAGE VictoryConditions)
     pub(super) victory_conditions: VictoryConditions,
 
+    /// Presentation/diagnostic projection of the last completed victory update.
+    /// Gameplay queries remain owned by VictoryConditions; this value never
+    /// repairs or advances them. The mode prevents reads from a previous mode.
+    pub(super) completed_victory_observation: Option<(GameMode, VictoryObservation)>,
+
     /// Objects to destroy at end of frame
     pub(super) objects_to_destroy: VecDeque<DestructionEvent>,
 

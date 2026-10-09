@@ -69,3 +69,11 @@ pub enum VictoryCondition {
     Winner(u32),
     Draw,
 }
+
+/// Frozen presentation/diagnostic result of a completed victory update.
+/// C++ keeps match completion latched separately from live winner queries.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct VictoryObservation {
+    pub(crate) match_over: bool,
+    pub(crate) outcome: Option<VictoryCondition>,
+}

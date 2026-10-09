@@ -42,7 +42,7 @@ pub struct GameWorldShadowProbe {
     pub destroy_visibility_match: bool,
     /// Queue-head construction_frames + door phase agree (warning-only).
     pub production_match: bool,
-    /// Host match-over residual (evaluate_victory_condition).
+    /// Host match-over observation from the completed owner victory update.
     pub host_match_over: bool,
     pub victory_label: Option<String>,
     pub detail: String,
