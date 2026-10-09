@@ -10438,16 +10438,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_upgrade.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "game_engine:Source/Common/INI/INIUpgrade.cpp",
           "source": {
             "path": "GeneralsMD/Code/GameEngine/Source/Common/INI/INIUpgrade.cpp",
@@ -17565,198 +17561,33 @@
             "unreviewed_mapping",
             "unreviewed_symbol_ownership",
             "unreviewed_source_range_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/active_shroud_upgrade.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/armor_upgrade.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/command_set_upgrade.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/cost_modifier_upgrade.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/experience_scalar_upgrade.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/grant_science_upgrade.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/locomotor_set_upgrade.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/mod.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/model_condition_upgrade.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/passengers_fire_upgrade.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/power_plant_upgrade.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/radar_upgrade.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/replace_object_upgrade.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/status_bits_upgrade.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/stealth_upgrade.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/subobjects_upgrade.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/unpause_special_power_upgrade.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/upgrade_module.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/weapon_bonus_upgrade.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/weapon_set_upgrade.rs"
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/template.rs"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/active_shroud_upgrade.rs"
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade.rs"
             },
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/armor_upgrade.rs"
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/center.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/mask.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/template.rs"
             },
             {
               "cargo_reachable": true,
               "classification": "test",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/armor_upgrade/tests.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/command_set_upgrade.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/cost_modifier_upgrade.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/experience_scalar_upgrade.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "test",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/experience_scalar_upgrade/tests.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/grant_science_upgrade.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/locomotor_set_upgrade.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "test",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade/installed_tests.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "test",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade/owner_callback_tests.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "test",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade/particle_callback_tests.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "test",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade/w3d_owner_context_tests.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/mod.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/model_condition_upgrade.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/object_creation_upgrade.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/passengers_fire_upgrade.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "test",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/passengers_fire_upgrade/tests.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/power_plant_upgrade.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/radar_upgrade.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/replace_object_upgrade.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/status_bits_upgrade.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "test",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/status_bits_upgrade/tests.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/stealth_upgrade.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/sub_objects_upgrade.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/subobjects_upgrade.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "test",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/subobjects_upgrade/tests.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/unpause_special_power_upgrade.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/upgrade_module.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "test",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/upgrade_module/crc_tests.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/weapon_bonus_upgrade.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "test",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/weapon_bonus_upgrade/tests.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/weapon_set_upgrade.rs"
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/System/Upgrade.cpp",
@@ -50313,8 +50144,7 @@
           "blockers": [
             "unreviewed_mapping",
             "unreviewed_symbol_ownership",
-            "unreviewed_source_range_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/locomotor/core_impl/template.rs"
+            "unreviewed_source_range_ownership"
           ],
           "candidate_destinations": [
             {
@@ -50929,7 +50759,6 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/grant_science_upgrade.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/locomotor_set_upgrade.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade.rs",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/mod.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/model_condition_upgrade.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/passengers_fire_upgrade.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/power_plant_upgrade.rs",
@@ -142338,13 +142167,13 @@
           "blockers": [
             "unreviewed_mapping",
             "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/locomotor/core_impl/template.rs"
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/template.rs"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/locomotor/core_impl/template.rs"
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/system/upgrade/template.rs"
             }
           ],
           "entry_id": "libraries:Source/template.cpp",
@@ -189133,7 +188962,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "f0bcfc202e87819dea44f4f7090d6bf035699a065ad62c9e26b4cbc54b32a55e",
+  "provenance_input_digest": "b211e5b13ae97191e63f2f5cf028a117575659880515a8d8b90bc38cec145ecb",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

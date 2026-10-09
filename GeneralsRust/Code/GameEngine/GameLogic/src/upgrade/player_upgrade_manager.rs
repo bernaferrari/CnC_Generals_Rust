@@ -10,6 +10,7 @@ use once_cell::sync::Lazy;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
+use super::UpgradeTemplatePlayerExt;
 use super::center::with_upgrade_center;
 use super::{Upgrade, UpgradeError, UpgradeMask, UpgradeResult, UpgradeStatus, UpgradeTemplate};
 use crate::common::*;

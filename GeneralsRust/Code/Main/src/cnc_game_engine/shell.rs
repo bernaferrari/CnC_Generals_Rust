@@ -1555,13 +1555,24 @@ impl CnCGameEngine {
                         }
                     }
 
-                    // C++ parity: GameEngine.cpp:468 — load Upgrade.ini (Default + override)
-                    game_engine::common::ini::ini_upgrade::initialize_upgrade_center();
-                    {
+                    // C++ parity: GameEngine.cpp:468 — TheUpgradeCenter (init: veterancy
+                    // bits 0..2, then Default/Upgrade.ini, then Upgrade.ini) is loaded once
+                    // into the engine-lifetime center, before any GameLogic world exists:
+                    // the asset manager does it at engine setup
+                    // (`ini_template_loader::load_upgrade_templates`). Only when that found
+                    // no upgrade INIs (extracted-INI runs) load them here, through the same
+                    // canonical `Upgrade` block path. Never parse twice: re-parsing a
+                    // different copy could allocate mask bits in a different order.
+                    game_engine::common::system::upgrade::initialize_upgrade_center();
+                    let upgrade_ini_loaded = game_engine::common::system::upgrade::process_lifetime_upgrade_center()
+                        .read()
+                        // More than the three init() veterancy templates.
+                        .map(|center| center.count() > 3)
+                        .unwrap_or(true);
+                    if !upgrade_ini_loaded {
                         for upgrade_path in ["Data/INI/Default/Upgrade.ini", "Data/INI/Upgrade.ini"] {
                             if let Some(content) = extract_ini_text_from_archives(upgrade_path) {
-                                let mut ini = game_engine::common::ini::INI::new();
-                                match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
+                                match crate::assets::ini_template_loader::load_upgrade_ini_text(&content) {
                                     Ok(()) => info!("Loaded upgrade definitions from {}", upgrade_path),
                                     Err(err) => warn!("Failed parsing Upgrade.ini '{}': {}", upgrade_path, err),
                                 }

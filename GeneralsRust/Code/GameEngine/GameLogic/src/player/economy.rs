@@ -202,18 +202,16 @@ impl Player {
     /// Check if player has upgrade complete
     /// Matches C++ Player::hasUpgradeComplete
     pub fn has_upgrade_complete(&self, upgrade_template: &UpgradeTemplate) -> Bool {
-        let upgrade_name = upgrade_template.get_name();
-        let mask_bit = crate::upgrade::upgrade_mask_for_name(upgrade_name.as_str());
-        let mask_value = UpgradeMaskType::from_bits_retain(mask_bit.bits());
+        // C++: m_upgrades*.testForAny(upgradeTemplate->getUpgradeMask()).
+        let mask_value = UpgradeMaskType::from_bits_retain(upgrade_template.get_mask().bits());
         (self.upgrades_completed & mask_value).bits() != 0
     }
 
     /// Check if upgrade is in production
     /// Matches C++ Player::hasUpgradeInProduction
     pub fn has_upgrade_in_production(&self, upgrade_template: &UpgradeTemplate) -> Bool {
-        let upgrade_name = upgrade_template.get_name();
-        let mask_bit = crate::upgrade::upgrade_mask_for_name(upgrade_name.as_str());
-        let mask_value = UpgradeMaskType::from_bits_retain(mask_bit.bits());
+        // C++: m_upgrades*.testForAny(upgradeTemplate->getUpgradeMask()).
+        let mask_value = UpgradeMaskType::from_bits_retain(upgrade_template.get_mask().bits());
         (self.upgrades_in_progress & mask_value).bits() != 0
     }
 

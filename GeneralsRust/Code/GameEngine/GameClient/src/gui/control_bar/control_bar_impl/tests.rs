@@ -245,31 +245,14 @@ mod tests {
         const UPGRADE: &str = "Upgrade_TestTemplateCameoImage";
         const IMAGE: &str = "SSTestTemplateCameo";
 
-        game_engine::common::ini::ini_upgrade::initialize_upgrade_center();
+        // C++ path: Upgrade.ini block -> TheUpgradeCenter (one canonical
+        // store) -> findUpgrade()->getButtonImage().
         {
-            let center = game_engine::common::ini::ini_upgrade::get_upgrade_center();
-            let mut center = center.write().expect("INI upgrade center");
-            let template = center.new_template(
-                game_engine::common::ascii_string::AsciiString::from(UPGRADE),
-            );
-            template.button_image = game_engine::common::ascii_string::AsciiString::from(IMAGE);
-        }
-
-        // C++ path: TheUpgradeCenter->findUpgrade()->getButtonImage()
-        {
-            use game_engine::common::ini::{INI, INIError};
-            use gamelogic::upgrade::center::with_upgrade_center_mut;
-            let source = format!("{UPGRADE}\nButtonImage = {IMAGE}\nEnd\n");
+            use game_engine::common::ini::INI;
+            let source = format!("Upgrade {UPGRADE}\n  ButtonImage = {IMAGE}\nEnd\n");
             let mut ini = INI::new();
-            ini.with_inline_source(&source, |ini| {
-                ini.read_line()?;
-                with_upgrade_center_mut(|center| {
-                    center
-                        .parse_upgrade_definition(ini)
-                        .map_err(|_| INIError::InvalidData)
-                })
-            })
-            .expect("register GameLogic upgrade ButtonImage");
+            ini.with_inline_source(&source, |ini| ini.parse_current_file())
+                .expect("register upgrade ButtonImage");
         }
 
         let mut control_bar = ControlBar::new();

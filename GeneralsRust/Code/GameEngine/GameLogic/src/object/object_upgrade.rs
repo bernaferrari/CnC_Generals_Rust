@@ -6,6 +6,7 @@
 
 use super::object_impl_imports::*;
 use super::*;
+use crate::upgrade::UpgradeTemplatePlayerExt;
 
 /// Immutable effect plans carry definitions across the short installed-module borrow.
 /// The executed flag remains solely in that same installed entry.

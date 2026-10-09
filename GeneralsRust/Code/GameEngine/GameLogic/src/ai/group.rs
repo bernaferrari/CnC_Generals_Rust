@@ -4,6 +4,7 @@ use crate::ai::ai_group::{
 };
 use crate::ai::{AiCommandParams, AiCommandType, GUICommandType};
 use crate::attack::{AbleToAttackType, CanAttackResult};
+use crate::upgrade::UpgradeCenterPlayerExt;
 
 use crate::action_manager::TheActionManager;
 use crate::ai::the_ai;

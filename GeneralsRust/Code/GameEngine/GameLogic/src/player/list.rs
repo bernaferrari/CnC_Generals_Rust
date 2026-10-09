@@ -268,9 +268,7 @@ impl PlayerArcExt for Arc<RwLock<Player>> {
             upgrade_mut.set_status(status);
 
             // Get the upgrade mask bit for this upgrade
-            let upgrade_name = upgrade_template.get_name();
-            let upgrade_mask = crate::upgrade::upgrade_mask_for_name(upgrade_name.as_str());
-            let mask_bit = UpgradeMaskType::from_bits_retain(upgrade_mask.bits());
+            let mask_bit = UpgradeMaskType::from_bits_retain(upgrade_template.get_mask().bits());
             // Update the appropriate mask based on status
             match status {
                 crate::upgrade::UpgradeStatus::InProduction => {
@@ -286,8 +284,10 @@ impl PlayerArcExt for Arc<RwLock<Player>> {
                     // per-object re-check reads that mask (C++ reads the same
                     // completed mask via Object::updateUpgradeModules).
                     if let Some(manager) = guard.get_upgrade_manager_mut() {
-                        manager
-                            .add_completed_upgrade(upgrade_template.get_name_key(), upgrade_mask);
+                        manager.add_completed_upgrade(
+                            upgrade_template.get_name_key(),
+                            upgrade_template.get_mask(),
+                        );
                     }
                     completed_roster = guard.get_all_objects();
                 }

@@ -45,6 +45,7 @@ use gamelogic::helpers::{TheGameLogic, TheThingFactory};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{PlayerIndex, player_list as logic_player_list};
 use gamelogic::system::beacon_manager::snapshot_beacons;
+use gamelogic::upgrade::UpgradeCenterPlayerExt;
 use gamelogic::upgrade::center::with_upgrade_center;
 
 // Live `control_bar` module via `#[path = "control_bar_impl/mod.rs"]`.

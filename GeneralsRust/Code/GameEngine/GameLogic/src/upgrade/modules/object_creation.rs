@@ -409,7 +409,7 @@ mod tests {
         let data = Arc::new(data);
         let mut upgrade = ObjectCreationUpgrade::new(1, data, 100);
 
-        let upgrade_mask = crate::upgrade::upgrade_mask_for_name("Upgrade_Tank");
+        let upgrade_mask = crate::upgrade::test_upgrade_mask("Upgrade_Tank");
 
         let mut obj = Object::new_test(100, 100.0);
 

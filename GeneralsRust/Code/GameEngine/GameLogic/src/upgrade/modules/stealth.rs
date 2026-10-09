@@ -298,7 +298,7 @@ mod tests {
         let data = Arc::new(data);
         let mut upgrade = StealthUpgrade::new(1, data, 100);
 
-        let upgrade_mask = crate::upgrade::upgrade_mask_for_name("Upgrade_Stealth");
+        let upgrade_mask = crate::upgrade::test_upgrade_mask("Upgrade_Stealth");
 
         let mut obj = Object::new_test(100, 100.0);
 
@@ -320,7 +320,7 @@ mod tests {
         let data = Arc::new(data);
         let mut upgrade = StealthUpgrade::new(1, data, 100);
 
-        let upgrade_mask = crate::upgrade::upgrade_mask_for_name("Upgrade_Stealth");
+        let upgrade_mask = crate::upgrade::test_upgrade_mask("Upgrade_Stealth");
 
         let mut obj = Object::new_test(100, 100.0);
 
@@ -345,7 +345,7 @@ mod tests {
         let data = Arc::new(data);
         let mut upgrade = StealthUpgrade::new(1, data, 100);
 
-        let upgrade_mask = crate::upgrade::upgrade_mask_for_name("Upgrade_Stealth");
+        let upgrade_mask = crate::upgrade::test_upgrade_mask("Upgrade_Stealth");
 
         let mut obj = Object::new_test(100, 100.0);
 

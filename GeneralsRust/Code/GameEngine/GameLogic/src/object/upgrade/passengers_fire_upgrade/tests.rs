@@ -20,7 +20,7 @@ const TRIGGER: &str = "Upgrade_OwnedPassengerFireTrigger";
 const CONFLICT: &str = "Upgrade_OwnedPassengerFireConflict";
 
 fn mask(name: &str) -> UpgradeMaskType {
-    UpgradeMaskType::from_bits_retain(crate::upgrade::upgrade_mask_for_name(name).to_bits())
+    UpgradeMaskType::from_bits_retain(crate::upgrade::test_upgrade_mask(name).to_bits())
 }
 
 struct Installed {
@@ -30,6 +30,10 @@ struct Installed {
 
 impl Installed {
     fn new(name: &str, fields: &str, with_transport: bool) -> Self {
+        // Authored fixtures reference defined Upgrade.ini upgrades only.
+        for upgrade in [TRIGGER, CONFLICT] {
+            crate::upgrade::test_upgrade_mask(upgrade);
+        }
         if get_thing_factory().unwrap().is_none() {
             init_thing_factory().unwrap();
         }

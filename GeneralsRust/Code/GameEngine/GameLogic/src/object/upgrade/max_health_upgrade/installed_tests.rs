@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 const ID: ObjectID = 0x7A3C_1011;
 const TRIGGER: &str = "Upgrade_OwnedMaxHealthTrigger";
 fn mask() -> UpgradeMaskType {
-    UpgradeMaskType::from_bits_retain(crate::upgrade::upgrade_mask_for_name(TRIGGER).to_bits())
+    UpgradeMaskType::from_bits_retain(crate::upgrade::test_upgrade_mask(TRIGGER).to_bits())
 }
 struct Installed {
     object: Arc<RwLock<Object>>,
@@ -25,6 +25,10 @@ impl Installed {
         Self::new_modules(name, &[("OwnedMaxHealth", extra)])
     }
     fn new_modules(name: &str, modules: &[(&str, &str)]) -> Self {
+        // Authored fixtures reference defined Upgrade.ini upgrades only.
+        for upgrade in [TRIGGER] {
+            crate::upgrade::test_upgrade_mask(upgrade);
+        }
         assert!(
             ensure_thing_factory_exists(),
             "empty authored fixture catalog"

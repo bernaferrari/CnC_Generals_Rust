@@ -14,25 +14,10 @@ use super::kind_of::KIND_OF_BIT_NAMES;
 use super::snapshot::Snapshotable;
 use crate::System::SaveGame::get_game_state;
 use crate::common::ascii_string::AsciiString;
-use crate::common::ini::ini_upgrade::get_upgrade_center;
 use crate::common::rts::science::{SCIENCE_INVALID, ScienceType, get_science_store};
+use crate::common::system::upgrade::with_upgrade_center;
 use crate::common::thing::thing::KindOfType;
 use std::io;
-
-fn upgrade_templates_in_serialization_order() -> Option<Vec<(String, u128)>> {
-    let center = get_upgrade_center();
-    let center = center.read().expect("UpgradeCenter poisoned");
-    Some(
-        center
-            .get_template_names()
-            .into_iter()
-            .filter_map(|name| {
-                let template = center.find_template(&AsciiString::from(name.as_str()))?;
-                Some((name.clone(), template.get_upgrade_mask()))
-            })
-            .collect::<Vec<_>>(),
-    )
-}
 
 /// Type alias for XferVersion - matches C++ line 29
 /// C++ Reference: typedef UnsignedByte XferVersion (1 byte)
@@ -765,16 +750,10 @@ pub trait Xfer {
 
         match self.get_xfer_mode() {
             XferMode::Save => {
-                let upgrade_templates =
-                    upgrade_templates_in_serialization_order().unwrap_or_default();
-                let mut selected_names = Vec::new();
-
-                // PARITY_NOTE: C++ writes each set upgrade bit as a name string instead of raw bits.
-                for (upgrade_name, upgrade_mask) in upgrade_templates {
-                    if (*upgrade_mask_data & upgrade_mask) == upgrade_mask {
-                        selected_names.push(upgrade_name);
-                    }
-                }
+                // PARITY_NOTE: C++ Xfer::xferUpgradeMask writes the name of every
+                // template whose mask is set, walking TheUpgradeCenter's list.
+                let selected_names =
+                    with_upgrade_center(|center| center.upgrade_names_in_mask(*upgrade_mask_data));
 
                 let mut count = selected_names.len() as u16;
                 self.xfer_unsigned_short(&mut count)?;
@@ -788,16 +767,14 @@ pub trait Xfer {
                 self.xfer_unsigned_short(&mut count)?;
                 *upgrade_mask_data = 0;
 
-                let upgrade_templates = upgrade_templates_in_serialization_order();
                 for _ in 0..count {
                     let mut upgrade_name = String::new();
                     self.xfer_ascii_string(&mut upgrade_name)?;
 
-                    let Some(upgrade_mask) = upgrade_templates.as_ref().and_then(|templates| {
-                        templates
-                            .iter()
-                            .find_map(|(name, mask)| (name == &upgrade_name).then_some(*mask))
-                    }) else {
+                    // C++: TheUpgradeCenter->findUpgrade(name), XFER_UNKNOWN_STRING if NULL.
+                    let Some(upgrade_mask) =
+                        with_upgrade_center(|center| center.mask_for_name(&upgrade_name))
+                    else {
                         return Err(io::Error::new(
                             io::ErrorKind::InvalidData,
                             format!(
@@ -807,7 +784,7 @@ pub trait Xfer {
                         ));
                     };
 
-                    *upgrade_mask_data |= upgrade_mask;
+                    *upgrade_mask_data |= upgrade_mask.bits();
                 }
                 Ok(())
             }
@@ -958,7 +935,7 @@ pub trait Xferable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::ini::ini_upgrade::{get_upgrade_center, initialize_upgrade_center};
+    use crate::common::system::upgrade::{get_upgrade_center, initialize_upgrade_center};
     use crate::common::system::xfer_save::XferSave;
     use std::io::Cursor;
 
@@ -1010,14 +987,17 @@ mod tests {
             let center = get_upgrade_center();
             let mut center = center.write().expect("UpgradeCenter poisoned");
             let mask_a = center
-                .get_or_create_template(&AsciiString::from("XferOrderUpgradeA"))
-                .get_upgrade_mask();
+                .new_upgrade(AsciiString::from("XferOrderUpgradeA"))
+                .get_mask()
+                .bits();
             let _mask_b = center
-                .get_or_create_template(&AsciiString::from("XferOrderUpgradeB"))
-                .get_upgrade_mask();
+                .new_upgrade(AsciiString::from("XferOrderUpgradeB"))
+                .get_mask()
+                .bits();
             let mask_c = center
-                .get_or_create_template(&AsciiString::from("XferOrderUpgradeC"))
-                .get_upgrade_mask();
+                .new_upgrade(AsciiString::from("XferOrderUpgradeC"))
+                .get_mask()
+                .bits();
             (mask_a, mask_c)
         };
 

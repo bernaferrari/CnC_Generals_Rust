@@ -336,7 +336,7 @@ mod tests {
         upgrade.applied = true;
         upgrade.mux.set_upgrade_executed(true);
         let mask = crate::common::UpgradeMaskType::from_bits_retain(
-            crate::upgrade::upgrade_mask_for_name("Upgrade_GLACamouflage").to_bits(),
+            crate::upgrade::test_upgrade_mask("Upgrade_GLACamouflage").to_bits(),
         );
         upgrade.remove_upgrade(mask);
         assert!(!upgrade.is_applied());

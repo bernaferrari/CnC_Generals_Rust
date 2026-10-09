@@ -1,19 +1,20 @@
 //! Actual immutable upgrade definitions created on one thread and used on
 //! another. Numeric NameKey metadata is a compatibility namespace, not catalog
 //! identity. These witnesses use production creation/parsing/query operations.
+use super::super::UpgradeType;
 use super::*;
+use game_engine::common::ini::INI;
 
 fn parse(center: &mut UpgradeCenter, name: &str, kind: &str, cost: u32, seconds: u32) {
     if center.find_upgrade(name).is_none() {
         center.new_upgrade(AsciiString::from(name));
     }
-    let source = format!("{name}\nType = {kind}\nBuildCost = {cost}\nBuildTime = {seconds}\nEnd\n");
+    let source =
+        format!("Upgrade {name}\nType = {kind}\nBuildCost = {cost}\nBuildTime = {seconds}\nEnd\n");
     let mut ini = INI::new();
     ini.with_inline_source(&source, |ini| {
         ini.read_line()?;
-        center
-            .parse_upgrade_definition(ini)
-            .map_err(|_| game_engine::common::ini::INIError::InvalidData)
+        center.parse_upgrade_definition(ini)
     })
     .expect("actual native upgrade parser");
 }
@@ -63,9 +64,13 @@ fn named_catalog_lookup_ignores_foreign_sequential_key_namespace() {
         assert_eq!(player.get_build_time(), 7.0);
         assert_eq!(
             player.get_name_key(),
-            1,
-            "original definition metadata remains intact"
+            2,
+            "key is NAMEKEY(name) in this thread's namespace, never the producer's 1"
         );
+        assert!(Arc::ptr_eq(
+            &center.find_upgrade_by_key(player.get_name_key()).unwrap(),
+            &player
+        ));
         let object = center.find_upgrade("OwnedCatalogObject").unwrap();
         assert_eq!(object.get_upgrade_type(), UpgradeType::Object);
         assert_eq!(object.get_cost(), 654);
@@ -115,8 +120,8 @@ fn named_catalog_registration_and_reparse_keep_other_templates_and_masks() {
         );
         assert_eq!(
             player.get_name_key(),
-            1,
-            "reparse preserves original template key metadata"
+            3,
+            "key follows this thread's namespace"
         );
         let object = center.find_upgrade("OwnedCatalogObject").unwrap();
         assert_eq!(object.get_upgrade_type(), UpgradeType::Object);

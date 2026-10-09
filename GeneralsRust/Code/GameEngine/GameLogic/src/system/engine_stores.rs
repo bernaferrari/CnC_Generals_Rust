@@ -4,10 +4,11 @@
 //! reads through global accessors into one struct whose lifetime is owned by
 //! the GameLogic world lifecycle:
 //!
-//! - `upgrade_center` — C++ `TheUpgradeCenter` (UpgradeCenter, Upgrade.h).
+//! - `upgrade_center` — C++ `TheUpgradeCenter` (the canonical Common
+//!   `game_engine::common::system::upgrade::UpgradeCenter`, Upgrade.h). The
+//!   Common INI `Upgrade` block parser and GameLogic readers share this one
+//!   store; there is no second upgrade catalog.
 //! - `ai` — C++ `TheAI` (AI, AI.h), including its `AiData` (`TheAI->getAiData()`).
-//! - `ini_upgrade_center` — the Common-crate INI-side `Upgrade.ini` store
-//!   (`game_engine::common::ini::ini_upgrade`, C++ TheUpgradeCenter parse half).
 //! - `ai_data` — the Common-crate `AIData.ini` parse-side store
 //!   (`game_engine::common::ini::ini_ai_data`).
 //! - `shroud` — the shroud/fog-of-war manager (C++ PartitionManager shroud).
@@ -48,7 +49,7 @@ use std::cell::RefCell;
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
 
 use game_engine::common::ini::ini_ai_data::{self, AIDataStore};
-use game_engine::common::ini::ini_upgrade::{self, UpgradeCenter as IniUpgradeCenter};
+use game_engine::common::system::upgrade as common_upgrade;
 
 use crate::ai::AI;
 use crate::helpers::ClientVisualState;
@@ -57,21 +58,18 @@ use crate::upgrade::center::UpgradeCenter;
 
 /// The C++-inherited engine stores owned by a GameLogic world.
 pub struct EngineStores {
-    /// C++ `TheUpgradeCenter`. World bundles hold a snapshot clone of the
-    /// engine-lifetime content (INI definitions persist across worlds, C++
-    /// GameEngine.cpp:468) under a fresh lock so per-world poisoning and
-    /// scripted leftover registrations cannot leak into other worlds.
+    /// C++ `TheUpgradeCenter`. The engine-lifetime bundle shares Common's
+    /// engine-lifetime center (Upgrade.ini loads land there); world bundles
+    /// hold a snapshot clone of it (INI definitions persist across worlds,
+    /// C++ GameEngine.cpp:468) under a fresh lock so per-world poisoning,
+    /// map.ini upgrades and scripted registrations die with the world.
     upgrade_center: Arc<RwLock<UpgradeCenter>>,
     /// C++ `TheAI` (C++ AI.cpp:280). Fresh per world, mirroring the
     /// contents swap the whole-world restore transaction already performs at
     /// map-load boundaries and C++ `TheAI->reset()` at clearGameData.
     ai: Arc<RwLock<AI>>,
-    /// Common-crate INI-side TheUpgradeCenter store (`Upgrade.ini` parse
-    /// state). Engine-lifetime bundles share the Common process store; world
-    /// bundles hold a snapshot clone under a fresh lock.
-    ini_upgrade_center: Arc<RwLock<IniUpgradeCenter>>,
     /// Common-crate `AIData.ini` parse-side store. Same split as
-    /// `ini_upgrade_center`: shared engine-lifetime store, snapshot per world.
+    /// `upgrade_center`: shared engine-lifetime store, snapshot per world.
     ai_data: Arc<RwLock<AIDataStore>>,
     /// Shroud/fog-of-war manager (C++ PartitionManager shroud state). World
     /// bundles snapshot-clone the engine-lifetime content under a fresh lock
@@ -86,15 +84,12 @@ impl EngineStores {
     /// Engine-lifetime defaults in C++ engine-init order: TheUpgradeCenter
     /// (with its built-in `init()` veterancy templates) before TheAI.
     fn engine_defaults() -> Self {
-        let mut center = UpgradeCenter::new();
-        // C++ UpgradeCenter::init runs before Upgrade.ini is parsed.
-        center.init();
         Self {
-            upgrade_center: Arc::new(RwLock::new(center)),
-            ai: Arc::new(RwLock::new(AI::new())),
             // Engine-lifetime bundles share the Common stores themselves so
             // INI loads outside any world land in the store gameplay reads.
-            ini_upgrade_center: ini_upgrade::process_lifetime_upgrade_center(),
+            // The Common center runs C++ UpgradeCenter::init on creation.
+            upgrade_center: common_upgrade::process_lifetime_upgrade_center(),
+            ai: Arc::new(RwLock::new(AI::new())),
             ai_data: ini_ai_data::process_lifetime_ai_data_store(),
             shroud: Arc::new(Mutex::new(ShroudManager::new())),
             client_visuals: ClientVisualState::default(),
@@ -110,7 +105,6 @@ impl EngineStores {
         Self {
             upgrade_center: Arc::new(RwLock::new(upgrade_center)),
             ai: Arc::new(RwLock::new(AI::new())),
-            ini_upgrade_center: ini_upgrade_center_snapshot(),
             ai_data: ai_data_snapshot(),
             shroud: Arc::new(Mutex::new(engine_shroud_snapshot())),
             client_visuals: ClientVisualState::default(),
@@ -125,11 +119,6 @@ impl EngineStores {
     /// C++ `TheAI`.
     pub fn ai(&self) -> &Arc<RwLock<AI>> {
         &self.ai
-    }
-
-    /// Common INI-side UpgradeCenter store.
-    pub fn ini_upgrade_center(&self) -> &Arc<RwLock<IniUpgradeCenter>> {
-        &self.ini_upgrade_center
     }
 
     /// Common `AIData.ini` store.
@@ -206,7 +195,7 @@ pub fn is_active(bundle: &Arc<EngineStores>) -> bool {
 /// Common slots first, the ACTIVE stack second.
 fn install_common_slots(world: &Arc<EngineStores>) {
     ini_ai_data::install_ai_data_store(Arc::clone(&world.ai_data));
-    ini_upgrade::install_upgrade_center(Arc::clone(&world.ini_upgrade_center));
+    common_upgrade::install_upgrade_center(Arc::clone(&world.upgrade_center));
 }
 
 /// Install a world bundle as the new head of the active stack and return the
@@ -253,7 +242,7 @@ pub fn uninstall_active_if_current(world: &Arc<EngineStores>) -> bool {
     };
     if head_was_cleared {
         ini_ai_data::uninstall_ai_data_store_if_current(&world.ai_data);
-        ini_upgrade::uninstall_upgrade_center_if_current(&world.ini_upgrade_center);
+        common_upgrade::uninstall_upgrade_center_if_current(&world.upgrade_center);
         if let Some(restored) = restored {
             // The reinstated head must own the Common INI funnels too.
             install_common_slots(&restored);
@@ -303,7 +292,7 @@ pub(crate) fn restore_active(
     };
     if head_was_cleared {
         ini_ai_data::uninstall_ai_data_store_if_current(&expected_removed.ai_data);
-        ini_upgrade::uninstall_upgrade_center_if_current(&expected_removed.ini_upgrade_center);
+        common_upgrade::uninstall_upgrade_center_if_current(&expected_removed.upgrade_center);
         if let Some(reinstated) = reinstated {
             install_common_slots(&reinstated);
         }
@@ -332,7 +321,7 @@ pub fn with_active_stores<R>(bundle: &Arc<EngineStores>, f: impl FnOnce() -> R) 
     struct RestoreScope {
         bundle: Arc<EngineStores>,
         prev_ai_data: Option<Arc<RwLock<AIDataStore>>>,
-        prev_ini_upgrade: Option<Arc<RwLock<IniUpgradeCenter>>>,
+        prev_upgrade_center: Option<Arc<RwLock<UpgradeCenter>>>,
     }
 
     impl Drop for RestoreScope {
@@ -360,16 +349,16 @@ pub fn with_active_stores<R>(bundle: &Arc<EngineStores>, f: impl FnOnce() -> R) 
                 }
             }
             if Arc::ptr_eq(
-                &ini_upgrade::get_upgrade_center(),
-                &self.bundle.ini_upgrade_center,
+                &common_upgrade::get_upgrade_center(),
+                &self.bundle.upgrade_center,
             ) {
-                match self.prev_ini_upgrade.take() {
+                match self.prev_upgrade_center.take() {
                     Some(previous) => {
-                        ini_upgrade::install_upgrade_center(previous);
+                        common_upgrade::install_upgrade_center(previous);
                     }
                     None => {
-                        ini_upgrade::uninstall_upgrade_center_if_current(
-                            &self.bundle.ini_upgrade_center,
+                        common_upgrade::uninstall_upgrade_center_if_current(
+                            &self.bundle.upgrade_center,
                         );
                     }
                 }
@@ -379,8 +368,8 @@ pub fn with_active_stores<R>(bundle: &Arc<EngineStores>, f: impl FnOnce() -> R) 
 
     let restore = RestoreScope {
         prev_ai_data: ini_ai_data::install_ai_data_store(Arc::clone(&bundle.ai_data)),
-        prev_ini_upgrade: ini_upgrade::install_upgrade_center(Arc::clone(
-            &bundle.ini_upgrade_center,
+        prev_upgrade_center: common_upgrade::install_upgrade_center(Arc::clone(
+            &bundle.upgrade_center,
         )),
         bundle: Arc::clone(bundle),
     };
@@ -421,17 +410,6 @@ fn engine_shroud_snapshot() -> ShroudManager {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone()
-}
-
-/// Snapshot clone of the engine-lifetime Common UpgradeCenter content under
-/// a fresh lock, mirroring [`engine_upgrade_center_snapshot`].
-fn ini_upgrade_center_snapshot() -> Arc<RwLock<IniUpgradeCenter>> {
-    let store = ini_upgrade::process_lifetime_upgrade_center();
-    let snapshot = store
-        .read()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clone();
-    Arc::new(RwLock::new(snapshot))
 }
 
 /// Snapshot clone of the engine-lifetime Common AIData store under a fresh
@@ -741,8 +719,8 @@ mod tests {
         // The Common INI funnels mirror the reinstated head.
         assert!(Arc::ptr_eq(&ini_ai_data::get_ai_data_store(), a.ai_data()));
         assert!(Arc::ptr_eq(
-            &ini_upgrade::get_upgrade_center(),
-            a.ini_upgrade_center()
+            &common_upgrade::get_upgrade_center(),
+            a.upgrade_center()
         ));
 
         assert!(uninstall_active_if_current(&a));
@@ -849,6 +827,38 @@ mod tests {
     }
 
     #[test]
+    fn one_upgrade_center_per_bundle_shared_with_common() {
+        let _serial = crate::test_sync::lock();
+        assert_eq!(active_stack_depth(), 0);
+        // Engine-lifetime bundle == Common's engine-lifetime center.
+        assert!(Arc::ptr_eq(
+            PROCESS_LIFETIME.upgrade_center(),
+            &common_upgrade::process_lifetime_upgrade_center()
+        ));
+        // A world snapshots it under a fresh lock (same bits, own store).
+        let world = new_for_world();
+        assert!(!Arc::ptr_eq(
+            world.upgrade_center(),
+            PROCESS_LIFETIME.upgrade_center()
+        ));
+        // (Other tests may only add to the engine center after the snapshot.)
+        let engine = PROCESS_LIFETIME.upgrade_center().read().unwrap().clone();
+        for template in world.upgrade_center().read().unwrap().get_all_upgrades() {
+            let engine_template = engine.find_upgrade(template.get_name().as_str()).unwrap();
+            assert_eq!(engine_template.get_mask(), template.get_mask());
+        }
+        // Installed, GameLogic and Common resolve the same instance.
+        install_active(Arc::clone(&world));
+        assert!(Arc::ptr_eq(&upgrade_center(), world.upgrade_center()));
+        assert!(Arc::ptr_eq(
+            &common_upgrade::get_upgrade_center(),
+            world.upgrade_center()
+        ));
+        assert!(uninstall_active_if_current(&world));
+        assert_eq!(active_stack_depth(), 0);
+    }
+
+    #[test]
     fn with_active_stores_pins_and_restores_resolution() {
         let _serial = crate::test_sync::lock();
         assert_eq!(active_stack_depth(), 0);
@@ -872,8 +882,8 @@ mod tests {
         assert!(Arc::ptr_eq(&active(), &a));
         assert!(Arc::ptr_eq(&ini_ai_data::get_ai_data_store(), a.ai_data()));
         assert!(Arc::ptr_eq(
-            &ini_upgrade::get_upgrade_center(),
-            a.ini_upgrade_center()
+            &common_upgrade::get_upgrade_center(),
+            a.upgrade_center()
         ));
 
         assert!(uninstall_active_if_current(&a));

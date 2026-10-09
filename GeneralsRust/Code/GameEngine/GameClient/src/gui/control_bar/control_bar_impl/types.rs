@@ -84,10 +84,14 @@ fn resolve_upgrade_cameo_button_image(
     }
 
     // 1) C++ TheUpgradeCenter->findUpgrade + getButtonImage()
+    //    (cacheButtonImage clears the name once the image is resolved).
     let logic_image = with_upgrade_center(|center| {
         center
             .find_upgrade(trimmed)
-            .map(|template| template.get_button_image_name().as_str().trim().to_string())
+            .map(|template| match template.get_button_image() {
+                Some(image) => image.get_name().trim().to_string(),
+                None => template.get_button_image_name().as_str().trim().to_string(),
+            })
     });
     if let Some(image) = logic_image {
         if !image.is_empty() {
@@ -95,20 +99,7 @@ fn resolve_upgrade_cameo_button_image(
         }
     }
 
-    // 2) Common INI UpgradeTemplate.ButtonImage (same Upgrade.ini field)
-    {
-        let center = game_engine::common::ini::ini_upgrade::get_upgrade_center();
-        let center = center.read().expect("UpgradeCenter poisoned");
-        let key = game_engine::common::ascii_string::AsciiString::from(trimmed);
-        if let Some(template) = center.find_template(&key) {
-            let image = template.button_image.as_str().trim();
-            if !image.is_empty() {
-                return image.to_string();
-            }
-        }
-    }
-
-    // 3) CommandButton.ButtonImage where Upgrade= matches
+    // 2) CommandButton.ButtonImage where Upgrade= matches
     if let Some(control_bar) = get_ini_control_bar() {
         for (_, button) in control_bar.iter_resolved_buttons() {
             if button.upgrade.eq_ignore_ascii_case(trimmed)
@@ -119,7 +110,7 @@ fn resolve_upgrade_cameo_button_image(
         }
     }
 
-    // 4) Presentation-synced CommandSet buttons already on the bar
+    // 3) Presentation-synced CommandSet buttons already on the bar
     if let Some(commands) = context_commands {
         for button in commands {
             if button.upgrade.eq_ignore_ascii_case(trimmed)

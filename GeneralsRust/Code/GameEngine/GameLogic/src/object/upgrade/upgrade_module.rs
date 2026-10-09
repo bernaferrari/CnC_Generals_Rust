@@ -220,7 +220,7 @@ mod tests {
                 "ResetUpgradeA",
             ));
         let mask = UpgradeMaskType::from_bits_retain(
-            crate::upgrade::upgrade_mask_for_name("ResetUpgradeA").to_bits(),
+            crate::upgrade::test_upgrade_mask("ResetUpgradeA").to_bits(),
         );
         let mut applied = true;
         assert!(mux_reset_upgrade(&data, &mut applied, mask));

@@ -481,6 +481,7 @@ mod tests {
 
     #[test]
     fn test_would_upgrade() {
+        crate::upgrade::test_upgrade_mask("TestUpgrade");
         let mut data = UpgradeMuxData {
             activation_upgrade_names: vec![AsciiString::from("TestUpgrade")],
             requires_all_triggers: false,

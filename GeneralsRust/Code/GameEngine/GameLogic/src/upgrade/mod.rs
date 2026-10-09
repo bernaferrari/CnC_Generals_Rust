@@ -17,7 +17,7 @@ pub mod production_integration;
 pub mod template;
 
 // Re-export main types
-pub use center::UpgradeCenter;
+pub use center::{UpgradeCenter, UpgradeCenterPlayerExt};
 pub use effects::{
     UpgradeEffect, UpgradeEffectApplicator, UpgradeEffectRegistry, UpgradeEffectType,
 };
@@ -31,7 +31,7 @@ pub use prerequisites::{
 pub use production_integration::{
     UpgradeProductionIntegration, UpgradeProductionItem, UpgradeProductionQueue,
 };
-pub use template::{UpgradeTemplate, UpgradeType};
+pub use template::{UpgradeTemplate, UpgradeTemplatePlayerExt, UpgradeType};
 
 /// Wave 453: host-only path has no dual-world factory objects.
 #[inline]
@@ -46,7 +46,14 @@ use crate::common::*;
 
 /// Maximum number of upgrades in the system
 /// Matches C++ UPGRADE_MAX_COUNT from Upgrade.h
-pub const UPGRADE_MAX_COUNT: usize = 128;
+pub use game_engine::common::system::upgrade::UPGRADE_MAX_COUNT;
+
+/// Test fixture: define `name` in the active UpgradeCenter (as an Upgrade.ini
+/// block would) and return its mask. Masks only exist for defined upgrades.
+#[cfg(test)]
+pub(crate) fn test_upgrade_mask(name: &str) -> UpgradeMask {
+    center::with_upgrade_center_mut(|center| center.new_upgrade(AsciiString::from(name)).get_mask())
+}
 
 /// Error types for upgrade system
 #[derive(Debug, Clone, thiserror::Error)]

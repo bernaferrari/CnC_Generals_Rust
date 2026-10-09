@@ -218,6 +218,8 @@ pub struct INI {
     script_template_definitions: Vec<super::ini_script::ScriptTemplateDefinition>,
     // Explicit engine-owner target for AIData content loading.
     ai_data_store_target: Option<Arc<RwLock<super::ini_ai_data::AIDataStore>>>,
+    // Explicit engine-owner target for `Upgrade` block parsing.
+    upgrade_center_target: Option<Arc<RwLock<crate::common::system::upgrade::UpgradeCenter>>>,
     #[cfg(debug_assertions)]
     cur_block_start: String,
 }
@@ -750,16 +752,14 @@ fn parse_terrain_block(ini: &mut INI) -> INIResult<()> {
     Ok(())
 }
 
+/// C++ `INI::parseUpgradeDefinition` -> `UpgradeCenter::parseUpgradeDefinition`
+/// (Upgrade.cpp:451-473): the one load path for every `Upgrade` block.
 fn parse_upgrade_block(ini: &mut INI) -> INIResult<()> {
-    let (name, properties) = parse_named_property_block(ini)?;
-    let template = super::ini_upgrade::IniUpgrade::parse_upgrade_block(
-        AsciiString::from(name.as_str()),
-        properties,
-    )
-    .map_err(|_| INIError::InvalidData)?;
-    super::ini_upgrade::IniUpgrade::register_template(template)
-        .map_err(|_| INIError::InvalidData)?;
-    Ok(())
+    let center = ini.upgrade_center_target();
+    let mut center = center
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    center.parse_upgrade_definition(ini)
 }
 
 fn parse_video_block(ini: &mut INI) -> INIResult<()> {
@@ -1202,6 +1202,7 @@ impl INI {
             xfer: None,
             script_template_definitions: Vec::new(),
             ai_data_store_target: None,
+            upgrade_center_target: None,
             #[cfg(debug_assertions)]
             cur_block_start: String::new(),
         }
@@ -1220,6 +1221,27 @@ impl INI {
         &self,
     ) -> Option<Arc<RwLock<super::ini_ai_data::AIDataStore>>> {
         self.ai_data_store_target.as_ref().map(Arc::clone)
+    }
+
+    /// Bind `Upgrade` block parsing in this INI operation to an explicit
+    /// UpgradeCenter (e.g. the engine-lifetime center at engine boot). This
+    /// does not publish or mutate Common's active-center selector.
+    pub fn set_upgrade_center_target(
+        &mut self,
+        center: Arc<RwLock<crate::common::system::upgrade::UpgradeCenter>>,
+    ) {
+        self.upgrade_center_target = Some(center);
+    }
+
+    /// The UpgradeCenter `Upgrade` blocks parse into: the explicit target,
+    /// else the active center (C++ `TheUpgradeCenter`).
+    pub fn upgrade_center_target(
+        &self,
+    ) -> Arc<RwLock<crate::common::system::upgrade::UpgradeCenter>> {
+        self.upgrade_center_target
+            .as_ref()
+            .map(Arc::clone)
+            .unwrap_or_else(crate::common::system::upgrade::get_upgrade_center)
     }
 
     /// Opt this INI instance into corrupt-block skipping (see the field doc).

@@ -1,278 +1,50 @@
-//! Upgrade Center - Global Registry
+//! Upgrade Center — GameLogic access to the canonical C++ `TheUpgradeCenter`.
 //!
-//! Central registry for all upgrade templates in the game.
-//! Matches C++ UpgradeCenter from Upgrade.h/.cpp
+//! `UpgradeCenter` is the Common type (C++ Common/System/Upgrade.cpp). The
+//! per-world instance is owned by `EngineStores`; [`get_upgrade_center`] is a
+//! thin forward to it. Only `canAffordUpgrade` (needs GameLogic `Player`)
+//! lives here.
 //!
 //! Original C++ Author: Colin Day, March 2002
 
-use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use super::{
-    UpgradeError, UpgradeResult, UpgradeTemplate, UpgradeType, prerequisites::get_tech_tree,
-};
+use super::UpgradeTemplate;
+use super::template::UpgradeTemplatePlayerExt;
 use crate::common::*;
-use game_engine::common::ini::INI;
 
-/// Central registry for upgrade templates
-/// Matches C++ UpgradeCenter from Upgrade.h
-#[derive(Clone)]
-pub struct UpgradeCenter {
-    /// Canonical catalog identity is the exact authored name. NameKey values
-    /// belong to the generator namespace that constructed each template.
-    upgrades: HashMap<String, Arc<UpgradeTemplate>>,
-    /// Ordered list of upgrades (for iteration)
-    upgrade_list: Vec<Arc<UpgradeTemplate>>,
-    /// Default upgrade template for inheritance
-    default_upgrade: Option<Arc<UpgradeTemplate>>,
-    /// Next bit assigned by newUpgrade (C++ m_nextTemplateMaskBit)
-    next_template_mask_bit: u32,
-    /// C++ buttonImagesCached — one-shot during reset
-    button_images_cached: bool,
+pub use game_engine::common::system::upgrade::UpgradeCenter;
+
+/// C++ `UpgradeCenter` members that take a `Player*`.
+pub trait UpgradeCenterPlayerExt {
+    /// C++ `UpgradeCenter::canAffordUpgrade` (Upgrade.cpp:395-420).
+    fn can_afford_upgrade(
+        &self,
+        player: &Player,
+        template: &UpgradeTemplate,
+        display_reason: bool,
+    ) -> bool;
 }
 
-impl UpgradeCenter {
-    /// Create a new upgrade center
-    /// Matches C++ UpgradeCenter::UpgradeCenter
-    pub fn new() -> Self {
-        Self {
-            upgrades: HashMap::new(),
-            upgrade_list: Vec::new(),
-            default_upgrade: None,
-            next_template_mask_bit: 0,
-            button_images_cached: false,
-        }
-    }
-
-    /// Initialize the upgrade center
-    /// Matches C++ UpgradeCenter::init
-    pub fn init(&mut self) {
-        log::info!("Initializing UpgradeCenter");
-
-        // C++ UpgradeCenter::init — create only if missing so a second
-        // boot/load does not duplicate list entries.
-        self.ensure_veterancy_upgrade("VETERAN");
-        self.ensure_veterancy_upgrade("ELITE");
-        self.ensure_veterancy_upgrade("HEROIC");
-
-        log::info!(
-            "UpgradeCenter initialized with {} upgrades",
-            self.upgrades.len()
-        );
-    }
-
-    /// Matches C++ UpgradeCenter::reset — cache button images once.
-    pub fn reset(&mut self) {
-        if self.button_images_cached {
-            return;
-        }
-        if game_engine::common::ini::ini_mapped_image::get_mapped_image_collection().is_none() {
-            return;
-        }
-        let list = std::mem::take(&mut self.upgrade_list);
-        self.upgrade_list = list
-            .into_iter()
-            .map(|arc| {
-                let mut template = (*arc).clone();
-                template.cache_button_image();
-                let cached = Arc::new(template);
-                self.upgrades
-                    .insert(cached.get_name().as_str().to_owned(), cached.clone());
-                if cached.get_name().as_str() == "DefaultUpgrade" {
-                    self.default_upgrade = Some(cached.clone());
-                }
-                cached
-            })
-            .collect();
-        self.button_images_cached = true;
-    }
-
-    /// Matches C++ UpgradeCenter::newUpgrade
-    pub fn new_upgrade(&mut self, name: AsciiString) -> Arc<UpgradeTemplate> {
-        // Preserve construction-time key allocation; only catalog lookup is
-        // independent of the calling thread's numeric namespace.
-        let _name_key = NameKeyGenerator::name_to_key(&name);
-
-        if let Some(existing) = self.upgrades.get(name.as_str()) {
-            if !name.is_empty() {
-                return existing.clone();
-            }
-        }
-
-        let mut template = if let Some(default) = &self.default_upgrade {
-            (**default).clone()
-        } else {
-            UpgradeTemplate::new(name.clone())
-        };
-        template.set_name(name.clone());
-
-        let mut mask = super::UpgradeMask::none();
-        mask.set_bit(self.next_template_mask_bit as usize);
-        self.next_template_mask_bit = self.next_template_mask_bit.saturating_add(1);
-        template.friend_set_upgrade_mask(mask);
-
-        let template = Arc::new(template);
-        self.upgrades
-            .insert(template.get_name().as_str().to_owned(), template.clone());
-        self.upgrade_list.insert(0, template.clone());
-
-        if name.as_str() == "DefaultUpgrade" {
-            self.default_upgrade = Some(template.clone());
-        }
-
-        template
-    }
-
-    fn ensure_veterancy_upgrade(&mut self, level: &str) {
-        let name = format!("Upgrade_Veterancy_{level}");
-        if self.find_upgrade(&name).is_some() {
-            return;
-        }
-        self.create_veterancy_upgrade(level);
-    }
-
-    fn create_veterancy_upgrade(&mut self, level: &str) {
-        let template = self.new_upgrade(AsciiString::from(""));
-        let empty_name = template.get_name().as_str().to_owned();
-        let mut owned = (*template).clone();
-        owned.friend_make_veterancy_upgrade(level);
-        let template = Arc::new(owned);
-        self.upgrades.remove(&empty_name);
-        self.upgrades
-            .insert(template.get_name().as_str().to_owned(), template.clone());
-        if let Some(slot) = self.upgrade_list.first_mut() {
-            *slot = template;
-        }
-    }
-
-    fn store_parsed_template(&mut self, _name_key: NameKeyType, template: Arc<UpgradeTemplate>) {
-        self.upgrades
-            .insert(template.get_name().as_str().to_owned(), template.clone());
-
-        if let Some(existing) = self
-            .upgrade_list
-            .iter_mut()
-            .find(|upgrade| upgrade.get_name() == template.get_name())
-        {
-            *existing = template;
-        } else {
-            self.upgrade_list.insert(0, template);
-        }
-    }
-
-    /// Exact authored-name lookup in this catalog. C++ has one process key
-    /// namespace; Rust catalogs may outlive or cross a TLS key namespace.
-    /// Queries do not intern absent names; future numeric IDs may therefore
-    /// differ from the C++ global generator's lookup-side allocation.
-    pub fn find_upgrade(&self, name: &str) -> Option<Arc<UpgradeTemplate>> {
-        self.upgrades.get(name).cloned()
-    }
-
-    /// Find upgrade by name key
-    /// Matches C++ UpgradeCenter::findUpgradeByKey
-    pub fn find_upgrade_by_key(&self, key: NameKeyType) -> Option<Arc<UpgradeTemplate>> {
-        // C++ walks its linked list and returns the first matching stored key.
-        // Numeric keys remain compatibility metadata, not portable identity.
-        self.upgrade_list
-            .iter()
-            .find(|template| template.get_name_key() == key)
-            .cloned()
-    }
-
-    /// Find veterancy upgrade by level
-    /// Matches C++ UpgradeCenter::findVeterancyUpgrade
-    pub fn find_veterancy_upgrade(&self, level: &str) -> Option<Arc<UpgradeTemplate>> {
-        let name = format!("Upgrade_Veterancy_{}", level);
-        self.find_upgrade(&name)
-    }
-
-    /// Get first upgrade template (for iteration)
-    /// Matches C++ UpgradeCenter::firstUpgradeTemplate
-    pub fn first_upgrade(&self) -> Option<Arc<UpgradeTemplate>> {
-        self.upgrade_list.first().cloned()
-    }
-
-    /// Get all upgrade templates
-    pub fn get_all_upgrades(&self) -> &[Arc<UpgradeTemplate>] {
-        &self.upgrade_list
-    }
-
-    /// Get upgrade names (for WorldBuilder)
-    /// Matches C++ UpgradeCenter::getUpgradeNames
-    pub fn get_upgrade_names(&self) -> Vec<AsciiString> {
-        self.upgrade_list
-            .iter()
-            .map(|t| t.get_name().clone())
-            .collect()
-    }
-
-    /// Check if player can afford upgrade
-    /// Matches C++ UpgradeCenter::canAffordUpgrade
-    pub fn can_afford_upgrade(
+impl UpgradeCenterPlayerExt for UpgradeCenter {
+    fn can_afford_upgrade(
         &self,
         player: &Player,
         template: &UpgradeTemplate,
         display_reason: bool,
     ) -> bool {
         let cost = template.calc_cost_to_build(player);
-        let money = player.get_money();
-
-        if money.get_money() < cost {
+        if player.get_money().get_money() < cost {
             if display_reason {
                 crate::helpers::TheInGameUI::display_message("GUI:NotEnoughMoneyToUpgrade");
             }
             return false;
         }
-
         true
     }
-
-    /// Parse upgrade definition from INI
-    /// Matches C++ UpgradeCenter::parseUpgradeDefinition
-    pub fn parse_upgrade_definition(&mut self, ini: &mut INI) -> Result<(), String> {
-        // Read upgrade name
-        let name_token = ini.get_next_token().map_err(|e| format!("{:?}", e))?;
-        let name = AsciiString::from(name_token.as_str());
-
-        log::debug!("Parsing upgrade definition: {}", name);
-
-        // Find or create upgrade
-        let name_key = NameKeyGenerator::name_to_key(&name);
-        let mut template = if let Some(existing) = self.upgrades.get(name.as_str()) {
-            // Clone existing to modify
-            (**existing).clone()
-        } else {
-            // Create new
-            UpgradeTemplate::new(name.clone())
-        };
-
-        // Parse INI fields
-        template
-            .parse_from_ini(ini)
-            .map_err(|e| format!("Failed to parse upgrade '{}': {:?}", name, e))?;
-
-        // Store updated template
-        let template = Arc::new(template);
-        self.store_parsed_template(name_key, template);
-
-        Ok(())
-    }
-
-    /// Get number of registered upgrades
-    pub fn count(&self) -> usize {
-        self.upgrades.len()
-    }
 }
 
-impl Default for UpgradeCenter {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Global accessor functions
-/// Matches C++ TheUpgradeCenter usage
-
+/// C++ `TheUpgradeCenter`: the active world's center (EngineStores).
 pub fn get_upgrade_center() -> Arc<RwLock<UpgradeCenter>> {
     crate::system::engine_stores::upgrade_center()
 }
@@ -297,12 +69,23 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::super::UpgradeType;
     use super::*;
+    use game_engine::common::ini::INI;
 
     fn setup_test_center() -> UpgradeCenter {
         let mut center = UpgradeCenter::new();
         center.init();
         center
+    }
+
+    fn parse(center: &mut UpgradeCenter, source: &str) {
+        let mut ini = INI::new();
+        ini.with_inline_source(source, |ini| {
+            ini.read_line()?;
+            center.parse_upgrade_definition(ini)
+        })
+        .expect("upgrade definition");
     }
 
     #[test]
@@ -314,7 +97,7 @@ mod tests {
     #[test]
     fn test_upgrade_center_init() {
         let center = setup_test_center();
-        assert!(center.count() >= 3); // At least 3 veterancy upgrades
+        assert_eq!(center.count(), 3);
     }
 
     #[test]
@@ -336,44 +119,52 @@ mod tests {
                 .find_veterancy_upgrade("VETERAN")
                 .expect("Upgrade_Veterancy_VETERAN");
             assert_eq!(veteran.get_upgrade_type(), UpgradeType::Object);
-            assert!(center.find_veterancy_upgrade("ELITE").is_some());
-            assert!(center.find_veterancy_upgrade("HEROIC").is_some());
+            assert_eq!(veteran.get_mask().bits(), 1);
+            assert_eq!(
+                center
+                    .find_veterancy_upgrade("ELITE")
+                    .unwrap()
+                    .get_mask()
+                    .bits(),
+                2
+            );
+            assert_eq!(
+                center
+                    .find_veterancy_upgrade("HEROIC")
+                    .unwrap()
+                    .get_mask()
+                    .bits(),
+                4
+            );
         });
     }
 
     #[test]
-    fn test_create_upgrade() {
+    fn gamelogic_and_common_resolve_the_same_center() {
+        // Process-global resolution: isolate from tests that install worlds.
+        #[cfg(not(target_arch = "wasm32"))]
+        if matches!(
+            crate::test_process::run_bounded(
+                "upgrade::center::tests::gamelogic_and_common_resolve_the_same_center",
+                "GENERALS_UPGRADE_CENTER_SAME_STORE_CHILD",
+            ),
+            crate::test_process::TestProcess::ParentVerified
+        ) {
+            return;
+        }
+        let gamelogic = get_upgrade_center();
+        let common = game_engine::common::system::upgrade::get_upgrade_center();
+        assert!(Arc::ptr_eq(&gamelogic, &common));
+    }
+
+    #[test]
+    fn test_create_and_find_upgrade() {
         let mut center = UpgradeCenter::new();
         let template = center.new_upgrade(AsciiString::from("TestUpgrade"));
-
         assert_eq!(template.get_name().as_str(), "TestUpgrade");
         assert_eq!(center.count(), 1);
-    }
-
-    #[test]
-    fn test_find_upgrade() {
-        let mut center = UpgradeCenter::new();
-        center.new_upgrade(AsciiString::from("TestUpgrade"));
-
-        let found = center.find_upgrade("TestUpgrade");
-        assert!(found.is_some());
-        assert_eq!(found.unwrap().get_name().as_str(), "TestUpgrade");
-    }
-
-    #[test]
-    fn test_find_veterancy_upgrade() {
-        let center = setup_test_center();
-
-        let veteran = center.find_veterancy_upgrade("VETERAN");
-        assert!(veteran.is_some());
-        assert_eq!(veteran.unwrap().get_upgrade_type(), UpgradeType::Object);
-    }
-
-    #[test]
-    fn test_get_all_upgrades() {
-        let center = setup_test_center();
-        let upgrades = center.get_all_upgrades();
-        assert!(upgrades.len() >= 3);
+        let found = center.find_upgrade("TestUpgrade").unwrap();
+        assert_eq!(found.get_mask(), template.get_mask());
     }
 
     #[test]
@@ -398,37 +189,34 @@ mod tests {
     #[test]
     fn init_veterancy_upgrades_match_cpp_list_order() {
         let center = setup_test_center();
-
         let names: Vec<_> = center
             .get_upgrade_names()
             .into_iter()
             .map(|name| name.to_string())
             .collect();
         assert_eq!(
-            &names[..3],
-            &[
-                "Upgrade_Veterancy_HEROIC".to_string(),
-                "Upgrade_Veterancy_ELITE".to_string(),
-                "Upgrade_Veterancy_VETERAN".to_string(),
+            names,
+            [
+                "Upgrade_Veterancy_HEROIC",
+                "Upgrade_Veterancy_ELITE",
+                "Upgrade_Veterancy_VETERAN",
             ]
         );
     }
 
     #[test]
-    fn parsed_existing_upgrade_refreshes_iteration_entry() {
+    fn parsed_existing_upgrade_overlays_in_place() {
         let mut center = UpgradeCenter::new();
-        center.new_upgrade(AsciiString::from("ExistingUpgrade"));
+        let existing = center.new_upgrade(AsciiString::from("ExistingUpgrade"));
         center.new_upgrade(AsciiString::from("OtherUpgrade"));
 
-        let mut reparsed = UpgradeTemplate::new(AsciiString::from("ExistingUpgrade"));
-        reparsed.set_cost(777);
-        reparsed.set_build_time(12.5);
-        let name_key = reparsed.get_name_key();
-        center.store_parsed_template(name_key, Arc::new(reparsed));
-
-        assert_eq!(
-            center.find_upgrade("ExistingUpgrade").unwrap().get_cost(),
-            777
+        parse(
+            &mut center,
+            "Upgrade ExistingUpgrade\nBuildCost = 777\nBuildTime = 12.5\nEnd\n",
+        );
+        parse(
+            &mut center,
+            "Upgrade ExistingUpgrade\nBuildCost = 778\nEnd\n",
         );
 
         let listed = center
@@ -436,8 +224,9 @@ mod tests {
             .iter()
             .find(|upgrade| upgrade.get_name().as_str() == "ExistingUpgrade")
             .unwrap();
-        assert_eq!(listed.get_cost(), 777);
+        assert_eq!(listed.get_cost(), 778);
         assert_eq!(listed.get_build_time(), 12.5);
+        assert_eq!(listed.get_mask(), existing.get_mask());
 
         let names: Vec<_> = center
             .get_upgrade_names()
@@ -451,27 +240,22 @@ mod tests {
     fn test_can_afford_upgrade() {
         let mut center = UpgradeCenter::new();
         let template = center.new_upgrade(AsciiString::from("TestUpgrade"));
-
         let player = Player::default();
-        // Assuming player starts with enough money
         assert!(center.can_afford_upgrade(&player, &template, false));
     }
 
     #[test]
     fn test_default_upgrade_inheritance() {
         let mut center = UpgradeCenter::new();
-
-        // Seed defaults directly (templates are immutable once registered).
-        let mut default_template = UpgradeTemplate::new(AsciiString::from("DefaultUpgrade"));
-        default_template.set_build_time(5.0);
-        default_template.set_cost(500);
-        center.default_upgrade = Some(Arc::new(default_template));
-
-        // Create another upgrade - should inherit defaults
+        parse(
+            &mut center,
+            "Upgrade DefaultUpgrade\nBuildTime = 5.0\nBuildCost = 500\nEnd\n",
+        );
         let other = center.new_upgrade(AsciiString::from("OtherUpgrade"));
-        assert!(center.default_upgrade.is_some());
         assert_eq!(other.get_build_time(), 5.0);
         assert_eq!(other.get_cost(), 500);
+        assert_eq!(other.get_name().as_str(), "OtherUpgrade");
+        assert_eq!(other.get_mask().bits(), 2);
     }
 }
 

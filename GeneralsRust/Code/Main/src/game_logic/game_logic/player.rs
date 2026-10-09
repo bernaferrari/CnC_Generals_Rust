@@ -10,6 +10,7 @@ use super::host::*;
 use super::prelude::*;
 use super::script_camera::*;
 use super::*;
+use gamelogic::upgrade::UpgradeTemplatePlayerExt;
 
 /// Map-authored SidesList leftovers applied onto a live host player.
 /// C++ `Player::initFromDict` + `PlayerList` relationship pass.

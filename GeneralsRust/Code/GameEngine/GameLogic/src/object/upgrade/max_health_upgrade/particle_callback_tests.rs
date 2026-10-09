@@ -293,7 +293,7 @@ fn authored_aflame_body_uses_actual_bones_and_unlocked_manager_callbacks_after_r
     // particle-list setup or manually copied body state.
     manager.expected_rubble.store(true, Ordering::SeqCst);
     let cap_mask = UpgradeMaskType::from_bits_retain(
-        crate::upgrade::upgrade_mask_for_name("Upgrade_MaxHealthParticleCap").to_bits(),
+        crate::upgrade::test_upgrade_mask("Upgrade_MaxHealthParticleCap").to_bits(),
     );
     {
         let mut owner = owner.write().unwrap();
