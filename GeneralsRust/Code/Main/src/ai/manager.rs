@@ -81,15 +81,17 @@ impl AIManager {
 
     /// Update all AI players
     pub fn update(&mut self, game_logic: &mut GameLogic, current_time: f32) {
-        Self::update_players(&mut self.ai_players, game_logic, current_time);
+        let ai_data = AiDataView::from_world(game_logic);
+        Self::update_players(&mut self.ai_players, game_logic, current_time, &ai_data);
     }
 
     /// Borrow the driving match through player callbacks without constructing
     /// a replacement manager/team factory on every frame. Player state remains
     /// owned by the same manager before and after the synchronous pass.
     pub(crate) fn update_owned(game_logic: &mut GameLogic, current_time: f32) {
+        let ai_data = AiDataView::from_world(game_logic);
         let mut players = std::mem::take(&mut game_logic.ai_manager.ai_players);
-        Self::update_players(&mut players, game_logic, current_time);
+        Self::update_players(&mut players, game_logic, current_time, &ai_data);
         game_logic.ai_manager.ai_players = players;
     }
 
@@ -97,6 +99,7 @@ impl AIManager {
         players: &mut BTreeMap<u32, AIPlayer>,
         game_logic: &mut GameLogic,
         current_time: f32,
+        ai_data: &AiDataView,
     ) {
         // GameLogic calls the AI once per advanced fixed logic frame, matching
         // C++ GameLogic::update -> TheAI->UPDATE. Do not re-gate that cadence
@@ -113,7 +116,7 @@ impl AIManager {
                 ai_player.ai_pre_team_destroy(Some(*team_id), team_name);
             }
             ai_player.peer_ai_targets = peer_targets.clone();
-            ai_player.update(game_logic, current_time);
+            ai_player.update_with_ai_data(game_logic, current_time, ai_data);
             // C++ getCurrentEnemy observes earlier slots after their update,
             // and later slots before theirs, during this same synchronous pass.
             peer_targets[slot].1 = ai_player.enemy_player_id;
@@ -881,5 +884,650 @@ impl AIManager {
         }
 
         log::info!("AI Manager: All pending commands cleared");
+    }
+}
+
+#[cfg(test)]
+mod aidata_owner_tests {
+    use super::*;
+    use game_engine::common::ini::ini_ai_data::{
+        self, AIDataStore, AiSideBuildList, BuildListEntry,
+    };
+    use glam::Vec3;
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    use std::sync::{Arc, RwLock};
+    use std::time::{Duration, Instant};
+
+    struct RestoreCommonStore {
+        installed: Arc<RwLock<AIDataStore>>,
+        previous: Option<Arc<RwLock<AIDataStore>>>,
+    }
+
+    impl RestoreCommonStore {
+        fn foreign_sentinel() -> Self {
+            let installed = Arc::new(RwLock::new(AIDataStore::default()));
+            {
+                let mut store = installed.write().unwrap();
+                store.ensure_base();
+                let data = store.get_active_mut().unwrap();
+                data.max_recruit_distance = 9_999.0;
+                data.rotate_skirmish_bases = true;
+            }
+            Self {
+                installed,
+                previous: None,
+            }
+        }
+
+        fn activate(&mut self) {
+            self.previous = ini_ai_data::install_ai_data_store(Arc::clone(&self.installed));
+        }
+    }
+
+    impl Drop for RestoreCommonStore {
+        fn drop(&mut self) {
+            if let Some(previous) = self.previous.take() {
+                ini_ai_data::install_ai_data_store(previous);
+            } else {
+                ini_ai_data::uninstall_ai_data_store_if_current(&self.installed);
+            }
+        }
+    }
+
+    // The Common active-store selector is process-wide. Keep this fixture in an exact child,
+    // restore the prior selector with RAII, and require the named test to actually execute.
+    fn run_isolated(test_name: &str) -> bool {
+        const MARKER: &str = "GENERALS_AI_DATA_OWNER_TEST";
+        let exact = module_path!().split_once("::").unwrap().1.to_owned() + "::" + test_name;
+        if std::env::var(MARKER).as_deref() == Ok(exact.as_str()) {
+            return false;
+        }
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([&exact, "--exact", "--test-threads=1", "--nocapture"])
+            .env(MARKER, &exact)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let pipes: [Box<dyn Read + Send>; 2] = [
+            Box::new(child.stdout.take().unwrap()),
+            Box::new(child.stderr.take().unwrap()),
+        ];
+        let readers = pipes.map(|mut pipe| {
+            std::thread::spawn(move || {
+                let mut bytes = Vec::new();
+                pipe.read_to_end(&mut bytes).unwrap();
+                bytes
+            })
+        });
+        let deadline = Instant::now() + Duration::from_secs(25);
+        let (status, timed_out) = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break (status, false);
+            }
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                break (child.wait().unwrap(), true);
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        };
+        let output =
+            readers.map(|reader| String::from_utf8_lossy(&reader.join().unwrap()).into_owned());
+        assert!(!timed_out, "{exact} timed out: {output:?}");
+        assert!(status.success(), "{exact}: {output:?}");
+        assert!(
+            output[0].contains("1 passed; 0 failed"),
+            "child did not execute exact regression: {output:?}"
+        );
+        true
+    }
+
+    fn add_world_ai(world: &mut crate::game_logic::GameLogic, wf_offset: f32, team_resources: f32) {
+        world.add_player(crate::game_logic::Player::new(
+            1,
+            Team::USA,
+            "same-slot AI",
+            false,
+        ));
+        let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(crate::game_logic::KindOf::Structure)
+            .add_kind_of(crate::game_logic::KindOf::CommandCenter);
+        world.templates.insert("AmericaCommandCenter".into(), cc);
+        let mut wf = crate::game_logic::ThingTemplate::new("AmericaWarFactory");
+        wf.add_kind_of(crate::game_logic::KindOf::Structure);
+        world.templates.insert("AmericaWarFactory".into(), wf);
+
+        let mut store = world.engine_stores.ai_data().write().unwrap();
+        store.ensure_base();
+        let data = store.get_active_mut().unwrap();
+        data.rotate_skirmish_bases = false;
+        data.max_recruit_distance = wf_offset;
+        data.team_resources_to_build = team_resources;
+        data.side_build_lists.clear();
+        let mut list = AiSideBuildList::new("America".into());
+        list.entries.push(BuildListEntry {
+            building_name: "CC".into(),
+            template_name: "AmericaCommandCenter".into(),
+            location: (0.0, 0.0),
+            rebuilds: 0,
+            angle_radians: 0.0,
+            initially_built: false,
+            rally_point_offset: (0.0, 0.0),
+            automatically_build: true,
+        });
+        list.entries.push(BuildListEntry {
+            building_name: "WF".into(),
+            template_name: "AmericaWarFactory".into(),
+            location: (wf_offset, 0.0),
+            rebuilds: 1,
+            angle_radians: 0.0,
+            initially_built: false,
+            rally_point_offset: (0.0, 0.0),
+            automatically_build: true,
+        });
+        data.side_build_lists.push(list);
+        drop(store);
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.base_center = Vec3::new(-40.0, 0.0, -40.0);
+        world.ai_manager.ai_players.insert(1, ai);
+    }
+
+    fn wf_position(world: &crate::game_logic::GameLogic) -> Vec3 {
+        world.ai_manager.ai_players[&1]
+            .building_queue
+            .iter()
+            .find(|entry| entry.template_name == "AmericaWarFactory")
+            .expect("the world-owned SideBuildList creates its authored WF pad")
+            .position
+    }
+
+    fn assert_position(actual: Vec3, expected: Vec3) {
+        assert!(
+            (actual.x - expected.x).abs() < 0.0001,
+            "x: {actual:?} != {expected:?}"
+        );
+        assert!(
+            (actual.y - expected.y).abs() < 0.0001,
+            "y: {actual:?} != {expected:?}"
+        );
+        assert!(
+            (actual.z - expected.z).abs() < 0.0001,
+            "z: {actual:?} != {expected:?}"
+        );
+    }
+
+    #[test]
+    fn update_owned_uses_each_games_catalog_not_foreign_common_active_slot() {
+        if run_isolated("update_owned_uses_each_games_catalog_not_foreign_common_active_slot") {
+            return;
+        }
+        let mut foreign = RestoreCommonStore::foreign_sentinel();
+        let mut first = crate::game_logic::GameLogic::new();
+        let mut second = crate::game_logic::GameLogic::new();
+        add_world_ai(&mut first, 80.0, 0.8);
+        add_world_ai(&mut second, 140.0, 0.72);
+        foreign.activate();
+        assert!(Arc::ptr_eq(
+            &ini_ai_data::get_ai_data_store(),
+            &foreign.installed
+        ));
+
+        AIManager::update_owned(&mut first, 0.0);
+        let first_position = wf_position(&first);
+        AIManager::update_owned(&mut second, 0.0);
+        let second_position = wf_position(&second);
+        AIManager::update_owned(&mut first, 0.0);
+        assert_position(first_position, Vec3::new(-96.56854, 0.0, 16.56854));
+        assert_position(second_position, Vec3::new(-138.99495, 0.0, 58.99495));
+        assert_position(wf_position(&first), first_position);
+        assert_eq!(
+            foreign
+                .installed
+                .read()
+                .unwrap()
+                .get_active()
+                .unwrap()
+                .max_recruit_distance,
+            9_999.0
+        );
+        assert!(
+            foreign
+                .installed
+                .read()
+                .unwrap()
+                .get_active()
+                .unwrap()
+                .rotate_skirmish_bases
+        );
+    }
+
+    #[test]
+    fn explicit_ai_data_target_keeps_interleaved_catalogs_separate() {
+        if run_isolated("explicit_ai_data_target_keeps_interleaved_catalogs_separate") {
+            return;
+        }
+        use game_engine::common::ini::INI;
+        use game_engine::common::ini::ini_ai_data::{
+            AIDataStore, install_ai_data_store, uninstall_ai_data_store_if_current,
+        };
+        use std::sync::{Arc, RwLock};
+
+        // Run this test in an isolated/serial harness: it temporarily exercises the
+        // same Common active-store selector used by legacy parser callers.
+        let sentinel = Arc::new(RwLock::new(AIDataStore::default()));
+        {
+            let mut store = sentinel.write().unwrap();
+            store.ensure_base();
+            store.get_active_mut().unwrap().team_resources_to_build = 0.91;
+        }
+        let old = install_ai_data_store(Arc::clone(&sentinel));
+        struct Restore(Arc<RwLock<AIDataStore>>, Option<Arc<RwLock<AIDataStore>>>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                if let Some(old) = self.1.take() {
+                    install_ai_data_store(old);
+                } else {
+                    uninstall_ai_data_store_if_current(&self.0);
+                }
+            }
+        }
+        let _restore = Restore(Arc::clone(&sentinel), old);
+
+        let empty = Arc::new(RwLock::new(AIDataStore::default()));
+        let mut ini = INI::new();
+        ini.set_ai_data_store_target(Arc::clone(&empty));
+        ini.with_inline_source("", |ini| ini.parse_current_file())
+            .unwrap();
+        assert!(empty.read().unwrap().get_active().is_none());
+        assert_eq!(
+            sentinel
+                .read()
+                .unwrap()
+                .get_active()
+                .unwrap()
+                .team_resources_to_build,
+            0.91,
+            "an input without AIData must leave both explicit and active stores untouched"
+        );
+
+        let a = Arc::new(RwLock::new(AIDataStore::default()));
+        let b = Arc::new(RwLock::new(AIDataStore::default()));
+        let parse_into = |target: &Arc<RwLock<AIDataStore>>, text: &str| {
+            let mut ini = INI::new();
+            ini.set_ai_data_store_target(Arc::clone(target));
+            ini.with_inline_source(text, |ini| ini.parse_current_file())
+                .unwrap();
+            assert_eq!(
+                sentinel
+                    .read()
+                    .unwrap()
+                    .get_active()
+                    .unwrap()
+                    .team_resources_to_build,
+                0.91,
+                "explicit parser must not mutate active/foreign Common store"
+            );
+        };
+
+        parse_into(
+            &a,
+            "AIData\n TeamResourcesToStart 0.21\n MaxRecruitRadius 210\nEnd\n",
+        );
+        parse_into(
+            &b,
+            "AIData\n TeamResourcesToStart 0.72\n MaxRecruitRadius 720\nEnd\n",
+        );
+        // INI::with_inline_source is Overwrite, same as C++ initSubsystem loads.
+        parse_into(&a, "AIData\n TeamResourcesToStart 0.31\nEnd\n");
+        parse_into(&b, "AIData\n TeamResourcesToStart 0.83\nEnd\n");
+
+        let a = a.read().unwrap();
+        let a = a.get_active().unwrap();
+        assert_eq!(a.team_resources_to_build, 0.31);
+        assert_eq!(a.max_recruit_distance, 210.0);
+        let b = b.read().unwrap();
+        let b = b.get_active().unwrap();
+        assert_eq!(b.team_resources_to_build, 0.83);
+        assert_eq!(b.max_recruit_distance, 720.0);
+    }
+
+    #[test]
+    fn ai_data_view_captures_world_catalog_before_callbacks() {
+        if run_isolated("ai_data_view_captures_world_catalog_before_callbacks") {
+            return;
+        }
+        let mut foreign = RestoreCommonStore::foreign_sentinel();
+        let mut first = crate::game_logic::GameLogic::new();
+        let mut second = crate::game_logic::GameLogic::new();
+        add_world_ai(&mut first, 80.0, 0.8);
+        add_world_ai(&mut second, 140.0, 0.72);
+        foreign.activate();
+
+        let first_view = super::super::world_view::AiDataView::from_world(&first);
+        let second_view = super::super::world_view::AiDataView::from_world(&second);
+        assert_eq!(AIPlayer::aidata_max_recruit_distance(&first_view), 80.0);
+        assert_eq!(AIPlayer::aidata_max_recruit_distance(&second_view), 140.0);
+        assert_eq!(AIPlayer::team_resources_to_start_frac(&first_view), 0.8);
+        assert_eq!(AIPlayer::team_resources_to_start_frac(&second_view), 0.72);
+        assert_eq!(
+            foreign
+                .installed
+                .read()
+                .unwrap()
+                .get_active()
+                .unwrap()
+                .max_recruit_distance,
+            9_999.0,
+        );
+    }
+
+    #[test]
+    fn reset_keeps_each_world_ai_catalog_and_restores_the_previous_selector() {
+        if run_isolated("reset_keeps_each_world_ai_catalog_and_restores_the_previous_selector") {
+            return;
+        }
+
+        let process_store = ini_ai_data::process_lifetime_ai_data_store();
+        let mut first = crate::game_logic::GameLogic::new();
+        let mut second = crate::game_logic::GameLogic::new();
+        let first_store = Arc::clone(first.engine_stores.ai_data());
+        let second_store = Arc::clone(second.engine_stores.ai_data());
+
+        fn write_catalog(
+            store: &Arc<RwLock<AIDataStore>>,
+            max_distance: f32,
+            resources: f32,
+            rotate: bool,
+            template: &str,
+            location: (f32, f32),
+        ) {
+            let mut store = store.write().unwrap();
+            store.ensure_base();
+            let data = store.get_active_mut().unwrap();
+            data.max_recruit_distance = max_distance;
+            data.team_resources_to_build = resources;
+            data.rotate_skirmish_bases = rotate;
+            data.side_build_lists.clear();
+            let mut list = AiSideBuildList::new("America".into());
+            list.entries.push(BuildListEntry {
+                template_name: template.into(),
+                location,
+                ..BuildListEntry::default()
+            });
+            data.side_build_lists.push(list);
+        }
+        fn assert_catalog(
+            store: &Arc<RwLock<AIDataStore>>,
+            max_distance: f32,
+            resources: f32,
+            rotate: bool,
+            template: &str,
+            location: (f32, f32),
+        ) {
+            let store = store.read().unwrap();
+            let data = store.get_active().unwrap();
+            assert_eq!(data.max_recruit_distance, max_distance);
+            assert_eq!(data.team_resources_to_build, resources);
+            assert_eq!(data.rotate_skirmish_bases, rotate);
+            let list = data
+                .side_build_lists
+                .iter()
+                .find(|list| list.side == "America")
+                .unwrap();
+            assert_eq!(list.entries.len(), 1);
+            assert_eq!(list.entries[0].template_name, template);
+            assert_eq!(list.entries[0].location, location);
+        }
+
+        write_catalog(
+            &first_store,
+            81.0,
+            0.61,
+            false,
+            "FirstWarFactory",
+            (13.0, 17.0),
+        );
+        write_catalog(
+            &second_store,
+            147.0,
+            0.83,
+            true,
+            "SecondWarFactory",
+            (23.0, 29.0),
+        );
+
+        // Construction is inert; neither newly constructed world becomes the
+        // Common parser target until the explicit reset/start boundary.
+        assert!(Arc::ptr_eq(
+            &ini_ai_data::get_ai_data_store(),
+            &process_store
+        ));
+        assert_catalog(
+            &first_store,
+            81.0,
+            0.61,
+            false,
+            "FirstWarFactory",
+            (13.0, 17.0),
+        );
+        assert_catalog(
+            &second_store,
+            147.0,
+            0.83,
+            true,
+            "SecondWarFactory",
+            (23.0, 29.0),
+        );
+
+        second.reset();
+        assert!(Arc::ptr_eq(
+            &ini_ai_data::get_ai_data_store(),
+            &second_store
+        ));
+        first.reset();
+        assert!(Arc::ptr_eq(&ini_ai_data::get_ai_data_store(), &first_store));
+        // Reset clears simulation state but retains both worlds' definition data.
+        assert_catalog(
+            &first_store,
+            81.0,
+            0.61,
+            false,
+            "FirstWarFactory",
+            (13.0, 17.0),
+        );
+        assert_catalog(
+            &second_store,
+            147.0,
+            0.83,
+            true,
+            "SecondWarFactory",
+            (23.0, 29.0),
+        );
+
+        drop(second); // buried active entry is removed; first remains the head
+        assert!(Arc::ptr_eq(&ini_ai_data::get_ai_data_store(), &first_store));
+        drop(first); // explicit previous foreign parser target is restored
+        assert!(Arc::ptr_eq(
+            &ini_ai_data::get_ai_data_store(),
+            &process_store
+        ));
+    }
+
+    #[test]
+    fn logic_frames_recruit_only_with_the_driving_catalog_radius() {
+        if run_isolated("logic_frames_recruit_only_with_the_driving_catalog_radius") {
+            return;
+        }
+        fn match_with_order(
+            radius: f32,
+        ) -> (crate::game_logic::GameLogic, crate::game_logic::ObjectId) {
+            use crate::game_logic::{KindOf, Player, ThingTemplate};
+            let mut world = crate::game_logic::GameLogic::new();
+            world.add_player(Player::new(0, Team::China, "human", true));
+            world.add_player(Player::new(1, Team::USA, "computer", false));
+            let mut structure = ThingTemplate::new("CatalogOwnerStructure");
+            structure.add_kind_of(KindOf::Structure);
+            world.templates.insert(structure.name.clone(), structure);
+            let mut infantry = ThingTemplate::new("CatalogOwnerInfantry");
+            infantry.add_kind_of(KindOf::Infantry);
+            world.templates.insert(infantry.name.clone(), infantry);
+            world
+                .create_object(
+                    "CatalogOwnerStructure",
+                    Team::USA,
+                    Vec3::new(-100.0, 0.0, 0.0),
+                )
+                .unwrap();
+            world
+                .create_object(
+                    "CatalogOwnerStructure",
+                    Team::China,
+                    Vec3::new(100.0, 0.0, 0.0),
+                )
+                .unwrap();
+            let id = world
+                .create_object("CatalogOwnerInfantry", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+                .unwrap();
+            world.host_object_mut(id).unwrap().owner_player_id = Some(1);
+            // Default-team units are deliberately recruitable beyond maxDist in C++.
+            // Use a real active, recruitable source team to exercise the radius rule.
+            let source = {
+                let mut factory = world.team_factory.lock().unwrap();
+                let mut prototype =
+                    gamelogic::team::TeamPrototype::new("CatalogOwnerSource".into());
+                prototype.set_ai_recruitable(true);
+                prototype.set_production_priority(1);
+                factory.replace_team_prototype(prototype);
+                factory.create_inactive_team("CatalogOwnerSource").unwrap()
+            };
+            source.write().unwrap().set_active();
+            world.host_object_mut(id).unwrap().team_instance_name = "CatalogOwnerSource".into();
+            let mut ai = AIPlayer::new_with_team_factory(
+                1,
+                Team::USA,
+                AIDifficulty::Medium,
+                world.team_factory.clone(),
+            );
+            ai.base_center = Vec3::ZERO;
+            ai.team_queue.push_back(AITeamQueue::new(
+                "CatalogOwnerTeam".into(),
+                vec![AIWorkOrder::new("CatalogOwnerInfantry".into(), 1, 100)],
+                false,
+                0,
+            ));
+            world.ai_manager.ai_players.insert(1, ai);
+            let mut catalog = world.engine_stores.ai_data().write().unwrap();
+            catalog.ensure_base();
+            catalog.get_active_mut().unwrap().max_recruit_distance = radius;
+            drop(catalog);
+            (world, id)
+        }
+        fn completed(world: &crate::game_logic::GameLogic) -> u32 {
+            let ai = &world.ai_manager.ai_players[&1];
+            ai.team_queue
+                .iter()
+                .chain(&ai.team_ready_queue)
+                .find(|t| t.name == "CatalogOwnerTeam")
+                .unwrap()
+                .work_orders[0]
+                .num_completed
+        }
+        let mut foreign = RestoreCommonStore::foreign_sentinel();
+        let (mut first, first_id) = match_with_order(5.0);
+        let (mut second, second_id) = match_with_order(50.0);
+        assert_eq!(first_id, second_id, "both matches use the same ObjectId");
+        foreign.activate();
+        let dt = 1.0 / LOGIC_FRAMES_PER_SECOND;
+        first.tick_logic_frame(dt, None, Some(1));
+        assert_eq!(first.frame, 1);
+        assert_eq!(second.frame, 0);
+        assert_eq!(
+            completed(&first),
+            0,
+            "outside this match's five-unit radius"
+        );
+        second.tick_logic_frame(dt, None, Some(1));
+        assert_eq!(second.frame, 1);
+        assert_eq!(
+            completed(&second),
+            1,
+            "within this match's fifty-unit radius"
+        );
+        first.tick_logic_frame(dt, None, Some(1));
+        assert_eq!(first.frame, 2);
+        assert_eq!(
+            completed(&first),
+            0,
+            "advancing another match cannot change recruitment"
+        );
+        assert_eq!(completed(&second), 1);
+        assert_eq!(
+            foreign
+                .installed
+                .read()
+                .unwrap()
+                .get_active()
+                .unwrap()
+                .max_recruit_distance,
+            9_999.0
+        );
+    }
+
+    #[test]
+    fn team_affordability_and_frame_timers_use_the_driving_definitions() {
+        if run_isolated("team_affordability_and_frame_timers_use_the_driving_definitions") {
+            return;
+        }
+        let mut foreign = RestoreCommonStore::foreign_sentinel();
+        let mut first = crate::game_logic::GameLogic::new();
+        let mut second = crate::game_logic::GameLogic::new();
+        add_world_ai(&mut first, 80.0, 0.2);
+        add_world_ai(&mut second, 140.0, 0.8);
+        for (world, rate) in [(&mut first, 0.5), (&mut second, 2.0)] {
+            let mut unit = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
+            unit.set_cost(225, 0);
+            world.templates.insert(unit.name.clone(), unit);
+            let mut unit = crate::game_logic::ThingTemplate::new("AmericaVehicleHumvee");
+            unit.set_cost(700, 0);
+            world.templates.insert(unit.name.clone(), unit);
+            world.get_player_mut(1).unwrap().resources.supplies = 300;
+            world
+                .engine_stores
+                .ai()
+                .write()
+                .unwrap()
+                .update_ai_data(|data| {
+                    data.resources_poor = 1_000;
+                    data.team_poor_mod = rate;
+                });
+        }
+        foreign.activate();
+        let mut first_ai = first.ai_manager.ai_players.remove(&1).unwrap();
+        let mut second_ai = second.ai_manager.ai_players.remove(&1).unwrap();
+        assert_eq!(
+            first_ai.estimate_team_unit_cost(&first, "USA_BasicForce"),
+            1150
+        );
+        assert!(first_ai.can_afford_team_start(&first, "USA_BasicForce"));
+        assert!(!second_ai.can_afford_team_start(&second, "USA_BasicForce"));
+        first_ai.arm_team_timer_after_build(&first, 1.0);
+        second_ai.arm_team_timer_after_build(&second, 1.0);
+        // C++ frame truncation: 10*30 / poor-mod, plus the current 30th frame.
+        assert_eq!(first_ai.next_team_time, 630.0 / LOGIC_FRAMES_PER_SECOND);
+        assert_eq!(second_ai.next_team_time, 180.0 / LOGIC_FRAMES_PER_SECOND);
+        first_ai.arm_team_timer_after_build(&first, 1.0);
+        assert_eq!(first_ai.next_team_time, 630.0 / LOGIC_FRAMES_PER_SECOND);
+        assert_eq!(
+            foreign
+                .installed
+                .read()
+                .unwrap()
+                .get_active()
+                .unwrap()
+                .max_recruit_distance,
+            9_999.0
+        );
     }
 }

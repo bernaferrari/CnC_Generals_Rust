@@ -912,6 +912,9 @@ impl CnCGameEngine {
                 continue;
             }
             let mut ini = game_engine::common::ini::INI::new();
+            ini.set_ai_data_store_target(
+                game_engine::common::ini::ini_ai_data::process_lifetime_ai_data_store(),
+            );
             match ini.load(path, game_engine::common::ini::INILoadType::Overwrite) {
                 Ok(()) => info!("Preloaded startup INI: {}", path),
                 Err(err) => warn!(
@@ -937,6 +940,9 @@ impl CnCGameEngine {
             // FileSystem/asset locks held by the main thread during Loading.
             if let Some(text) = Self::read_startup_ini_from_disk(path) {
                 let mut ini = game_engine::common::ini::INI::new();
+                ini.set_ai_data_store_target(
+                    game_engine::common::ini::ini_ai_data::process_lifetime_ai_data_store(),
+                );
                 match ini.with_inline_source(&text, |ini| ini.parse_current_file()) {
                     Ok(()) => {
                         loaded_any = true;
@@ -950,6 +956,9 @@ impl CnCGameEngine {
                 continue;
             }
             let mut ini = game_engine::common::ini::INI::new();
+            ini.set_ai_data_store_target(
+                game_engine::common::ini::ini_ai_data::process_lifetime_ai_data_store(),
+            );
             match ini.load(path, game_engine::common::ini::INILoadType::Overwrite) {
                 Ok(()) => {
                     loaded_any = true;

@@ -1104,7 +1104,7 @@ const BUILD_LIST_STRUCTURE_FIELDS: &[FieldParse<BuildListEntry>] = &[
 
 /// Parse AI Data definition from INI file
 pub fn parse_ai_data_definition(ini: &mut INI) -> INIResult<()> {
-    let store = get_ai_data_store();
+    let store = ini.ai_data_store_target().unwrap_or_else(get_ai_data_store);
     let mut store = store.write().expect("AI data store write lock");
     store.ensure_base();
 

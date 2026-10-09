@@ -178,10 +178,8 @@ fn script_build_team_drains_onto_host_ai_queue() {
 fn ai_player_update_order_matches_cpp_aiplayer_update() {
     // C++ AIPlayer.cpp:2987-3002
     let src = include_str!("player_core.rs");
-    let start = src
-        .find("/// Main AI update — C++ `AIPlayer::update`")
-        .expect("AIPlayer::update docs");
-    let body = &src[start..src.len().min(start + 1800)];
+    let body = crate::game_logic::harness::rust_fn_body(src, "update_with_ai_data")
+        .expect("the synchronous AIPlayer phase implementation");
     let econ = body
         .find("update_economic_management")
         .expect("doBaseBuilding");

@@ -3,6 +3,16 @@ use super::*;
 impl AIPlayer {
     /// Process team production queue
     pub(super) fn process_team_queue(&mut self, game_logic: &mut GameLogic, current_time: f32) {
+        let ai_data = AiDataView::from_world(game_logic);
+        self.process_team_queue_with_ai_data(game_logic, current_time, &ai_data);
+    }
+
+    pub(super) fn process_team_queue_with_ai_data(
+        &mut self,
+        game_logic: &mut GameLogic,
+        current_time: f32,
+        ai_data: &AiDataView,
+    ) {
         self.reconcile_produced_units(game_logic);
         // Retail queueUnits invokes queueSupplyTruck before walking the usual
         // TeamInQueue work orders.  Its priority order therefore gets an idle
@@ -14,7 +24,7 @@ impl AIPlayer {
             .unwrap_or(true);
         if can_build_units {
             // C++ queueUnits: tryToRecruit existing map units before startTraining.
-            self.recruit_waiting_work_orders(game_logic);
+            self.recruit_waiting_work_orders_with_ai_data(game_logic, ai_data);
         }
 
         // Collect all factory assignments needed
@@ -163,21 +173,13 @@ impl AIPlayer {
     }
 
     /// AIData `TeamResourcesToStart` (`m_teamResourcesToBuild`). Store first,
-    /// leftover `the_ai`, then the retail 0.1 residual.
-    pub(super) fn team_resources_to_start_frac() -> f32 {
-        let from_store = {
-            let store = game_engine::common::ini::get_ai_data_store();
-            let store = store.read().expect("AI data store read lock");
-            store.get_active().map(|d| d.team_resources_to_build)
-        };
-        let ai_store = gamelogic::ai::the_ai();
-        let leftover = ai_store
-            .read()
-            .ok()
-            .and_then(|ai| Some(ai.get_ai_data()).map(|d| d.team_resources_to_build));
-        from_store
-            .or(leftover)
-            .filter(|m| *m > 0.0)
+    /// then same-world runtime definitions, then the retail 0.1 default.
+    pub(super) fn team_resources_to_start_frac(ai_data: &AiDataView) -> f32 {
+        ai_data
+            .catalog()
+            .map(|data| data.team_resources_to_build)
+            .or_else(|| ai_data.runtime().map(|data| data.team_resources_to_build))
+            .filter(|value| *value > 0.0)
             .unwrap_or(Self::TEAM_RESOURCES_TO_START)
     }
 
@@ -188,13 +190,23 @@ impl AIPlayer {
         game_logic: &(impl AiReadSource + ?Sized),
         team_name: &str,
     ) -> bool {
+        let ai_data = AiDataView::from_source(game_logic);
+        self.can_afford_team_start_with_ai_data(game_logic, team_name, &ai_data)
+    }
+
+    pub(super) fn can_afford_team_start_with_ai_data(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        team_name: &str,
+        ai_data: &AiDataView,
+    ) -> bool {
         let game_logic = &AiWorldView::new(game_logic);
         let Some(player) = game_logic.get_player(self.player_id) else {
             return false;
         };
         let full = self.estimate_team_unit_cost(game_logic, team_name) as f32;
         // C++: `cost *= m_teamResourcesToBuild` (Int *= Real truncates).
-        let required = (full * Self::team_resources_to_start_frac()) as u32;
+        let required = (full * Self::team_resources_to_start_frac(ai_data)) as u32;
         player.resources.supplies >= required
     }
 
@@ -205,8 +217,18 @@ impl AIPlayer {
         game_logic: &(impl AiReadSource + ?Sized),
         team_name: &str,
     ) -> bool {
+        let ai_data = AiDataView::from_source(game_logic);
+        self.is_possible_to_build_team_with_ai_data(game_logic, team_name, &ai_data)
+    }
+
+    pub(super) fn is_possible_to_build_team_with_ai_data(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        team_name: &str,
+        ai_data: &AiDataView,
+    ) -> bool {
         let game_logic = &AiWorldView::new(game_logic);
-        self.can_afford_team_start(game_logic, team_name)
+        self.can_afford_team_start_with_ai_data(game_logic, team_name, ai_data)
             && self.team_factories_ready(game_logic, team_name)
     }
 
@@ -1010,12 +1032,21 @@ impl AIPlayer {
     /// points from an `AISideInfo` SkillSet. Host also runs a
     /// residual of `AIPlayer::buildUpgrade` (AIPlayer.cpp:1728).
     pub(super) fn do_upgrades_and_skills(&mut self, game_logic: &mut GameLogic) {
+        let ai_data = AiDataView::from_world(game_logic);
+        self.do_upgrades_and_skills_with_ai_data(game_logic, &ai_data);
+    }
+
+    pub(super) fn do_upgrades_and_skills_with_ai_data(
+        &mut self,
+        game_logic: &mut GameLogic,
+        ai_data: &AiDataView,
+    ) {
         // C++ AIPlayer.cpp:2910-2912 — can't do updates on the first few frames.
         if game_logic.get_frame() < 2 {
             return;
         }
         self.try_queue_structure_upgrade(game_logic);
-        self.try_purchase_skillset_science(game_logic);
+        self.try_purchase_skillset_science_with_ai_data(game_logic, ai_data);
     }
 
     /// Retail `AIData.ini` `SideInfo` SkillSet1–5 sciences for the live team.
@@ -1177,6 +1208,15 @@ impl AIPlayer {
     }
 
     pub(super) fn try_purchase_skillset_science(&mut self, game_logic: &mut GameLogic) {
+        let ai_data = AiDataView::from_world(game_logic);
+        self.try_purchase_skillset_science_with_ai_data(game_logic, &ai_data);
+    }
+
+    pub(super) fn try_purchase_skillset_science_with_ai_data(
+        &mut self,
+        game_logic: &mut GameLogic,
+        ai_data: &AiDataView,
+    ) {
         let points = game_logic
             .get_player(self.player_id)
             .map(|p| p.science_purchase_points)
@@ -1184,7 +1224,7 @@ impl AIPlayer {
         if points <= 0 {
             return;
         }
-        let sets = self.live_side_skillsets(game_logic);
+        let sets = self.live_side_skillsets_with_ai_data(game_logic, ai_data);
         if self.skillset_selector == INVALID_SKILLSET_SELECTION {
             let mut limit = 0i32;
             if !sets[1].is_empty() {
@@ -1416,6 +1456,15 @@ impl AIPlayer {
 
     /// Check if AI should build a new team
     pub(super) fn should_build_new_team(&self, game_logic: &(impl AiReadSource + ?Sized)) -> bool {
+        let ai_data = AiDataView::from_source(game_logic);
+        self.should_build_new_team_with_ai_data(game_logic, &ai_data)
+    }
+
+    pub(super) fn should_build_new_team_with_ai_data(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        ai_data: &AiDataView,
+    ) -> bool {
         let game_logic = &AiWorldView::new(game_logic);
         if !game_logic
             .get_player(self.player_id)
@@ -1429,7 +1478,9 @@ impl AIPlayer {
         }
         self.player_team_prototype_candidates()
             .iter()
-            .any(|(name, _)| self.is_a_good_idea_to_build_team(game_logic, name))
+            .any(|(name, _)| {
+                self.is_a_good_idea_to_build_team_with_ai_data(game_logic, name, ai_data)
+            })
     }
 
     /// C++ `AIPlayer::selectTeamToBuild` — player TeamPrototypes only.
@@ -1440,19 +1491,29 @@ impl AIPlayer {
         game_logic: &mut GameLogic,
         current_time: f32,
     ) -> bool {
+        let ai_data = AiDataView::from_world(game_logic);
+        self.select_team_to_build_with_ai_data(game_logic, current_time, &ai_data)
+    }
+
+    pub(super) fn select_team_to_build_with_ai_data(
+        &mut self,
+        game_logic: &mut GameLogic,
+        current_time: f32,
+        ai_data: &AiDataView,
+    ) -> bool {
         const INVALID_PRI: i32 = -99999;
         let candidates = self.player_team_prototype_candidates();
         let mut good: Vec<(String, i32)> = Vec::new();
         let mut hi_pri = INVALID_PRI;
         for (name, pri) in candidates {
-            if self.is_a_good_idea_to_build_team(game_logic, &name) {
+            if self.is_a_good_idea_to_build_team_with_ai_data(game_logic, &name, ai_data) {
                 if pri > hi_pri {
                     hi_pri = pri;
                 }
                 good.push((name, pri));
             }
         }
-        if self.select_team_to_reinforce(game_logic, hi_pri, current_time) {
+        if self.select_team_to_reinforce_with_ai_data(game_logic, hi_pri, current_time, ai_data) {
             return true;
         }
         if hi_pri == INVALID_PRI {
@@ -1481,7 +1542,7 @@ impl AIPlayer {
         }
         log::debug!("AI Player {} queued team: {}", self.player_id, name);
         // C++ arms m_teamTimer only after a new-team pick, never after reinforce.
-        self.arm_team_timer_after_build(game_logic, current_time);
+        self.arm_team_timer_after_build_with_ai_data(game_logic, current_time, ai_data);
         true
     }
 
@@ -1494,13 +1555,23 @@ impl AIPlayer {
         game_logic: &(impl AiReadSource + ?Sized),
         current_time: f32,
     ) {
+        let ai_data = AiDataView::from_source(game_logic);
+        self.arm_team_timer_after_build_with_ai_data(game_logic, current_time, &ai_data);
+    }
+
+    pub(super) fn arm_team_timer_after_build_with_ai_data(
+        &mut self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        current_time: f32,
+        ai_data: &AiDataView,
+    ) {
         let game_logic = &AiWorldView::new(game_logic);
         let mut timer = (self.team_seconds.max(0.0) * LOGIC_FRAMES_PER_SECOND) as u32;
         let money = game_logic
             .get_player(self.player_id)
             .map(|p| p.resources.supplies as i32)
             .unwrap_or(0);
-        let (poor, wealthy, poor_mod, wealthy_mod) = Self::team_wealth_params();
+        let (poor, wealthy, poor_mod, wealthy_mod) = Self::team_wealth_params(ai_data);
         if money < poor && poor_mod > 0.0 {
             timer = (timer as f32 / poor_mod) as u32;
         } else if money > wealthy && wealthy_mod > 0.0 {
@@ -1509,37 +1580,34 @@ impl AIPlayer {
         self.next_team_time = current_time + (timer as f32 / LOGIC_FRAMES_PER_SECOND);
     }
 
-    /// Leftover `AIPlayer::team_wealth_params`: the_ai AIData with retail
+    /// `AIPlayer::team_wealth_params`: world-owned runtime AIData with retail
     /// Default/AIData.ini fallbacks when a field is zero / unset.
-    pub(super) fn team_wealth_params() -> (i32, i32, f32, f32) {
-        gamelogic::ai::the_ai()
-            .read()
-            .ok()
-            .and_then(|ai| {
-                Some(ai.get_ai_data()).map(|data| {
-                    (
-                        if data.resources_poor > 0 {
-                            data.resources_poor
-                        } else {
-                            Self::POOR_RESOURCES as i32
-                        },
-                        if data.resources_wealthy > 0 {
-                            data.resources_wealthy
-                        } else {
-                            Self::WEALTHY_RESOURCES as i32
-                        },
-                        if data.team_poor_mod > 0.0 {
-                            data.team_poor_mod
-                        } else {
-                            Self::TEAMS_POOR_RATE
-                        },
-                        if data.team_wealthy_mod > 0.0 {
-                            data.team_wealthy_mod
-                        } else {
-                            Self::TEAMS_WEALTHY_RATE
-                        },
-                    )
-                })
+    pub(super) fn team_wealth_params(ai_data: &AiDataView) -> (i32, i32, f32, f32) {
+        ai_data
+            .runtime()
+            .map(|data| {
+                (
+                    if data.resources_poor > 0 {
+                        data.resources_poor
+                    } else {
+                        Self::POOR_RESOURCES as i32
+                    },
+                    if data.resources_wealthy > 0 {
+                        data.resources_wealthy
+                    } else {
+                        Self::WEALTHY_RESOURCES as i32
+                    },
+                    if data.team_poor_mod > 0.0 {
+                        data.team_poor_mod
+                    } else {
+                        Self::TEAMS_POOR_RATE
+                    },
+                    if data.team_wealthy_mod > 0.0 {
+                        data.team_wealthy_mod
+                    } else {
+                        Self::TEAMS_WEALTHY_RATE
+                    },
+                )
             })
             .unwrap_or((
                 Self::POOR_RESOURCES as i32,
@@ -1576,6 +1644,16 @@ impl AIPlayer {
         game_logic: &(impl AiReadSource + ?Sized),
         team_name: &str,
     ) -> bool {
+        let ai_data = AiDataView::from_source(game_logic);
+        self.is_a_good_idea_to_build_team_with_ai_data(game_logic, team_name, &ai_data)
+    }
+
+    pub(super) fn is_a_good_idea_to_build_team_with_ai_data(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        team_name: &str,
+        ai_data: &AiDataView,
+    ) -> bool {
         let game_logic = &AiWorldView::new(game_logic);
         let factory = &self.team_factory;
         let Ok(guard) = factory.lock() else {
@@ -1598,7 +1676,7 @@ impl AIPlayer {
             return false;
         }
         drop(guard);
-        self.is_possible_to_build_team(game_logic, team_name)
+        self.is_possible_to_build_team_with_ai_data(game_logic, team_name, ai_data)
     }
 
     /// C++ `AIPlayer::selectTeamToReinforce` (`AIPlayer.cpp:1513-1625`).
@@ -1607,6 +1685,17 @@ impl AIPlayer {
         game_logic: &mut GameLogic,
         min_priority: i32,
         current_time: f32,
+    ) -> bool {
+        let ai_data = AiDataView::from_world(game_logic);
+        self.select_team_to_reinforce_with_ai_data(game_logic, min_priority, current_time, &ai_data)
+    }
+
+    pub(super) fn select_team_to_reinforce_with_ai_data(
+        &mut self,
+        game_logic: &mut GameLogic,
+        min_priority: i32,
+        current_time: f32,
+        ai_data: &AiDataView,
     ) -> bool {
         let candidates = self.collect_auto_reinforce_candidates();
         let mut best: Option<(u32, String, String, i32)> = None;
@@ -1664,7 +1753,9 @@ impl AIPlayer {
         let home = self
             .leftover_instance_first_member_pos(game_logic, inst_id)
             .unwrap_or_else(|| self.team_home_or_base(&team_name));
-        if let Some(unit_id) = self.try_to_recruit(game_logic, &team_name, &thing, home, None) {
+        if let Some(unit_id) =
+            self.try_to_recruit(game_logic, &team_name, &thing, home, None, ai_data)
+        {
             order.num_completed = 1;
             order.observed_unit_ids.push(unit_id);
             self.assign_host_unit_to_leftover_team(game_logic, unit_id, Some(inst_id), &team_name);
@@ -1793,6 +1884,7 @@ impl AIPlayer {
         template_name: &str,
         home: Vec3,
         max_dist: Option<f32>,
+        ai_data: &AiDataView,
     ) -> Option<ObjectId> {
         let game_logic = &AiWorldView::new(game_logic);
         let mut assigned: HashSet<ObjectId> = HashSet::new();
@@ -1806,7 +1898,7 @@ impl AIPlayer {
             dest_team_name,
             template_name,
             home,
-            max_dist.unwrap_or_else(Self::aidata_max_recruit_distance),
+            max_dist.unwrap_or_else(|| Self::aidata_max_recruit_distance(ai_data)),
             &assigned,
         )
     }
@@ -1950,7 +2042,16 @@ impl AIPlayer {
     }
 
     pub(super) fn recruit_waiting_work_orders(&mut self, game_logic: &mut GameLogic) {
-        let max_dist = Self::aidata_max_recruit_distance();
+        let ai_data = AiDataView::from_world(game_logic);
+        self.recruit_waiting_work_orders_with_ai_data(game_logic, &ai_data);
+    }
+
+    pub(super) fn recruit_waiting_work_orders_with_ai_data(
+        &mut self,
+        game_logic: &mut GameLogic,
+        ai_data: &AiDataView,
+    ) {
+        let max_dist = Self::aidata_max_recruit_distance(ai_data);
         let team_factory = self.team_factory.clone();
         for team in self.team_queue.iter_mut() {
             Self::bind_inactive_team_handle(&team_factory, team);
@@ -2181,6 +2282,7 @@ impl AIPlayer {
             return false;
         }
         let home = self.team_home_or_base(team_name);
+        let ai_data = AiDataView::from_world(game_logic);
         let mut recruited = 0u32;
         for order in &mut orders {
             while order.num_completed < order.num_required {
@@ -2190,6 +2292,7 @@ impl AIPlayer {
                     &order.template_name,
                     home,
                     Some(radius),
+                    &ai_data,
                 ) else {
                     break;
                 };

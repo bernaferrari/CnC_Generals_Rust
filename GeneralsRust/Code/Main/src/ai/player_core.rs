@@ -322,12 +322,22 @@ impl AIPlayer {
     /// → doUpgradesAndSkills → updateBridgeRepair.
     /// `AISkirmishPlayer::update` just calls this (`AISkirmishPlayer.cpp:932-935`).
     pub fn update(&mut self, game_logic: &mut GameLogic, current_time: f32) {
+        let ai_data = AiDataView::from_world(game_logic);
+        self.update_with_ai_data(game_logic, current_time, &ai_data);
+    }
+
+    pub(super) fn update_with_ai_data(
+        &mut self,
+        game_logic: &mut GameLogic,
+        current_time: f32,
+        ai_data: &AiDataView,
+    ) {
         if !self.is_active {
             return;
         }
 
         // C++ AISkirmishPlayer::newMap — AIData SideBuildList replaces invented pads.
-        self.ensure_skirmish_new_map(game_logic);
+        self.ensure_skirmish_new_map(game_logic, ai_data);
 
         self.last_update_time = current_time;
         self.update_enemy_assessment(game_logic, current_time);
@@ -336,14 +346,14 @@ impl AIPlayer {
         self.purge_destroyed_or_wiped_queued_teams(game_logic);
 
         // doBaseBuilding
-        self.update_economic_management(game_logic, current_time);
+        self.update_economic_management_with_ai_data(game_logic, current_time, ai_data);
         // checkReadyTeams — activate ready-queue teams (AIPlayer.cpp:2729-2803)
         self.check_ready_teams(game_logic, current_time);
         // checkQueuedTeams — expire / disband / promote (AIPlayer.cpp:2810-2870)
         self.check_queued_teams(game_logic, current_time);
         // doTeamBuilding
-        self.update_military_management(game_logic, current_time);
-        self.do_upgrades_and_skills(game_logic);
+        self.update_military_management_with_ai_data(game_logic, current_time, ai_data);
+        self.do_upgrades_and_skills_with_ai_data(game_logic, ai_data);
         // updateBridgeRepair — C++ AIPlayer::update never calls checkBridges
         // (scripts do, via leftover findBrokenBridge + clientSafeQuickDoesPathExist).
         self.update_bridge_repair(game_logic, current_time);
@@ -468,7 +478,11 @@ impl AIPlayer {
     }
 
     /// C++ `AISkirmishPlayer::newMap` — replace invented pads with AIData list.
-    pub(super) fn ensure_skirmish_new_map(&mut self, game_logic: &mut GameLogic) {
+    pub(super) fn ensure_skirmish_new_map(
+        &mut self,
+        game_logic: &mut GameLogic,
+        ai_data: &AiDataView,
+    ) {
         if self.skirmish_new_map_applied {
             return;
         }
@@ -480,15 +494,24 @@ impl AIPlayer {
             // Campaign/map SidesList already consumed by feed_host_ai.
             return;
         }
-        let _ = self.apply_skirmish_new_map(game_logic);
+        let _ = self.apply_skirmish_new_map_with_ai_data(game_logic, ai_data);
     }
 
     /// C++ `AISkirmishPlayer::newMap` + `adjustBuildList`.
     pub fn apply_skirmish_new_map(&mut self, game_logic: &mut GameLogic) -> bool {
+        let ai_data = AiDataView::from_world(game_logic);
+        self.apply_skirmish_new_map_with_ai_data(game_logic, &ai_data)
+    }
+
+    pub(super) fn apply_skirmish_new_map_with_ai_data(
+        &mut self,
+        game_logic: &mut GameLogic,
+        ai_data: &AiDataView,
+    ) -> bool {
         let Some(side) = self.side_info_name() else {
             return false;
         };
-        let Some(entries) = Self::aidata_side_build_entries(side) else {
+        let Some(entries) = Self::aidata_side_build_entries(ai_data, side) else {
             return false;
         };
         if entries.is_empty() {
@@ -515,7 +538,7 @@ impl AIPlayer {
             return false;
         };
 
-        let rotate = Self::aidata_rotate_skirmish_bases();
+        let rotate = Self::aidata_rotate_skirmish_bases(ai_data);
         let (lo, hi) = game_logic.world_bounds();
         let width = (hi.x - lo.x).max(1.0);
         let height = (hi.z - lo.z).max(1.0);
@@ -681,74 +704,52 @@ impl AIPlayer {
         template_name.contains("CommandCenter")
     }
 
-    pub(super) fn aidata_rotate_skirmish_bases() -> bool {
-        ensure_aidata_loaded_from_game_fs();
-        let store = game_engine::common::ini::get_ai_data_store();
-        let store = store.read().expect("AI data store read lock");
-        if let Some(data) = store.get_active() {
-            return data.rotate_skirmish_bases;
-        }
-        drop(store);
-        gamelogic::ai::the_ai()
-            .read()
-            .ok()
-            .and_then(|ai| Some(ai.get_ai_data()).map(|d| d.rotate_skirmish_bases))
+    pub(super) fn aidata_rotate_skirmish_bases(ai_data: &AiDataView) -> bool {
+        ai_data
+            .catalog()
+            .map(|data| data.rotate_skirmish_bases)
+            .or_else(|| ai_data.runtime().map(|data| data.rotate_skirmish_bases))
             .unwrap_or(false)
     }
 
-    pub(super) fn aidata_max_recruit_distance() -> f32 {
-        ensure_aidata_loaded_from_game_fs();
-        let from_store = (|| {
-            let store = game_engine::common::ini::get_ai_data_store();
-            let store = store.read().expect("AI data store read lock");
-            store.get_active().map(|d| d.max_recruit_distance)
-        })();
-        let dist = from_store
-            .or_else(|| {
-                gamelogic::ai::the_ai()
-                    .read()
-                    .ok()
-                    .and_then(|ai| Some(ai.get_ai_data()).map(|d| d.max_recruit_distance))
-            })
+    pub(super) fn aidata_max_recruit_distance(ai_data: &AiDataView) -> f32 {
+        let distance = ai_data
+            .catalog()
+            .map(|data| data.max_recruit_distance)
+            .or_else(|| ai_data.runtime().map(|data| data.max_recruit_distance))
             .unwrap_or(0.0);
-        if dist > 0.0 { dist } else { 99_999.0 }
+        if distance > 0.0 { distance } else { 99_999.0 }
     }
 
-    pub(super) fn aidata_side_build_entries(side: &str) -> Option<Vec<SideBuildPad>> {
-        ensure_aidata_loaded_from_game_fs();
-        {
-            let store = game_engine::common::ini::get_ai_data_store();
-            let store = store.read().expect("AI data store read lock");
-            if let Some(data) = store.get_active() {
-                if let Some(list) = data
-                    .side_build_lists
+    pub(super) fn aidata_side_build_entries(
+        ai_data: &AiDataView,
+        side: &str,
+    ) -> Option<Vec<SideBuildPad>> {
+        if let Some(list) = ai_data.catalog().and_then(|catalog| {
+            catalog
+                .side_build_lists
+                .iter()
+                .find(|list| list.side.eq_ignore_ascii_case(side))
+                .filter(|list| !list.entries.is_empty())
+        }) {
+            return Some(
+                list.entries
                     .iter()
-                    .find(|l| l.side.eq_ignore_ascii_case(side))
-                {
-                    if !list.entries.is_empty() {
-                        return Some(
-                            list.entries
-                                .iter()
-                                .map(|e| SideBuildPad {
-                                    template: e.template_name.clone(),
-                                    position: Vec3::new(e.location.0, 0.0, e.location.1),
-                                    rebuilds: e.rebuilds,
-                                    initially_built: e.initially_built,
-                                    automatically_build: e.automatically_build,
-                                })
-                                .collect(),
-                        );
-                    }
-                }
-            }
+                    .map(|entry| SideBuildPad {
+                        template: entry.template_name.clone(),
+                        position: Vec3::new(entry.location.0, 0.0, entry.location.1),
+                        rebuilds: entry.rebuilds,
+                        initially_built: entry.initially_built,
+                        automatically_build: entry.automatically_build,
+                    })
+                    .collect(),
+            );
         }
-        let ai_store = gamelogic::ai::the_ai();
-        let ai = ai_store.read().ok()?;
-        let data = ai.get_ai_data();
+        let data = ai_data.runtime()?;
         let entry = data
             .side_build_lists
             .iter()
-            .find(|e| e.side.eq_ignore_ascii_case(side))?;
+            .find(|entry| entry.side.eq_ignore_ascii_case(side))?;
         let list = entry.build_list.as_ref()?;
         let mut out = Vec::new();
         let mut cur = Some(list.as_ref());
@@ -831,74 +832,73 @@ impl AIPlayer {
     }
 
     /// Leftover parsed `AIData` `SideInfo` SkillSet1–5 (C++ AIPlayer.cpp:2919-2961).
-    pub(super) fn aidata_side_skillsets(side: &str) -> Option<[Vec<String>; 5]> {
-        {
-            let store = game_engine::common::ini::get_ai_data_store();
-            let store = store.read().expect("AI data store read lock");
-            if let Some(data) = store.get_active() {
-                if let Some(info) = data
-                    .side_info
-                    .iter()
-                    .find(|info| info.side.eq_ignore_ascii_case(side))
-                {
-                    let sets = [
-                        Self::science_names_from_skill_ids(
-                            info.skill_set_1.num_skills,
-                            &info.skill_set_1.skills,
-                        ),
-                        Self::science_names_from_skill_ids(
-                            info.skill_set_2.num_skills,
-                            &info.skill_set_2.skills,
-                        ),
-                        Self::science_names_from_skill_ids(
-                            info.skill_set_3.num_skills,
-                            &info.skill_set_3.skills,
-                        ),
-                        Self::science_names_from_skill_ids(
-                            info.skill_set_4.num_skills,
-                            &info.skill_set_4.skills,
-                        ),
-                        Self::science_names_from_skill_ids(
-                            info.skill_set_5.num_skills,
-                            &info.skill_set_5.skills,
-                        ),
-                    ];
-                    if sets.iter().any(|set| !set.is_empty()) {
-                        return Some(sets);
-                    }
-                }
-            }
+    pub(super) fn aidata_side_skillsets(
+        ai_data: &AiDataView,
+        side: &str,
+    ) -> Option<[Vec<String>; 5]> {
+        let configured = (|| {
+            let info = ai_data
+                .catalog()?
+                .side_info
+                .iter()
+                .find(|info| info.side.eq_ignore_ascii_case(side))?;
+            let sets = [
+                Self::science_names_from_skill_ids(
+                    info.skill_set_1.num_skills,
+                    &info.skill_set_1.skills,
+                ),
+                Self::science_names_from_skill_ids(
+                    info.skill_set_2.num_skills,
+                    &info.skill_set_2.skills,
+                ),
+                Self::science_names_from_skill_ids(
+                    info.skill_set_3.num_skills,
+                    &info.skill_set_3.skills,
+                ),
+                Self::science_names_from_skill_ids(
+                    info.skill_set_4.num_skills,
+                    &info.skill_set_4.skills,
+                ),
+                Self::science_names_from_skill_ids(
+                    info.skill_set_5.num_skills,
+                    &info.skill_set_5.skills,
+                ),
+            ];
+            sets.iter().any(|set| !set.is_empty()).then_some(sets)
+        })();
+        if configured.is_some() {
+            return configured;
         }
-        let ai_store = gamelogic::ai::the_ai();
-        let ai = ai_store.read().ok()?;
-        let data = ai.get_ai_data();
-        let info = data
-            .side_info
-            .iter()
-            .find(|info| info.side.eq_ignore_ascii_case(side))?;
-        let sets = [
-            Self::science_names_from_skill_ids(
-                info.skill_set_1.num_skills,
-                &info.skill_set_1.skills,
-            ),
-            Self::science_names_from_skill_ids(
-                info.skill_set_2.num_skills,
-                &info.skill_set_2.skills,
-            ),
-            Self::science_names_from_skill_ids(
-                info.skill_set_3.num_skills,
-                &info.skill_set_3.skills,
-            ),
-            Self::science_names_from_skill_ids(
-                info.skill_set_4.num_skills,
-                &info.skill_set_4.skills,
-            ),
-            Self::science_names_from_skill_ids(
-                info.skill_set_5.num_skills,
-                &info.skill_set_5.skills,
-            ),
-        ];
-        sets.iter().any(|set| !set.is_empty()).then_some(sets)
+        (|| {
+            let info = ai_data
+                .runtime()?
+                .side_info
+                .iter()
+                .find(|info| info.side.eq_ignore_ascii_case(side))?;
+            let sets = [
+                Self::science_names_from_skill_ids(
+                    info.skill_set_1.num_skills,
+                    &info.skill_set_1.skills,
+                ),
+                Self::science_names_from_skill_ids(
+                    info.skill_set_2.num_skills,
+                    &info.skill_set_2.skills,
+                ),
+                Self::science_names_from_skill_ids(
+                    info.skill_set_3.num_skills,
+                    &info.skill_set_3.skills,
+                ),
+                Self::science_names_from_skill_ids(
+                    info.skill_set_4.num_skills,
+                    &info.skill_set_4.skills,
+                ),
+                Self::science_names_from_skill_ids(
+                    info.skill_set_5.num_skills,
+                    &info.skill_set_5.skills,
+                ),
+            ];
+            sets.iter().any(|set| !set.is_empty()).then_some(sets)
+        })()
     }
 
     /// ZH general residual first sciences when parsed AIData is not loaded.
@@ -931,12 +931,21 @@ impl AIPlayer {
         &self,
         game_logic: &(impl AiReadSource + ?Sized),
     ) -> [Vec<String>; 5] {
+        let ai_data = AiDataView::from_source(game_logic);
+        self.live_side_skillsets_with_ai_data(game_logic, &ai_data)
+    }
+
+    pub(super) fn live_side_skillsets_with_ai_data(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        ai_data: &AiDataView,
+    ) -> [Vec<String>; 5] {
         let game_logic = &AiWorldView::new(game_logic);
         let side = self
             .live_player_side(game_logic)
             .or_else(|| self.side_info_name().map(str::to_string));
         if let Some(side) = side.as_deref() {
-            if let Some(sets) = Self::aidata_side_skillsets(side) {
+            if let Some(sets) = Self::aidata_side_skillsets(ai_data, side) {
                 return sets;
             }
             if let Some(sets) = Self::residual_general_skillsets(side) {
@@ -1374,44 +1383,6 @@ impl AIPlayer {
     }
 }
 
-/// Populate the engine AIData store from the retail `AIData.ini` when it has
-/// not been loaded yet. INIZH.big carries the real definitions as
-/// `Data\INI\Default\AIData.ini` (the top-level `Data\INI\AIData.ini` entry
-/// is a stub that defers to it), so both are parsed through the game file
-/// system in retail order: Default base first, stub override second.
-pub(super) fn ensure_aidata_loaded_from_game_fs() {
-    // Initialization belongs to the current store. A process-wide once flag
-    // would strand a later empty store (or permanently cache missing archives).
-    if game_engine::common::ini::get_ai_data_store()
-        .read()
-        .map(|store| store.get_active().is_some())
-        .unwrap_or(false)
-    {
-        return;
-    }
-    // GameEngine.cpp:480 initializes the AI subsystem in this order.
-    for virtual_path in ["Data/INI/Default/AIData.ini", "Data/INI/AIData.ini"] {
-        let Some(text) = read_ini_text_from_game_fs(virtual_path) else {
-            continue;
-        };
-        let mut ini = game_engine::common::ini::INI::new();
-        if let Err(err) = ini.with_inline_source(&text, |ini| ini.parse_current_file()) {
-            log::warn!("Failed parsing archived '{virtual_path}': {err}");
-        }
-    }
-}
-
-fn read_ini_text_from_game_fs(virtual_path: &str) -> Option<String> {
-    use game_engine::common::system::file::FileAccess;
-    use game_engine::common::system::file_system::get_file_system;
-
-    let file_system = get_file_system();
-    let mut fs = file_system.lock().ok()?;
-    let mut file = fs.open_file(virtual_path, FileAccess::READ.combine(FileAccess::BINARY))?;
-    let bytes = file.read_entire_and_close().ok()?;
-    String::from_utf8(bytes).ok()
-}
-
 #[cfg(test)]
 mod aidata_archive_tests {
     use super::*;
@@ -1457,11 +1428,9 @@ mod aidata_archive_tests {
     /// populate from it (SkirmishBuildList America et al.) before match
     /// start consumers read it.
     #[test]
+    #[ignore = "requires user-provided retail INIZH.big; run explicitly with --ignored"]
     fn aidata_store_populates_from_inizh_big() {
-        let Some(assets) = assets_root() else {
-            eprintln!("skipping: no INIZH.big under Main/assets");
-            return;
-        };
+        let assets = assets_root().expect("retail INIZH.big under Main/assets is required");
         {
             let file_system = get_file_system();
             let mut guard = file_system.lock().expect("FileSystem lock");
@@ -1478,8 +1447,19 @@ mod aidata_archive_tests {
         // synthetic data or a previous successful bootstrap in this process.
         for _ in 0..2 {
             let scoped = ScopedAiData::install();
-            ensure_aidata_loaded_from_game_fs();
-            let guard = scoped.store.read().expect("AI data store read lock");
+            let target = Arc::new(RwLock::new(ini_ai_data::AIDataStore::default()));
+            for path in ["Data/INI/Default/AIData.ini", "Data/INI/AIData.ini"] {
+                let mut ini = game_engine::common::ini::INI::new();
+                ini.set_ai_data_store_target(Arc::clone(&target));
+                ini.load(path, game_engine::common::ini::INILoadType::Overwrite)
+                    .expect("archived AIData parses through the explicit target");
+            }
+            assert!(Arc::ptr_eq(
+                &ini_ai_data::get_ai_data_store(),
+                &scoped.store
+            ));
+            assert!(scoped.store.read().unwrap().get_active().is_none());
+            let guard = target.read().expect("AI data store read lock");
             let data = guard.get_active().expect("AIData store populated");
             let america = data
                 .side_build_lists

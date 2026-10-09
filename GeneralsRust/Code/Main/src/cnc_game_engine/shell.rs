@@ -1575,6 +1575,9 @@ impl CnCGameEngine {
                         for ai_path in Self::startup_ai_data_ini_paths() {
                             if let Some(content) = extract_ini_text_from_archives(ai_path) {
                                 let mut ini = game_engine::common::ini::INI::new();
+                                ini.set_ai_data_store_target(
+                                    game_engine::common::ini::ini_ai_data::process_lifetime_ai_data_store(),
+                                );
                                 match ini.with_inline_source(&content, |ini| ini.parse_current_file())
                                 {
                                     Ok(()) => {

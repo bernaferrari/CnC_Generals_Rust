@@ -7,6 +7,16 @@ impl AIPlayer {
         game_logic: &mut GameLogic,
         current_time: f32,
     ) {
+        let ai_data = AiDataView::from_world(game_logic);
+        self.update_economic_management_with_ai_data(game_logic, current_time, &ai_data);
+    }
+
+    pub(super) fn update_economic_management_with_ai_data(
+        &mut self,
+        game_logic: &mut GameLogic,
+        current_time: f32,
+        ai_data: &AiDataView,
+    ) {
         if current_time < self.next_building_time {
             return;
         }
@@ -40,7 +50,7 @@ impl AIPlayer {
         // structure per economic pass.  Starting every eligible entry here
         // spends the AI's money in a burst and leaves most scaffolds without a
         // dozer, which is not a viable skirmish base build lifecycle.
-        self.process_building_queue(game_logic, current_time);
+        self.process_building_queue_with_ai_data(game_logic, current_time, ai_data);
 
         // StructureSeconds residual + wealth/poor rate (AIData Structures*Rate).
         let interval = self.scaled_interval_seconds(game_logic, Self::STRUCTURE_SECONDS, true);
@@ -58,6 +68,16 @@ impl AIPlayer {
         game_logic: &mut GameLogic,
         current_time: f32,
     ) {
+        let ai_data = AiDataView::from_world(game_logic);
+        self.update_military_management_with_ai_data(game_logic, current_time, &ai_data);
+    }
+
+    pub(super) fn update_military_management_with_ai_data(
+        &mut self,
+        game_logic: &mut GameLogic,
+        current_time: f32,
+        ai_data: &AiDataView,
+    ) {
         let queue_due = current_time >= self.next_team_queue_time;
         // C++ `AIPlayer::onUnitProduced` sets m_teamDelay to zero after the
         // factory has actually created the unit.  Poll the producer link on
@@ -70,20 +90,21 @@ impl AIPlayer {
         if queue_due || unit_completed {
             // C++ queueUnits runs before selection, so established orders get
             // first use of an idle factory.
-            self.process_team_queue(game_logic, current_time);
+            self.process_team_queue_with_ai_data(game_logic, current_time, ai_data);
 
-            let selected_team =
-                if current_time >= self.next_team_time && self.should_build_new_team(game_logic) {
-                    self.select_team_to_build(game_logic, current_time)
-                } else {
-                    false
-                };
+            let selected_team = if current_time >= self.next_team_time
+                && self.should_build_new_team_with_ai_data(game_logic, ai_data)
+            {
+                self.select_team_to_build_with_ai_data(game_logic, current_time, ai_data)
+            } else {
+                false
+            };
 
             if selected_team {
                 // C++ processTeamBuilding invokes queueUnits immediately after
                 // a successful selectTeamToBuild. Timer is armed only on a new
                 // pick inside selectTeamToBuild; reinforce returns with ready set.
-                self.process_team_queue(game_logic, current_time);
+                self.process_team_queue_with_ai_data(game_logic, current_time, ai_data);
             } else if current_time >= self.next_team_time {
                 // A failed selection leaves m_readyToBuildTeam set.  Retry on
                 // the short m_teamDelay cadence rather than sleeping 10 sec.
@@ -351,6 +372,16 @@ impl AIPlayer {
     /// build task immediately.  Keep an unstartable plan in the queue instead
     /// of fabricating a builder or charging the player.
     pub(super) fn process_building_queue(&mut self, game_logic: &mut GameLogic, current_time: f32) {
+        let ai_data = AiDataView::from_world(game_logic);
+        self.process_building_queue_with_ai_data(game_logic, current_time, &ai_data);
+    }
+
+    pub(super) fn process_building_queue_with_ai_data(
+        &mut self,
+        game_logic: &mut GameLogic,
+        current_time: f32,
+        ai_data: &AiDataView,
+    ) {
         self.resume_interrupted_construction(game_logic);
         // C++ findDozer → queueDozer when no KINDOF_DOZER exists (AIPlayer.cpp:3254-3256).
         if !Self::team_has_any_dozer(game_logic, self.team) {
@@ -360,8 +391,12 @@ impl AIPlayer {
         let is_under_powered = game_logic
             .get_player(self.player_id)
             .is_some_and(|player| player.power_available < 0);
-        let build_index =
-            self.select_priority_or_power_build(game_logic, current_time, is_under_powered);
+        let build_index = self.select_priority_or_power_build_with_ai_data(
+            game_logic,
+            current_time,
+            is_under_powered,
+            ai_data,
+        );
         if let Some(index) = build_index {
             self.relocate_defense_if_illegal(game_logic, index);
             if let Some((template_name, position, mut build_cost)) =
@@ -554,6 +589,22 @@ impl AIPlayer {
         current_time: f32,
         is_under_powered: bool,
     ) -> Option<usize> {
+        let ai_data = AiDataView::from_source(game_logic);
+        self.select_priority_or_power_build_with_ai_data(
+            game_logic,
+            current_time,
+            is_under_powered,
+            &ai_data,
+        )
+    }
+
+    pub(super) fn select_priority_or_power_build_with_ai_data(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        current_time: f32,
+        is_under_powered: bool,
+        ai_data: &AiDataView,
+    ) -> Option<usize> {
         let game_logic = &AiWorldView::new(game_logic);
         let Some(player) = game_logic.get_player(self.player_id) else {
             return None;
@@ -594,7 +645,12 @@ impl AIPlayer {
             }) {
                 continue;
             }
-            if !self.is_location_safe_in_view(game_logic, building.position, Some(template)) {
+            if !self.is_location_safe_in_view(
+                game_logic,
+                building.position,
+                Some(template),
+                ai_data,
+            ) {
                 continue;
             }
 
@@ -980,7 +1036,8 @@ impl AIPlayer {
         pos: Vec3,
         template: Option<&ThingTemplate>,
     ) -> bool {
-        self.is_location_safe_in_view(game_logic, pos, template)
+        let ai_data = AiDataView::from_world(game_logic);
+        self.is_location_safe_in_view(game_logic, pos, template, &ai_data)
     }
 
     fn is_location_safe_in_view(
@@ -988,6 +1045,7 @@ impl AIPlayer {
         game_logic: &(impl AiReadSource + ?Sized),
         pos: Vec3,
         template: Option<&ThingTemplate>,
+        ai_data: &AiDataView,
     ) -> bool {
         let game_logic = &AiWorldView::new(game_logic);
         let Some(template) = template else {
@@ -999,7 +1057,7 @@ impl AIPlayer {
             0.0
         };
         let radius = gamelogic::ai::ai_player::leftover_is_location_safe_radius(
-            Self::aidata_supply_center_safe_radius(),
+            Self::aidata_supply_center_safe_radius(ai_data),
             template_r,
         );
         let candidates = game_logic.host_objects().values().map(|other| {
@@ -1033,13 +1091,15 @@ impl AIPlayer {
 
     /// C++ `AIPlayer::isSupplySourceSafe` — find + isLocationSafe.
     pub fn is_supply_source_safe(&self, game_logic: &GameLogic, min_supplies: i32) -> bool {
-        self.is_supply_source_safe_in_view(game_logic, min_supplies)
+        let ai_data = AiDataView::from_world(game_logic);
+        self.is_supply_source_safe_in_view(game_logic, min_supplies, &ai_data)
     }
 
     fn is_supply_source_safe_in_view(
         &self,
         game_logic: &(impl AiReadSource + ?Sized),
         min_supplies: i32,
+        ai_data: &AiDataView,
     ) -> bool {
         let game_logic = &AiWorldView::new(game_logic);
         let Some(warehouse_id) = self.find_supply_center_in_view(game_logic, min_supplies) else {
@@ -1049,20 +1109,14 @@ impl AIPlayer {
             return true;
         };
         let template = game_logic.template(&warehouse.template_name);
-        self.is_location_safe_in_view(game_logic, warehouse.get_position(), template)
+        self.is_location_safe_in_view(game_logic, warehouse.get_position(), template, ai_data)
     }
 
-    pub(super) fn aidata_supply_center_safe_radius() -> Option<f32> {
-        let store = game_engine::common::ini::get_ai_data_store();
-        let store = store.read().expect("AI data store read lock");
-        if let Some(radius) = store.get_active().map(|d| d.supply_center_safe_radius) {
-            return Some(radius);
-        }
-        drop(store);
-        gamelogic::ai::the_ai()
-            .read()
-            .ok()
-            .and_then(|ai| Some(ai.get_ai_data()).map(|d| d.supply_center_safe_radius))
+    pub(super) fn aidata_supply_center_safe_radius(ai_data: &AiDataView) -> Option<f32> {
+        ai_data
+            .catalog()
+            .map(|data| data.supply_center_safe_radius)
+            .or_else(|| ai_data.runtime().map(|data| data.supply_center_safe_radius))
     }
 
     /// C++ `AIPlayer::isSupplySourceAttacked`.

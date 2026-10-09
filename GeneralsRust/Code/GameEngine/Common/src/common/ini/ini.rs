@@ -6,7 +6,7 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::{LazyLock, OnceLock, RwLock};
+use std::sync::{Arc, LazyLock, OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::common::ascii_string::AsciiString;
@@ -216,6 +216,8 @@ pub struct INI {
     /// This parser already has exclusive access through `&mut self`.
     xfer: Option<XferCRC<XferLoad<Cursor<Vec<u8>>>>>,
     script_template_definitions: Vec<super::ini_script::ScriptTemplateDefinition>,
+    // Explicit engine-owner target for AIData content loading.
+    ai_data_store_target: Option<Arc<RwLock<super::ini_ai_data::AIDataStore>>>,
     #[cfg(debug_assertions)]
     cur_block_start: String,
 }
@@ -1199,9 +1201,25 @@ impl INI {
             tolerant_blocks: false,
             xfer: None,
             script_template_definitions: Vec::new(),
+            ai_data_store_target: None,
             #[cfg(debug_assertions)]
             cur_block_start: String::new(),
         }
+    }
+
+    /// Bind AIData parsing in this INI operation to an explicit engine store.
+    /// This does not publish or mutate Common's active-store selector.
+    pub fn set_ai_data_store_target(
+        &mut self,
+        store: Arc<RwLock<super::ini_ai_data::AIDataStore>>,
+    ) {
+        self.ai_data_store_target = Some(store);
+    }
+
+    pub(super) fn ai_data_store_target(
+        &self,
+    ) -> Option<Arc<RwLock<super::ini_ai_data::AIDataStore>>> {
+        self.ai_data_store_target.as_ref().map(Arc::clone)
     }
 
     /// Opt this INI instance into corrupt-block skipping (see the field doc).

@@ -402,7 +402,7 @@ pub enum AIBuildPhase {
 
 mod world_commands;
 mod world_view;
-use world_view::{AiReadSource, AiWorldView};
+use world_view::{AiDataView, AiReadSource, AiWorldView};
 
 mod combat;
 mod destination_clearance;
