@@ -193,6 +193,32 @@ fn native_mood_due_query_updates_owned_timer_without_unrequested_rng() {
 }
 
 #[test]
+fn native_mood_uses_canonical_candidates_with_empty_handle_index() {
+    if !child(concat!(
+        module_path!(),
+        "::native_mood_uses_canonical_candidates_with_empty_handle_index"
+    )) {
+        return;
+    }
+    let _serial = crate::test_sync::lock();
+    let _frame = super::super::RestoreAmbientFrame::set(17);
+    let fixture = MoodFixture::new("Yes");
+    let _rng = RestoreRng::set();
+    let before = get_game_logic_random_seed_state();
+    // Clearing the auxiliary handle index does not clear the canonical world.
+    // Lookup must still reach its admitted target, and the due timer advances
+    // before the search (AIUpdate.cpp:4545).
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    assert!(crate::object::registry::OBJECT_REGISTRY.store_is_empty());
+    assert!(!crate::object::registry::OBJECT_REGISTRY.is_empty());
+    let mut ai = fixture.ai.lock().unwrap();
+    ai.set_next_mood_check_time(1);
+    assert_eq!(ai.get_next_mood_target_id(true, true), fixture.target_id);
+    assert_eq!(ai.get_next_mood_check_time(), 77);
+    assert_eq!(get_game_logic_random_seed_state(), before);
+}
+
+#[test]
 fn native_mood_idle_and_ability_vetoes_precede_timer() {
     if !child(concat!(
         module_path!(),

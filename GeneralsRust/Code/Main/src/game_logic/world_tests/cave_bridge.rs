@@ -1,4 +1,4 @@
-//! Live-path CaveSystem + bridge scaffold/rubble tests.
+//! CaveSystem, bridge lifecycle, and internal scaffold helper tests.
 
 use super::*;
 use crate::game_logic::host_bridge_behavior::BRIDGE_SCAFFOLD_TEMPLATE;
@@ -198,6 +198,7 @@ fn leftover_set_cave_index_drains_onto_live_host() {
 #[test]
 fn dozer_bridge_repair_spawns_scaffold() {
     // C++ DozerAIUpdate.cpp:665-688 createBridgeScaffolding.
+    // Exercise the internal helper; ActionManager rejects ordinary bridge repair.
     let mut logic = GameLogic::new();
     let mut bridge = ThingTemplate::new("TestBridgeSpan");
     bridge.add_kind_of(KindOf::Structure).set_health(200.0);
@@ -314,6 +315,7 @@ fn spawn_linked_bridge(logic: &mut GameLogic) -> (ObjectId, ObjectId, ObjectId) 
 #[test]
 fn repair_complete_removes_scaffolding() {
     // C++ WorkerAIUpdate.cpp:830 removeBridgeScaffolding on a bridge tower.
+    // This task is supplied explicitly; ordinary repair cannot create it.
     let mut logic = GameLogic::new();
     let (span, tower, _) = spawn_linked_bridge(&mut logic);
     logic.spawn_bridge_scaffolding(span);
@@ -329,9 +331,18 @@ fn repair_complete_removes_scaffolding() {
         .create_object("TestDozer", Team::USA, Vec3::new(0.0, 0.0, 12.0))
         .expect("dozer");
     if let Some(d) = logic.host_object_mut(dozer) {
-        d.worker_ai_update = true;
+        d.worker_ai_update = false;
         d.dozer_task_repair_target = Some(tower);
         d.set_target(Some(tower));
+    }
+    logic.dozer_internal_task_complete(dozer, true);
+    assert!(
+        logic.bridge_behavior.is_scaffold_present(span),
+        "DozerAIUpdate's scaffold cleanup is commented out in C++"
+    );
+    if let Some(d) = logic.host_object_mut(dozer) {
+        d.worker_ai_update = true;
+        d.dozer_task_repair_target = Some(tower);
     }
     logic.dozer_internal_task_complete(dozer, true);
     assert!(
@@ -368,6 +379,7 @@ fn repair_complete_removes_scaffolding() {
 #[test]
 fn rubble_span_is_repairable() {
     // C++ DozerAIUpdate.cpp:649-703 heals rubble bridge/tower.
+    // Exercise body revival directly, not the rejected ordinary repair command.
     let mut logic = GameLogic::new();
     let (span, _, _) = spawn_linked_bridge(&mut logic);
     if let Some(s) = logic.host_object_mut(span) {
@@ -509,12 +521,73 @@ fn live_tick_drains_bridge_mirrors_and_death_links() {
         step.contains("sync_host_bridge_rubble_and_scaffolds"),
         "live update_simulation must drain bridge mirrors/death/scaffolds"
     );
-    let repair = include_str!("../world_objects/support_states/update.rs");
+    let commands = include_str!("../../command_executor/leftover.rs");
+    let repair = source_function(commands, "fn dozer_internal_task_complete(");
     assert!(
-        repair.contains("KindOf::Bridge")
-            && repair.contains("KindOf::BridgeTower")
+        repair.contains("KindOf::BridgeTower")
             && repair.contains("worker_ai_update")
-            && repair.contains("remove_bridge_scaffolding"),
-        "a bridge repair is released; only a worker task exit removes scaffolding"
+            && repair.contains("span_id_for(tid)")
+            && repair.contains("self.remove_bridge_scaffolding(sid)"),
+        "an explicitly supplied worker tower task removes its span's scaffolding"
     );
+    let bridges = include_str!("../world_combat/special_power_flights.rs");
+    let remove = source_function(bridges, "fn remove_bridge_scaffolding(");
+    assert!(remove.contains("self.bridge_behavior.remove_scaffolding(span_id)"));
+    assert!(remove.contains("if !rubble") && remove.contains("stamp_bridge_deck"));
+}
+
+#[test]
+fn ordinary_repair_command_rejects_bridge_and_tower() {
+    use crate::command_executor::CommandExecutor;
+    use crate::command_system::{CommandResult, CommandType, GameCommand, ModifierKeys};
+
+    // ActionManager.cpp:384-386 rejects both before creating a repair task.
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    let (span, tower, _) = spawn_linked_bridge(&mut logic);
+    let dozer = logic
+        .create_object("TestDozer", Team::USA, Vec3::ZERO)
+        .expect("dozer");
+    for target in [span, tower] {
+        logic.host_object_mut(target).unwrap().health.current = 1.0;
+        let command = GameCommand {
+            command_type: CommandType::Repair { target_id: target },
+            player_id: 0,
+            command_id: 0,
+            timestamp: std::time::SystemTime::UNIX_EPOCH,
+            selected_units: vec![dozer],
+            modifier_keys: ModifierKeys::default(),
+        };
+        let result = CommandExecutor::new(&mut logic, 0)
+            .execute_command(command)
+            .expect("repair dispatch");
+        assert_eq!(result, CommandResult::InvalidTarget);
+        assert!(
+            logic
+                .host_object(dozer)
+                .unwrap()
+                .dozer_task_repair_target
+                .is_none()
+        );
+        assert!(!logic.bridge_behavior.is_scaffold_present(span));
+    }
+}
+
+fn source_function<'a>(source: &'a str, signature: &str) -> &'a str {
+    let start = source.find(signature).expect("current owner method");
+    let brace = start + source[start..].find('{').expect("method body");
+    let mut depth = 0;
+    for (offset, ch) in source[brace..].char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &source[start..=brace + offset];
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("unterminated owner method");
 }

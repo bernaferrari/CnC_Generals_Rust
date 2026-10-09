@@ -1,12 +1,13 @@
-//! Wave 258 residual peels: Unit dual-world empty short-circuits.
-//! When `OBJECT_REGISTRY` is empty (host-only presentation path), unit AI
-//! combat/path/team walks fail-closed without dual-world factory resolution.
+//! Wave 258 residual: explicit Unit adapters retain empty-registry gates.
+//! Native mood queries use their constructor-bound Object; candidate lookup
+//! still depends on registered targets. This receipt is not world-isolation proof.
 //! Never flips shell `playable_claim`. Network deferred.
 //!
 //! Orthogonal to Wave 257 legacy AI states dual-world empty-gate residual.
 //!
 //! Sources:
-//! - `GameLogic/src/object/unit.rs` dual_world_registry_unavailable + early outs
+//! - `GameLogic/src/object/unit/registry.rs` adapter gate
+//! - `GameLogic/src/object/unit/ai_runtime.rs` mood dispatch and adapter
 //!
 //! Fail-closed:
 //! - Shell `playable_claim` stays false; network deferred
@@ -20,8 +21,6 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 /// Unit dual-world empty-gate residual method names.
 pub const LIVE_UNIT_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE258: &[&str] = &[
     "dual_world_registry_unavailable",
-    "engage_target",
-    "should_scan_for_targets",
     "find_enemy_in_container",
     "get_next_mood_target_id",
     "ai_guard_object",
@@ -45,7 +44,7 @@ pub const RUNTIME_HOST_LIVE_UNIT_DUAL_WORLD_EMPTY_GATE_CMD_NAMES_WAVE258: &[&str
 
 /// Honesty: method names residual pack.
 pub fn honesty_live_unit_dual_world_empty_gate_method_names_residual_wave258() -> bool {
-    LIVE_UNIT_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE258.len() == 7
+    LIVE_UNIT_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE258.len() == 5
         && residual_name_index(
             LIVE_UNIT_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE258,
             "dual_world_registry_unavailable",
@@ -53,11 +52,11 @@ pub fn honesty_live_unit_dual_world_empty_gate_method_names_residual_wave258() -
         && residual_name_index(
             LIVE_UNIT_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE258,
             "get_next_mood_target_id",
-        ) == Some(4)
+        ) == Some(2)
         && residual_name_index(
             LIVE_UNIT_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE258,
             "playable_claim = false",
-        ) == Some(6)
+        ) == Some(4)
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
@@ -103,31 +102,25 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 /// The native mood query uses its constructor-bound Object; this receipt
 /// covers the explicit legacy adapter, not native query parity.
 pub fn honesty_unit_dual_world_empty_gate_source() -> bool {
-    let g = concat!(
-        include_str!("../../../../GameEngine/GameLogic/src/object/unit/registry.rs"),
-        include_str!("../../../../GameEngine/GameLogic/src/object/unit/combat.rs"),
-        include_str!("../../../../GameEngine/GameLogic/src/object/unit/ai_loco.rs"),
-        include_str!("../../../../GameEngine/GameLogic/src/object/unit/ai_acquisition.rs"),
-    );
-    if !(g.contains("Wave 258")
-        && g.contains("fn dual_world_registry_unavailable")
-        && g.contains("OBJECT_REGISTRY.is_empty()"))
-    {
-        return false;
-    }
-    let Some(engage) = fn_body(g, "fn engage_target(") else {
+    let registry = include_str!("../../../../GameEngine/GameLogic/src/object/unit/registry.rs");
+    let runtime = include_str!("../../../../GameEngine/GameLogic/src/object/unit/ai_runtime.rs");
+    let Some(gate) = fn_body(registry, "fn dual_world_registry_unavailable(") else {
         return false;
     };
-    let Some(scan) = fn_body(g, "fn should_scan_for_targets(") else {
+    let Some(legacy) = fn_body(runtime, "fn get_legacy_mood_target(") else {
         return false;
     };
-    let Some(mood) = fn_body(g, "fn get_legacy_mood_target(") else {
+    let Some(dispatch) = fn_body(runtime, "fn get_next_mood_target_for_state(") else {
         return false;
     };
-    engage.contains("dual_world_registry_unavailable")
-        && scan.contains("dual_world_registry_unavailable")
-        && mood.contains("dual_world_registry_unavailable")
-        && mood.contains("INVALID_ID")
+    gate.contains("OBJECT_REGISTRY.is_empty()")
+        && legacy.contains("dual_world_registry_unavailable")
+        && legacy.contains("get_unit_arc(self.unit_id)")
+        && legacy.contains("return INVALID_ID")
+        && dispatch.contains("if self.owner.is_none()")
+        && dispatch.contains("return self.get_legacy_mood_target(")
+        && dispatch.contains("self.owner.as_ref().and_then(Weak::upgrade)")
+        && !dispatch.contains("dual_world_registry_unavailable")
 }
 
 /// Live residual: source honesty pack latches.
