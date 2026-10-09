@@ -568,18 +568,28 @@ impl AIManager {
                 return Some(id);
             }
         }
-        game_logic.get_players().iter().find_map(|(id, player)| {
+        // C++ ScriptEngine::getPlayerFromAsciiString resolves the exact player
+        // name key. Scan in slot order so the answer never depends on HashMap
+        // bucket order, and only fall back to a faction-name match when exactly
+        // one player has that faction (same-faction players stay distinct).
+        let mut players: Vec<(&u32, &crate::game_logic::Player)> =
+            game_logic.get_players().iter().collect();
+        players.sort_unstable_by_key(|(id, _)| **id);
+        if let Some((id, _)) = players.iter().find(|(_, player)| {
+            player.name.eq_ignore_ascii_case(t)
+                || player.map_side.map_player_name.eq_ignore_ascii_case(t)
+        }) {
+            return Some(**id);
+        }
+        let lower = t.to_ascii_lowercase();
+        let mut faction_matches = players.iter().filter(|(_, player)| {
             let team_name = player.team.get_name();
-            let lower = t.to_ascii_lowercase();
-            if player.name.eq_ignore_ascii_case(t)
-                || team_name.eq_ignore_ascii_case(t)
-                || lower.contains(&team_name.to_ascii_lowercase())
-            {
-                Some(*id)
-            } else {
-                None
-            }
-        })
+            team_name.eq_ignore_ascii_case(t) || lower.contains(&team_name.to_ascii_lowercase())
+        });
+        match (faction_matches.next(), faction_matches.next()) {
+            (Some((id, _)), None) => Some(**id),
+            _ => None,
+        }
     }
 
     /// C++ `AIPlayer::buildSpecificAITeam` live host entry.

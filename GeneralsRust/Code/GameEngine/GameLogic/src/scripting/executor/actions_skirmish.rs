@@ -16,7 +16,10 @@ impl ScriptActionDispatcher<'_> {
             // C++ AISkirmishPlayer::buildSpecificAIBuilding marks priority on
             // an existing build-list pad. Leftover AI is unused on the host
             // path (empty OBJECT_REGISTRY); queue for live AIPlayer.
-            super::request_host_skirmish_build_building(&building_type);
+            super::request_host_skirmish_build_building(
+                &self.current_script_player_name(),
+                &building_type,
+            );
             return Ok(ScriptActionResult::Success);
         }
         let building = building_type.clone();

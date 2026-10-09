@@ -494,7 +494,7 @@ impl GameLogic {
 
     /// C++ `Player::isSupplySourceAttacked` / `isSupplySourceSafe` for leftover
     /// conditions when crate `OBJECT_REGISTRY` is empty.
-    pub(super) fn inject_host_supply_source_queries(&mut self) {
+    pub(crate) fn inject_host_supply_source_queries(&mut self) {
         let mut attacked = std::collections::HashMap::new();
         let mut cash_map = std::collections::HashMap::new();
         let mut safe_map = std::collections::HashMap::new();
@@ -510,6 +510,10 @@ impl GameLogic {
                 continue;
             }
             let Some(ai) = ai_mgr.ai_players.get_mut(&pid) else {
+                // C++ Player::isSupplySourceAttacked / isSupplySourceSafe
+                // without m_ai: never attacked, always safe.
+                attacked.insert(key.clone(), false);
+                safe_map.insert(key, true);
                 continue;
             };
             let is_attacked = ai.is_supply_source_attacked(self);
@@ -690,8 +694,8 @@ impl GameLogic {
         for (player_token, power_name) in fires {
             ai_mgr.fire_skirmish_special_power_at_most_cost(self, &player_token, &power_name);
         }
-        for thing_name in builds {
-            let _ = ai_mgr.build_specific_ai_building_for_token(self, "", &thing_name);
+        for (player_token, thing_name) in builds {
+            let _ = ai_mgr.build_specific_ai_building_for_token(self, &player_token, &thing_name);
         }
         for (player_token, thing_name, cash) in supply_centers {
             let _ = ai_mgr.build_by_supplies_for_token(self, &player_token, cash, &thing_name);

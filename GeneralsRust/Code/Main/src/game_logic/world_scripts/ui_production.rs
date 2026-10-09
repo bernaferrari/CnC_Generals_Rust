@@ -2671,3 +2671,36 @@ fn leftover_factory_exit_blocker(
         (exit_w * 0.5).max(1.0),
     ))
 }
+
+impl GameLogic {
+    /// Lower-cased names of templates for which C++ `ThingTemplate::isBuildFacility`
+    /// is true: command centers, plus every template in the first OR-group of
+    /// another template's unit prerequisites (`ThingTemplate::resolveNames`,
+    /// ThingTemplate.cpp:1253-1272 via
+    /// `ProductionPrerequisite::getAllPossibleBuildFacilityTemplates`).
+    pub(crate) fn build_facility_template_names(&self) -> std::collections::HashSet<String> {
+        const MAX_BF: usize = 32;
+        let mut names = std::collections::HashSet::new();
+        for template in self.templates.values() {
+            if template.kind_of.contains(&KindOf::CommandCenter) {
+                names.insert(template.name.to_ascii_lowercase());
+            }
+            for prereq in &template.production_prerequisites {
+                for (i, rec) in prereq.get_unit_prereqs().iter().enumerate() {
+                    // C++ stops at the first record not OR'd with its predecessor.
+                    if (i > 0 && !rec.flags.has_or_with_prev()) || i >= MAX_BF {
+                        break;
+                    }
+                    let name = rec
+                        .unit
+                        .and_then(leftover_template_name_for_handle)
+                        .or_else(|| (!rec.name.is_empty()).then(|| rec.name.clone()));
+                    if let Some(name) = name {
+                        names.insert(name.to_ascii_lowercase());
+                    }
+                }
+            }
+        }
+        names
+    }
+}

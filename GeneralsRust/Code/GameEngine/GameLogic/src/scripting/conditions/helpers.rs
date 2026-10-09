@@ -436,7 +436,11 @@ pub fn host_query_supply_source_safe(player_name: &str, min_supplies: i32) -> Op
     }
     HOST_SCRIPT_QUERY.with(|slot| {
         let snap = slot.borrow();
-        let cash = *snap.supply_center_cash.get(&key)?;
+        let Some(&cash) = snap.supply_center_cash.get(&key) else {
+            // A known player without an AI has no cash row: C++
+            // `Player::isSupplySourceSafe` returns TRUE when `m_ai` is NULL.
+            return snap.supply_center_location_safe.get(&key).copied();
+        };
         if cash < min_supplies {
             return Some(true);
         }

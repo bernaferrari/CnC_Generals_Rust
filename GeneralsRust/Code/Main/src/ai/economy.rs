@@ -749,8 +749,8 @@ impl AIPlayer {
         let mut radius = 30.0;
         if !is_cash {
             if let Some(enemy_id) = self.enemy_player_id {
-                if let Some(enemy) = game_logic.get_player(enemy_id) {
-                    let enemy_center = self.find_enemy_base_center(game_logic, enemy.team);
+                if game_logic.get_player(enemy_id).is_some() {
+                    let enemy_center = self.find_enemy_base_center(game_logic, enemy_id);
                     offset = warehouse_pos - enemy_center;
                 }
             }
@@ -1008,14 +1008,17 @@ impl AIPlayer {
         game_logic: &(impl AiReadSource + ?Sized),
     ) -> Option<Vec3> {
         let game_logic = &AiWorldView::new(game_logic);
-        let enemy_team = self.skirmish_enemy_team(game_logic)?;
+        let enemy_player_id = self.skirmish_enemy_player(game_logic)?;
         let mut lo_x = f32::MAX;
         let mut lo_z = f32::MAX;
         let mut hi_x = f32::MIN;
         let mut hi_z = f32::MIN;
         let mut any = false;
         for obj in game_logic.host_objects().values() {
-            if !obj.is_alive() || obj.team != enemy_team || !obj.is_kind_of(KindOf::Structure) {
+            if !obj.is_alive()
+                || !game_logic.object_owned_by_player(obj, enemy_player_id)
+                || !obj.is_kind_of(KindOf::Structure)
+            {
                 continue;
             }
             let p = obj.get_position();
@@ -1175,23 +1178,26 @@ impl AIPlayer {
         false
     }
 
-    pub(super) fn skirmish_enemy_team(
+    /// The skirmish enemy player: the acquired enemy, else the (lowest-slot)
+    /// local non-neutral player.
+    pub(super) fn skirmish_enemy_player(
         &self,
         game_logic: &(impl AiReadSource + ?Sized),
-    ) -> Option<Team> {
+    ) -> Option<u32> {
         let game_logic = &AiWorldView::new(game_logic);
         if let Some(enemy_id) = self.enemy_player_id {
             if let Some(enemy) = game_logic.get_player(enemy_id) {
                 if enemy.team != Team::Neutral {
-                    return Some(enemy.team);
+                    return Some(enemy_id);
                 }
             }
         }
         game_logic
             .get_players()
             .values()
-            .find(|player| player.is_local && player.team != Team::Neutral)
-            .map(|player| player.team)
+            .filter(|player| player.is_local && player.team != Team::Neutral)
+            .map(|player| player.id)
+            .min()
     }
 
     pub(super) fn named_team_member_ids(
@@ -1245,9 +1251,9 @@ impl AIPlayer {
         };
         let mut location = warehouse.get_position();
         let radius = warehouse.selection_radius.max(0.0) * 0.8;
-        let enemy_team = self.skirmish_enemy_team(game_logic);
-        if let Some(enemy_team) = enemy_team {
-            let (lo_x, lo_z, hi_x, hi_z) = self.player_structure_bounds(game_logic, enemy_team);
+        if let Some(enemy_player_id) = self.skirmish_enemy_player(game_logic) {
+            let (lo_x, lo_z, hi_x, hi_z) =
+                self.player_structure_bounds(game_logic, enemy_player_id);
             let mut ox = location.x - (lo_x + hi_x) * 0.5;
             let mut oz = location.z - (lo_z + hi_z) * 0.5;
             let len = (ox * ox + oz * oz).sqrt();

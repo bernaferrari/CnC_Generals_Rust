@@ -580,7 +580,7 @@ pub struct HostScriptSkirmishBaseDefenseRequest {
 thread_local! {
     static HOST_SKIRMISH_FIRE_SPECIAL_REQUESTS: RefCell<Vec<(String, String)>> =
         RefCell::new(Vec::new());
-    static HOST_SKIRMISH_BUILD_REQUESTS: RefCell<Vec<String>> = RefCell::new(Vec::new());
+    static HOST_SKIRMISH_BUILD_REQUESTS: RefCell<Vec<(String, String)>> = RefCell::new(Vec::new());
     static HOST_SET_CAVE_INDEX_REQUESTS: RefCell<Vec<(String, i32)>> = RefCell::new(Vec::new());
     static HOST_OBJECT_PANEL_FLAG_REQUESTS: RefCell<Vec<(String, String, bool)>> =
         RefCell::new(Vec::new());
@@ -707,14 +707,17 @@ pub fn take_host_skirmish_fire_special_requests() -> Vec<(String, String)> {
     HOST_SKIRMISH_FIRE_SPECIAL_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
 
-/// Live host drain: `SKIRMISH_BUILD_BUILDING` → `markPriorityBuild`.
-pub fn request_host_skirmish_build_building(thing_name: &str) {
+/// Live host drain: `SKIRMISH_BUILD_BUILDING` → `markPriorityBuild` on the
+/// executing script's player (C++ `ScriptActions::doBuildBuilding` always
+/// uses `TheScriptEngine->getCurrentPlayer()`).
+pub fn request_host_skirmish_build_building(player_name: &str, thing_name: &str) {
     HOST_SKIRMISH_BUILD_REQUESTS.with(|q| {
-        q.borrow_mut().push(thing_name.to_string());
+        q.borrow_mut()
+            .push((player_name.to_string(), thing_name.to_string()));
     });
 }
 
-pub fn take_host_skirmish_build_requests() -> Vec<String> {
+pub fn take_host_skirmish_build_requests() -> Vec<(String, String)> {
     HOST_SKIRMISH_BUILD_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
 

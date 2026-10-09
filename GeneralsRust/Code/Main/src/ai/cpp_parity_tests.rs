@@ -3622,13 +3622,13 @@ fn cluster_mines_land_on_own_approach_not_enemy_centroid() {
         .set_cost(500, 0)
         .set_health(1000.0);
     logic.templates.insert("AmericaBarracks".into(), barracks);
-    let _ = logic.create_object("AmericaBarracks", Team::USA, Vec3::new(400.0, 0.0, 0.0));
+    let _ = logic.create_object_for_player("AmericaBarracks", 2, Vec3::new(400.0, 0.0, 0.0));
 
     let mut ai = AIPlayer::new(1, Team::China, AIDifficulty::Medium);
     ai.base_center = Vec3::ZERO;
     ai.base_radius = 100.0;
     let target = ai
-        .compute_cluster_mines_target(&logic, Team::USA)
+        .compute_cluster_mines_target(&logic, 2)
         .expect("approach");
     let dist_from_base = (target.x * target.x + target.z * target.z).sqrt();
     assert!(

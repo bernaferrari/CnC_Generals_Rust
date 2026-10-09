@@ -420,6 +420,8 @@ mod live_peer_target_tests;
 #[cfg(test)]
 mod ownership_tests;
 #[cfg(test)]
+mod player_identity_tests;
+#[cfg(test)]
 mod player_slot_order_tests;
 
 pub use manager::AIManager;

@@ -1066,8 +1066,8 @@ impl AIPlayer {
     ) -> Option<Vec3> {
         if let Some(gl) = game_logic {
             if let Some(enemy_id) = self.enemy_player_id {
-                if let Some(enemy) = gl.get_player(enemy_id) {
-                    return Some(self.find_enemy_base_center(gl, enemy.team));
+                if gl.get_player(enemy_id).is_some() {
+                    return Some(self.find_enemy_base_center(gl, enemy_id));
                 }
             }
             for player_id in 0..8u32 {
@@ -1076,7 +1076,7 @@ impl AIPlayer {
                 }
                 if let Some(player) = gl.get_player(player_id) {
                     if player.team != self.team && player.is_alive {
-                        return Some(self.find_enemy_base_center(gl, player.team));
+                        return Some(self.find_enemy_base_center(gl, player_id));
                     }
                 }
             }
@@ -1222,12 +1222,12 @@ impl AIPlayer {
         }
         self.enemy_check_time = current_time;
 
+        let build_facilities = AiWorldView::new(game_logic).build_facility_template_names();
+        // C++ keeps the current enemy unless it is in bad shape; liveness and
+        // relationship are not re-tested here.
         if let Some(enemy_id) = self.enemy_player_id {
             if let Some(enemy) = game_logic.get_player(enemy_id) {
-                if enemy.is_alive
-                    && self.player_is_enemy(game_logic, enemy)
-                    && !self.player_in_bad_shape(game_logic, enemy)
-                {
+                if !self.player_in_bad_shape(game_logic, enemy, &build_facilities) {
                     return;
                 }
             }
@@ -1247,25 +1247,22 @@ impl AIPlayer {
             let Some(player) = game_logic.get_player(player_id) else {
                 continue;
             };
-            if !player.is_alive || !self.player_is_enemy(game_logic, player) {
+            if !self.player_is_enemy(game_logic, player) {
                 continue;
             }
-            if !self.player_has_any_objects(game_logic, player.team) {
+            if !self.player_has_any_objects(game_logic, player_id) {
                 continue;
             }
 
-            let in_bad_shape = self.player_in_bad_shape(game_logic, player);
-            let (min_x, min_z, max_x, max_z) =
-                self.player_structure_bounds(game_logic, player.team);
-            let enemy_center = if min_x == 0.0 && min_z == 0.0 && max_x == 0.0 && max_z == 0.0 {
-                self.find_enemy_base_center(game_logic, player.team)
-            } else {
-                Vec3::new(
-                    min_x + (max_x - min_x) * 0.5,
-                    0.0,
-                    min_z + (max_z - min_z) * 0.5,
-                )
-            };
+            let in_bad_shape = self.player_in_bad_shape(game_logic, player, &build_facilities);
+            // C++ always centers on getPlayerStructureBounds, which is the
+            // zero region (map origin) when the player owns no structures.
+            let (min_x, min_z, max_x, max_z) = self.player_structure_bounds(game_logic, player_id);
+            let enemy_center = Vec3::new(
+                min_x + (max_x - min_x) * 0.5,
+                0.0,
+                min_z + (max_z - min_z) * 0.5,
+            );
             let dx = enemy_center.x - self.base_center.x;
             let dz = enemy_center.z - self.base_center.z;
             let mut dist_sqr = dx * dx + dz * dz;
@@ -1329,57 +1326,73 @@ impl AIPlayer {
         true
     }
 
+    /// C++ `Player::hasAnyObjects` → `Team::hasAnyObjects` over the player's
+    /// own teams (Team.cpp:1751-1779): skip dead, destroyed, projectiles,
+    /// inert objects and mines.
     pub(super) fn player_has_any_objects(
         &self,
         game_logic: &(impl AiReadSource + ?Sized),
-        team: Team,
+        player_id: u32,
     ) -> bool {
         let game_logic = &AiWorldView::new(game_logic);
-        game_logic
-            .host_objects()
-            .values()
-            .any(|object| object.team == team && object.is_alive())
+        game_logic.host_objects().values().any(|object| {
+            game_logic.object_owned_by_player(object, player_id)
+                && !Self::object_dead_or_destroyed(object)
+                && !object.is_kind_of(KindOf::Projectile)
+                && !object.is_kind_of(KindOf::Inert)
+                && !object.is_kind_of(KindOf::Mine)
+        })
     }
 
+    /// C++ `Player::hasAnyUnits` → `Team::hasAnyUnits` (Team.cpp:1705-1727):
+    /// any live member that is not a structure, projectile or mine.
     pub(super) fn player_has_any_units(
         &self,
         game_logic: &(impl AiReadSource + ?Sized),
-        team: Team,
+        player_id: u32,
     ) -> bool {
         let game_logic = &AiWorldView::new(game_logic);
         game_logic.host_objects().values().any(|object| {
-            object.team == team
-                && object.is_alive()
-                && (object.is_kind_of(KindOf::Infantry)
-                    || object.is_kind_of(KindOf::Vehicle)
-                    || object.is_kind_of(KindOf::Aircraft))
+            game_logic.object_owned_by_player(object, player_id)
+                && !Self::object_dead_or_destroyed(object)
+                && !object.is_kind_of(KindOf::Structure)
+                && !object.is_kind_of(KindOf::Projectile)
+                && !object.is_kind_of(KindOf::Mine)
         })
     }
 
+    /// C++ `Player::hasAnyBuildFacility` → `Team::hasAnyBuildFacility`
+    /// (Team.cpp:2493-2502): any member whose template `isBuildFacility()`.
+    /// C++ does not test liveness; members leave the team list when destroyed.
     pub(super) fn player_has_any_build_facility(
         &self,
         game_logic: &(impl AiReadSource + ?Sized),
-        team: Team,
+        player_id: u32,
+        build_facilities: &std::collections::HashSet<String>,
     ) -> bool {
         let game_logic = &AiWorldView::new(game_logic);
         game_logic.host_objects().values().any(|object| {
-            object.team == team
-                && object.is_alive()
-                && (object.is_kind_of(KindOf::CommandCenter)
-                    || object.is_kind_of(KindOf::FSBarracks)
-                    || object.is_kind_of(KindOf::FSWarFactory)
-                    || object.is_kind_of(KindOf::FSAirfield))
+            game_logic.object_owned_by_player(object, player_id)
+                && !object.status.destroyed
+                && build_facilities.contains(&object.template_name.to_ascii_lowercase())
         })
     }
 
+    /// C++ `AISkirmishPlayer::acquireEnemy` "in bad shape":
+    /// `!hasAnyUnits() || !hasAnyBuildFacility()`.
     pub(super) fn player_in_bad_shape(
         &self,
         game_logic: &(impl AiReadSource + ?Sized),
         player: &Player,
+        build_facilities: &std::collections::HashSet<String>,
     ) -> bool {
         let game_logic = &AiWorldView::new(game_logic);
-        !self.player_has_any_units(game_logic, player.team)
-            || !self.player_has_any_build_facility(game_logic, player.team)
+        !self.player_has_any_units(game_logic, player.id)
+            || !self.player_has_any_build_facility(game_logic, player.id, build_facilities)
+    }
+
+    fn object_dead_or_destroyed(object: &crate::game_logic::Object) -> bool {
+        !object.is_alive() || object.status.effectively_dead || object.status.destroyed
     }
 }
 

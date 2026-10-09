@@ -13,6 +13,16 @@ fn world_with_enemy_objects(rows: &[(u32, Team, Vec3, bool)]) -> GameLogic {
         }
         world.templates.insert(name.into(), template);
     }
+    // C++ ThingTemplate::isBuildFacility: the barracks is a build facility
+    // because the infantry lists it as a prerequisite.
+    let mut needs_barracks = game_engine::common::rts::ProductionPrerequisite::new();
+    needs_barracks.add_unit_prereq("PeerBarracks".into(), false);
+    world
+        .templates
+        .get_mut("PeerInfantry")
+        .unwrap()
+        .production_prerequisites
+        .push(needs_barracks);
     for &(id, team, center, units) in rows {
         world.add_player(Player::new(id, team, "Peer slot", false));
         world

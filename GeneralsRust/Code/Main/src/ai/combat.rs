@@ -215,8 +215,8 @@ impl AIPlayer {
             return;
         }
         let enemy_base = if let Some(enemy_id) = self.enemy_player_id {
-            if let Some(player) = game_logic.get_player(enemy_id) {
-                self.find_enemy_base_center(game_logic, player.team)
+            if game_logic.get_player(enemy_id).is_some() {
+                self.find_enemy_base_center(game_logic, enemy_id)
             } else {
                 Vec3::ZERO
             }
@@ -349,7 +349,7 @@ impl AIPlayer {
         let Some(enemy_id) = self.enemy_player_id else {
             return;
         };
-        let Some(enemy_team) = game_logic.get_player(enemy_id).map(|p| p.team) else {
+        let Some(enemy_player_id) = game_logic.get_player(enemy_id).map(|p| p.id) else {
             return;
         };
 
@@ -391,14 +391,14 @@ impl AIPlayer {
                     | crate::command_system::SpecialPowerType::NukeDrop
             );
             let Some(mut location) = (if cluster {
-                self.compute_cluster_mines_target(game_logic, enemy_team)
+                self.compute_cluster_mines_target(game_logic, enemy_player_id)
             } else {
                 let mut radius = 50.0;
                 let cursor = Self::radius_cursor_for_power(&power, &template_name);
                 if cursor > radius {
                     radius = cursor;
                 }
-                self.compute_superweapon_target(game_logic, enemy_team, radius, !sneak)
+                self.compute_superweapon_target(game_logic, enemy_player_id, radius, !sneak)
             }) else {
                 continue;
             };
@@ -471,14 +471,14 @@ impl AIPlayer {
     pub(super) fn compute_superweapon_target(
         &mut self,
         game_logic: &(impl AiReadSource + ?Sized),
-        enemy_team: Team,
+        enemy_player_id: u32,
         weapon_radius: f32,
         target_military_units: bool,
     ) -> Option<Vec3> {
         let game_logic = &AiWorldView::new(game_logic);
         let radius = weapon_radius.max(1.0);
         let (mut min_x, mut min_z, mut max_x, mut max_z) =
-            self.player_structure_bounds(game_logic, enemy_team);
+            self.player_structure_bounds(game_logic, enemy_player_id);
         if min_x == 0.0 && min_z == 0.0 && max_x == 0.0 && max_z == 0.0 {
             let (lo, hi) = game_logic.world_bounds();
             min_x = lo.x;
@@ -538,7 +538,7 @@ impl AIPlayer {
                 );
                 let value = self.player_superweapon_value(
                     game_logic,
-                    enemy_team,
+                    enemy_player_id,
                     pos,
                     2.0 * radius,
                     target_military_units,
@@ -562,7 +562,7 @@ impl AIPlayer {
                 let pos = Vec3::new(best_pos.x + offset, 0.0, best_pos.z + offset);
                 let value = self.player_superweapon_value(
                     game_logic,
-                    enemy_team,
+                    enemy_player_id,
                     pos,
                     radius,
                     target_military_units,
@@ -622,7 +622,7 @@ impl AIPlayer {
     pub(super) fn compute_cluster_mines_target(
         &mut self,
         game_logic: &(impl AiReadSource + ?Sized),
-        enemy_team: Team,
+        enemy_player_id: u32,
     ) -> Option<Vec3> {
         let game_logic = &AiWorldView::new(game_logic);
         let start_index = game_logic
@@ -637,9 +637,10 @@ impl AIPlayer {
         };
         // Host leftover has no TerrainLogic waypoint walk; C++ falls back to
         // enemy structure-bounds center when the labeled path is missing.
-        let (min_x, min_z, max_x, max_z) = self.player_structure_bounds(game_logic, enemy_team);
+        let (min_x, min_z, max_x, max_z) =
+            self.player_structure_bounds(game_logic, enemy_player_id);
         let goal = if min_x == 0.0 && min_z == 0.0 && max_x == 0.0 && max_z == 0.0 {
-            self.find_enemy_base_center(game_logic, enemy_team)
+            self.find_enemy_base_center(game_logic, enemy_player_id)
         } else {
             Vec3::new(
                 min_x + (max_x - min_x) * 0.5,
@@ -885,7 +886,7 @@ impl AIPlayer {
     pub(super) fn player_structure_bounds(
         &self,
         game_logic: &(impl AiReadSource + ?Sized),
-        enemy_team: Team,
+        enemy_player_id: u32,
     ) -> (f32, f32, f32, f32) {
         let game_logic = &AiWorldView::new(game_logic);
         let mut any = false;
@@ -894,8 +895,10 @@ impl AIPlayer {
         let mut max_x = 0.0;
         let mut max_z = 0.0;
         for object in game_logic.host_objects().values() {
-            if object.team != enemy_team
-                || !object.is_alive()
+            // C++ AIPlayer::getPlayerStructureBounds walks the player's team
+            // members without a liveness test (AIPlayer.cpp:3761-3830).
+            if !game_logic.object_owned_by_player(object, enemy_player_id)
+                || object.status.destroyed
                 || !object.is_kind_of(KindOf::Structure)
             {
                 continue;
@@ -925,7 +928,7 @@ impl AIPlayer {
     pub(super) fn player_superweapon_value(
         &self,
         game_logic: &(impl AiReadSource + ?Sized),
-        enemy_team: Team,
+        enemy_player_id: u32,
         center: Vec3,
         radius: f32,
         include_military_units: bool,
@@ -935,7 +938,7 @@ impl AIPlayer {
         let rad_sqr = radius * radius;
         let mut cash = 0.0_f32;
         for object in game_logic.host_objects().values() {
-            if object.team != enemy_team || !object.is_alive() {
+            if !game_logic.object_owned_by_player(object, enemy_player_id) || !object.is_alive() {
                 continue;
             }
             let mut apply_neg = false;
@@ -988,7 +991,7 @@ impl AIPlayer {
     pub(super) fn find_enemy_base_center(
         &self,
         game_logic: &(impl AiReadSource + ?Sized),
-        enemy_team: Team,
+        enemy_player_id: u32,
     ) -> Vec3 {
         let game_logic = &AiWorldView::new(game_logic);
         let mut center = Vec3::ZERO;
@@ -996,7 +999,7 @@ impl AIPlayer {
 
         // Find enemy command center or other key buildings
         for object in game_logic.host_objects().values() {
-            if object.team == enemy_team
+            if game_logic.object_owned_by_player(object, enemy_player_id)
                 && object.is_alive()
                 && (object.is_kind_of(KindOf::CommandCenter)
                     || object.is_kind_of(KindOf::Structure))
