@@ -658,8 +658,7 @@ impl AIPlayer {
             if !object.is_alive() {
                 continue;
             }
-            let ours = object.owner_player_id == Some(self.player_id)
-                || (object.owner_player_id.is_none() && object.team == self.team);
+            let ours = game_logic.object_owned_by_player(object, self.player_id);
             if !ours || !object.is_kind_of(KindOf::CommandCenter) {
                 continue;
             }

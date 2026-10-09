@@ -232,7 +232,7 @@ impl AIPlayer {
             .host_objects()
             .iter()
             .filter_map(|(&unit_id, unit)| {
-                (unit.team == self.team
+                (game_logic.object_owned_by_player(unit, self.player_id)
                     && unit.producer_id == Some(factory_id)
                     && unit.template_name.eq_ignore_ascii_case(template_name))
                 .then_some(unit_id)
@@ -275,14 +275,16 @@ impl AIPlayer {
             .filter_map(|building| {
                 let object_id = building.object_id?;
                 let object = game_logic.host_object(object_id)?;
-                (object.team == self.team && object.is_alive() && object.status.under_construction)
+                (game_logic.object_owned_by_player(object, self.player_id)
+                    && object.is_alive()
+                    && object.status.under_construction)
                     .then_some((object_id, object.get_position()))
             })
             .collect();
 
         for (structure_id, position) in unfinished {
             let has_live_builder = game_logic.host_objects().values().any(|object| {
-                object.team == self.team
+                game_logic.object_owned_by_player(object, self.player_id)
                     && object.is_alive()
                     && object.can_construct()
                     && object.target == Some(structure_id)
@@ -930,7 +932,7 @@ impl AIPlayer {
             if !source.is_alive() {
                 continue;
             }
-            if Self::is_host_cash_generator(source) && self.host_owned_by_us(source) {
+            if Self::is_host_cash_generator(source) && self.host_owned_by_us(game_logic, source) {
                 let p = source.get_position();
                 own_cash_gens
                     .push(gamelogic::ai::ai_player::LeftoverOwnedCashGenerator { x: p.x, y: p.z });
@@ -969,11 +971,12 @@ impl AIPlayer {
         )
     }
 
-    pub(super) fn host_owned_by_us(&self, obj: &crate::game_logic::Object) -> bool {
-        match obj.owner_player_id {
-            Some(pid) => pid == self.player_id,
-            None => obj.team == self.team,
-        }
+    pub(super) fn host_owned_by_us(
+        &self,
+        game_logic: &AiWorldView<'_>,
+        obj: &crate::game_logic::Object,
+    ) -> bool {
+        game_logic.object_owned_by_player(obj, self.player_id)
     }
 
     pub(super) fn is_host_cash_generator(obj: &crate::game_logic::Object) -> bool {
@@ -990,7 +993,7 @@ impl AIPlayer {
         game_logic.host_objects().values().any(|cand| {
             if !cand.is_alive()
                 || !Self::is_host_cash_generator(cand)
-                || !self.host_owned_by_us(cand)
+                || !self.host_owned_by_us(game_logic, cand)
             {
                 return false;
             }
@@ -1155,7 +1158,7 @@ impl AIPlayer {
         self.supply_source_attack_check_frame = cur_frame.saturating_add(SCAN_RATE);
 
         for (&id, obj) in game_logic.host_objects() {
-            if obj.team != self.team || !obj.is_alive() {
+            if !game_logic.object_owned_by_player(obj, self.player_id) || !obj.is_alive() {
                 continue;
             }
             // C++ KINDOF_CASH_GENERATOR | DOZER | HARVESTER.
@@ -1211,7 +1214,7 @@ impl AIPlayer {
             .host_objects()
             .iter()
             .filter_map(|(&id, obj)| {
-                if !obj.is_alive() || obj.team != self.team {
+                if !obj.is_alive() || !game_logic.object_owned_by_player(obj, self.player_id) {
                     return None;
                 }
                 if needle.is_empty() {
@@ -1303,7 +1306,7 @@ impl AIPlayer {
             .host_objects()
             .iter()
             .filter_map(|(&id, object)| {
-                (object.team == self.team
+                (game_logic.object_owned_by_player(object, self.player_id)
                     && object.is_alive()
                     && object.is_constructed()
                     && !object.status.sold
@@ -1389,7 +1392,7 @@ impl AIPlayer {
             .host_objects()
             .values()
             .filter(|object| {
-                object.team == self.team
+                game_logic.object_owned_by_player(object, self.player_id)
                     && object.is_alive()
                     // C++ `AIPlayer::queueSupplyTruck` counts each
                     // SupplyTruckAIUpdate::getPreferredDockID(), not the
@@ -1408,7 +1411,9 @@ impl AIPlayer {
             .host_objects()
             .values()
             .filter(|object| {
-                object.team == self.team && object.is_alive() && object.is_resource_collector()
+                game_logic.object_owned_by_player(object, self.player_id)
+                    && object.is_alive()
+                    && object.is_resource_collector()
             })
             .count() as u32
     }
@@ -1430,7 +1435,7 @@ impl AIPlayer {
         let valid_collector = game_logic
             .host_object(collector_id)
             .is_some_and(|collector| {
-                collector.team == self.team
+                game_logic.object_owned_by_player(collector, self.player_id)
                     && collector.is_alive()
                     && collector.is_resource_collector()
             });
@@ -1466,7 +1471,7 @@ impl AIPlayer {
                 let spawned_here_without_a_dock =
                     object.producer_id == Some(center_id) && object.preferred_dock_id.is_none();
                 let already_assigned_to_this_center = object.preferred_dock_id == Some(center_id);
-                (object.team == self.team
+                (game_logic.object_owned_by_player(object, self.player_id)
                     && object.is_alive()
                     && object.is_resource_collector()
                     // The one-shot SpawnBehavior collector initially has a
@@ -1513,7 +1518,7 @@ impl AIPlayer {
                 let missing_preferred_dock = collector
                     .preferred_dock_id
                     .is_none_or(|dock_id| game_logic.host_object(dock_id).is_none());
-                (collector.team == self.team
+                (game_logic.object_owned_by_player(collector, self.player_id)
                     && collector.is_alive()
                     && collector.is_resource_collector()
                     && missing_preferred_dock
@@ -1695,7 +1700,7 @@ impl AIPlayer {
                     .host_objects()
                     .iter()
                     .filter_map(|(&unit_id, unit)| {
-                        (unit.team == self.team
+                        (game_logic.object_owned_by_player(unit, self.player_id)
                             && unit.producer_id == Some(factory_id)
                             && unit
                                 .template_name

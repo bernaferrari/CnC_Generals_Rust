@@ -86,7 +86,7 @@ impl AIPlayer {
             })
             .filter(|&unit_id| {
                 game_logic.host_object(unit_id).is_some_and(|object| {
-                    object.team == self.team
+                    game_logic.object_owned_by_player(object, self.player_id)
                         && object.is_alive()
                         && object.can_attack()
                         && object.is_mobile()
@@ -172,7 +172,10 @@ impl AIPlayer {
         let mut strength = 0.0;
 
         for object in game_logic.host_objects().values() {
-            if object.team == self.team && object.is_alive() && object.can_attack() {
+            if game_logic.object_owned_by_player(object, self.player_id)
+                && object.is_alive()
+                && object.can_attack()
+            {
                 strength += object.health.current * 0.1; // Basic strength calculation
             }
         }
@@ -187,16 +190,17 @@ impl AIPlayer {
         enemy_id: u32,
     ) -> f32 {
         let game_logic = &AiWorldView::new(game_logic);
-        let enemy_team = if let Some(player) = game_logic.get_player(enemy_id) {
-            player.team
-        } else {
+        if game_logic.get_player(enemy_id).is_none() {
             return 0.0;
-        };
+        }
 
         let mut strength = 0.0;
 
         for object in game_logic.host_objects().values() {
-            if object.team == enemy_team && object.is_alive() && object.can_attack() {
+            if game_logic.object_owned_by_player(object, enemy_id)
+                && object.is_alive()
+                && object.can_attack()
+            {
                 strength += object.health.current * 0.1;
             }
         }
@@ -223,15 +227,15 @@ impl AIPlayer {
         } else {
             Vec3::ZERO
         };
-        let enemy_team = self
+        let enemy_player = self
             .enemy_player_id
-            .and_then(|eid| game_logic.get_player(eid).map(|p| p.team));
-        let focus_enemy = enemy_team.and_then(|eteam| {
+            .filter(|eid| game_logic.get_player(*eid).is_some());
+        let focus_enemy = enemy_player.and_then(|enemy_id| {
             game_logic
                 .host_objects()
                 .iter()
                 .filter(|(_, o)| {
-                    o.team == eteam
+                    game_logic.object_owned_by_player(o, enemy_id)
                         && o.is_alive()
                         && o.is_kind_of(crate::game_logic::KindOf::Attackable)
                 })
@@ -296,7 +300,7 @@ impl AIPlayer {
 
         let mut attack_units = Vec::new();
         for (object_id, object) in game_logic.host_objects() {
-            if object.team == self.team
+            if game_logic.object_owned_by_player(object, self.player_id)
                 && object.is_alive()
                 && object.can_attack()
                 && object.is_mobile()
@@ -329,7 +333,7 @@ impl AIPlayer {
     ) -> bool {
         let game_logic = &AiWorldView::new(game_logic);
         game_logic.host_objects().values().any(|object| {
-            object.team == self.team
+            game_logic.object_owned_by_player(object, self.player_id)
                 && object.is_alive()
                 && object.can_attack()
                 && object.is_mobile()
@@ -360,7 +364,7 @@ impl AIPlayer {
             bool,
         )> = Vec::new();
         for (id, object) in game_logic.host_objects() {
-            if object.team != self.team || !object.is_alive() {
+            if !game_logic.object_owned_by_player(object, self.player_id) || !object.is_alive() {
                 continue;
             }
             for module in &object.thing().template.special_power_modules {
@@ -1054,7 +1058,9 @@ impl AIPlayer {
         let military_units = game_logic
             .host_objects()
             .iter()
-            .filter(|(_, obj)| obj.team == self.team && obj.can_attack())
+            .filter(|(_, obj)| {
+                game_logic.object_owned_by_player(obj, self.player_id) && obj.can_attack()
+            })
             .count();
 
         self.build_phase = match (built_buildings, military_units) {

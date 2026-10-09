@@ -102,7 +102,7 @@ impl AIPlayer {
                     .host_objects()
                     .iter()
                     .filter_map(|(&unit_id, unit)| {
-                        (unit.team == self.team
+                        (game_logic.object_owned_by_player(unit, self.player_id)
                             && unit.producer_id == Some(factory_id)
                             && unit.template_name.eq_ignore_ascii_case(&template_name))
                         .then_some(unit_id)
@@ -1360,7 +1360,7 @@ impl AIPlayer {
                 object.template_name.eq_ignore_ascii_case(name)
                     || object.get_template().name.eq_ignore_ascii_case(name)
             });
-            (object.team == self.team
+            (game_logic.object_owned_by_player(object, self.player_id)
                 && name_ok
                 && Self::building_can_queue_upgrade(object, upgrade_name, upgrade_type))
             .then_some(id)
