@@ -11,135 +11,95 @@
 use crate::common::crc::Crc;
 use std::cell::RefCell;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Multiplication factor for converting to floating point
 const MULT_FACTOR: f32 = 1.0 / (4294967295.0); // 2^32 - 1
 
-/// Initial seed values
-const INITIAL_SEED: [u32; 6] = [
-    0xf22d0e56, 0x883126e9, 0xc624dd2f, 0x0702c49c, 0x9e353f7d, 0x6fdf3b64,
-];
+/// Versioned state capsule inside the existing six-word snapshot field.
+const STATE_MAGIC: u32 = u32::from_le_bytes(*b"FRNG");
+const STATE_VERSION: u32 = 1;
 
-/// Random number generator state
+/// Instance-owned random stream backed by the existing Rust RNG dependency.
 ///
-/// Exported so the driving simulation instance (Main host `GameLogic`) can own
-/// its logic-stream state and publish it via [`with_logic_rng_owner`]. The
-/// ADC stepping ([`RandomState::next_value`]) stays private: drawing is only
-/// allowed through the stream entry points below, which resolve the scoped
-/// owner or the global fallback.
-#[derive(Debug, Clone)]
+/// The user explicitly approved replacing the original C++ ADC sequence.
+/// Stream ownership, call ordering and range semantics remain unchanged;
+/// original C++ replays and old saves no longer have identical continuation.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RandomState {
-    seed: [u32; 6],
+    rng: fastrand::Rng,
 }
 
 impl Default for RandomState {
     fn default() -> Self {
-        Self { seed: INITIAL_SEED }
+        Self::new()
     }
-}
-
-/// C++ `RandomValue.cpp` `#define ADC(SUM,A,B,C) SUM=(A)+(B)+(C); C=((SUM<(A))||(SUM<(B)))`
-///
-/// Unsigned wrap plus the C++ carry predicate — not mathematical carry-out.
-/// When `A = B = 0xFFFFFFFF` and incoming carry is 1, C++ SUM wraps to
-/// `0xFFFFFFFF` and **clears** carry (`SUM < A` and `SUM < B` are both false).
-fn adc(a: u32, b: u32, c: u32) -> (u32, u32) {
-    let sum = a.wrapping_add(b).wrapping_add(c);
-    let carry = if sum < a || sum < b { 1 } else { 0 };
-    (sum, carry)
 }
 
 impl RandomState {
-    /// Generate the next random value and update state
-    #[allow(unused_assignments)]
+    const fn new() -> Self {
+        Self {
+            rng: fastrand::Rng::with_seed(0),
+        }
+    }
+
     fn next_value(&mut self) -> u32 {
-        // Add with carry implementation
-        let mut c = 0u32;
-
-        macro_rules! adc {
-            ($sum:ident, $a:expr, $b:expr, $c:ident) => {
-                let (s, carry) = adc($a, $b, $c);
-                $sum = s;
-                $c = carry;
-            };
-        }
-
-        let mut ax;
-
-        adc!(ax, self.seed[5], self.seed[4], c);
-        self.seed[4] = ax;
-
-        adc!(ax, ax, self.seed[3], c);
-        self.seed[3] = ax;
-
-        adc!(ax, ax, self.seed[2], c);
-        self.seed[2] = ax;
-
-        adc!(ax, ax, self.seed[1], c);
-        self.seed[1] = ax;
-
-        adc!(ax, ax, self.seed[0], c);
-        self.seed[0] = ax;
-
-        // Increment seed array, bubbling up the carries
-        self.seed[5] = self.seed[5].wrapping_add(1);
-        if self.seed[5] == 0 {
-            self.seed[4] = self.seed[4].wrapping_add(1);
-            if self.seed[4] == 0 {
-                self.seed[3] = self.seed[3].wrapping_add(1);
-                if self.seed[3] == 0 {
-                    self.seed[2] = self.seed[2].wrapping_add(1);
-                    if self.seed[2] == 0 {
-                        self.seed[1] = self.seed[1].wrapping_add(1);
-                        if self.seed[1] == 0 {
-                            self.seed[0] = self.seed[0].wrapping_add(1);
-                            ax = ax.wrapping_add(1);
-                        }
-                    }
-                }
-            }
-        }
-
-        ax
+        self.next_u32()
     }
 
-    /// Seed the random number generator
-    ///
-    /// Public so a driving instance can re-derive its state with the same
-    /// derivation the global init uses (C++ RandomValue.cpp:150-174
-    /// `seedRandom` — identical word table from a base seed).
+    /// Draw directly from an explicitly borrowed stream owner.
+    pub fn next_u32(&mut self) -> u32 {
+        self.rng.u32(..)
+    }
+
+    /// Reset this stream without publishing or changing another instance.
     pub fn seed_random(&mut self, seed_value: u32) {
-        let mut ax = seed_value;
-        ax = ax.wrapping_add(0xf22d0e56);
-        self.seed[0] = ax;
-        ax = ax.wrapping_add(0x883126e9u32.wrapping_sub(0xf22d0e56));
-        self.seed[1] = ax;
-        ax = ax.wrapping_add(0xc624dd2fu32.wrapping_sub(0x883126e9));
-        self.seed[2] = ax;
-        ax = ax.wrapping_add(0x0702c49cu32.wrapping_sub(0xc624dd2f));
-        self.seed[3] = ax;
-        ax = ax.wrapping_add(0x9e353f7du32.wrapping_sub(0x0702c49c));
-        self.seed[4] = ax;
-        ax = ax.wrapping_add(0x6fdf3b64u32.wrapping_sub(0x9e353f7d));
-        self.seed[5] = ax;
+        self.rng.seed(u64::from(seed_value));
     }
 
-    /// Direct 6-word seed residual (C++ RandomValue seed array).
+    /// Restore a Rust capsule or deterministically import old C++ seed words.
+    ///
+    /// Legacy import uses a byte-defined FNV-1a fold, not the retired generator.
+    /// It accepts the old payload shape but intentionally changes its future
+    /// random sequence. Newly saved capsules preserve exact Rust continuation.
     pub fn set_seed_words(&mut self, words: [u32; 6]) {
-        self.seed = words;
+        let seed = if words[0] == STATE_MAGIC
+            && words[1] == STATE_VERSION
+            && words[4] == !STATE_MAGIC
+            && words[5] == !STATE_VERSION
+        {
+            u64::from(words[2]) | (u64::from(words[3]) << 32)
+        } else {
+            words
+                .into_iter()
+                .flat_map(u32::to_le_bytes)
+                .fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
+                    (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+                })
+        };
+        self.rng.seed(seed);
     }
 
+    /// Current backend/version and 64-bit state in the unchanged wire shape.
     pub fn seed_words(&self) -> [u32; 6] {
-        self.seed
+        let seed = self.rng.get_seed();
+        [
+            STATE_MAGIC,
+            STATE_VERSION,
+            seed as u32,
+            (seed >> 32) as u32,
+            !STATE_MAGIC,
+            !STATE_VERSION,
+        ]
     }
 }
 
-/// Global random states
-static GAME_CLIENT_RANDOM: Mutex<RandomState> = Mutex::new(RandomState { seed: INITIAL_SEED });
-static GAME_AUDIO_RANDOM: Mutex<RandomState> = Mutex::new(RandomState { seed: INITIAL_SEED });
-static GAME_LOGIC_RANDOM: Mutex<RandomState> = Mutex::new(RandomState { seed: INITIAL_SEED });
-static GAME_LOGIC_BASE_SEED: Mutex<u32> = Mutex::new(0);
+/// Global fallbacks retain synchronization for callers on different threads.
+static GAME_CLIENT_RANDOM: Mutex<RandomState> = Mutex::new(RandomState::new());
+static GAME_AUDIO_RANDOM: Mutex<RandomState> = Mutex::new(RandomState::new());
+static GAME_LOGIC_RANDOM: Mutex<RandomState> = Mutex::new(RandomState::new());
+static GAME_LOGIC_BASE_SEED: AtomicU32 = AtomicU32::new(0);
 
 /// Thread-local scoped-owner slot for the LOGIC stream only.
 ///
@@ -268,14 +228,7 @@ pub fn init_random_with_seed(seed: u32) {
         seed_global_logic_random(seed);
     }
 
-    let mut base_seed = match GAME_LOGIC_BASE_SEED.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => {
-            eprintln!("WARN: GAME_LOGIC_BASE_SEED poisoned, recovering...");
-            poisoned.into_inner()
-        }
-    };
-    *base_seed = seed;
+    GAME_LOGIC_BASE_SEED.store(seed, Ordering::SeqCst);
 }
 
 /// Initialize only the game logic random generator
@@ -289,14 +242,7 @@ pub fn init_game_logic_random(seed: u32) {
             seed_global_logic_random(0);
         }
 
-        let mut base_seed = match GAME_LOGIC_BASE_SEED.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                eprintln!("WARN: GAME_LOGIC_BASE_SEED poisoned, recovering...");
-                poisoned.into_inner()
-            }
-        };
-        *base_seed = 0;
+        GAME_LOGIC_BASE_SEED.store(0, Ordering::SeqCst);
     }
     #[cfg(not(feature = "deterministic"))]
     {
@@ -307,30 +253,16 @@ pub fn init_game_logic_random(seed: u32) {
             seed_global_logic_random(seed);
         }
 
-        let mut base_seed = match GAME_LOGIC_BASE_SEED.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                eprintln!("WARN: GAME_LOGIC_BASE_SEED poisoned, recovering...");
-                poisoned.into_inner()
-            }
-        };
-        *base_seed = seed;
+        GAME_LOGIC_BASE_SEED.store(seed, Ordering::SeqCst);
     }
 }
 
 /// Get the game logic random seed
 pub fn get_game_logic_random_seed() -> u32 {
-    let base_seed = match GAME_LOGIC_BASE_SEED.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => {
-            eprintln!("WARN: GAME_LOGIC_BASE_SEED poisoned, recovering...");
-            poisoned.into_inner()
-        }
-    };
-    *base_seed
+    GAME_LOGIC_BASE_SEED.load(Ordering::SeqCst)
 }
 
-/// Set the raw 6-word GameLogic RandomValue seed state (C++ seed array residual).
+/// Restore the six-word GameLogic RNG capsule (or import legacy C++ state).
 ///
 /// Used by GameLogic helpers bridge so crate-local RNG draws share the Common stream.
 /// Routes through the scoped-owner resolver: a snapshot restore issued inside
@@ -339,7 +271,7 @@ pub fn set_game_logic_random_seed_state(words: [u32; 6]) {
     with_logic_rng_state(|logic| logic.set_seed_words(words));
 }
 
-/// Read the raw 6-word GameLogic RandomValue seed state.
+/// Read the six-word GameLogic RNG capsule.
 pub fn get_game_logic_random_seed_state() -> [u32; 6] {
     with_logic_rng_state(|logic| logic.seed_words())
 }
@@ -352,7 +284,7 @@ pub fn get_game_logic_random_seed_crc() -> u32 {
     with_logic_rng_state(|logic_random| {
         let mut crc = Crc::new();
 
-        for &seed_part in &logic_random.seed {
+        for seed_part in logic_random.seed_words() {
             crc.compute_single(&seed_part);
         }
 
@@ -663,19 +595,6 @@ mod tests {
     static RNG_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
-    fn adc_matches_cpp_predicate_not_math_carry() {
-        // A = B = 0xFFFFFFFF, incoming carry 1:
-        // C++ wraps SUM to 0xFFFFFFFF and clears carry (`SUM < A` is false).
-        let (sum, carry) = adc(u32::MAX, u32::MAX, 1);
-        assert_eq!(sum, u32::MAX);
-        assert_eq!(carry, 0);
-
-        let (sum, carry) = adc(u32::MAX, 1, 0);
-        assert_eq!(sum, 0);
-        assert_eq!(carry, 1);
-    }
-
-    #[test]
     fn random_variable_getters_match_set_range() {
         let mut var = GameLogicRandomVariable::new();
         var.set_range_uniform(3.0, 9.0);
@@ -880,7 +799,7 @@ mod tests {
         let client_val = get_game_client_random_value(1, 1000);
 
         // Both initialized with same seed, but should produce same value in own stream
-        // (they have identical INITIAL_SEED, so they should match)
+        // (all streams start from the same seed, so they should match)
         assert_eq!(
             logic_val, client_val,
             "Same seed should produce same sequence"
@@ -1036,14 +955,14 @@ mod tests {
         }
     }
 
-    // ==================== C++ Known-Value Tests (25+ tests) ====================
-    // These tests verify that the Rust RNG produces the EXACT SAME sequences
-    // as the C++ implementation for deterministic replay capability
+    // ==================== Range and repeatability checks ====================
+    // The user approved a Rust RNG sequence. Existing bounds and repeatability
+    // checks remain useful; they do not establish original C++ sequence parity.
 
     #[test]
     fn test_rng_cpp_seed_values_match() {
         let _guard = RNG_TEST_LOCK.lock();
-        // Verify initial seed array matches C++ constants exactly
+        // Verify the requested base seed remains observable.
         init_random_with_seed(0);
         // After initialization with seed 0, verify the seed was set correctly
         let seed = get_game_logic_random_seed();
@@ -1462,9 +1381,10 @@ mod tests {
 
     /// Step a copy of the given seed state by exactly one RNG draw.
     fn stepped_once(words: [u32; 6]) -> ([u32; 6], u32) {
-        let mut replay = RandomState { seed: words };
+        let mut replay = RandomState::default();
+        replay.set_seed_words(words);
         let draw = replay.next_value();
-        (replay.seed, draw)
+        (replay.seed_words(), draw)
     }
 
     #[test]
@@ -1585,7 +1505,7 @@ mod tests {
 
     #[test]
     fn scoped_logic_rng_owner_isolates_two_instances() {
-        // Two differently seeded driving instances must keep independent ADC
+        // Two differently seeded driving instances must keep independent RNG
         // states: interleaved scopes draw each instance's own standalone
         // sequence (C++ has one theGameLogicSeed per driving GameLogic,
         // RandomValue.cpp:150-174).
@@ -1598,8 +1518,12 @@ mod tests {
         replay_a.seed_random(0xAAAA_0001);
         let mut replay_b = RandomState::default();
         replay_b.seed_random(0xBBBB_0002);
-        let expect_a: Vec<i32> = (0..8).map(|_| (replay_a.next_value() % 1000) as i32).collect();
-        let expect_b: Vec<i32> = (0..8).map(|_| (replay_b.next_value() % 1000) as i32).collect();
+        let expect_a: Vec<i32> = (0..8)
+            .map(|_| (replay_a.next_value() % 1000) as i32)
+            .collect();
+        let expect_b: Vec<i32> = (0..8)
+            .map(|_| (replay_b.next_value() % 1000) as i32)
+            .collect();
 
         let mut got_a = Vec::new();
         let mut got_b = Vec::new();
@@ -1708,12 +1632,14 @@ mod tests {
 
         with_logic_rng_owner(&mut owner, || {
             set_game_logic_random_seed_state(words);
-            assert_eq!(get_game_logic_random_seed_state(), words);
-            // The seed CRC is the network sync check: it must read the same
-            // state the draws consume (the owner here).
+            let capsule = get_game_logic_random_seed_state();
+            // Legacy input becomes a Rust capsule; restoring it is exact.
+            let mut restored = RandomState::default();
+            restored.set_seed_words(capsule);
+            assert_eq!(restored.seed_words(), capsule);
             let mut crc = Crc::new();
-            for &w in &words {
-                crc.compute_single(&w);
+            for &word in &capsule {
+                crc.compute_single(&word);
             }
             assert_eq!(get_game_logic_random_seed_crc(), crc.get());
         });

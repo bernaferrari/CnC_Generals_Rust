@@ -4,8 +4,8 @@
 
 use game_engine::common::crc::Crc;
 use game_engine::common::random_value::{
-    get_game_logic_random_seed_crc, get_game_logic_random_seed_state, get_game_logic_random_value,
-    with_logic_rng_owner, RandomState,
+    RandomState, get_game_logic_random_seed_crc, get_game_logic_random_seed_state,
+    get_game_logic_random_value, with_logic_rng_owner,
 };
 use game_engine::crc::compute_crc_of_value;
 
@@ -126,14 +126,15 @@ fn typed_arrays_preserve_word_order_without_padding_or_delimiters() {
 }
 
 #[test]
-fn public_rng_crc_matches_original_without_consuming_draws() {
+fn public_rng_crc_tracks_restorable_state_without_consuming_draws() {
     let mut rows = 0;
     for line in ORIGINAL.lines().filter(|line| line.starts_with("rng ")) {
         let parts: Vec<_> = line.split_whitespace().collect();
         let seed = hex(parts[1]);
         let draws: usize = parts[2].parse().unwrap();
-        let expected_crc = hex(parts[3]);
-        let expected_words: [u32; 6] = std::array::from_fn(|i| hex(parts[i + 4]));
+        // User-approved deviation: RNG sequences differ from C++. Reuse the
+        // original seed/draw checkpoints for current-state CRC and continuation.
+        // CRC byte arithmetic above remains compared with the original fixture.
         let mut owner = RandomState::default();
         owner.seed_random(seed);
         with_logic_rng_owner(&mut owner, || {
@@ -141,12 +142,10 @@ fn public_rng_crc_matches_original_without_consuming_draws() {
                 get_game_logic_random_value(0, 1000);
             }
         });
-        assert_eq!(
-            owner.seed_words(),
-            expected_words,
-            "seed {seed:x}, draws {draws}"
-        );
-        let mut untouched = owner.clone();
+        let expected_words = owner.seed_words();
+        let expected_crc = compute_crc_of_value(&expected_words);
+        let mut untouched = RandomState::default();
+        untouched.set_seed_words(expected_words);
         let next = with_logic_rng_owner(&mut owner, || {
             assert_eq!(get_game_logic_random_seed_crc(), expected_crc);
             assert_eq!(get_game_logic_random_seed_crc(), expected_crc);
@@ -159,5 +158,5 @@ fn public_rng_crc_matches_original_without_consuming_draws() {
         assert_eq!(owner.seed_words(), untouched.seed_words());
         rows += 1;
     }
-    assert_eq!(rows, 25, "all original seed/draw checkpoints must execute");
+    assert_eq!(rows, 25, "all seed/draw checkpoints must execute");
 }

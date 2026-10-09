@@ -34,6 +34,7 @@ impl Drop for ResetGlobalTerrain {
 }
 
 fn panic_map_data() -> MapData {
+    // C++ Region3D excludes the exact boundary; ordinary goals are interior.
     let mut data = MapData::new();
     data.width = 128;
     data.height = 128;
@@ -52,7 +53,7 @@ fn install_panic_waypoint_path_with_terminal_x(terminal_x: f32) -> ResetGlobalTe
     data.waypoints.push(MapWaypoint {
         id: WAYPOINT_START,
         name: "PanicStart".into(),
-        location: gamelogic::system::map_loader::Coord3D::new(50.0, 0.0, 0.0),
+        location: gamelogic::system::map_loader::Coord3D::new(50.0, 100.0, 0.0),
         path_label1: "PanicPath".into(),
         path_label2: String::new(),
         path_label3: String::new(),
@@ -61,7 +62,7 @@ fn install_panic_waypoint_path_with_terminal_x(terminal_x: f32) -> ResetGlobalTe
     data.waypoints.push(MapWaypoint {
         id: WAYPOINT_NEXT,
         name: "PanicNext".into(),
-        location: gamelogic::system::map_loader::Coord3D::new(terminal_x, 0.0, 0.0),
+        location: gamelogic::system::map_loader::Coord3D::new(terminal_x, 100.0, 0.0),
         path_label1: "PanicTerminal".into(),
         path_label2: String::new(),
         path_label3: String::new(),
@@ -86,7 +87,7 @@ fn install_panic_fork_path() -> ResetGlobalTerrain {
         data.waypoints.push(MapWaypoint {
             id,
             name: name.into(),
-            location: gamelogic::system::map_loader::Coord3D::new(x, 0.0, 0.0),
+            location: gamelogic::system::map_loader::Coord3D::new(x, 100.0, 0.0),
             path_label1: label.into(),
             path_label2: String::new(),
             path_label3: String::new(),
@@ -115,7 +116,7 @@ fn panic_logic() -> GameLogic {
         .templates
         .insert("PanicRuntimeInfantry".into(), template.clone());
     let mut unit = Object::new(template, PANIC_UNIT, Team::GLA);
-    unit.set_position(Vec3::ZERO);
+    unit.set_position(Vec3::new(0.0, 0.0, 100.0));
     unit.movement.max_speed = 20.0;
     unit.vision_range = 200.0;
     logic.objects.insert(PANIC_UNIT, unit);
@@ -145,6 +146,32 @@ fn assert_panic_state(state: &AIState) {
         "Panic",
         "TEAM_PANIC must retain its distinct AI_PANIC state instead of generic Moving"
     );
+}
+
+fn assert_panic_arrival_preconditions(unit: &Object) {
+    let name = unit
+        .cur_locomotor_name
+        .as_deref()
+        .expect("active panic locomotor");
+    let binding = crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(name)
+        .expect("resolved panic locomotor");
+    let last = *unit.movement.path.last().expect("completed panic path");
+    let distance = unit.host_locomotor_distance_to_goal(unit.get_position(), last);
+    let threshold = unit
+        .close_enough_dist
+        .filter(|value| value.is_finite() && *value >= 0.5)
+        .unwrap_or(binding.close_enough_dist);
+    assert!(
+        distance < threshold,
+        "panic arrival: distance={distance}, threshold={threshold}, locomotor={name}, path={:?}, position={:?}, index={}, extra={}",
+        unit.movement.path,
+        unit.get_position(),
+        unit.movement.current_path_index,
+        unit.path_extra_distance
+    );
+    assert!(unit.is_alive());
+    assert!(!unit.is_disabled());
+    assert!(!unit.waiting_for_path);
 }
 
 fn assert_panic_runtime(unit: &Object, current: u32, prior: Option<u32>) {
@@ -209,7 +236,7 @@ fn authored_panic_waypoint_on_wall_keeps_wall_height_and_layer() {
         .set_health(500.0);
     let mut wall = Object::new(wall_template, ObjectId(48_104), Team::USA);
     wall.selection_radius = 50.0;
-    wall.set_position(Vec3::new(50.0, 0.0, 0.0));
+    wall.set_position(Vec3::new(50.0, 0.0, 100.0));
     logic.pathfinding_system.set_wall_height(12.0);
     logic
         .pathfinding_system
@@ -217,7 +244,7 @@ fn authored_panic_waypoint_on_wall_keeps_wall_height_and_layer() {
     assert!(
         logic
             .pathfinding_system
-            .is_point_on_wall(Vec3::new(50.0, 0.0, 0.0))
+            .is_point_on_wall(Vec3::new(50.0, 0.0, 100.0))
     );
 
     issue_authored_team_panic(&mut logic);
@@ -266,7 +293,7 @@ fn authored_team_panic_bounces_infantry_collision_before_blocked_state() {
     let mut blocker = Object::new(blocker_template, BLOCKER, Team::USA);
     blocker.cur_locomotor_name = Some("BasicHumanLocomotor".into());
     blocker.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
-    blocker.set_position(Vec3::new(5.0, 0.0, 0.0));
+    blocker.set_position(Vec3::new(5.0, 0.0, 100.0));
     blocker.set_orientation(0.0);
     blocker.selection_radius = 5.0;
     logic.objects.insert(BLOCKER, blocker);
@@ -540,6 +567,7 @@ fn panic_failure_does_not_advance_the_waypoint_and_terminal_uses_terminal_labels
     unit.queue_for_path_frames = 7;
     unit.ignored_obstacle_id = Some(ObjectId(999_999));
     unit.try_one_more_repath = true;
+    assert_panic_arrival_preconditions(unit);
     let rng_before = game_engine::common::random_value::get_game_logic_random_seed_state();
     let _restore_rng = RestoreLogicRng(rng_before);
     logic.tick_host_panic_states(&[PANIC_UNIT]);
@@ -581,7 +609,8 @@ fn panic_arrival_uses_selected_locomotor_close_enough_distance() {
     unit.path_extra_distance = 0.0;
     unit.panic_runtime.as_mut().unwrap().timer = 5;
     unit.panic_runtime.as_mut().unwrap().append_goal_position = false;
-    unit.movement.path = vec![Vec3::new(binding.close_enough_dist + 0.25, 0.0, 0.0)];
+    unit.movement.path =
+        vec![unit.get_position() + Vec3::new(binding.close_enough_dist + 0.25, 0.0, 0.0)];
     unit.movement.current_path_index = 0;
     unit.movement.target_position = None;
     unit.waiting_for_path = false;
@@ -617,13 +646,18 @@ fn blocked_panic_repath_runs_before_arrival_and_timer_processing() {
     {
         let unit = logic.objects.get_mut(&PANIC_UNIT).unwrap();
         unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
-        unit.set_position(terminal);
+        // Require a real route recompute instead of the host's zero-hop
+        // shortcut, while remaining inside the selected locomotor's threshold.
+        unit.set_position(terminal - Vec3::new(0.5, 0.0, 0.0));
+        unit.movement.current_path_index = unit.movement.path.len() - 1;
+        unit.set_locomotor_goal_position_on_path();
         unit.movement.target_position = None;
         unit.waiting_for_path = false;
         unit.is_blocked_and_stuck = true;
         unit.num_frames_blocked = 2 * 30 + 1;
         unit.panic_runtime.as_mut().unwrap().timer = 5;
         unit.panic_runtime.as_mut().unwrap().append_goal_position = false;
+        assert_panic_arrival_preconditions(unit);
     }
 
     let rng_before = game_engine::common::random_value::get_game_logic_random_seed_state();

@@ -42,7 +42,7 @@ class PortDashboardTests(unittest.TestCase):
                 "save_load_integration",
                 "ui_state_integration",
                 "playable_smoke_integration",
-                "cpp_rust_randomvalue_differential",
+                "cpp_rust_crc_differential",
                 "golden_skirmish",
                 "ai_skirmish",
                 "map_frame",

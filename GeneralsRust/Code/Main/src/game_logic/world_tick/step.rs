@@ -249,8 +249,7 @@ impl GameLogic {
     /// start, save/restore menus, and `GameLogic::set_random_seed` all reseed
     /// the Common logic stream outside ticks; the Common base seed is the
     /// broadcast channel. When it moved since this instance last adopted it,
-    /// re-derive the instance ADC words with the same derivation the global
-    /// init uses (`RandomState::seed_random`, RandomValue.cpp:150-174).
+    /// reseed the instance using the same Rust backend as the global fallback.
     fn sync_logic_rng_with_global_seed(&mut self) {
         let base = game_engine::common::random_value::get_game_logic_random_seed();
         if base != self.logic_base_seed {

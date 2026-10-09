@@ -6,6 +6,7 @@ use ww3d_scene::{
 };
 
 use glam::{Vec2, Vec3};
+use std::sync::Arc;
 
 /// Create a curved cylinder cap mesh for testing
 /// This simulates a typical game object that benefits from N-Patch tessellation
@@ -148,7 +149,7 @@ fn test_dome_tessellation_creates_smoothness() {
 #[test]
 fn test_pipeline_with_curved_mesh() {
     let mesh = create_curved_cylinder_cap();
-    let pipeline = NPatchPipeline::new(TessellationLevel::MEDIUM);
+    let mut pipeline = NPatchPipeline::new(TessellationLevel::MEDIUM);
 
     let mesh_id = 999;
     let subdivided = pipeline.process_mesh(mesh_id, &mesh);
@@ -199,7 +200,7 @@ fn test_quality_levels_affect_recommendations() {
 #[test]
 fn test_memory_efficiency() {
     let mesh = create_dome();
-    let pipeline = NPatchPipeline::new(TessellationLevel::LOW);
+    let mut pipeline = NPatchPipeline::new(TessellationLevel::LOW);
 
     let mesh_id = 1000;
     let _subdivided = pipeline.process_mesh(mesh_id, &mesh);
@@ -234,9 +235,42 @@ fn test_cache_invalidation_on_level_change() {
 }
 
 #[test]
+fn cached_mesh_results_survive_pipeline_invalidation_and_destruction() {
+    let mesh = create_curved_cylinder_cap();
+    let mut pipeline = NPatchPipeline::new(TessellationLevel::LOW);
+    let original = pipeline.process_mesh(2000, &mesh);
+    let positions: Vec<_> = original.vertices.iter().map(|v| v.position).collect();
+    let cached = pipeline.process_mesh(2000, &mesh);
+    assert!(Arc::ptr_eq(&original, &cached));
+
+    pipeline.clear_cache();
+    let rebuilt = pipeline.process_mesh(2000, &mesh);
+    assert!(!Arc::ptr_eq(&original, &rebuilt));
+    assert_eq!(pipeline.get_stats().cache_misses, 1);
+    assert_eq!(pipeline.get_stats().cache_hits, 0);
+    pipeline.set_level(TessellationLevel::MEDIUM);
+    let medium = pipeline.process_mesh(2000, &mesh);
+    assert_eq!(medium.triangle_count(), mesh.len() * 9);
+    assert_eq!(pipeline.get_stats().cache_misses, 2);
+    drop(pipeline);
+
+    assert_eq!(original.triangle_count(), mesh.len() * 4);
+    assert_eq!(original.indices, rebuilt.indices);
+    assert_eq!(
+        original
+            .vertices
+            .iter()
+            .map(|v| v.position)
+            .collect::<Vec<_>>(),
+        positions
+    );
+    assert_eq!(medium.triangle_count(), mesh.len() * 9);
+}
+
+#[test]
 fn test_disabled_pipeline_passthrough() {
     let mesh = create_dome();
-    let pipeline = NPatchPipeline::disabled();
+    let mut pipeline = NPatchPipeline::disabled();
 
     assert!(!pipeline.is_enabled());
 
@@ -309,7 +343,7 @@ fn test_large_mesh_performance() {
         large_mesh.push((v0, v1, v2));
     }
 
-    let pipeline = NPatchPipeline::new(TessellationLevel::LOW);
+    let mut pipeline = NPatchPipeline::new(TessellationLevel::LOW);
 
     // This should complete reasonably fast even for 100 triangles
     let result = pipeline.process_mesh(3000, &large_mesh);

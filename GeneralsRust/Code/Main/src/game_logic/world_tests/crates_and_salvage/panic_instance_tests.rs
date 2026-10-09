@@ -36,6 +36,7 @@ fn seeded_panic_logic(seed: u32) -> GameLogic {
     unit.wander_width_factor = 30.0;
     let path_end = *unit.movement.path.last().expect("initial waypoint path");
     unit.set_position(path_end);
+    assert_panic_arrival_preconditions(unit);
 
     logic.logic_random.seed_random(seed);
     // This field tracks the process seed broadcast, not the independent

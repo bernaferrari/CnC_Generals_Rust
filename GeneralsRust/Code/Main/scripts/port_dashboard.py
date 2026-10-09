@@ -82,7 +82,7 @@ FULL_GATES = (
         ["cargo", "test", "--locked", "-p", "generals_main", "--test", "playable_smoke_tests"],
     ),
     (
-        "cpp_rust_randomvalue_differential",
+        "cpp_rust_crc_differential",
         ["python3", "Code/Main/scripts/run_cpp_rust_differential.py"],
     ),
     ("golden_skirmish", ["cargo", "run", "--locked", "-p", "generals_main", "--bin", "golden_skirmish_gate", "--release", "--", "--frames", "30"]),
@@ -375,7 +375,7 @@ def build_dashboard(
     full_names = {name for name, _args in FULL_GATES}
     passed = {gate["name"] for gate in graded_gates if gate.get("passed")}
     attempted = {gate["name"] for gate in graded_gates}
-    differential_name = "cpp_rust_randomvalue_differential"
+    differential_name = "cpp_rust_crc_differential"
     quality = quality or {}
     quality_known = bool(quality) and all(
         isinstance(value, dict) and "passed" in value for value in quality.values()
@@ -420,7 +420,8 @@ def build_dashboard(
         "maintainability": quality,
         "differential_scope": {
             "level": "component",
-            "authoritative_fields": ["rng_seed", "crc_framing"],
+            "authoritative_fields": ["common_crc_bytes"],
+            "approved_deviations": ["seeded_rust_rng"],
             "fixture_only_fields": ["commands", "objects", "players"],
             "full_game_loop": False,
         },

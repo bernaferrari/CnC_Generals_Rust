@@ -1,37 +1,18 @@
-//! Host residual for retail GameLogic / GameClient RandomValue streams.
+//! Host random draws share Common's owned Rust RNG backend.
 //!
-//! Closes the fail-closed golden-ratio scatter residual by using the same
-//! add-with-carry algorithm as C++ `Common/RandomValue.cpp` /
-//! `game_engine::common::random_value`.
-//!
-//! Host residual closed here:
-//! - Pure local ADC stream for re-query-stable combat scatter / delay draws
-//!   (formation / bomb / missile index seed) matching RandomValue algorithm.
-//! - Live GameClient / GameLogic global stream draws for one-shot presentation
-//!   scatter and stream honesty residual.
-//! - Stream separation honesty (logic vs client vs audio).
-//!
-//! Fail-closed:
-//! - GameLogic crate helpers RNG draws now share the Common ADC stream
-//!   (wave 29 residual: helpers bridge to `game_engine::common::random_value`).
-//! - Multi-strike once-at-queue OCL residual is closed in `special_power_strikes`
-//!   (stores pure ADC draws on the strike at queue); live mid-sim global stream
-//!   mutation of those draws remains fail-closed.
-//! - Network residual deferred.
+//! Index-seeded streams keep repeated scatter and strike queries stable.
+//! Live logic, client, and audio draws use Common's existing stream APIs.
+//! The RNG sequence differs from the original C++ generator by explicit
+//! user approval; range semantics and stream ownership remain unchanged.
 
 use game_engine::common::random_value::{
-    get_game_audio_random_value, get_game_client_random_value, get_game_client_random_value_real,
-    get_game_logic_random_seed, get_game_logic_random_seed_crc, get_game_logic_random_value,
-    get_game_logic_random_value_real, init_random_with_seed,
+    RandomState as CommonRandomState, get_game_audio_random_value, get_game_client_random_value,
+    get_game_client_random_value_real, get_game_logic_random_seed, get_game_logic_random_seed_crc,
+    get_game_logic_random_value, get_game_logic_random_value_real, init_random_with_seed,
 };
 
 /// Multiplication factor matching C++ `theMultFactor` (1 / (2^32 - 1)).
 pub const MULT_FACTOR: f32 = 1.0 / 4_294_967_295.0;
-
-/// Initial seed constants matching C++ `theGameLogicSeed` defaults.
-pub const INITIAL_SEED: [u32; 6] = [
-    0xf22d0e56, 0x883126e9, 0xc624dd2f, 0x0702c49c, 0x9e353f7d, 0x6fdf3b64,
-];
 
 /// Retail AutoDepositUpdate structure scatter half-width scale residual (radius * 0.3).
 pub const STRUCTURE_SCATTER_SCALE: f32 = 0.3;
@@ -39,18 +20,10 @@ pub const STRUCTURE_SCATTER_SCALE: f32 = 0.3;
 /// Residual seed offset applied to pure index draws (`index.wrapping_add(1)`).
 pub const PURE_INDEX_SEED_OFFSET: u32 = 1;
 
-/// Local residual RandomState (C++ RandomValue.cpp ADC algorithm).
-///
-/// Used for pure host residual draws (re-query stable by index seed).
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Owned index-seeded stream using the same backend as Common's live streams.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HostRandomState {
-    seed: [u32; 6],
-}
-
-impl Default for HostRandomState {
-    fn default() -> Self {
-        Self { seed: INITIAL_SEED }
-    }
+    state: CommonRandomState,
 }
 
 impl HostRandomState {
@@ -58,70 +31,18 @@ impl HostRandomState {
         Self::default()
     }
 
-    /// C++ `seedRandom(SEED, seed)`.
     pub fn seeded(seed_value: u32) -> Self {
-        let mut s = Self::default();
-        s.seed_random(seed_value);
-        s
+        let mut state = Self::default();
+        state.seed_random(seed_value);
+        state
     }
 
     pub fn seed_random(&mut self, seed_value: u32) {
-        let mut ax = seed_value;
-        ax = ax.wrapping_add(0xf22d0e56);
-        self.seed[0] = ax;
-        ax = ax.wrapping_add(0x883126e9u32.wrapping_sub(0xf22d0e56));
-        self.seed[1] = ax;
-        ax = ax.wrapping_add(0xc624dd2fu32.wrapping_sub(0x883126e9));
-        self.seed[2] = ax;
-        ax = ax.wrapping_add(0x0702c49cu32.wrapping_sub(0xc624dd2f));
-        self.seed[3] = ax;
-        ax = ax.wrapping_add(0x9e353f7du32.wrapping_sub(0x0702c49c));
-        self.seed[4] = ax;
-        ax = ax.wrapping_add(0x6fdf3b64u32.wrapping_sub(0x9e353f7d));
-        self.seed[5] = ax;
+        self.state.seed_random(seed_value);
     }
 
-    /// C++ `randomValue(seed)` ADC next.
-    #[allow(unused_assignments)]
     pub fn next_u32(&mut self) -> u32 {
-        let mut c = 0u32;
-        macro_rules! adc {
-            ($sum:ident, $a:expr, $b:expr, $c:ident) => {
-                let temp = ($a as u64) + ($b as u64) + ($c as u64);
-                $sum = temp as u32;
-                $c = if temp > u32::MAX as u64 { 1 } else { 0 };
-            };
-        }
-        let mut ax;
-        adc!(ax, self.seed[5], self.seed[4], c);
-        self.seed[4] = ax;
-        adc!(ax, ax, self.seed[3], c);
-        self.seed[3] = ax;
-        adc!(ax, ax, self.seed[2], c);
-        self.seed[2] = ax;
-        adc!(ax, ax, self.seed[1], c);
-        self.seed[1] = ax;
-        adc!(ax, ax, self.seed[0], c);
-        self.seed[0] = ax;
-
-        self.seed[5] = self.seed[5].wrapping_add(1);
-        if self.seed[5] == 0 {
-            self.seed[4] = self.seed[4].wrapping_add(1);
-            if self.seed[4] == 0 {
-                self.seed[3] = self.seed[3].wrapping_add(1);
-                if self.seed[3] == 0 {
-                    self.seed[2] = self.seed[2].wrapping_add(1);
-                    if self.seed[2] == 0 {
-                        self.seed[1] = self.seed[1].wrapping_add(1);
-                        if self.seed[1] == 0 {
-                            self.seed[0] = self.seed[0].wrapping_add(1);
-                            ax = ax.wrapping_add(1);
-                        }
-                    }
-                }
-            }
-        }
-        ax
+        self.state.next_u32()
     }
 
     /// C++ `GetGameLogicRandomValue` / `GetGameClientRandomValue` integer range.
@@ -145,11 +66,11 @@ impl HostRandomState {
     }
 
     pub fn seed_words(&self) -> [u32; 6] {
-        self.seed
+        self.state.seed_words()
     }
 }
 
-/// Pure residual: GameLogicRandomValueReal algorithm for shell/bomb index.
+/// Owned real-valued draw for a shell/bomb index.
 ///
 /// Seeded by `index.wrapping_add(1)` so re-query for the same index is stable
 /// (required by multi-strike `plan_due_impacts` recompute).
@@ -161,7 +82,7 @@ pub fn pure_logic_random_real(index: u32, draw_skip: u32, lo: f32, hi: f32) -> f
     s.next_real(lo, hi)
 }
 
-/// Pure residual: GameLogicRandomValue integer algorithm for shell/missile index.
+/// Owned integer draw for a shell/missile index.
 pub fn pure_logic_random_int(index: u32, draw_skip: u32, lo: i32, hi: i32) -> i32 {
     let mut s = HostRandomState::seeded(index.wrapping_add(1));
     for _ in 0..draw_skip {
@@ -170,7 +91,7 @@ pub fn pure_logic_random_int(index: u32, draw_skip: u32, lo: i32, hi: i32) -> i3
     s.next_int(lo, hi)
 }
 
-/// Pure residual: GameClientRandomValue integer algorithm for presentation scatter.
+/// Index-seeded integer draws for presentation scatter.
 ///
 /// C++ AutoDepositUpdate: `GameClientRandomValue(-width, width)` with Real→Int
 /// truncation of the geometry radius * 0.3 scatter half-width.
@@ -240,13 +161,13 @@ pub fn logic_stream_error_radius_offset(error_radius: f32) -> (f32, f32) {
     (radius * angle.cos(), radius * angle.sin())
 }
 
-/// Honesty residual: exercise logic + client + audio streams and pure ADC parity.
+/// Exercise stream separation and consistency between owned and live draws.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct HostRngResidualHonesty {
     pub logic_draws: u32,
     pub client_draws: u32,
     pub audio_draws: u32,
-    pub pure_adc_parity_ok: bool,
+    pub owned_stream_consistency_ok: bool,
     pub stream_separation_ok: bool,
     pub seed_crc_ok: bool,
     pub structure_scatter_stream_ok: bool,
@@ -258,7 +179,7 @@ impl HostRngResidualHonesty {
         self.logic_draws > 0
             && self.client_draws > 0
             && self.audio_draws > 0
-            && self.pure_adc_parity_ok
+            && self.owned_stream_consistency_ok
             && self.stream_separation_ok
             && self.seed_crc_ok
             && self.structure_scatter_stream_ok
@@ -266,7 +187,7 @@ impl HostRngResidualHonesty {
     }
 }
 
-/// Host-testable residual: seed streams, exercise draws, verify pure ADC parity.
+/// Seed streams and exercise their existing range and ownership contracts.
 pub fn exercise_host_rng_residual(seed: u32) -> HostRngResidualHonesty {
     init_random_with_seed(seed);
     let mut honesty = HostRngResidualHonesty::default();
@@ -286,14 +207,14 @@ pub fn exercise_host_rng_residual(seed: u32) -> HostRngResidualHonesty {
     honesty.audio_draws = 1;
     let _ = audio_a;
 
-    // Pure ADC parity vs global stream after identical seed.
+    // Owned and live streams use the same backend after identical seeding.
     init_random_with_seed(seed);
     let stream_real = get_game_logic_random_value_real(0.0, 50.0);
     let pure_real = {
         let mut s = HostRandomState::seeded(seed);
         s.next_real(0.0, 50.0)
     };
-    honesty.pure_adc_parity_ok = (stream_real - pure_real).abs() < 1e-5;
+    honesty.owned_stream_consistency_ok = (stream_real - pure_real).abs() < 1e-5;
 
     init_random_with_seed(seed);
     let stream_int = get_game_logic_random_value(0, 90);
@@ -301,7 +222,8 @@ pub fn exercise_host_rng_residual(seed: u32) -> HostRngResidualHonesty {
         let mut s = HostRandomState::seeded(seed);
         s.next_int(0, 90)
     };
-    honesty.pure_adc_parity_ok = honesty.pure_adc_parity_ok && stream_int == pure_int;
+    honesty.owned_stream_consistency_ok =
+        honesty.owned_stream_consistency_ok && stream_int == pure_int;
 
     // Stream separation: consuming logic must not change next client after reseed pair.
     init_random_with_seed(seed);
@@ -332,20 +254,17 @@ pub fn exercise_host_rng_residual(seed: u32) -> HostRngResidualHonesty {
     honesty
 }
 
-// --- Wave 72 residual honesty packs (RandomValue.cpp ADC + stream residual) ---
+// --- Host stream consistency checks ---
 
-/// Honesty: MultFactor + default six-word seed table residual (C++ RandomValue.cpp).
+/// Check default backend consistency and the existing range/index constants.
+/// The historical function name remains for existing callers.
 pub fn honesty_rng_seed_table_residual_ok() -> bool {
     (MULT_FACTOR - (1.0 / 4_294_967_295.0)).abs() < 1e-12
-        && INITIAL_SEED
-            == [
-                0xf22d0e56, 0x883126e9, 0xc624dd2f, 0x0702c49c, 0x9e353f7d, 0x6fdf3b64,
-            ]
-        && HostRandomState::new().seed_words() == INITIAL_SEED
+        && HostRandomState::new().seed_words() == CommonRandomState::default().seed_words()
         && PURE_INDEX_SEED_OFFSET == 1
 }
 
-/// Honesty: pure index-seeded ADC re-query stability residual.
+/// Check that index-seeded draws remain stable when queried again.
 pub fn honesty_rng_pure_index_residual_ok() -> bool {
     let a = pure_logic_random_real(11, 0, 0.0, 100.0);
     let b = pure_logic_random_real(11, 0, 0.0, 100.0);
@@ -361,7 +280,7 @@ pub fn honesty_rng_pure_index_residual_ok() -> bool {
         && scatter_a.1.abs() <= 12.0 + 0.001
 }
 
-/// Honesty: live stream exercise residual (logic/client/audio + ADC parity).
+/// Check live stream separation and owned-stream consistency.
 ///
 /// Uses a fixed seed so unit tests are deterministic under the RNG test lock.
 pub fn honesty_rng_stream_exercise_residual_ok() -> bool {
@@ -383,7 +302,7 @@ mod tests {
     static RNG_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
-    fn pure_adc_matches_common_stream_after_seed() {
+    fn owned_rng_matches_common_stream_after_seed() {
         let _g = RNG_TEST_LOCK.lock().unwrap();
         let h = exercise_host_rng_residual(0xC0FFEE);
         assert!(h.honesty_ok(), "{h:?}");
@@ -428,7 +347,6 @@ mod tests {
         assert!(honesty_rng_pure_index_residual_ok());
         assert!(honesty_rng_stream_exercise_residual_ok());
         assert!(honesty_rng_residual_pack_ok());
-        assert_eq!(INITIAL_SEED[0], 0xf22d0e56);
         assert!((STRUCTURE_SCATTER_SCALE - 0.3).abs() < 0.001);
         assert_eq!(PURE_INDEX_SEED_OFFSET, 1);
     }

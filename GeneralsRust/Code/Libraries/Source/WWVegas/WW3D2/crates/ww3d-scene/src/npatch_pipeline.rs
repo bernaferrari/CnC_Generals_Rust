@@ -23,17 +23,16 @@
 //! use ww3d_scene::npatch_pipeline::NPatchPipeline;
 //!
 //! // Create pipeline with medium tessellation
-//! let pipeline = NPatchPipeline::new(TessellationLevel::MEDIUM);
+//! let mut pipeline = NPatchPipeline::new(TessellationLevel::MEDIUM);
 //!
 //! // Process mesh for rendering
-//! // let subdivided = pipeline.process_mesh(&original_mesh);
+//! // let subdivided = pipeline.process_mesh(mesh_id, &triangles);
 //! ```
 
 use crate::npatch::{
     NPatchConfig, NPatchTessellator, NPatchVertex, SubdividedMesh, TessellationLevel,
 };
 use std::collections::HashMap;
-use std::cell::RefCell;
 use std::sync::Arc;
 
 /// Cache key for subdivided meshes
@@ -49,11 +48,14 @@ struct MeshCacheKey {
 /// - CPU-based mesh subdivision
 /// - Caching of subdivided meshes
 /// - Integration with shader system
+///
+/// Each pipeline owns its mutable cache and statistics. Completed meshes may
+/// be shared with render consumers and remain valid after cache invalidation.
 pub struct NPatchPipeline {
     config: NPatchConfig,
     tessellator: NPatchTessellator,
-    cache: RefCell<HashMap<MeshCacheKey, Arc<SubdividedMesh>>>,
-    stats: RefCell<PipelineStats>,
+    cache: HashMap<MeshCacheKey, Arc<SubdividedMesh>>,
+    stats: PipelineStats,
 }
 
 impl NPatchPipeline {
@@ -65,8 +67,8 @@ impl NPatchPipeline {
         Self {
             config,
             tessellator,
-            cache: RefCell::new(HashMap::new()),
-            stats: RefCell::new(PipelineStats::default()),
+            cache: HashMap::new(),
+            stats: PipelineStats::default(),
         }
     }
 
@@ -78,8 +80,8 @@ impl NPatchPipeline {
         Self {
             config,
             tessellator,
-            cache: RefCell::new(HashMap::new()),
-            stats: RefCell::new(PipelineStats::default()),
+            cache: HashMap::new(),
+            stats: PipelineStats::default(),
         }
     }
 
@@ -87,7 +89,7 @@ impl NPatchPipeline {
     ///
     /// If caching is enabled, this will check the cache first.
     pub fn process_triangle(
-        &self,
+        &mut self,
         mesh_id: u64,
         v0: &NPatchVertex,
         v1: &NPatchVertex,
@@ -108,9 +110,9 @@ impl NPatchPipeline {
 
         // Try to get from cache
         if self.config.cache_subdivisions {
-            if let Some(cached) = self.cache.borrow().get(&key) {
+            if let Some(cached) = self.cache.get(&key).cloned() {
                 self.record_cache_hit();
-                return cached.clone();
+                return cached;
             }
         }
 
@@ -121,7 +123,7 @@ impl NPatchPipeline {
 
         // Store in cache
         if self.config.cache_subdivisions {
-            self.cache.borrow_mut().insert(key, result.clone());
+            self.cache.insert(key, result.clone());
         }
 
         result
@@ -129,7 +131,7 @@ impl NPatchPipeline {
 
     /// Process an entire mesh with N-Patch subdivision
     pub fn process_mesh(
-        &self,
+        &mut self,
         mesh_id: u64,
         triangles: &[(NPatchVertex, NPatchVertex, NPatchVertex)],
     ) -> Arc<SubdividedMesh> {
@@ -158,9 +160,9 @@ impl NPatchPipeline {
 
         // Try to get from cache
         if self.config.cache_subdivisions {
-            if let Some(cached) = self.cache.borrow().get(&key) {
+            if let Some(cached) = self.cache.get(&key).cloned() {
                 self.record_cache_hit();
-                return cached.clone();
+                return cached;
             }
         }
 
@@ -171,7 +173,7 @@ impl NPatchPipeline {
 
         // Store in cache
         if self.config.cache_subdivisions {
-            self.cache.borrow_mut().insert(key, result.clone());
+            self.cache.insert(key, result.clone());
         }
 
         result
@@ -183,7 +185,7 @@ impl NPatchPipeline {
         self.tessellator.set_level(level);
 
         // Clear cache when level changes
-        self.cache.borrow_mut().clear();
+        self.cache.clear();
     }
 
     /// Enable or disable N-Patch tessellation
@@ -202,32 +204,32 @@ impl NPatchPipeline {
     }
 
     /// Clear the subdivision cache
-    pub fn clear_cache(&self) {
-        self.cache.borrow_mut().clear();
-        *self.stats.borrow_mut() = PipelineStats::default();
+    pub fn clear_cache(&mut self) {
+        self.cache.clear();
+        self.stats = PipelineStats::default();
     }
 
     /// Get cache statistics
     pub fn get_stats(&self) -> PipelineStats {
-        *self.stats.borrow()
+        self.stats
     }
 
     /// Get cache size (number of cached meshes)
     pub fn cache_size(&self) -> usize {
-        self.cache.borrow().len()
+        self.cache.len()
     }
 
     /// Get estimated cache memory usage in bytes
     pub fn cache_memory_usage(&self) -> usize {
-        self.cache.borrow().values().map(|mesh| mesh.memory_size()).sum()
+        self.cache.values().map(|mesh| mesh.memory_size()).sum()
     }
 
-    fn record_cache_hit(&self) {
-        self.stats.borrow_mut().cache_hits += 1;
+    fn record_cache_hit(&mut self) {
+        self.stats.cache_hits += 1;
     }
 
-    fn record_cache_miss(&self) {
-        self.stats.borrow_mut().cache_misses += 1;
+    fn record_cache_miss(&mut self) {
+        self.stats.cache_misses += 1;
     }
 }
 
@@ -374,7 +376,7 @@ mod tests {
 
     #[test]
     fn test_pipeline_disabled() {
-        let pipeline = NPatchPipeline::disabled();
+        let mut pipeline = NPatchPipeline::disabled();
         assert!(!pipeline.is_enabled());
 
         let v0 = create_test_vertex(Vec3::ZERO);
@@ -388,7 +390,7 @@ mod tests {
 
     #[test]
     fn test_pipeline_enabled() {
-        let pipeline = NPatchPipeline::new(TessellationLevel::MEDIUM);
+        let mut pipeline = NPatchPipeline::new(TessellationLevel::MEDIUM);
         assert!(pipeline.is_enabled());
 
         let v0 = create_test_vertex(Vec3::ZERO);
@@ -402,7 +404,7 @@ mod tests {
 
     #[test]
     fn test_cache_hit() {
-        let pipeline = NPatchPipeline::new(TessellationLevel::LOW);
+        let mut pipeline = NPatchPipeline::new(TessellationLevel::LOW);
 
         let v0 = create_test_vertex(Vec3::ZERO);
         let v1 = create_test_vertex(Vec3::X);
@@ -423,7 +425,7 @@ mod tests {
 
     #[test]
     fn test_cache_clear() {
-        let pipeline = NPatchPipeline::new(TessellationLevel::LOW);
+        let mut pipeline = NPatchPipeline::new(TessellationLevel::LOW);
 
         let v0 = create_test_vertex(Vec3::ZERO);
         let v1 = create_test_vertex(Vec3::X);
@@ -458,7 +460,7 @@ mod tests {
 
     #[test]
     fn test_mesh_processing() {
-        let pipeline = NPatchPipeline::new(TessellationLevel::LOW);
+        let mut pipeline = NPatchPipeline::new(TessellationLevel::LOW);
 
         let tri1 = (
             create_test_vertex(Vec3::ZERO),
@@ -523,7 +525,7 @@ mod tests {
 
     #[test]
     fn test_cache_memory_tracking() {
-        let pipeline = NPatchPipeline::new(TessellationLevel::MEDIUM);
+        let mut pipeline = NPatchPipeline::new(TessellationLevel::MEDIUM);
 
         let v0 = create_test_vertex(Vec3::ZERO);
         let v1 = create_test_vertex(Vec3::X);
@@ -534,5 +536,82 @@ mod tests {
 
         let memory_usage = pipeline.cache_memory_usage();
         assert!(memory_usage > 0, "Cache should track memory usage");
+    }
+
+    #[test]
+    fn cached_triangle_results_survive_clear_level_change_and_owner_drop() {
+        let mut pipeline = NPatchPipeline::new(TessellationLevel::LOW);
+        let v0 = create_test_vertex(Vec3::ZERO);
+        let v1 = create_test_vertex(Vec3::X);
+        let v2 = create_test_vertex(Vec3::Y);
+        let original = pipeline.process_triangle(7, &v0, &v1, &v2);
+        let positions: Vec<_> = original.vertices.iter().map(|v| v.position).collect();
+        let cached = pipeline.process_triangle(7, &v0, &v1, &v2);
+        assert!(Arc::ptr_eq(&original, &cached));
+
+        pipeline.clear_cache();
+        assert_eq!(pipeline.cache_size(), 0);
+        assert_eq!(pipeline.get_stats().total_accesses(), 0);
+        let rebuilt = pipeline.process_triangle(7, &v0, &v1, &v2);
+        assert!(!Arc::ptr_eq(&original, &rebuilt));
+        assert_eq!(pipeline.get_stats().cache_misses, 1);
+
+        pipeline.set_level(TessellationLevel::MEDIUM);
+        assert_eq!(pipeline.cache_size(), 0);
+        assert_eq!(pipeline.get_stats().cache_misses, 1);
+        let medium = pipeline.process_triangle(7, &v0, &v1, &v2);
+        assert_eq!(medium.triangle_count(), 9);
+        assert_eq!(pipeline.get_stats().cache_misses, 2);
+        drop(pipeline);
+
+        assert_eq!(original.triangle_count(), 4);
+        assert_eq!(rebuilt.triangle_count(), 4);
+        assert_eq!(original.indices, rebuilt.indices);
+        assert_eq!(
+            original
+                .vertices
+                .iter()
+                .map(|v| v.position)
+                .collect::<Vec<_>>(),
+            positions
+        );
+        assert_eq!(medium.triangle_count(), 9);
+    }
+
+    #[test]
+    fn same_mesh_key_in_two_pipelines_keeps_results_and_statistics_independent() {
+        let mut first = NPatchPipeline::new(TessellationLevel::LOW);
+        let mut second = NPatchPipeline::new(TessellationLevel::LOW);
+        let vertices = [
+            create_test_vertex(Vec3::ZERO),
+            create_test_vertex(Vec3::X),
+            create_test_vertex(Vec3::Y),
+        ];
+        let shifted = vertices.map(|mut vertex| {
+            vertex.position += Vec3::X * 20.0;
+            vertex
+        });
+        let a = first.process_triangle(7, &vertices[0], &vertices[1], &vertices[2]);
+        let b = second.process_triangle(7, &shifted[0], &shifted[1], &shifted[2]);
+        assert!(!Arc::ptr_eq(&a, &b));
+        assert!(a.vertices.iter().all(|v| v.position.x < 2.0));
+        assert!(b.vertices.iter().all(|v| v.position.x > 19.0));
+        assert_eq!(first.get_stats().cache_misses, 1);
+        assert_eq!(second.get_stats().cache_misses, 1);
+
+        let a_cached = first.process_triangle(7, &vertices[0], &vertices[1], &vertices[2]);
+        assert!(Arc::ptr_eq(&a, &a_cached));
+        assert_eq!(first.get_stats().cache_hits, 1);
+        assert_eq!(second.get_stats().cache_hits, 0);
+        second.set_level(TessellationLevel::MEDIUM);
+        assert_eq!(second.cache_size(), 0);
+        assert_eq!(first.cache_size(), 1);
+        drop(second);
+
+        let still_cached = first.process_triangle(7, &vertices[0], &vertices[1], &vertices[2]);
+        assert!(Arc::ptr_eq(&a, &still_cached));
+        assert_eq!(first.get_stats().cache_hits, 2);
+        assert_eq!(first.get_stats().cache_misses, 1);
+        assert_eq!(b.triangle_count(), 4);
     }
 }

@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-"""Run the portable original-C++ versus Rust RandomValue trace differential."""
+"""Compare executed original Common CRC fixtures and Rust public CRC behavior.
 
+RNG sequences intentionally differ under the user-approved seeded_rust_rng
+policy. This component gate establishes CRC arithmetic, not gameplay parity.
+"""
 from __future__ import annotations
 
 import argparse
@@ -14,55 +17,30 @@ def run(repo: Path, args: list[str], *, stdout=None) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    default_repo = Path(__file__).resolve().parents[4]
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo-root", type=Path, default=default_repo)
+    parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[4])
     return parser.parse_args()
 
 
 def main() -> int:
     repo = parse_args().repo_root.resolve()
     harness = repo / "GeneralsMD/Code/ParityHarness"
-    scenario = repo / "parity_scenarios/smoke_attack.v1.json"
-    manifest = repo / "GeneralsRust/Code/Main/Cargo.toml"
-
-    run(repo, ["make", "-C", str(harness), "test"])
-    with tempfile.TemporaryDirectory(prefix="generals-parity-") as scratch:
-        cpp_trace = Path(scratch) / "cpp.json"
-        rust_trace = Path(scratch) / "rust.json"
-        with cpp_trace.open("w", encoding="utf-8") as output:
-            run(repo, [str(harness / "bin/generalsmd_frame_trace"), str(scenario)], stdout=output)
-        with rust_trace.open("w", encoding="utf-8") as output:
-            run(
-                repo,
-                [
-                    "cargo",
-                    "run",
-                    "--locked",
-                    "--manifest-path",
-                    str(manifest),
-                    "--bin",
-                    "deterministic_fixture_trace",
-                    "--",
-                    str(scenario),
-                ],
-                stdout=output,
-            )
-        run(
-            repo,
-            [
-                "cargo",
-                "run",
-                "--locked",
-                "--manifest-path",
-                str(manifest),
-                "--bin",
-                "deterministic_trace_compare",
-                "--",
-                str(cpp_trace),
-                str(rust_trace),
-            ],
-        )
+    fixture = repo / "GeneralsRust/Code/GameEngine/Common/tests/fixtures/crc_original.txt"
+    with tempfile.TemporaryDirectory(prefix="generals-crc-") as scratch:
+        executable = Path(scratch) / "crc_original"
+        output = Path(scratch) / "crc_original.txt"
+        run(repo, ["c++", "-std=c++17", "-O2", "-Wall", "-Wextra", "-Wpedantic",
+                   "-D_DEBUG", "-fsanitize=undefined", "-fno-sanitize-recover=all",
+                   f"-I{harness / 'shims'}", str(harness / "tests/crc_original.cpp"),
+                   str(harness / "original_random_adapter.cpp"), "-o", str(executable)])
+        with output.open("w", encoding="utf-8") as stream:
+            run(repo, [str(executable)], stdout=stream)
+        if fixture.read_bytes() != output.read_bytes():
+            raise RuntimeError("executed original CRC fixture differs from the pinned fixture")
+    run(repo, ["cargo", "test", "--locked", "--manifest-path",
+               str(repo / "GeneralsRust/Code/GameEngine/Common/Cargo.toml"),
+               "--test", "crc_parity", "--", "--test-threads=1"])
+    print("Common CRC component passed; RNG sequence is an approved deviation.")
     return 0
 
 

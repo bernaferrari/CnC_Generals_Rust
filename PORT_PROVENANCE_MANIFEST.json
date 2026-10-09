@@ -2,6 +2,12 @@
   "allowed_deviation_policy": [
     {
       "behavior_verified": false,
+      "classification": "user_approved_behavior_deviation",
+      "constraint": "User approved standard seeded Rust RNG on 2026-10-09. Random sequences may differ from C++; world isolation, range semantics and Rust save/load continuation remain required. Old C++ RNG checkpoints are imported as seeds, not continued with the original sequence.",
+      "id": "seeded_rust_rng"
+    },
+    {
+      "behavior_verified": false,
       "classification": "allowed_platform_substitution",
       "constraint": "WGPU may replace DirectX rendering APIs, but observable rendering, resource lifetime, ordering, and state behavior still require evidence.",
       "id": "directx_to_wgpu"
@@ -157591,7 +157597,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "fe9a30241f3fb7033af786ea10e486039212c9f9e4e9da979a2281bbfeb0b6da",
+  "input_digest": "92923fd637d8f60cbd7127338ae08e96d7b125017ff873c0dae6f03b797f973c",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -161661,11 +161667,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1722,
+        "end_line": 1648,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/random_value.rs",
-      "sha256": "789e9def4233c3735086598c65398f2f0508b2dadc7fdc298d9a6f0fa934b03b",
+      "sha256": "b0ad1316c1d3e58543f0f9298f0fe5b46ef83d8b3a51ddc91778ae74c5080787",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -180570,96 +180576,61 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 244,
+        "end_line": 212,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/guard_retaliate_condition_owner_tests.rs",
-      "sha256": "0e6d45ba037d7be01e2e079a724c76cc4a1afe2426cb1ae8860491cb453fd9b1",
+      "sha256": "8ddae1d10f20ff65515329a701ea730530ba996e1da8ceaf44bd437ee154c7d1",
       "symbol_index_status": "indexed",
       "symbols": [
         {
-          "kind": "trait",
-          "line": 6,
-          "name": "TestConditionAccess"
-        },
-        {
-          "kind": "fn",
-          "line": 7,
-          "name": "edit"
-        },
-        {
-          "kind": "fn",
-          "line": 8,
-          "name": "inspect"
-        },
-        {
-          "kind": "fn",
-          "line": 11,
-          "name": "edit"
-        },
-        {
-          "kind": "fn",
-          "line": 14,
-          "name": "inspect"
-        },
-        {
-          "kind": "fn",
-          "line": 19,
-          "name": "edit"
-        },
-        {
-          "kind": "fn",
-          "line": 22,
-          "name": "inspect"
-        },
-        {
           "kind": "struct",
-          "line": 29,
+          "line": 6,
           "name": "PreserveRng"
         },
         {
           "kind": "fn",
-          "line": 31,
+          "line": 8,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 36,
+          "line": 13,
           "name": "drop"
         },
         {
           "kind": "struct",
-          "line": 40,
+          "line": 17,
           "name": "Fixture"
         },
         {
           "kind": "fn",
-          "line": 49,
+          "line": 26,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 66,
+          "line": 43,
           "name": "drop"
         },
         {
           "kind": "fn",
-          "line": 75,
+          "line": 52,
           "name": "aiguardretaliateinnerstate_borrows_conditions_without_mutex"
         },
         {
           "kind": "fn",
-          "line": 124,
+          "line": 98,
           "name": "aiguardretaliateouterstate_borrows_conditions_without_mutex"
         },
         {
           "kind": "fn",
-          "line": 173,
+          "line": 144,
           "name": "aiguardretaliateattackaggressorstate_borrows_conditions_without_mutex"
         },
         {
           "kind": "fn",
-          "line": 222,
+          "line": 190,
           "name": "condition_values_remain_distinct_for_equal_owner_ids_and_absent_children"
         }
       ]
@@ -180886,11 +180857,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 326,
+        "end_line": 318,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/guard_retaliate_snapshot_contract_tests.rs",
-      "sha256": "4d25be00b051bee3f587a78955d5a04589bddd2bb5a64c6724b7b3fe3aca4c0a",
+      "sha256": "638b6a3694c390da58d77e00cb266c09abf74ffbd44c08887233ed28a85fb0de",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -180935,62 +180906,62 @@
         },
         {
           "kind": "fn",
-          "line": 92,
+          "line": 91,
           "name": "guard_retaliate_embedded_pickup_uses_shared_pickup_wire_payload"
         },
         {
           "kind": "fn",
-          "line": 102,
+          "line": 100,
           "name": "pickup_rejects_unsupported_versions_and_truncated_inherited_payload"
         },
         {
           "kind": "fn",
-          "line": 119,
+          "line": 116,
           "name": "retaliation_child_payloads_match_cpp_versions_and_only_declared_fields"
         },
         {
           "kind": "fn",
-          "line": 149,
+          "line": 145,
           "name": "unsupported_or_truncated_child_payloads_fail_without_postprocess_callbacks"
         },
         {
           "kind": "trait",
-          "line": 170,
+          "line": 165,
           "name": "TestPickupInstall"
         },
         {
           "kind": "fn",
-          "line": 171,
+          "line": 166,
           "name": "install_test_pickup"
         },
         {
           "kind": "fn",
-          "line": 174,
+          "line": 169,
           "name": "install_test_pickup"
         },
         {
           "kind": "fn",
-          "line": 180,
+          "line": 175,
           "name": "pickup_roundtrip_preserves_raw_cpp_enum_width_without_truncation"
         },
         {
           "kind": "fn",
-          "line": 191,
+          "line": 185,
           "name": "retaliate_v2_fixture"
         },
         {
           "kind": "fn",
-          "line": 243,
+          "line": 237,
           "name": "retaliate_v2_all_states_loads_cpp_sorted_children_then_saves_current_only"
         },
         {
           "kind": "fn",
-          "line": 282,
+          "line": 275,
           "name": "retaliate_v1_fixture_is_load_only_and_skips_nested_machine"
         },
         {
           "kind": "fn",
-          "line": 296,
+          "line": 288,
           "name": "native_guard_retaliate_wrapper_roundtrips_nested_machine_envelope"
         }
       ]
@@ -194436,116 +194407,56 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 133,
+        "end_line": 101,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/states/squad_owner_tests.rs",
-      "sha256": "c734c5a474017ce6089814377221dc62de65db27059fca09374a1504a225fc00",
+      "sha256": "324d7b9a2b6c24e7bf049ec7addf72e2e59e75699d9150b201e31cdb44a12aca",
       "symbol_index_status": "indexed",
       "symbols": [
         {
-          "kind": "trait",
-          "line": 10,
-          "name": "TestGoal"
-        },
-        {
           "kind": "fn",
-          "line": 11,
-          "name": "from_ids"
-        },
-        {
-          "kind": "fn",
-          "line": 12,
-          "name": "ids"
-        },
-        {
-          "kind": "fn",
-          "line": 13,
-          "name": "add_id"
-        },
-        {
-          "kind": "fn",
-          "line": 14,
-          "name": "live_ids"
-        },
-        {
-          "kind": "fn",
-          "line": 17,
-          "name": "from_ids"
-        },
-        {
-          "kind": "fn",
-          "line": 20,
-          "name": "ids"
-        },
-        {
-          "kind": "fn",
-          "line": 23,
-          "name": "add_id"
-        },
-        {
-          "kind": "fn",
-          "line": 26,
-          "name": "live_ids"
-        },
-        {
-          "kind": "fn",
-          "line": 31,
-          "name": "from_ids"
-        },
-        {
-          "kind": "fn",
-          "line": 34,
-          "name": "ids"
-        },
-        {
-          "kind": "fn",
-          "line": 37,
-          "name": "add_id"
-        },
-        {
-          "kind": "fn",
-          "line": 40,
-          "name": "live_ids"
-        },
-        {
-          "kind": "fn",
-          "line": 44,
+          "line": 8,
           "name": "squad"
         },
         {
           "kind": "fn",
-          "line": 51,
+          "line": 16,
           "name": "goal"
         },
         {
           "kind": "fn",
-          "line": 54,
+          "line": 19,
+          "name": "ids"
+        },
+        {
+          "kind": "fn",
+          "line": 22,
           "name": "machine"
         },
         {
           "kind": "fn",
-          "line": 57,
+          "line": 25,
           "name": "save"
         },
         {
           "kind": "fn",
-          "line": 65,
+          "line": 33,
           "name": "assigning_squad_copies_membership_and_keeps_source_independent"
         },
         {
           "kind": "fn",
-          "line": 82,
+          "line": 50,
           "name": "same_id_machine_goals_stay_separate_during_interleaved_replacement_and_clear"
         },
         {
           "kind": "fn",
-          "line": 99,
+          "line": 67,
           "name": "restoring_squad_replaces_existing_membership_and_resaves_identical_bytes"
         },
         {
           "kind": "fn",
-          "line": 122,
+          "line": 90,
           "name": "live_member_query_does_not_change_authored_membership"
         }
       ]
@@ -197146,96 +197057,61 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 244,
+        "end_line": 206,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/tn_guard_condition_owner_tests.rs",
-      "sha256": "2d656656e9ad490a60bc7367c24333c4a3eade333689414c797d770723fcabde",
+      "sha256": "19d5ab67825a4a9478d917842bbe4582971eca2e6628898463edd948d5868cc5",
       "symbol_index_status": "indexed",
       "symbols": [
         {
-          "kind": "trait",
-          "line": 6,
-          "name": "TestConditionAccess"
-        },
-        {
-          "kind": "fn",
-          "line": 7,
-          "name": "edit"
-        },
-        {
-          "kind": "fn",
-          "line": 8,
-          "name": "inspect"
-        },
-        {
-          "kind": "fn",
-          "line": 11,
-          "name": "edit"
-        },
-        {
-          "kind": "fn",
-          "line": 14,
-          "name": "inspect"
-        },
-        {
-          "kind": "fn",
-          "line": 19,
-          "name": "edit"
-        },
-        {
-          "kind": "fn",
-          "line": 22,
-          "name": "inspect"
-        },
-        {
           "kind": "struct",
-          "line": 29,
+          "line": 6,
           "name": "PreserveRng"
         },
         {
           "kind": "fn",
-          "line": 31,
+          "line": 8,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 36,
+          "line": 13,
           "name": "drop"
         },
         {
           "kind": "struct",
-          "line": 40,
+          "line": 17,
           "name": "Fixture"
         },
         {
           "kind": "fn",
-          "line": 49,
+          "line": 26,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 66,
+          "line": 43,
           "name": "drop"
         },
         {
           "kind": "fn",
-          "line": 75,
+          "line": 52,
           "name": "aitnguardinnerstate_borrows_conditions_without_mutex"
         },
         {
           "kind": "fn",
-          "line": 124,
+          "line": 96,
           "name": "aitnguardouterstate_borrows_conditions_without_mutex"
         },
         {
           "kind": "fn",
-          "line": 173,
+          "line": 140,
           "name": "aitnguardattackaggressorstate_borrows_conditions_without_mutex"
         },
         {
           "kind": "fn",
-          "line": 222,
+          "line": 184,
           "name": "condition_values_remain_distinct_for_equal_owner_ids_and_absent_children"
         }
       ]
@@ -200408,11 +200284,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1214,
+        "end_line": 1407,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/collision_system.rs",
-      "sha256": "2b5b4828fa8ac9fad65a4d31ab106b498db9d66be03b219f412304ff24ecb2e2",
+      "sha256": "a737d410e311bac4a5e704b8cd68221f2a5c6c4178d5bc765828f757a4c698e4",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200684,11 +200560,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 706,
+        "end_line": 744,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/mod.rs",
-      "sha256": "cce384cf62953c9b2614591b91dedc8c591200ca7459ad701e5517ba4ddc7deb",
+      "sha256": "91bac1127636e21de5326d6adc560738391ebd63551fada99cac54c7b7f2135e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

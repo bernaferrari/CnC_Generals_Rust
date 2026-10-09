@@ -42,10 +42,14 @@ There are 11 byte/word checksums and 25 RNG checkpoints (five seeds, after
 accumulation, empty/null/invalid-length no-ops, clear/reuse, and non-mutating
 seed CRC reads. The checked-in fixture is its exact stdout.
 
-The Rust tests use those outputs through the public Common API. They cover both
+The Rust CRC tests use those outputs through the public Common API. They cover both
 overflow additions separately, high-bit folding, all byte values, every split,
 little-endian typed words, flat/nested/empty arrays, and the production RNG CRC
-path. Repeated seed CRC reads must leave all six words and the next draw intact.
+path. Since the user-approved Rust RNG change on 2026-10-09, RNG checkpoints
+verify Rust state restoration and non-mutating CRC reads rather than equality
+with the original random sequence. The byte/word CRC expectations remain
+original-C++ comparisons. Newly saved six-word state capsules preserve the
+Rust continuation; imported old C++ states intentionally start a different sequence.
 
 ```sh
 cd GeneralsRust

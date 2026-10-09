@@ -523,7 +523,7 @@ impl GameLogic {
             pending_patriot_assists: Vec::new(),
             stealth_detector_rate_scans: 0,
             // Same seeded defaults the Common global statics use at first
-            // use (INITIAL_SEED words, base seed 0): any pre-game reseed
+            // use (Rust RNG seed 0): any pre-game reseed
             // broadcast (menus/skirmish) is adopted at the first tick.
             logic_random: game_engine::common::random_value::RandomState::default(),
             logic_base_seed: 0,
