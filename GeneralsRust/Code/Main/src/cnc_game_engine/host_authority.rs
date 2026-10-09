@@ -2419,12 +2419,10 @@ mod staged_restore_tests {
             let second = second.read().expect("read second live AI group").get_id();
             (first, second)
         };
-        let live_integration_group_count =
+        let live_integration_ai_player_count =
             gamelogic::ai::integration::with_ai_integration_mut(|manager| {
-                manager
-                    .create_unit_group("stage-rollback-sentinel".to_string(), 1)
-                    .expect("create live integration AI group");
-                manager.get_unit_group_count()
+                manager.ensure_ai_player(77, false);
+                manager.get_ai_player_count()
             })
             .expect("live AI integration manager initialized");
         let catalog = source.templates.clone();
@@ -2493,7 +2491,7 @@ mod staged_restore_tests {
                 .unwrap_or_default();
             let integration_group_count =
                 gamelogic::ai::integration::with_ai_integration(|manager| {
-                    manager.get_unit_group_count()
+                    manager.get_ai_player_count()
                 })
                 .unwrap_or_default();
             (
@@ -2591,9 +2589,9 @@ mod staged_restore_tests {
         );
         assert_eq!(
             gamelogic::ai::integration::with_ai_integration(|manager| {
-                manager.get_unit_group_count()
+                manager.get_ai_player_count()
             }),
-            Some(live_integration_group_count),
+            Some(live_integration_ai_player_count),
             "rollback must preserve the live AI integration manager"
         );
         let actual =

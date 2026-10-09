@@ -390,7 +390,7 @@ fn rubble_span_is_repairable() {
     let dozer = logic
         .create_object("TestDozer", Team::USA, Vec3::new(0.0, 0.0, 10.0))
         .expect("dozer");
-    if let Some(s) = logic.host_object_mut(span) {
+    if let Some((s, health_events)) = logic.host_object_and_health_events_mut(span) {
         s.revive_from_bridge_rubble();
         assert!(
             s.attempt_healing_from_sole_benefactor(25.0, dozer, 2, 1, health_events),

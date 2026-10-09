@@ -1540,7 +1540,7 @@ fn command_center_radar_residual_enables_player_has_radar() {
     );
 
     // Destroy CC → radar offline.
-    if let Some(obj) = game_logic.host_object_mut(cc_id) {
+    if let Some((obj, health_events)) = game_logic.host_object_and_health_events_mut(cc_id) {
         // Wave 753: under damage authority, do not zero host HP mid-frame
         // (dual with GW HP writeback). Project lethal via damage log + flags.
         if crate::gameworld_shadow::gameworld_damage_authority_live() {

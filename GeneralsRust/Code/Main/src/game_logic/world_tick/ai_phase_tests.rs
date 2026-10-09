@@ -59,9 +59,9 @@ fn isolated(name: &str) -> bool {
 fn foreign_ai() -> String {
     gamelogic::ai::integration::with_ai_integration(|manager| {
         format!(
-            "{}:{:?}",
-            manager.get_unit_group_count(),
-            manager.get_performance_stats()
+            "{}:{}",
+            manager.get_ai_player_count(),
+            manager.has_ai_player(77)
         )
     })
     .expect("foreign AI manager")
@@ -71,7 +71,6 @@ fn seed_foreign_ai() {
     gamelogic::ai::integration::initialize_ai_integration().unwrap();
     gamelogic::ai::integration::with_ai_integration_mut(|manager| {
         manager.ensure_ai_player(77, false);
-        manager.create_unit_group("other-match".into(), 77).unwrap();
     })
     .unwrap();
 }

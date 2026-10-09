@@ -6,84 +6,28 @@
 //!
 //! Author: Created by Claude for AI system integration
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock, Weak};
-use std::time::{Duration, Instant};
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, RwLock};
 
 use crate::common::KindOf;
 use crate::common::ObjectID;
 use crate::common::Snapshot;
 use crate::common::types::{Coord3D, Real};
 use crate::common::xfer::Xfer;
-use crate::helpers::TheGameLogic;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::player::{GameDifficulty, Player, player_list};
+use crate::player::{GameDifficulty, player_list};
 use crate::system::game_logic::get_game_logic;
 use crate::terrain::get_terrain_logic;
-use crate::world::World;
 
 use super::ai_player::AIPlayer;
 use super::ai_update::AiPlayerTrait;
-use super::groups::{AiUnitGroup, FormationType, GroupBehavior, UnitRole};
-use super::native::WaypointGraph;
-use super::pathfind_complete::{PathRequest, PathResult};
 use super::skirmish_player::AISkirmishPlayer;
-use super::states::{AIStateMachine, AIStateType};
 use super::{AiError, the_ai};
 
 /// Wave 285: host-only path has no dual-world factory objects.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
     OBJECT_REGISTRY.is_empty()
-}
-
-fn state_from_id(state_id: u32) -> Option<AIStateType> {
-    let match_id = |state: AIStateType| (state_id == state as u32).then_some(state);
-
-    match_id(AIStateType::Idle)
-        .or_else(|| match_id(AIStateType::MoveTo))
-        .or_else(|| match_id(AIStateType::FollowWaypointPathAsTeam))
-        .or_else(|| match_id(AIStateType::FollowWaypointPathAsIndividuals))
-        .or_else(|| match_id(AIStateType::FollowWaypointPathAsTeamExact))
-        .or_else(|| match_id(AIStateType::FollowWaypointPathAsIndividualsExact))
-        .or_else(|| match_id(AIStateType::FollowPath))
-        .or_else(|| match_id(AIStateType::FollowExitProductionPath))
-        .or_else(|| match_id(AIStateType::Wait))
-        .or_else(|| match_id(AIStateType::AttackPosition))
-        .or_else(|| match_id(AIStateType::AttackObject))
-        .or_else(|| match_id(AIStateType::ForceAttackObject))
-        .or_else(|| match_id(AIStateType::AttackAndFollowObject))
-        .or_else(|| match_id(AIStateType::Dead))
-        .or_else(|| match_id(AIStateType::Dock))
-        .or_else(|| match_id(AIStateType::Enter))
-        .or_else(|| match_id(AIStateType::Guard))
-        .or_else(|| match_id(AIStateType::Hunt))
-        .or_else(|| match_id(AIStateType::Wander))
-        .or_else(|| match_id(AIStateType::Panic))
-        .or_else(|| match_id(AIStateType::AttackSquad))
-        .or_else(|| match_id(AIStateType::GuardTunnelNetwork))
-        .or_else(|| match_id(AIStateType::GetRepaired))
-        .or_else(|| match_id(AIStateType::MoveOutOfTheWay))
-        .or_else(|| match_id(AIStateType::MoveAndTighten))
-        .or_else(|| match_id(AIStateType::MoveAndEvacuate))
-        .or_else(|| match_id(AIStateType::MoveAndEvacuateAndExit))
-        .or_else(|| match_id(AIStateType::MoveAndDelete))
-        .or_else(|| match_id(AIStateType::AttackArea))
-        .or_else(|| match_id(AIStateType::HackInternet))
-        .or_else(|| match_id(AIStateType::AttackMoveTo))
-        .or_else(|| match_id(AIStateType::AttackFollowWaypointPathAsIndividuals))
-        .or_else(|| match_id(AIStateType::AttackFollowWaypointPathAsTeam))
-        .or_else(|| match_id(AIStateType::FaceObject))
-        .or_else(|| match_id(AIStateType::FacePosition))
-        .or_else(|| match_id(AIStateType::RappelInto))
-        .or_else(|| match_id(AIStateType::CombatDrop))
-        .or_else(|| match_id(AIStateType::Exit))
-        .or_else(|| match_id(AIStateType::PickUpCrate))
-        .or_else(|| match_id(AIStateType::MoveAwayFromRepulsors))
-        .or_else(|| match_id(AIStateType::WanderInPlace))
-        .or_else(|| match_id(AIStateType::Busy))
-        .or_else(|| match_id(AIStateType::ExitInstantly))
-        .or_else(|| match_id(AIStateType::GuardRetaliate))
 }
 
 pub enum IntegratedAiPlayer {
@@ -392,142 +336,34 @@ impl IntegratedAiPlayer {
     }
 }
 
-/// AI Integration Manager - Coordinates all AI subsystems
+/// Per-player AI controllers (C++ `Player::m_ai`) plus the Common
+/// `AIPlayerInterface` bridges handed to `Player::set_ai`.
 pub struct AiIntegrationManager {
     /// AI players by player ID (C++-faithful player controllers)
-    ai_players: HashMap<u32, IntegratedAiPlayer>,
-    /// AI unit groups by group ID
-    unit_groups: HashMap<u32, Arc<RwLock<AiUnitGroup>>>,
-    /// Object state machines by object ID
-    object_state_machines: HashMap<ObjectID, Arc<RwLock<AIStateMachine>>>,
-    /// Shared waypoint graph for native pathing
-    waypoint_graph: Option<Arc<RwLock<WaypointGraph>>>,
-    /// Completed pathfinding results keyed by requester object ID
-    path_results: HashMap<ObjectID, PathResult>,
-    /// Cached player handles for AI integration
-    player_handles: HashMap<u32, Weak<RwLock<Player>>>,
+    ai_players: BTreeMap<u32, IntegratedAiPlayer>,
     /// Common `AIPlayerInterface` handles kept alive for Player::set_ai.
     player_interfaces: HashMap<u32, Arc<AiPlayerBridge>>,
-    /// Next available group ID
-    next_group_id: u32,
-    /// Performance metrics
-    performance_stats: AiPerformanceStats,
-    /// Last update time
-    last_update: Instant,
-    /// Frame start timestamp used for diagnostics
-    frame_start: Option<Instant>,
-}
-
-/// Performance statistics for AI integration
-#[allow(dead_code)]
-#[derive(Debug, Default)]
-pub struct AiPerformanceStats {
-    pathfinding_requests_per_frame: u32,
-    state_machine_updates_per_frame: u32,
-    group_updates_per_frame: u32,
-    player_updates_per_frame: u32,
-    average_frame_time: Duration,
-    total_ai_objects: u32,
 }
 
 impl AiIntegrationManager {
-    /// Create new AI integration manager
     pub fn new() -> Self {
         Self {
-            ai_players: HashMap::new(),
-            unit_groups: HashMap::new(),
-            object_state_machines: HashMap::new(),
-            waypoint_graph: None,
+            ai_players: BTreeMap::new(),
             player_interfaces: HashMap::new(),
-            path_results: HashMap::new(),
-            player_handles: HashMap::new(),
-            next_group_id: 1,
-            performance_stats: AiPerformanceStats::default(),
-            last_update: Instant::now(),
-            frame_start: None,
         }
     }
 
-    /// Initialize AI integration systems
+    /// Drop every AI player and bridge.
     pub fn initialize(&mut self) -> Result<(), AiError> {
-        // Reset all systems
         self.ai_players.clear();
-        self.unit_groups.clear();
-        self.object_state_machines.clear();
-        self.waypoint_graph = None;
-        self.path_results.clear();
-        self.player_handles.clear();
         self.player_interfaces.clear();
-        self.next_group_id = 1;
-        self.frame_start = None;
-
         log::info!("AI Integration Manager initialized");
         Ok(())
     }
 
-    /// Run AI sensing phase for the current frame.
-    pub fn sense(&mut self, _world: &World, _delta: Duration) -> Result<(), AiError> {
-        self.frame_start = Some(Instant::now());
-        self.performance_stats = AiPerformanceStats::default();
-        Ok(())
-    }
-
-    /// Run AI decision making for the current frame.
-    pub fn decide(&mut self, frame_time: Instant) -> Result<(), AiError> {
-        self.update_ai_players()?;
-        let _ = frame_time;
-        Ok(())
-    }
-
-    /// Execute AI actions for the current frame.
-    pub fn execute(&mut self, frame_time: Instant) -> Result<(), AiError> {
-        if let Some(start) = self.frame_start.take() {
-            self.performance_stats.average_frame_time = start.elapsed();
-        }
-        self.performance_stats.total_ai_objects = self.object_state_machines.len() as u32;
-        self.last_update = frame_time;
-        Ok(())
-    }
-
-    /// Update all AI systems for one frame (legacy helper).
-    pub fn update(
-        &mut self,
-        world: &World,
-        delta: Duration,
-        frame_time: Instant,
-    ) -> Result<(), AiError> {
-        self.sense(world, delta)?;
-        self.decide(frame_time)?;
-        self.execute(frame_time)
-    }
-
-    fn attach_waypoint_graph(&self, _state_machine: &Arc<RwLock<AIStateMachine>>) {}
-
-    fn create_classic_state_machine(
-        &self,
-        object_id: ObjectID,
-        name: &str,
-    ) -> Result<Arc<RwLock<AIStateMachine>>, AiError> {
-        // Wave 285: empty dual-world → invalid object.
-        if dual_world_registry_unavailable() {
-            return Err(AiError::InvalidObject);
-        }
-
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            return Err(AiError::InvalidObject);
-        };
-        let mut machine = AIStateMachine::new(Arc::downgrade(&obj_arc), name);
-        // This adapter creates an active machine for an already admitted
-        // Object; construction itself must not run the default state's entry.
-        let _ = machine.base.init_default_state();
-        let state_machine = Arc::new(RwLock::new(machine));
-        self.attach_waypoint_graph(&state_machine);
-        Ok(state_machine)
-    }
-
     /// Create enhanced AI player for given player
     pub fn create_ai_player(&mut self, player_id: u32) -> Result<(), AiError> {
-        let player_arc = player_list()
+        player_list()
             .read()
             .ok()
             .and_then(|list| {
@@ -535,8 +371,6 @@ impl AiIntegrationManager {
                     .cloned()
             })
             .ok_or(AiError::InvalidObject)?;
-        let player_weak = Arc::downgrade(&player_arc);
-        self.player_handles.insert(player_id, player_weak.clone());
 
         let is_skirmish = get_game_logic()
             .lock()
@@ -705,188 +539,6 @@ impl AiIntegrationManager {
         Ok(())
     }
 
-    /// Create AI unit group
-    pub fn create_unit_group(&mut self, name: String, player_id: u32) -> Result<u32, AiError> {
-        let group_id = self.next_group_id;
-        self.next_group_id += 1;
-
-        let group = Arc::new(RwLock::new(AiUnitGroup::new(group_id, name, None)));
-
-        self.unit_groups.insert(group_id, group);
-
-        log::info!(
-            "Created AI unit group {} for player {}",
-            group_id,
-            player_id
-        );
-        Ok(group_id)
-    }
-
-    /// Add unit to AI group
-    pub fn add_unit_to_group(
-        &mut self,
-        group_id: u32,
-        object_id: ObjectID,
-        role: UnitRole,
-    ) -> Result<(), AiError> {
-        if let Some(group) = self.unit_groups.get(&group_id) {
-            if let Ok(mut g) = group.write() {
-                g.add_unit(object_id, role)?;
-
-                // Create state machine for this object if it doesn't exist
-                if !self.object_state_machines.contains_key(&object_id) {
-                    let state_machine = self
-                        .create_classic_state_machine(object_id, &format!("Unit_{}", object_id))?;
-                    self.object_state_machines.insert(object_id, state_machine);
-                }
-
-                Ok(())
-            } else {
-                Err(AiError::InvalidObject)
-            }
-        } else {
-            Err(AiError::InvalidObject)
-        }
-    }
-
-    /// Remove unit from AI group
-    pub fn remove_unit_from_group(
-        &mut self,
-        group_id: u32,
-        object_id: ObjectID,
-    ) -> Result<(), AiError> {
-        let should_destroy_group = {
-            if let Some(group) = self.unit_groups.get(&group_id) {
-                if let Ok(mut g) = group.write() {
-                    g.remove_unit(object_id)?
-                } else {
-                    return Err(AiError::InvalidObject);
-                }
-            } else {
-                return Err(AiError::InvalidObject);
-            }
-        };
-
-        // Remove object's state machine
-        self.object_state_machines.remove(&object_id);
-
-        // Destroy group if empty (separate borrow scope)
-        if should_destroy_group {
-            self.unit_groups.remove(&group_id);
-            log::info!("Destroyed empty AI unit group {}", group_id);
-        }
-
-        Ok(())
-    }
-
-    /// Set group formation
-    pub fn set_group_formation(
-        &mut self,
-        group_id: u32,
-        formation: FormationType,
-        spacing: Real,
-    ) -> Result<(), AiError> {
-        if let Some(group) = self.unit_groups.get(&group_id) {
-            if let Ok(mut g) = group.write() {
-                g.set_formation(formation, spacing)?;
-                Ok(())
-            } else {
-                Err(AiError::InvalidObject)
-            }
-        } else {
-            Err(AiError::InvalidObject)
-        }
-    }
-
-    /// Command group to move to position
-    pub fn command_group_move(&mut self, group_id: u32, position: Coord3D) -> Result<(), AiError> {
-        if let Some(group) = self.unit_groups.get(&group_id) {
-            if let Ok(mut g) = group.write() {
-                g.move_to_position(position)?;
-                Ok(())
-            } else {
-                Err(AiError::InvalidObject)
-            }
-        } else {
-            Err(AiError::InvalidObject)
-        }
-    }
-
-    /// Command group to attack target
-    pub fn command_group_attack(
-        &mut self,
-        group_id: u32,
-        target_id: ObjectID,
-    ) -> Result<(), AiError> {
-        if let Some(group) = self.unit_groups.get(&group_id) {
-            if let Ok(mut g) = group.write() {
-                g.attack_target(target_id)?;
-                Ok(())
-            } else {
-                Err(AiError::InvalidObject)
-            }
-        } else {
-            Err(AiError::InvalidObject)
-        }
-    }
-
-    /// Command group to guard position
-    pub fn command_group_guard(
-        &mut self,
-        group_id: u32,
-        position: Coord3D,
-        radius: Real,
-    ) -> Result<(), AiError> {
-        if let Some(group) = self.unit_groups.get(&group_id) {
-            if let Ok(mut g) = group.write() {
-                g.guard_position(position, radius)?;
-                Ok(())
-            } else {
-                Err(AiError::InvalidObject)
-            }
-        } else {
-            Err(AiError::InvalidObject)
-        }
-    }
-
-    /// Set object AI state directly
-    pub fn set_object_state(
-        &mut self,
-        object_id: ObjectID,
-        state: AIStateType,
-    ) -> Result<(), AiError> {
-        if !self.object_state_machines.contains_key(&object_id) {
-            // Create state machine if it doesn't exist
-            let state_machine =
-                self.create_classic_state_machine(object_id, &format!("Object_{}", object_id))?;
-            self.object_state_machines.insert(object_id, state_machine);
-        }
-
-        if let Some(state_machine) = self.object_state_machines.get(&object_id) {
-            if let Ok(mut sm) = state_machine.write() {
-                let _ = sm.set_state(state as u32);
-                match sm.get_current_state_id().and_then(state_from_id) {
-                    Some(current) if current == state => Ok(()),
-                    _ => Err(AiError::InvalidCommand),
-                }
-            } else {
-                Err(AiError::InvalidObject)
-            }
-        } else {
-            Err(AiError::InvalidObject)
-        }
-    }
-
-    /// Get object AI state
-    pub fn get_object_state(&self, object_id: ObjectID) -> Option<AIStateType> {
-        self.object_state_machines.get(&object_id).and_then(|sm| {
-            sm.read()
-                .ok()
-                .and_then(|s| s.get_current_state_id())
-                .and_then(state_from_id)
-        })
-    }
-
     /// Add object to pathfinding map as obstacle
     pub fn add_pathfinding_obstacle(
         &self,
@@ -932,30 +584,12 @@ impl AiIntegrationManager {
         }
     }
 
-    /// Request pathfinding between two points
-    pub fn request_pathfinding(
-        &self,
-        from: &Coord3D,
-        to: &Coord3D,
-        acceptable_surfaces: u32,
-        is_crusher: bool,
-    ) -> Result<Option<Vec<Coord3D>>, AiError> {
-        let ai_store = the_ai();
-        let Some(ai) = ai_store.read().ok() else {
-            return Err(AiError::NoPathfinder);
-        };
-        let Some(pathfinder) = ai.pathfinder() else {
-            return Err(AiError::NoPathfinder);
-        };
-        let pathfinder_lock = pathfinder.write();
-        if let Ok(mut pf) = pathfinder_lock {
-            Ok(pf.find_path(from, to, acceptable_surfaces, is_crusher))
-        } else {
-            Err(AiError::NoPathfinder)
-        }
-    }
-
-    /// Integration with legacy AI system - handles object updates
+    /// Register a newly created obstacle with the pathfinder.
+    ///
+    /// Preserves the former adapter's admission check: an AI-controlled
+    /// object that is not in the shared object registry is rejected before
+    /// any pathfinder work (that check used to be a side effect of building
+    /// a per-object state machine nothing ever ran or read).
     pub fn notify_object_created(
         &mut self,
         object_id: ObjectID,
@@ -963,10 +597,11 @@ impl AiIntegrationManager {
         is_ai_controlled: bool,
         is_obstacle: bool,
     ) -> Result<(), AiError> {
-        if is_ai_controlled {
-            let state_machine =
-                self.create_classic_state_machine(object_id, &format!("Object_{}", object_id))?;
-            self.object_state_machines.insert(object_id, state_machine);
+        if is_ai_controlled
+            && (dual_world_registry_unavailable()
+                || OBJECT_REGISTRY.get_object(object_id).is_none())
+        {
+            return Err(AiError::InvalidObject);
         }
 
         if is_obstacle {
@@ -992,16 +627,12 @@ impl AiIntegrationManager {
         Ok(())
     }
 
-    /// Handle object destruction
+    /// Remove a destroyed object's footprint from the pathfinder.
     pub fn notify_object_destroyed(
         &mut self,
         object_id: ObjectID,
         positions: &[Coord3D],
     ) -> Result<(), AiError> {
-        // Remove state machine
-        self.object_state_machines.remove(&object_id);
-
-        // Remove from pathfinding map
         let ai_store = the_ai();
         if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
@@ -1017,67 +648,19 @@ impl AiIntegrationManager {
                 }
             }
         }
-        self.remove_pathfinding_obstacle(object_id, positions)?;
-
-        // Remove from any groups
-        let groups_to_check: Vec<u32> = self.unit_groups.keys().cloned().collect();
-        for group_id in groups_to_check {
-            let should_remove = {
-                if let Some(group) = self.unit_groups.get(&group_id) {
-                    if let Ok(group_read) = group.read() {
-                        group_read.contains_unit(object_id)
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            };
-
-            if should_remove {
-                self.remove_unit_from_group(group_id, object_id)?;
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Integration with team system - create group from team
-    pub fn create_group_from_team(
-        &mut self,
-        team_name: String,
-        team_members: Vec<ObjectID>,
-        player_id: u32,
-    ) -> Result<u32, AiError> {
-        let group_id = self.create_unit_group(team_name, player_id)?;
-
-        // Add all team members to the group
-        for member_id in team_members {
-            // Determine unit role based on object type
-            let role = self.determine_unit_role(member_id);
-            self.add_unit_to_group(group_id, member_id, role)?;
-        }
-
-        Ok(group_id)
+        self.remove_pathfinding_obstacle(object_id, positions)
     }
 
     // Internal helper methods
 
-    /// Update pathfinding system
-    #[allow(dead_code)]
-    fn update_pathfinding_system(&mut self) -> Result<(), AiError> {
-        self.performance_stats.pathfinding_requests_per_frame = 0;
-        Ok(())
-    }
-
-    /// Update all AI players
+    /// Update all AI players in player-index order (C++ `PlayerList::update`
+    /// walks `m_players[0..count]`, each `Player::update` driving its `m_ai`).
     fn update_ai_players(&mut self) -> Result<(), AiError> {
         for (player_id, ai_player) in &mut self.ai_players {
             if let Err(e) = ai_player.update() {
                 log::warn!("Failed to update AI player {}: {:?}", player_id, e);
             }
         }
-        self.performance_stats.player_updates_per_frame = self.ai_players.len() as u32;
         Ok(())
     }
 
@@ -1086,127 +669,13 @@ impl AiIntegrationManager {
         self.update_ai_players()
     }
 
-    /// Update all unit groups
-    #[allow(dead_code)]
-    fn update_unit_groups(&mut self, frame_time: Instant) -> Result<(), AiError> {
-        let _ = frame_time;
-        self.performance_stats.group_updates_per_frame = 0;
-        Ok(())
-    }
-
-    /// Update all object state machines
-    #[allow(dead_code)]
-    fn update_object_state_machines(&mut self) -> Result<(), AiError> {
-        self.performance_stats.state_machine_updates_per_frame = 0;
-        Ok(())
-    }
-
     // Helper methods removed - functionality moved to public interface
-
-    /// Determine unit role based on object ID/type
-    fn determine_unit_role(&self, object_id: ObjectID) -> UnitRole {
-        // Wave 285: empty dual-world → generic light role.
-        if dual_world_registry_unavailable() {
-            return UnitRole::Light;
-        }
-
-        OBJECT_REGISTRY
-            .with_object(object_id, |obj| {
-                if obj.is_kind_of(KindOf::Hero) {
-                    return UnitRole::Leader;
-                }
-                if obj.is_kind_of(KindOf::Dozer)
-                    || obj.is_kind_of(KindOf::Hacker)
-                    || obj.is_kind_of(KindOf::Saboteur)
-                    || obj.is_kind_of(KindOf::Salvager)
-                    || obj.is_kind_of(KindOf::WeaponSalvager)
-                    || obj.is_kind_of(KindOf::ArmorSalvager)
-                {
-                    return UnitRole::Support;
-                }
-                if obj.is_kind_of(KindOf::Drone) {
-                    return UnitRole::Scout;
-                }
-                if obj.is_kind_of(KindOf::Aircraft) {
-                    return UnitRole::Light;
-                }
-                if obj.is_kind_of(KindOf::Infantry) {
-                    return UnitRole::Light;
-                }
-                if obj.is_kind_of(KindOf::Vehicle) {
-                    return UnitRole::Tank;
-                }
-                if obj.is_kind_of(KindOf::Building) || obj.is_kind_of(KindOf::Structure) {
-                    return UnitRole::Support;
-                }
-                UnitRole::DamageDealer
-            })
-            .unwrap_or(UnitRole::DamageDealer)
-    }
-
-    /// Get performance statistics
-    pub fn get_performance_stats(&self) -> &AiPerformanceStats {
-        &self.performance_stats
-    }
 
     /// Get number of active AI players
     pub fn get_ai_player_count(&self) -> usize {
         self.ai_players.len()
     }
 
-    /// Get number of active unit groups
-    pub fn get_unit_group_count(&self) -> usize {
-        self.unit_groups.len()
-    }
-
-    /// Get number of objects with AI state machines
-    pub fn get_ai_object_count(&self) -> usize {
-        self.object_state_machines.len()
-    }
-
-    /// Take the latest pathfinding result for a requester, if any.
-    pub fn take_path_result(&mut self, requester_id: ObjectID) -> Option<PathResult> {
-        self.path_results.remove(&requester_id)
-    }
-
-    /// Submit a pathfinding request using the classic pathfinder.
-    pub fn request_path(&mut self, request: PathRequest) -> Result<(), AiError> {
-        let ai_store = the_ai();
-        let Some(ai) = ai_store.read().ok() else {
-            return Err(AiError::NoPathfinder);
-        };
-        let Some(pathfinder) = ai.pathfinder() else {
-            return Err(AiError::NoPathfinder);
-        };
-        let pathfinder_lock = pathfinder.write();
-        if let Ok(mut pf) = pathfinder_lock {
-            let requester_id = request.object_id;
-            let result = pf.find_path_result(request);
-            self.path_results.insert(requester_id, result);
-            Ok(())
-        } else {
-            Err(AiError::NoPathfinder)
-        }
-    }
-
-    /// Force pathfinder reset (for map changes)
-    pub fn reset_pathfinder(&mut self) -> Result<(), AiError> {
-        let ai_store = the_ai();
-        let Some(ai) = ai_store.read().ok() else {
-            return Err(AiError::NoPathfinder);
-        };
-        let Some(pathfinder) = ai.pathfinder() else {
-            return Err(AiError::NoPathfinder);
-        };
-        let pathfinder_lock = pathfinder.write();
-        if let Ok(mut pf) = pathfinder_lock {
-            pf.reset();
-            log::info!("Pathfinder reset");
-            Ok(())
-        } else {
-            Err(AiError::NoPathfinder)
-        }
-    }
 }
 
 // Global AI integration manager instance
@@ -1266,38 +735,6 @@ where
     F: FnOnce(&mut AiIntegrationManager) -> R,
 {
     AI_INTEGRATION_MANAGER.write().unwrap().as_mut().map(f)
-}
-
-/// Update global AI integration manager
-pub fn ai_sense(world: &World, delta: Duration) -> Result<(), AiError> {
-    with_ai_integration_mut(|manager| manager.sense(world, delta))
-        .unwrap_or(Err(AiError::NotInitialized))
-}
-
-pub fn ai_decide(frame_time: Instant) -> Result<(), AiError> {
-    with_ai_integration_mut(|manager| manager.decide(frame_time))
-        .unwrap_or(Err(AiError::NotInitialized))
-}
-
-pub fn ai_execute(frame_time: Instant) -> Result<(), AiError> {
-    with_ai_integration_mut(|manager| manager.execute(frame_time))
-        .unwrap_or(Err(AiError::NotInitialized))?;
-
-    // Update the legacy AI singleton after modern systems have produced orders.
-    let ai_store = the_ai();
-    let mut ai = ai_store.write().map_err(|_| AiError::InvalidObject)?;
-    ai.update(TheGameLogic::get_frame())?;
-    Ok(())
-}
-
-pub fn update_ai_integration(
-    world: &World,
-    delta: Duration,
-    frame_time: Instant,
-) -> Result<(), AiError> {
-    ai_sense(world, delta)?;
-    ai_decide(frame_time)?;
-    ai_execute(frame_time)
 }
 
 /// Handle that implements Common `AIPlayerInterface` by forwarding into the
@@ -1458,15 +895,6 @@ mod tests {
     use std::sync::{Arc, RwLock};
 
     #[test]
-    fn test_integration_manager_creation() {
-        let manager = AiIntegrationManager::new();
-
-        assert_eq!(manager.get_ai_player_count(), 0);
-        assert_eq!(manager.get_unit_group_count(), 0);
-        assert_eq!(manager.get_ai_object_count(), 0);
-    }
-
-    #[test]
     fn integration_manager_xfers_ai_player_snapshot_on_load() {
         let player_id = 5;
         let mut original = AiIntegrationManager::new();
@@ -1493,67 +921,4 @@ mod tests {
         assert!(loaded.has_ai_player(player_id));
     }
 
-    #[test]
-    fn test_unit_group_management() {
-        let mut manager = AiIntegrationManager::new();
-        manager.initialize().unwrap();
-
-        let object_a = Arc::new(RwLock::new(Object::new_test(100, 100.0)));
-        let object_b = Arc::new(RwLock::new(Object::new_test(101, 100.0)));
-        OBJECT_REGISTRY.register_object(100, &object_a);
-        OBJECT_REGISTRY.register_object(101, &object_b);
-
-        // Create group
-        let group_id = manager
-            .create_unit_group("TestGroup".to_string(), 1)
-            .unwrap();
-        assert_eq!(manager.get_unit_group_count(), 1);
-
-        // Add units to group
-        assert!(
-            manager
-                .add_unit_to_group(group_id, 100, UnitRole::Leader)
-                .is_ok()
-        );
-        assert!(
-            manager
-                .add_unit_to_group(group_id, 101, UnitRole::Tank)
-                .is_ok()
-        );
-
-        // Remove unit from group
-        assert!(manager.remove_unit_from_group(group_id, 100).is_ok());
-
-        // Group should still exist with remaining unit
-        assert_eq!(manager.get_unit_group_count(), 1);
-
-        OBJECT_REGISTRY.unregister_object(100);
-        OBJECT_REGISTRY.unregister_object(101);
-    }
-
-    #[test]
-    fn test_object_state_management() {
-        let mut manager = AiIntegrationManager::new();
-        manager.initialize().unwrap();
-
-        let object_id = 42;
-        let object = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
-        OBJECT_REGISTRY.register_object(object_id, &object);
-
-        // Set object state
-        assert_eq!(
-            manager.set_object_state(object_id, AIStateType::MoveTo),
-            Err(AiError::InvalidCommand)
-        );
-        assert_eq!(manager.get_ai_object_count(), 1);
-
-        // Non-AI test objects cannot enter MoveTo and stay in Idle.
-        assert_eq!(manager.get_object_state(object_id), Some(AIStateType::Idle));
-
-        // Notify object destroyed
-        assert!(manager.notify_object_destroyed(object_id, &[]).is_ok());
-        assert_eq!(manager.get_ai_object_count(), 0);
-
-        OBJECT_REGISTRY.unregister_object(object_id);
-    }
 }

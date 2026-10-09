@@ -1119,7 +1119,7 @@ fn lethal_weapon_hit_chain_detonates_virtual_mines() {
         )
         .expect("pad");
     {
-        let m = logic.host_object_mut(mine_id).unwrap();
+        let (m, health_events) = logic.host_object_and_health_events_mut(mine_id).unwrap();
         m.health.current = 100.0;
         m.health.maximum = 100.0;
         if let Some(md) = m.mine_data.as_mut() {
