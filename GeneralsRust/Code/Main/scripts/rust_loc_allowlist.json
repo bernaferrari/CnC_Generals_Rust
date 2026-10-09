@@ -3,7 +3,5 @@
   "policy": "Entries are temporary ceilings: counts may decrease or disappear, never increase.",
   "production": {},
   "schema_version": 1,
-  "test": {
-    "Code/Main/src/ai/cpp_parity_tests.rs": 4091
-  }
+  "test": {}
 }

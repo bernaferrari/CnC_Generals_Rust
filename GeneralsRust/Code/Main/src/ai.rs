@@ -415,6 +415,9 @@ mod teams;
 mod construction_parity_tests;
 #[cfg(test)]
 mod cpp_parity_tests;
+
+#[cfg(test)]
+mod attack_move_tests;
 #[cfg(test)]
 mod live_peer_target_tests;
 #[cfg(test)]
