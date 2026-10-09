@@ -75,24 +75,10 @@ pub fn eager_apply_host_move_attack_after_logic(
     (attacks, moves)
 }
 
-// Ordered post-logic health batch shared by damage and absolute-health events.
-thread_local! {
-    static EARLY_HEALTH_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_health_log::HostHealthEvent>, bool)>> =
-        std::cell::RefCell::new(None);
-}
-
-/// Take the ordered batch and its actual eager admission status, when present.
-pub(crate) fn take_early_health_batch() -> Option<(
-    Vec<crate::game_logic::host_health_log::HostHealthEvent>,
-    bool,
-)> {
-    EARLY_HEALTH_BATCH.with(|c| c.borrow_mut().take())
-}
-
 /// Waves 684/685: drain and apply damage/heal records in their shared host-operation order.
 pub(crate) fn eager_apply_host_health_after_logic(
     shadow: &mut GameWorldShadow,
-    _logic: &GameLogic,
+    logic: &mut GameLogic,
 ) -> usize {
     if !shadow_coupled_tick_active()
         || !gameworld_shadow_enabled()
@@ -100,9 +86,9 @@ pub(crate) fn eager_apply_host_health_after_logic(
     {
         return 0;
     }
-    let events = crate::game_logic::host_health_log::drain_ordered();
+    let events = logic.health_events.drain_ordered();
     if events.is_empty() {
-        EARLY_HEALTH_BATCH.with(|c| *c.borrow_mut() = None);
+        let _ = logic.health_events.take_early_batch();
         return 0;
     }
     // A receipt covers the whole ordered batch. If mapping is incomplete,
@@ -123,7 +109,7 @@ pub(crate) fn eager_apply_host_health_after_logic(
     } else {
         (0, 0, 0)
     };
-    EARLY_HEALTH_BATCH.with(|c| *c.borrow_mut() = Some((events, applied)));
+    logic.health_events.set_early_batch(events, applied);
     damage_queued
         .saturating_add(damage_applied)
         .saturating_add(heal_queued)
@@ -132,17 +118,20 @@ pub(crate) fn eager_apply_host_health_after_logic(
 /// Typed compatibility adapter. Production dispatch uses the combined helper.
 pub fn eager_apply_host_damage_after_logic(
     shadow: &mut GameWorldShadow,
-    logic: &GameLogic,
+    logic: &mut GameLogic,
 ) -> usize {
-    if crate::game_logic::host_damage_log::len() == 0 {
+    if logic.health_events.len_damage() == 0 {
         return 0;
     }
     eager_apply_host_health_after_logic(shadow, logic)
 }
 
 /// Typed compatibility adapter. Production dispatch uses the combined helper.
-pub fn eager_apply_host_heal_after_logic(shadow: &mut GameWorldShadow, logic: &GameLogic) -> usize {
-    if crate::game_logic::host_heal_log::len() == 0 {
+pub fn eager_apply_host_heal_after_logic(
+    shadow: &mut GameWorldShadow,
+    logic: &mut GameLogic,
+) -> usize {
+    if logic.health_events.len_heal() == 0 {
         return 0;
     }
     eager_apply_host_health_after_logic(shadow, logic)
@@ -371,7 +360,6 @@ pub fn take_early_fire_spawn_batch()
 
 /// Drop unused post-logic handoff batches when the outermost couple ends.
 pub(super) fn clear_early_combat_batches() {
-    EARLY_HEALTH_BATCH.with(|c| *c.borrow_mut() = None);
     EARLY_MAX_HEALTH_BATCH.with(|c| *c.borrow_mut() = None);
     EARLY_EXPERIENCE_BATCH.with(|c| *c.borrow_mut() = None);
     EARLY_COMBAT_ATTACK_BATCH.with(|c| *c.borrow_mut() = None);

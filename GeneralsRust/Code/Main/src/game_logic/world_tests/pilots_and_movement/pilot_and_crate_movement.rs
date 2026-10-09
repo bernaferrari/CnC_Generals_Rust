@@ -886,7 +886,7 @@ fn angry_mob_spawns_member_objects_on_nexus() {
         if crate::gameworld_shadow::gameworld_damage_authority_live() {
             let hp = n.health.current.max(1.0);
             let oid = n.id;
-            crate::game_logic::host_damage_log::record(oid, hp, None, true);
+            logic.health_events.record_damage(oid, hp, None, true);
         } else {
             n.health.current = 0.0;
         }
@@ -1236,7 +1236,7 @@ fn burton_charges_use_retail_c4_special_objects() {
         if crate::gameworld_shadow::gameworld_damage_authority_live() {
             let hp = o.health.current.max(1.0);
             let oid = o.id;
-            crate::game_logic::host_damage_log::record(oid, hp, None, true);
+            logic.health_events.record_damage(oid, hp, None, true);
         } else {
             o.health.current = 0.0;
         }
@@ -1506,7 +1506,7 @@ fn command_center_radar_residual_enables_player_has_radar() {
     let cc_id = game_logic
         .create_object("TestCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("command center");
-    if let Some(obj) = game_logic.host_object_mut(cc_id) {
+    if let Some((obj, health_events)) = game_logic.host_object_and_health_events_mut(cc_id) {
         obj.set_status_under_construction(false);
         obj.construction_percent = 1.0;
     }
@@ -1546,7 +1546,7 @@ fn command_center_radar_residual_enables_player_has_radar() {
         if crate::gameworld_shadow::gameworld_damage_authority_live() {
             let hp = obj.health.current.max(1.0);
             let oid = obj.id;
-            crate::game_logic::host_damage_log::record(oid, hp, None, true);
+            health_events.record_damage(oid, hp, None, true);
         } else {
             obj.health.current = 0.0;
         }

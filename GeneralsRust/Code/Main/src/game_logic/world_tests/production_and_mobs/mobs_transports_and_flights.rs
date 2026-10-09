@@ -2234,8 +2234,8 @@ fn flammable_buildings_ignite_and_play_burning_loop() {
 
     crate::game_logic::host_historic_bonus::set_logic_frame(10);
     {
-        let o = logic.host_object_mut(id).unwrap();
-        let _ = o.take_damage_from_typed(50.0, None, DamageType::Flame);
+        let (o, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
+        let _ = o.take_damage_from_typed(50.0, None, DamageType::Flame, health_events);
     }
     {
         let o = logic.host_object(id).unwrap();

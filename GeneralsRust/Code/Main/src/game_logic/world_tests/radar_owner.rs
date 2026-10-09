@@ -14,7 +14,7 @@ fn world_with_unit(position: Vec3) -> (GameLogic, ObjectId) {
     (logic, id)
 }
 
-fn frozen_radar(logic: &GameLogic) -> Vec<(String, Vec3, u8)> {
+fn frozen_radar(logic: &mut GameLogic) -> Vec<(String, Vec3, u8)> {
     PresentationFrame::build_from_logic(logic, 0)
         .events
         .into_iter()
@@ -49,13 +49,13 @@ fn radar_owner_interleaved_freeze_and_ui_drain_stay_in_their_world() {
         ("A attack".into(), a_position, 1),
         ("A generic".into(), a_position, 0),
     ];
-    assert_eq!(frozen_radar(&a), expected_a);
+    assert_eq!(frozen_radar(&mut a), expected_a);
     assert_eq!(
-        frozen_radar(&a),
+        frozen_radar(&mut a),
         expected_a,
         "freeze must not drain or advance radar"
     );
-    assert_eq!(frozen_radar(&b), vec![("B ally".into(), b_position, 2)]);
+    assert_eq!(frozen_radar(&mut b), vec![("B ally".into(), b_position, 2)]);
     let a_ui = a.update_ui_state(0);
     assert_eq!(a_ui.radar_messages, vec!["A attack", "A generic"]);
     assert_eq!(a_ui.radar_events[0].position, Some(a_position));
@@ -81,7 +81,7 @@ fn radar_owner_reset_clears_only_its_world_and_allows_reused_ids() {
         a.radar_notification_snapshot().is_empty(),
         "reset must discard pending old-match messages"
     );
-    assert_eq!(frozen_radar(&b), vec![("keep B".into(), Vec3::Z, 1)]);
+    assert_eq!(frozen_radar(&mut b), vec![("keep B".into(), Vec3::Z, 1)]);
     let new_id = a
         .create_object("RadarOwnerProbe", Team::USA, Vec3::Y)
         .expect("reused slot");
@@ -145,11 +145,11 @@ fn radar_owner_snapshot_restore_into_staging_world_does_not_import_pending_ui_te
     // serialized C++ Radar event ring remains covered by its own Xfer tests.
     assert!(staging.radar_notification_snapshot().is_empty());
     assert_eq!(
-        frozen_radar(&source),
+        frozen_radar(&mut source),
         vec![("source pending".into(), Vec3::X, 1)]
     );
     assert_eq!(
-        frozen_radar(&neighbor),
+        frozen_radar(&mut neighbor),
         vec![("neighbor pending".into(), Vec3::Z, 1)]
     );
     staging.queue_radar_message_at("staging only", Vec3::Y, RadarKind::Ally);

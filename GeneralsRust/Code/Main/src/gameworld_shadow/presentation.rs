@@ -14,7 +14,7 @@ pub fn apply_logged_damage_channel_parity(
     shadow: &mut GameWorldShadow,
     targets: &[(ObjectId, f32)],
 ) -> Result<usize, String> {
-    crate::game_logic::host_damage_log::clear();
+    logic.health_events.clear_damage();
     shadow.sync_from_host(logic);
     // Snapshot pre-damage shadow health for targets.
     let mut pre: Vec<(ObjectId, f32)> = Vec::new();
@@ -25,11 +25,12 @@ pub fn apply_logged_damage_channel_parity(
             .map(|o| o.health.current)
             .ok_or_else(|| format!("missing {id:?}"))?;
         pre.push((id, h));
-        if let Some(obj) = logic.host_object_mut(id) {
-            let _ = obj.take_damage(amount);
-        }
+        let Some((obj, health_events)) = logic.host_object_and_health_events_mut(id) else {
+            return Err(format!("missing {id:?}"));
+        };
+        let _ = obj.take_damage(amount, health_events);
     }
-    let events = crate::game_logic::host_damage_log::drain();
+    let events = logic.health_events.drain_damage();
     if events.len() < targets.len() {
         return Err(format!(
             "expected >= {} damage log entries, got {}",
@@ -179,8 +180,8 @@ pub fn damage_parity_probe(
     }
     let _ = shadow.apply_pending();
     // Apply same damage on host for comparison path.
-    if let Some(obj) = logic.host_object_mut(host) {
-        let _ = obj.take_damage(amount);
+    if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(host) {
+        let _ = obj.take_damage(amount, health_events);
     } else {
         return Err("host object vanished".into());
     }

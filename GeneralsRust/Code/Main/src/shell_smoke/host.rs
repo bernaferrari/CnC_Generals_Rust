@@ -81,7 +81,7 @@ pub(super) fn run_host_session(frames: u32) -> HostSession {
     let mut rts = RTSInterface::new();
     let mut command_panel = UnitCommandPanel::new();
     let seed_pres = PresentationFrame::build_and_apply_for_shell_consumers(
-        &logic,
+        &mut logic,
         0,
         &mut hud,
         &mut ui_state,
@@ -96,7 +96,7 @@ pub(super) fn run_host_session(frames: u32) -> HostSession {
         // Dual-tick: authority step then multi-consumer presentation apply.
         logic.update();
         let _ = PresentationFrame::build_and_apply_for_shell_consumers(
-            &logic,
+            &mut logic,
             0,
             &mut hud,
             &mut ui_state,
@@ -124,7 +124,7 @@ pub(super) fn run_host_session(frames: u32) -> HostSession {
     }
 
     let pres = PresentationFrame::build_and_apply_for_shell_consumers(
-        &logic,
+        &mut logic,
         0,
         &mut hud,
         &mut ui_state,

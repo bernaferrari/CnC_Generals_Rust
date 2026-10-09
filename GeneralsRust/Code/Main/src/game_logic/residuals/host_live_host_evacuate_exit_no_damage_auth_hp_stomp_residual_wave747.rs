@@ -1,6 +1,6 @@
 //! Wave 747: under damage authority, evacuate-and-exit does not zero host
 //! transport HP mid-frame (avoids dual with GameWorld HP writeback). Projects
-//! lethal via `host_damage_log` + destroyed flag. Non-authority path keeps host
+//! lethal via the owning `HostHealthEvents` queue + destroyed flag. Non-authority path keeps host
 //! HP clear. `playable_claim` stays false.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -87,7 +87,7 @@ pub fn honesty_host_evacuate_exit_no_damage_auth_hp_stomp_source_markers_residua
         && gl.contains("fn evacuate_container_now")
         && gl.contains("evacuate-and-exit")
         && gl.contains("gameworld_damage_authority_live()")
-        && gl.contains("host_damage_log::record")
+        && gl.contains("health_events.record_damage")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostEvacuateExitNoDamageAuthHpStompAction::SourceMarkers);
     ok

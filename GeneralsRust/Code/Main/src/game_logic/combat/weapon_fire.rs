@@ -260,6 +260,7 @@ pub fn apply_ready_projectileless_delayed_damage(
     objects: &mut HashMap<ObjectId, Object>,
     current_frame: u32,
     players: Option<&HashMap<u32, crate::game_logic::Player>>,
+    health_events: &mut crate::game_logic::HostHealthEvents,
 ) {
     let ready = take_ready_projectileless_delayed_damage(combat, current_frame);
     let historic_damage_limit = game_engine::common::global_data::read().historic_damage_limit;
@@ -270,6 +271,7 @@ pub fn apply_ready_projectileless_delayed_damage(
             players,
             current_frame,
             historic_damage_limit,
+            health_events,
         );
     }
 }

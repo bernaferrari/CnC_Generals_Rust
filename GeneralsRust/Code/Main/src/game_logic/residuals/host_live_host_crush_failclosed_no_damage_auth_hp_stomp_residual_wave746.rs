@@ -1,6 +1,6 @@
 //! Wave 746: under damage authority, structure-topple crush fail-closed does
 //! not zero host HP (avoids dual with GameWorld HP writeback). Projects lethal
-//! via `host_damage_log` + destroyed flags. Non-authority path keeps host HP
+//! via the owning `HostHealthEvents` queue + destroyed flags. Non-authority path keeps host HP
 //! clear. `playable_claim` stays false.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -12,7 +12,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 pub const LIVE_HOST_CRUSH_FAILCLOSED_NO_DAMAGE_AUTH_HP_STOMP_METHOD_NAMES_WAVE746: &[&str] = &[
     "crush sweep leaves no standing unit residual",
     "gameworld_damage_authority_live",
-    "host_damage_log::record",
+    "health_events.record_damage",
     "Wave 746",
     "playable_claim = false",
 ];
@@ -74,7 +74,7 @@ pub fn honesty_host_crush_failclosed_no_damage_auth_hp_stomp_method_names_residu
     let names = LIVE_HOST_CRUSH_FAILCLOSED_NO_DAMAGE_AUTH_HP_STOMP_METHOD_NAMES_WAVE746;
     let ok = residual_name_index(names, "crush sweep leaves no standing unit residual").is_some()
         && residual_name_index(names, "gameworld_damage_authority_live").is_some()
-        && residual_name_index(names, "host_damage_log::record").is_some()
+        && residual_name_index(names, "health_events.record_damage").is_some()
         && residual_name_index(names, "Wave 746").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
     residual_action_store(ResidualHostCrushFailclosedNoDamageAuthHpStompAction::MethodNames);
@@ -86,7 +86,7 @@ pub fn honesty_host_crush_failclosed_no_damage_auth_hp_stomp_source_markers_resi
     let ok = gl.contains("Wave 746")
         && gl.contains("crush sweep leaves no standing unit residual")
         && gl.contains("gameworld_damage_authority_live()")
-        && gl.contains("host_damage_log::record")
+        && gl.contains("health_events.record_damage")
         && gl.contains("HostDeathType::Crushed")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostCrushFailclosedNoDamageAuthHpStompAction::SourceMarkers);
@@ -116,7 +116,8 @@ pub fn simulate_host_crush_failclosed_no_damage_auth_hp_stomp_collect_source() -
     ok
 }
 pub fn simulate_host_crush_failclosed_no_damage_auth_hp_stomp_dispatch_source() -> bool {
-    let ok = gl_source().contains("Wave 746") && gl_source().contains("host_damage_log::record");
+    let ok =
+        gl_source().contains("Wave 746") && gl_source().contains("health_events.record_damage");
     residual_action_store(ResidualHostCrushFailclosedNoDamageAuthHpStompAction::DispatchSource);
     ok
 }

@@ -172,7 +172,7 @@ pub fn simulate_live_presentation_build_for_engine_honesty() -> bool {
         e.max_health = 170.0;
     }
 
-    let pres = PresentationFrame::build_for_engine(&logic, 0, Some(&shadow));
+    let pres = PresentationFrame::build_for_engine(&mut logic, 0, Some(&shadow));
     if crate::presentation_frame::presentation_from_gameworld_enabled() {
         if pres.gameworld_rebuilt < 2 {
             return false;

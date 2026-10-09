@@ -51,6 +51,7 @@ impl GameLogic {
         let team_factory = gamelogic::team::TeamFactoryHandle::new();
 
         let mut instance = Self {
+            health_events: crate::game_logic::HostHealthEvents::default(),
             // C++ engine-init order (GameEngine.cpp:468-481): the upgrade
             // center and AI stores exist before the world that owns them.
             // Construction is inert (no active-slot write); Main installs
@@ -1190,6 +1191,7 @@ impl GameLogic {
         self.map_loaded = false;
         self.victory_conditions.reset();
         self.clear_victory_observation();
+        self.health_events.clear();
         self.scripts_loaded = false;
         self.replay_observer_player_id = None;
         self.install_multiplayer_scripts = false;

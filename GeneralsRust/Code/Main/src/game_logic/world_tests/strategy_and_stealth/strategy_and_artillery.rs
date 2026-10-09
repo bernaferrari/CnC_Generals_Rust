@@ -827,7 +827,7 @@ fn reset_camera_clears_stale_rotate() {
         "RESET_CAMERA must drop the stale ROTATE_CAMERA"
     );
     assert!(game_logic.peek_pending_camera_zoom_reset());
-    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&game_logic, 0);
+    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut game_logic, 0);
     assert!(
         frame.camera_rotate.is_none(),
         "RESET_CAMERA must not leave ROTATE_CAMERA on the presentation frame"
@@ -934,7 +934,7 @@ fn script_zoom_pitch_rotate_preserve_ease_on_presentation_frame() {
         });
     game_logic.evaluate_and_execute_scripts(0.0);
 
-    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&game_logic, 0);
+    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut game_logic, 0);
     assert_eq!(frame.camera_zoom, Some((1.2, 2.0)));
     assert_eq!(frame.camera_zoom_ease, (0.3, 0.5));
     assert_eq!(frame.camera_pitch, Some((0.8, 1.5)));
@@ -2465,7 +2465,12 @@ fn daisy_cutter_host_path_queues_and_completes_area_damage() {
 
     let enemy_after = game_logic.host_object(enemy_id).map(|o| o.health.current);
     // Epicenter damage is large enough to kill residual test tank or leave 0.
-    let enemy_dealt = test_observed_damage_to(enemy_id, 500.0, enemy_after.unwrap_or(0.0));
+    let enemy_dealt = test_observed_damage_to(
+        &game_logic.health_events,
+        enemy_id,
+        500.0,
+        enemy_after.unwrap_or(0.0),
+    );
     assert!(
         enemy_dealt + 0.1 >= 500.0
             || enemy_after.is_none()
@@ -2477,6 +2482,7 @@ fn daisy_cutter_host_path_queues_and_completes_area_damage() {
         "enemy at epicenter must take lethal DaisyCutter residual damage (dealt={enemy_dealt})"
     );
     let friend_dealt = test_observed_damage_to(
+        &game_logic.health_events,
         friend_id,
         500.0,
         game_logic
@@ -2819,12 +2825,17 @@ fn carpet_bomb_host_path_queues_and_applies_delayed_line_damage() {
         .map(|o| o.health.current);
     // Epicenter residual damage = CARPET_BOMB_DAMAGE (300) per bomb hit.
     let center_dealt = test_observed_damage_to(
+        &game_logic.health_events,
         enemy_center_id,
         health_before_center,
         center_hp.unwrap_or(0.0),
     );
-    let outer_dealt =
-        test_observed_damage_to(enemy_outer_id, health_before_outer, outer_hp.unwrap_or(0.0));
+    let outer_dealt = test_observed_damage_to(
+        &game_logic.health_events,
+        enemy_outer_id,
+        health_before_outer,
+        outer_hp.unwrap_or(0.0),
+    );
     assert!(
         center_dealt + 0.1 >= CARPET_BOMB_DAMAGE
             || center_hp.is_none()
@@ -2848,6 +2859,7 @@ fn carpet_bomb_host_path_queues_and_applies_delayed_line_damage() {
         "enemy on outer bomb epicenter must take multi-strike residual damage, got {outer_hp:?} dealt={outer_dealt}"
     );
     let friend_dealt = test_observed_damage_to(
+        &game_logic.health_events,
         friend_id,
         500.0,
         game_logic

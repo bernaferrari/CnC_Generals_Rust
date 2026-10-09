@@ -561,7 +561,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -993,7 +993,7 @@ impl GameLogic {
             if crate::gameworld_shadow::gameworld_damage_authority_live() {
                 let hp = o.health.current.max(1.0);
                 let oid = o.id;
-                crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                self.health_events.record_damage(oid, hp, None, true);
             } else {
                 o.health.current = 0.0;
             }
@@ -1107,7 +1107,11 @@ impl GameLogic {
                     o.firewall_segment_wall_id = Some(wall_id);
                     o.firewall_segment_dir = Some([dir_x, dir_z]);
                     o.health.maximum = FIREWALL_SEGMENT_MAX_HEALTH;
-                    Self::write_object_health_authority_aware(o, FIREWALL_SEGMENT_MAX_HEALTH);
+                    Self::write_object_health_authority_aware(
+                        o,
+                        FIREWALL_SEGMENT_MAX_HEALTH,
+                        &mut self.health_events,
+                    );
                 }
                 spawned = spawned.saturating_add(1);
             }
@@ -1175,7 +1179,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -1309,7 +1313,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -1448,7 +1452,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -1912,13 +1916,14 @@ impl GameLogic {
                                     Some(ev.victim),
                                     dtype,
                                     death,
+                                    &mut self.health_events,
                                 );
                             }
                         }
                         HostBridgeMirrorKind::Heal => {
                             if let Some(obj) = self.objects.get_mut(&tid) {
                                 obj.revive_from_bridge_rubble();
-                                obj.heal(amount);
+                                obj.heal(amount, &mut self.health_events);
                             }
                         }
                     }
@@ -2161,6 +2166,7 @@ impl GameLogic {
                                 Some(id),
                                 crate::game_logic::combat::DamageType::Falling,
                                 crate::game_logic::host_usa_pilot::HostDeathType::Splatted,
+                                &mut self.health_events,
                             );
                         }
                     }

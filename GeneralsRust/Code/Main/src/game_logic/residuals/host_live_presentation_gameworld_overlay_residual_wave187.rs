@@ -155,7 +155,7 @@ pub fn simulate_live_presentation_gameworld_overlay_honesty() -> bool {
         e.transform.position.z = 43.0;
     }
 
-    let mut pres = PresentationFrame::build_from_logic(&logic, 0);
+    let mut pres = PresentationFrame::build_from_logic(&mut logic, 0);
     if pres.objects.is_empty() {
         return false;
     }

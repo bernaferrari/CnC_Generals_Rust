@@ -942,7 +942,7 @@ impl CnCGameEngine {
             };
 
         {
-            let (d, k) = crate::game_logic::host_damage_log::cumulative_totals();
+            let (d, k) = self.host_game_logic().health_events.cumulative_totals();
             self.match_damage_applied = d;
             self.match_kills = k;
         }

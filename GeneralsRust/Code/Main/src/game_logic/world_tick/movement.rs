@@ -2222,7 +2222,7 @@ mod tests {
         logic.update_movement_for_test(&[ObjectId(9519)], 1.0 / 30.0);
         logic.tick_shock_stun_all();
         if let Some(o) = logic.objects.get_mut(&ObjectId(9519)) {
-            let _ = o.tick_physics_motion_step(0.0);
+            let _ = o.tick_physics_motion_step(0.0, &mut logic.health_events);
         }
         let obj = logic.objects.get(&ObjectId(9519)).expect("faller");
         assert!(
@@ -2238,7 +2238,7 @@ mod tests {
             o.health.current = 200.0;
             o.set_position(Vec3::ZERO);
             o.movement.velocity = Vec3::new(0.0, -40.0, 0.0);
-            let _ = o.tick_physics_motion_step(0.0);
+            let _ = o.tick_physics_motion_step(0.0, &mut logic.health_events);
         }
         let obj = logic.objects.get(&ObjectId(9519)).expect("faller");
         assert!(

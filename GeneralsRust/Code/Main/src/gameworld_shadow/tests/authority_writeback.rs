@@ -2,6 +2,16 @@
 
 use super::*;
 
+fn owner_damage(logic: &mut GameLogic, id: ObjectId, amount: f32) -> bool {
+    let (object, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
+    object.take_damage(amount, health_events)
+}
+
+fn owner_heal(logic: &mut GameLogic, id: ObjectId, health: f32) {
+    let (object, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
+    object.heal(health, health_events);
+}
+
 #[test]
 fn no_shadow_boundary_still_admits_projected_lethal_damage() {
     let env = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "1");
@@ -14,7 +24,7 @@ fn no_shadow_boundary_still_admits_projected_lethal_damage() {
         .expect("target");
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    crate::game_logic::host_damage_log::clear();
+    logic.health_events.clear_damage();
     let authority = *logic.gameworld_authority();
     with_gameworld_authority(authority, || {
         let _couple = ShadowCoupleGuard::enter();
@@ -24,7 +34,7 @@ fn no_shadow_boundary_still_admits_projected_lethal_damage() {
             assert_eq!(logic.host_object(id).unwrap().health.current, 100.0);
         });
     });
-    let events = crate::game_logic::host_damage_log::snapshot();
+    let events = logic.health_events.snapshot_damage();
     assert_eq!(events.len(), 1);
     assert!(!events[0].owner_health_already_applied());
     let _env = env.set("GENERALS_GAMEWORLD_SHADOW", "0");
@@ -32,10 +42,10 @@ fn no_shadow_boundary_still_admits_projected_lethal_damage() {
     assert_eq!(logic.host_object(id).unwrap().health.current, 0.0);
     assert!(logic.host_object(id).unwrap().status.destroyed);
     assert!(logic.host_object(id).unwrap().status.effectively_dead);
-    assert!(crate::game_logic::host_damage_log::snapshot().is_empty());
+    assert!(logic.health_events.snapshot_damage().is_empty());
     run_post_logic_shadow_boundary(None, &mut logic);
     assert_eq!(logic.host_object(id).unwrap().health.current, 0.0);
-    crate::game_logic::host_damage_log::clear();
+    logic.health_events.clear_damage();
 }
 
 #[test]
@@ -89,7 +99,7 @@ fn gameworld_step_movement_advances_move_target() {
 fn damage_authority_defers_host_hp_until_writeback() {
     let _env_guard = authority_env_lock();
 
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_damage_log};
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     logic.set_damage_authority(true);
     assert!(gameworld_damage_authority_enabled());
@@ -108,11 +118,11 @@ fn damage_authority_defers_host_hp_until_writeback() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let before = logic.host_objects().get(&oid).expect("o").health.current;
-    host_damage_log::clear();
+    logic.health_events.clear_damage();
     let _couple = ShadowCoupleGuard::enter();
     with_coupled_shadow(&mut shadow, || {
-        let o = logic.host_object_mut(oid).expect("o");
-        let _ = o.take_damage(25.0);
+        let (o, health_events) = logic.host_object_and_health_events_mut(oid).expect("o");
+        let _ = o.take_damage(25.0, health_events);
     });
     drop(_couple);
     // C++ ActiveBody::internalChangeHealth writes HP the same frame.
@@ -122,7 +132,7 @@ fn damage_authority_defers_host_hp_until_writeback() {
         "host HP same-frame before={before} mid={mid}"
     );
 
-    let events = host_damage_log::drain();
+    let events = logic.health_events.drain_damage();
     assert!(
         events
             .iter()
@@ -131,10 +141,10 @@ fn damage_authority_defers_host_hp_until_writeback() {
         events
     );
     // Re-record for session (drained above).
-    host_damage_log::clear();
+    logic.health_events.clear_damage();
     {
-        let o = logic.host_object_mut(oid).expect("o");
-        let _ = o.take_damage(25.0);
+        let (o, health_events) = logic.host_object_and_health_events_mut(oid).expect("o");
+        let _ = o.take_damage(25.0, health_events);
     }
     let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
     let after = logic.host_objects().get(&oid).expect("o").health.current;
@@ -146,7 +156,7 @@ fn damage_authority_defers_host_hp_until_writeback() {
 
 #[test]
 fn heal_authority_commits_host_hp_before_shadow_writeback() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_heal_log};
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     logic.set_damage_authority(true);
     assert!(gameworld_damage_authority_enabled());
@@ -181,16 +191,16 @@ fn heal_authority_commits_host_hp_before_shadow_writeback() {
         .unwrap();
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    host_heal_log::clear();
+    logic.health_events.clear_heal();
     let _couple = ShadowCoupleGuard::enter();
     with_coupled_shadow(&mut shadow, || {
-        let o = logic.host_object_mut(oid).expect("o");
-        o.heal(30.0);
+        let (o, health_events) = logic.host_object_and_health_events_mut(oid).expect("o");
+        o.heal(30.0, health_events);
     });
     drop(_couple);
     let mid = logic.host_objects().get(&oid).expect("o").health.current;
     assert!((mid - 70.0).abs() < 1e-5, "host heal committed mid={mid}");
-    let events = host_heal_log::snapshot();
+    let events = logic.health_events.snapshot_heal();
     assert!(
         events.iter().any(|e| e.target == oid
             && (e.health - 70.0).abs() < 1e-5
@@ -201,7 +211,7 @@ fn heal_authority_commits_host_hp_before_shadow_writeback() {
     let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
     let after = logic.host_objects().get(&oid).expect("o").health.current;
     assert!((after - 70.0).abs() < 1e-3, "writeback heal after={after}");
-    assert!(host_heal_log::snapshot().is_empty());
+    assert!(logic.health_events.snapshot_heal().is_empty());
 }
 
 #[test]
@@ -1798,7 +1808,6 @@ fn snapshot_builder_uses_authoritative_health() {
 #[test]
 fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
     let _env = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "0");
-    use crate::game_logic::host_damage_log;
 
     let mut logic = GameLogic::new();
     apply_skirmish_config(&mut logic, &golden_skirmish_config("NoShadowDamage")).expect("config");
@@ -1816,18 +1825,20 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
 
     assert!(!gameworld_shadow_enabled());
     assert!(!shadow_coupled_tick_active());
-    host_damage_log::clear();
+    logic.health_events.clear_damage();
 
     // Production Object::take_damage path commits this owner mutation at once.
     {
-        let object = logic.host_object_mut(ordinary).expect("ordinary");
+        let (object, health_events) = logic
+            .host_object_and_health_events_mut(ordinary)
+            .expect("ordinary");
         assert!(!object.status.destroyed);
-        assert!(!object.take_damage(20.0));
+        assert!(!object.take_damage(20.0, health_events));
         assert_eq!(object.health.current, 80.0);
         assert_eq!(object.previous_health, 100.0);
         assert!(!object.status.destroyed);
     }
-    let ordinary_event = host_damage_log::snapshot();
+    let ordinary_event = logic.health_events.snapshot_damage();
     assert_eq!(ordinary_event.len(), 1);
     assert_eq!(ordinary_event[0].target, ordinary);
     assert_eq!(ordinary_event[0].amount, 20.0);
@@ -1844,7 +1855,7 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
         assert_eq!(object.previous_health, 100.0);
         assert!(!object.status.destroyed);
     }
-    assert!(host_damage_log::snapshot().is_empty());
+    assert!(logic.health_events.snapshot_damage().is_empty());
 
     // A second no-session boundary is a no-op after the event has been drained.
     crate::gameworld_shadow::run_post_logic_shadow_boundary(None, &mut logic);
@@ -1855,12 +1866,12 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
     // Zero damage produces no damage event and must leave health/history alone.
     let zero_previous = logic.host_object(zero).unwrap().previous_health;
     {
-        let object = logic.host_object_mut(zero).expect("zero");
-        assert!(!object.take_damage(0.0));
+        let (object, health_events) = logic.host_object_and_health_events_mut(zero).expect("zero");
+        assert!(!object.take_damage(0.0, health_events));
         assert_eq!(object.health.current, 100.0);
         assert_eq!(object.previous_health, zero_previous);
     }
-    assert!(host_damage_log::snapshot().is_empty());
+    assert!(logic.health_events.snapshot_damage().is_empty());
     crate::gameworld_shadow::run_post_logic_shadow_boundary(None, &mut logic);
     assert_eq!(logic.host_object(zero).unwrap().health.current, 100.0);
     assert_eq!(
@@ -1873,13 +1884,15 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
     // the queued event still has to retain destruction bookkeeping. Repeated
     // boundaries must not duplicate the health transition or clear the death.
     {
-        let object = logic.host_object_mut(lethal).expect("lethal");
-        assert!(object.take_damage(1000.0));
+        let (object, health_events) = logic
+            .host_object_and_health_events_mut(lethal)
+            .expect("lethal");
+        assert!(object.take_damage(1000.0, health_events));
         assert_eq!(object.health.current, 0.0);
         assert_eq!(object.previous_health, 100.0);
         assert!(object.status.destroyed);
     }
-    let lethal_event = host_damage_log::snapshot();
+    let lethal_event = logic.health_events.snapshot_damage();
     assert_eq!(lethal_event.len(), 1);
     assert_eq!(lethal_event[0].target, lethal);
     assert!(lethal_event[0].destroyed);
@@ -1892,43 +1905,43 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
     assert_eq!(logic.host_object(lethal).unwrap().previous_health, 100.0);
     assert!(logic.host_object(lethal).unwrap().status.destroyed);
 
-    host_damage_log::clear();
+    logic.health_events.clear_damage();
 }
 
 #[test]
 fn no_shadow_boundary_preserves_committed_heal_damage_order() {
     let _env = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "0");
-    use crate::game_logic::{host_damage_log, host_heal_log};
     let mut logic = GameLogic::new();
     apply_skirmish_config(&mut logic, &golden_skirmish_config("HealDamageOrder")).expect("config");
     ensure_template(&mut logic, "HealDamageOrderTarget", 200.0);
     for heal_first in [true, false] {
-        host_damage_log::clear();
-        host_heal_log::clear();
+        logic.health_events.clear_damage();
+        logic.health_events.clear_heal();
         let id = logic
             .create_object("HealDamageOrderTarget", Team::USA, Vec3::ZERO)
             .expect("target");
         let previous;
         {
-            let object = logic.host_object_mut(id).expect("target");
+            let (object, health_events) =
+                logic.host_object_and_health_events_mut(id).expect("target");
             object.health.current = 40.0;
             object.previous_health = 40.0;
             if heal_first {
-                object.heal(50.0);
+                object.heal(50.0, health_events);
                 assert_eq!(object.health.current, 90.0);
-                assert!(!object.take_damage(20.0));
+                assert!(!object.take_damage(20.0, health_events));
                 previous = 90.0;
             } else {
-                assert!(!object.take_damage(20.0));
+                assert!(!object.take_damage(20.0, health_events));
                 assert_eq!(object.health.current, 20.0);
-                object.heal(50.0);
+                object.heal(50.0, health_events);
                 previous = 20.0;
             }
             assert_eq!(object.health.current, 70.0);
             assert_eq!(object.previous_health, previous);
         }
-        assert_eq!(host_damage_log::snapshot().len(), 1);
-        assert_eq!(host_heal_log::snapshot().len(), 1);
+        assert_eq!(logic.health_events.snapshot_damage().len(), 1);
+        assert_eq!(logic.health_events.snapshot_heal().len(), 1);
         for _ in 0..2 {
             crate::gameworld_shadow::run_post_logic_shadow_boundary(None, &mut logic);
             let object = logic.host_object(id).expect("target after boundary");
@@ -1936,17 +1949,16 @@ fn no_shadow_boundary_preserves_committed_heal_damage_order() {
             assert_eq!(object.previous_health, previous);
             assert!(!object.status.destroyed);
         }
-        assert!(host_damage_log::snapshot().is_empty());
-        assert!(host_heal_log::snapshot().is_empty());
+        assert!(logic.health_events.snapshot_damage().is_empty());
+        assert!(logic.health_events.snapshot_heal().is_empty());
     }
-    host_damage_log::clear();
-    host_heal_log::clear();
+    logic.health_events.clear_damage();
+    logic.health_events.clear_heal();
 }
 
 #[test]
 fn no_shadow_boundary_preserves_completed_coupled_healing() {
     let env = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "1");
-    use crate::game_logic::host_heal_log;
     let mut logic = GameLogic::new();
     logic.set_damage_authority(true);
     apply_skirmish_config(&mut logic, &golden_skirmish_config("PendingHealing")).expect("config");
@@ -1957,17 +1969,17 @@ fn no_shadow_boundary_preserves_completed_coupled_healing() {
     logic.host_object_mut(id).unwrap().health.current = 40.0;
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    host_heal_log::clear();
+    logic.health_events.clear_heal();
     let authority = *logic.gameworld_authority();
     with_gameworld_authority(authority, || {
         let _couple = ShadowCoupleGuard::enter();
         with_coupled_shadow(&mut shadow, || {
             assert!(gameworld_damage_authority_live());
-            logic.host_object_mut(id).unwrap().heal(30.0);
+            owner_heal(&mut logic, id, 30.0);
             assert_eq!(logic.host_object(id).unwrap().health.current, 70.0);
         });
     });
-    let events = host_heal_log::snapshot();
+    let events = logic.health_events.snapshot_heal();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].health, 70.0);
     assert!(events[0].owner_health_already_applied());
@@ -1977,8 +1989,8 @@ fn no_shadow_boundary_preserves_completed_coupled_healing() {
         assert_eq!(logic.host_object(id).unwrap().health.current, 70.0);
         assert!(!logic.host_object(id).unwrap().status.destroyed);
     }
-    assert!(host_heal_log::snapshot().is_empty());
-    host_heal_log::clear();
+    assert!(logic.health_events.snapshot_heal().is_empty());
+    logic.health_events.clear_heal();
 }
 
 #[test]
@@ -1992,8 +2004,6 @@ fn coupled_tick_group_speed_reads_script_damage_from_host_owner_before_shadow_bo
     use glam::Vec3;
 
     let _env_guard = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "1");
-    crate::game_logic::host_damage_log::clear();
-
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     logic.scripts_loaded = true;
@@ -2072,7 +2082,9 @@ fn coupled_tick_group_speed_reads_script_damage_from_host_owner_before_shadow_bo
             "the really-damaged 10-speed member is excluded; healthy group speed is 20"
         );
         assert!(
-            crate::game_logic::host_damage_log::snapshot()
+            logic
+                .health_events
+                .snapshot_damage()
                 .iter()
                 .any(|event| event.target == slow),
             "the in-step script damage passed through the production damage channel"
@@ -2087,7 +2099,7 @@ fn coupled_tick_group_speed_reads_script_damage_from_host_owner_before_shadow_bo
         .expect("active shadow");
         assert_eq!(shadow_hp, 100.0);
     });
-    crate::game_logic::host_damage_log::clear();
+    logic.health_events.clear_damage();
 }
 
 #[test]

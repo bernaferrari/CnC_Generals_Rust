@@ -880,7 +880,7 @@ mod presentation_identity_tests {
             p.selected_objects = vec![id];
         }
 
-        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        let snap = PresentationFrame::build_from_logic(&mut logic, 0);
         assert!(
             snap.objects.iter().any(|o| o.id == id && !o.destroyed),
             "snapshot must contain unit"
@@ -942,7 +942,7 @@ mod presentation_identity_tests {
         let id = logic
             .create_object("CtrlGrpUnit", Team::USA, Vec3::new(10.0, 0.0, 20.0))
             .expect("u");
-        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        let snap = PresentationFrame::build_from_logic(&mut logic, 0);
         if let Some(o) = logic.host_object_mut(id) {
             o.set_position(Vec3::new(999.0, 0.0, 999.0));
         }

@@ -198,18 +198,15 @@ fn infect(world: &mut GameLogic, id: ObjectId, amount: f32) {
         frame > 0,
         "this packet excludes the preexisting frame0 deferred-anchor policy"
     );
-    assert!(
-        !world
-            .host_object_mut(id)
-            .unwrap()
-            .take_damage_from_typed_death_at_frame(
-                amount,
-                None,
-                DamageType::Toxin,
-                HostDeathType::Poisoned,
-                frame
-            )
-    );
+    let (owner, health_events) = world.host_object_and_health_events_mut(id).unwrap();
+    assert!(!owner.take_damage_from_typed_death_at_frame(
+        amount,
+        None,
+        DamageType::Toxin,
+        HostDeathType::Poisoned,
+        frame,
+        health_events,
+    ));
     let owner = world.host_object(id).unwrap();
     let poison = owner.poisoned_behavior.as_ref().unwrap();
     assert!(owner.is_poison_tinted());

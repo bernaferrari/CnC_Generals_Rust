@@ -1,6 +1,6 @@
 //! Wave 749: under damage authority, tensile-formation rubble does not zero
 //! host HP mid-frame (avoids dual with GameWorld HP writeback). Projects lethal
-//! via `host_damage_log`. Non-authority path keeps host HP clear. Tensile rubble
+//! via the owning `HostHealthEvents` queue. Non-authority path keeps host HP clear. Tensile rubble
 //! flags remain host residual. `playable_claim` stays false.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -86,7 +86,7 @@ pub fn honesty_host_tensile_rubble_no_damage_auth_hp_stomp_source_markers_residu
         && gl.contains("for id in rubble_ids")
         && gl.contains("tensile_formation_reg.record_rubble()")
         && gl.contains("gameworld_damage_authority_live()")
-        && gl.contains("host_damage_log::record")
+        && gl.contains("health_events.record_damage")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostTensileRubbleNoDamageAuthHpStompAction::SourceMarkers);
     ok

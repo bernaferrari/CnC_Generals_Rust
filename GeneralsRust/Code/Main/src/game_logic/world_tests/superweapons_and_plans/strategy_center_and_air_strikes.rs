@@ -175,10 +175,12 @@ fn eject_pilot_parachute_open_dist_residual() {
         )
         .expect("airborne humvee");
     {
-        let h = game_logic.host_object_mut(humvee_id).expect("humvee");
+        let (h, health_events) = game_logic
+            .host_object_and_health_events_mut(humvee_id)
+            .expect("humvee");
         h.experience.level = VeterancyLevel::Veteran;
         h.status.airborne_target = true;
-        let _ = h.take_damage(h.max_health * 2.0);
+        let _ = h.take_damage(h.max_health * 2.0, health_events);
         h.status.destroyed = true;
     }
     game_logic.mark_object_for_destruction(humvee_id, Some(Team::GLA));
@@ -287,10 +289,12 @@ fn eject_pilot_parachute_pitch_roll_sway_residual() {
         )
         .expect("airborne humvee");
     {
-        let h = game_logic.host_object_mut(humvee_id).expect("humvee");
+        let (h, health_events) = game_logic
+            .host_object_and_health_events_mut(humvee_id)
+            .expect("humvee");
         h.experience.level = VeterancyLevel::Veteran;
         h.status.airborne_target = true;
-        let _ = h.take_damage(h.max_health * 2.0);
+        let _ = h.take_damage(h.max_health * 2.0, health_events);
         h.status.destroyed = true;
     }
     game_logic.mark_object_for_destruction(humvee_id, Some(Team::GLA));
@@ -517,7 +521,7 @@ fn strategy_center_bombardment_turret_fire_residual() {
     let enemy_hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
     if crate::gameworld_shadow::gameworld_damage_authority_live() {
         // HP last-write via damage log; host HP stays until GameWorld writeback.
-        let dmg_events = crate::game_logic::host_damage_log::snapshot();
+        let dmg_events = game_logic.health_events.snapshot_damage();
         let dealt: f32 = dmg_events
             .iter()
             .filter(|e| e.target == enemy_id)
@@ -2579,7 +2583,7 @@ fn ambush_dies_on_bad_land_drowns() {
         if crate::gameworld_shadow::gameworld_damage_authority_live() {
             let hp = o.health.current.max(1.0);
             let oid = o.id;
-            crate::game_logic::host_damage_log::record(oid, hp, None, true);
+            logic.health_events.record_damage(oid, hp, None, true);
         } else {
             o.health.current = 0.0;
         }

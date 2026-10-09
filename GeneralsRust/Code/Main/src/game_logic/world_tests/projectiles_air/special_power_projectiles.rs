@@ -258,8 +258,8 @@ fn spectre_orbit_spawns_howitzer_shell_objects() {
     };
     use crate::game_logic::special_power_strikes::{
         SPECTRE_HOWITZER_FIRE_SOUND, SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES,
-        SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES, SPECTRE_HOWITZER_SHELL_MAX_LIFESPAN_FRAMES,
-        SPECTRE_HOWITZER_SHELL_OBJECT,
+        SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES,
+        SPECTRE_HOWITZER_SHELL_MAX_LIFESPAN_FRAMES, SPECTRE_HOWITZER_SHELL_OBJECT,
     };
     clear_test_template_voices();
     // C++ SpectreGunshipUpdate.cpp:124/585-586 — per-unit
@@ -341,7 +341,10 @@ fn spectre_orbit_spawns_howitzer_shell_objects() {
     logic.frame = spawn_frame + SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES + 2;
     logic.update_spectre_howitzer_shell_objects();
     assert!(
-        logic.host_object(sid).map(|o| o.is_alive()).unwrap_or(false),
+        logic
+            .host_object(sid)
+            .map(|o| o.is_alive())
+            .unwrap_or(false),
         "shell aloft must survive HeightDie InitialDelay (no y<=1 kill while above target height)"
     );
     // C++ DumbProjectileBehavior DEFAULT_MAX_LIFESPAN (10 s → 300f): the
@@ -373,7 +376,6 @@ fn spectre_orbit_spawns_howitzer_shell_objects() {
     clear_test_template_voices();
 }
 
-
 #[test]
 fn spectre_howitzer_blast_hits_allies_and_dies_typed_explosion() {
     use crate::game_logic::KindOf;
@@ -389,15 +391,14 @@ fn spectre_howitzer_blast_hits_allies_and_dies_typed_explosion() {
         .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .unwrap();
     let aim = Vec3::new(200.0, 0.0, 200.0);
-    let field_id = logic
-        .special_power_strikes
-        .spawn_orbit_field(caster, Team::USA, aim, logic.frame, 1);
+    let field_id =
+        logic
+            .special_power_strikes
+            .spawn_orbit_field(caster, Team::USA, aim, logic.frame, 1);
     // C++ RadiusDamageAffects ALLIES ENEMIES NEUTRALS: the friendly at the
     // impact takes the 80 EXPLOSION too; only the acquire filters (gattling)
     // gate on team.
-    let friendly = logic
-        .create_object("TestTank", Team::USA, aim)
-        .unwrap();
+    let friendly = logic.create_object("TestTank", Team::USA, aim).unwrap();
     let enemy = logic.create_object("TestTank", Team::GLA, aim).unwrap();
     logic.objects.get_mut(&enemy).unwrap().health.current = 1.0;
     let friendly_hp_before = logic.objects.get(&friendly).unwrap().health.current;
@@ -405,7 +406,9 @@ fn spectre_howitzer_blast_hits_allies_and_dies_typed_explosion() {
     // Wind the gattling strafe (C++ :609-623) past HowitzerFollowLag so the
     // howitzer stream is follow-ready, then run the live orbit tick.
     for _ in 0..SPECTRE_HOWITZER_FOLLOW_LAG_FRAMES.saturating_add(1) {
-        logic.special_power_strikes.advance_orbit_strafe(logic.frame);
+        logic
+            .special_power_strikes
+            .advance_orbit_strafe(logic.frame);
     }
     if let Some(f) = logic
         .special_power_strikes
@@ -443,10 +446,7 @@ fn spectre_deployment_tier_drives_module_template_and_ship_orbit() {
     use crate::game_logic::special_power_strikes::SpectreGunshipScienceTier;
 
     let mut logic = GameLogic::new();
-    for name in [
-        "AmericaCommandCenter",
-        "AirF_AmericaCommandCenter",
-    ] {
+    for name in ["AmericaCommandCenter", "AirF_AmericaCommandCenter"] {
         let mut t = crate::game_logic::ThingTemplate::new(name);
         t.add_kind_of(KindOf::Structure).set_health(5000.0);
         logic.templates.insert(name.to_string(), t);
@@ -456,7 +456,11 @@ fn spectre_deployment_tier_drives_module_template_and_ship_orbit() {
     // AirF + SCIENCE_SpectreGunship1 → AirF_AmericaJetSpectreGunship1 with the
     // 10000 ms (300f) orbit — the ship departs exactly when firing stops.
     let airf = logic
-        .create_object("AirF_AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .create_object(
+            "AirF_AmericaCommandCenter",
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
         .unwrap();
     let ship = logic
         .initiate_spectre_gunship_deployment_with_tier(
@@ -487,11 +491,18 @@ fn spectre_deployment_tier_drives_module_template_and_ship_orbit() {
         .expect("vanilla spawn");
     let g2 = logic.host_object(ship2).unwrap();
     assert_eq!(g2.template_name, SPECTRE_GUNSHIP_TEMPLATE);
-    assert_eq!(g2.spectre_gunship_update.as_ref().unwrap().orbit_frames, 450);
+    assert_eq!(
+        g2.spectre_gunship_update.as_ref().unwrap().orbit_frames,
+        450
+    );
 
     // AirF Level3 → AirF_AmericaJetSpectreGunship3 with the 20000 ms (600f) orbit.
     let airf2 = logic
-        .create_object("AirF_AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .create_object(
+            "AirF_AmericaCommandCenter",
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
         .unwrap();
     let ship3 = logic
         .initiate_spectre_gunship_deployment_with_tier(
@@ -502,9 +513,11 @@ fn spectre_deployment_tier_drives_module_template_and_ship_orbit() {
         .expect("tier3 spawn");
     let g3 = logic.host_object(ship3).unwrap();
     assert_eq!(g3.template_name, "AirF_AmericaJetSpectreGunship3");
-    assert_eq!(g3.spectre_gunship_update.as_ref().unwrap().orbit_frames, 600);
+    assert_eq!(
+        g3.spectre_gunship_update.as_ref().unwrap().orbit_frames,
+        600
+    );
 }
-
 
 #[test]
 fn scud_storm_anthrax_beta_spawns_poison_field_upgraded_large() {
@@ -2013,14 +2026,19 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
         enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
         enemy.template_mut().armor = 0.0;
     }
-    crate::game_logic::host_damage_log::clear();
+    game_logic.health_events.clear_damage();
     game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
     let enemy_hp_after = game_logic
         .host_object(enemy_id)
         .expect("enemy")
         .health
         .current;
-    let dealt = test_observed_damage_to(enemy_id, enemy_hp_before, enemy_hp_after);
+    let dealt = test_observed_damage_to(
+        &game_logic.health_events,
+        enemy_id,
+        enemy_hp_before,
+        enemy_hp_after,
+    );
     assert!(
         (dealt - 24.0).abs() < 0.05,
         "Bombardment residual must deal 120% damage (20 * 1.2 = 24), got {dealt}"
@@ -2091,11 +2109,16 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
         ally.target = None;
         ally.set_status_attacking(false);
     }
-    crate::game_logic::host_damage_log::clear();
-    crate::game_logic::host_damage_log::clear();
+    game_logic.health_events.clear_damage();
+    game_logic.health_events.clear_damage();
     game_logic.update_combat(&[enemy_id, ally_id], 1.0 / 30.0);
     let ally_hp_after = game_logic.host_object(ally_id).unwrap().health.current;
-    let taken = test_observed_damage_to(ally_id, ally_hp_before, ally_hp_after);
+    let taken = test_observed_damage_to(
+        &game_logic.health_events,
+        ally_id,
+        ally_hp_before,
+        ally_hp_after,
+    );
     assert!(
         (taken - 18.0).abs() < 0.05,
         "HoldTheLine residual must take 90% damage (20 * 0.9 = 18), got {taken}"
@@ -2153,10 +2176,15 @@ fn strategy_center_battle_plan_residual_applies_unit_bonuses() {
         enemy.set_status_attacking(false);
     }
     let enemy_hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
-    crate::game_logic::host_damage_log::clear();
+    game_logic.health_events.clear_damage();
     game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
     let enemy_hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
-    let sn_dealt = test_observed_damage_to(enemy_id, enemy_hp_before, enemy_hp_after);
+    let sn_dealt = test_observed_damage_to(
+        &game_logic.health_events,
+        enemy_id,
+        enemy_hp_before,
+        enemy_hp_after,
+    );
     assert!(
         sn_dealt > 0.5,
         "SearchAndDestroy residual RANGE 120% must allow fire at 110 (> base 100), dealt {sn_dealt}"
@@ -2274,10 +2302,15 @@ fn strategy_center_battle_plan_paralyze_residual_on_plan_change() {
         enemy.set_position(Vec3::new(15.0, 0.0, 0.0));
         enemy.template_mut().armor = 0.0;
     }
-    crate::game_logic::host_damage_log::clear();
+    game_logic.health_events.clear_damage();
     game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
     let enemy_hp_mid = game_logic.host_object(enemy_id).unwrap().health.current;
-    let dealt_mid = test_observed_damage_to(enemy_id, enemy_hp_before, enemy_hp_mid);
+    let dealt_mid = test_observed_damage_to(
+        &game_logic.health_events,
+        enemy_id,
+        enemy_hp_before,
+        enemy_hp_mid,
+    );
     assert!(
         dealt_mid.abs() < 0.05,
         "paralyzed residual must block ally fire, dealt {dealt_mid}"
@@ -2311,10 +2344,15 @@ fn strategy_center_battle_plan_paralyze_residual_on_plan_change() {
             ..Weapon::default()
         });
     }
-    crate::game_logic::host_damage_log::clear();
+    game_logic.health_events.clear_damage();
     game_logic.update_combat(&[ally_id, enemy_id], 1.0 / 30.0);
     let enemy_hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
-    let dealt_after = test_observed_damage_to(enemy_id, enemy_hp_mid, enemy_hp_after);
+    let dealt_after = test_observed_damage_to(
+        &game_logic.health_events,
+        enemy_id,
+        enemy_hp_mid,
+        enemy_hp_after,
+    );
     assert!(
         dealt_after > 0.5,
         "after paralyze expiry ally must fire again (dealt={dealt_after})"
@@ -2612,9 +2650,11 @@ fn eject_pilot_veterancy_levels_all_minus_regular_residual() {
         )
         .expect("rookie humvee");
     {
-        let h = game_logic.host_object_mut(rookie_id).expect("rookie");
+        let (h, health_events) = game_logic
+            .host_object_and_health_events_mut(rookie_id)
+            .expect("rookie");
         h.experience.level = VeterancyLevel::Rookie;
-        let _ = h.take_damage(h.max_health * 2.0);
+        let _ = h.take_damage(h.max_health * 2.0, health_events);
         h.status.destroyed = true;
     }
     game_logic.mark_object_for_destruction(rookie_id, Some(Team::GLA));
@@ -2648,9 +2688,11 @@ fn eject_pilot_veterancy_levels_all_minus_regular_residual() {
         )
         .expect("vet humvee");
     {
-        let h = game_logic.host_object_mut(vet_id).expect("vet");
+        let (h, health_events) = game_logic
+            .host_object_and_health_events_mut(vet_id)
+            .expect("vet");
         h.experience.level = VeterancyLevel::Veteran;
-        let _ = h.take_damage(h.max_health * 2.0);
+        let _ = h.take_damage(h.max_health * 2.0, health_events);
         h.status.destroyed = true;
     }
     game_logic.mark_object_for_destruction(vet_id, Some(Team::GLA));
@@ -2671,9 +2713,11 @@ fn eject_pilot_veterancy_levels_all_minus_regular_residual() {
         )
         .expect("elite humvee");
     {
-        let h = game_logic.host_object_mut(elite_id).expect("elite");
+        let (h, health_events) = game_logic
+            .host_object_and_health_events_mut(elite_id)
+            .expect("elite");
         h.experience.level = VeterancyLevel::Elite;
-        let _ = h.take_damage(h.max_health * 2.0);
+        let _ = h.take_damage(h.max_health * 2.0, health_events);
         h.status.destroyed = true;
     }
     game_logic.mark_object_for_destruction(elite_id, Some(Team::GLA));
@@ -2720,9 +2764,11 @@ fn eject_pilot_die_mux_death_types_and_hijacked_residual() {
         )
         .expect("crushed humvee");
     {
-        let h = game_logic.host_object_mut(crushed_id).expect("crushed");
+        let (h, health_events) = game_logic
+            .host_object_and_health_events_mut(crushed_id)
+            .expect("crushed");
         h.experience.level = VeterancyLevel::Veteran;
-        let _ = h.take_damage(h.max_health * 2.0);
+        let _ = h.take_damage(h.max_health * 2.0, health_events);
         // take_damage sets death_type from damage class — restore DieMux residual.
         h.status.death_type = HostDeathType::Crushed;
         h.status.destroyed = true;
@@ -2758,9 +2804,11 @@ fn eject_pilot_die_mux_death_types_and_hijacked_residual() {
         )
         .expect("splat humvee");
     {
-        let h = game_logic.host_object_mut(splat_id).expect("splat");
+        let (h, health_events) = game_logic
+            .host_object_and_health_events_mut(splat_id)
+            .expect("splat");
         h.experience.level = VeterancyLevel::Veteran;
-        let _ = h.take_damage(h.max_health * 2.0);
+        let _ = h.take_damage(h.max_health * 2.0, health_events);
         h.status.death_type = HostDeathType::Splatted;
         h.status.destroyed = true;
     }
@@ -2786,10 +2834,12 @@ fn eject_pilot_die_mux_death_types_and_hijacked_residual() {
         )
         .expect("hijacked humvee");
     {
-        let h = game_logic.host_object_mut(hijack_id).expect("hijacked");
+        let (h, health_events) = game_logic
+            .host_object_and_health_events_mut(hijack_id)
+            .expect("hijacked");
         h.experience.level = VeterancyLevel::Veteran;
         h.apply_hijacked();
-        let _ = h.take_damage(h.max_health * 2.0);
+        let _ = h.take_damage(h.max_health * 2.0, health_events);
         // Preserve HIJACKED after damage residual.
         h.set_status_hijacked(true);
         h.status.destroyed = true;
@@ -2819,10 +2869,12 @@ fn eject_pilot_die_mux_death_types_and_hijacked_residual() {
         )
         .expect("normal humvee");
     {
-        let h = game_logic.host_object_mut(normal_id).expect("normal");
+        let (h, health_events) = game_logic
+            .host_object_and_health_events_mut(normal_id)
+            .expect("normal");
         h.experience.level = VeterancyLevel::Veteran;
         h.status.death_type = HostDeathType::Normal;
-        let _ = h.take_damage(h.max_health * 2.0);
+        let _ = h.take_damage(h.max_health * 2.0, health_events);
         h.status.destroyed = true;
     }
     game_logic.mark_object_for_destruction(normal_id, Some(Team::GLA));
@@ -3015,10 +3067,12 @@ fn eject_pilot_invulnerable_time_residual() {
         .expect("humvee");
 
     {
-        let h = game_logic.host_object_mut(humvee_id).expect("humvee");
+        let (h, health_events) = game_logic
+            .host_object_and_health_events_mut(humvee_id)
+            .expect("humvee");
         // VeterancyLevels = ALL -REGULAR residual required for eject path.
         h.experience.level = VeterancyLevel::Veteran;
-        let _ = h.take_damage(h.max_health * 2.0);
+        let _ = h.take_damage(h.max_health * 2.0, health_events);
         h.status.destroyed = true;
     }
     game_logic.mark_object_for_destruction(humvee_id, Some(Team::GLA));
@@ -3089,13 +3143,13 @@ fn eject_pilot_invulnerable_time_residual() {
 
 #[test]
 fn spectre_orbit_queues_voice_rapid_fire_once_per_fast_crossing() {
+    use crate::game_logic::KindOf;
     use crate::game_logic::audio_dispatch_impl::{
         clear_test_template_voices, set_test_per_unit_sound,
     };
     use crate::game_logic::special_power_strikes::{
         SPECTRE_GATTLING_CONTINUOUS_FIRE_TWO, SPECTRE_VOICE_RAPID_FIRE_SLOT,
     };
-    use crate::game_logic::KindOf;
 
     clear_test_template_voices();
     set_test_per_unit_sound(

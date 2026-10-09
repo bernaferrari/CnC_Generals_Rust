@@ -67,7 +67,7 @@ impl GameLogic {
         let mut landed: Vec<ObjectId> = Vec::new();
         for (id, ground_y) in ground_heights {
             if let Some(o) = self.objects.get_mut(&id) {
-                let _ = o.tick_physics_motion_step(ground_y);
+                let _ = o.tick_physics_motion_step(ground_y, &mut self.health_events);
                 if o.pending_ground_collide {
                     landed.push(id);
                 }
@@ -237,9 +237,9 @@ impl GameLogic {
                     if crate::gameworld_shadow::gameworld_shadow_enabled()
                         && crate::gameworld_shadow::shadow_coupled_tick_active()
                     {
-                        o.tick_shock_stun_physics_only();
+                        o.tick_shock_stun_physics_only(&mut self.health_events);
                     } else {
-                        o.tick_shock_stun();
+                        o.tick_shock_stun(&mut self.health_events);
                     }
                 }
                 while let Some((name, vol)) = o.take_bounce_audio_pending() {

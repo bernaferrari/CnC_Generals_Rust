@@ -619,13 +619,16 @@ impl GameWorldShadow {
             let Some(ent) = self.world.entity(eid) else {
                 continue;
             };
+            // Wave 758: inspect the pending owner transport before taking the
+            // mutable object loan. Keep the object overlay/dirty marking below
+            // even when the health event suppresses this writeback.
+            let pending_health_heal =
+                shadow_coupled_tick_active() && logic.health_events.has_heal(ObjectId(hid));
             let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
-            if shadow_coupled_tick_active()
-                && crate::game_logic::host_heal_log::has_pending(ObjectId(hid))
-            {
+            if pending_health_heal {
                 continue;
             }
             let changed = obj.sole_healing_benefactor.map(|id| id.0)

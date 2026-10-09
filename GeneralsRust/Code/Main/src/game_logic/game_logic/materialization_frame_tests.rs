@@ -202,6 +202,7 @@ fn apply(world: &mut GameLogic, frame: u32) {
         &mut world.objects,
         frame,
         Some(&world.players),
+        &mut world.health_events,
     );
 }
 

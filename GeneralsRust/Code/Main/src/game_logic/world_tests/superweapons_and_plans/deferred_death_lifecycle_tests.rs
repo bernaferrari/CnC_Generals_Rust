@@ -53,18 +53,15 @@ End
     let frame = world.getFrame();
     // CPP SlowDeath begins from the lethal ActiveBody/onDie boundary. Exercise
     // the actual damage kernel before the parsed domain callback; no HP writes.
-    assert!(
-        world
-            .host_object_mut(id)
-            .unwrap()
-            .take_damage_from_typed_death_at_frame(
-                100.0,
-                None,
-                crate::game_logic::combat::DamageType::Unresistable,
-                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
-                frame,
-            )
-    );
+    let (owner, health_events) = world.host_object_and_health_events_mut(id).unwrap();
+    assert!(owner.take_damage_from_typed_death_at_frame(
+        100.0,
+        None,
+        crate::game_logic::combat::DamageType::Unresistable,
+        crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+        frame,
+        health_events,
+    ));
     assert_eq!(world.host_object(id).unwrap().health.current, 0.0);
     assert!(
         world

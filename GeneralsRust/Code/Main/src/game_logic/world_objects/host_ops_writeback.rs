@@ -584,14 +584,14 @@ impl GameLogic {
                 clear,
                 mark_destroy_team,
             } => {
-                if let Some(obj) = self.host_objects_mut().get_mut(&id) {
+                if let Some(obj) = self.objects.get_mut(&id) {
                     if let Some(pos) = position {
                         obj.set_position(pos);
                     }
                     if crate::gameworld_shadow::gameworld_damage_authority_live() {
                         let hp = obj.health.current.max(1.0);
                         let oid = obj.id;
-                        crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                        self.health_events.record_damage(oid, hp, None, true);
                     } else {
                         obj.health.current = 0.0;
                     }
@@ -1205,8 +1205,7 @@ impl GameLogic {
         // the skip flags BEFORE the shadow visit so a fully log-owned object
         // skips building the fat view (it clones Vecs per object) and so the
         // per-field clones below are skipped for log-owned fields.
-        let skip_hp = crate::game_logic::host_damage_log::has_pending(id)
-            || crate::game_logic::host_heal_log::has_pending(id);
+        let skip_hp = self.health_events.has_damage(id) || self.health_events.has_heal(id);
         let skip_weapon = crate::game_logic::host_weapon_stats_log::has_pending(id);
         let skip_ai = crate::game_logic::host_ai_state_log::has_pending(id)
             || crate::game_logic::host_combat_attack_log::has_pending(id);
@@ -1364,9 +1363,7 @@ impl GameLogic {
         };
         let pos = obj.get_position();
         // Mid-frame health records own HP until admission; do not stomp GameWorld.
-        if !crate::game_logic::host_damage_log::has_pending(id)
-            && !crate::game_logic::host_heal_log::has_pending(id)
-        {
+        if !self.health_events.has_damage(id) && !self.health_events.has_heal(id) {
             let _ = push_coupled_world_mutation(WorldMutation::SetHealth {
                 target: eid,
                 health: obj.health.current,
@@ -1825,6 +1822,25 @@ impl GameLogic {
             self.host_view_dirty.insert(id);
         }
         self.objects.get_mut(&id)
+    }
+
+    /// Borrow the admitted object and its world's ordered health transport.
+    /// Preserve the same shadow overlay and dirty marking as host_object_mut.
+    pub(crate) fn host_object_and_health_events_mut(
+        &mut self,
+        id: ObjectId,
+    ) -> Option<(
+        &mut crate::game_logic::object::Object,
+        &mut crate::game_logic::HostHealthEvents,
+    )> {
+        self.overlay_object_from_gameworld(id);
+        if !crate::gameworld_shadow::shadow_coupled_tick_active() && self.objects.contains_key(&id)
+        {
+            self.host_view_dirty.insert(id);
+        }
+        self.objects
+            .get_mut(&id)
+            .map(|object| (object, &mut self.health_events))
     }
 
     /// Issue attack command to selected objects

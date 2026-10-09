@@ -25,9 +25,7 @@
 //!   no slice-only damage floor (was 40).
 
 use crate::authoritative_world::AuthorityProbe;
-use crate::command_system::{
-    CommandResult, CommandSystem, CommandType, GameCommand, ModifierKeys,
-};
+use crate::command_system::{CommandResult, CommandSystem, CommandType, GameCommand, ModifierKeys};
 use crate::game_logic::host_structure_economy_residual::COMMAND_CENTER_MAX_HEALTH;
 use crate::game_logic::{
     AIState, GameLogic, KindOf, ObjectId, Team, ThingTemplate, VictoryCondition, Weapon,
@@ -1053,7 +1051,7 @@ fn golden_allow_teleport_pull() -> bool {
 /// map-world combat is host-only (no dual shadow session), so without this
 /// drain the primary enemy never appears dead and `fought`/`victory` stay false.
 fn materialize_host_damage_log(logic: &mut GameLogic) {
-    let events = crate::game_logic::host_damage_log::drain();
+    let events = logic.health_events.drain_damage();
     if events.is_empty() {
         return;
     }
@@ -1157,7 +1155,7 @@ fn fight_enemies_with_rangers(
     let primary_hp_before = primary_target
         .and_then(|id| logic.host_object(id).map(|o| o.health.current))
         .unwrap_or(0.0);
-    crate::game_logic::host_damage_log::clear();
+    logic.health_events.clear_damage();
     let mut any_damage = false;
     let mut combat_destroyed = false;
     let mut used_teleport_pull = false;
@@ -1443,7 +1441,7 @@ fn fight_enemies_with_rangers(
 
         // Damage-authority honesty: host HP may not drop mid-frame; observe
         // host_damage_log residual (same pattern as superweapon host-path tests).
-        let dmg_events = crate::game_logic::host_damage_log::snapshot();
+        let dmg_events = logic.health_events.snapshot_damage();
         let enemy_damage_logged = dmg_events.iter().any(|e| {
             logic
                 .host_object(e.target)
@@ -1522,7 +1520,7 @@ fn fight_enemies_with_rangers(
             combat_destroyed = true;
             any_damage = true;
         }
-        let dmg = crate::game_logic::host_damage_log::snapshot();
+        let dmg = logic.health_events.snapshot_damage();
         if dmg
             .iter()
             .any(|e| e.target == pid && (e.amount > 0.0 || e.destroyed))
@@ -1534,7 +1532,7 @@ fn fight_enemies_with_rangers(
         }
     }
     // Any logged enemy damage counts as fought under damage authority.
-    let dmg_all = crate::game_logic::host_damage_log::snapshot();
+    let dmg_all = logic.health_events.snapshot_damage();
     if dmg_all.iter().any(|e| {
         e.amount > 0.0
             && logic

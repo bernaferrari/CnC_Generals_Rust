@@ -1,13 +1,9 @@
-//! Frame-local host damage log for GameWorld shadow parity.
+//! Damage-event payloads and owner health observations for the Main host/shadow bridge.
 //!
-//! `Object::take_damage_from` records actual HP damage applied (post-armor).
-//! GameLogic/engine drains the log after a host tick and feeds `GameWorldShadow`.
-//!
-//! Completed observations copy the exact owner's body at the operation. The
-//! frame-local handoff remains thread-local until world event ownership is migrated.
+//! Pending storage and per-match counters live on `HostHealthEvents` in
+//! `host_health_log`; this module intentionally contains no ambient state.
 
 use super::ObjectId;
-use std::cell::Cell;
 
 /// Whether the producer has already changed its object's health.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +33,41 @@ pub struct HostDamageEvent {
 }
 
 impl HostDamageEvent {
+    pub(crate) fn pending(
+        target: ObjectId,
+        amount: f32,
+        source: Option<ObjectId>,
+        destroyed: bool,
+        damage_type_ordinal: u32,
+    ) -> Self {
+        Self {
+            target,
+            amount,
+            source,
+            destroyed,
+            damage_type_ordinal,
+            owner_body: None,
+        }
+    }
+
+    pub(crate) fn applied(
+        target: ObjectId,
+        amount: f32,
+        source: Option<ObjectId>,
+        destroyed: bool,
+        damage_type_ordinal: u32,
+        body: BodyHealthObservation,
+    ) -> Self {
+        Self {
+            target,
+            amount,
+            source,
+            destroyed,
+            damage_type_ordinal,
+            owner_body: Some(body),
+        }
+    }
+
     pub(crate) fn owner_health_already_applied(&self) -> bool {
         self.owner_body.is_some()
     }
@@ -46,160 +77,92 @@ impl HostDamageEvent {
     }
 }
 
-thread_local! {
-    static CUM_DAMAGE: Cell<f32> = const { Cell::new(0.0) };
-    static CUM_KILLS: Cell<u32> = const { Cell::new(0) };
-}
+#[cfg(test)]
+mod owned_queue_tests {
+    use super::*;
+    use crate::game_logic::host_health_log::HostHealthEvents;
 
-/// Queue damage whose health effect still needs admission by the authority.
-/// Untyped callers default to C++ `DAMAGE_EXPLOSION` (ordinal 0).
-pub fn record(target: ObjectId, amount: f32, source: Option<ObjectId>, destroyed: bool) {
-    record_typed(target, amount, source, destroyed, 0);
-}
-
-/// Record a damage event with the C++ `DamageType` ordinal.
-pub fn record_typed(
-    target: ObjectId,
-    amount: f32,
-    source: Option<ObjectId>,
-    destroyed: bool,
-    damage_type_ordinal: u32,
-) {
-    record_damage_event(target, amount, source, destroyed, damage_type_ordinal, None);
-}
-
-/// Observe damage already committed by Object's C++-ordered body operation.
-/// Shadow consumers still receive the damage, but host fallback admission must
-/// not subtract it from that same object again.
-pub(crate) fn record_applied(
-    target: ObjectId,
-    amount: f32,
-    source: Option<ObjectId>,
-    destroyed: bool,
-    damage_type_ordinal: u32,
-    body: BodyHealthObservation,
-) {
-    record_damage_event(
-        target,
-        amount,
-        source,
-        destroyed,
-        damage_type_ordinal,
-        Some(body),
-    );
-}
-
-fn record_damage_event(
-    target: ObjectId,
-    amount: f32,
-    source: Option<ObjectId>,
-    destroyed: bool,
-    damage_type_ordinal: u32,
-    owner_body: Option<BodyHealthObservation>,
-) {
-    if amount <= 0.0 && !destroyed {
-        return;
+    #[test]
+    fn applied_observations_and_pending_damage_keep_their_admission_kind() {
+        let mut events = HostHealthEvents::default();
+        let body = BodyHealthObservation {
+            current: 80.0,
+            maximum: 100.0,
+        };
+        events.record_applied_damage(ObjectId(1), 20.0, None, false, 2, body);
+        events.record_damage_typed(ObjectId(2), 30.0, Some(ObjectId(1)), true, 5);
+        let drained = events.drain_damage();
+        assert_eq!(drained.len(), 2);
+        assert!(drained[0].owner_health_already_applied());
+        assert_eq!(drained[0].body_observation(), Some(body));
+        assert!(!drained[1].owner_health_already_applied());
+        assert_eq!(drained[1].body_observation(), None);
+        assert_eq!(drained[0].damage_type_ordinal, 2);
+        assert_eq!(drained[1].damage_type_ordinal, 5);
+        assert_eq!(events.snapshot_last_damage(), drained);
+        assert_eq!(events.cumulative_totals(), (50.0, 1));
     }
-    CUM_DAMAGE.set(CUM_DAMAGE.get() + amount.max(0.0));
-    if destroyed {
-        CUM_KILLS.set(CUM_KILLS.get().saturating_add(1));
+
+    #[test]
+    fn damage_record_filters_and_cumulative_totals_are_instance_owned() {
+        let mut a = HostHealthEvents::default();
+        let mut b = HostHealthEvents::default();
+        a.record_damage(ObjectId(1), 10.0, Some(ObjectId(2)), false);
+        a.record_damage(ObjectId(3), 5.0, None, true);
+        a.record_damage(ObjectId(4), 0.0, None, false);
+        b.record_damage(ObjectId(1), 7.0, None, false);
+        assert_eq!(a.len_damage(), 2);
+        assert_eq!(b.len_damage(), 1);
+        assert_eq!(a.drain_damage()[0].target, ObjectId(1));
+        assert_eq!(a.snapshot_last_damage().len(), 2);
+        assert!(a.drain_damage().is_empty());
+        assert_eq!(a.cumulative_totals(), (15.0, 1));
+        assert_eq!(b.cumulative_totals(), (7.0, 0));
     }
-    crate::game_logic::host_health_log::record_damage(HostDamageEvent {
-        target,
-        amount,
-        source,
-        destroyed,
-        damage_type_ordinal,
-        owner_body,
-    });
-}
-
-/// Snapshot pending damage events in the order damage producers recorded them.
-/// Heal events remain available through `host_heal_log::snapshot`.
-pub fn snapshot() -> Vec<HostDamageEvent> {
-    crate::game_logic::host_health_log::snapshot_damage()
-}
-
-pub fn has_pending(object: ObjectId) -> bool {
-    crate::game_logic::host_health_log::has_damage(object)
-}
-
-/// Drain only damage records, leaving pending heal records untouched.
-pub fn drain() -> Vec<HostDamageEvent> {
-    crate::game_logic::host_health_log::drain_damage()
-}
-
-/// Peek count without draining (tests).
-pub fn len() -> usize {
-    crate::game_logic::host_health_log::len_damage()
-}
-
-/// Match-scoped cumulative totals (survives drain; reset via `clear` / `reset_cumulative`).
-pub fn cumulative_totals() -> (f32, u32) {
-    (CUM_DAMAGE.get(), CUM_KILLS.get())
-}
-
-/// Reset cumulative match counters (new skirmish residual).
-pub fn reset_cumulative() {
-    CUM_DAMAGE.set(0.0);
-    CUM_KILLS.set(0);
-}
-
-/// Clear without returning (test isolation).
-pub fn clear() {
-    crate::game_logic::host_health_log::clear_damage();
-    reset_cumulative();
-}
-
-/// Take events from the most recent non-empty `drain()` (PresentationFrame sole consumer).
-pub fn take_last_drain() -> Vec<HostDamageEvent> {
-    crate::game_logic::host_health_log::take_last_damage()
-}
-
-/// Non-destructive peek (tests).
-pub fn last_drain_snapshot() -> Vec<HostDamageEvent> {
-    crate::game_logic::host_health_log::snapshot_last_damage()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game_logic::HostHealthEvents;
 
     #[test]
     fn applied_observations_and_pending_damage_keep_their_admission_kind() {
-        clear();
+        let mut events = HostHealthEvents::default();
+        events.clear_damage();
         let body = BodyHealthObservation {
             current: 80.0,
             maximum: 100.0,
         };
-        record_applied(ObjectId(1), 20.0, None, false, 2, body);
-        record_typed(ObjectId(2), 30.0, Some(ObjectId(1)), true, 5);
-        let events = drain();
-        assert_eq!(events.len(), 2);
-        assert!(events[0].owner_health_already_applied());
-        assert_eq!(events[0].body_observation(), Some(body));
-        assert!(!events[1].owner_health_already_applied());
-        assert_eq!(events[1].body_observation(), None);
-        assert_eq!(events[0].damage_type_ordinal, 2);
-        assert_eq!(events[1].damage_type_ordinal, 5);
-        assert_eq!(last_drain_snapshot(), events);
-        assert_eq!(cumulative_totals(), (50.0, 1));
-        clear();
+        events.record_applied_damage(ObjectId(1), 20.0, None, false, 2, body);
+        events.record_damage_typed(ObjectId(2), 30.0, Some(ObjectId(1)), true, 5);
+        let drained = events.drain_damage();
+        assert_eq!(drained.len(), 2);
+        assert!(drained[0].owner_health_already_applied());
+        assert_eq!(drained[0].body_observation(), Some(body));
+        assert!(!drained[1].owner_health_already_applied());
+        assert_eq!(drained[1].body_observation(), None);
+        assert_eq!(drained[0].damage_type_ordinal, 2);
+        assert_eq!(drained[1].damage_type_ordinal, 5);
+        assert_eq!(events.snapshot_last_damage(), drained);
+        assert_eq!(events.cumulative_totals(), (50.0, 1));
+        events.clear_damage();
     }
 
     #[test]
     fn record_and_drain_preserves_order() {
-        clear();
-        record(ObjectId(1), 10.0, Some(ObjectId(2)), false);
-        record(ObjectId(3), 5.0, None, true);
-        assert_eq!(len(), 2);
-        let v = drain();
+        let mut events = HostHealthEvents::default();
+        events.clear_damage();
+        events.record_damage(ObjectId(1), 10.0, Some(ObjectId(2)), false);
+        events.record_damage(ObjectId(3), 5.0, None, true);
+        assert_eq!(events.len_damage(), 2);
+        let v = events.drain_damage();
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].target, ObjectId(1));
         assert_eq!(v[1].destroyed, true);
-        assert!(drain().is_empty());
-        assert_eq!(last_drain_snapshot().len(), 2);
-        let (d, k) = cumulative_totals();
+        assert!(events.drain_damage().is_empty());
+        assert_eq!(events.snapshot_last_damage().len(), 2);
+        let (d, k) = events.cumulative_totals();
         assert!((d - 15.0).abs() < f32::EPSILON);
         assert_eq!(k, 1);
     }

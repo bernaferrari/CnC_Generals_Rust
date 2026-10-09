@@ -571,6 +571,7 @@ impl GameLogic {
                         Some(plan.source_object),
                         plan.kind.authored_damage_type(),
                         plan.kind.authored_death_type(),
+                        &mut self.health_events,
                     );
 
                     total_damage += hit.damage;
@@ -897,6 +898,7 @@ impl GameLogic {
                         Some(meta.source_object),
                         crate::game_logic::combat::DamageType::Explosive,
                         crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
+                        &mut self.health_events,
                     );
 
                     if destroyed {
@@ -1224,6 +1226,7 @@ impl GameLogic {
                             Some(gid),
                             crate::game_logic::combat::DamageType::Water,
                             HostDeathType::Flooded,
+                            &mut self.health_events,
                         );
                         if destroyed {
                             destroy_ids.push((vid, team));
@@ -1269,8 +1272,11 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed =
-                        target.take_radiation_field_tick(hit.damage, Some(plan.source_object));
+                    let killed = target.take_radiation_field_tick(
+                        hit.damage,
+                        Some(plan.source_object),
+                        &mut self.health_events,
+                    );
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -1342,6 +1348,7 @@ impl GameLogic {
                         Some(plan.source_object),
                         crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type(),
                         plan.death_type,
+                        &mut self.health_events,
                     );
                     total_damage += hit.damage;
                     applications += 1;
@@ -1845,10 +1852,14 @@ impl GameLogic {
                                 Some(plan.source_object),
                                 crate::game_logic::combat::DamageType::Explosive,
                                 crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
+                                &mut self.health_events,
                             ),
-                        HostSpectreOrbitDamageStream::Gattling => {
-                            target.take_damage_from_immediate(hit.damage, Some(plan.source_object))
-                        }
+                        HostSpectreOrbitDamageStream::Gattling => target
+                            .take_damage_from_immediate(
+                                hit.damage,
+                                Some(plan.source_object),
+                                &mut self.health_events,
+                            ),
                     };
                     total_damage += hit.damage;
                     applications += 1;
@@ -2036,6 +2047,7 @@ impl GameLogic {
                         Some(plan.source_object),
                         damage_type,
                         death_type,
+                        &mut self.health_events,
                     );
 
                     total_damage += hit.damage;
@@ -2177,7 +2189,11 @@ impl GameLogic {
                     o.note_producer(source);
                     o.spectre_howitzer_shell_expires_frame = Some(expires);
                     o.health.maximum = SPECTRE_HOWITZER_SHELL_MAX_HEALTH;
-                    Self::write_object_health_authority_aware(o, SPECTRE_HOWITZER_SHELL_MAX_HEALTH);
+                    Self::write_object_health_authority_aware(
+                        o,
+                        SPECTRE_HOWITZER_SHELL_MAX_HEALTH,
+                        &mut self.health_events,
+                    );
                     // Fall residual toward ground.
                     o.movement.velocity = Vec3::new(0.0, -14.0, 0.0);
                 }
@@ -2254,7 +2270,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -2344,7 +2360,7 @@ impl GameLogic {
                     o.note_producer(source);
                     o.anthrax_toxin_field_expires_frame = Some(expires);
                     o.health.maximum = max_hp;
-                    Self::write_object_health_authority_aware(o, max_hp);
+                    Self::write_object_health_authority_aware(o, max_hp, &mut self.health_events);
                 }
                 let _ = self.special_power_strikes.bind_toxin_object(tid, oid);
             }
@@ -2374,7 +2390,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -2441,7 +2457,11 @@ impl GameLogic {
                     o.note_producer(source);
                     o.nuke_radiation_field_expires_frame = Some(expires);
                     o.health.maximum = NUKE_RADIATION_FIELD_MAX_HEALTH;
-                    Self::write_object_health_authority_aware(o, NUKE_RADIATION_FIELD_MAX_HEALTH);
+                    Self::write_object_health_authority_aware(
+                        o,
+                        NUKE_RADIATION_FIELD_MAX_HEALTH,
+                        &mut self.health_events,
+                    );
                 }
                 let _ = self.special_power_strikes.bind_radiation_object(rid, oid);
             }
@@ -2471,7 +2491,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -2554,6 +2574,7 @@ impl GameLogic {
                         Self::write_object_health_authority_aware(
                             o,
                             PARTICLE_CONNECTOR_LASER_MAX_HEALTH,
+                            &mut self.health_events,
                         );
                     }
                     ids.push(oid);
@@ -2588,7 +2609,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -2648,7 +2669,11 @@ impl GameLogic {
                     o.note_producer(source);
                     o.particle_orbital_laser_expires_frame = Some(expires);
                     o.health.maximum = PARTICLE_ORBITAL_LASER_MAX_HEALTH;
-                    Self::write_object_health_authority_aware(o, PARTICLE_ORBITAL_LASER_MAX_HEALTH);
+                    Self::write_object_health_authority_aware(
+                        o,
+                        PARTICLE_ORBITAL_LASER_MAX_HEALTH,
+                        &mut self.health_events,
+                    );
                 }
                 let _ = self.special_power_strikes.bind_beam_object(bid, oid);
             }
@@ -2678,7 +2703,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -2729,7 +2754,11 @@ impl GameLogic {
                     o.note_producer(source);
                     o.particle_trail_remnant_expires_frame = Some(expires);
                     o.health.maximum = PARTICLE_REMNANT_MAX_HEALTH;
-                    Self::write_object_health_authority_aware(o, PARTICLE_REMNANT_MAX_HEALTH);
+                    Self::write_object_health_authority_aware(
+                        o,
+                        PARTICLE_REMNANT_MAX_HEALTH,
+                        &mut self.health_events,
+                    );
                 }
                 let _ = self.special_power_strikes.bind_remnant_object(rid, oid);
             }
@@ -2759,7 +2788,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -2803,6 +2832,7 @@ impl GameLogic {
                         Some(plan.source_object),
                         damage_type,
                         death_type,
+                        &mut self.health_events,
                     );
 
                     total_damage += hit.damage;

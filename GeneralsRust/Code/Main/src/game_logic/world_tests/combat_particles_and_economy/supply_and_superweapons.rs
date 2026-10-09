@@ -1563,7 +1563,12 @@ fn anthrax_bomb_host_path_queues_damage_after_delay_and_toxin() {
     );
 
     let enemy_after = game_logic.host_object(enemy_id).map(|o| o.health.current);
-    let enemy_dealt = test_observed_damage_to(enemy_id, health_before, enemy_after.unwrap_or(0.0));
+    let enemy_dealt = test_observed_damage_to(
+        &game_logic.health_events,
+        enemy_id,
+        health_before,
+        enemy_after.unwrap_or(0.0),
+    );
     assert!(
         enemy_dealt > 0.0
             || enemy_after.is_none()
@@ -1581,7 +1586,12 @@ fn anthrax_bomb_host_path_queues_damage_after_delay_and_toxin() {
         .host_object(tox_victim_id)
         .map(|o| o.health.current)
         .unwrap_or(0.0);
-    let tox_dealt = test_observed_damage_to(tox_victim_id, tox_before, tox_after);
+    let tox_dealt = test_observed_damage_to(
+        &game_logic.health_events,
+        tox_victim_id,
+        tox_before,
+        tox_after,
+    );
     assert!(
         tox_dealt > 0.0 || tox_after < tox_before,
         "mid-radius victim must take toxin residual damage (before={tox_before}, after={tox_after}, dealt={tox_dealt})"
@@ -3451,7 +3461,7 @@ fn aurora_bomb_host_path_queues_and_applies_delayed_area_damage() {
     assert!(!game_logic.honesty_aurora_bomb_complete_ok());
 
     // At impact: standard AuroraBombWeapon residual area damage.
-    crate::game_logic::host_damage_log::clear();
+    game_logic.health_events.clear_damage();
     game_logic.frame = 10 + AURORA_BOMB_DIVE_DELAY_FRAMES;
     game_logic.update_aurora_bombs();
 
@@ -3470,8 +3480,18 @@ fn aurora_bomb_host_path_queues_and_applies_delayed_area_damage() {
 
     let enemy_hp = game_logic.host_object(enemy_id).map(|o| o.health.current);
     let near_hp = game_logic.host_object(near_id).map(|o| o.health.current);
-    let enemy_dealt = test_observed_damage_to(enemy_id, enemy_before, enemy_hp.unwrap_or(0.0));
-    let near_dealt = test_observed_damage_to(near_id, near_before, near_hp.unwrap_or(0.0));
+    let enemy_dealt = test_observed_damage_to(
+        &game_logic.health_events,
+        enemy_id,
+        enemy_before,
+        enemy_hp.unwrap_or(0.0),
+    );
+    let near_dealt = test_observed_damage_to(
+        &game_logic.health_events,
+        near_id,
+        near_before,
+        near_hp.unwrap_or(0.0),
+    );
     assert!(
         enemy_dealt > 0.0 || enemy_hp.map(|h| h < enemy_before).unwrap_or(true),
         "enemy at epicenter must take Aurora residual damage (~{AURORA_BOMB_DAMAGE}), got {enemy_hp:?} dealt={enemy_dealt}"
@@ -3486,7 +3506,12 @@ fn aurora_bomb_host_path_queues_and_applies_delayed_area_damage() {
     );
     // RadiusDamageAffects ALLIES residual: friendly at epicenter takes blast.
     let friend_hp = game_logic.host_object(friend_id).map(|o| o.health.current);
-    let friend_dealt = test_observed_damage_to(friend_id, friend_before, friend_hp.unwrap_or(0.0));
+    let friend_dealt = test_observed_damage_to(
+        &game_logic.health_events,
+        friend_id,
+        friend_before,
+        friend_hp.unwrap_or(0.0),
+    );
     assert!(
         friend_dealt > 0.0
             || friend_hp.map(|h| h < friend_before).unwrap_or(true)
@@ -3569,7 +3594,7 @@ fn aurora_bomb_host_path_queues_and_applies_delayed_area_damage() {
         "no FuelAir damage before dive/gas spawn frame"
     );
 
-    crate::game_logic::host_damage_log::clear();
+    game_logic.health_events.clear_damage();
     game_logic.frame = 1000 + AURORA_FUEL_AIR_DIVE_IMPACT_FRAMES;
     game_logic.update_aurora_bombs();
     assert!(
@@ -3605,7 +3630,12 @@ fn aurora_bomb_host_path_queues_and_applies_delayed_area_damage() {
         game_logic.update_fuel_air_gas_slow_death();
     }
     let fuel_after = game_logic.host_object(fuel_enemy).map(|o| o.health.current);
-    let fuel_dealt = test_observed_damage_to(fuel_enemy, fuel_before, fuel_after.unwrap_or(0.0));
+    let fuel_dealt = test_observed_damage_to(
+        &game_logic.health_events,
+        fuel_enemy,
+        fuel_before,
+        fuel_after.unwrap_or(0.0),
+    );
     assert!(
         fuel_dealt > 0.0
             || fuel_after.map(|h| h < fuel_before).unwrap_or(true)

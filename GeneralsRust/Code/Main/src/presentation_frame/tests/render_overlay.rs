@@ -356,7 +356,7 @@ fn viewer_relative_stealth_matches_cxx_allies_and_inactive_local_rules() {
         object.apply_stealth_update_pulse();
     }
 
-    let active = PresentationFrame::build_from_logic(&logic, 0);
+    let active = PresentationFrame::build_from_logic(&mut logic, 0);
     let active_allied = active
         .objects
         .iter()
@@ -398,7 +398,7 @@ fn viewer_relative_stealth_matches_cxx_allies_and_inactive_local_rules() {
         .expect("allied object")
         .status
         .detected = true;
-    let detected_frame = PresentationFrame::build_from_logic(&logic, 0);
+    let detected_frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let detected_input = detected_frame
         .unit_render_inputs()
         .into_iter()
@@ -422,7 +422,7 @@ fn viewer_relative_stealth_matches_cxx_allies_and_inactive_local_rules() {
     );
 
     logic.get_player_mut(1).expect("allied player").is_alive = false;
-    let dead_allied_owner = PresentationFrame::build_from_logic(&logic, 0);
+    let dead_allied_owner = PresentationFrame::build_from_logic(&mut logic, 0);
     let allied_object = dead_allied_owner
         .objects
         .iter()
@@ -436,7 +436,7 @@ fn viewer_relative_stealth_matches_cxx_allies_and_inactive_local_rules() {
     // C++ forces an inactive observer/dead local player to ALLIES for this
     // visual relationship. Do not reuse generic selection/ownership logic.
     logic.get_player_mut(0).expect("local player").is_alive = false;
-    let inactive = PresentationFrame::build_from_logic(&logic, 0);
+    let inactive = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(!inactive.local_is_alive);
     for id in [allied_id, enemy_id] {
         let object = inactive
@@ -486,13 +486,13 @@ fn friendly_stealth_opacity_pulses_across_logic_frames() {
     logic.update_stealth_and_detection();
     let opacity_a = logic.host_object(id).unwrap().camo_friendly_opacity;
     let phase_a = logic.host_object(id).unwrap().camo_opacity_pulse_phase;
-    let a = PresentationFrame::build_from_logic(&logic, 0)
+    let a = PresentationFrame::build_from_logic(&mut logic, 0)
         .unit_render_inputs()
         .into_iter()
         .find(|u| u.id == id)
         .expect("frame 0");
     assert!((a.presentation_opacity - opacity_a).abs() < 1e-5);
-    let repeated = PresentationFrame::build_from_logic(&logic, 0)
+    let repeated = PresentationFrame::build_from_logic(&mut logic, 0)
         .unit_render_inputs()
         .into_iter()
         .find(|u| u.id == id)
@@ -508,7 +508,7 @@ fn friendly_stealth_opacity_pulses_across_logic_frames() {
     }
     let opacity_b = logic.host_object(id).unwrap().camo_friendly_opacity;
     assert!(logic.host_object(id).unwrap().camo_opacity_pulse_phase > phase_a);
-    let b = PresentationFrame::build_from_logic(&logic, 0)
+    let b = PresentationFrame::build_from_logic(&mut logic, 0)
         .unit_render_inputs()
         .into_iter()
         .find(|u| u.id == id)
@@ -539,7 +539,7 @@ fn ocl_fade_in_multiplies_presentation_opacity() {
         .host_object_mut(id)
         .expect("obj")
         .start_drawable_fade_in(10, 10);
-    let input = PresentationFrame::build_from_logic(&logic, 0)
+    let input = PresentationFrame::build_from_logic(&mut logic, 0)
         .unit_render_inputs()
         .into_iter()
         .find(|u| u.id == id)
@@ -586,7 +586,7 @@ fn bomb_truck_prehalfpoint_disguise_stays_visible_opaque_through_gameworld_rebui
     // `build_from_gameworld` is the default engine object's roster path. It
     // first rebuilds from GameWorld, then the host overlay must restore the
     // immutable source capability.
-    let frame = PresentationFrame::build_from_gameworld(&shadow, 0, Some(&logic));
+    let frame = PresentationFrame::build_from_gameworld(&mut shadow, 0, Some(&mut logic));
     assert!(frame.gameworld_primary_objects);
     let object = frame
         .objects
@@ -653,7 +653,7 @@ fn completed_allied_disguise_uses_the_direct_visual_template_after_gameworld_reb
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let frame = PresentationFrame::build_from_gameworld(&shadow, 0, Some(&logic));
+    let frame = PresentationFrame::build_from_gameworld(&mut shadow, 0, Some(&mut logic));
     let object = frame
         .objects
         .iter()
@@ -718,7 +718,7 @@ fn drawable_shroud_facts_stay_frozen_and_host_overlay_stamps_gameworld_records()
         obj.status.effectively_dead = true;
     }
 
-    let frozen = PresentationFrame::build_from_logic(&logic, 0);
+    let frozen = PresentationFrame::build_from_logic(&mut logic, 0);
     let frozen_object = frozen
         .objects
         .iter()
@@ -753,7 +753,7 @@ fn drawable_shroud_facts_stay_frozen_and_host_overlay_stamps_gameworld_records()
             .effectively_dead,
         "an installed presentation frame must not reread live GameLogic"
     );
-    let fresh = PresentationFrame::build_from_logic(&logic, 0);
+    let fresh = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         !fresh
             .objects
@@ -780,7 +780,7 @@ fn drawable_shroud_facts_stay_frozen_and_host_overlay_stamps_gameworld_records()
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let mut gameworld_only = PresentationFrame::build_from_gameworld(&shadow, 0, None);
+    let mut gameworld_only = PresentationFrame::build_from_gameworld(&mut shadow, 0, None);
     let gameworld_object = gameworld_only
         .objects
         .iter()
@@ -855,7 +855,7 @@ fn direct_host_shroud_facts_use_raw_membership_not_visibility_alpha() {
         shroud.mark_host_object_seen(0, id.0);
     }
     assert_eq!(
-        PresentationFrame::build_from_logic(&logic, 0)
+        PresentationFrame::build_from_logic(&mut logic, 0)
             .objects
             .iter()
             .find(|object| object.id == id)
@@ -877,7 +877,7 @@ fn direct_host_shroud_facts_use_raw_membership_not_visibility_alpha() {
         shroud.clear_host_object_visibility(0);
     }
     assert_eq!(
-        PresentationFrame::build_from_logic(&logic, 0)
+        PresentationFrame::build_from_logic(&mut logic, 0)
             .objects
             .iter()
             .find(|object| object.id == id)
@@ -898,7 +898,7 @@ fn direct_host_shroud_facts_use_raw_membership_not_visibility_alpha() {
         shroud.mark_host_object_seen(0, 0x00ff_0001);
     }
     assert_eq!(
-        PresentationFrame::build_from_logic(&logic, 0)
+        PresentationFrame::build_from_logic(&mut logic, 0)
             .objects
             .iter()
             .find(|object| object.id == id)
@@ -970,7 +970,7 @@ fn overlay_gameworld_shadow_copies_entity_residual() {
         obj.command_set_override = None;
         obj.status.stealthed = false;
     }
-    let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
     // Host freeze has poisoned values; overlay restores shadow.
     let n = frame.overlay_gameworld_shadow(&shadow);
     assert!(n >= 1, "overlay must update at least one object");
@@ -1050,7 +1050,7 @@ fn gameworld_primary_presentation_retains_unattackable_weaponset_override() {
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let frame = PresentationFrame::build_from_gameworld(&shadow, 0, Some(&logic));
+    let frame = PresentationFrame::build_from_gameworld(&mut shadow, 0, Some(&mut logic));
     let object = frame.objects.iter().find(|object| object.id == id).unwrap();
     assert!(object.unattackable);
     assert!(!UnitControlSystem::presentation_is_attackable(object));
@@ -1095,7 +1095,7 @@ fn overlay_gameworld_shadow_applies_local_economy_power() {
         p.shared_special_power_cooldowns =
             vec![("ParticleCannon".into(), 42.0), ("ScudStorm".into(), 0.0)];
     }
-    let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert_eq!(frame.local_supplies, host_cash);
     let _ = frame.overlay_gameworld_shadow(&shadow);
     if crate::gameworld_shadow::gameworld_economy_authority_live() {
@@ -1187,7 +1187,7 @@ fn unit_display_info_carries_command_set_override_residual() {
         obj.status.under_construction = false;
         obj.command_set_override = Some("CommandSetAmericaBarracks".into());
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let infos = frame.selected_unit_display_infos();
     let info = infos.iter().find(|i| i.object_id == id).expect("info");
     assert!(info.can_produce);
@@ -1228,7 +1228,7 @@ fn presentation_freezes_detector_stealth_timing_residual() {
         obj.continuous_fire_coast_until_frame = 40;
         obj.battle_plan_sight_scalar_applied = 1.25;
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert_eq!(frame.innate_stealth_object_count(), 1);
     assert_eq!(frame.timed_detector_object_count(), 1);
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
@@ -1279,7 +1279,7 @@ fn presentation_freezes_transport_kind_damage_residual() {
         obj.turret_holding = true;
         obj.last_damage_source = Some(src_id);
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert_eq!(frame.humvee_transport_object_count(), 1);
     assert_eq!(frame.overlord_gattling_object_count(), 1);
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
@@ -1322,7 +1322,7 @@ fn presentation_freezes_hive_continuous_camo_residual() {
         obj.vision_spied_mask = 0b110;
         obj.cheer_timer = 1.25;
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert_eq!(frame.hive_object_count(), 1);
     assert_eq!(frame.continuous_fire_object_count(), 1);
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
@@ -1364,7 +1364,7 @@ fn presentation_freezes_battle_plan_weapon_bonus_residual() {
         obj.weapon_bonus_battle_plan_hold_the_line = true;
         obj.weapon_bonus_battle_plan_search_and_destroy = true;
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert_eq!(frame.battle_plan_bonus_object_count(), 1);
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
     assert!(ro.weapon_bonus_battle_plan_bombardment);
@@ -1415,7 +1415,7 @@ fn apply_to_control_bar_syncs_command_set_from_presentation() {
         obj.selected = true;
         obj.command_set_override = Some("CommandSetAmericaDozer".into());
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert_eq!(
         frame.selected_command_set_name(),
         Some("CommandSetAmericaDozer")
@@ -1446,7 +1446,7 @@ fn presentation_freezes_command_set_detector_residual() {
         obj.show_health_bar = false;
         obj.guard_radius = 175.0;
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert_eq!(frame.detector_object_count(), 1);
     assert_eq!(frame.command_set_override_object_count(), 1);
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
@@ -1492,7 +1492,7 @@ fn presentation_freezes_turret_and_weapon_bonus_residual() {
         obj.weapon_bonus_nationalism = true;
         obj.weapon_bonus_subliminal = true;
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert_eq!(frame.turret_idle_scan_count(), 1);
     assert_eq!(frame.horde_bonus_object_count(), 1);
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
@@ -1520,7 +1520,7 @@ fn upgrade_complete_freezes_into_presentation_events() {
     let _ = logic
         .host_upgrades_mut()
         .record_complete("CaptureBuilding", 0, 1, 3);
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         frame.events.iter().any(|e| {
             matches!(
@@ -1540,8 +1540,8 @@ fn upgrade_complete_freezes_into_presentation_events() {
 
 #[test]
 fn radar_delivery_is_once_per_hud_world_and_logic_frame() {
-    let logic = crate::game_logic::GameLogic::new();
-    let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
     frame.events = vec![PresentationEvent::RadarMessage {
         team: crate::game_logic::Team::Neutral,
         text: "test radar".into(),
@@ -1581,7 +1581,7 @@ fn apply_events_routes_upgrade_and_owner_to_hud() {
         crate::game_logic::Team::GLA,
     );
     let _ = crate::game_logic::host_owner_log::drain();
-    let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let mut hud = crate::ui::GameHUD::new();
     let before = hud.message_count_for_test();
     frame.apply_events_to_game_hud(&mut hud);
@@ -1622,7 +1622,7 @@ fn apply_events_queues_authored_fire_audio_without_inventing_attack_or_death_sou
     let source = logic
         .create_object("PresentationAudioSource", Team::USA, frozen_position)
         .expect("owned audio source");
-    let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
 
     // These pre-existing residual drains are outside this fixture's frozen
     // events. Clear their per-thread test leftovers before asserting exact
@@ -1672,11 +1672,13 @@ fn apply_events_queues_authored_fire_audio_without_inventing_attack_or_death_sou
 
 #[test]
 fn heal_applied_freezes_from_last_drain() {
-    crate::game_logic::host_heal_log::clear();
-    crate::game_logic::host_heal_log::record(crate::game_logic::ObjectId(3), 88.0);
-    let _ = crate::game_logic::host_heal_log::drain();
-    let logic = crate::game_logic::GameLogic::new();
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut logic = crate::game_logic::GameLogic::new();
+    logic.health_events.clear_heal();
+    logic
+        .health_events
+        .record_heal(crate::game_logic::ObjectId(3), 88.0);
+    let _ = logic.health_events.drain_heal();
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         frame.events.iter().any(|e| {
             matches!(
@@ -1695,8 +1697,8 @@ fn economy_changed_freezes_from_last_drain() {
     crate::game_logic::host_economy_log::clear();
     crate::game_logic::host_economy_log::record(0, 12345, 7);
     let _ = crate::game_logic::host_economy_log::drain();
-    let logic = crate::game_logic::GameLogic::new();
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut logic = crate::game_logic::GameLogic::new();
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         frame.events.iter().any(|e| {
             matches!(
@@ -1746,7 +1748,7 @@ fn supply_and_model_keys_freeze_from_host() {
             power: 0,
         };
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let s = frame.objects.iter().find(|o| o.id == sc).unwrap();
     assert_eq!(s.stored_supplies, 1500);
     assert_eq!(s.model_key.as_deref(), Some("SCModel"));
@@ -1791,7 +1793,7 @@ fn building_type_freeze_from_host() {
         o.construction_percent = 1.0;
         o.building_data = Some(BuildingData::new(BuildingType::CommandCenter));
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let w = frame.objects.iter().find(|o| o.id == wf).unwrap();
     assert_eq!(w.building_type, Some(PresentationBuildingType::WarFactory));
     assert!(w.can_produce);
@@ -1849,7 +1851,7 @@ fn mobile_and_producer_freeze_from_host() {
         o.construction_percent = 1.0;
         o.building_data = None;
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let hu = frame.objects.iter().find(|o| o.id == u).unwrap();
     assert!(hu.is_mobile);
     assert!(!hu.can_produce);
@@ -1921,7 +1923,7 @@ fn presentation_freezes_can_make_cameos_residual() {
         CANMAKE_OK,
         "direct can_make Burton"
     );
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert_eq!(
         frame.can_make_producer_id,
         Some(bid.0),
@@ -1968,7 +1970,7 @@ fn presentation_freezes_can_make_cameos_residual() {
         pl.selected_objects = vec![bid];
         pl.is_local = true;
     }
-    let frame2 = PresentationFrame::build_from_logic(&logic, 0); // same local id residual
+    let frame2 = PresentationFrame::build_from_logic(&mut logic, 0); // same local id residual
     assert_eq!(
         frame2.can_make_producer_id,
         Some(bid.0),
@@ -2054,7 +2056,7 @@ fn presentation_freezes_dozer_construct_can_make_cameos() {
         CANMAKE_OK,
         "dozer can_make PowerPlant with cash"
     );
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert_eq!(frame.can_make_producer_id, Some(did.0));
     let plant_c = frame
         .can_make_cameos
@@ -2072,7 +2074,7 @@ fn presentation_freezes_dozer_construct_can_make_cameos() {
         logic.can_make_unit(did, "AmericaPowerPlant"),
         CANMAKE_NO_MONEY
     );
-    let frame2 = PresentationFrame::build_from_logic(&logic, 0);
+    let frame2 = PresentationFrame::build_from_logic(&mut logic, 0);
     let plant2 = frame2
         .can_make_cameos
         .iter()
@@ -2104,7 +2106,7 @@ fn presentation_freezes_public_timer_superweapons() {
         .insert(SpecialPowerType::ParticleCannon, 999.0);
     logic.add_player(p);
     // Without SW structure: no PublicTimer PUC row residual.
-    let frame0 = PresentationFrame::build_from_logic(&logic, 0);
+    let frame0 = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         frame0
             .superweapon_timers
@@ -2137,7 +2139,7 @@ fn presentation_freezes_public_timer_superweapons() {
         o.special_power_cooldown_remaining = 120.0;
         o.special_power_ready = false;
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let puc_t = frame
         .superweapon_timers
         .iter()
@@ -2171,7 +2173,7 @@ fn presentation_freezes_local_rank_skill_residual() {
     p.rank_level = 2;
     p.science_purchase_points = 3;
     logic.add_player(p);
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert_eq!(frame.local_rank_level, 2);
     assert_eq!(frame.local_skill_points, 850);
     assert_eq!(frame.local_science_purchase_points, 3);
@@ -2188,8 +2190,8 @@ fn presentation_freezes_local_rank_skill_residual() {
 #[test]
 fn presentation_applies_superweapon_timers_to_game_hud_residual() {
     use crate::game_logic::GameLogic;
-    let logic = GameLogic::new();
-    let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut logic = GameLogic::new();
+    let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
     frame.superweapon_timers.clear();
     frame.superweapon_timers.push(PresentationSuperweaponTimer {
         name: "Particle Uplink Cannon".into(),

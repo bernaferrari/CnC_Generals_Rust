@@ -15,6 +15,7 @@ fn consume_only(world: &mut GameLogic) {
         &mut world.objects,
         world.frame,
         Some(&world.players),
+        &mut world.health_events,
     );
 }
 

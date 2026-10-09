@@ -66,7 +66,7 @@ pub fn materialize_host_authority_logs(logic: &mut GameLogic) {
     // Consume damage and absolute-health events in the single order in which
     // their owner operations recorded them. Completed owner writes are
     // observations; pending events are admitted without type reordering.
-    for event in crate::game_logic::host_health_log::drain_ordered() {
+    for event in logic.health_events.drain_for_host_boundary() {
         match event {
             crate::game_logic::host_health_log::HostHealthEvent::Damage(e) => {
                 let Some(obj) = logic.host_object_mut(e.target) else {
@@ -175,9 +175,9 @@ pub fn shadow_session_after_host_tick(
     let _status_timer_exp = shadow.tick_status_timer_expirations(logic.get_frame());
     // Damage and absolute-health records share one ordered handoff/drain. Keep
     // typed views for existing scoring, fallback, and presentation consumers.
-    let (health_events, early_health_applied) = match take_early_health_batch() {
+    let (health_events, early_health_applied) = match logic.health_events.take_early_batch() {
         Some((events, applied)) => (events, applied),
-        None => (crate::game_logic::host_health_log::drain_ordered(), false),
+        None => (logic.health_events.drain_ordered(), false),
     };
     let events: Vec<_> = health_events
         .iter()

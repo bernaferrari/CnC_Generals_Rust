@@ -170,12 +170,17 @@ fn artillery_barrage_host_path_queues_and_applies_delayed_multi_shell_damage() {
         .map(|o| o.health.current);
     // Epicenter residual damage = ARTILLERY_BARRAGE_DAMAGE (105) per shell hit.
     let center_dealt = test_observed_damage_to(
+        &game_logic.health_events,
         enemy_center_id,
         health_before_center,
         center_hp.unwrap_or(0.0),
     );
-    let outer_dealt =
-        test_observed_damage_to(enemy_outer_id, health_before_outer, outer_hp.unwrap_or(0.0));
+    let outer_dealt = test_observed_damage_to(
+        &game_logic.health_events,
+        enemy_outer_id,
+        health_before_outer,
+        outer_hp.unwrap_or(0.0),
+    );
     assert!(
         center_dealt + 0.1 >= ARTILLERY_BARRAGE_DAMAGE
             || center_hp.is_none()
@@ -201,6 +206,7 @@ fn artillery_barrage_host_path_queues_and_applies_delayed_multi_shell_damage() {
         "enemy on outer shell epicenter must take multi-shell residual damage, got {outer_hp:?} dealt={outer_dealt}"
     );
     let friend_dealt = test_observed_damage_to(
+        &game_logic.health_events,
         friend_id,
         500.0,
         game_logic
@@ -388,9 +394,18 @@ fn cruise_missile_host_path_queues_and_applies_delayed_area_damage() {
         .host_object(near_enemy_id)
         .map(|o| o.health.current);
     // Epicenter residual damage = CRUISE_MISSILE_DAMAGE (2000) — lethal to 500 HP.
-    let enemy_dealt = test_observed_damage_to(enemy_id, health_before, enemy_hp.unwrap_or(0.0));
-    let near_dealt =
-        test_observed_damage_to(near_enemy_id, near_health_before, near_hp.unwrap_or(0.0));
+    let enemy_dealt = test_observed_damage_to(
+        &game_logic.health_events,
+        enemy_id,
+        health_before,
+        enemy_hp.unwrap_or(0.0),
+    );
+    let near_dealt = test_observed_damage_to(
+        &game_logic.health_events,
+        near_enemy_id,
+        near_health_before,
+        near_hp.unwrap_or(0.0),
+    );
     assert!(
         enemy_dealt + 0.1 >= health_before
             || enemy_hp.is_none()
@@ -408,6 +423,7 @@ fn cruise_missile_host_path_queues_and_applies_delayed_area_damage() {
         "enemy inside MOAB radius must take CruiseMissile residual damage, got {near_hp:?} dealt={near_dealt}"
     );
     let friend_dealt = test_observed_damage_to(
+        &game_logic.health_events,
         friend_id,
         500.0,
         game_logic
@@ -987,7 +1003,7 @@ fn particle_cannon_host_path_queues_and_completes() {
     );
 
     // Beam start: field spawn + first pulse (C++ orbital birth).
-    crate::game_logic::host_damage_log::clear();
+    game_logic.health_events.clear_damage();
     game_logic.frame = PARTICLE_BEAM_TRAVEL_FRAMES;
     game_logic.update_special_power_strikes();
     game_logic.update_special_power_strikes();
@@ -1014,7 +1030,12 @@ fn particle_cannon_host_path_queues_and_completes() {
         .host_object(enemy_id)
         .map(|o| o.health.current)
         .unwrap_or(0.0);
-    let first_dealt = test_observed_damage_to(enemy_id, health_before, after_first);
+    let first_dealt = test_observed_damage_to(
+        &game_logic.health_events,
+        enemy_id,
+        health_before,
+        after_first,
+    );
     assert!(
         first_dealt > 0.0 || after_first < health_before,
         "enemy must take first continuous beam pulse (before={health_before}, after={after_first}, dealt={first_dealt})"
@@ -1031,7 +1052,7 @@ fn particle_cannon_host_path_queues_and_completes() {
 
     // Second pulse at the fractional orbital schedule (record_beam_tick_complete
     // arms next_tick_frame via particle_next_pulse_frame, not a fixed interval).
-    crate::game_logic::host_damage_log::clear();
+    game_logic.health_events.clear_damage();
     game_logic.frame = crate::game_logic::special_power_strikes::particle_next_pulse_frame(
         PARTICLE_BEAM_TRAVEL_FRAMES,
         1,
@@ -1041,7 +1062,12 @@ fn particle_cannon_host_path_queues_and_completes() {
         .host_object(enemy_id)
         .map(|o| o.health.current)
         .unwrap_or(0.0);
-    let second_dealt = test_observed_damage_to(enemy_id, after_first, after_second);
+    let second_dealt = test_observed_damage_to(
+        &game_logic.health_events,
+        enemy_id,
+        after_first,
+        after_second,
+    );
     assert!(
         second_dealt > 0.0 || after_second < after_first,
         "second continuous beam pulse must apply more damage (first={after_first}, second={after_second}, dealt={second_dealt})"
@@ -1583,7 +1609,7 @@ fn nuclear_missile_host_path_queues_damage_after_delay_and_radiation() {
     );
 
     // At impact: blast + radiation field spawn + first radiation tick.
-    crate::game_logic::host_damage_log::clear();
+    game_logic.health_events.clear_damage();
     game_logic.frame = 180;
     game_logic.update_special_power_strikes();
 
@@ -1634,7 +1660,12 @@ fn nuclear_missile_host_path_queues_damage_after_delay_and_radiation() {
     }
 
     let enemy_after = game_logic.host_object(enemy_id).map(|o| o.health.current);
-    let enemy_dealt = test_observed_damage_to(enemy_id, health_before, enemy_after.unwrap_or(0.0));
+    let enemy_dealt = test_observed_damage_to(
+        &game_logic.health_events,
+        enemy_id,
+        health_before,
+        enemy_after.unwrap_or(0.0),
+    );
     assert!(
         enemy_dealt + 0.1 >= health_before
             || enemy_after.is_none()
@@ -1651,7 +1682,12 @@ fn nuclear_missile_host_path_queues_damage_after_delay_and_radiation() {
         .host_object(rad_victim_id)
         .map(|o| o.health.current)
         .unwrap_or(0.0);
-    let rad_dealt = test_observed_damage_to(rad_victim_id, rad_before, rad_after);
+    let rad_dealt = test_observed_damage_to(
+        &game_logic.health_events,
+        rad_victim_id,
+        rad_before,
+        rad_after,
+    );
     assert!(
         rad_dealt > 0.0 || rad_after < rad_before,
         "mid-radius victim must take multi-blast and/or radiation damage (before={rad_before}, after={rad_after}, dealt={rad_dealt})"
@@ -1692,7 +1728,7 @@ fn nuclear_missile_host_path_queues_damage_after_delay_and_radiation() {
         .host_object(rad_victim_id)
         .map(|o| o.health.current);
     if let Some(mid_hp) = rad_mid {
-        crate::game_logic::host_damage_log::clear();
+        game_logic.health_events.clear_damage();
         // Frame is already past impact + multi-blast advance; step one radiation interval.
         game_logic.frame = game_logic.frame.saturating_add(23);
         game_logic.update_special_power_strikes();
@@ -1701,7 +1737,8 @@ fn nuclear_missile_host_path_queues_damage_after_delay_and_radiation() {
             .host_object(rad_victim_id)
             .map(|o| o.health.current)
             .unwrap_or(0.0);
-        let tick_dealt = test_observed_damage_to(rad_victim_id, mid_hp, rad_later);
+        let tick_dealt =
+            test_observed_damage_to(&game_logic.health_events, rad_victim_id, mid_hp, rad_later);
         assert!(
             tick_dealt + 0.1 >= NUKE_RADIATION_DAMAGE_PER_TICK * 0.5
                 || rad_later < mid_hp - NUKE_RADIATION_DAMAGE_PER_TICK * 0.5
@@ -1912,7 +1949,12 @@ fn spectre_gunship_host_path_queues_orbit_damage_over_time() {
         .host_object(enemy_id)
         .map(|o| o.health.current)
         .unwrap_or(0.0);
-    let enemy_dealt = test_observed_damage_to(enemy_id, health_before, enemy_after);
+    let enemy_dealt = test_observed_damage_to(
+        &game_logic.health_events,
+        enemy_id,
+        health_before,
+        enemy_after,
+    );
     assert!(
         enemy_dealt > 0.0 || enemy_after < health_before,
         "enemy in orbit radius must take residual howitzer tick damage (before={health_before}, after={enemy_after}, dealt={enemy_dealt})"
@@ -1961,14 +2003,14 @@ fn spectre_gunship_host_path_queues_orbit_damage_over_time() {
         .host_object(enemy_id)
         .map(|o| o.health.current)
         .expect("enemy still alive for second tick");
-    crate::game_logic::host_damage_log::clear();
+    game_logic.health_events.clear_damage();
     game_logic.frame = 90 + SPECTRE_ORBIT_TICK_INTERVAL_FRAMES;
     game_logic.update_special_power_strikes();
     let later_hp = game_logic
         .host_object(enemy_id)
         .map(|o| o.health.current)
         .unwrap_or(0.0);
-    let tick_dealt = test_observed_damage_to(enemy_id, mid_hp, later_hp);
+    let tick_dealt = test_observed_damage_to(&game_logic.health_events, enemy_id, mid_hp, later_hp);
     assert!(
         tick_dealt + 0.1 >= SPECTRE_ORBIT_DAMAGE_PER_TICK * 0.5
             || later_hp < mid_hp - SPECTRE_ORBIT_DAMAGE_PER_TICK * 0.5

@@ -1746,7 +1746,7 @@ impl CnCGameEngine {
         // Wave 590: match-start presentation seed residual.
         self.match_damage_applied = 0.0;
         self.match_kills = 0;
-        crate::game_logic::host_damage_log::reset_cumulative();
+        self.game_logic.health_events.reset_cumulative();
 
         // Wave 172/590: match-start seed always syncs GameWorldShadow from host
         // then build_for_engine (GW overlay/rebuild lives inside that freeze).

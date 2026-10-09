@@ -57,6 +57,8 @@ fn victim(name: &str, position: Vec3) -> Object {
 
 #[test]
 fn fire_at_keeps_gattling_store_type() {
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+
     let mut combat = CombatSystem::new();
     let _serial = crate::game_logic::combat::tests::combat_test_guard();
     let _restore = RestoreInputs::install();
@@ -125,17 +127,31 @@ fn fire_at_keeps_gattling_store_type() {
     );
     assert_eq!(live_projectileless_delayed_count_for_test(&combat), 1);
     assert_eq!(objects[&ObjectId(2)].health.current, 100.0);
-    apply_ready_projectileless_delayed_damage(&mut combat, &mut objects, 3, None);
+    apply_ready_projectileless_delayed_damage(
+        &mut combat,
+        &mut objects,
+        3,
+        None,
+        &mut health_events,
+    );
     assert_eq!(objects[&ObjectId(2)].health.current, 85.0);
     assert_eq!(objects[&ObjectId(1)].health.current, 100.0);
     assert_eq!(live_projectileless_delayed_count_for_test(&combat), 0);
-    apply_ready_projectileless_delayed_damage(&mut combat, &mut objects, 3, None);
+    apply_ready_projectileless_delayed_damage(
+        &mut combat,
+        &mut objects,
+        3,
+        None,
+        &mut health_events,
+    );
     assert_eq!(objects[&ObjectId(2)].health.current, 85.0);
     assert_eq!(combat.projectile_count(), 0);
 }
 
 #[test]
 fn fire_at_projectileless_queues_leftover_delayed_damage() {
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+
     let mut combat = CombatSystem::new();
     let _serial = crate::game_logic::combat::tests::combat_test_guard();
     let _restore = RestoreInputs::install();
@@ -202,14 +218,32 @@ fn fire_at_projectileless_queues_leftover_delayed_damage() {
     assert_eq!(live_projectileless_delayed_count_for_test(&combat), 1);
     assert_eq!(objects[&ObjectId(2)].health.current, 100.0);
     // C++ Weapon.cpp:1055-1063 ceil travel frames: 100/10, due at frame3+10.
-    apply_ready_projectileless_delayed_damage(&mut combat, &mut objects, 12, None);
+    apply_ready_projectileless_delayed_damage(
+        &mut combat,
+        &mut objects,
+        12,
+        None,
+        &mut health_events,
+    );
     assert_eq!(objects[&ObjectId(2)].health.current, 100.0);
-    apply_ready_projectileless_delayed_damage(&mut combat, &mut objects, 13, None);
+    apply_ready_projectileless_delayed_damage(
+        &mut combat,
+        &mut objects,
+        13,
+        None,
+        &mut health_events,
+    );
     assert_eq!(objects[&ObjectId(2)].health.current, 80.0);
     assert_eq!(objects[&ObjectId(1)].health.current, 100.0);
     assert_eq!(live_projectileless_delayed_count_for_test(&combat), 0);
     assert_eq!(combat.projectile_count(), 0);
-    apply_ready_projectileless_delayed_damage(&mut combat, &mut objects, 13, None);
+    apply_ready_projectileless_delayed_damage(
+        &mut combat,
+        &mut objects,
+        13,
+        None,
+        &mut health_events,
+    );
     assert_eq!(
         objects[&ObjectId(2)].health.current,
         80.0,

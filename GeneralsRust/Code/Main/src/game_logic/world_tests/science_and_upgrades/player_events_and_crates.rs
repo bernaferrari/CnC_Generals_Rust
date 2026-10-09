@@ -931,12 +931,14 @@ fn fake_building_sabotage_uses_unresistable_detonated() {
     }
     let max_hp = logic.objects[&fid].health.maximum;
     let destroyed = {
-        let t = logic.objects.get_mut(&fid).unwrap();
+        let (objects, health_events) = (&mut logic.objects, &mut logic.health_events);
+        let t = objects.get_mut(&fid).unwrap();
         t.take_damage_from_typed_death(
             max_hp,
             Some(saboteur),
             crate::game_logic::combat::DamageType::Unresistable,
             HostDeathType::Detonated,
+            health_events,
         )
     };
     assert!(destroyed, "UNRESISTABLE max-health must kill fake");
@@ -1406,7 +1408,10 @@ fn america_parachute_midair_death_free_fall_damages_rider() {
     let h = &logic.objects[&hid];
     assert!(h.contained_by.is_none(), "removeAllContained on chute die");
     assert!(!h.is_parachute_open(), "chute closed residual");
-    assert!(h.is_in_freefall || !h.is_alive(), "setIsInFreeFall residual");
+    assert!(
+        h.is_in_freefall || !h.is_alive(),
+        "setIsInFreeFall residual"
+    );
     assert!(h.allow_to_fall || !h.is_alive(), "setAllowToFall residual");
     let expected = free_fall_damage_amount(max_hp);
     assert!(
@@ -1945,12 +1950,14 @@ fn car_bomb_booby_trap_cancels_when_vehicle_dies() {
     });
     // Simulate booby path: damage both fully
     {
-        let t = logic.objects.get_mut(&vid).unwrap();
-        let _ = t.take_damage(t.health.maximum);
+        let (objects, health_events) = (&mut logic.objects, &mut logic.health_events);
+        let t = objects.get_mut(&vid).unwrap();
+        let _ = t.take_damage(t.health.maximum, health_events);
     }
     {
-        let b = logic.objects.get_mut(&tid).unwrap();
-        let _ = b.take_damage(10.0); // survivor terrorist
+        let (objects, health_events) = (&mut logic.objects, &mut logic.health_events);
+        let b = objects.get_mut(&tid).unwrap();
+        let _ = b.take_damage(10.0, health_events); // survivor terrorist
     }
     let t_dead = !logic.objects[&vid].is_alive();
     assert!(t_dead);
@@ -1990,7 +1997,10 @@ fn shroud_crate_reveals_map_for_picker_player() {
     };
     assert!(!reveal_queued(&logic, 0));
     assert!(logic.execute_shroud_crate_behavior(uid));
-    assert!(reveal_queued(&logic, 0), "shroud crate reveal must reach FOW");
+    assert!(
+        reveal_queued(&logic, 0),
+        "shroud crate reveal must reach FOW"
+    );
     // Idempotent
     assert!(logic.execute_shroud_crate_behavior(uid));
     assert!(reveal_queued(&logic, 0));
@@ -2793,7 +2803,10 @@ fn try_idle_crate_pickup_moves_to_money_crate() {
     assert!(logic.try_idle_crate_pickup(uid));
     let u = &logic.objects[&uid];
     assert_eq!(u.ai_state, AIState::Moving);
-    assert!(!u.movement.path.is_empty(), "AIMoveToState::onEnter computePath");
+    assert!(
+        !u.movement.path.is_empty(),
+        "AIMoveToState::onEnter computePath"
+    );
     assert_ne!(u.pathfind_goal_cell, (-1, -1));
     assert!(u.is_final_goal);
     assert!(u.movement.target_position.is_some() || u.requested_victim_id == Some(cid));

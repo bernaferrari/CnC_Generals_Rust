@@ -1177,8 +1177,8 @@ fn early_frenzy_and_emergency_repair_powers_activate() {
         )
         .expect("tank");
     // Damage vehicle so repair has a target.
-    if let Some(o) = logic.host_object_mut(veh) {
-        let _ = o.take_damage(100.0);
+    if let Some((o, health_events)) = logic.host_object_and_health_events_mut(veh) {
+        let _ = o.take_damage(100.0, health_events);
     }
     assert!(logic.activate_frenzy(
         0,

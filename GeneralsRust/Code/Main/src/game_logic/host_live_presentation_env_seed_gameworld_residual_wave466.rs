@@ -159,7 +159,7 @@ fn function_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
 /// Wave 466: pipeline env freeze from host + optional GameWorld shadow.
 /// Mirrors `host_ensure_presentation_env_for_hints` when the pipeline has no frame.
 pub fn seed_presentation_env_frame_from_host_and_shadow(
-    logic: &crate::game_logic::GameLogic,
+    logic: &mut crate::game_logic::GameLogic,
     local_player_id: u32,
     shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
 ) -> crate::presentation_frame::PresentationFrame {
@@ -170,7 +170,7 @@ pub fn seed_presentation_env_frame_from_host_and_shadow(
 /// the presentation frame, so this preserves the no-live-GameLogic renderer
 /// boundary while avoiding a full height/blend clone for every seed.
 pub fn seed_presentation_env_frame_from_host_and_shadow_with_runtime_heightmap(
-    logic: &crate::game_logic::GameLogic,
+    logic: &mut crate::game_logic::GameLogic,
     local_player_id: u32,
     shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
     runtime_heightmap: Option<
@@ -337,7 +337,7 @@ mod tests {
             e.max_health = 100.0;
         }
 
-        let host_only = seed_presentation_env_frame_from_host_and_shadow(&logic, 0, None);
+        let host_only = seed_presentation_env_frame_from_host_and_shadow(&mut logic, 0, None);
         assert!(
             host_only.objects.iter().any(|o| o.id == host_id),
             "host-only freeze must include host object"
@@ -349,7 +349,7 @@ mod tests {
         );
 
         let with_shadow =
-            seed_presentation_env_frame_from_host_and_shadow(&logic, 0, Some(&shadow));
+            seed_presentation_env_frame_from_host_and_shadow(&mut logic, 0, Some(&shadow));
         let Some(host_obj) = with_shadow.objects.iter().find(|o| o.id == host_id) else {
             panic!("shadow freeze must keep host object");
         };
@@ -387,8 +387,9 @@ mod tests {
         let mut shadow = GameWorldShadow::new(32);
         shadow.sync_from_host(&logic);
 
-        let via_helper = seed_presentation_env_frame_from_host_and_shadow(&logic, 0, Some(&shadow));
-        let via_shipped = PresentationFrame::build_for_engine(&logic, 0, Some(&shadow));
+        let via_helper =
+            seed_presentation_env_frame_from_host_and_shadow(&mut logic, 0, Some(&shadow));
+        let via_shipped = PresentationFrame::build_for_engine(&mut logic, 0, Some(&shadow));
         assert_eq!(
             via_helper.objects.len(),
             via_shipped.objects.len(),

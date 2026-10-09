@@ -1075,7 +1075,8 @@ impl GameLogic {
             if let Some(c) = self.objects.get_mut(&container_id) {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = c.health.current.max(1.0);
-                    crate::game_logic::host_damage_log::record(container_id, hp, None, true);
+                    self.health_events
+                        .record_damage(container_id, hp, None, true);
                 } else {
                     c.health.current = 0.0;
                 }
@@ -1293,7 +1294,7 @@ impl GameLogic {
         }
         if num_killed == MAX_TO_KILL {
             if let Some(p) = self.objects.get_mut(&pid) {
-                p.kill();
+                p.kill(&mut self.health_events);
             }
             return;
         }
@@ -1340,7 +1341,7 @@ impl GameLogic {
             }
             if let Some(e) = self.objects.get_mut(&enemy_id) {
                 e.set_contained_by(None);
-                e.kill();
+                e.kill(&mut self.health_events);
             }
             self.award_score_the_kill_experience(killer_id, enemy_id);
             num_killed += 1;
@@ -1566,7 +1567,7 @@ impl GameLogic {
     /// C++ NeutronMissileUpdate::update residual.
     pub fn update_neutron_missile_flights(&mut self) {
         use crate::game_logic::host_neutron_missile_update::{
-            NeutronMissileFlightPhase, NeutronMissileWorld, NEUTRON_DEFAULT_BOUNDING_SPHERE,
+            NEUTRON_DEFAULT_BOUNDING_SPHERE, NeutronMissileFlightPhase, NeutronMissileWorld,
         };
 
         let ids: Vec<ObjectId> = self
@@ -2493,7 +2494,7 @@ impl GameLogic {
     pub fn update_a10_strike_flights(&mut self) {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::host_a10_strike_flight::{
-            tick_a10_dive, A10_START_DIVE_SOUND, A10_VULCAN_DELAY_FRAMES,
+            A10_START_DIVE_SOUND, A10_VULCAN_DELAY_FRAMES, tick_a10_dive,
         };
         use crate::game_logic::special_power_strikes::{
             A10_MISSILE_PRIMARY_DAMAGE, A10_MISSILE_PRIMARY_RADIUS, A10_PAYLOAD_TEMPLATE,
@@ -3291,8 +3292,8 @@ impl GameLogic {
         target: Vec3,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_anthrax_bomb_flight::{
-            AnthraxBombPayloadTier, HostAnthraxBombFlightData, ANTHRAX_BOMB_GAMMA_OBJECT,
-            ANTHRAX_TRANSPORT,
+            ANTHRAX_BOMB_GAMMA_OBJECT, ANTHRAX_TRANSPORT, AnthraxBombPayloadTier,
+            HostAnthraxBombFlightData,
         };
         use crate::game_logic::host_ocl_special_power::{
             deliver_payload_for_ocl, resolve_anthrax_bomb_ocl,

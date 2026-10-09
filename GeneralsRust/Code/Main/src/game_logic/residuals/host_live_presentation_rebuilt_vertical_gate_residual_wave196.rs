@@ -139,7 +139,7 @@ pub fn simulate_live_presentation_rebuilt_vertical_gate_honesty() -> bool {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
 
-    let mut pres = PresentationFrame::build_for_engine(&logic, 0, Some(&shadow));
+    let mut pres = PresentationFrame::build_for_engine(&mut logic, 0, Some(&shadow));
     if crate::presentation_frame::presentation_from_gameworld_enabled() {
         if !pres.gameworld_primary_objects {
             return false;

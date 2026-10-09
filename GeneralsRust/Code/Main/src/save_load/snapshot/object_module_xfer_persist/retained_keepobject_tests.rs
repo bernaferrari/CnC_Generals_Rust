@@ -102,11 +102,8 @@ fn save_and_load(source: &GameLogic, target: &mut GameLogic) {
 
 fn heal(logic: &mut GameLogic, id: ObjectId) {
     // Exercise the same public typed Healing path whose retained-state guards regress.
-    assert!(!logic.host_object_mut(id).unwrap().take_damage_from_typed(
-        25.0,
-        None,
-        DamageType::Healing,
-    ));
+    let (object, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
+    assert!(!object.take_damage_from_typed(25.0, None, DamageType::Healing, health_events,));
 }
 
 #[test]

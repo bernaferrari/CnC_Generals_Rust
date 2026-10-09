@@ -1,6 +1,6 @@
 //! Wave 750: under damage authority, Spectre gunship prior-clear does not
 //! zero host HP mid-frame (avoids dual with GameWorld HP writeback). Projects
-//! lethal via `host_damage_log` + destroyed flag. Non-authority path keeps host
+//! lethal via the owning `HostHealthEvents` queue + destroyed flag. Non-authority path keeps host
 //! HP clear. `playable_claim` stays false.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -88,7 +88,7 @@ pub fn honesty_host_spectre_prior_clear_no_damage_auth_hp_stomp_source_markers_r
         && gl.contains("Clear prior gunship residual")
         && gl.contains("record_prior_clear")
         && gl.contains("gameworld_damage_authority_live()")
-        && gl.contains("host_damage_log::record")
+        && gl.contains("health_events.record_damage")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostSpectrePriorClearNoDamageAuthHpStompAction::SourceMarkers);
     ok

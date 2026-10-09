@@ -43,7 +43,13 @@ fn damaged_can_be_repulsed_sets_temporary_repulsor() {
     o.health.current = 100.0;
     o.health.maximum = 100.0;
     logic.objects.insert(id, o);
-    let destroyed = logic.objects.get_mut(&id).unwrap().take_damage(10.0);
+    let destroyed = {
+        let (objects, health_events) = (&mut logic.objects, &mut logic.health_events);
+        objects
+            .get_mut(&id)
+            .unwrap()
+            .take_damage(10.0, health_events)
+    };
     assert!(!destroyed);
     {
         let o = &logic.objects[&id];
@@ -73,7 +79,8 @@ fn damaged_repulsor_disabled_when_enable_off() {
     let mut o = Object::new(t, id, Team::Neutral);
     o.health.current = 50.0;
     o.health.maximum = 50.0;
-    let _ = o.take_damage(5.0);
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+    let _ = o.take_damage(5.0, &mut health_events);
     assert!(!o.status.repulsor);
 }
 
@@ -185,7 +192,13 @@ fn start_new_game_applies_retail_enable_repulsors() {
     o.health.current = 100.0;
     o.health.maximum = 100.0;
     logic.objects.insert(id, o);
-    let destroyed = logic.objects.get_mut(&id).unwrap().take_damage(10.0);
+    let destroyed = {
+        let (objects, health_events) = (&mut logic.objects, &mut logic.health_events);
+        objects
+            .get_mut(&id)
+            .unwrap()
+            .take_damage(10.0, health_events)
+    };
     assert!(!destroyed);
     assert!(
         logic.objects[&id].status.repulsor,
@@ -2399,7 +2412,8 @@ fn physics_keeps_upward_speed_when_downhill_only() {
     o.set_position(Vec3::new(0.0, 5.0, 0.0));
     o.movement.velocity = Vec3::new(0.0, 10.0, 0.0);
     o.movement.target_position = None;
-    let _ = o.tick_physics_motion_step(0.0);
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+    let _ = o.tick_physics_motion_step(0.0, &mut health_events);
     assert!(
         o.get_position().y > 5.0,
         "physics must not snap an uphill step, y={}",
@@ -2833,7 +2847,8 @@ fn motion_step_kills_when_resting() {
     o.was_airborne_last_frame = false;
     o.kill_when_resting_on_ground = true;
     o.immune_to_falling_damage = true;
-    let _ = o.tick_physics_motion_step(0.0);
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+    let _ = o.tick_physics_motion_step(0.0, &mut health_events);
     assert!(
         o.status.destroyed || !o.is_alive(),
         "killWhenRestingOnGround should kill settled infantry"
@@ -2853,7 +2868,8 @@ fn tick_physics_motion_step_clamps_ground() {
     o.original_allow_bounce = false;
     o.was_airborne_last_frame = true;
     o.immune_to_falling_damage = true; // isolate clamp
-    let bounced = o.tick_physics_motion_step(0.0);
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+    let bounced = o.tick_physics_motion_step(0.0, &mut health_events);
     assert!(
         (o.get_position().y - 0.0).abs() < 1e-4,
         "y={}",
@@ -2911,7 +2927,8 @@ fn tick_physics_does_not_apply_per_second_velocity_while_marching() {
     o.set_position(Vec3::new(0.0, 0.0, 0.0));
     o.movement.velocity = Vec3::new(30.0, 0.0, 0.0); // units/second
     o.movement.target_position = Some(Vec3::new(100.0, 0.0, 0.0));
-    let _ = o.tick_physics_motion_step(0.0);
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+    let _ = o.tick_physics_motion_step(0.0, &mut health_events);
     assert!(
         o.get_position().x.abs() < 1e-3,
         "marching unit must not get pos+=v per-frame; x={}",
@@ -2935,7 +2952,8 @@ fn tick_physics_motion_step_flying_aircraft_without_lift_falls() {
     o.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
     o.health.current = 0.0;
     assert!(o.host_skip_dead_locomotor());
-    let _ = o.tick_physics_motion_step(0.0);
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+    let _ = o.tick_physics_motion_step(0.0, &mut health_events);
     assert!(
         o.movement.velocity.y < -0.01,
         "lose-lift aircraft must get leftover gravity; vel.y={}",
@@ -2959,6 +2977,7 @@ fn stick_to_ground_snaps_when_not_falling() {
     o.movement.velocity = Vec3::ZERO;
     o.stick_to_ground = true;
     o.allow_to_fall = false;
-    let _ = o.tick_physics_motion_step(0.0);
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+    let _ = o.tick_physics_motion_step(0.0, &mut health_events);
     assert!((o.get_position().y - 0.0).abs() < 1e-4);
 }

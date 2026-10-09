@@ -149,6 +149,7 @@ impl GameLogic {
                     Some(tank_id),
                     NUCLEAR_TANK_DAMAGE_TYPE,
                     NUCLEAR_TANK_DEATH_TYPE,
+                    &mut self.health_events,
                 ) {
                     destroy_ids.push((vid, tank_team));
                 }
@@ -210,8 +211,11 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed =
-                        target.take_radiation_field_tick(hit.damage, Some(plan.source_object));
+                    let killed = target.take_radiation_field_tick(
+                        hit.damage,
+                        Some(plan.source_object),
+                        &mut self.health_events,
+                    );
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -321,7 +325,11 @@ impl GameLogic {
             o.booby_trap_attached_to = Some(structure_id);
             o.producer_id = Some(planter_id);
             o.health.maximum = BOOBY_TRAP_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, BOOBY_TRAP_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                BOOBY_TRAP_MAX_HEALTH,
+                &mut self.health_events,
+            );
             o.movement.max_speed = 0.0;
             o.weapon = None;
             o.secondary_weapon = None;
@@ -340,7 +348,7 @@ impl GameLogic {
             // non-authority path keeps host HP clear.
             if crate::gameworld_shadow::gameworld_damage_authority_live() {
                 let hp = o.health.current.max(1.0);
-                crate::game_logic::host_damage_log::record(charge_id, hp, None, true);
+                self.health_events.record_damage(charge_id, hp, None, true);
             } else {
                 o.health.current = 0.0;
             }
@@ -486,6 +494,7 @@ impl GameLogic {
                     Some(plant.planter_id),
                     crate::game_logic::host_booby_trap::BOOBY_DAMAGE_TYPE,
                     crate::game_logic::host_booby_trap::BOOBY_DEATH_TYPE,
+                    &mut self.health_events,
                 ) {
                     destroy_ids.push((vid, plant.planter_team));
                 }
@@ -641,7 +650,11 @@ impl GameLogic {
             o.helix_napalm_bomb_projectile = true;
             o.note_producer(source_id);
             o.health.maximum = NAPALM_BOMB_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, NAPALM_BOMB_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                NAPALM_BOMB_MAX_HEALTH,
+                &mut self.health_events,
+            );
             // Fall velocity residual (Y-up).
             let fall_frames = ((start.y - aim.y).max(1.0) / NAPALM_BOMB_FALL_SPEED_PER_FRAME)
                 .ceil()
@@ -768,6 +781,7 @@ impl GameLogic {
                         Some(source_object),
                         crate::game_logic::host_helix_napalm::HELIX_NAPALM_DAMAGE_TYPE,
                         crate::game_logic::host_helix_napalm::HELIX_NAPALM_DEATH_TYPE,
+                        &mut self.health_events,
                     ) {
                         destroy_ids.push((vid, source_team));
                     }
@@ -842,6 +856,7 @@ impl GameLogic {
                         hit.damage,
                         Some(plan.source_object),
                         crate::game_logic::combat::DamageType::Flame,
+                        &mut self.health_events,
                     );
                     total_damage += hit.damage;
                     applications += 1;
@@ -941,6 +956,7 @@ impl GameLogic {
                     Some(car_id),
                     crate::game_logic::host_car_bomb::SUICIDE_CAR_BOMB_DAMAGE_TYPE,
                     crate::game_logic::host_car_bomb::SUICIDE_CAR_BOMB_DEATH_TYPE,
+                    &mut self.health_events,
                 ) {
                     destroy_ids.push((vid, car_team));
                 }
@@ -963,7 +979,7 @@ impl GameLogic {
         );
 
         if let Some(car) = self.objects.get_mut(&car_id) {
-            Self::mark_object_destroyed_authority_aware(car, Some(car_id));
+            Self::mark_object_destroyed_authority_aware(car, Some(car_id), &mut self.health_events);
             car.set_status_is_carbomb(false);
         }
         self.mark_object_for_destruction(car_id, Some(car_team));
@@ -1634,9 +1650,9 @@ impl GameLogic {
         let frame = self.frame;
         let start_radius = spy_drone_scan_radius_after_updates(0);
         if let Some(id) = spawned_id {
-            if let Some(obj) = self.host_object_mut(id) {
+            if let Some((obj, health_events)) = self.host_object_and_health_events_mut(id) {
                 obj.health.maximum = SPY_DRONE_MAX_HEALTH;
-                Self::write_object_health_authority_aware(obj, SPY_DRONE_MAX_HEALTH);
+                Self::write_object_health_authority_aware(obj, SPY_DRONE_MAX_HEALTH, health_events);
                 obj.template_mut().add_kind_of(KindOf::Selectable);
                 obj.template_mut().add_kind_of(KindOf::Vehicle);
                 obj.template_mut().add_kind_of(KindOf::Drone);
@@ -1788,7 +1804,7 @@ impl GameLogic {
             o.countermeasure_flare_expires_frame = Some(expires);
             o.producer_id = Some(aircraft_id);
             o.health.maximum = FLARE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, FLARE_MAX_HEALTH);
+            Self::write_object_health_authority_aware(o, FLARE_MAX_HEALTH, &mut self.health_events);
             o.weapon = None;
             o.secondary_weapon = None;
         }
@@ -1859,7 +1875,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }

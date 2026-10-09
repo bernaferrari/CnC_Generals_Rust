@@ -10,6 +10,9 @@ use super::script_camera::*;
 use super::*;
 
 pub struct GameLogic {
+    /// Ordered health transport and presentation receipts for this world.
+    pub(crate) health_events: crate::game_logic::HostHealthEvents,
+
     /// Client tint history is scoped to this instance, including synthetic render IDs.
     #[cfg(feature = "game_client")]
     pub(crate) host_physics_visuals:

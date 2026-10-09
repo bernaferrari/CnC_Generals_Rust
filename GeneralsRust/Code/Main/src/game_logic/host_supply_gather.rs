@@ -1197,7 +1197,7 @@ impl crate::game_logic::GameLogic {
             );
             if amount > 0.0 {
                 // C++ SupplyWarehouseCripplingBehavior::update attemptHealing.
-                obj.heal(amount);
+                obj.heal(amount, &mut self.health_events);
             }
             state.last_health = obj.health.current;
         }

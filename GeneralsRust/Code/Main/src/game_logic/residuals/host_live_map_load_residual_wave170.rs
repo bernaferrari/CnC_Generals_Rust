@@ -89,9 +89,10 @@ fn live_load_one(map_name: &str) -> Option<(u32, usize)> {
         logic.update();
     }
     let advanced = logic.get_frame().saturating_sub(before);
-    let object_count = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
-        .objects
-        .len();
+    let object_count =
+        crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0)
+            .objects
+            .len();
     Some((advanced, object_count))
 }
 

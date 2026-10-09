@@ -85,12 +85,15 @@ pub fn honesty_host_eager_damage_helper_method_names_residual_wave684() -> bool 
 pub fn honesty_host_eager_damage_helper_source_markers_residual_wave684() -> bool {
     let eng = eng_source();
     let sh = shadow_source();
+    let health_events = include_str!("../host_health_log.rs");
     let api_ok = sh.contains("pub(crate) fn eager_apply_host_health_after_logic")
         && sh.contains("Wave 684/685")
-        && sh.contains("host_health_log::drain_ordered")
+        && sh.contains("logic.health_events.drain_ordered()")
         && sh.contains("apply_host_health_events")
-        && sh.contains("take_early_health_batch")
-        && sh.contains("early_health_applied");
+        && sh.contains("logic.health_events.take_early_batch()")
+        && sh.contains("early_health_applied")
+        && health_events.contains("pub struct HostHealthEvents")
+        && health_events.contains("fn drain_ordered(");
     let eng_ok =
         eng.contains("eager_apply_all_host_residuals_after_logic") && eng.contains("Wave 682/925");
     let ok = api_ok && eng_ok && !eng.contains("playable_claim = true");
@@ -145,7 +148,6 @@ pub fn simulate_live_host_eager_damage_helper_honesty() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::host_damage_log;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::gameworld_shadow::{
         GameWorldShadow, begin_shadow_coupled_tick, eager_apply_host_health_after_logic,
@@ -193,17 +195,16 @@ mod tests {
         let _guard = crate::gameworld_shadow::authority_env_lock();
         let prev_s = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
         crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-        host_damage_log::clear();
-
         let mut logic = GameLogic::new();
+        logic.health_events.clear_damage();
         logic.set_damage_authority(true);
         ensure_template(&mut logic, "EagerDmgUnit", 100.0);
         let id = logic
             .create_object("EagerDmgUnit", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("spawn");
-        // Under damage authority, take_damage may only log — force a log event.
-        host_damage_log::record(id, 25.0, None, false);
-        assert_eq!(host_damage_log::len(), 1);
+        // Under damage authority, take_damage may only log — force an owned pending event.
+        logic.health_events.record_damage(id, 25.0, None, false);
+        assert_eq!(logic.health_events.len_damage(), 1);
 
         let mut shadow = GameWorldShadow::new(64);
         begin_shadow_coupled_tick();
@@ -218,10 +219,10 @@ mod tests {
                 },
             ));
         });
-        let n = eager_apply_host_health_after_logic(&mut shadow, &logic);
+        let n = eager_apply_host_health_after_logic(&mut shadow, &mut logic);
         assert!(n >= 1, "eager health should queue/apply");
         assert!(
-            host_damage_log::drain().is_empty(),
+            logic.health_events.drain_damage().is_empty(),
             "log drained by eager path"
         );
         // Session must consume handoff without double-apply panic / empty-auth skip.

@@ -1585,7 +1585,7 @@ impl PresentationFrame {
     ///
     /// Does **not** advance the world — caller is responsible for `logic.update()`.
     pub fn build_and_apply_for_hud(
-        logic: &GameLogic,
+        logic: &mut GameLogic,
         local_player_id: u32,
         hud: &mut crate::ui::GameHUD,
     ) -> Self {
@@ -1601,7 +1601,7 @@ impl PresentationFrame {
     /// → HUD / UIState / RTS / unit command panel. Optional ControlBar is applied by
     /// the engine path when `game_client` is present.
     pub fn build_and_apply_for_shell_consumers(
-        logic: &GameLogic,
+        logic: &mut GameLogic,
         local_player_id: u32,
         hud: &mut crate::ui::GameHUD,
         ui: &mut crate::ui::GameUIState,

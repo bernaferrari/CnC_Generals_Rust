@@ -159,9 +159,9 @@ fn accepted_discharge_borrowed_queries_leave_pending_cues_for_publication() {
     let mut shadow = GameWorldShadow::new(2);
     shadow.sync_from_host(&logic);
     let frames = [
-        PresentationFrame::build_from_logic(&logic, 0),
-        PresentationFrame::build_for_engine(&logic, 0, Some(&shadow)),
-        PresentationFrame::build_from_gameworld(&shadow, 0, Some(&logic)),
+        PresentationFrame::build_from_logic(&mut logic, 0),
+        PresentationFrame::build_for_engine(&mut logic, 0, Some(&shadow)),
+        PresentationFrame::build_from_gameworld(&shadow, 0, Some(&mut logic)),
     ];
     for frame in frames {
         assert!(
@@ -187,12 +187,8 @@ fn assert_synchronized_empty_roster_fallback(case: u8) {
     accept_shot(&mut logic, 1.0);
     accept_shot(&mut logic, 2.0);
     for id in [SOURCE, VICTIM] {
-        assert!(
-            logic
-                .host_object_mut(id)
-                .unwrap()
-                .take_damage_from_immediate(1_000_000.0, None)
-        );
+        let (object, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
+        assert!(object.take_damage_from_immediate(1_000_000.0, None, health_events));
         let object = logic.host_object(id).unwrap();
         assert!(object.status.destroyed && object.health.current <= 0.0);
     }
@@ -388,12 +384,8 @@ fn accepted_discharge_victory_fallback_freezes_post_defeat_cash() {
         logic.get_player_mut(0).unwrap().resources.supplies = 1_234;
         accept_shot(&mut logic, 1.0);
         for id in [SOURCE, VICTIM] {
-            assert!(
-                logic
-                    .host_object_mut(id)
-                    .unwrap()
-                    .take_damage_from_immediate(1_000_000.0, None)
-            );
+            let (object, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
+            assert!(object.take_damage_from_immediate(1_000_000.0, None, health_events));
             assert!(logic.host_object(id).unwrap().status.destroyed);
         }
         // Use the documented sync-before-builder API boundary. All mapped

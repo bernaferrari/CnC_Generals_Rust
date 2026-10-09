@@ -40,23 +40,23 @@ fn frozen_weapon_readiness_uses_owning_world_frame() {
     let _restore = RestoreFrame(crate::game_logic::host_historic_bonus::logic_frame());
     let mut first = reloading_world(45);
     crate::game_logic::host_historic_bonus::set_logic_frame(first.frame);
-    let first_frame = PresentationFrame::build_from_logic(&first, 0);
+    let first_frame = PresentationFrame::build_from_logic(&mut first, 0);
     assert_eq!(
         readiness(&first_frame),
         50,
         "45 frames is 1.5 seconds at 30Hz"
     );
 
-    let second = reloading_world(90);
+    let mut second = reloading_world(90);
     crate::game_logic::host_historic_bonus::set_logic_frame(second.frame);
-    let second_frame = PresentationFrame::build_from_logic(&second, 0);
+    let second_frame = PresentationFrame::build_from_logic(&mut second, 0);
     assert_eq!(readiness(&second_frame), 100);
     assert_eq!(
         readiness(&first_frame),
         50,
         "the completed frame stays immutable"
     );
-    let rebuilt_first = PresentationFrame::build_from_logic(&first, 0);
+    let rebuilt_first = PresentationFrame::build_from_logic(&mut first, 0);
     assert_eq!(
         readiness(&rebuilt_first),
         50,
@@ -65,7 +65,7 @@ fn frozen_weapon_readiness_uses_owning_world_frame() {
 
     first.frame = 60;
     crate::game_logic::host_historic_bonus::set_logic_frame(0);
-    let advanced = PresentationFrame::build_from_logic(&first, 0);
+    let advanced = PresentationFrame::build_from_logic(&mut first, 0);
     assert_eq!(
         readiness(&advanced),
         100,

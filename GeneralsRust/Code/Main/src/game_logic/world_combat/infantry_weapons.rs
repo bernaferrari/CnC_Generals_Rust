@@ -73,8 +73,13 @@ impl GameLogic {
                 } else {
                     (SCUD_DAMAGE_TYPE, SCUD_DEATH_TYPE)
                 };
-                let destroyed =
-                    obj.take_damage_from_immediate_residual(dmg, source, dt_name, death_name);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    dt_name,
+                    death_name,
+                    &mut self.health_events,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -1361,7 +1366,7 @@ impl GameLogic {
             if let Some(t) = self.objects.get_mut(&vid) {
                 total_damage += damage;
                 objects_hit += 1;
-                if t.take_damage_from_typed(damage, killer, damage_type) {
+                if t.take_damage_from_typed(damage, killer, damage_type, &mut self.health_events) {
                     destroy_ids.push(vid);
                 }
             }
@@ -1900,6 +1905,7 @@ impl GameLogic {
                     Some(id),
                     crate::game_logic::combat::DamageType::Flame,
                     crate::game_logic::host_usa_pilot::HostDeathType::Burned,
+                    &mut self.health_events,
                 );
             }
         }
@@ -2080,7 +2086,7 @@ impl GameLogic {
                 // remain host residual either way.
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
-                    crate::game_logic::host_damage_log::record(id, hp, None, true);
+                    self.health_events.record_damage(id, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -2146,6 +2152,7 @@ impl GameLogic {
                         Some(plan.source_object),
                         crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type(),
                         plan.death_type,
+                        &mut self.health_events,
                     );
                     total_damage += hit.damage;
                     applications += 1;
@@ -2196,8 +2203,11 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed =
-                        target.take_radiation_field_tick(hit.damage, Some(plan.source_object));
+                    let killed = target.take_radiation_field_tick(
+                        hit.damage,
+                        Some(plan.source_object),
+                        &mut self.health_events,
+                    );
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -2312,7 +2322,11 @@ impl GameLogic {
             o.nuke_shell_flight_frames = frames;
             o.note_producer(source_id);
             o.health.maximum = NUKE_SHELL_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, NUKE_SHELL_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                NUKE_SHELL_MAX_HEALTH,
+                &mut self.health_events,
+            );
         }
         self.nuke_cannon_shells_spawned = self.nuke_cannon_shells_spawned.saturating_add(1);
         Some(pid)
@@ -2382,7 +2396,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }

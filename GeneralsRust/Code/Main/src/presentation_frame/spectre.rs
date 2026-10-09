@@ -107,8 +107,8 @@ pub fn honesty_presentation_dual_tick_residual_deepen_wave102() -> bool {
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 
     // Empty residual snapshot honesty (zero objects still dual-tick consistent).
-    let empty_logic = GameLogic::new();
-    let empty = PresentationFrame::build_from_logic(&empty_logic, 0);
+    let mut empty_logic = GameLogic::new();
+    let empty = PresentationFrame::build_from_logic(&mut empty_logic, 0);
     if !empty.dual_tick_presentation_residual_ok() {
         return false;
     }
@@ -131,7 +131,7 @@ pub fn honesty_presentation_dual_tick_residual_deepen_wave102() -> bool {
     let mut rts = crate::ui::RTSInterface::new();
     let mut cmd = crate::ui::UnitCommandPanel::new();
     let frame = PresentationFrame::build_and_apply_for_shell_consumers(
-        &logic, 0, &mut hud, &mut ui, &mut rts, &mut cmd,
+        &mut logic, 0, &mut hud, &mut ui, &mut rts, &mut cmd,
     );
     frame.dual_tick_presentation_residual_deepen_ok()
         && frame.dual_tick.honesty_apply_ok()

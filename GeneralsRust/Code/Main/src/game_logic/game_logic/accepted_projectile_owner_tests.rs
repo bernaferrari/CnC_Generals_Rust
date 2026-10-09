@@ -305,6 +305,7 @@ fn accepted_queue_fifo_repeated_shots_keep_frozen_source_after_retirement() {
         &mut world.objects,
         world.frame,
         Some(&world.players),
+        &mut world.health_events,
     );
     assert_eq!(world.objects[&target].health.current, hp - 47.0);
     world.drain_pending_projectiles_into_combat();

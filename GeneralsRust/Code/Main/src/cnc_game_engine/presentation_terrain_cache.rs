@@ -83,7 +83,7 @@ mod tests {
 
     #[test]
     fn cache_reuses_payload_for_same_terrain_revision() {
-        let logic = logic_with_terrain(&[0.0, 0.0, 0.0, 10.0]);
+        let mut logic = logic_with_terrain(&[0.0, 0.0, 0.0, 10.0]);
         let mut cache = PresentationTerrainCache::default();
 
         let first = cache
@@ -99,7 +99,7 @@ mod tests {
 
     #[test]
     fn presentation_frame_clone_shares_cached_terrain_payload() {
-        let logic = logic_with_terrain(&[0.0, 0.0, 0.0, 10.0]);
+        let mut logic = logic_with_terrain(&[0.0, 0.0, 0.0, 10.0]);
         let mut cache = PresentationTerrainCache::default();
         let shared = cache
             .runtime_heightmap_for_logic(&logic)
@@ -107,7 +107,7 @@ mod tests {
 
         let frame =
             crate::presentation_frame::PresentationFrame::build_for_engine_with_runtime_heightmap(
-                &logic,
+                &mut logic,
                 0,
                 None,
                 Some(shared),

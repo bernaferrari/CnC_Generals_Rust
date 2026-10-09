@@ -16,7 +16,7 @@ fn coupled_direct_destroy_preserves_owner_body_through_health_writeback() {
     object.previous_health = 50.0;
     let mut shadow = GameWorldShadow::new(16);
     shadow.sync_from_host(&logic);
-    crate::game_logic::host_damage_log::clear();
+    logic.health_events.clear_damage();
     crate::game_logic::host_destroy_ready_log::clear();
     let _couple = ShadowCoupleGuard::enter();
     with_coupled_shadow(&mut shadow, || logic.destroy_object(id));
@@ -46,6 +46,6 @@ fn coupled_direct_destroy_preserves_owner_body_through_health_writeback() {
     );
     logic.process_destroy_list();
     assert!(logic.host_object(id).is_none());
-    crate::game_logic::host_damage_log::clear();
+    logic.health_events.clear_damage();
     crate::game_logic::host_destroy_ready_log::clear();
 }

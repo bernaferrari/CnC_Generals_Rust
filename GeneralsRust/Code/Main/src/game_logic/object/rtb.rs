@@ -386,7 +386,10 @@ impl Object {
     /// C++ JetOrHeliCirclingDeadAirfieldState:
     /// `damageRate = pct * SECONDS_PER_LOGICFRAME * maxHealth`, DAMAGE_UNRESISTABLE.
     /// Returns damage applied (0 if not eligible).
-    pub fn apply_out_of_ammo_damage_frame(&mut self) -> f32 {
+    pub fn apply_out_of_ammo_damage_frame(
+        &mut self,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) -> f32 {
         if !self.is_alive() {
             return 0.0;
         }
@@ -411,7 +414,7 @@ impl Object {
         if dmg <= 0.0 {
             return 0.0;
         }
-        self.take_damage(dmg);
+        self.take_damage(dmg, health_events);
         dmg
     }
 
@@ -517,7 +520,7 @@ impl Object {
 
     fn slot_is_contact_weapon(&self, slot: u8) -> bool {
         use crate::game_logic::weapon_bootstrap::{
-            host_is_contact_weapon_name, is_contact_effective_range, PATHFIND_CELL_SIZE,
+            PATHFIND_CELL_SIZE, host_is_contact_weapon_name, is_contact_effective_range,
         };
         let Some(weapon) = self.weapon_slot(slot) else {
             return false;

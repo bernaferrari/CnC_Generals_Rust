@@ -7,7 +7,7 @@ use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::system::radar::{
-    get_radar_system, Coord3D, ICoord2D, RGBAColorInt, RadarEvent, RadarEventType, MAX_RADAR_EVENTS,
+    Coord3D, ICoord2D, MAX_RADAR_EVENTS, RGBAColorInt, RadarEvent, RadarEventType, get_radar_system,
 };
 use game_engine::common::system::xfer::Xfer as CommonXfer;
 use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
@@ -1855,13 +1855,13 @@ mod tests {
             (logic, id)
         }
         let (mut playing, id) = world();
-        let _ = PresentationFrame::build_from_logic(&playing, 0).unit_render_inputs();
+        let _ = PresentationFrame::build_from_logic(&mut playing, 0).unit_render_inputs();
         let saved = capture_persist_v18(&playing);
         let bytes = serde_json::to_vec(&saved).unwrap();
         let decoded: WorldPersistV18 = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(serde_json::to_vec(&decoded).unwrap(), bytes);
         playing.frame = 30;
-        let _ = PresentationFrame::build_from_logic(&playing, 0).unit_render_inputs();
+        let _ = PresentationFrame::build_from_logic(&mut playing, 0).unit_render_inputs();
         let before = capture_persist_v18(&playing);
         let (mut candidate, candidate_id) = world();
         assert_eq!(id, candidate_id);

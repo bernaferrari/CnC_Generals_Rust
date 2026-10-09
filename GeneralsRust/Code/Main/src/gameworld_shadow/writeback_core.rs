@@ -15,9 +15,7 @@ impl GameWorldShadow {
                 continue;
             };
             // Wave 758: under coupled tick, host log pending = mid-frame authority.
-            if shadow_coupled_tick_active()
-                && crate::game_logic::host_damage_log::has_pending(ObjectId(hid))
-            {
+            if shadow_coupled_tick_active() && logic.health_events.has_damage(ObjectId(hid)) {
                 continue;
             }
             let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {

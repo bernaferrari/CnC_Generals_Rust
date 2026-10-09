@@ -1290,7 +1290,11 @@ impl GameLogic {
                 Some(self.frame.saturating_add(BUGGY_MISSILE_FUEL_FRAMES));
             o.note_producer(source_id);
             o.health.maximum = BUGGY_MISSILE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, BUGGY_MISSILE_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                BUGGY_MISSILE_MAX_HEALTH,
+                &mut self.health_events,
+            );
             o.movement.velocity = vel;
             o.set_orientation(dir.z.atan2(dir.x));
         }
@@ -1384,7 +1388,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -1520,6 +1524,7 @@ impl GameLogic {
                     source,
                     BUGGY_DAMAGE_TYPE,
                     BUGGY_DEATH_TYPE,
+                    &mut self.health_events,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -1664,7 +1669,11 @@ impl GameLogic {
                 Some(self.frame.saturating_add(SCUD_MISSILE_FUEL_FRAMES));
             o.note_producer(source_id);
             o.health.maximum = SCUD_MISSILE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, SCUD_MISSILE_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                SCUD_MISSILE_MAX_HEALTH,
+                &mut self.health_events,
+            );
             o.movement.velocity = vel;
             o.set_orientation(dir.z.atan2(dir.x));
             o.height_die = Some(HostHeightDieData::with_target(
@@ -1772,7 +1781,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }

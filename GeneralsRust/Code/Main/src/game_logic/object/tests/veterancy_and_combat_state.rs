@@ -622,6 +622,8 @@ fn pre_attack_cpp_surface() {
 
 #[test]
 fn small_arms_reduced_on_tank_armor_residual() {
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut tmpl = ThingTemplate::new("ArmorTank");
@@ -631,7 +633,7 @@ fn small_arms_reduced_on_tank_armor_residual() {
     let mut tank = Object::new(tmpl, ObjectId(70), Team::USA);
     let hp0 = tank.health.current;
     // TankArmor SmallArms residual is 0.25 → 100 * 0.25 = 25
-    tank.take_damage_from_typed(100.0, None, DamageType::Bullet);
+    tank.take_damage_from_typed(100.0, None, DamageType::Bullet, &mut health_events);
     let dealt = hp0 - tank.health.current;
     assert!(
         (dealt - 25.0).abs() < 1.0,
@@ -641,6 +643,8 @@ fn small_arms_reduced_on_tank_armor_residual() {
 
 #[test]
 fn laser_half_on_human_armor_residual() {
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut tmpl = ThingTemplate::new("ArmorInf");
@@ -650,7 +654,7 @@ fn laser_half_on_human_armor_residual() {
     let mut inf = Object::new(tmpl, ObjectId(71), Team::GLA);
     let hp0 = inf.health.current;
     // HumanArmor Laser residual 0.5 → 100 * 0.5 = 50
-    inf.take_damage_from_typed(100.0, None, DamageType::Laser);
+    inf.take_damage_from_typed(100.0, None, DamageType::Laser, &mut health_events);
     let dealt = hp0 - inf.health.current;
     assert!(
         (dealt - 50.0).abs() < 1.0,
@@ -660,6 +664,8 @@ fn laser_half_on_human_armor_residual() {
 
 #[test]
 fn flame_kill_sets_burned_death_type() {
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::host_usa_pilot::HostDeathType;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
@@ -667,8 +673,13 @@ fn flame_kill_sets_burned_death_type() {
     tmpl.set_health(50.0);
     tmpl.add_kind_of(KindOf::Infantry);
     let mut o = Object::new(tmpl, ObjectId(80), Team::GLA);
-    let dead =
-        o.take_damage_from_typed_death(999.0, None, DamageType::Flame, HostDeathType::Burned);
+    let dead = o.take_damage_from_typed_death(
+        999.0,
+        None,
+        DamageType::Flame,
+        HostDeathType::Burned,
+        &mut health_events,
+    );
     assert!(dead);
     assert_eq!(o.status.death_type, HostDeathType::Burned);
 }
@@ -1134,6 +1145,8 @@ fn height_die_kills_when_low() {
 
 #[test]
 fn squish_requires_velocity_toward_victim() {
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+
     use crate::game_logic::host_squish_collide::velocity_toward_victim;
     assert!(velocity_toward_victim((0.0, 0.0), (5.0, 0.0), (2.0, 0.0)));
     assert!(!velocity_toward_victim((0.0, 0.0), (5.0, 0.0), (-2.0, 0.0)));
@@ -1164,7 +1177,7 @@ fn squish_requires_velocity_toward_victim() {
     inf.health.maximum = 100.0;
 
     assert!(
-        tank.check_for_overlap_collision(&mut inf, false),
+        tank.check_for_overlap_collision(&mut inf, false, &mut health_events),
         "squish must kill when moving toward infantry in tight radius"
     );
     assert!(inf.front_crushed && inf.back_crushed);
@@ -1207,6 +1220,8 @@ fn fire_weapon_power_queues_shots() {
 
 #[test]
 fn poisoned_behavior_dots_after_toxin() {
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::host_historic_bonus;
     let mut t = ThingTemplate::new("TestInfantry");
@@ -1216,7 +1231,7 @@ fn poisoned_behavior_dots_after_toxin() {
     o.health.current = 100.0;
     o.health.maximum = 100.0;
     host_historic_bonus::set_logic_frame(10);
-    let _ = o.take_damage_from_typed(20.0, None, DamageType::Toxin);
+    let _ = o.take_damage_from_typed(20.0, None, DamageType::Toxin, &mut health_events);
     // HP reduced by initial hit
     let after_hit = o.health.current;
     assert!(after_hit < 100.0);
@@ -1238,6 +1253,7 @@ fn poisoned_behavior_dots_after_toxin() {
                 None,
                 DamageType::Unresistable,
                 crate::game_logic::host_usa_pilot::HostDeathType::Poisoned,
+                &mut health_events,
             );
         }
     }
@@ -1247,6 +1263,8 @@ fn poisoned_behavior_dots_after_toxin() {
 
 #[test]
 fn healing_clears_poison() {
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::host_historic_bonus;
     let mut t = ThingTemplate::new("TestInfantry");
@@ -1255,9 +1273,9 @@ fn healing_clears_poison() {
     o.health.current = 80.0;
     o.health.maximum = 100.0;
     host_historic_bonus::set_logic_frame(5);
-    let _ = o.take_damage_from_typed(10.0, None, DamageType::Toxin);
+    let _ = o.take_damage_from_typed(10.0, None, DamageType::Toxin, &mut health_events);
     assert!(o.is_poison_tinted());
-    o.heal(5.0);
+    o.heal(5.0, &mut health_events);
     assert!(!o.is_poison_tinted());
 }
 
@@ -1886,6 +1904,8 @@ fn tree_topple_queues_stump_and_crush_direction() {
 
 #[test]
 fn healing_and_water_damage_residuals() {
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
@@ -1897,7 +1917,12 @@ fn healing_and_water_damage_residuals() {
     unit.health.maximum = 100.0;
 
     // Healing restores HP and never destroys.
-    assert!(!unit.take_damage_from_typed(25.0, Some(ObjectId(99)), DamageType::Healing));
+    assert!(!unit.take_damage_from_typed(
+        25.0,
+        Some(ObjectId(99)),
+        DamageType::Healing,
+        &mut health_events
+    ));
     assert!((unit.health.current - 65.0).abs() < 1e-3);
     assert!(unit.is_alive());
     // C++ ActiveBody.cpp:817 copies the complete HEALING DamageInfo,
@@ -1908,24 +1933,26 @@ fn healing_and_water_damage_residuals() {
     assert!(unit.last_healing_timestamp.is_some());
 
     // Cap at maximum.
-    assert!(!unit.take_damage_from_typed(1000.0, None, DamageType::Healing));
+    assert!(!unit.take_damage_from_typed(1000.0, None, DamageType::Healing, &mut health_events));
     assert!((unit.health.current - 100.0).abs() < 1e-3);
 
     // Water deals normal HP damage.
     unit.health.current = 100.0;
-    let destroyed = unit.take_damage_from_typed(30.0, None, DamageType::Water);
+    let destroyed = unit.take_damage_from_typed(30.0, None, DamageType::Water, &mut health_events);
     assert!(!destroyed);
     assert!((unit.health.current - 70.0).abs() < 1e-3);
 
     // Dead units do not heal.
     unit.health.current = 0.0;
     unit.status.destroyed = true;
-    assert!(!unit.take_damage_from_typed(50.0, None, DamageType::Healing));
+    assert!(!unit.take_damage_from_typed(50.0, None, DamageType::Healing, &mut health_events));
     assert!((unit.health.current - 0.0).abs() < 1e-3);
 }
 
 #[test]
 fn deploy_hack_surrender_kill_garrisoned_damage_residuals() {
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
 
@@ -1934,7 +1961,7 @@ fn deploy_hack_surrender_kill_garrisoned_damage_residuals() {
     tt.set_health(100.0);
     let mut crawler = Object::new(tt, ObjectId(1), Team::China);
     crawler.health.current = 100.0;
-    assert!(!crawler.take_damage_from_typed(50.0, None, DamageType::Deploy));
+    assert!(!crawler.take_damage_from_typed(50.0, None, DamageType::Deploy, &mut health_events));
     assert!((crawler.health.current - 100.0).abs() < 1e-3);
     assert!(!crawler.status.destroyed);
 
@@ -1944,7 +1971,7 @@ fn deploy_hack_surrender_kill_garrisoned_damage_residuals() {
     ht.add_kind_of(KindOf::Vehicle);
     let mut tank = Object::new(ht, ObjectId(2), Team::USA);
     tank.health.current = 100.0;
-    assert!(!tank.take_damage_from_typed(40.0, None, DamageType::Hack));
+    assert!(!tank.take_damage_from_typed(40.0, None, DamageType::Hack, &mut health_events));
     assert!((tank.health.current - 100.0).abs() < 1e-3);
 
     // SURRENDER: retail ALLOW_SURRENDER off — lethal hit is normal HP death
@@ -1954,7 +1981,7 @@ fn deploy_hack_surrender_kill_garrisoned_damage_residuals() {
     it.add_kind_of(KindOf::Infantry);
     let mut ranger = Object::new(it, ObjectId(3), Team::USA);
     ranger.health.current = 50.0;
-    assert!(ranger.take_damage_from_typed(50.0, None, DamageType::Surrender));
+    assert!(ranger.take_damage_from_typed(50.0, None, DamageType::Surrender, &mut health_events));
     assert!(!ranger.is_surrendered);
     assert!(!ranger.is_alive());
 
@@ -1964,7 +1991,12 @@ fn deploy_hack_surrender_kill_garrisoned_damage_residuals() {
     st.add_kind_of(KindOf::Structure);
     let mut bunker = Object::new(st, ObjectId(4), Team::GLA);
     bunker.health.current = 500.0;
-    assert!(!bunker.take_damage_from_typed(3.7, None, DamageType::KillGarrisoned));
+    assert!(!bunker.take_damage_from_typed(
+        3.7,
+        None,
+        DamageType::KillGarrisoned,
+        &mut health_events
+    ));
     assert!((bunker.health.current - 500.0).abs() < 1e-3);
     assert_eq!(bunker.take_pending_kill_garrisoned(), 3);
 
@@ -1973,12 +2005,14 @@ fn deploy_hack_surrender_kill_garrisoned_damage_residuals() {
     pt.set_health(100.0);
     let mut penalized = Object::new(pt, ObjectId(5), Team::USA);
     penalized.health.current = 100.0;
-    let _ = penalized.take_damage_from_typed(25.0, None, DamageType::Penalty);
+    let _ = penalized.take_damage_from_typed(25.0, None, DamageType::Penalty, &mut health_events);
     assert!((penalized.health.current - 75.0).abs() < 1e-3);
 }
 
 #[test]
 fn disarm_damage_clears_mine_without_hp_on_tank() {
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::host_mines::{HostMineData, HostMineKind};
     use crate::game_logic::{KindOf, Team, ThingTemplate};
@@ -2002,7 +2036,7 @@ fn disarm_damage_clears_mine_without_hp_on_tank() {
         ..HostMineData::land_mine()
     });
     mine.health.current = 10.0;
-    assert!(mine.take_damage_from_typed(1.0, None, DamageType::Disarm));
+    assert!(mine.take_damage_from_typed(1.0, None, DamageType::Disarm, &mut health_events));
     assert!(mine.status.destroyed);
     assert!(mine.mine_data.as_ref().unwrap().detonated);
 
@@ -2011,12 +2045,14 @@ fn disarm_damage_clears_mine_without_hp_on_tank() {
     tt.add_kind_of(KindOf::Vehicle);
     let mut tank = Object::new(tt, ObjectId(2), Team::USA);
     tank.health.current = 100.0;
-    assert!(!tank.take_damage_from_typed(50.0, None, DamageType::Disarm));
+    assert!(!tank.take_damage_from_typed(50.0, None, DamageType::Disarm, &mut health_events));
     assert!((tank.health.current - 100.0).abs() < 1e-3);
 }
 
 #[test]
 fn disarm_keeps_regenerating_china_pad() {
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::host_mines::{HostMineData, MINE_MIN_HEALTH};
     use crate::game_logic::{Team, ThingTemplate};
@@ -2025,7 +2061,7 @@ fn disarm_keeps_regenerating_china_pad() {
     let mut mine = Object::new(mt, ObjectId(3), Team::China);
     mine.mine_data = Some(HostMineData::land_mine_for_template("ChinaStandardMine"));
     mine.health.current = 100.0;
-    assert!(!mine.take_damage_from_typed(1.0, None, DamageType::Disarm));
+    assert!(!mine.take_damage_from_typed(1.0, None, DamageType::Disarm, &mut health_events));
     assert!(!mine.status.destroyed);
     assert!((mine.health.current - MINE_MIN_HEALTH).abs() < 1e-3);
     assert_eq!(mine.mine_data.as_ref().unwrap().virtual_mines_remaining, 0);
@@ -2034,6 +2070,8 @@ fn disarm_keeps_regenerating_china_pad() {
 
 #[test]
 fn disarm_damage_defuses_demo_trap_without_hp_splash_path() {
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::host_mines::HostMineData;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
@@ -2044,13 +2082,15 @@ fn disarm_damage_defuses_demo_trap_without_hp_splash_path() {
     trap.mine_data = Some(HostMineData::demo_trap());
     trap.health.current = 100.0;
     assert!(trap.is_disarmable_mine());
-    assert!(trap.take_damage_from_typed(1.0, None, DamageType::Disarm));
+    assert!(trap.take_damage_from_typed(1.0, None, DamageType::Disarm, &mut health_events));
     assert!(trap.status.destroyed);
     assert!(trap.mine_data.as_ref().unwrap().detonated);
 }
 
 #[test]
 fn kill_pilot_damage_unmans_vehicle_without_hp_loss() {
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut tmpl = ThingTemplate::new("Tank");
@@ -2059,7 +2099,7 @@ fn kill_pilot_damage_unmans_vehicle_without_hp_loss() {
     let mut o = Object::new(tmpl, ObjectId(5), Team::China);
     o.health.current = 200.0;
     o.health.maximum = 200.0;
-    assert!(!o.take_damage_from_typed(1.0, None, DamageType::KillPilot));
+    assert!(!o.take_damage_from_typed(1.0, None, DamageType::KillPilot, &mut health_events));
     assert!((o.health.current - 200.0).abs() < 1e-3);
     assert!(o.is_unmanned());
     assert_eq!(o.team, Team::Neutral);
@@ -2067,6 +2107,8 @@ fn kill_pilot_damage_unmans_vehicle_without_hp_loss() {
 
 #[test]
 fn microwave_is_hp_through_armor_not_emp_subdual() {
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+
     // C++ Damage.h:63 DAMAGE_MICROWAVE is ordinary HP; IsSubdualDamage false.
     // TankArmor MICROWAVE 0% (Armor.cpp:43-55 via ActiveBody.cpp:351).
     use crate::game_logic::combat::DamageType;
@@ -2077,11 +2119,11 @@ fn microwave_is_hp_through_armor_not_emp_subdual() {
     let mut o = Object::new(tmpl, ObjectId(4), Team::USA);
     o.health.current = 100.0;
     o.health.maximum = 100.0;
-    assert!(!o.take_damage_from_typed(40.0, None, DamageType::Microwave));
+    assert!(!o.take_damage_from_typed(40.0, None, DamageType::Microwave, &mut health_events));
     assert!((o.health.current - 100.0).abs() < 1e-3);
     assert!(o.subdual_damage.abs() < 1e-3);
     assert!(!o.is_subdued());
-    assert!(!o.take_damage_from_typed(70.0, None, DamageType::EMP));
+    assert!(!o.take_damage_from_typed(70.0, None, DamageType::EMP, &mut health_events));
     assert!((o.health.current - 100.0).abs() < 1e-3);
     assert!(o.subdual_damage.abs() < 1e-3);
     assert!(!o.is_subdued());
@@ -2089,6 +2131,8 @@ fn microwave_is_hp_through_armor_not_emp_subdual() {
 
 #[test]
 fn status_damage_applies_faerie_without_hp_loss() {
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut tmpl = ThingTemplate::new("PaintMe");
@@ -2108,6 +2152,7 @@ fn status_damage_applies_faerie_without_hp_loss() {
         None,
         0,
         &context,
+        &mut health_events,
     );
     assert!(!dead);
     assert!((o.health.current - 100.0).abs() < 1e-3);
@@ -2117,6 +2162,8 @@ fn status_damage_applies_faerie_without_hp_loss() {
 
 #[test]
 fn status_damage_none_does_not_paint_faerie_fire() {
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut tmpl = ThingTemplate::new("NoPaint");
@@ -2126,7 +2173,7 @@ fn status_damage_none_does_not_paint_faerie_fire() {
     o.health.current = 100.0;
     o.health.maximum = 100.0;
     // C++ default OBJECT_STATUS_NONE: no paint.
-    let dead = o.take_damage_from_typed(200.0, None, DamageType::Status);
+    let dead = o.take_damage_from_typed(200.0, None, DamageType::Status, &mut health_events);
     assert!(!dead);
     assert!((o.health.current - 100.0).abs() < 1e-3);
     assert!(!o.is_faerie_fire());
@@ -2757,6 +2804,8 @@ fn effective_max_lift_uses_damaged_locomotor() {
 
 #[test]
 fn body_damage_sets_model_condition_bits() {
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+
     use crate::game_logic::host_enum_table_residual::{
         HostBodyDamageType, MC_BIT_DAMAGED, MC_BIT_DYING, MC_BIT_REALLYDAMAGED, MC_BIT_RUBBLE,
         host_model_condition_has,
@@ -2793,7 +2842,7 @@ fn body_damage_sets_model_condition_bits() {
         MC_BIT_REALLYDAMAGED
     ));
 
-    o.take_damage(9999.0);
+    o.take_damage(9999.0, &mut health_events);
     assert!(o.status.destroyed);
     assert_eq!(o.body_damage_state, HostBodyDamageType::Rubble);
     assert!(host_model_condition_has(

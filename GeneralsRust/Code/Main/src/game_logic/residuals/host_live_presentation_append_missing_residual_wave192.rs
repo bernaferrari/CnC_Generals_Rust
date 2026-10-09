@@ -172,7 +172,7 @@ pub fn simulate_live_presentation_append_missing_honesty() -> bool {
         e.body_damage_state = 0;
     }
 
-    let mut pres = PresentationFrame::build_from_logic(&logic, 0);
+    let mut pres = PresentationFrame::build_from_logic(&mut logic, 0);
     let before = pres.objects.len();
     let _ = pres.overlay_gameworld_shadow(&shadow);
     let appended = pres.append_missing_from_gameworld(&shadow);

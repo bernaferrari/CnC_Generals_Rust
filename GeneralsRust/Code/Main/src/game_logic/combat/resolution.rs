@@ -223,8 +223,9 @@ impl CombatSystem {
         &mut self,
         dt: f32,
         objects: &mut HashMap<ObjectId, Object>,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> Vec<ObjectId> {
-        self.update_projectiles_with_countermeasures(dt, objects, None, 0)
+        self.update_projectiles_with_countermeasures(dt, objects, None, 0, health_events)
     }
 
     /// Flight integrate only (lifetime + pose). Hit/detonation behavior is
@@ -396,8 +397,17 @@ impl CombatSystem {
             &mut crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
         >,
         frame: u32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> Vec<ObjectId> {
-        self.update_projectiles_with_relationships(dt, objects, countermeasures, frame, None, None)
+        self.update_projectiles_with_relationships(
+            dt,
+            objects,
+            countermeasures,
+            frame,
+            None,
+            None,
+            health_events,
+        )
     }
 
     /// Projectile step that applies RadiusDamageAffects via GameWorld player relationships.
@@ -412,10 +422,18 @@ impl CombatSystem {
         frame: u32,
         players: Option<&HashMap<u32, crate::game_logic::Player>>,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> Vec<ObjectId> {
         let (damage_events, projectiles_to_remove) =
             self.prepare_projectile_impacts(dt, objects, countermeasures, frame);
-        self.apply_damage_events(&damage_events, objects, players, team_factory, frame);
+        self.apply_damage_events(
+            &damage_events,
+            objects,
+            players,
+            team_factory,
+            frame,
+            health_events,
+        );
         self.retire_projectile_impacts(&projectiles_to_remove);
         projectiles_to_remove
     }
@@ -825,6 +843,7 @@ impl CombatSystem {
         players: Option<&HashMap<u32, crate::game_logic::Player>>,
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
         frame: u32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) {
         for hit in damage_events {
             match hit {
@@ -851,6 +870,7 @@ impl CombatSystem {
                             None,
                             frame,
                             &context,
+                            health_events,
                         );
                         let hp_lost = (before - target.health.current).max(0.0);
                         self.note_kill_for_on_die(
@@ -1001,6 +1021,7 @@ impl CombatSystem {
                                     None,
                                     frame,
                                     &context,
+                                    health_events,
                                 );
                                 let hp_lost = (before - obj.health.current).max(0.0);
                                 self.note_kill_for_on_die(
@@ -1040,10 +1061,11 @@ impl CombatSystem {
         players: Option<&HashMap<u32, crate::game_logic::Player>>,
         frame: u32,
         historic_damage_limit: u32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) {
         let events =
             self.prepare_projectileless_delayed_shot(shot, objects, frame, historic_damage_limit);
-        self.apply_damage_events(&events, objects, players, None, frame);
+        self.apply_damage_events(&events, objects, players, None, frame, health_events);
     }
 
     /// Prepare just this impact; the owner completes it before preparing another.

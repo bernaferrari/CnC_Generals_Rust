@@ -13,6 +13,8 @@ fn unit(name: &str, id: u32) -> Object {
 
 #[test]
 fn live_hit_context_selects_slave_nearest_to_shooter() {
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+
     let mut site = unit("GLAStingerSite", 901);
     site.hive_slaves = crate::game_logic::host_base_defense::init_stinger_hive_slave_roster();
     let mut shooter = unit("Source", 902);
@@ -27,7 +29,8 @@ fn live_hit_context_selects_slave_nearest_to_shooter() {
         crate::game_logic::host_usa_pilot::HostDeathType::Normal,
         None,
         23,
-        &context
+        &context,
+        &mut health_events
     ));
     assert_eq!(
         site.hive_slaves[0].hp, initial[0],
@@ -39,6 +42,8 @@ fn live_hit_context_selects_slave_nearest_to_shooter() {
 
 #[test]
 fn impact_frame_drives_damage_fx_throttle() {
+    let mut health_events = crate::game_logic::HostHealthEvents::default();
+
     use crate::game_logic::host_transition_damage_fx::take_dispatched_armor_damage_fx;
     use game_engine::common::ini::ini_damage_fx;
     ini_damage_fx::init_global_damage_fx_store();
@@ -73,7 +78,8 @@ fn impact_frame_drives_damage_fx_throttle() {
         None,
         DamageType::Unresistable,
         crate::game_logic::host_usa_pilot::HostDeathType::Normal,
-        impact
+        impact,
+        &mut health_events
     ));
     assert!(
         take_dispatched_armor_damage_fx()
@@ -156,7 +162,8 @@ fn prepared_hive_context_keeps_pose_across_same_id_world_capture_and_generic_hit
                 death,
                 None,
                 41,
-                &context_a
+                &context_a,
+                &mut a.health_events
             )
     );
     assert_eq!(a.objects[&victim_a].hive_slaves[2].hp, roster[2].hp - 5.0);
@@ -176,7 +183,8 @@ fn prepared_hive_context_keeps_pose_across_same_id_world_capture_and_generic_hit
                 death,
                 None,
                 42,
-                &context_b
+                &context_b,
+                &mut b.health_events
             )
     );
     assert_eq!(b.objects[&victim_b].hive_slaves[1].hp, roster[1].hp - 7.0);
@@ -192,7 +200,8 @@ fn prepared_hive_context_keeps_pose_across_same_id_world_capture_and_generic_hit
                 Some(source_a),
                 DamageType::Bullet,
                 death,
-                43
+                43,
+                &mut a.health_events
             )
     );
     assert_eq!(a.objects[&victim_a].hive_slaves[0].hp, roster[0].hp - 3.0);
@@ -263,7 +272,8 @@ fn prepared_context_freezes_source_veterancy_and_does_not_leak_status_or_fx_sour
                 death,
                 None,
                 51,
-                &context_a
+                &context_a,
+                &mut a.health_events
             )
     );
     assert!(a.objects[&victim_a].is_faerie_fire());
@@ -290,7 +300,8 @@ fn prepared_context_freezes_source_veterancy_and_does_not_leak_status_or_fx_sour
                 death,
                 None,
                 52,
-                &context_b
+                &context_b,
+                &mut b.health_events
             )
     );
     let events = take_dispatched_armor_damage_fx();
@@ -309,7 +320,8 @@ fn prepared_context_freezes_source_veterancy_and_does_not_leak_status_or_fx_sour
                 Some(source_b),
                 DamageType::Status,
                 death,
-                53
+                53,
+                &mut b.health_events
             )
     );
     assert!(

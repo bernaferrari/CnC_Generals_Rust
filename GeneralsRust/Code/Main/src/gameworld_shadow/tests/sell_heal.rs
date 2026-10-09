@@ -608,9 +608,9 @@ fn heal_armor_absolute_hp_authority_source() {
         let w = &src[i..=end];
         assert!(
             w.contains("write_object_health_authority_aware")
-                || w.contains("host_heal_log::record")
+                || w.contains("health_events.record_heal")
                 || w.contains("gameworld_damage_authority"),
-            "{fn_name} must honor damage/heal authority for absolute HP writes"
+            "{fn_name} must route absolute HP writes through the owner health sink or authority-aware helper"
         );
     }
 }
@@ -619,9 +619,7 @@ fn heal_armor_absolute_hp_authority_source() {
 fn pending_absolute_health_record_waits_for_admission() {
     let _env_guard = authority_env_lock();
 
-    use crate::game_logic::host_heal_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    host_heal_log::clear();
     let mut logic = GameLogic::new();
     logic.set_damage_authority(true);
     let cfg = golden_skirmish_config("HealAuth");
@@ -642,12 +640,12 @@ fn pending_absolute_health_record_waits_for_admission() {
     }
     // This tests the transport's genuinely deferred producer contract. It does
     // not execute a crate collision or claim to verify the crate behavior.
-    crate::game_logic::host_heal_log::record(oid, 100.0);
+    logic.health_events.record_heal(oid, 100.0);
     assert!(
         (logic.host_objects().get(&oid).unwrap().health.current - 40.0).abs() < 1e-3,
         "host HP must stay until writeback under damage authority"
     );
-    let evs = host_heal_log::drain();
+    let evs = logic.health_events.drain_heal();
     assert!(
         evs.iter()
             .any(|e| e.target == oid && (e.health - 100.0).abs() < 1e-3),
@@ -663,15 +661,15 @@ fn lethal_hp_and_rebuild_start_damage_authority_source() {
     for (fn_name, token) in [
         (
             "fn apply_vehicle_crash_into_immobile",
-            "host_damage_log::record",
+            "health_events.record_damage",
         ),
         (
             "fn destroy_eject_parachute_midair",
-            "host_damage_log::record",
+            "health_events.record_damage",
         ),
         (
             "fn tick_eject_parachute_residual",
-            "host_damage_log::record",
+            "health_events.record_damage",
         ),
         (
             "fn update_rebuild_holes",

@@ -1,5 +1,5 @@
 //! Wave 780: BaseRegenerateUpdate is host-sole (C++ one store). The GW
-//! dual-peal heal tick into host_heal_log was retired; host
+//! dual-peal heal tick into HostHealthEvents was retired; host
 //! `update_base_regenerate` runs unless damage authority is live. The GW
 //! still syncs the base-regen residual fields for probing. playable_claim
 //! stays false.
@@ -13,7 +13,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 pub const LIVE_HOST_BASE_REGEN_DUAL_PEEL_METHOD_NAMES_WAVE780: &[&str] = &[
     "base_regen_active",
     "base_regen_wake_frame",
-    "host_heal_log",
+    "HostHealthEvents",
     "update_base_regenerate",
     "Wave 780",
     "playable_claim = false",
@@ -29,7 +29,7 @@ pub const LIVE_HOST_BASE_REGEN_DUAL_PEEL_NAV_STEPS_WAVE780: &[&str] = &[
 pub const RUNTIME_HOST_LIVE_HOST_BASE_REGEN_DUAL_PEEL_CMD_NAMES_WAVE780: &[&str] = &[
     "host_base_regen_dual_peel",
     "base_regen_active",
-    "host_heal_log",
+    "HostHealthEvents",
     "update_base_regenerate",
 ];
 #[repr(u8)]
@@ -75,7 +75,7 @@ pub fn honesty_host_base_regen_dual_peel_method_names_residual_wave780() -> bool
     let names = LIVE_HOST_BASE_REGEN_DUAL_PEEL_METHOD_NAMES_WAVE780;
     let ok = residual_name_index(names, "base_regen_active").is_some()
         && residual_name_index(names, "base_regen_wake_frame").is_some()
-        && residual_name_index(names, "host_heal_log").is_some()
+        && residual_name_index(names, "HostHealthEvents").is_some()
         && residual_name_index(names, "update_base_regenerate").is_some()
         && residual_name_index(names, "Wave 780").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
@@ -90,9 +90,9 @@ pub fn honesty_host_base_regen_dual_peel_source_markers_residual_wave780() -> bo
         && ent.contains("base_regen_wake_frame")
         // GW still mirrors the residual fields for sync/probe (construct.rs)…
         && sh.contains("base_regen_active")
-        // …but the GW sole-heal dual peel is gone: no producer into the heal
-        // log and no GW heal-rate tick remain in the shadow sources.
-        && !sh.contains("host_heal_log::record")
+        // …but the GW sole-heal dual peel is gone: no GameWorld producer into the heal
+        // event path and no GW heal-rate tick remain in the shadow sources.
+        && !sh.contains("record_applied_heal")
         && !sh.contains("BASE_REGEN_HEAL_RATE_FRAMES")
         && gl.contains("Wave 780")
         && gl.contains("update_base_regenerate")
@@ -121,7 +121,7 @@ pub fn simulate_host_base_regen_dual_peel_collect_source() -> bool {
     ok
 }
 pub fn simulate_host_base_regen_dual_peel_dispatch_source() -> bool {
-    let ok = !sh_source().contains("host_heal_log::record")
+    let ok = !sh_source().contains("health_events.record_applied_heal")
         && !sh_source().contains("BASE_REGEN_HEAL_RATE_FRAMES")
         && gl_source().contains("update_base_regenerate")
         && gl_source().contains("gameworld_damage_authority_live")

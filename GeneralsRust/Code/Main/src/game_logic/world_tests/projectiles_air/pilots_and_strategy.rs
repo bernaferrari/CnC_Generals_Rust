@@ -632,10 +632,12 @@ fn eject_pilot_air_ocl_parachute_residual() {
         )
         .expect("airborne humvee");
     {
-        let h = game_logic.host_object_mut(humvee_id).expect("humvee");
+        let (h, health_events) = game_logic
+            .host_object_and_health_events_mut(humvee_id)
+            .expect("humvee");
         h.experience.level = VeterancyLevel::Veteran;
         h.status.airborne_target = true;
-        let _ = h.take_damage(h.max_health * 2.0);
+        let _ = h.take_damage(h.max_health * 2.0, health_events);
         h.status.destroyed = true;
     }
     game_logic.mark_object_for_destruction(humvee_id, Some(Team::GLA));
@@ -742,7 +744,7 @@ fn eject_pilot_air_ocl_parachute_residual() {
     {
         let h = ground_logic.host_object_mut(g_id).expect("humvee");
         h.experience.level = VeterancyLevel::Veteran;
-        let _ = h.take_damage(h.max_health * 2.0);
+        let _ = h.take_damage(h.max_health * 2.0, &mut ground_logic.health_events);
         h.status.destroyed = true;
     }
     ground_logic.mark_object_for_destruction(g_id, Some(Team::GLA));

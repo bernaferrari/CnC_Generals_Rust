@@ -1,11 +1,9 @@
-//! One ordered, frame-local transport for host HP mutations and observations.
+//! Ordered, per-GameLogic transport for host HP mutations and observations.
 //!
-//! Damage and absolute-health records share a single insertion-ordered Vec.
-//! Typed modules remain the producer/consumer API; this module owns the only
-//! pending queue and exposes a merged drain for coupled shadow admission.
+//! The driving GameLogic owns this value. Producers borrow it explicitly; this
+//! module contains no thread-local or other ambient mutable state.
 
 use super::ObjectId;
-use std::cell::RefCell;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum HostHealthEvent {
@@ -13,224 +11,360 @@ pub(crate) enum HostHealthEvent {
     Heal(super::host_heal_log::HostHealEvent),
 }
 
-thread_local! {
-    static EVENTS: RefCell<Vec<HostHealthEvent>> = const { RefCell::new(Vec::new()) };
-    // Per-type last-drain views are presentation caches, never pending authority.
-    static LAST_DAMAGE: RefCell<Vec<super::host_damage_log::HostDamageEvent>> = const { RefCell::new(Vec::new()) };
-    static LAST_HEAL: RefCell<Vec<super::host_heal_log::HostHealEvent>> = const { RefCell::new(Vec::new()) };
+/// Host-to-shadow event state for one GameLogic instance.
+///
+/// Pending events and presentation receipts are transient frame state and are
+/// intentionally not part of GameLogic's Xfer representation.
+#[derive(Debug, Default)]
+pub struct HostHealthEvents {
+    events: Vec<HostHealthEvent>,
+    last_damage: Vec<super::host_damage_log::HostDamageEvent>,
+    last_heal: Vec<super::host_heal_log::HostHealEvent>,
+    cumulative_damage: f32,
+    cumulative_kills: u32,
+    early_ordered_batch: Option<(Vec<HostHealthEvent>, bool)>,
 }
 
-pub(crate) fn record_damage(event: super::host_damage_log::HostDamageEvent) {
-    EVENTS.with(|events| events.borrow_mut().push(HostHealthEvent::Damage(event)));
-}
+impl HostHealthEvents {
+    /// Queue damage whose health effect still needs admission by the authority.
+    /// Untyped callers use C++ DAMAGE_EXPLOSION ordinal 0.
+    pub(crate) fn record_damage(
+        &mut self,
+        target: ObjectId,
+        amount: f32,
+        source: Option<ObjectId>,
+        destroyed: bool,
+    ) {
+        self.record_damage_typed(target, amount, source, destroyed, 0);
+    }
 
-pub(crate) fn record_heal(event: super::host_heal_log::HostHealEvent) {
-    EVENTS.with(|events| events.borrow_mut().push(HostHealthEvent::Heal(event)));
-}
+    pub(crate) fn record_damage_typed(
+        &mut self,
+        target: ObjectId,
+        amount: f32,
+        source: Option<ObjectId>,
+        destroyed: bool,
+        damage_type_ordinal: u32,
+    ) {
+        self.push_damage(super::host_damage_log::HostDamageEvent::pending(
+            target,
+            amount,
+            source,
+            destroyed,
+            damage_type_ordinal,
+        ));
+    }
 
-pub(crate) fn snapshot_ordered() -> Vec<HostHealthEvent> {
-    EVENTS.with(|events| events.borrow().clone())
-}
+    /// Observe damage already committed by Object's C++-ordered body operation.
+    pub(crate) fn record_applied_damage(
+        &mut self,
+        target: ObjectId,
+        amount: f32,
+        source: Option<ObjectId>,
+        destroyed: bool,
+        damage_type_ordinal: u32,
+        body: super::host_damage_log::BodyHealthObservation,
+    ) {
+        self.push_damage(super::host_damage_log::HostDamageEvent::applied(
+            target,
+            amount,
+            source,
+            destroyed,
+            damage_type_ordinal,
+            body,
+        ));
+    }
 
-/// Drain all HP records in the order their owner operations emitted them.
-pub(crate) fn drain_ordered() -> Vec<HostHealthEvent> {
-    let drained = EVENTS.with(|events| std::mem::take(&mut *events.borrow_mut()));
-    let mut damage = Vec::new();
-    let mut heal = Vec::new();
-    for event in &drained {
-        match event {
-            HostHealthEvent::Damage(event) => damage.push(*event),
-            HostHealthEvent::Heal(event) => heal.push(*event),
+    fn push_damage(&mut self, event: super::host_damage_log::HostDamageEvent) {
+        if event.amount <= 0.0 && !event.destroyed {
+            return;
+        }
+        self.cumulative_damage += event.amount.max(0.0);
+        if event.destroyed {
+            self.cumulative_kills = self.cumulative_kills.saturating_add(1);
+        }
+        self.events.push(HostHealthEvent::Damage(event));
+    }
+
+    /// Queue an absolute health effect not yet applied to this owner.
+    pub(crate) fn record_heal(&mut self, target: ObjectId, health: f32) {
+        self.push_heal(super::host_heal_log::HostHealEvent::pending(target, health));
+    }
+
+    /// Observe a completed owner absolute-health write.
+    pub(crate) fn record_applied_heal(&mut self, target: ObjectId, health: f32) {
+        self.push_heal(super::host_heal_log::HostHealEvent::applied(target, health));
+    }
+
+    fn push_heal(&mut self, event: super::host_heal_log::HostHealEvent) {
+        if !event.health.is_finite() || event.health < 0.0 {
+            return;
+        }
+        self.events.push(HostHealthEvent::Heal(event));
+    }
+
+    pub(crate) fn snapshot_ordered(&self) -> Vec<HostHealthEvent> {
+        self.events.clone()
+    }
+
+    /// Drain all records in the exact order their owner operations emitted them.
+    pub(crate) fn drain_ordered(&mut self) -> Vec<HostHealthEvent> {
+        let drained = std::mem::take(&mut self.events);
+        self.cache_completed(&drained);
+        drained
+    }
+
+    /// Finish a host-only boundary, including an earlier eager handoff that
+    /// has not reached its session boundary. Earlier records precede new ones.
+    pub(crate) fn drain_for_host_boundary(&mut self) -> Vec<HostHealthEvent> {
+        let mut drained = self
+            .take_early_batch()
+            .map(|(events, _)| events)
+            .unwrap_or_default();
+        drained.extend(std::mem::take(&mut self.events));
+        self.cache_completed(&drained);
+        drained
+    }
+
+    fn cache_completed(&mut self, drained: &[HostHealthEvent]) {
+        let mut damage = Vec::new();
+        let mut heal = Vec::new();
+        for event in drained {
+            match event {
+                HostHealthEvent::Damage(event) => damage.push(*event),
+                HostHealthEvent::Heal(event) => heal.push(*event),
+            }
+        }
+        if !damage.is_empty() {
+            self.last_damage = damage;
+        }
+        if !heal.is_empty() {
+            self.last_heal = heal;
         }
     }
-    if !damage.is_empty() {
-        LAST_DAMAGE.with(|last| *last.borrow_mut() = damage);
-    }
-    if !heal.is_empty() {
-        LAST_HEAL.with(|last| *last.borrow_mut() = heal);
-    }
-    drained
-}
 
-pub(crate) fn snapshot_damage() -> Vec<super::host_damage_log::HostDamageEvent> {
-    EVENTS.with(|events| {
-        events
-            .borrow()
+    pub(crate) fn snapshot_damage(&self) -> Vec<super::host_damage_log::HostDamageEvent> {
+        self.events
             .iter()
             .filter_map(|event| match event {
                 HostHealthEvent::Damage(event) => Some(*event),
                 HostHealthEvent::Heal(_) => None,
             })
             .collect()
-    })
-}
+    }
 
-pub(crate) fn snapshot_heal() -> Vec<super::host_heal_log::HostHealEvent> {
-    EVENTS.with(|events| {
-        events
-            .borrow()
+    pub(crate) fn snapshot_heal(&self) -> Vec<super::host_heal_log::HostHealEvent> {
+        self.events
             .iter()
             .filter_map(|event| match event {
                 HostHealthEvent::Damage(_) => None,
                 HostHealthEvent::Heal(event) => Some(*event),
             })
             .collect()
-    })
-}
+    }
 
-pub(crate) fn has_damage(object: ObjectId) -> bool {
-    EVENTS.with(|events| {
-        events
-            .borrow()
+    pub(crate) fn has_damage(&self, object: ObjectId) -> bool {
+        self.events
             .iter()
             .any(|event| matches!(event, HostHealthEvent::Damage(event) if event.target == object))
-    })
-}
+    }
 
-pub(crate) fn has_heal(object: ObjectId) -> bool {
-    EVENTS.with(|events| {
-        events
-            .borrow()
+    pub(crate) fn has_heal(&self, object: ObjectId) -> bool {
+        self.events
             .iter()
             .any(|event| matches!(event, HostHealthEvent::Heal(event) if event.target == object))
-    })
-}
+    }
 
-pub(crate) fn len_damage() -> usize {
-    EVENTS.with(|events| {
-        events
-            .borrow()
+    pub(crate) fn len_damage(&self) -> usize {
+        self.events
             .iter()
             .filter(|event| matches!(event, HostHealthEvent::Damage(_)))
             .count()
-    })
-}
+    }
 
-pub(crate) fn len_heal() -> usize {
-    EVENTS.with(|events| {
-        events
-            .borrow()
+    pub(crate) fn len_heal(&self) -> usize {
+        self.events
             .iter()
             .filter(|event| matches!(event, HostHealthEvent::Heal(_)))
             .count()
-    })
-}
+    }
 
-pub(crate) fn drain_damage() -> Vec<super::host_damage_log::HostDamageEvent> {
-    let mut selected = Vec::new();
-    EVENTS.with(|events| {
-        let mut events = events.borrow_mut();
-        let mut keep = Vec::with_capacity(events.len());
-        for event in events.drain(..) {
+    /// Drain only damage, leaving heals in their original relative order.
+    pub(crate) fn drain_damage(&mut self) -> Vec<super::host_damage_log::HostDamageEvent> {
+        let mut selected = Vec::new();
+        let mut keep = Vec::with_capacity(self.events.len());
+        for event in self.events.drain(..) {
             match event {
                 HostHealthEvent::Damage(event) => selected.push(event),
                 other => keep.push(other),
             }
         }
-        *events = keep;
-    });
-    if !selected.is_empty() {
-        LAST_DAMAGE.with(|last| *last.borrow_mut() = selected.clone());
+        self.events = keep;
+        if !selected.is_empty() {
+            self.last_damage = selected.clone();
+        }
+        selected
     }
-    selected
-}
 
-pub(crate) fn drain_heal() -> Vec<super::host_heal_log::HostHealEvent> {
-    let mut selected = Vec::new();
-    EVENTS.with(|events| {
-        let mut events = events.borrow_mut();
-        let mut keep = Vec::with_capacity(events.len());
-        for event in events.drain(..) {
+    /// Drain only heals, leaving damage in its original relative order.
+    pub(crate) fn drain_heal(&mut self) -> Vec<super::host_heal_log::HostHealEvent> {
+        let mut selected = Vec::new();
+        let mut keep = Vec::with_capacity(self.events.len());
+        for event in self.events.drain(..) {
             match event {
                 HostHealthEvent::Heal(event) => selected.push(event),
                 other => keep.push(other),
             }
         }
-        *events = keep;
-    });
-    if !selected.is_empty() {
-        LAST_HEAL.with(|last| *last.borrow_mut() = selected.clone());
+        self.events = keep;
+        if !selected.is_empty() {
+            self.last_heal = selected.clone();
+        }
+        selected
     }
-    selected
-}
 
-pub(crate) fn clear_damage() {
-    EVENTS.with(|events| {
-        events
-            .borrow_mut()
-            .retain(|event| !matches!(event, HostHealthEvent::Damage(_)))
-    });
-    LAST_DAMAGE.with(|last| last.borrow_mut().clear());
-}
+    pub(crate) fn clear_damage(&mut self) {
+        self.events
+            .retain(|event| !matches!(event, HostHealthEvent::Damage(_)));
+        self.last_damage.clear();
+        self.clear_early_kind(true);
+        self.reset_cumulative();
+    }
 
-pub(crate) fn clear_heal() {
-    EVENTS.with(|events| {
-        events
-            .borrow_mut()
-            .retain(|event| !matches!(event, HostHealthEvent::Heal(_)))
-    });
-    LAST_HEAL.with(|last| last.borrow_mut().clear());
-}
+    pub(crate) fn clear_heal(&mut self) {
+        self.events
+            .retain(|event| !matches!(event, HostHealthEvent::Heal(_)));
+        self.last_heal.clear();
+        self.clear_early_kind(false);
+    }
 
-pub(crate) fn take_last_damage() -> Vec<super::host_damage_log::HostDamageEvent> {
-    LAST_DAMAGE.with(|last| std::mem::take(&mut *last.borrow_mut()))
-}
+    fn clear_early_kind(&mut self, damage: bool) {
+        if let Some((events, _)) = &mut self.early_ordered_batch {
+            events.retain(|event| matches!(event, HostHealthEvent::Damage(_)) != damage);
+            if events.is_empty() {
+                self.early_ordered_batch = None;
+            }
+        }
+    }
 
-pub(crate) fn snapshot_last_damage() -> Vec<super::host_damage_log::HostDamageEvent> {
-    LAST_DAMAGE.with(|last| last.borrow().clone())
-}
+    /// Clear one owner's event and receipt state; used by that owner's reset.
+    pub(crate) fn clear(&mut self) {
+        self.events.clear();
+        self.last_damage.clear();
+        self.last_heal.clear();
+        self.early_ordered_batch = None;
+        self.reset_cumulative();
+    }
 
-pub(crate) fn take_last_heal() -> Vec<super::host_heal_log::HostHealEvent> {
-    LAST_HEAL.with(|last| std::mem::take(&mut *last.borrow_mut()))
-}
+    pub(crate) fn take_last_damage(&mut self) -> Vec<super::host_damage_log::HostDamageEvent> {
+        std::mem::take(&mut self.last_damage)
+    }
 
-pub(crate) fn snapshot_last_heal() -> Vec<super::host_heal_log::HostHealEvent> {
-    LAST_HEAL.with(|last| last.borrow().clone())
+    pub(crate) fn snapshot_last_damage(&self) -> Vec<super::host_damage_log::HostDamageEvent> {
+        self.last_damage.clone()
+    }
+
+    pub(crate) fn take_last_heal(&mut self) -> Vec<super::host_heal_log::HostHealEvent> {
+        std::mem::take(&mut self.last_heal)
+    }
+
+    pub(crate) fn snapshot_last_heal(&self) -> Vec<super::host_heal_log::HostHealEvent> {
+        self.last_heal.clone()
+    }
+
+    pub(crate) fn cumulative_totals(&self) -> (f32, u32) {
+        (self.cumulative_damage, self.cumulative_kills)
+    }
+
+    pub(crate) fn reset_cumulative(&mut self) {
+        self.cumulative_damage = 0.0;
+        self.cumulative_kills = 0;
+    }
+
+    pub(crate) fn set_early_batch(&mut self, events: Vec<HostHealthEvent>, applied: bool) {
+        self.early_ordered_batch = Some((events, applied));
+    }
+
+    pub(crate) fn take_early_batch(&mut self) -> Option<(Vec<HostHealthEvent>, bool)> {
+        self.early_ordered_batch.take()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::{host_damage_log, host_heal_log};
 
     #[test]
     fn damage_and_heal_share_one_append_ordered_drain() {
-        host_damage_log::clear();
-        host_heal_log::clear();
-        host_heal_log::record(ObjectId(1), 80.0);
-        host_damage_log::record(ObjectId(1), 10.0, None, false);
-        let events = drain_ordered();
+        let mut events = HostHealthEvents::default();
+        events.record_heal(ObjectId(1), 80.0);
+        events.record_damage(ObjectId(1), 10.0, None, false);
+        let drained = events.drain_ordered();
         assert!(matches!(
-            events.as_slice(),
+            drained.as_slice(),
             [HostHealthEvent::Heal(_), HostHealthEvent::Damage(_)]
         ));
-        assert_eq!(host_damage_log::last_drain_snapshot().len(), 1);
-        assert_eq!(host_heal_log::last_drain_snapshot().len(), 1);
+        assert_eq!(events.snapshot_last_damage().len(), 1);
+        assert_eq!(events.snapshot_last_heal().len(), 1);
     }
 
     #[test]
     fn damage_and_heal_share_order_in_both_directions() {
-        use crate::game_logic::{host_damage_log, host_heal_log};
-
-        host_damage_log::clear();
-        host_heal_log::clear();
-        host_damage_log::record(ObjectId(1), 10.0, None, false);
-        host_heal_log::record(ObjectId(1), 80.0);
+        let mut events = HostHealthEvents::default();
+        events.record_damage(ObjectId(1), 10.0, None, false);
+        events.record_heal(ObjectId(1), 80.0);
         assert!(matches!(
-            drain_ordered().as_slice(),
+            events.drain_ordered().as_slice(),
             [HostHealthEvent::Damage(_), HostHealthEvent::Heal(_)]
         ));
     }
 
     #[test]
     fn typed_drains_leave_the_other_kind_queued() {
-        host_damage_log::clear();
-        host_heal_log::clear();
-        host_damage_log::record(ObjectId(1), 5.0, None, false);
-        host_heal_log::record(ObjectId(1), 90.0);
-        assert_eq!(host_damage_log::drain().len(), 1);
-        assert_eq!(snapshot_ordered().len(), 1);
-        assert_eq!(host_heal_log::drain().len(), 1);
-        assert!(snapshot_ordered().is_empty());
+        let mut events = HostHealthEvents::default();
+        events.record_damage(ObjectId(1), 5.0, None, false);
+        events.record_heal(ObjectId(1), 90.0);
+        assert_eq!(events.drain_damage().len(), 1);
+        assert_eq!(events.snapshot_ordered().len(), 1);
+        assert_eq!(events.drain_heal().len(), 1);
+        assert!(events.snapshot_ordered().is_empty());
+    }
+
+    #[test]
+    fn queues_and_early_batches_are_independent() {
+        let mut a = HostHealthEvents::default();
+        let mut b = HostHealthEvents::default();
+        a.record_damage(ObjectId(7), 4.0, None, false);
+        let batch = a.drain_ordered();
+        a.set_early_batch(batch, true);
+        b.record_heal(ObjectId(7), 80.0);
+        assert!(a.snapshot_ordered().is_empty());
+        assert_eq!(b.snapshot_heal().len(), 1);
+        assert!(a.take_early_batch().unwrap().1);
+        assert!(b.take_early_batch().is_none());
+        b.clear();
+        assert!(a.snapshot_last_damage().len() == 1);
+    }
+    #[test]
+    fn health_event_fallback_partial_clear_retires_only_its_kind_from_an_early_receipt() {
+        for clear_damage in [true, false] {
+            let mut events = HostHealthEvents::default();
+            events.record_damage(ObjectId(1), 10.0, None, false);
+            events.record_heal(ObjectId(1), 90.0);
+            let batch = events.drain_ordered();
+            events.set_early_batch(batch, false);
+            if clear_damage {
+                events.clear_damage();
+            } else {
+                events.clear_heal();
+            }
+            let batch = events.drain_for_host_boundary();
+            assert_eq!(batch.len(), 1);
+            assert_eq!(
+                matches!(batch[0], HostHealthEvent::Damage(_)),
+                !clear_damage
+            );
+            assert!(events.take_early_batch().is_none());
+        }
     }
 }

@@ -12,8 +12,8 @@
 // Wave 958: host_object dual-read seal.
 use game_engine::common::frame_clock::{FrameClock, FrameTiming as ClockFrameTiming};
 use generals_main::{
-    game_logic::{GameLogic, GameMode, Team},
     RtsInputSystem, SelectionRenderer, UIRenderCommand, UnitInputHandler,
+    game_logic::{GameLogic, GameMode, Team},
 };
 use glam::{Mat4, Vec2, Vec3};
 use std::time::Instant;
@@ -266,12 +266,12 @@ impl UnitControlDemo {
     }
 
     /// Get render commands for UI (would integrate with actual renderer)
-    pub fn get_render_commands(&self) -> anyhow::Result<Vec<UIRenderCommand>> {
+    pub fn get_render_commands(&mut self) -> anyhow::Result<Vec<UIRenderCommand>> {
         let unit_control = self.unit_input_handler.get_unit_control();
 
         // Presentation-only selection path: snapshot then draw (no live dual-read).
         let frame = generals_main::presentation_frame::PresentationFrame::build_from_logic(
-            &self.game_logic,
+            &mut self.game_logic,
             0,
         );
 

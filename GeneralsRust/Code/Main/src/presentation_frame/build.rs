@@ -368,14 +368,14 @@ impl PresentationFrame {
     /// pass can apply alpha / never-explored skip without mid-render shroud locks.
     /// Cell-grid FOW is also frozen into `fow_grid` for terrain overlay / minimap.
     /// Fail-closed claim: unit FOW + compact local grid; not full SAGE shroud parity.
-    /// Borrowed presentation query. Pending accepted-shot cues stay with the
-    /// world until an explicit mutable publication operation consumes them.
-    pub fn build_from_logic(logic: &GameLogic, local_player_id: u32) -> Self {
+    /// Build presentation and consume this world's completed health receipts.
+    /// Pending accepted-shot cues stay with the world until publication.
+    pub fn build_from_logic(logic: &mut GameLogic, local_player_id: u32) -> Self {
         Self::build_from_logic_with_tint_update(logic, local_player_id, None, true, Vec::new())
     }
 
     pub(super) fn build_from_logic_with_tint_update(
-        logic: &GameLogic,
+        logic: &mut GameLogic,
         local_player_id: u32,
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
         freeze_tints: bool,
@@ -1950,7 +1950,7 @@ impl PresentationFrame {
                 });
             }
         }
-        for ev in crate::game_logic::host_damage_log::take_last_drain() {
+        for ev in logic.health_events.take_last_damage() {
             events.push(PresentationEvent::DamageApplied {
                 target: ev.target,
                 amount: ev.amount,
@@ -1961,7 +1961,7 @@ impl PresentationFrame {
             // SupplyCenter / crates). Do not invent CombatDamage -N floaters.
         }
 
-        for ev in crate::game_logic::host_heal_log::take_last_drain() {
+        for ev in logic.health_events.take_last_heal() {
             events.push(PresentationEvent::HealApplied {
                 target: ev.target,
                 health: ev.health,
@@ -2659,7 +2659,7 @@ mod sw_hud_tests {
             90.0,
         );
 
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let local_row = frame
             .superweapon_timers
             .iter()
@@ -2725,7 +2725,7 @@ mod sw_hud_tests {
             90.0,
         );
 
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let rows: Vec<_> = frame
             .superweapon_timers
             .iter()
@@ -2767,7 +2767,7 @@ mod sw_hud_tests {
             false,
             90.0,
         );
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let mut rem: Vec<f32> = frame
             .superweapon_timers
             .iter()
@@ -2821,7 +2821,7 @@ mod sw_hud_tests {
         }
         logic.hide_script_superweapon_object_for_test(hidden);
 
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let rows: Vec<_> = frame
             .superweapon_timers
             .iter()
@@ -2843,7 +2843,7 @@ mod sw_hud_tests {
         );
 
         logic.set_script_superweapon_display_enabled_for_test(false);
-        let hidden_frame = PresentationFrame::build_from_logic(&logic, 0);
+        let hidden_frame = PresentationFrame::build_from_logic(&mut logic, 0);
         assert!(
             hidden_frame.superweapon_timers.is_empty(),
             "HideSuperweaponDisplay emits no strip"
@@ -2867,7 +2867,7 @@ mod sw_hud_tests {
         if let Some(o) = logic.host_object_mut(id) {
             o.status.disabled_underpowered = true;
         }
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let row = frame
             .superweapon_timers
             .iter()

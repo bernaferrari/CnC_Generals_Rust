@@ -748,9 +748,15 @@ pub(super) fn test_observed_supplies(player: &crate::game_logic::Player) -> u32 
     player.effective_supplies()
 }
 
-pub(super) fn test_observed_damage_to(target: ObjectId, hp_before: f32, hp_after: f32) -> f32 {
+pub(super) fn test_observed_damage_to(
+    health_events: &crate::game_logic::HostHealthEvents,
+    target: ObjectId,
+    hp_before: f32,
+    hp_after: f32,
+) -> f32 {
     if crate::gameworld_shadow::gameworld_damage_authority_live() {
-        crate::game_logic::host_damage_log::snapshot()
+        health_events
+            .snapshot_damage()
             .into_iter()
             .filter(|e| e.target == target)
             .map(|e| e.amount)

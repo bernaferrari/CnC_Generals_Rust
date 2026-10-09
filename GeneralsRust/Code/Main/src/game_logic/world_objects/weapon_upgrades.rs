@@ -320,7 +320,7 @@ impl GameLogic {
             obj.record_host_max_health();
             obj.health.maximum = (obj.health.maximum + add).max(1.0);
             let new_hp = (obj.health.current + add).min(obj.health.maximum);
-            Self::write_object_health_authority_aware(obj, new_hp);
+            Self::write_object_health_authority_aware(obj, new_hp, &mut self.health_events);
             n = n.saturating_add(1);
         }
         for p in self.players.values_mut() {
@@ -420,7 +420,7 @@ impl GameLogic {
             obj.record_host_max_health();
             obj.health.maximum = (obj.health.maximum + add).max(1.0);
             let new_hp = (obj.health.current + add).min(obj.health.maximum);
-            Self::write_object_health_authority_aware(obj, new_hp);
+            Self::write_object_health_authority_aware(obj, new_hp, &mut self.health_events);
             n = n.saturating_add(1);
         }
         for p in self.players.values_mut() {
@@ -466,7 +466,7 @@ impl GameLogic {
             apply_mig_aircraft_armor_health(&mut max_h, &mut cur, &mut maximum);
             obj.set_body_max_health(max_h);
             obj.record_host_max_health();
-            Self::write_object_health_authority_aware(obj, cur);
+            Self::write_object_health_authority_aware(obj, cur, &mut self.health_events);
             obj.health.maximum = maximum;
             n = n.saturating_add(1);
         }
@@ -1457,7 +1457,7 @@ impl GameLogic {
             if !crate::gameworld_shadow::gameworld_damage_authority_live() {
                 obj.previous_health = before;
             }
-            Self::write_object_health_authority_aware(obj, cur);
+            Self::write_object_health_authority_aware(obj, cur, &mut self.health_events);
             obj.health.maximum = maximum;
             if live_maximum
                 && !crate::gameworld_shadow::gameworld_damage_authority_live()
@@ -1466,7 +1466,8 @@ impl GameLogic {
             {
                 obj.health.current = obj.health.maximum;
             }
-            crate::game_logic::host_heal_log::record_applied(obj.id, obj.health.current);
+            self.health_events
+                .record_applied_heal(obj.id, obj.health.current);
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_AMERICA_COMPOSITE_ARMOR);
             affected = affected.saturating_add(1);

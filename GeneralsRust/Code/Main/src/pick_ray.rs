@@ -103,8 +103,12 @@ fn ray_vertical_capsule_hit_t(
         }
     }
     // Rounded caps (only the domes outside the body span count).
-    if let Some(t) = ray_sphere_hit_t(ray_start, ray_dir, Vec3::new(base.x, base.y, base.z), radius)
-    {
+    if let Some(t) = ray_sphere_hit_t(
+        ray_start,
+        ray_dir,
+        Vec3::new(base.x, base.y, base.z),
+        radius,
+    ) {
         let y = ray_start.y + ray_dir.y * t;
         if y <= base.y {
             consider(t, &mut best);
@@ -218,7 +222,8 @@ pub fn pick_object_id_along_camera_ray_ex(
             if frame.box_pick_hides_non_local(object) {
                 return None;
             }
-            let t = object_hit_along_ray(object, frame.frame.0, now_logic_frame, ray_start, ray_dir)?;
+            let t =
+                object_hit_along_ray(object, frame.frame.0, now_logic_frame, ray_start, ray_dir)?;
             let selectable = UnitControlSystem::presentation_is_selectable(object);
             let attackable = UnitControlSystem::presentation_is_attackable(object);
             let priority = if prioritize_enemy_targets {
@@ -313,10 +318,7 @@ mod tests {
         // the world-unit pick radius is what over-picked long structures.
         assert_eq!(presentation_mesh_pick_radius(8.0), 8.0);
         assert_eq!(presentation_mesh_pick_radius(5.0), 5.0);
-        assert_eq!(
-            presentation_mesh_pick_radius(0.0),
-            MIN_PICK_SPHERE_RADIUS
-        );
+        assert_eq!(presentation_mesh_pick_radius(0.0), MIN_PICK_SPHERE_RADIUS);
         assert!(presentation_mesh_pick_radius(5.0) < 20.0);
     }
 
@@ -344,14 +346,17 @@ mod tests {
         let id = logic
             .create_object("CapsuleRanger", Team::USA, Vec3::ZERO)
             .expect("unit");
-        let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+        let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
         {
             let obj = frame.objects.iter().find(|o| o.id == id).expect("row");
             assert!((obj.max_height_above_position - 15.0).abs() < f32::EPSILON);
             assert_eq!(obj.health_box_width, 40.0);
         }
         // Model the live degenerate freeze: no health box on the row.
-        frame.objects.iter_mut().for_each(|o| o.health_box_width = 0.0);
+        frame
+            .objects
+            .iter_mut()
+            .for_each(|o| o.health_box_width = 0.0);
 
         // Click the torso at (3, 8, 0) — inside the visible silhouette.
         let torso = Vec3::new(3.0, 8.0, 0.0);
@@ -404,7 +409,7 @@ mod tests {
         let _id = logic
             .create_object("LongStruct", Team::USA, Vec3::ZERO)
             .expect("structure");
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let obj = frame
             .objects
             .iter()
@@ -450,7 +455,7 @@ mod tests {
         let id = logic
             .create_object("FastPlane", Team::USA, Vec3::ZERO)
             .expect("unit");
-        let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+        let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
         assert_eq!(frame.frame.0, 100, "snapshot must carry the logic stamp");
         {
             let obj = frame.objects.iter_mut().find(|o| o.id == id).expect("row");
@@ -462,16 +467,12 @@ mod tests {
         let camera = Vec3::new(15.0, 60.0, 60.0);
         let click = Vec3::new(15.0, 2.0, 0.0);
         assert_eq!(
-            pick_object_id_along_camera_ray_ex(
-                &frame, camera, click, Some(Team::USA), false, 100
-            ),
+            pick_object_id_along_camera_ray_ex(&frame, camera, click, Some(Team::USA), false, 100),
             None,
             "frozen pose at the origin must miss the click"
         );
         assert_eq!(
-            pick_object_id_along_camera_ray_ex(
-                &frame, camera, click, Some(Team::USA), false, 103
-            ),
+            pick_object_id_along_camera_ray_ex(&frame, camera, click, Some(Team::USA), false, 103),
             Some(id),
             "velocity lead must move the pick volume onto the unit"
         );

@@ -137,7 +137,11 @@ impl GameLogic {
             o.battlemaster_shell_intended = intended.map(|id| id.0);
             o.note_producer(source_id);
             o.health.maximum = BM_SHELL_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, BM_SHELL_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                BM_SHELL_MAX_HEALTH,
+                &mut self.health_events,
+            );
         }
         self.battlemaster_shells_spawned = self.battlemaster_shells_spawned.saturating_add(1);
         Some(pid)
@@ -204,7 +208,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -342,6 +346,7 @@ impl GameLogic {
                     source,
                     BATTLE_MASTER_DAMAGE_TYPE,
                     BATTLE_MASTER_DEATH_TYPE,
+                    &mut self.health_events,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -765,8 +770,13 @@ impl GameLogic {
             } else {
                 (REDGUARD_DAMAGE_TYPE, REDGUARD_DEATH_TYPE)
             };
-            let destroyed =
-                obj.take_damage_from_immediate_residual(damage, source, dt_name, death_name);
+            let destroyed = obj.take_damage_from_immediate_residual(
+                damage,
+                source,
+                dt_name,
+                death_name,
+                &mut self.health_events,
+            );
             hits = 1;
             if destroyed {
                 any_destroyed = true;
@@ -897,7 +907,11 @@ impl GameLogic {
                 Some(self.frame.saturating_add(TANK_HUNTER_MISSILE_FUEL_FRAMES));
             o.note_producer(source_id);
             o.health.maximum = TANK_HUNTER_MISSILE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, TANK_HUNTER_MISSILE_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                TANK_HUNTER_MISSILE_MAX_HEALTH,
+                &mut self.health_events,
+            );
             o.movement.velocity = dir * launch;
             o.set_orientation(dir.z.atan2(dir.x));
         }
@@ -990,7 +1004,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -1128,6 +1142,7 @@ impl GameLogic {
                     source,
                     TANK_HUNTER_DAMAGE_TYPE,
                     TANK_HUNTER_DEATH_TYPE,
+                    &mut self.health_events,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -1282,7 +1297,11 @@ impl GameLogic {
             o.flashbang_grenade_intended = intended.map(|id| id.0);
             o.note_producer(source_id);
             o.health.maximum = FLASHBANG_GRENADE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, FLASHBANG_GRENADE_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                FLASHBANG_GRENADE_MAX_HEALTH,
+                &mut self.health_events,
+            );
         }
         self.flashbang_grenades_spawned = self.flashbang_grenades_spawned.saturating_add(1);
         Some(pid)
@@ -1349,7 +1368,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -1598,7 +1617,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -1770,7 +1789,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -1964,7 +1983,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }

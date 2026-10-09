@@ -1474,7 +1474,11 @@ impl GameLogic {
             o.producer_id = Some(from_id);
             o.weapon_laser_beam_expires_frame = Some(expires);
             o.health.maximum = WEAPON_LASER_BEAM_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, WEAPON_LASER_BEAM_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                WEAPON_LASER_BEAM_MAX_HEALTH,
+                &mut self.health_events,
+            );
         }
         let _ = to_id;
         self.weapon_laser_beams_spawned = self.weapon_laser_beams_spawned.saturating_add(1);
@@ -1504,7 +1508,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -1561,7 +1565,11 @@ impl GameLogic {
             o.producer_id = Some(carrier_id);
             o.point_defense_laser_beam_expires_frame = Some(expires);
             o.health.maximum = PDL_LASER_BEAM_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, PDL_LASER_BEAM_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                PDL_LASER_BEAM_MAX_HEALTH,
+                &mut self.health_events,
+            );
         }
         self.weapon_lasers.push(ResidualWeaponLaser::new(
             beam_name,
@@ -1599,7 +1607,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -1767,6 +1775,7 @@ impl GameLogic {
                         Some(carrier_id),
                         crate::game_logic::host_usa_tanks::PALADIN_PDL_DAMAGE_TYPE,
                         crate::game_logic::host_usa_tanks::PALADIN_PDL_DEATH_TYPE,
+                        &mut self.health_events,
                     );
                     // Under damage authority take_damage does not zero host HP; project kill for
                     // mark_object_for_destruction when lethal residual is logged.

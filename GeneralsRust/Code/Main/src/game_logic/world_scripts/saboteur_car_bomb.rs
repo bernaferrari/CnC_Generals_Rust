@@ -657,7 +657,7 @@ impl GameLogic {
                     chute.clear_eject_parachuting();
                     let hp = chute.health.current.max(1.0);
                     if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                        crate::game_logic::host_damage_log::record(pilot_id, hp, None, true);
+                        self.health_events.record_damage(pilot_id, hp, None, true);
                     } else {
                         chute.health.current = 0.0;
                     }
@@ -722,6 +722,7 @@ impl GameLogic {
                     None,
                     crate::game_logic::combat::DamageType::Water,
                     HostDeathType::Flooded,
+                    &mut self.health_events,
                 );
             }
         }
@@ -757,7 +758,7 @@ impl GameLogic {
         if let Some(r) = self.objects.get_mut(&rider_id) {
             let hp = r.health.current.max(1.0);
             if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                crate::game_logic::host_damage_log::record(rider_id, hp, None, true);
+                self.health_events.record_damage(rider_id, hp, None, true);
             } else {
                 r.health.current = 0.0;
             }
@@ -1169,7 +1170,7 @@ impl GameLogic {
                     // (dual with GW HP writeback). Damage log owns the numeric
                     // residual; lethal still stamps destroyed + idle residual.
                     if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                        crate::game_logic::host_damage_log::record(
+                        self.health_events.record_damage(
                             obj.id,
                             result.structure_damage_applied,
                             None,
@@ -1177,7 +1178,7 @@ impl GameLogic {
                         );
                     } else {
                         obj.health.current = new_struct_hp;
-                        crate::game_logic::host_damage_log::record(
+                        self.health_events.record_damage(
                             obj.id,
                             result.structure_damage_applied,
                             None,
@@ -1243,7 +1244,7 @@ impl GameLogic {
                 return (false, false);
             };
             let before = obj.status.stealthed && obj.stealth_breaks_on_damage;
-            let destroyed = obj.take_damage_from(damage, source_id);
+            let destroyed = obj.take_damage_from(damage, source_id, &mut self.health_events);
             let revealed = before && (!obj.status.stealthed || obj.stealth_delay_pending);
             (destroyed, revealed)
         };
@@ -1491,6 +1492,7 @@ impl GameLogic {
                     Some(truck_id),
                     BOMB_TRUCK_DAMAGE_TYPE,
                     BOMB_TRUCK_DEATH_TYPE,
+                    &mut self.health_events,
                 ) {
                     destroy_ids.push((vid, truck_team));
                 }
@@ -1707,12 +1709,7 @@ impl GameLogic {
             obj.target_location = None;
         }
         self.set_ai_state_decision_aware(unit_id, AIState::Constructing);
-        self.path_approach_with_state_ignoring(
-            unit_id,
-            tpos,
-            AIState::Constructing,
-            Some(tid),
-        );
+        self.path_approach_with_state_ignoring(unit_id, tpos, AIState::Constructing, Some(tid));
     }
 
     pub(in super::super) fn update_bomb_truck_poison_zones(&mut self) {
@@ -1751,6 +1748,7 @@ impl GameLogic {
                         Some(plan.source_object),
                         crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type(),
                         plan.death_type,
+                        &mut self.health_events,
                     );
                     total_damage += hit.damage;
                     applications += 1;

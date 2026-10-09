@@ -206,7 +206,7 @@ pub fn simulate_live_presentation_from_gameworld_default_honesty() -> bool {
     }
 
     // Mirror engine default path: host build → overlay → append → rebuild when enabled.
-    let mut pres = PresentationFrame::build_from_logic(&logic, 0);
+    let mut pres = PresentationFrame::build_from_logic(&mut logic, 0);
     let _ = pres.overlay_gameworld_shadow(&shadow);
     let _ = pres.append_missing_from_gameworld(&shadow);
     if presentation_from_gameworld_enabled() {

@@ -93,6 +93,7 @@ impl GameLogic {
             fx_override,
             self.frame,
             context,
+            &mut self.health_events,
         );
         let hp_lost = (before_hp - victim.health.current).max(0.0);
         let victim_position = victim.get_position();

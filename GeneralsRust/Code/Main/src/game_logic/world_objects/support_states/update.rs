@@ -583,6 +583,7 @@ impl GameLogic {
                             object_id,
                             2,
                             now,
+                            &mut self.health_events,
                         );
                         if healed && heal_amount > 0.0 {
                             crate::game_logic::host_bridge_behavior::record_mirror(
@@ -851,7 +852,7 @@ impl GameLogic {
                             _ => 0.0,
                         };
                         let before = obj.health.current;
-                        obj.heal(rate * dt);
+                        obj.heal(rate * dt, &mut self.health_events);
                         let healed = obj.health.current > before + 0.0001;
                         if healed && matches!(state, AIState::SeekingRepair) {
                             vehicle_healed = true;
@@ -2537,7 +2538,7 @@ impl GameLogic {
                                                         Some(object_id),
                                                         crate::game_logic::combat::DamageType::Unresistable,
                                                         crate::game_logic::host_usa_pilot::HostDeathType::Detonated,
-                                                    )
+                                                     &mut self.health_events)
                                                 })
                                                 .unwrap_or(false);
                                             if destroyed {
@@ -2821,12 +2822,14 @@ impl GameLogic {
                                     let _ = t.take_damage_from(
                                         t.health.maximum.max(1.0),
                                         Some(object_id),
+                                        &mut self.health_events,
                                     );
                                 }
                                 if let Some(b) = self.objects.get_mut(&object_id) {
                                     let _ = b.take_damage_from(
                                         b.health.maximum.max(1.0),
                                         Some(special_target_id),
+                                        &mut self.health_events,
                                     );
                                 }
                                 let t_dead = self
@@ -3365,7 +3368,11 @@ impl GameLogic {
                             ) {
                                 crate::game_logic::host_supply_gather::DockCrippleVictimAction::KillGround => {
                                     if let Some(obj) = self.objects.get_mut(&object_id) {
-                                        Self::mark_object_destroyed_authority_aware(obj, None);
+                                        Self::mark_object_destroyed_authority_aware(
+                                            obj,
+                                            None,
+                                            &mut self.health_events,
+                                        );
                                     }
                                     self.mark_object_for_destruction(object_id, None);
                                 }
@@ -3428,7 +3435,11 @@ impl GameLogic {
                     if let Some(source) = self.objects.get_mut(&source_id) {
                         source.set_stored_supplies(remaining_after);
                         if remaining_after == 0 && (!source_is_warehouse || delete_when_empty) {
-                            Self::mark_object_destroyed_authority_aware(source, None);
+                            Self::mark_object_destroyed_authority_aware(
+                                source,
+                                None,
+                                &mut self.health_events,
+                            );
                             self.mark_object_for_destruction(source_id, None);
                         }
                     }

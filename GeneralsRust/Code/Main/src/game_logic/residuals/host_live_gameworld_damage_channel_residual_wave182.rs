@@ -6,7 +6,7 @@
 //! Host residual only — network deferred.
 //!
 //! Sources (architecture migration):
-//! - `host_damage_log::record` from `Object::take_damage_from`
+//! - `health_events.record_damage` from `Object::take_damage_from`
 //! - `GameWorldShadow::apply_host_damage_events`
 //! - `writeback_body_damage_to_host` body-state channel
 //! - damage authority default-on
@@ -22,7 +22,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 
 /// Live damage channel residual method names.
 pub const LIVE_GAMEWORLD_DAMAGE_CHANNEL_METHOD_NAMES_WAVE182: &[&str] = &[
-    "host_damage_log::record",
+    "health_events.record_damage",
     "apply_host_damage_events",
     "writeback_body_damage_to_host",
     "gameworld_damage_authority_enabled",
@@ -50,7 +50,7 @@ pub fn honesty_live_gameworld_damage_channel_method_names_residual_wave182() -> 
     LIVE_GAMEWORLD_DAMAGE_CHANNEL_METHOD_NAMES_WAVE182.len() == 5
         && residual_name_index(
             LIVE_GAMEWORLD_DAMAGE_CHANNEL_METHOD_NAMES_WAVE182,
-            "host_damage_log::record",
+            "health_events.record_damage",
         ) == Some(0)
         && residual_name_index(
             LIVE_GAMEWORLD_DAMAGE_CHANNEL_METHOD_NAMES_WAVE182,
@@ -82,12 +82,18 @@ pub fn honesty_live_gameworld_damage_channel_residual_pack_wave182() -> bool {
         && honesty_live_gameworld_damage_channel_nav_commands_residual_wave182()
 }
 
-/// Source residual: damage log + apply/writeback APIs.
+/// Source residual: owned health event + apply/writeback APIs.
 pub fn honesty_damage_channel_api_source() -> bool {
-    let log = include_str!("../host_damage_log.rs");
+    let log = include_str!("../host_health_log.rs");
+    let object_damage = include_str!("../object/damage.rs");
     let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
-    log.contains("pub fn record")
-        && log.contains("pub struct HostDamageEvent")
+    log.contains("pub struct HostHealthEvents")
+        && log.contains("fn record_damage(")
+        && object_damage.contains("health_events.record_damage")
+        && log.contains("pub struct HostHealthEvents")
+        && log.contains("pub(crate) fn record_damage(")
+        && include_str!("../host_damage_log.rs")
+            .contains("module intentionally contains no ambient state")
         && src.contains("pub fn apply_host_damage_events")
         && src.contains("pub fn writeback_body_damage_to_host")
         && src.contains("pub fn gameworld_damage_authority_enabled")
@@ -107,7 +113,6 @@ pub fn honesty_damage_authority_default_on_source() -> bool {
 
 /// Live residual: host take_damage logs → shadow apply → health parity.
 pub fn simulate_live_gameworld_damage_channel_honesty() -> bool {
-    use crate::game_logic::host_damage_log;
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use crate::gameworld_shadow::{
         GameWorldShadow, ensure_gate_damage_authority, gameworld_damage_authority_enabled,
@@ -131,8 +136,8 @@ pub fn simulate_live_gameworld_damage_channel_honesty() -> bool {
     // Authority arm happens on the harness's own instance below (hq-e84zk
     // context fields; a pre-instance check here would read a stale snapshot).
 
-    host_damage_log::clear();
     let mut logic = GameLogic::new();
+    logic.health_events.clear_damage();
     logic.set_damage_authority(true);
     if !gameworld_damage_authority_enabled() {
         return false;
@@ -167,12 +172,14 @@ pub fn simulate_live_gameworld_damage_channel_honesty() -> bool {
         return false;
     }
 
-    // Host damage records the log channel.
-    host_damage_log::clear();
-    if let Some(obj) = logic.get_objects_mut().get_mut(&oid) {
-        let _ = obj.take_damage(40.0);
-    }
-    let events = host_damage_log::drain();
+    // Host damage records its driving GameLogic health event queue.
+    logic.health_events.clear_damage();
+    let applied = {
+        let (obj, health_events) = logic.host_object_and_health_events_mut(oid).unwrap();
+        obj.take_damage(40.0, health_events)
+    };
+    let _ = applied;
+    let events = logic.health_events.drain_damage();
     if events.is_empty() {
         return false;
     }

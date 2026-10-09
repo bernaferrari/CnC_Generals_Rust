@@ -100,7 +100,7 @@ fn airfield_parking_rearm_docks_and_heals() {
     );
 
     let hp_before = logic.objects.get(&jet_id).unwrap().health.current;
-    crate::game_logic::host_heal_log::clear();
+    logic.health_events.clear_heal();
     logic.tick_airfield_parking_heal();
     // C++ first pulse is HEAL_RATE_FRAMES after setHealee.
     let expected = 6.0 * PARKING_PLACE_AIRFIELD_HEAL_AMOUNT_PER_SEC / 30.0;
@@ -110,7 +110,7 @@ fn airfield_parking_rearm_docks_and_heals() {
     }
     let hp_after = logic.objects.get(&jet_id).unwrap().health.current;
     if crate::gameworld_shadow::gameworld_damage_authority_live() {
-        let heals = crate::game_logic::host_heal_log::snapshot();
+        let heals = logic.health_events.snapshot_heal();
         let logged = heals
             .iter()
             .any(|e| e.target == jet_id && (e.health - (hp_before + expected)).abs() < 1e-2);

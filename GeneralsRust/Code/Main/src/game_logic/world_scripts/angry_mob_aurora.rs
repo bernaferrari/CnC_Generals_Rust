@@ -707,6 +707,7 @@ impl GameLogic {
                         hit.damage,
                         Some(plan.source_object),
                         crate::game_logic::combat::DamageType::Flame,
+                        &mut self.health_events,
                     );
                     total_damage += hit.damage;
                     applications += 1;
@@ -867,7 +868,11 @@ impl GameLogic {
             o.inferno_shell_upgraded = upgraded;
             o.note_producer(source_id);
             o.health.maximum = INFERNO_SHELL_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, INFERNO_SHELL_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                INFERNO_SHELL_MAX_HEALTH,
+                &mut self.health_events,
+            );
         }
         self.inferno_shells_spawned = self.inferno_shells_spawned.saturating_add(1);
         Some(pid)
@@ -945,7 +950,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -1049,6 +1054,7 @@ impl GameLogic {
                     source,
                     INFERNO_CANNON_DAMAGE_TYPE,
                     INFERNO_CANNON_DEATH_TYPE,
+                    &mut self.health_events,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -1182,7 +1188,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -1226,6 +1232,7 @@ impl GameLogic {
                         hit.damage,
                         Some(plan.source_object),
                         crate::game_logic::combat::DamageType::Flame,
+                        &mut self.health_events,
                     );
                     total_damage += hit.damage;
                     applications += 1;
@@ -1332,7 +1339,11 @@ impl GameLogic {
             o.template_mut().add_kind_of(KindOf::Attackable);
             o.template_mut().add_kind_of(KindOf::Selectable);
             o.template_mut().add_kind_of(KindOf::IgnoredInGui);
-            Self::write_object_health_authority_aware(o, ANGRY_MOB_MEMBER_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                ANGRY_MOB_MEMBER_MAX_HEALTH,
+                &mut self.health_events,
+            );
         }
         if let Some(m) = self
             .angry_mobs
@@ -1449,7 +1460,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -1542,7 +1553,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -1742,6 +1753,7 @@ impl GameLogic {
                         Some(plan.mob_id),
                         crate::game_logic::host_angry_mob::ANGRY_MOB_PISTOL_DAMAGE_TYPE,
                         crate::game_logic::host_angry_mob::ANGRY_MOB_PISTOL_DEATH_TYPE,
+                        &mut self.health_events,
                     );
                     total_damage += hit.damage;
                     applications += 1;
@@ -1901,7 +1913,11 @@ impl GameLogic {
             o.aurora_bomb_mission_id = Some(mission_id);
             o.note_producer(source_id);
             o.health.maximum = AURORA_BOMB_PROJECTILE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, AURORA_BOMB_PROJECTILE_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                AURORA_BOMB_PROJECTILE_MAX_HEALTH,
+                &mut self.health_events,
+            );
             o.movement.velocity = vel;
             o.set_orientation(dir.z.atan2(dir.x));
             o.height_die = Some(HostHeightDieData::with_target(
@@ -1941,7 +1957,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -2015,7 +2031,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -2118,7 +2134,11 @@ impl GameLogic {
         if let Some(o) = self.objects.get_mut(&gid) {
             o.note_producer(source_object);
             o.health.maximum = FUEL_AIR_GAS_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, FUEL_AIR_GAS_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                FUEL_AIR_GAS_MAX_HEALTH,
+                &mut self.health_events,
+            );
             o.movement.max_speed = 0.0;
             o.weapon = None;
             o.secondary_weapon = None;
@@ -2210,8 +2230,11 @@ impl GameLogic {
                         continue;
                     }
                     // BodyModule last_damage_source residual for cash bounty killer.
-                    let destroyed =
-                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
+                    let destroyed = target.take_damage_from_immediate(
+                        hit.damage,
+                        Some(plan.source_object),
+                        &mut self.health_events,
+                    );
                     total_damage += hit.damage;
                     objects_hit += 1;
                     if destroyed {

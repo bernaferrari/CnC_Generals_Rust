@@ -159,7 +159,7 @@ pub fn simulate_live_presentation_overlay_deepen_honesty() -> bool {
         e.health = 88.0;
     }
 
-    let mut pres = PresentationFrame::build_from_logic(&logic, 0);
+    let mut pres = PresentationFrame::build_from_logic(&mut logic, 0);
     if pres.objects.iter().all(|o| o.id != oid) {
         return false;
     }

@@ -499,9 +499,9 @@ fn toxin_tractor_residual_stream_spray_and_death_field() {
         crate::game_logic::host_toxin_tractor::AnthraxResidualTier::None,
     );
     // Also exercise destroy-list path when object dies mid-update.
-    if let Some(t) = game_logic.host_object_mut(toxin_id) {
+    if let Some((t, health_events)) = game_logic.host_object_and_health_events_mut(toxin_id) {
         let max_hp = t.health.maximum;
-        let _ = t.take_damage(max_hp + 1.0);
+        let _ = t.take_damage(max_hp + 1.0, health_events);
         t.status.destroyed = true;
     }
     game_logic
@@ -843,7 +843,7 @@ fn sentry_drone_residual_detect_and_auto_fire() {
         .host_object(stealth_id)
         .map(|e| e.health.current)
         .unwrap_or(0.0);
-    crate::game_logic::host_damage_log::clear();
+    game_logic.health_events.clear_damage();
 
     game_logic.set_current_frame(30);
     game_logic.update_combat(&[sentry_id, stealth_id], LOGIC_FRAME_TIMESTEP);
@@ -892,7 +892,7 @@ fn sentry_drone_residual_detect_and_auto_fire() {
         .host_object(stealth_id)
         .map(|e| e.health.current)
         .unwrap_or(0.0);
-    let logged = crate::game_logic::host_damage_log::drain();
+    let logged = game_logic.health_events.drain_damage();
     let log_hit = logged
         .iter()
         .any(|e| e.target == stealth_id && e.amount > 0.0);

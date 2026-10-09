@@ -144,6 +144,7 @@ impl GameLogic {
                 damage_amount,
                 None,
                 crate::game_logic::combat::DamageType::Water,
+                &mut self.health_events,
             );
             hit = hit.saturating_add(1);
             if killed || obj.status.destroyed || obj.health.current <= 0.0 {
@@ -746,7 +747,7 @@ impl GameLogic {
             return false;
         };
         let result = if let Some(crusher) = self.objects.get_mut(&crusher_id) {
-            crusher.check_for_overlap_collision(&mut crushee, is_ally)
+            crusher.check_for_overlap_collision(&mut crushee, is_ally, &mut self.health_events)
         } else {
             false
         };
@@ -920,12 +921,8 @@ impl GameLogic {
                 // Damage authority: HP last-writer via damage log; destroy flag stays host.
                 let hp = v.health.current.max(1.0);
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                    crate::game_logic::host_damage_log::record(
-                        vehicle_id,
-                        hp,
-                        Some(vehicle_id),
-                        true,
-                    );
+                    self.health_events
+                        .record_damage(vehicle_id, hp, Some(vehicle_id), true);
                 } else {
                     v.health.current = 0.0;
                 }

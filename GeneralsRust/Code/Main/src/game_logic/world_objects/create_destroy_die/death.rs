@@ -20,6 +20,7 @@ impl GameLogic {
                 subdual,
                 None,
                 crate::game_logic::combat::DamageType::SubdualUnresistable,
+                &mut self.health_events,
             );
         }
         if transfer_dmg > 0.0 {
@@ -27,6 +28,7 @@ impl GameLogic {
                 transfer_dmg,
                 source,
                 crate::game_logic::combat::DamageType::Unresistable,
+                &mut self.health_events,
             );
         }
     }
@@ -111,7 +113,8 @@ impl GameLogic {
             if dmg <= 0.0 {
                 continue;
             }
-            let destroyed = v.take_damage_from_immediate(dmg, Some(dying_id));
+            let destroyed =
+                v.take_damage_from_immediate(dmg, Some(dying_id), &mut self.health_events);
             if destroyed {
                 destroy_ids.push(vid);
             }
@@ -155,7 +158,7 @@ impl GameLogic {
         };
         if crate::gameworld_shadow::gameworld_damage_authority_live() {
             let hp = o.health.current.max(1.0);
-            crate::game_logic::host_damage_log::record(id, hp, source, true);
+            self.health_events.record_damage(id, hp, source, true);
         } else {
             o.health.current = 0.0;
         }
@@ -917,6 +920,7 @@ impl GameLogic {
                     Some(building_id),
                     crate::game_logic::combat::DamageType::Unresistable,
                     crate::game_logic::host_usa_pilot::HostDeathType::Crushed,
+                    &mut self.health_events,
                 );
                 if !dead && (obj.status.destroyed || obj.health.current <= 0.0) {
                     dead = true;

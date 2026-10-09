@@ -256,7 +256,12 @@ impl Object {
     ///
     /// Returns true if this is an overlap/crush interaction (skip normal bounce).
     /// On first crush pass of target point, applies HUGE crush damage.
-    pub fn check_for_overlap_collision(&mut self, other: &mut Object, is_ally: bool) -> bool {
+    pub fn check_for_overlap_collision(
+        &mut self,
+        other: &mut Object,
+        is_ally: bool,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) -> bool {
         use crate::game_logic::host_partition_collision_physics_residual::{
             CrushTarget, PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL, past_crush_point_residual,
         };
@@ -343,6 +348,7 @@ impl Object {
                         Some(self.id),
                         crate::game_logic::combat::DamageType::Crush,
                         crate::game_logic::host_usa_pilot::HostDeathType::Crushed,
+                        health_events,
                     );
                     if matches!(
                         other.status.death_type,
@@ -370,6 +376,7 @@ impl Object {
                 Some(self.id),
                 crate::game_logic::combat::DamageType::Crush,
                 crate::game_logic::host_usa_pilot::HostDeathType::Crushed,
+                health_events,
             );
         }
         if other.front_crushed && other.back_crushed {
@@ -423,6 +430,7 @@ impl Object {
                 Some(self.id),
                 crate::game_logic::combat::DamageType::Crush,
                 crate::game_logic::host_usa_pilot::HostDeathType::Crushed,
+                health_events,
             );
             if matches!(
                 other.status.death_type,
@@ -675,7 +683,10 @@ impl Object {
     ///
     /// When settled on ground with near-zero velocity, kill non-drone (or
     /// unmanned/dead drones). Airborne is C++ isAboveTerrain (height > 0).
-    pub fn maybe_kill_when_resting_on_ground(&mut self) -> bool {
+    pub fn maybe_kill_when_resting_on_ground(
+        &mut self,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) -> bool {
         if !self.kill_when_resting_on_ground || self.status.destroyed {
             return false;
         }
@@ -690,11 +701,11 @@ impl Object {
         if is_drone && self.is_alive() && !self.status.disabled_unmanned {
             return false;
         }
-        self.kill()
+        self.kill(health_events)
     }
 
     /// C++ Object::kill — lethal UNRESISTABLE so Body/Die modules (FX, OCL) run.
-    pub fn kill(&mut self) -> bool {
+    pub fn kill(&mut self, health_events: &mut crate::game_logic::HostHealthEvents) -> bool {
         if self.status.destroyed {
             return false;
         }
@@ -708,10 +719,15 @@ impl Object {
             None,
             crate::game_logic::combat::DamageType::Unresistable,
             crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            health_events,
         )
     }
 
-    pub fn apply_shock_fall_damage(&mut self, impact_vy: f32) -> f32 {
+    pub fn apply_shock_fall_damage(
+        &mut self,
+        impact_vy: f32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) -> f32 {
         if self.immune_to_falling_damage || self.is_kind_of(KindOf::Projectile) {
             return 0.0;
         }
@@ -741,6 +757,7 @@ impl Object {
             Some(self.id),
             crate::game_logic::combat::DamageType::Falling,
             crate::game_logic::host_usa_pilot::HostDeathType::Splatted,
+            health_events,
         );
         if killed {
             use crate::game_logic::host_enum_table_residual::MC_BIT_SPLATTED;
@@ -825,7 +842,11 @@ impl Object {
 
     /// C++ PhysicsBehavior position integrate + ground clamp residual (one frame).
     /// `ground_y` is terrain height at object XZ. Returns true if a bounce force was applied.
-    pub fn tick_physics_motion_step(&mut self, ground_y: f32) -> bool {
+    pub fn tick_physics_motion_step(
+        &mut self,
+        ground_y: f32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) -> bool {
         self.apply_leftover_taxiing_locomotor_set();
 
         self.ground_height = ground_y;
@@ -835,7 +856,7 @@ impl Object {
         if self.is_physics_held() {
             let old_y = self.get_position().y;
             let impact_vy = self.movement.velocity.y;
-            self.finish_physics_landing_bookkeeping(old_y, ground_y, impact_vy);
+            self.finish_physics_landing_bookkeeping(old_y, ground_y, impact_vy, health_events);
             return false;
         }
 
@@ -934,7 +955,7 @@ impl Object {
         if !new_pos.x.is_finite() || !new_pos.y.is_finite() || !new_pos.z.is_finite() {
             let hp = self.health.current.max(1.0);
             if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                crate::game_logic::host_damage_log::record(self.id, hp, Some(self.id), true);
+                health_events.record_damage(self.id, hp, Some(self.id), true);
             } else {
                 self.health.current = 0.0;
             }
@@ -956,7 +977,8 @@ impl Object {
                 // then testStunned. Do not slam yaw-only here — leftover
                 // handle_bounce roll=PI must survive so stun-kill sees a flip
                 // and inverted wreck poses stick (hq-p6amn).
-                if !self.test_stunned_unit_for_destruction() && !self.status.destroyed {
+                if !self.test_stunned_unit_for_destruction(health_events) && !self.status.destroyed
+                {
                     self.right_physics_pitch_keep_flip();
                 }
             }
@@ -973,7 +995,7 @@ impl Object {
             self.record_bounce_land(old_y);
             self.pending_ground_collide = true;
             let impact_vy = v.y;
-            let _ = self.apply_shock_fall_damage(impact_vy);
+            let _ = self.apply_shock_fall_damage(impact_vy, health_events);
         }
         self.was_airborne_last_frame = airborne_end;
         self.record_host_locomotor();
@@ -981,13 +1003,19 @@ impl Object {
         let _ = airborne_start; // reserved for future free-fall start residual
         // C++ killWhenRestingOnGround residual after landing.
         if !airborne_end {
-            let _ = self.maybe_kill_when_resting_on_ground();
+            let _ = self.maybe_kill_when_resting_on_ground(health_events);
         }
         bounced
     }
 
     /// C++ landing peel that still runs when HELD skips Euler.
-    fn finish_physics_landing_bookkeeping(&mut self, old_y: f32, ground_y: f32, impact_vy: f32) {
+    fn finish_physics_landing_bookkeeping(
+        &mut self,
+        old_y: f32,
+        ground_y: f32,
+        impact_vy: f32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) {
         let airborne_end = self.get_position().y > ground_y + 0.05;
         if self.was_airborne_last_frame
             && !airborne_end
@@ -996,19 +1024,25 @@ impl Object {
         {
             self.record_bounce_land(old_y);
             self.pending_ground_collide = true;
-            let _ = self.apply_shock_fall_damage(impact_vy);
+            let _ = self.apply_shock_fall_damage(impact_vy, health_events);
         }
         self.was_airborne_last_frame = airborne_end;
         self.stamp_airborne_target_from_locomotor();
         if !airborne_end {
-            let _ = self.maybe_kill_when_resting_on_ground();
+            let _ = self.maybe_kill_when_resting_on_ground(health_events);
         }
     }
 
     /// C++ PhysicsBehavior::handleBounce residual (world-Y = C++ Z).
     ///
     /// Returns upward bounce velocity applied (0 if no bounce).
-    pub fn handle_shock_ground_bounce(&mut self, old_y: f32, new_y: f32, ground_y: f32) -> f32 {
+    pub fn handle_shock_ground_bounce(
+        &mut self,
+        old_y: f32,
+        new_y: f32,
+        ground_y: f32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) -> f32 {
         if !self.shock_allow_bounce || new_y > ground_y {
             return 0.0;
         }
@@ -1033,7 +1067,7 @@ impl Object {
         if bounce_vy > 0.0 {
             self.movement.velocity.y = bounce_vy;
             // C++ testStunnedUnitForDestruction on successful bounce force.
-            if self.test_stunned_unit_for_destruction() {
+            if self.test_stunned_unit_for_destruction(health_events) {
                 return 0.0;
             }
             return bounce_vy;
@@ -1098,19 +1132,22 @@ impl Object {
     /// Called on bounce. Kills when upside-down, off-map, cliff without cliff
     /// locomotor, or underwater without water locomotor. Cliff/water kills
     /// require AIUpdateInterface (C++ PhysicsUpdate.cpp:1777-1779).
-    pub fn test_stunned_unit_for_destruction(&mut self) -> bool {
+    pub fn test_stunned_unit_for_destruction(
+        &mut self,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) -> bool {
         if !self.is_shock_stunned() || self.status.destroyed {
             return false;
         }
         self.ensure_locomotor_surfaces();
         // Upside down when integrated transform up-Y < 0 (C++ Get_Z_Vector().Z).
         if self.physics_transform_up_y() < 0.0 {
-            return self.kill_from_stun_destruction();
+            return self.kill_from_stun_destruction(health_events);
         }
         // C++ obj->isOffMap residual.
         let pos = self.get_position();
         if crate::game_logic::host_deliver_payload::is_off_map_default_residual(pos) {
-            return self.kill_from_stun_destruction();
+            return self.kill_from_stun_destruction(health_events);
         }
         // C++ AIUpdateInterface *aiInt = obj->getAI(); if (!aiInt) return;
         if !self.has_ai_update_interface() {
@@ -1118,21 +1155,24 @@ impl Object {
         }
         // C++ isCliffCell && !hasLocomotorForSurface(CLIFF).
         if self.cell_is_cliff && !self.has_locomotor_for_surface(LOCO_SURFACE_CLIFF) {
-            return self.kill_from_stun_destruction();
+            return self.kill_from_stun_destruction(health_events);
         }
         // C++ isUnderwater && !hasLocomotorForSurface(WATER).
         if self.cell_is_underwater && !self.has_locomotor_for_surface(LOCO_SURFACE_WATER) {
-            return self.kill_from_stun_destruction();
+            return self.kill_from_stun_destruction(health_events);
         }
         false
     }
 
-    fn kill_from_stun_destruction(&mut self) -> bool {
+    fn kill_from_stun_destruction(
+        &mut self,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) -> bool {
         if self.status.destroyed {
             return false;
         }
         // C++ PhysicsBehavior::testStunnedUnitForDestruction → Object::kill().
-        let killed = self.kill();
+        let killed = self.kill(health_events);
         if killed {
             self.set_ai_state(AIState::Idle);
             self.target = None;
@@ -1144,17 +1184,24 @@ impl Object {
     }
 
     /// Tick shock stun residual (once per logic frame).
-    pub fn tick_shock_stun(&mut self) {
-        self.tick_shock_stun_with_countdown(true);
+    pub fn tick_shock_stun(&mut self, health_events: &mut crate::game_logic::HostHealthEvents) {
+        self.tick_shock_stun_with_countdown(true, health_events);
     }
 
     /// Wave 764: under coupled dual-tick, GW sole-decrements `shock_stun_frames`;
     /// host still integrates tumble/bounce physics without dual-countdown.
-    pub fn tick_shock_stun_physics_only(&mut self) {
-        self.tick_shock_stun_with_countdown(false);
+    pub fn tick_shock_stun_physics_only(
+        &mut self,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) {
+        self.tick_shock_stun_with_countdown(false, health_events);
     }
 
-    fn tick_shock_stun_with_countdown(&mut self, countdown: bool) {
+    fn tick_shock_stun_with_countdown(
+        &mut self,
+        countdown: bool,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) {
         if self.shock_stun_frames == 0 {
             // Damp residual rates when fully settled.
             self.shock_yaw_rate *= 0.85;
@@ -1169,7 +1216,7 @@ impl Object {
                 self.shock_was_airborne = false;
                 self.shock_allow_bounce = false;
                 self.set_status_disabled_freefall(false);
-                let _ = self.maybe_kill_when_resting_on_ground();
+                let _ = self.maybe_kill_when_resting_on_ground(health_events);
             }
             // Settled stun ticks must still re-derive model conditions, or
             // stale STUNNED/FREEFALL bits from the last stunned refresh stick
@@ -1212,7 +1259,8 @@ impl Object {
                 // Capture impact velocity before bounce/slam (C++ activeVelZ residual).
                 let impact_vy = self.movement.velocity.y;
                 let was_air = self.shock_was_airborne || old_y > ground_y + 0.01;
-                let bounced = self.handle_shock_ground_bounce(old_y, new_y, ground_y);
+                let bounced =
+                    self.handle_shock_ground_bounce(old_y, new_y, ground_y, health_events);
                 pos.y = ground_y;
                 self.set_position_keep_rotation(pos);
                 // C++ first ground hit while stunned: FLAILING → STUNNED.
@@ -1224,7 +1272,7 @@ impl Object {
                 if was_air && !self.landing_splat_done {
                     self.record_bounce_land(old_y);
                     self.pending_ground_collide = true;
-                    let _ = self.apply_shock_fall_damage(impact_vy);
+                    let _ = self.apply_shock_fall_damage(impact_vy, health_events);
                 }
                 if bounced <= 0.0 {
                     // Slam residual: clamp downward vel at ground.
@@ -1263,7 +1311,7 @@ impl Object {
                 self.set_status_disabled_freefall(false);
             }
             // C++ killWhenRestingOnGround after settle.
-            let _ = self.maybe_kill_when_resting_on_ground();
+            let _ = self.maybe_kill_when_resting_on_ground(health_events);
         }
         // C++ PhysicsUpdate.cpp:672-682: clear stun when |vel|<0.5 or not significantly airborne.
         self.maybe_clear_shock_stun_relief(already_on_ground, was_significantly_airborne);

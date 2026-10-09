@@ -1,6 +1,6 @@
 //! Wave 751: under damage authority, booby-trap special destroy does not
 //! zero host HP mid-frame (avoids dual with GameWorld HP writeback). Projects
-//! lethal via `host_damage_log` + destroyed flags. Non-authority path keeps
+//! lethal via the owning `HostHealthEvents` queue + destroyed flags. Non-authority path keeps
 //! host HP clear. `playable_claim` stays false.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -87,7 +87,7 @@ pub fn honesty_host_booby_trap_destroy_no_damage_auth_hp_stomp_source_markers_re
         && gl.contains("fn destroy_booby_trap_special_object")
         && gl.contains("booby_trap_special")
         && gl.contains("gameworld_damage_authority_live()")
-        && gl.contains("host_damage_log::record")
+        && gl.contains("health_events.record_damage")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostBoobyTrapDestroyNoDamageAuthHpStompAction::SourceMarkers);
     ok

@@ -137,7 +137,7 @@ pub fn simulate_live_presentation_overlay_stamp_honesty() -> bool {
         e.selected = true;
     }
 
-    let mut pres = PresentationFrame::build_from_logic(&logic, 0);
+    let mut pres = PresentationFrame::build_from_logic(&mut logic, 0);
     if pres.gameworld_overlay_stamped != 0 {
         return false;
     }

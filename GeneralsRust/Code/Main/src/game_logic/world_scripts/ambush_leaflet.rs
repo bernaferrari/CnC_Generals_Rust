@@ -397,7 +397,7 @@ impl GameLogic {
                                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                                     let hp = o.health.current.max(1.0);
                                     let oid = o.id;
-                                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                                    self.health_events.record_damage(oid, hp, None, true);
                                 } else {
                                     o.health.current = 0.0;
                                 }
@@ -776,8 +776,11 @@ impl GameLogic {
                 if !target.is_alive() {
                     continue;
                 }
-                let destroyed =
-                    target.take_damage_from_immediate(pulse.damage, Some(pulse.source_object));
+                let destroyed = target.take_damage_from_immediate(
+                    pulse.damage,
+                    Some(pulse.source_object),
+                    &mut self.health_events,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     destroy_ids.push((id, pulse.source_team));

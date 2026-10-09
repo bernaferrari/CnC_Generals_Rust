@@ -414,7 +414,7 @@ impl GameLogic {
                 if chute.is_alive() {
                     let hp = chute.health.current.max(1.0);
                     if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                        crate::game_logic::host_damage_log::record(id, hp, None, true);
+                        self.health_events.record_damage(id, hp, None, true);
                     } else {
                         chute.health.current = 0.0;
                     }
@@ -484,6 +484,7 @@ impl GameLogic {
                 None,
                 crate::game_logic::combat::DamageType::Unresistable,
                 HostDeathType::Splatted,
+                &mut self.health_events,
             );
             if !killed {
                 r.allow_to_fall = true;
@@ -752,7 +753,11 @@ impl GameLogic {
                         center.health.maximum = center.max_health;
                         {
                             let new_hp = (center.max_health * ratio).clamp(0.0, center.max_health);
-                            Self::write_object_health_authority_aware(center, new_hp);
+                            Self::write_object_health_authority_aware(
+                                center,
+                                new_hp,
+                                &mut self.health_events,
+                            );
                         }
                     }
                     HostBattlePlan::SearchAndDestroy => {
@@ -934,7 +939,11 @@ impl GameLogic {
                             {
                                 let new_hp =
                                     (center.max_health * ratio).clamp(0.0, center.max_health);
-                                Self::write_object_health_authority_aware(center, new_hp);
+                                Self::write_object_health_authority_aware(
+                                    center,
+                                    new_hp,
+                                    &mut self.health_events,
+                                );
                             }
                             building_bonus = true;
                         }
@@ -1859,7 +1868,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -1988,7 +1997,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -2082,8 +2091,13 @@ impl GameLogic {
                         (ANGRY_MOB_ROCK_DAMAGE_TYPE, ANGRY_MOB_ROCK_DEATH_TYPE)
                     }
                 };
-                let destroyed =
-                    v.take_damage_from_immediate_residual(dmg, source, dt_name, death_name);
+                let destroyed = v.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    dt_name,
+                    death_name,
+                    &mut self.health_events,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -2190,7 +2204,7 @@ impl GameLogic {
                 continue;
             }
             let before = target.health.current;
-            target.heal(heal_amount);
+            target.heal(heal_amount, &mut self.health_events);
             let restored = (target.health.current - before).max(0.0);
             if restored > 0.01 {
                 heals = heals.saturating_add(1);

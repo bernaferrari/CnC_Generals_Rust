@@ -2432,7 +2432,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -3415,6 +3415,7 @@ impl GameLogic {
                         dmg,
                         Some(mine_id),
                         crate::game_logic::combat::DamageType::Explosive,
+                        &mut self.health_events,
                     ) && !chain_pad
                     {
                         destroy_ids.push((vid, mine_team));
@@ -3534,7 +3535,9 @@ impl GameLogic {
                 continue;
             }
             if let Some(victim) = self.objects.get_mut(&vid) {
-                if victim.take_damage_from(dmg, Some(mine_id)) && !chain_pad {
+                if victim.take_damage_from(dmg, Some(mine_id), &mut self.health_events)
+                    && !chain_pad
+                {
                     destroy_ids.push((vid, mine_team));
                 } else if chain_pad {
                     chain_ids.push(vid);
@@ -3864,6 +3867,7 @@ impl GameLogic {
                             Some(building_id),
                             crate::game_logic::combat::DamageType::LandMine,
                             crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
+                            &mut self.health_events,
                         );
                     }
                 }

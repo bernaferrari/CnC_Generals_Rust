@@ -94,10 +94,10 @@ fn repair_command_sets_all_selected_repairers_to_repairing() {
         .expect("repair target should be created");
 
     {
-        let target = game_logic
-            .host_object_mut(target_id)
+        let (target, health_events) = game_logic
+            .host_object_and_health_events_mut(target_id)
             .expect("target should exist");
-        let _ = target.take_damage(50.0);
+        let _ = target.take_damage(50.0, health_events);
     }
 
     game_logic.queue_command(crate::command_system::GameCommand {
@@ -137,10 +137,10 @@ fn repair_command_ignores_non_worker_units() {
         .expect("repair target should be created");
 
     {
-        let target = game_logic
-            .host_object_mut(target_id)
+        let (target, health_events) = game_logic
+            .host_object_and_health_events_mut(target_id)
             .expect("target should exist");
-        let _ = target.take_damage(75.0);
+        let _ = target.take_damage(75.0, health_events);
     }
 
     game_logic.queue_command(crate::command_system::GameCommand {
@@ -175,10 +175,10 @@ fn repair_command_allows_repairing_neutral_structures() {
         .expect("neutral target should be created");
 
     {
-        let target = game_logic
-            .host_object_mut(target_id)
+        let (target, health_events) = game_logic
+            .host_object_and_health_events_mut(target_id)
             .expect("target should exist");
-        let _ = target.take_damage(60.0);
+        let _ = target.take_damage(60.0, health_events);
     }
 
     let before = game_logic
@@ -246,8 +246,10 @@ fn dozer_structure_repair_residual_recovers_hp_over_time() {
         .expect("war factory structure");
 
     {
-        let structure = game_logic.host_object_mut(structure_id).expect("structure");
-        let _ = structure.take_damage(400.0);
+        let (structure, health_events) = game_logic
+            .host_object_and_health_events_mut(structure_id)
+            .expect("structure");
+        let _ = structure.take_damage(400.0, health_events);
         assert!(
             structure.health.current + 0.01 < structure.health.maximum,
             "structure must be damaged before repair"
@@ -332,12 +334,14 @@ fn dozer_structure_repair_residual_walk_into_range_recovers_hp() {
         .expect("structure");
 
     {
-        let structure = game_logic.host_object_mut(structure_id).expect("structure");
+        let (structure, health_events) = game_logic
+            .host_object_and_health_events_mut(structure_id)
+            .expect("structure");
         // This regression is about the selected dozer's Repair order.  Disable
         // the independent BaseRegenerateUpdate fixture module so autonomous
         // structure regeneration cannot masquerade as an in-range repair tick.
         structure.base_regenerate = None;
-        let _ = structure.take_damage(300.0);
+        let _ = structure.take_damage(300.0, health_events);
     }
     let before = game_logic
         .host_object(structure_id)
@@ -454,8 +458,10 @@ fn war_factory_vehicle_repair_residual_recovers_hp() {
         .create_object("TestTank", Team::USA, Vec3::new(6.0, 0.0, 0.0))
         .expect("vehicle");
     {
-        let vehicle = game_logic.host_object_mut(vehicle_id).expect("vehicle");
-        let _ = vehicle.take_damage(120.0);
+        let (vehicle, health_events) = game_logic
+            .host_object_and_health_events_mut(vehicle_id)
+            .expect("vehicle");
+        let _ = vehicle.take_damage(120.0, health_events);
     }
     let before = game_logic
         .host_object(vehicle_id)
@@ -536,8 +542,10 @@ fn ambulance_auto_heal_residual_recovers_infantry_hp() {
         .expect("infantry");
 
     {
-        let infantry = game_logic.host_object_mut(infantry_id).expect("infantry");
-        let _ = infantry.take_damage(40.0);
+        let (infantry, health_events) = game_logic
+            .host_object_and_health_events_mut(infantry_id)
+            .expect("infantry");
+        let _ = infantry.take_damage(40.0, health_events);
         assert!(
             infantry.health.current + 0.01 < infantry.health.maximum,
             "infantry must be damaged before ambulance heal"
@@ -613,8 +621,10 @@ fn ambulance_auto_heal_residual_out_of_range_then_in_range() {
         .create_object("TestInfantry", Team::USA, Vec3::new(200.0, 0.0, 0.0))
         .expect("infantry");
     {
-        let infantry = game_logic.host_object_mut(infantry_id).expect("infantry");
-        let _ = infantry.take_damage(30.0);
+        let (infantry, health_events) = game_logic
+            .host_object_and_health_events_mut(infantry_id)
+            .expect("infantry");
+        let _ = infantry.take_damage(30.0, health_events);
     }
     let before = game_logic
         .host_object(infantry_id)
@@ -681,8 +691,10 @@ fn ambulance_auto_heal_residual_skips_enemy_infantry() {
         .create_object("TestInfantry", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
         .expect("enemy infantry");
     {
-        let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
-        let _ = enemy.take_damage(40.0);
+        let (enemy, health_events) = game_logic
+            .host_object_and_health_events_mut(enemy_id)
+            .expect("enemy");
+        let _ = enemy.take_damage(40.0, health_events);
     }
     let before = game_logic
         .host_object(enemy_id)
@@ -728,8 +740,10 @@ fn propaganda_tower_residual_recovers_hp_and_sets_enthusiastic() {
         .expect("unit");
 
     {
-        let unit = game_logic.host_object_mut(unit_id).expect("unit");
-        let _ = unit.take_damage(40.0);
+        let (unit, health_events) = game_logic
+            .host_object_and_health_events_mut(unit_id)
+            .expect("unit");
+        let _ = unit.take_damage(40.0, health_events);
         assert!(
             unit.health.current + 0.01 < unit.health.maximum,
             "unit must be damaged before propaganda heal"
@@ -809,8 +823,10 @@ fn propaganda_tower_residual_out_of_range_then_in_range() {
         .create_object("TestInfantry", Team::China, Vec3::new(250.0, 0.0, 0.0))
         .expect("unit");
     {
-        let unit = game_logic.host_object_mut(unit_id).expect("unit");
-        let _ = unit.take_damage(30.0);
+        let (unit, health_events) = game_logic
+            .host_object_and_health_events_mut(unit_id)
+            .expect("unit");
+        let _ = unit.take_damage(30.0, health_events);
     }
     let before = game_logic
         .host_object(unit_id)
@@ -910,8 +926,10 @@ fn propaganda_tower_residual_skips_enemy_units() {
         .create_object("TestInfantry", Team::USA, Vec3::new(10.0, 0.0, 0.0))
         .expect("enemy");
     {
-        let enemy = game_logic.host_object_mut(enemy_id).expect("enemy");
-        let _ = enemy.take_damage(40.0);
+        let (enemy, health_events) = game_logic
+            .host_object_and_health_events_mut(enemy_id)
+            .expect("enemy");
+        let _ = enemy.take_damage(40.0, health_events);
     }
     let before = game_logic
         .host_object(enemy_id)
@@ -966,8 +984,10 @@ fn propaganda_tower_residual_subliminal_upgrade_buff_and_faster_heal() {
         .create_object("TestInfantry", Team::China, Vec3::new(20.0, 0.0, 0.0))
         .expect("unit");
     {
-        let unit = game_logic.host_object_mut(unit_id).expect("unit");
-        let _ = unit.take_damage(40.0);
+        let (unit, health_events) = game_logic
+            .host_object_and_health_events_mut(unit_id)
+            .expect("unit");
+        let _ = unit.take_damage(40.0, health_events);
     }
     let before = game_logic
         .host_object(unit_id)
@@ -1026,8 +1046,10 @@ fn propaganda_tower_name_residual_helix_propaganda_heals() {
         .create_object("TestInfantry", Team::China, Vec3::new(25.0, 0.0, 0.0))
         .expect("unit");
     {
-        let unit = game_logic.host_object_mut(unit_id).expect("unit");
-        let _ = unit.take_damage(30.0);
+        let (unit, health_events) = game_logic
+            .host_object_and_health_events_mut(unit_id)
+            .expect("unit");
+        let _ = unit.take_damage(30.0, health_events);
     }
     let before = game_logic
         .host_object(unit_id)
@@ -1064,8 +1086,10 @@ fn heal_pad_seeking_healing_residual_recovers_infantry_hp() {
         .create_object("TestInfantry", Team::USA, Vec3::new(5.0, 0.0, 0.0))
         .expect("infantry");
     {
-        let infantry = game_logic.host_object_mut(infantry_id).expect("infantry");
-        let _ = infantry.take_damage(40.0);
+        let (infantry, health_events) = game_logic
+            .host_object_and_health_events_mut(infantry_id)
+            .expect("infantry");
+        let _ = infantry.take_damage(40.0, health_events);
     }
     let before = game_logic
         .host_object(infantry_id)
@@ -1343,16 +1367,16 @@ fn get_repaired_command_targets_only_damaged_vehicles() {
         .expect("infantry should be created");
 
     {
-        let vehicle = game_logic
-            .host_object_mut(vehicle_id)
+        let (vehicle, health_events) = game_logic
+            .host_object_and_health_events_mut(vehicle_id)
             .expect("vehicle should exist");
-        let _ = vehicle.take_damage(80.0);
+        let _ = vehicle.take_damage(80.0, health_events);
     }
     {
-        let infantry = game_logic
-            .host_object_mut(infantry_id)
+        let (infantry, health_events) = game_logic
+            .host_object_and_health_events_mut(infantry_id)
             .expect("infantry should exist");
-        let _ = infantry.take_damage(20.0);
+        let _ = infantry.take_damage(20.0, health_events);
     }
 
     game_logic.queue_command(crate::command_system::GameCommand {
@@ -1390,10 +1414,10 @@ fn get_repaired_command_requires_repair_destination_type() {
         .create_object("TestTank", Team::USA, Vec3::new(8.0, 0.0, 0.0))
         .expect("vehicle should be created");
     {
-        let vehicle = game_logic
-            .host_object_mut(vehicle_id)
+        let (vehicle, health_events) = game_logic
+            .host_object_and_health_events_mut(vehicle_id)
             .expect("vehicle should exist");
-        let _ = vehicle.take_damage(80.0);
+        let _ = vehicle.take_damage(80.0, health_events);
     }
 
     game_logic.queue_command(crate::command_system::GameCommand {
@@ -1428,10 +1452,10 @@ fn get_repaired_command_rejects_under_construction_destination() {
         .create_object("TestTank", Team::USA, Vec3::new(8.0, 0.0, 0.0))
         .expect("vehicle should be created");
     {
-        let vehicle = game_logic
-            .host_object_mut(vehicle_id)
+        let (vehicle, health_events) = game_logic
+            .host_object_and_health_events_mut(vehicle_id)
             .expect("vehicle should exist");
-        let _ = vehicle.take_damage(80.0);
+        let _ = vehicle.take_damage(80.0, health_events);
     }
     {
         let repair_pad = game_logic
@@ -1476,10 +1500,10 @@ fn get_repaired_command_aircraft_requires_airfield() {
         .create_object("TestAircraft", Team::USA, Vec3::new(8.0, 0.0, 0.0))
         .expect("aircraft should be created");
     {
-        let aircraft = game_logic
-            .host_object_mut(aircraft_id)
+        let (aircraft, health_events) = game_logic
+            .host_object_and_health_events_mut(aircraft_id)
             .expect("aircraft should exist");
-        let _ = aircraft.take_damage(100.0);
+        let _ = aircraft.take_damage(100.0, health_events);
         // C++ canGetRepairedAt (ActionManager.cpp:164-171) requires the
         // aircraft to be above terrain (`isAboveTerrain`) before the airfield
         // branch; the host proof-of-altitude channel is the airborne status.
@@ -1547,16 +1571,16 @@ fn get_healed_command_targets_only_injured_infantry() {
         .expect("vehicle should be created");
 
     {
-        let infantry = game_logic
-            .host_object_mut(infantry_id)
+        let (infantry, health_events) = game_logic
+            .host_object_and_health_events_mut(infantry_id)
             .expect("infantry should exist");
-        let _ = infantry.take_damage(20.0);
+        let _ = infantry.take_damage(20.0, health_events);
     }
     {
-        let vehicle = game_logic
-            .host_object_mut(vehicle_id)
+        let (vehicle, health_events) = game_logic
+            .host_object_and_health_events_mut(vehicle_id)
             .expect("vehicle should exist");
-        let _ = vehicle.take_damage(80.0);
+        let _ = vehicle.take_damage(80.0, health_events);
     }
 
     game_logic.queue_command(crate::command_system::GameCommand {
@@ -1594,10 +1618,10 @@ fn get_healed_command_requires_heal_destination_type() {
         .create_object("TestInfantry", Team::USA, Vec3::new(8.0, 0.0, 0.0))
         .expect("infantry should be created");
     {
-        let infantry = game_logic
-            .host_object_mut(infantry_id)
+        let (infantry, health_events) = game_logic
+            .host_object_and_health_events_mut(infantry_id)
             .expect("infantry should exist");
-        let _ = infantry.take_damage(20.0);
+        let _ = infantry.take_damage(20.0, health_events);
     }
 
     game_logic.queue_command(crate::command_system::GameCommand {
@@ -1632,10 +1656,10 @@ fn get_healed_command_rejects_under_construction_destination() {
         .create_object("TestInfantry", Team::USA, Vec3::new(8.0, 0.0, 0.0))
         .expect("infantry should be created");
     {
-        let infantry = game_logic
-            .host_object_mut(infantry_id)
+        let (infantry, health_events) = game_logic
+            .host_object_and_health_events_mut(infantry_id)
             .expect("infantry should exist");
-        let _ = infantry.take_damage(20.0);
+        let _ = infantry.take_damage(20.0, health_events);
     }
     {
         let heal_pad = game_logic

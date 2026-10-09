@@ -38,7 +38,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -73,7 +73,11 @@ impl GameLogic {
             o.producer_id = Some(shooter_id);
             o.missile_defender_laser_beam_expires_frame = Some(expires);
             o.health.maximum = LASER_GUIDED_BEAM_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, LASER_GUIDED_BEAM_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                LASER_GUIDED_BEAM_MAX_HEALTH,
+                &mut self.health_events,
+            );
         }
         self.weapon_lasers
             .retain(|laser| laser.from_id != shooter_id || laser.laser_name != beam_name);
@@ -128,7 +132,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -686,6 +690,7 @@ impl GameLogic {
                         source,
                         SUICIDE_DAMAGE_TYPE,
                         SUICIDE_DEATH_TYPE,
+                        &mut self.health_events,
                     );
                     hits = hits.saturating_add(1);
                     if destroyed {
@@ -746,6 +751,7 @@ impl GameLogic {
                         source,
                         RPG_DAMAGE_TYPE,
                         RPG_DEATH_TYPE,
+                        &mut self.health_events,
                     );
                     hits = hits.saturating_add(1);
                     if destroyed {
@@ -779,7 +785,11 @@ impl GameLogic {
                                 _ => (REBEL_MG_DAMAGE_TYPE, REBEL_MG_DEATH_TYPE),
                             };
                             let destroyed = obj.take_damage_from_immediate_residual(
-                                dmg, source, dt_name, death_name,
+                                dmg,
+                                source,
+                                dt_name,
+                                death_name,
+                                &mut self.health_events,
                             );
                             hits = hits.saturating_add(1);
                             if destroyed {
@@ -926,6 +936,7 @@ impl GameLogic {
                     source,
                     TOXIN_DAMAGE_TYPE,
                     toxin_death_type_name(anthrax),
+                    &mut self.health_events,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -1053,6 +1064,7 @@ impl GameLogic {
                     source,
                     TOXIN_DAMAGE_TYPE,
                     toxin_death_type_name(anthrax),
+                    &mut self.health_events,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -1221,6 +1233,7 @@ impl GameLogic {
                         Some(plan.source_object),
                         crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type(),
                         plan.death_type,
+                        &mut self.health_events,
                     );
                     total_damage += hit.damage;
                     applications += 1;
@@ -1287,7 +1300,11 @@ impl GameLogic {
             o.comanche_rocket_pod_projectile_expires_frame = Some(expires);
             o.note_producer(source_id);
             o.health.maximum = COMANCHE_ROCKET_POD_PROJECTILE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, COMANCHE_ROCKET_POD_PROJECTILE_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                COMANCHE_ROCKET_POD_PROJECTILE_MAX_HEALTH,
+                &mut self.health_events,
+            );
             let dir = to - from;
             let dist = dir.length().max(0.001);
             let life = COMANCHE_ROCKET_POD_PROJECTILE_LIFETIME_FRAMES.max(1) as f32;
@@ -1342,7 +1359,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -1420,6 +1437,7 @@ impl GameLogic {
                     source,
                     ROCKET_POD_DAMAGE_TYPE,
                     ROCKET_POD_DEATH_TYPE,
+                    &mut self.health_events,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -2131,6 +2149,7 @@ impl GameLogic {
                 None,
                 self.frame,
                 &context,
+                &mut self.health_events,
             );
             if killed || !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed {
                 kills = kills.saturating_add(1);
@@ -2158,6 +2177,7 @@ impl GameLogic {
                 attacker_id,
                 STEALTH_JET_MISSILE_DAMAGE_TYPE,
                 STEALTH_JET_MISSILE_DEATH_TYPE,
+                &mut self.health_events,
             );
             if destroyed {
                 self.mark_object_for_destruction(target_id, Some(attacker_team));
@@ -2275,10 +2295,11 @@ impl GameLogic {
             let _ = occ.take_damage_from(
                 BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0),
                 attacker_id,
+                &mut self.health_events,
             );
             let dead = !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed;
             if !dead {
-                let _ = occ.take_damage_from(999_999.0, attacker_id);
+                let _ = occ.take_damage_from(999_999.0, attacker_id, &mut self.health_events);
             }
             let dead = !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed;
             if !dead {

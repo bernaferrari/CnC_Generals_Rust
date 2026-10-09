@@ -13,8 +13,8 @@ fn world_with_owner() -> (GameLogic, ObjectId) {
     let owner = world.host_object_mut(id).unwrap();
     owner.health.current = 40.0;
     owner.previous_health = 50.0;
-    crate::game_logic::host_damage_log::clear();
-    crate::game_logic::host_heal_log::clear();
+    world.health_events.clear_damage();
+    world.health_events.clear_heal();
     (world, id)
 }
 
@@ -32,7 +32,7 @@ fn direct_destroy_preserves_body_and_does_not_enter_die() {
         (object.health.current, object.previous_health),
         (40.0, 50.0)
     );
-    assert!(crate::game_logic::host_damage_log::snapshot().is_empty());
+    assert!(world.health_events.snapshot_damage().is_empty());
     world.destroy_object(id);
     assert_eq!(
         world
@@ -88,7 +88,7 @@ fn frenzy_deletion_update_preserves_marker_hp_and_emits_no_damage() {
         .unwrap();
     let hp = world.host_object(id).unwrap().health.current;
     assert!(hp > 0.0);
-    crate::game_logic::host_damage_log::clear();
+    world.health_events.clear_damage();
     world.update_frenzy_invisible_markers();
     assert!(!world.host_object(id).unwrap().status.destroyed);
     world.update_frenzy_invisible_markers();
@@ -99,7 +99,7 @@ fn frenzy_deletion_update_preserves_marker_hp_and_emits_no_damage() {
         "DeletionUpdate explicitly destroys, not kills"
     );
     assert!(!object.status.on_die_started);
-    assert!(crate::game_logic::host_damage_log::snapshot().is_empty());
+    assert!(world.health_events.snapshot_damage().is_empty());
     world.process_destroy_list();
     assert!(world.host_object(id).is_none());
 }
@@ -148,7 +148,9 @@ fn victory_kill_commits_body_damage_before_owner_death() {
     assert_eq!(object.previous_health, 40.0);
     assert!(object.status.on_die_started);
     assert!(
-        crate::game_logic::host_damage_log::snapshot()
+        world
+            .health_events
+            .snapshot_damage()
             .iter()
             .any(|e| e.target == id)
     );
@@ -239,7 +241,7 @@ fn forced_penalty_kill_overrides_scalar_and_keeps_cpp_extra4_ordinal() {
         ),
         object.status.death_type
     );
-    let events = crate::game_logic::host_damage_log::snapshot();
+    let events = world.health_events.snapshot_damage();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].amount, 80.0);
     assert_eq!(events[0].source, None);

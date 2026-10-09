@@ -205,7 +205,7 @@ pub fn run_presentation_consumer_path() -> (bool, String) {
         o.status.selected = true;
     }
     logic.update();
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let mut ui = GameUIState::default();
     frame.apply_to_ui_state(&mut ui);
     let mut hud = GameHUD::new();

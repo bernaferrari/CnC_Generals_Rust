@@ -154,7 +154,7 @@ pub fn simulate_live_gameworld_shadow_overlay_honesty() -> bool {
         return false;
     }
 
-    let mut pres = PresentationFrame::build_from_logic(&logic, 0);
+    let mut pres = PresentationFrame::build_from_logic(&mut logic, 0);
     if pres.objects.is_empty() {
         return false;
     }
@@ -240,7 +240,7 @@ mod tests {
             "entity_for_host must resolve the created object"
         );
 
-        let mut pres = PresentationFrame::build_from_logic(&logic, 0);
+        let mut pres = PresentationFrame::build_from_logic(&mut logic, 0);
         assert!(
             pres.objects.iter().any(|o| o.id == id),
             "presentation freeze must include the created object"

@@ -13,7 +13,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 pub const LIVE_HOST_DUAL_LINE_LETHAL_NO_DAMAGE_AUTH_HP_STOMP_METHOD_NAMES_WAVE753: &[&str] = &[
     "aurora_bomb_projectile",
     "gameworld_damage_authority_live",
-    "host_damage_log::record",
+    "health_events.record_damage",
     "Wave 753",
     "playable_claim = false",
 ];
@@ -75,7 +75,7 @@ pub fn honesty_host_dual_line_lethal_no_damage_auth_hp_stomp_method_names_residu
     let names = LIVE_HOST_DUAL_LINE_LETHAL_NO_DAMAGE_AUTH_HP_STOMP_METHOD_NAMES_WAVE753;
     let ok = residual_name_index(names, "aurora_bomb_projectile").is_some()
         && residual_name_index(names, "gameworld_damage_authority_live").is_some()
-        && residual_name_index(names, "host_damage_log::record").is_some()
+        && residual_name_index(names, "health_events.record_damage").is_some()
         && residual_name_index(names, "Wave 753").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
     residual_action_store(ResidualHostDualLineLethalNoDamageAuthHpStompAction::MethodNames);
@@ -87,7 +87,7 @@ pub fn honesty_host_dual_line_lethal_no_damage_auth_hp_stomp_source_markers_resi
     let ok = gl.contains("Wave 753")
         && gl.contains("aurora_bomb_projectile = false")
         && gl.contains("gameworld_damage_authority_live()")
-        && gl.contains("host_damage_log::record")
+        && gl.contains("health_events.record_damage")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostDualLineLethalNoDamageAuthHpStompAction::SourceMarkers);
     ok
@@ -116,7 +116,8 @@ pub fn simulate_host_dual_line_lethal_no_damage_auth_hp_stomp_collect_source() -
     ok
 }
 pub fn simulate_host_dual_line_lethal_no_damage_auth_hp_stomp_dispatch_source() -> bool {
-    let ok = gl_source().contains("Wave 753") && gl_source().contains("host_damage_log::record");
+    let ok =
+        gl_source().contains("Wave 753") && gl_source().contains("health_events.record_damage");
     residual_action_store(ResidualHostDualLineLethalNoDamageAuthHpStompAction::DispatchSource);
     ok
 }

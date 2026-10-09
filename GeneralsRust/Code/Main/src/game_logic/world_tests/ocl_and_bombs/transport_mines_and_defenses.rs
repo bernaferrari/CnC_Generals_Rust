@@ -1087,7 +1087,7 @@ fn weapon_fire_trips_virtual_mines_on_health_band() {
         )
         .expect("pad");
     {
-        let m = logic.host_object_mut(mine_id).unwrap();
+        let (m, health_events) = logic.host_object_and_health_events_mut(mine_id).unwrap();
         m.health.current = 50.0;
         m.health.maximum = 100.0;
         if let Some(md) = m.mine_data.as_mut() {
@@ -1125,7 +1125,7 @@ fn lethal_weapon_hit_chain_detonates_virtual_mines() {
         if let Some(md) = m.mine_data.as_mut() {
             md.last_synced_health = Some(100.0);
         }
-        let killed = m.take_damage_from(100.0, None);
+        let killed = m.take_damage_from(100.0, None, health_events);
         assert!(!killed, "lethal hit must not silently destroy the pad");
         assert!(!m.status.destroyed);
         assert!(m.health.current <= 0.0);
@@ -1547,7 +1547,7 @@ fn base_defense_residual_patriot_auto_fires_without_attack_object() {
         .host_object(enemy_id)
         .map(|e| e.health.current)
         .unwrap_or(0.0);
-    crate::game_logic::host_damage_log::clear();
+    game_logic.health_events.clear_damage();
 
     // Several combat ticks (reload residual) without any AttackObject command.
     for f in 0..80 {
@@ -1559,7 +1559,7 @@ fn base_defense_residual_patriot_auto_fires_without_attack_object() {
         .host_object(enemy_id)
         .map(|e| e.health.current)
         .unwrap_or(0.0);
-    let logged = crate::game_logic::host_damage_log::drain();
+    let logged = game_logic.health_events.drain_damage();
     let log_hit = logged
         .iter()
         .any(|e| e.target == enemy_id && e.amount > 0.0);
@@ -2599,7 +2599,7 @@ fn patriot_residual_aa_secondary_auto_fires() {
         .host_object(air_id)
         .map(|e| e.health.current)
         .unwrap_or(0.0);
-    crate::game_logic::host_damage_log::clear();
+    game_logic.health_events.clear_damage();
     for f in 0..80 {
         game_logic.frame = f;
         game_logic.update_combat(&[patriot_id, air_id], LOGIC_FRAME_TIMESTEP);
@@ -2608,7 +2608,12 @@ fn patriot_residual_aa_secondary_auto_fires() {
         .host_object(air_id)
         .map(|e| e.health.current)
         .unwrap_or(0.0);
-    let dealt = test_observed_damage_to(air_id, air_hp_before, air_hp_after);
+    let dealt = test_observed_damage_to(
+        &game_logic.health_events,
+        air_id,
+        air_hp_before,
+        air_hp_after,
+    );
     assert!(
         dealt > 0.0 || air_hp_after < air_hp_before,
         "Patriot AA residual must damage aircraft (dealt={dealt}, before={air_hp_before}, after={air_hp_after})"
@@ -2696,7 +2701,7 @@ fn patriot_assisted_targeting_request_assist_range_residual() {
         .host_object(enemy_id)
         .map(|e| e.health.current)
         .unwrap_or(0.0);
-    crate::game_logic::host_damage_log::clear();
+    game_logic.health_events.clear_damage();
 
     // One combat tick: requester primary fire → assist request → first assist shot.
     game_logic.frame = 1;
@@ -2734,7 +2739,12 @@ fn patriot_assisted_targeting_request_assist_range_residual() {
         .host_object(enemy_id)
         .map(|e| e.health.current)
         .unwrap_or(0.0);
-    let damage_dealt = test_observed_damage_to(enemy_id, enemy_hp_before, enemy_hp_after);
+    let damage_dealt = test_observed_damage_to(
+        &game_logic.health_events,
+        enemy_id,
+        enemy_hp_before,
+        enemy_hp_after,
+    );
     // At least one assist-scale residual hit; full clip + primary is more.
     assert!(
         damage_dealt >= PATRIOT_ASSIST_DAMAGE,

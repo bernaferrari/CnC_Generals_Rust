@@ -275,6 +275,7 @@ impl SnapshotBuilder {
         // Its transient result must not describe the previous world after a
         // partial restore. Production loading isolates this work in a candidate.
         game_logic.clear_victory_observation();
+        game_logic.health_events.clear();
         log::info!(
             "Restoring world from snapshot: {} objects, {} players",
             snapshot.objects.len(),

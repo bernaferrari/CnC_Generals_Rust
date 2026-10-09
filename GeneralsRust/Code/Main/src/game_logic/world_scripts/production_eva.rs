@@ -102,7 +102,11 @@ impl GameLogic {
                 }
                 damage_dealt += hit.damage.min(victim.health.current.max(0.0));
                 blast_hits = blast_hits.saturating_add(1);
-                if victim.take_damage_from_immediate(hit.damage, Some(source_id)) {
+                if victim.take_damage_from_immediate(
+                    hit.damage,
+                    Some(source_id),
+                    &mut self.health_events,
+                ) {
                     destroy_ids.push((hit.target_id, source_team));
                 }
             }
@@ -164,7 +168,11 @@ impl GameLogic {
                 }
                 damage_dealt += hit.damage.min(victim.health.current.max(0.0));
                 blast_hits = blast_hits.saturating_add(1);
-                if victim.take_damage_from_immediate(hit.damage, Some(source_id)) {
+                if victim.take_damage_from_immediate(
+                    hit.damage,
+                    Some(source_id),
+                    &mut self.health_events,
+                ) {
                     destroy_ids.push((hit.target_id, source_team));
                 }
             }
@@ -223,7 +231,11 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&unit_id) {
             obj.demo_suicided_detonating = true;
             obj.record_host_demo_mine_cheer();
-            Self::mark_object_destroyed_authority_aware(obj, Some(unit_id));
+            Self::mark_object_destroyed_authority_aware(
+                obj,
+                Some(unit_id),
+                &mut self.health_events,
+            );
         }
         self.demo_suicide_bomb.record_tertiary_suicide_issued();
         let _ = self.apply_demo_plus_fire_death_at(unit_id, source_team, source_pos);
@@ -1514,6 +1526,7 @@ impl GameLogic {
                             damage,
                             Some(id),
                             crate::game_logic::combat::DamageType::Penalty,
+                            &mut self.health_events,
                         );
                     }
                     self.overcharge_drain_ticks = self.overcharge_drain_ticks.saturating_add(1);

@@ -948,10 +948,12 @@ fn continuous_fire_coast_deadline_uses_fired_shot_level() {
         GATTLING_BUILDING_BASE_DELAY_FRAMES, GATTLING_BUILDING_COAST_FRAMES,
     };
     use crate::game_logic::host_gattling_tank::{
-        GattlingFireLevel, GATTLING_BASE_DELAY_FRAMES, GATTLING_COAST_FRAMES,
-        GATTLING_CONTINUOUS_FIRE_ONE, gattling_delay_frames_for_level,
+        GATTLING_BASE_DELAY_FRAMES, GATTLING_COAST_FRAMES, GATTLING_CONTINUOUS_FIRE_ONE,
+        GattlingFireLevel, gattling_delay_frames_for_level,
     };
-    use crate::game_logic::host_minigunner::{MINIGUNNER_BASE_DELAY_FRAMES, MINIGUNNER_COAST_FRAMES};
+    use crate::game_logic::host_minigunner::{
+        MINIGUNNER_BASE_DELAY_FRAMES, MINIGUNNER_COAST_FRAMES,
+    };
     use crate::game_logic::{KindOf, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
 
@@ -1000,8 +1002,7 @@ fn continuous_fire_coast_deadline_uses_fired_shot_level() {
         assert_eq!(o.continuous_fire_victim, 0);
         assert_eq!(
             o.continuous_fire_coast_until_frame,
-            100 + gattling_delay_frames_for_level(GattlingFireLevel::Mean)
-                + GATTLING_COAST_FRAMES
+            100 + gattling_delay_frames_for_level(GattlingFireLevel::Mean) + GATTLING_COAST_FRAMES
         );
     }
 
@@ -1667,7 +1668,7 @@ fn hijack_hides_in_eject_capable_vehicle() {
         if crate::gameworld_shadow::gameworld_damage_authority_live() {
             let hp = v.health.current.max(1.0);
             let oid = v.id;
-            crate::game_logic::host_damage_log::record(oid, hp, None, true);
+            logic.health_events.record_damage(oid, hp, None, true);
         } else {
             v.health.current = 0.0;
         }
@@ -1725,7 +1726,7 @@ fn hijack_airborne_eject_puts_in_america_parachute() {
         if crate::gameworld_shadow::gameworld_damage_authority_live() {
             let hp = v.health.current.max(1.0);
             let oid = v.id;
-            crate::game_logic::host_damage_log::record(oid, hp, None, true);
+            logic.health_events.record_damage(oid, hp, None, true);
         } else {
             v.health.current = 0.0;
         }

@@ -33,6 +33,11 @@ fn command(player_id: u32, command_type: CommandType, selected: Vec<ObjectId>) -
     }
 }
 
+fn damage_for_fixture(logic: &mut GameLogic, id: ObjectId, amount: f32) {
+    let (object, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
+    let _ = object.take_damage(amount, health_events);
+}
+
 #[test]
 fn switch_weapons_locks_button_slot() {
     let mut logic = GameLogic::new();
@@ -479,10 +484,7 @@ fn repair_mid_build_keeps_pending_build_and_idle_resumes() {
         sc.status.under_construction = true;
         sc.builder_id = Some(dozer);
     }
-    {
-        let dmg = logic.host_object_mut(damaged).expect("dmg");
-        let _ = dmg.take_damage(200.0);
-    }
+    damage_for_fixture(&mut logic, damaged, 200.0);
     {
         let dz = logic.host_object_mut(dozer).expect("dz");
         dz.target = Some(scaffold);
@@ -562,10 +564,7 @@ fn same_frame_build_repair_tie_resumes_build() {
         sc.status.under_construction = true;
         sc.builder_id = Some(dozer);
     }
-    {
-        let dmg = logic.host_object_mut(damaged).expect("dmg");
-        let _ = dmg.take_damage(200.0);
-    }
+    damage_for_fixture(&mut logic, damaged, 200.0);
     logic.dozer_new_task_build(dozer, scaffold);
     logic.dozer_new_task_repair(dozer, damaged);
     {
@@ -616,10 +615,7 @@ fn idle_resumes_parked_repair_when_most_recent() {
     let damaged = logic
         .create_object_for_player("DamagedIdleRepair", 0, Vec3::new(40.0, 0.0, 0.0))
         .expect("damaged");
-    {
-        let dmg = logic.host_object_mut(damaged).expect("dmg");
-        let _ = dmg.take_damage(200.0);
-    }
+    damage_for_fixture(&mut logic, damaged, 200.0);
     logic.dozer_new_task_repair(dozer, damaged);
     if let Some(dz) = logic.host_object_mut(dozer) {
         dz.set_target(None);
@@ -674,10 +670,7 @@ fn idle_resumes_repair_parked_by_newer_build() {
         sc.status.under_construction = true;
         sc.builder_id = Some(dozer);
     }
-    {
-        let dmg = logic.host_object_mut(damaged).expect("dmg");
-        let _ = dmg.take_damage(200.0);
-    }
+    damage_for_fixture(&mut logic, damaged, 200.0);
     logic.dozer_new_task_repair(dozer, damaged);
     logic.frame = 9;
     logic.dozer_new_task_build(dozer, scaffold);

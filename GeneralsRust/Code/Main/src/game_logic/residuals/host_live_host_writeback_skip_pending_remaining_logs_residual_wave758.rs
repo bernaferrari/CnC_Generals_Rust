@@ -11,7 +11,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
     table.iter().position(|n| *n == name)
 }
 pub const LIVE_HOST_WRITEBACK_SKIP_PENDING_REMAINING_LOGS_METHOD_NAMES_WAVE758: &[&str] = &[
-    "has_pending",
+    "HostHealthEvents::has_damage",
     "writeback_health_to_host",
     "writeback_contain_to_host",
     "writeback_owner_to_host",
@@ -75,7 +75,7 @@ fn sh_source() -> &'static str {
 }
 pub fn honesty_host_writeback_skip_pending_remaining_logs_method_names_residual_wave758() -> bool {
     let names = LIVE_HOST_WRITEBACK_SKIP_PENDING_REMAINING_LOGS_METHOD_NAMES_WAVE758;
-    let ok = residual_name_index(names, "has_pending").is_some()
+    let ok = residual_name_index(names, "HostHealthEvents::has_damage").is_some()
         && residual_name_index(names, "writeback_health_to_host").is_some()
         && residual_name_index(names, "writeback_contain_to_host").is_some()
         && residual_name_index(names, "writeback_owner_to_host").is_some()
@@ -88,14 +88,12 @@ pub fn honesty_host_writeback_skip_pending_remaining_logs_source_markers_residua
 {
     let sh = sh_source();
     let logs = [
-        "host_damage_log",
         "host_contain_log",
         "host_owner_log",
         "host_construction_log",
         "host_command_set_log",
         "host_radar_extend_log",
         "host_death_type_log",
-        "host_heal_log",
     ];
     let wbs = [
         "writeback_health_to_host",
@@ -110,11 +108,14 @@ pub fn honesty_host_writeback_skip_pending_remaining_logs_source_markers_residua
     let logs_ok = logs
         .iter()
         .all(|l| sh.contains(&format!("{l}::has_pending")));
+    let health_queue = include_str!("../host_health_log.rs");
+    let health_owner_ok = health_queue.contains("pub struct HostHealthEvents")
+        && sh.contains("health_events.has_damage");
     let wbs_ok = wbs.iter().all(|w| sh.contains(w));
     let wave_hits = sh.matches("Wave 758").count();
     let ok = sh.contains("Wave 758")
         && sh.contains("shadow_coupled_tick_active()")
-        && sh.contains("host_damage_log::has_pending")
+        && health_owner_ok
         && logs_ok
         && wbs_ok
         && wave_hits >= 30
@@ -140,8 +141,7 @@ pub fn honesty_host_writeback_skip_pending_remaining_logs_nav_commands_residual_
     ok
 }
 pub fn simulate_host_writeback_skip_pending_remaining_logs_collect_source() -> bool {
-    let ok =
-        sh_source().contains("Wave 758") && sh_source().contains("host_damage_log::has_pending");
+    let ok = sh_source().contains("Wave 758") && sh_source().contains("health_events.has_damage");
     residual_action_store(ResidualHostWritebackSkipPendingRemainingLogsAction::CollectSource);
     ok
 }

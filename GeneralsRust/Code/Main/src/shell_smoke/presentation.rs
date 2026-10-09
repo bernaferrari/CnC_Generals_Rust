@@ -59,7 +59,8 @@ pub(super) fn evaluate_presentation_residuals(
         None,
         50.0,
     );
-    let proj_pres = crate::presentation_frame::PresentationFrame::build_from_logic(&proj_logic, 0);
+    let proj_pres =
+        crate::presentation_frame::PresentationFrame::build_from_logic(&mut proj_logic, 0);
     let proj_pack =
         crate::graphics::projectile_segment_upload::ProjectileSegmentUpload::pack_from_presentation(
             &proj_pres,
@@ -86,7 +87,8 @@ pub(super) fn evaluate_presentation_residuals(
             }
         }
     }
-    let move_pres = crate::presentation_frame::PresentationFrame::build_from_logic(&move_logic, 0);
+    let move_pres =
+        crate::presentation_frame::PresentationFrame::build_from_logic(&mut move_logic, 0);
     let move_pack =
         crate::graphics::move_line_upload::MoveLineUpload::pack_from_presentation(&move_pres);
     let move_line_upload_ok = move_empty.honesty.cpu_pack_ok
@@ -114,7 +116,8 @@ pub(super) fn evaluate_presentation_residuals(
             }
         }
     }
-    let atk_pres = crate::presentation_frame::PresentationFrame::build_from_logic(&atk_logic, 0);
+    let atk_pres =
+        crate::presentation_frame::PresentationFrame::build_from_logic(&mut atk_logic, 0);
     let atk_pack =
         crate::graphics::attack_line_upload::AttackLineUpload::pack_from_presentation(&atk_pres);
     let attack_line_upload_ok = atk_empty.honesty.cpu_pack_ok

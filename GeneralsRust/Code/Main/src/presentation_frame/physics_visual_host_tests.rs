@@ -284,7 +284,7 @@ fn completed_inputs_are_inert_and_actual_admission_restore_reset_reject_stale_fr
     object.loco_appearance = LocomotorAppearance::Hover;
     world.add_object(object);
     let original_generation = world.host_object(id).unwrap().visual_object_generation;
-    let mut frame = PresentationFrame::build_from_logic(&world, 1);
+    let mut frame = PresentationFrame::build_from_logic(&mut world, 1);
     frame
         .host_physics_visuals
         .objects
@@ -320,7 +320,7 @@ fn completed_inputs_are_inert_and_actual_admission_restore_reset_reject_stale_fr
     world.add_object(cloned);
     let replacement_generation = world.host_object(id).unwrap().visual_object_generation;
     assert_ne!(replacement_generation, original_generation);
-    let mut replacement = PresentationFrame::build_from_logic(&world, 1);
+    let mut replacement = PresentationFrame::build_from_logic(&mut world, 1);
     replacement
         .host_physics_visuals
         .objects

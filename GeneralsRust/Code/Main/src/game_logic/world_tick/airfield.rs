@@ -598,7 +598,7 @@ impl GameLogic {
         }
         if let Some(jet) = self.objects.get_mut(&jet_id) {
             if jet.jet_circling_dead_airfield {
-                let _ = jet.apply_out_of_ammo_damage_frame();
+                let _ = jet.apply_out_of_ammo_damage_frame(&mut self.health_events);
             }
         }
     }
@@ -3104,6 +3104,7 @@ impl GameLogic {
                             amount,
                             Some(airfield_id),
                             crate::game_logic::combat::DamageType::Healing,
+                            &mut self.health_events,
                         );
                     }
                 }

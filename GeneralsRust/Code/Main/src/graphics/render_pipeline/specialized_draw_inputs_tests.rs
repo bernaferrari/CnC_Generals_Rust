@@ -10,7 +10,7 @@ fn frame_and_input() -> (Rc<PresentationFrame>, UnitRenderInput) {
     logic
         .create_object("SpecializedBundleTank", Team::USA, Vec3::ZERO)
         .unwrap();
-    let frame = Rc::new(PresentationFrame::build_from_logic(&logic, 0));
+    let frame = Rc::new(PresentationFrame::build_from_logic(&mut logic, 0));
     let input = UnitRenderInput::from_renderable(&frame.objects[0]);
     (frame, input)
 }

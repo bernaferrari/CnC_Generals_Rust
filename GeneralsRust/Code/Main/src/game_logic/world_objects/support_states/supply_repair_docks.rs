@@ -668,7 +668,7 @@ impl GameLogic {
         };
         if let Some(drone) = self.objects.get_mut(&drone_id) {
             let max = drone.health.maximum;
-            drone.heal(max);
+            drone.heal(max, &mut self.health_events);
         }
     }
 

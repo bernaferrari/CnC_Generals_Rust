@@ -1,7 +1,7 @@
 //! Wave 752: bulk production lethal-finish stamps respect damage authority.
 //! Under `gameworld_damage_authority_live`, destroyed/effectively_dead residual
 //! no longer zeros host HP mid-frame (dual with GW HP writeback); projects
-//! lethal via `host_damage_log`. Adds `host_lethal_finish_object` helper.
+//! lethal via the owning `HostHealthEvents` queue. Adds `host_lethal_finish_object` helper.
 //! Non-authority / host-only tests keep host HP clear. `playable_claim` stays false.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -13,7 +13,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 pub const LIVE_HOST_LETHAL_FINISH_BULK_NO_DAMAGE_AUTH_HP_STOMP_METHOD_NAMES_WAVE752: &[&str] = &[
     "host_lethal_finish_object",
     "gameworld_damage_authority_live",
-    "host_damage_log::record",
+    "health_events.record_damage",
     "Wave 752",
     "playable_claim = false",
 ];
@@ -76,7 +76,7 @@ pub fn honesty_host_lethal_finish_bulk_no_damage_auth_hp_stomp_method_names_resi
     let names = LIVE_HOST_LETHAL_FINISH_BULK_NO_DAMAGE_AUTH_HP_STOMP_METHOD_NAMES_WAVE752;
     let ok = residual_name_index(names, "host_lethal_finish_object").is_some()
         && residual_name_index(names, "gameworld_damage_authority_live").is_some()
-        && residual_name_index(names, "host_damage_log::record").is_some()
+        && residual_name_index(names, "health_events.record_damage").is_some()
         && residual_name_index(names, "Wave 752").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
     residual_action_store(ResidualHostLethalFinishBulkNoDamageAuthHpStompAction::MethodNames);
@@ -88,7 +88,7 @@ pub fn honesty_host_lethal_finish_bulk_no_damage_auth_hp_stomp_source_markers_re
     let wave_hits = gl.matches("Wave 752").count();
     let ok = gl.contains("fn host_lethal_finish_object")
         && gl.contains("gameworld_damage_authority_live()")
-        && gl.contains("host_damage_log::record")
+        && gl.contains("health_events.record_damage")
         // 2026-08-15: live Wave 752 comment count is 44 after peels.
         && wave_hits >= 40
         && !gl.contains("playable_claim = true");
@@ -123,7 +123,7 @@ pub fn simulate_host_lethal_finish_bulk_no_damage_auth_hp_stomp_collect_source()
 }
 pub fn simulate_host_lethal_finish_bulk_no_damage_auth_hp_stomp_dispatch_source() -> bool {
     let ok = gl_source().matches("Wave 752").count() >= 40
-        && gl_source().contains("host_damage_log::record");
+        && gl_source().contains("health_events.record_damage");
     residual_action_store(ResidualHostLethalFinishBulkNoDamageAuthHpStompAction::DispatchSource);
     ok
 }

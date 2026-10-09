@@ -827,7 +827,11 @@ impl GameLogic {
                     obj.landing_splat_done = false;
                     if obj.is_disabled() {
                         if obj.status.disabled_freefall {
-                            Self::stamp_object_airborne_target(obj, ground_y);
+                            Self::stamp_object_airborne_target(
+                                obj,
+                                ground_y,
+                                &mut self.health_events,
+                            );
                         } else {
                             obj.movement.velocity = Vec3::ZERO;
                             obj.record_host_movement();
@@ -837,7 +841,7 @@ impl GameLogic {
                     // C++ Locomotor.cpp:954-958 getIsStunned — no motive walk.
                     // Leave velocity for PhysicsBehavior tumble / shock tick.
                     if obj.is_shock_stunned() {
-                        Self::stamp_object_airborne_target(obj, ground_y);
+                        Self::stamp_object_airborne_target(obj, ground_y, &mut self.health_events);
                         break 'unit;
                     }
                     // C++ locoUpdate_moveTowardsPosition always applyMotiveForce(0)
@@ -856,7 +860,7 @@ impl GameLogic {
                         // `get_surface_ht_at_pt`. Single Z — never pose-Y then double.
                         let sy = obj.leftover_surface_ht(surface_y);
                         Self::apply_live_handle_behavior_z(obj, sy, None);
-                        Self::stamp_object_airborne_target(obj, ground_y);
+                        Self::stamp_object_airborne_target(obj, ground_y, &mut self.health_events);
                         obj.cur_max_blocked_speed = 999_999.0;
                         break 'unit;
                     }
@@ -881,7 +885,7 @@ impl GameLogic {
                         );
                     if obj.is_rappelling() {
                         // C++ AIRappelState owns Z; handleBehaviorZ must not snap to Y=0.
-                        Self::stamp_object_airborne_target(obj, ground_y);
+                        Self::stamp_object_airborne_target(obj, ground_y, &mut self.health_events);
                         break 'unit;
                     }
 
@@ -955,7 +959,11 @@ impl GameLogic {
                                 surfaces,
                             ) {
                                 Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                                Self::stamp_object_airborne_target(obj, ground_y);
+                                Self::stamp_object_airborne_target(
+                                    obj,
+                                    ground_y,
+                                    &mut self.health_events,
+                                );
                                 if !blocked_out && obj.num_frames_blocked > 1 {
                                     obj.num_frames_blocked = 1;
                                 }
@@ -970,7 +978,7 @@ impl GameLogic {
                         }
                         obj.cur_max_blocked_speed = 999_999.0;
                         Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                        Self::stamp_object_airborne_target(obj, ground_y);
+                        Self::stamp_object_airborne_target(obj, ground_y, &mut self.health_events);
                         break 'unit;
                     }
 
@@ -1103,7 +1111,11 @@ impl GameLogic {
                                     obj.pending_exit_after_evacuate = and_exit;
                                 }
                                 Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                                Self::stamp_object_airborne_target(obj, ground_y);
+                                Self::stamp_object_airborne_target(
+                                    obj,
+                                    ground_y,
+                                    &mut self.health_events,
+                                );
                                 break 'unit;
                             }
                         }
@@ -1228,7 +1240,11 @@ impl GameLogic {
                                 }
                                 obj.record_host_movement();
                                 Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                                Self::stamp_object_airborne_target(obj, ground_y);
+                                Self::stamp_object_airborne_target(
+                                    obj,
+                                    ground_y,
+                                    &mut self.health_events,
+                                );
                                 obj.cur_max_blocked_speed = 999_999.0;
                                 break 'unit;
                             }
@@ -1334,7 +1350,11 @@ impl GameLogic {
                             {
                                 obj.record_host_movement();
                                 Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                                Self::stamp_object_airborne_target(obj, ground_y);
+                                Self::stamp_object_airborne_target(
+                                    obj,
+                                    ground_y,
+                                    &mut self.health_events,
+                                );
                                 break 'unit;
                             }
                             // C++ locoUpdate_moveTowardsPosition LOCO_THRUST
@@ -1345,7 +1365,11 @@ impl GameLogic {
                                 obj.move_towards_thrust(target_pos, on_path_dist, speed, dt);
                                 obj.notify_terrain_trees_on_unit_move();
                                 Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                                Self::stamp_object_airborne_target(obj, ground_y);
+                                Self::stamp_object_airborne_target(
+                                    obj,
+                                    ground_y,
+                                    &mut self.health_events,
+                                );
                                 let mut reached_target = obj
                                     .host_locomotor_distance_to_goal(current_pos, target_pos)
                                     < close_enough;
@@ -1595,7 +1619,11 @@ impl GameLogic {
                                     );
                                     obj.record_host_movement();
                                     Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                                    Self::stamp_object_airborne_target(obj, ground_y);
+                                    Self::stamp_object_airborne_target(
+                                        obj,
+                                        ground_y,
+                                        &mut self.health_events,
+                                    );
                                     break 'unit;
                                 }
                             }
@@ -2014,7 +2042,7 @@ impl GameLogic {
                         }
                     }
                     if let Some(obj) = self.objects.get_mut(&id) {
-                        Self::stamp_object_airborne_target(obj, gy);
+                        Self::stamp_object_airborne_target(obj, gy, &mut self.health_events);
                     }
                 }
             }
@@ -2229,12 +2257,16 @@ impl GameLogic {
             };
             let gy = self.terrain_height_at(pos).unwrap_or(fallback);
             if let Some(obj) = self.objects.get_mut(&id) {
-                Self::stamp_object_airborne_target(obj, gy);
+                Self::stamp_object_airborne_target(obj, gy, &mut self.health_events);
             }
         }
     }
 
-    fn stamp_object_airborne_target(obj: &mut Object, ground_y: f32) {
+    fn stamp_object_airborne_target(
+        obj: &mut Object,
+        ground_y: f32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) {
         obj.ground_height = ground_y;
         let mut pos = obj.get_position();
         // C++ PhysicsUpdate.cpp:748-760. Every unit at or below the layer
@@ -2256,11 +2288,11 @@ impl GameLogic {
             if was_airborne && !obj.immune_to_falling_damage {
                 obj.record_bounce_land(old_y);
                 obj.pending_ground_collide = true;
-                let _ = obj.apply_shock_fall_damage(impact_vy);
+                let _ = obj.apply_shock_fall_damage(impact_vy, health_events);
                 obj.landing_splat_done = true;
             }
             if obj.velocity_is_very_small() {
-                let _ = obj.maybe_kill_when_resting_on_ground();
+                let _ = obj.maybe_kill_when_resting_on_ground(health_events);
             }
             obj.was_airborne_last_frame = false;
             obj.is_in_freefall = false;
@@ -2345,6 +2377,7 @@ impl GameLogic {
             self.frame,
             Some(&self.players),
             Some(&self.team_factory),
+            &mut self.health_events,
         );
         self.flush_projectile_impact_fx();
         hits

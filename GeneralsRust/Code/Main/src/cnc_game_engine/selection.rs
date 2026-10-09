@@ -1977,7 +1977,7 @@ mod idle_worker_selection_tests {
             .create_object("CivWoodenFence", Team::USA, glam::Vec3::ZERO)
             .expect("fence");
 
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let stamped = frame.objects.iter().find(|o| o.id == id).expect("stamped");
         assert!(
             stamped.is_force_attackable,

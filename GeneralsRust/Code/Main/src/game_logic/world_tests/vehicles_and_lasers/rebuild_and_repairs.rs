@@ -250,26 +250,26 @@ fn dozer_repair_sole_benefactor_rejects_second_dozer() {
     logic.frame = 10;
     // First dozer claims sole heal.
     let ok1 = {
-        let o = logic.host_object_mut(sid).unwrap();
-        o.attempt_healing_from_sole_benefactor(5.0, d1, 2, 10)
+        let (o, health_events) = logic.host_object_and_health_events_mut(sid).unwrap();
+        o.attempt_healing_from_sole_benefactor(5.0, d1, 2, 10, health_events)
     };
     assert!(ok1);
     // Second dozer rejected while claim active.
     let ok2 = {
-        let o = logic.host_object_mut(sid).unwrap();
-        o.attempt_healing_from_sole_benefactor(5.0, d2, 2, 10)
+        let (o, health_events) = logic.host_object_and_health_events_mut(sid).unwrap();
+        o.attempt_healing_from_sole_benefactor(5.0, d2, 2, 10, health_events)
     };
     assert!(!ok2);
     // Same dozer can heal again within claim.
     let ok1b = {
-        let o = logic.host_object_mut(sid).unwrap();
-        o.attempt_healing_from_sole_benefactor(5.0, d1, 2, 11)
+        let (o, health_events) = logic.host_object_and_health_events_mut(sid).unwrap();
+        o.attempt_healing_from_sole_benefactor(5.0, d1, 2, 11, health_events)
     };
     assert!(ok1b);
     // After expiration (strict now > expiry; claim at 11 → expiry 13 → open at 14).
     let ok2b = {
-        let o = logic.host_object_mut(sid).unwrap();
-        o.attempt_healing_from_sole_benefactor(5.0, d2, 2, 14)
+        let (o, health_events) = logic.host_object_and_health_events_mut(sid).unwrap();
+        o.attempt_healing_from_sole_benefactor(5.0, d2, 2, 14, health_events)
     };
     assert!(ok2b);
     assert_eq!(

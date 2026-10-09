@@ -1431,7 +1431,7 @@ mod presentation_selection_tests {
             p.selected_objects = vec![id];
         }
 
-        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        let snap = PresentationFrame::build_from_logic(&mut logic, 0);
         // Mutate live world after snapshot — consumer must keep snapshot identity.
         if let Some(o) = logic.host_object_mut(id) {
             o.set_position(Vec3::new(999.0, 0.0, 999.0));
@@ -1538,7 +1538,7 @@ mod presentation_selection_tests {
             o.status.airborne_target = true;
         }
 
-        let mut snap = PresentationFrame::build_from_logic(&logic, 0);
+        let mut snap = PresentationFrame::build_from_logic(&mut logic, 0);
         for o in &mut snap.objects {
             if o.id == id {
                 o.position.y = 80.0;
@@ -1580,7 +1580,7 @@ mod presentation_selection_tests {
             .create_object("FogBlobUnit", Team::USA, Vec3::new(8.0, 0.0, 8.0))
             .expect("unit");
 
-        let mut snap = PresentationFrame::build_from_logic(&logic, 0);
+        let mut snap = PresentationFrame::build_from_logic(&mut logic, 0);
         assert!(
             !collect_blob_shadows_from_presentation(&snap).is_empty(),
             "clear unit casts a blob"
@@ -1655,7 +1655,7 @@ mod presentation_selection_tests {
         let _id = logic
             .create_object("DecalOffUnit", Team::USA, glam::Vec3::new(4.0, 0.0, 4.0))
             .expect("unit");
-        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        let snap = PresentationFrame::build_from_logic(&mut logic, 0);
 
         let prev = game_engine::common::global_data::read_safe()
             .map(|g| g.writable.use_shadow_decals)
@@ -1705,7 +1705,7 @@ mod presentation_selection_tests {
             o.selection_radius = 9.0;
         }
 
-        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        let snap = PresentationFrame::build_from_logic(&mut logic, 0);
         let blobs = collect_blob_shadows_from_presentation(&snap);
         assert_eq!(
             blobs.len(),
@@ -1804,7 +1804,7 @@ mod presentation_selection_tests {
             object.status.disabled_freefall = freefall;
             object.status.disabled_emp = emp;
             object.status.under_construction = construction;
-            let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+            let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
             assert_eq!(frame.objects[0].disabled_held, held);
             // The late host overlay must retain the same raw held fact.
             frame.objects[0].disabled_held = !held;
@@ -1869,7 +1869,7 @@ mod presentation_selection_tests {
             o.health.current = 45.0;
             o.health.maximum = 90.0;
         }
-        let snap = PresentationFrame::build_from_logic(&logic, 0);
+        let snap = PresentationFrame::build_from_logic(&mut logic, 0);
 
         let view = Mat4::look_at_rh(
             Vec3::new(12.0, 30.0, 40.0),

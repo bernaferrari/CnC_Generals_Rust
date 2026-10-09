@@ -310,6 +310,7 @@ impl GameLogic {
                             Some(event.id),
                             crate::game_logic::combat::DamageType::Falling,
                             crate::game_logic::host_usa_pilot::HostDeathType::Splatted,
+                            &mut self.health_events,
                         ) {
                             self.objects_to_destroy
                                 .push_back(DestructionEvent::after_death(sid, event.killer));
@@ -603,6 +604,7 @@ impl GameLogic {
                                     Some(event.id),
                                     crate::game_logic::combat::DamageType::Unresistable,
                                     crate::game_logic::host_usa_pilot::HostDeathType::Burned,
+                                    &mut self.health_events,
                                 );
                                 let flame_proof_kill = !destroyed
                                     && !unit.status.destroyed
@@ -611,7 +613,7 @@ impl GameLogic {
                                     let _ = unit.take_damage_from_immediate(
                                         crate::game_logic::host_partition_collision_physics_residual::PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL,
                                         Some(event.id),
-                                    );
+                                     &mut self.health_events);
                                     unit.status.destroyed = true;
                                 }
                                 if destroyed || flame_proof_kill || unit.status.destroyed {
@@ -636,7 +638,7 @@ impl GameLogic {
                                 let _ = unit.take_damage_from_immediate(
                                     crate::game_logic::host_partition_collision_physics_residual::PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL,
                                     Some(event.id),
-                                );
+                                 &mut self.health_events);
                                 unit.status.destroyed = true;
                                 unit.set_contained_by(None);
                                 if let Some(player_id) =
@@ -1909,8 +1911,10 @@ mod tests {
         // HP lethal; it never enqueues destruction — the ready-log channel owns
         // that under damage authority.
         let destroyed = {
-            let v = logic.host_object_mut(victim).expect("victim");
-            v.take_damage_from(1.0e9, Some(killer))
+            let (v, health_events) = logic
+                .host_object_and_health_events_mut(victim)
+                .expect("victim");
+            v.take_damage_from(1.0e9, Some(killer), health_events)
         };
         assert!(destroyed, "lethal blow must destroy the victim");
         assert_eq!(

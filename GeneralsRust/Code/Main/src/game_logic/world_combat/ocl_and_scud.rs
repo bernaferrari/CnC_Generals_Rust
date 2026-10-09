@@ -442,6 +442,7 @@ impl GameLogic {
                     source,
                     NUKE_CANNON_DAMAGE_TYPE,
                     NUKE_CANNON_DEATH_TYPE,
+                    &mut self.health_events,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -608,8 +609,13 @@ impl GameLogic {
                         OVERLORD_GATTLING_DEATH_TYPE,
                     )
                 };
-                let destroyed =
-                    obj.take_damage_from_immediate_residual(dmg, source, dt_name, death_name);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    dt_name,
+                    death_name,
+                    &mut self.health_events,
+                );
                 hits = 1;
                 if destroyed {
                     any_destroyed = true;
@@ -1015,8 +1021,13 @@ impl GameLogic {
                     TechnicalWeaponTier::One => (TECH_CANNON_DAMAGE_TYPE, TECH_CANNON_DEATH_TYPE),
                     TechnicalWeaponTier::Two => (TECH_RPG_DAMAGE_TYPE, TECH_RPG_DEATH_TYPE),
                 };
-                let destroyed =
-                    obj.take_damage_from_immediate_residual(dmg, source, dt_name, death_name);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    dt_name,
+                    death_name,
+                    &mut self.health_events,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -1454,6 +1465,7 @@ impl GameLogic {
                     source,
                     DRAGON_DAMAGE_TYPE,
                     DRAGON_DEATH_TYPE,
+                    &mut self.health_events,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -1590,8 +1602,13 @@ impl GameLogic {
                 } else {
                     (GATTLING_GROUND_DAMAGE_TYPE, GATTLING_DEATH_TYPE)
                 };
-                let destroyed =
-                    obj.take_damage_from_immediate_residual(dmg, source, dt_name, death_name);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    dt_name,
+                    death_name,
+                    &mut self.health_events,
+                );
                 hits = 1;
                 if destroyed {
                     any_destroyed = true;
@@ -1764,7 +1781,11 @@ impl GameLogic {
             o.marauder_shell_weapon_speed = weapon_speed;
             o.note_producer(source_id);
             o.health.maximum = MARAUDER_SHELL_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, MARAUDER_SHELL_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                MARAUDER_SHELL_MAX_HEALTH,
+                &mut self.health_events,
+            );
         }
         self.marauder_shells_spawned = self.marauder_shells_spawned.saturating_add(1);
         Some(pid)
@@ -1831,7 +1852,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -1967,6 +1988,7 @@ impl GameLogic {
                     source,
                     MARAUDER_DAMAGE_TYPE,
                     MARAUDER_DEATH_TYPE,
+                    &mut self.health_events,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -2210,7 +2232,11 @@ impl GameLogic {
             o.scorpion_shell_slot = slot;
             o.note_producer(source_id);
             o.health.maximum = SCORPION_SHELL_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, SCORPION_SHELL_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                SCORPION_SHELL_MAX_HEALTH,
+                &mut self.health_events,
+            );
         }
         self.scorpion_shells_spawned = self.scorpion_shells_spawned.saturating_add(1);
         Some(pid)
@@ -2276,7 +2302,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -2378,7 +2404,11 @@ impl GameLogic {
             o.scorpion_missile_slot = slot;
             o.note_producer(source_id);
             o.health.maximum = SCORPION_MISSILE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, SCORPION_MISSILE_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                SCORPION_MISSILE_MAX_HEALTH,
+                &mut self.health_events,
+            );
             o.movement.velocity = dir * launch;
             o.set_orientation(dir.z.atan2(dir.x));
         }

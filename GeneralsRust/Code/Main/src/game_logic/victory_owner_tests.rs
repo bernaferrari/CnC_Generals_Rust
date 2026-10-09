@@ -130,12 +130,8 @@ fn admitted_match() -> (GameLogic, [ObjectId; 2]) {
 
 fn destroy_armies(world: &mut GameLogic, ids: [ObjectId; 2]) {
     for id in ids {
-        assert!(
-            world
-                .host_object_mut(id)
-                .unwrap()
-                .take_damage_from_immediate(1_000_000.0, None)
-        );
+        let (object, health_events) = world.host_object_and_health_events_mut(id).unwrap();
+        assert!(object.take_damage_from_immediate(1_000_000.0, None, health_events));
         assert!(world.host_object(id).unwrap().status.destroyed);
     }
 }
@@ -329,10 +325,8 @@ fn completed_observation_tracks_each_evaluation_and_game_mode() {
     assert_eq!(gameplay_observation(&world), before);
     let ids: Vec<_> = world.host_objects().keys().copied().collect();
     for id in ids {
-        world
-            .host_object_mut(id)
-            .unwrap()
-            .take_damage_from_immediate(1_000_000.0, None);
+        let (object, health_events) = world.host_object_and_health_events_mut(id).unwrap();
+        object.take_damage_from_immediate(1_000_000.0, None, health_events);
     }
     assert_eq!(
         world.evaluate_victory_condition(),

@@ -52,7 +52,7 @@ pub mod host_daisy_cutter_drop_log;
 
 #[path = "host_damage_log.rs"]
 pub mod host_damage_log;
-pub use host_damage_log::{HostDamageEvent, drain as drain_host_damage_events};
+pub use host_damage_log::HostDamageEvent;
 
 #[path = "host_attacked_by_log.rs"]
 pub mod host_attacked_by_log;

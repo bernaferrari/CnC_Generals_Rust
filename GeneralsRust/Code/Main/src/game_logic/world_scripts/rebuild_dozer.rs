@@ -1084,9 +1084,9 @@ impl GameLogic {
             };
             let radius = builder.selection_radius;
             match builder.movement.path.last() {
-                Some(end) => crate::game_logic::host_repair::dozer_within_action_dock(
-                    *end, radius, dock,
-                ),
+                Some(end) => {
+                    crate::game_logic::host_repair::dozer_within_action_dock(*end, radius, dock)
+                }
                 None => crate::game_logic::host_repair::dozer_within_action_dock(
                     builder.get_position(),
                     radius,
@@ -1234,8 +1234,8 @@ impl GameLogic {
                 dozer.set_status_attacking(false);
             }
             self.set_ai_state_decision_aware(dozer_id, AIState::Constructing);
-                // C++ sets MODELCONDITION_ACTIVELY_CONSTRUCTING only at the dock
-                // (DozerAIUpdate.cpp:511). Driving there stays un-animated.
+            // C++ sets MODELCONDITION_ACTIVELY_CONSTRUCTING only at the dock
+            // (DozerAIUpdate.cpp:511). Driving there stays un-animated.
             let approach = self
                 .objects
                 .get(&dozer_id)
@@ -1411,9 +1411,8 @@ impl GameLogic {
             })
             .collect();
         let mut candidates = candidates;
-        candidates.retain(|candidate| {
-            !self.is_enter_target_shrouded_for_action(dozer_id, candidate.id)
-        });
+        candidates
+            .retain(|candidate| !self.is_enter_target_shrouded_for_action(dozer_id, candidate.id));
         crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
             Some(dozer_id),
             (pos.x, pos.z),
@@ -2036,7 +2035,7 @@ impl GameLogic {
             if let Some(h) = self.objects.get_mut(&hole_id) {
                 if h.health.current + 1e-3 < h.health.maximum {
                     let add = h.health.maximum * heal_frac;
-                    h.heal(add);
+                    h.heal(add, &mut self.health_events);
                     self.rebuild_hole_heals = self.rebuild_hole_heals.saturating_add(1);
                 }
             }
@@ -2299,7 +2298,7 @@ impl GameLogic {
                 }
                 o.set_under_construction_model_conditions(true);
                 // C++ DozerAIUpdate::construct starts at 1 HP (DozerAIUpdate.cpp:1708).
-                Self::write_object_health_authority_aware(o, 1.0);
+                Self::write_object_health_authority_aware(o, 1.0, &mut self.health_events);
                 // C++ setProducer(hole) residual.
                 o.producer_id = Some(hole_id);
                 o.builder_id = Some(worker_id);

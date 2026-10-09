@@ -94,7 +94,11 @@ impl GameLogic {
             o.neutron_shell_flight_frames = frames;
             o.note_producer(source_id);
             o.health.maximum = NEUTRON_SHELL_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, NEUTRON_SHELL_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                NEUTRON_SHELL_MAX_HEALTH,
+                &mut self.health_events,
+            );
             let dir = aim - start;
             o.set_orientation(dir.z.atan2(dir.x));
         }
@@ -157,7 +161,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -280,13 +284,17 @@ impl GameLogic {
             match effect {
                 NeutronEffect::KillInfantry => {
                     // Residual: kill infantry (take full health damage).
-                    let _ = obj.take_damage_from(obj.health.current.max(1.0) * 10.0, caster_id);
+                    let _ = obj.take_damage_from(
+                        obj.health.current.max(1.0) * 10.0,
+                        caster_id,
+                        &mut self.health_events,
+                    );
                     if !obj.is_alive() || obj.health.current <= 0.0 {
                         infantry_kills = infantry_kills.saturating_add(1);
                         destroy_ids.push(id);
                     } else {
                         // Force kill residual.
-                        let _ = obj.take_damage_from(999_999.0, caster_id);
+                        let _ = obj.take_damage_from(999_999.0, caster_id, &mut self.health_events);
                         infantry_kills = infantry_kills.saturating_add(1);
                         destroy_ids.push(id);
                     }
@@ -309,7 +317,11 @@ impl GameLogic {
                     }
                 }
                 NeutronEffect::KillVehicle => {
-                    let _ = obj.take_damage_from(obj.health.current.max(1.0) * 10.0, caster_id);
+                    let _ = obj.take_damage_from(
+                        obj.health.current.max(1.0) * 10.0,
+                        caster_id,
+                        &mut self.health_events,
+                    );
                     vehicle_kills = vehicle_kills.saturating_add(1);
                     destroy_ids.push(id);
                 }
@@ -335,9 +347,13 @@ impl GameLogic {
                 }
                 occ.set_contained_by(None);
                 occ.set_ai_state(AIState::Idle);
-                let _ = occ.take_damage_from(occ.health.current.max(1.0) * 10.0, caster_id);
+                let _ = occ.take_damage_from(
+                    occ.health.current.max(1.0) * 10.0,
+                    caster_id,
+                    &mut self.health_events,
+                );
                 if occ.is_alive() && occ.health.current > 0.0 && !occ.status.destroyed {
-                    let _ = occ.take_damage_from(999_999.0, caster_id);
+                    let _ = occ.take_damage_from(999_999.0, caster_id, &mut self.health_events);
                 }
                 passengers_killed = passengers_killed.saturating_add(1);
                 infantry_kills = infantry_kills.saturating_add(1);

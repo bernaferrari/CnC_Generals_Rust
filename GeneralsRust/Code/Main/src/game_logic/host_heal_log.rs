@@ -1,7 +1,7 @@
-//! Frame-local host heal / absolute-HP log for GameWorld shadow parity.
+//! Absolute-health event payload for the Main host/shadow bridge.
 //!
-//! Complements `host_damage_log` for HP increases and absolute health writes
-//! (battle-drone repair, construction finish, composite armor, etc.).
+//! Pending storage lives on `HostHealthEvents` in `host_health_log`; this
+//! module intentionally contains no ambient state.
 
 use super::ObjectId;
 use crate::game_logic::host_damage_log::OwnerHealthChange;
@@ -15,94 +15,94 @@ pub struct HostHealEvent {
 }
 
 impl HostHealEvent {
+    pub(crate) fn pending(target: ObjectId, health: f32) -> Self {
+        Self {
+            target,
+            health,
+            owner_health_change: OwnerHealthChange::Pending,
+        }
+    }
+
+    pub(crate) fn applied(target: ObjectId, health: f32) -> Self {
+        Self {
+            target,
+            health,
+            owner_health_change: OwnerHealthChange::Applied,
+        }
+    }
+
     pub(crate) fn owner_health_already_applied(&self) -> bool {
         self.owner_health_change == OwnerHealthChange::Applied
     }
 }
 
-/// Queue an absolute health effect not yet applied to the owner.
-pub fn record(target: ObjectId, health: f32) {
-    record_health_event(target, health, OwnerHealthChange::Pending);
-}
+#[cfg(test)]
+mod owned_queue_tests {
+    use super::*;
+    use crate::game_logic::host_health_log::HostHealthEvents;
 
-/// Observe a completed owner write without replaying it at host admission.
-pub(crate) fn record_applied(target: ObjectId, health: f32) {
-    record_health_event(target, health, OwnerHealthChange::Applied);
-}
-
-fn record_health_event(target: ObjectId, health: f32, owner_health_change: OwnerHealthChange) {
-    if !health.is_finite() || health < 0.0 {
-        return;
+    #[test]
+    fn completed_and_pending_heals_preserve_validation_and_admission() {
+        let mut events = HostHealthEvents::default();
+        events.record_applied_heal(ObjectId(1), 90.0);
+        events.record_heal(ObjectId(2), 70.0);
+        events.record_applied_heal(ObjectId(3), f32::NAN);
+        events.record_heal(ObjectId(4), -1.0);
+        let drained = events.drain_heal();
+        assert_eq!(drained.len(), 2);
+        assert_eq!(drained[0].target, ObjectId(1));
+        assert_eq!(drained[0].health, 90.0);
+        assert!(drained[0].owner_health_already_applied());
+        assert_eq!(drained[1].target, ObjectId(2));
+        assert_eq!(drained[1].health, 70.0);
+        assert!(!drained[1].owner_health_already_applied());
+        assert_eq!(events.snapshot_last_heal(), drained);
     }
-    crate::game_logic::host_health_log::record_heal(HostHealEvent {
-        target,
-        health,
-        owner_health_change,
-    });
-}
 
-/// Snapshot pending absolute-health events in their host-recorded order.
-pub fn snapshot() -> Vec<HostHealEvent> {
-    crate::game_logic::host_health_log::snapshot_heal()
-}
-
-pub fn has_pending(object: ObjectId) -> bool {
-    crate::game_logic::host_health_log::has_heal(object)
-}
-
-/// Drain only absolute-health records, leaving pending damage records untouched.
-pub fn drain() -> Vec<HostHealEvent> {
-    crate::game_logic::host_health_log::drain_heal()
-}
-
-pub fn len() -> usize {
-    crate::game_logic::host_health_log::len_heal()
-}
-
-pub fn clear() {
-    crate::game_logic::host_health_log::clear_heal();
-}
-
-/// Take events from the most recent non-empty `drain()` (PresentationFrame sole consumer).
-pub fn take_last_drain() -> Vec<HostHealEvent> {
-    crate::game_logic::host_health_log::take_last_heal()
-}
-
-/// Non-destructive peek (tests).
-pub fn last_drain_snapshot() -> Vec<HostHealEvent> {
-    crate::game_logic::host_health_log::snapshot_last_heal()
+    #[test]
+    fn empty_drain_retains_previous_nonempty_presentation_batch() {
+        let mut events = HostHealthEvents::default();
+        events.record_heal(ObjectId(1), 50.0);
+        let first = events.drain_heal();
+        assert_eq!(first.len(), 1);
+        assert!(events.drain_heal().is_empty());
+        assert_eq!(events.snapshot_last_heal(), first);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game_logic::HostHealthEvents;
 
     #[test]
     fn completed_observations_and_pending_heals_preserve_admission_and_order() {
-        clear();
-        record_applied(ObjectId(1), 90.0);
-        record(ObjectId(2), 70.0);
-        record_applied(ObjectId(3), f32::NAN);
-        record(ObjectId(4), -1.0);
-        let events = drain();
-        assert_eq!(events.len(), 2);
-        assert_eq!(events[0].target, ObjectId(1));
-        assert_eq!(events[0].health, 90.0);
-        assert!(events[0].owner_health_already_applied());
-        assert_eq!(events[1].target, ObjectId(2));
-        assert_eq!(events[1].health, 70.0);
-        assert!(!events[1].owner_health_already_applied());
-        assert_eq!(last_drain_snapshot(), events);
-        assert!(drain().is_empty());
-        clear();
+        let mut events = HostHealthEvents::default();
+        events.clear_heal();
+        events.record_applied_heal(ObjectId(1), 90.0);
+        events.record_heal(ObjectId(2), 70.0);
+        events.record_applied_heal(ObjectId(3), f32::NAN);
+        events.record_heal(ObjectId(4), -1.0);
+        let drained = events.drain_heal();
+        assert_eq!(drained.len(), 2);
+        assert_eq!(drained[0].target, ObjectId(1));
+        assert_eq!(drained[0].health, 90.0);
+        assert!(drained[0].owner_health_already_applied());
+        assert_eq!(drained[1].target, ObjectId(2));
+        assert_eq!(drained[1].health, 70.0);
+        assert!(!drained[1].owner_health_already_applied());
+        assert_eq!(events.snapshot_last_heal(), drained);
+        assert!(events.drain_heal().is_empty());
+        events.clear_heal();
     }
 
     #[test]
     fn record_and_drain() {
-        clear();
-        record(ObjectId(1), 50.0);
-        assert_eq!(drain().len(), 1);
-        assert!(drain().is_empty());
-        assert_eq!(last_drain_snapshot().len(), 1);
+        let mut events = HostHealthEvents::default();
+        events.clear_heal();
+        events.record_heal(ObjectId(1), 50.0);
+        assert_eq!(events.drain_heal().len(), 1);
+        assert!(events.drain_heal().is_empty());
+        assert_eq!(events.snapshot_last_heal().len(), 1);
     }
 }

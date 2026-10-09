@@ -2397,7 +2397,7 @@ fn target_pitch_gate_blocks_strategy_center_out_of_loft() {
         .get(&tgt)
         .map(|o| o.health.current)
         .unwrap_or(0.0);
-    crate::game_logic::host_damage_log::clear();
+    logic.health_events.clear_damage();
     for _ in 0..30 {
         logic.update_combat(&[sc, tgt], 1.0 / 30.0);
     }
@@ -2406,7 +2406,7 @@ fn target_pitch_gate_blocks_strategy_center_out_of_loft() {
         .get(&tgt)
         .map(|o| o.health.current)
         .unwrap_or(0.0);
-    let dealt_bad = test_observed_damage_to(tgt, h0, h1);
+    let dealt_bad = test_observed_damage_to(&logic.health_events, tgt, h0, h1);
     assert!(
         dealt_bad.abs() < 0.01,
         "out-of-pitch depression must not deal damage (h0={h0} h1={h1} dealt={dealt_bad})"
@@ -2426,7 +2426,7 @@ fn target_pitch_gate_blocks_strategy_center_out_of_loft() {
         o.set_ai_state(AIState::Attacking);
         o.set_status_attacking(true);
     }
-    crate::game_logic::host_damage_log::clear();
+    logic.health_events.clear_damage();
     for _ in 0..30 {
         logic.update_combat(&[sc, tgt], 1.0 / 30.0);
     }
@@ -2435,7 +2435,7 @@ fn target_pitch_gate_blocks_strategy_center_out_of_loft() {
         .get(&tgt)
         .map(|o| o.health.current)
         .unwrap_or(0.0);
-    let dealt_loft = test_observed_damage_to(tgt, h0, h2);
+    let dealt_loft = test_observed_damage_to(&logic.health_events, tgt, h0, h2);
     assert!(
         dealt_loft > 1.0,
         "lofted pitch must allow fire (h0={h0} h2={h2} dealt={dealt_loft})"

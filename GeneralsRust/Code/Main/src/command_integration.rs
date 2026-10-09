@@ -1077,7 +1077,7 @@ mod tests {
     #[test]
     fn test_mouse_position_update() {
         let mut processor = InputCommandProcessor::new();
-        let game_logic = GameLogic::new();
+        let mut game_logic = GameLogic::new();
         processor.update_mouse_position(100.0, 200.0, &game_logic);
 
         assert_eq!(processor.mouse_screen_pos, Vec2::new(100.0, 200.0));
@@ -1088,7 +1088,7 @@ mod tests {
     #[test]
     fn test_mouse_position_respects_runtime_viewport_size() {
         let mut processor = InputCommandProcessor::new();
-        let game_logic = GameLogic::new();
+        let mut game_logic = GameLogic::new();
 
         processor.update_viewport_size(1600.0, 900.0);
         processor.update_mouse_position(800.0, 450.0, &game_logic);
@@ -1220,7 +1220,7 @@ mod tests {
         humvee.set_position(Vec3::new(40.0, 0.0, 0.0));
         game_logic.add_object(humvee);
 
-        let frame = PresentationFrame::build_from_logic(&game_logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut game_logic, 0);
         let processor = InputCommandProcessor::new();
         let target = processor
             .presentation_target_hint(&frame, humvee_id)
@@ -1420,7 +1420,7 @@ End
             game_logic.can_unit_enter_normal_target(slow_rider_id, bike_id),
             "SET_SLUGGISH Terrorist row must be physically enterable"
         );
-        let frame = PresentationFrame::build_from_logic(&game_logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut game_logic, 0);
         let processor = InputCommandProcessor::new();
         let target = processor
             .presentation_target_hint(&frame, bike_id)
@@ -1570,7 +1570,7 @@ End
         if let Some(terrorist) = game_logic.host_object_mut(slow_rider_id) {
             terrorist.set_position(bike_position);
         }
-        let frame = PresentationFrame::build_from_logic(&game_logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut game_logic, 0);
         let target = processor
             .presentation_target_hint(&frame, bike_id)
             .expect("bike still a RiderChange target");
@@ -1659,7 +1659,7 @@ End
         garrison.set_position(Vec3::new(40.0, 0.0, 0.0));
         game_logic.add_object(garrison);
 
-        let frame = PresentationFrame::build_from_logic(&game_logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut game_logic, 0);
         let processor = InputCommandProcessor::new();
         let target = processor
             .presentation_target_hint(&frame, garrison_id)
@@ -1764,7 +1764,7 @@ End
             "two same-faction player slots must not share an ordinary transport"
         );
 
-        let frame = PresentationFrame::build_from_logic(&game_logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut game_logic, 0);
         let processor = InputCommandProcessor::new();
         let target = processor
             .presentation_target_hint(&frame, transport_id)
@@ -1853,7 +1853,7 @@ End
             "two used slots plus a two-slot rider must not fit in Slots=3"
         );
 
-        let frame = PresentationFrame::build_from_logic(&game_logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut game_logic, 0);
         let processor = InputCommandProcessor::new();
         let target = processor
             .presentation_target_hint(&frame, transport_id)

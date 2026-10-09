@@ -733,6 +733,7 @@ impl GameLogic {
                     HOST_MICROWAVE_SUBDUAL_PULSE,
                     None,
                     crate::game_logic::combat::DamageType::SubdualBuilding,
+                    &mut self.health_events,
                 );
                 if !was && target.is_subdued() {
                     new_grants = new_grants.saturating_add(1);
@@ -933,6 +934,7 @@ impl GameLogic {
                     dmg,
                     Some(src),
                     crate::game_logic::combat::DamageType::Microwave,
+                    &mut self.health_events,
                 );
                 applications = applications.saturating_add(1);
                 if killed {
@@ -1240,7 +1242,7 @@ impl GameLogic {
             if heal_amt > 0.0 {
                 let before = target.health.current;
                 if before + 0.01 < target.health.maximum {
-                    target.heal(heal_amt);
+                    target.heal(heal_amt, &mut self.health_events);
                     if target.health.current > before + 0.0001 {
                         heal_ticks = heal_ticks.saturating_add(1);
                     }
@@ -1403,6 +1405,7 @@ impl GameLogic {
                         *healer_id,
                         AMBULANCE_HEAL_DELAY_FRAMES,
                         now,
+                        &mut self.health_events,
                     ) {
                         heal_ticks = heal_ticks.saturating_add(1);
                     }
@@ -1438,7 +1441,7 @@ impl GameLogic {
                 ah.tick_heal_amount(frame, cur, max_h)
             };
             if amount > 0.0 {
-                obj.heal(amount);
+                obj.heal(amount, &mut self.health_events);
             }
         }
     }
@@ -1572,6 +1575,7 @@ mod tests {
     /// stops the pulse and removeAllInfluence clears ENTHUSIASTIC.
     #[test]
     fn propaganda_pulse_skips_disabled_except_held_and_removes_influence() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
         let mut logic = GameLogic::new();
         insert_speaker_and_infantry(&mut logic);
 
@@ -1583,7 +1587,7 @@ mod tests {
             .expect("unit");
         {
             let unit = logic.host_object_mut(unit_id).expect("unit");
-            let _ = unit.take_damage(40.0);
+            let _ = unit.take_damage(40.0, &mut health_events);
         }
 
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
@@ -1636,6 +1640,7 @@ mod tests {
     /// influence immediately, even while the sell animation is still playing.
     #[test]
     fn propaganda_pulse_skips_sold_tower_and_removes_influence() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
         let mut logic = GameLogic::new();
         insert_speaker_and_infantry(&mut logic);
 
@@ -1647,7 +1652,7 @@ mod tests {
             .expect("unit");
         {
             let unit = logic.host_object_mut(unit_id).expect("unit");
-            let _ = unit.take_damage(40.0);
+            let _ = unit.take_damage(40.0, &mut health_events);
         }
 
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
@@ -1682,6 +1687,7 @@ mod tests {
 
     #[test]
     fn listening_outpost_is_not_a_propaganda_heal_aura() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
         let mut logic = GameLogic::new();
         insert_speaker_and_infantry(&mut logic);
         let mut outpost = ThingTemplate::new("ChinaVehicleListeningOutpost");
@@ -1704,7 +1710,7 @@ mod tests {
             .expect("unit");
         {
             let unit = logic.host_object_mut(unit_id).expect("unit");
-            let _ = unit.take_damage(40.0);
+            let _ = unit.take_damage(40.0, &mut health_events);
         }
         let before = logic.host_object(unit_id).expect("unit").health.current;
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
@@ -1779,6 +1785,7 @@ mod tests {
 
     #[test]
     fn emperor_in_helix_does_not_pulse() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
         let mut logic = GameLogic::new();
         insert_speaker_and_infantry(&mut logic);
         let mut emp = ThingTemplate::new("Tank_ChinaTankEmperor");
@@ -1806,7 +1813,7 @@ mod tests {
             .expect("unit");
         {
             let unit = logic.host_object_mut(unit_id).unwrap();
-            let _ = unit.take_damage(30.0);
+            let _ = unit.take_damage(30.0, &mut health_events);
         }
         let before = logic.host_object(unit_id).unwrap().health.current;
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
@@ -1844,6 +1851,7 @@ mod tests {
 
     #[test]
     fn propaganda_skips_drone_and_unarmed_dozer_rof() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
         let mut logic = GameLogic::new();
         insert_speaker_and_infantry(&mut logic);
         let mut drone = ThingTemplate::new("AmericaScoutDrone");
@@ -1873,7 +1881,7 @@ mod tests {
             .expect("dozer");
         {
             let d = logic.host_object_mut(dozer_id).unwrap();
-            let _ = d.take_damage(80.0);
+            let _ = d.take_damage(80.0, &mut health_events);
         }
         let dozer_before = logic.host_object(dozer_id).unwrap().health.current;
         logic.update_propaganda_tower_pulse(1.0 / 30.0);

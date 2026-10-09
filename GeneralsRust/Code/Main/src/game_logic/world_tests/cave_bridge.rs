@@ -382,7 +382,7 @@ fn rubble_span_is_repairable() {
     // Exercise body revival directly, not the rejected ordinary repair command.
     let mut logic = GameLogic::new();
     let (span, _, _) = spawn_linked_bridge(&mut logic);
-    if let Some(s) = logic.host_object_mut(span) {
+    if let Some((s, health_events)) = logic.host_object_and_health_events_mut(span) {
         s.convert_bridge_to_rubble_husk();
     }
     assert!(!logic.host_object(span).expect("span").is_alive());
@@ -393,7 +393,7 @@ fn rubble_span_is_repairable() {
     if let Some(s) = logic.host_object_mut(span) {
         s.revive_from_bridge_rubble();
         assert!(
-            s.attempt_healing_from_sole_benefactor(25.0, dozer, 2, 1),
+            s.attempt_healing_from_sole_benefactor(25.0, dozer, 2, 1, health_events),
             "rubble husk must accept sole-benefactor heal"
         );
     }
@@ -436,8 +436,8 @@ fn tower_damage_and_heal_mirror_to_span_and_siblings() {
     let before_span = logic.host_object(span).expect("span").health.current;
     let before_t1 = logic.host_object(t1).expect("t1").health.current;
     let t0_max = logic.host_object(t0).expect("t0").health.maximum;
-    if let Some(t) = logic.host_object_mut(t0) {
-        let _ = t.take_damage_from(t0_max * 0.25, None);
+    if let Some((t, health_events)) = logic.host_object_and_health_events_mut(t0) {
+        let _ = t.take_damage_from(t0_max * 0.25, None, health_events);
     }
     logic.sync_host_bridge_rubble_and_scaffolds();
     let span_hp = logic.host_object(span).expect("span").health.current;
@@ -451,12 +451,13 @@ fn tower_damage_and_heal_mirror_to_span_and_siblings() {
         "sibling tower must take mirrored % damage {before_t1} -> {t1_hp}"
     );
 
-    if let Some(t) = logic.host_object_mut(t0) {
+    if let Some((t, health_events)) = logic.host_object_and_health_events_mut(t0) {
         t.revive_from_bridge_rubble();
         let _ = t.take_damage_from_typed(
             t0_max * 0.25,
             None,
             crate::game_logic::combat::DamageType::Healing,
+            health_events,
         );
     }
     logic.sync_host_bridge_rubble_and_scaffolds();
@@ -477,9 +478,9 @@ fn killing_tower_collapses_span_and_span_death_kills_towers() {
     // C++ tower onDie kills bridge; bridge onDie kills towers.
     let mut logic = GameLogic::new();
     let (span, t0, t1) = spawn_linked_bridge(&mut logic);
-    if let Some(t) = logic.host_object_mut(t0) {
+    if let Some((t, health_events)) = logic.host_object_and_health_events_mut(t0) {
         let max = t.health.maximum;
-        let _ = t.take_damage_from(max * 2.0, None);
+        let _ = t.take_damage_from(max * 2.0, None, health_events);
     }
     logic.sync_host_bridge_rubble_and_scaffolds();
     let span_obj = logic.host_object(span).expect("span");

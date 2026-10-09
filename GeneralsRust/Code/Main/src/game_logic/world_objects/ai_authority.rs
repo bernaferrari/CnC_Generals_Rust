@@ -541,11 +541,12 @@ impl GameLogic {
         let hp = health.max(0.0);
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.health.current = hp.min(obj.health.maximum.max(hp));
-            crate::game_logic::host_heal_log::record_applied(object_id, obj.health.current);
+            self.health_events
+                .record_applied_heal(object_id, obj.health.current);
         } else if crate::gameworld_shadow::gameworld_damage_authority_live() {
             // No admitted owner yet: preserve the existing deferred producer
             // contract for creation paths, rather than claiming a completed write.
-            crate::game_logic::host_heal_log::record(object_id, hp);
+            self.health_events.record_heal(object_id, hp);
         }
     }
 
@@ -553,10 +554,11 @@ impl GameLogic {
     pub(in super::super) fn write_object_health_authority_aware(
         obj: &mut crate::game_logic::Object,
         health: f32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) {
         let hp = health.max(0.0);
         obj.health.current = hp.min(obj.health.maximum.max(hp));
-        crate::game_logic::host_heal_log::record_applied(obj.id, obj.health.current);
+        health_events.record_applied_heal(obj.id, obj.health.current);
     }
 
     /// Consume/suicide destroy residual: log lethal HP under damage authority.
@@ -569,7 +571,8 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&object_id) {
             if crate::gameworld_shadow::gameworld_damage_authority_live() {
                 let hp = obj.health.current.max(1.0);
-                crate::game_logic::host_damage_log::record(object_id, hp, source, true);
+                self.health_events
+                    .record_damage(object_id, hp, source, true);
             } else if obj.health.current > 0.0 {
                 obj.health.current = 0.0;
             }
@@ -581,10 +584,11 @@ impl GameLogic {
     pub(in super::super) fn mark_object_destroyed_authority_aware(
         obj: &mut crate::game_logic::Object,
         source: Option<ObjectId>,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) {
         if crate::gameworld_shadow::gameworld_damage_authority_live() {
             let hp = obj.health.current.max(1.0);
-            crate::game_logic::host_damage_log::record(obj.id, hp, source, true);
+            health_events.record_damage(obj.id, hp, source, true);
         } else if obj.health.current > 0.0 {
             obj.health.current = 0.0;
         }
@@ -747,7 +751,7 @@ impl GameLogic {
         let mut kill_xp = 0.0;
         if let Some(target) = self.objects.get_mut(&target_id) {
             // Source-attributed residual: BodyModule last_damage_source + damage log.
-            destroyed = target.take_damage_from(damage, Some(attacker_id));
+            destroyed = target.take_damage_from(damage, Some(attacker_id), &mut self.health_events);
             if crate::gameworld_shadow::gameworld_fire_spawn_authority_live() {
                 crate::game_logic::host_fire_spawn_log::record_residual_hitscan(
                     attacker_id,
@@ -1068,7 +1072,6 @@ impl GameLogic {
 #[cfg(test)]
 mod health_owner_tests {
     use super::*;
-    use crate::game_logic::host_heal_log;
     use crate::gameworld_shadow::{GameWorldShadow, ShadowCoupleGuard, with_coupled_shadow};
 
     #[test]
@@ -1083,19 +1086,19 @@ mod health_owner_tests {
         logic.objects.insert(id, object);
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
-        host_heal_log::clear();
         let _couple = ShadowCoupleGuard::enter();
         with_coupled_shadow(&mut shadow, || {
             logic
                 .with_host_logic_after_sync(|owner| {
                     owner.set_health_absolute_authority_aware(id, 70.0);
                     assert_eq!(owner.host_authoritative_health(id), Some(70.0));
-                    let object = owner.host_object_mut(id).unwrap();
+                    let (object, health_events) =
+                        owner.host_object_and_health_events_mut(id).unwrap();
                     // Projectile/upgraded-body setup resolves the new cap before
                     // its absolute write. The setter must use that held object.
                     object.health.maximum = 250.0;
                     object.max_health = 250.0;
-                    GameLogic::write_object_health_authority_aware(object, 225.0);
+                    GameLogic::write_object_health_authority_aware(object, 225.0, health_events);
                     assert_eq!(object.health.current, 225.0);
                     assert_eq!(object.health.maximum, 250.0);
                     assert!(!object.status.destroyed);
@@ -1103,7 +1106,7 @@ mod health_owner_tests {
                 })
                 .unwrap();
         });
-        let events = host_heal_log::drain();
+        let events = logic.health_events.drain_heal();
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].health, 70.0);
         assert_eq!(events[1].health, 225.0);
@@ -1112,7 +1115,6 @@ mod health_owner_tests {
                 .iter()
                 .all(|event| event.owner_health_already_applied())
         );
-        host_heal_log::clear();
     }
 
     #[test]
@@ -1120,18 +1122,16 @@ mod health_owner_tests {
         let mut logic = GameLogic::new();
         logic.set_damage_authority(true);
         let mut shadow = GameWorldShadow::new(8);
-        host_heal_log::clear();
         let _couple = ShadowCoupleGuard::enter();
         with_coupled_shadow(&mut shadow, || {
             assert!(crate::gameworld_shadow::gameworld_damage_authority_live());
             logic.set_health_absolute_authority_aware(ObjectId(99), 125.0);
         });
         assert!(!logic.objects.contains_key(&ObjectId(99)));
-        let events = host_heal_log::drain();
+        let events = logic.health_events.drain_heal();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].health, 125.0);
         assert!(!events[0].owner_health_already_applied());
-        host_heal_log::clear();
     }
 }
 

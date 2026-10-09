@@ -2,6 +2,11 @@
 
 use super::*;
 
+fn owner_damage(logic: &mut GameLogic, id: ObjectId, amount: f32) -> bool {
+    let (object, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
+    object.take_damage(amount, health_events)
+}
+
 #[test]
 fn fire_at_records_fire_intent_residual() {
     let _env_guard = AuthorityEnvGuard::lock()
@@ -576,7 +581,6 @@ fn special_power_session_writeback_after_tick() {
 fn damage_authority_writeback_is_last_writer() {
     let _env_guard = authority_env_lock();
 
-    crate::game_logic::host_damage_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DmgAuthority");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -594,8 +598,8 @@ fn damage_authority_writeback_is_last_writer() {
     // Wave 758: couple for damage_authority_live.
     let _couple = ShadowCoupleGuard::enter();
     with_coupled_shadow(&mut shadow, || {
-        if let Some(obj) = logic.host_object_mut(id) {
-            let _ = obj.take_damage(25.0);
+        if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(id) {
+            let _ = obj.take_damage(25.0, health_events);
         }
     });
     drop(_couple);
@@ -608,7 +612,7 @@ fn damage_authority_writeback_is_last_writer() {
         "host HP must apply same frame (C++ internalChangeHealth); mid={host_mid} pre={pre}"
     );
 
-    let events = crate::game_logic::host_damage_log::drain();
+    let events = logic.health_events.drain_damage();
     assert!(!events.is_empty());
     shadow.sync_from_host_with(&logic, false);
     let eid = shadow.entity_for_host(id).unwrap();
@@ -652,7 +656,7 @@ fn damage_authority_applies_host_hp_when_shadow_disabled() {
     logic.set_damage_authority(true);
     assert!(gameworld_damage_authority_enabled());
 
-    crate::game_logic::host_damage_log::clear();
+    logic.health_events.clear_damage();
     let cfg = golden_skirmish_config("DmgAuthNoShadow");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     ensure_template(&mut logic, "AuthUnit", 100.0);
@@ -660,8 +664,8 @@ fn damage_authority_applies_host_hp_when_shadow_disabled() {
         .create_object("AuthUnit", Team::USA, Vec3::new(2.0, 0.0, 0.0))
         .expect("unit");
     let pre = logic.host_objects().get(&id).unwrap().health.current;
-    if let Some(obj) = logic.host_object_mut(id) {
-        let _ = obj.take_damage(25.0);
+    if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(id) {
+        let _ = obj.take_damage(25.0, health_events);
     }
     let mid = logic.host_objects().get(&id).unwrap().health.current;
     assert!(
@@ -683,7 +687,6 @@ fn damage_authority_lethal_marks_destroyed_without_host_hp() {
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
 
     // C++ ActiveBody::internalChangeHealth writes HP the same frame.
-    crate::game_logic::host_damage_log::clear();
     let mut logic = GameLogic::new();
     logic.set_damage_authority(true);
     let cfg = golden_skirmish_config("DmgAuthLethalFlag");
@@ -695,8 +698,8 @@ fn damage_authority_lethal_marks_destroyed_without_host_hp() {
     assert!(gameworld_damage_authority_enabled());
     assert!(gameworld_shadow_enabled());
     let _couple = ShadowCoupleGuard::enter();
-    if let Some(obj) = logic.host_object_mut(id) {
-        let dead = obj.take_damage(999.0);
+    if let Some((obj, health_events)) = logic.host_object_and_health_events_mut(id) {
+        let dead = obj.take_damage(999.0, health_events);
         assert!(dead, "projected lethal");
         assert!(obj.status.destroyed, "destroyed flag must flip mid-frame");
         assert!(!obj.is_alive(), "is_alive must fail after lethal");
@@ -746,7 +749,6 @@ fn host_owner_log_feeds_transfer_owner_mutation() {
 
 #[test]
 fn host_heal_log_feeds_set_health_mutation() {
-    crate::game_logic::host_heal_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("HealLog");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -763,9 +765,9 @@ fn host_heal_log_feeds_set_health_mutation() {
     {
         let o = logic.host_object_mut(id).unwrap();
         o.health.current = 70.0;
-        crate::game_logic::host_heal_log::record(id, 70.0);
+        logic.health_events.record_heal(id, 70.0);
     }
-    let heals = crate::game_logic::host_heal_log::drain();
+    let heals = logic.health_events.drain_heal();
     let n = shadow.apply_host_heal_events(&heals);
     assert_eq!(n, 1);
     let probe = shadow.probe(&mut logic);
@@ -778,7 +780,6 @@ fn host_heal_log_feeds_set_health_mutation() {
 
 #[test]
 fn host_damage_log_feeds_shadow_mutation_channel() {
-    crate::game_logic::host_damage_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("DmgLogChannel");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -1113,9 +1114,7 @@ fn residual_auto_fire_damage_source_attribution_source() {
 
 #[test]
 fn residual_auto_fire_damage_source_writeback_channel() {
-    use crate::game_logic::host_damage_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    host_damage_log::clear();
     let mut logic = GameLogic::new();
     logic.set_damage_authority(true);
     let cfg = golden_skirmish_config("DmgSrc");
@@ -1136,13 +1135,13 @@ fn residual_auto_fire_damage_source_writeback_channel() {
         .create_object("SrcB", Team::China, glam::Vec3::new(10.0, 0.0, 0.0))
         .expect("v");
     {
-        let v = logic.host_object_mut(victim).unwrap();
-        let _ = v.take_damage_from(25.0, Some(attacker));
+        let (v, health_events) = logic.host_object_and_health_events_mut(victim).unwrap();
+        let _ = v.take_damage_from(25.0, Some(attacker), health_events);
         assert_eq!(v.last_damage_source, Some(attacker));
         // Damage authority defers HP; projected destroy false.
         assert!(v.health.current > 50.0 || gameworld_damage_authority_enabled());
     }
-    let events = host_damage_log::drain();
+    let events = logic.health_events.drain_damage();
     assert!(
         events
             .iter()

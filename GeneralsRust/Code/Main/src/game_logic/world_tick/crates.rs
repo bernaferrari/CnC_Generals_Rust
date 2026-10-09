@@ -1495,7 +1495,12 @@ impl GameLogic {
         for (pid, dmg) in passenger_hits {
             if let Some(p) = self.objects.get_mut(&pid) {
                 if p.is_alive() {
-                    let _ = p.take_damage_from_typed(dmg, None, DamageType::Explosive);
+                    let _ = p.take_damage_from_typed(
+                        dmg,
+                        None,
+                        DamageType::Explosive,
+                        &mut self.health_events,
+                    );
                 }
             }
         }
@@ -1690,7 +1695,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 let max = o.health.maximum;
                 if o.health.current < max {
-                    Self::write_object_health_authority_aware(o, max);
+                    Self::write_object_health_authority_aware(o, max, &mut self.health_events);
                     n += 1;
                 }
             }

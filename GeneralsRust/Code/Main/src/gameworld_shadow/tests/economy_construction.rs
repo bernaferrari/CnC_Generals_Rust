@@ -368,9 +368,7 @@ fn damage_authority_live_requires_coupled_frame() {
 
 #[test]
 fn construction_complete_heal_log_sets_full_hp_via_writeback() {
-    use crate::game_logic::{
-        KindOf, Team, ThingTemplate, host_construction_progress_log, host_heal_log,
-    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate, host_construction_progress_log};
     let mut logic = GameLogic::new();
     logic.set_damage_authority(true);
     assert!(gameworld_damage_authority_enabled());
@@ -407,12 +405,12 @@ fn construction_complete_heal_log_sets_full_hp_via_writeback() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     // Simulate completion residual: log full HP without host mutate.
-    host_heal_log::clear();
+    logic.health_events.clear_heal();
     host_construction_progress_log::clear();
     {
-        let o = logic.host_object_mut(oid).expect("o");
+        let (o, health_events) = logic.host_object_and_health_events_mut(oid).expect("o");
         let full = o.health.maximum;
-        crate::game_logic::host_heal_log::record(oid, full);
+        health_events.record_heal(oid, full);
         crate::game_logic::host_construction_progress_log::record(oid, 1.0, false, 0.0);
         o.construction_percent = 1.0;
         o.status.under_construction = false;

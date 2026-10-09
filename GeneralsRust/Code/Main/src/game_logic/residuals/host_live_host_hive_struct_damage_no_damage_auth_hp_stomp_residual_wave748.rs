@@ -87,7 +87,7 @@ pub fn honesty_host_hive_struct_damage_no_damage_auth_hp_stomp_source_markers_re
         && gl.contains("fn apply_host_hive_damage_from")
         && gl.contains("structure_damage_applied")
         && gl.contains("gameworld_damage_authority_live()")
-        && gl.contains("host_damage_log::record")
+        && gl.contains("health_events.record_damage")
         && !gl.contains("playable_claim = true");
     residual_action_store(ResidualHostHiveStructDamageNoDamageAuthHpStompAction::SourceMarkers);
     ok

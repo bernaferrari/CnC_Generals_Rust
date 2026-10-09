@@ -675,6 +675,7 @@ impl Object {
         source_id: ObjectId,
         duration_frames: u32,
         now: u32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
         if amount <= 0.0 {
             return false;
@@ -690,7 +691,7 @@ impl Object {
         self.sole_healing_benefactor_expiration_frame = now.saturating_add(duration_frames);
         self.record_host_sole_healing();
         let before = self.health.current;
-        self.heal(amount);
+        self.heal(amount, health_events);
         self.health.current > before + 0.0001 || self.health.current >= self.health.maximum - 0.01
     }
 

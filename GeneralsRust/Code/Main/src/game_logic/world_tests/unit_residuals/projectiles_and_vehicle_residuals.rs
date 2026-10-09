@@ -1113,7 +1113,7 @@ fn lazr_patriot_residual_laser_dual_slot() {
             w.last_fire_time = -10.0;
         }
     }
-    crate::game_logic::host_damage_log::clear();
+    game_logic.health_events.clear_damage();
     game_logic.frame = 30;
     for _ in 0..30 {
         game_logic.try_base_defense_residual_fire(pat_id);
@@ -1125,7 +1125,7 @@ fn lazr_patriot_residual_laser_dual_slot() {
     }
 
     let hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
-    let dealt_g = test_observed_damage_to(enemy_id, hp_before, hp_after);
+    let dealt_g = test_observed_damage_to(&game_logic.health_events, enemy_id, hp_before, hp_after);
     assert!(
         dealt_g > 0.0 || hp_after < hp_before,
         "Lazr Patriot ground residual must damage (dealt={dealt_g}, before={hp_before}, after={hp_after})"
@@ -1152,7 +1152,7 @@ fn lazr_patriot_residual_laser_dual_slot() {
             w.last_fire_time = -10.0;
         }
     }
-    crate::game_logic::host_damage_log::clear();
+    game_logic.health_events.clear_damage();
     game_logic.frame = 90;
     for _ in 0..30 {
         game_logic.try_base_defense_residual_fire(pat_id);
@@ -1164,7 +1164,12 @@ fn lazr_patriot_residual_laser_dual_slot() {
     }
 
     let air_hp_after = game_logic.host_object(air_id).unwrap().health.current;
-    let dealt = test_observed_damage_to(air_id, air_hp_before, air_hp_after);
+    let dealt = test_observed_damage_to(
+        &game_logic.health_events,
+        air_id,
+        air_hp_before,
+        air_hp_after,
+    );
     assert!(
         dealt > 0.0 || air_hp_after < air_hp_before,
         "Lazr Patriot AA residual must damage aircraft (dealt={dealt}, before={air_hp_before} after={air_hp_after})"
@@ -1180,7 +1185,7 @@ fn tunnel_network_gun_residual_auto_fires() {
 
     ensure_host_weapon_store();
     let mut game_logic = GameLogic::new();
-    crate::game_logic::host_damage_log::clear();
+    game_logic.health_events.clear_damage();
 
     let mut tunnel_tpl = crate::game_logic::ThingTemplate::new("GLATunnelNetwork");
     tunnel_tpl
@@ -1248,7 +1253,7 @@ fn tunnel_network_gun_residual_auto_fires() {
     }
 
     let hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
-    let logged = crate::game_logic::host_damage_log::drain();
+    let logged = game_logic.health_events.drain_damage();
     let log_hit = logged
         .iter()
         .any(|e| e.target == enemy_id && e.amount > 0.0);

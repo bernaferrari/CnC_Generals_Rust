@@ -5,18 +5,29 @@ use application::ActiveDamageContinuation;
 pub(in crate::game_logic) use application::DamageApplication;
 
 impl Object {
-    pub fn take_damage_from(&mut self, damage: f32, source: Option<ObjectId>) -> bool {
+    pub fn take_damage_from(
+        &mut self,
+        damage: f32,
+        source: Option<ObjectId>,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) -> bool {
         self.take_damage_from_typed(
             damage,
             source,
             crate::game_logic::combat::DamageType::Unresistable,
+            health_events,
         )
     }
 
     /// Superweapon / strike residual: always mutate host HP (and still log for shadow).
     /// Combat fire under DAMAGE_AUTHORITY defers HP to GameWorld writeback; strikes
     /// call this path so host-only update_special_power_strikes still applies damage.
-    pub fn take_damage_from_immediate(&mut self, damage: f32, source: Option<ObjectId>) -> bool {
+    pub fn take_damage_from_immediate(
+        &mut self,
+        damage: f32,
+        source: Option<ObjectId>,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) -> bool {
         self.take_damage_from_typed_death_with_host_hp(
             damage,
             source,
@@ -26,6 +37,7 @@ impl Object {
             ),
             true, // force host HP apply
             None,
+            health_events,
         )
     }
 
@@ -35,19 +47,26 @@ impl Object {
         damage: f32,
         source: Option<ObjectId>,
         damage_type: crate::game_logic::combat::DamageType,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
         self.take_damage_from_immediate_typed_death(
             damage,
             source,
             damage_type,
             crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(damage_type),
+            health_events,
         )
     }
 
     /// C++ Nuke/Medium/SmallRadiationFieldWeapon tick: DAMAGE_RADIATION + NOT_AIRBORNE.
     /// Weapon.cpp:1351 skips `isSignificantlyAboveTerrain`; Armor.ini then applies
     /// (structures 0%, tanks 50%, aircraft 25%). DeathType is NORMAL, not Detonated.
-    pub fn take_radiation_field_tick(&mut self, damage: f32, source: Option<ObjectId>) -> bool {
+    pub fn take_radiation_field_tick(
+        &mut self,
+        damage: f32,
+        source: Option<ObjectId>,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) -> bool {
         if self.status.airborne_target || self.is_significantly_above_terrain() {
             return false;
         }
@@ -56,6 +75,7 @@ impl Object {
             source,
             crate::game_logic::combat::DamageType::Radiation,
             crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            health_events,
         )
     }
 
@@ -67,6 +87,7 @@ impl Object {
         source: Option<ObjectId>,
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
         self.take_damage_from_typed_death_with_host_hp(
             damage,
@@ -75,6 +96,7 @@ impl Object {
             death_type,
             true,
             None,
+            health_events,
         )
     }
 
@@ -86,6 +108,7 @@ impl Object {
         source: Option<ObjectId>,
         damage_type_name: &str,
         death_type_name: &str,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
         let damage_type =
             crate::game_logic::host_armor_residual::host_damage_type_from_residual_name(
@@ -94,7 +117,13 @@ impl Object {
         let death_type = crate::game_logic::host_armor_residual::host_death_type_from_residual_name(
             death_type_name,
         );
-        self.take_damage_from_immediate_typed_death(damage, source, damage_type, death_type)
+        self.take_damage_from_immediate_typed_death(
+            damage,
+            source,
+            damage_type,
+            death_type,
+            health_events,
+        )
     }
 
     /// Apply damage with host combat DamageType for Armor.ini residual coefficients.
@@ -103,12 +132,14 @@ impl Object {
         damage: f32,
         source: Option<ObjectId>,
         damage_type: crate::game_logic::combat::DamageType,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
         self.take_damage_from_typed_death(
             damage,
             source,
             damage_type,
             crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(damage_type),
+            health_events,
         )
     }
 
@@ -119,8 +150,16 @@ impl Object {
         source: Option<ObjectId>,
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
-        self.take_damage_from_typed_death_fx(damage, source, damage_type, death_type, None)
+        self.take_damage_from_typed_death_fx(
+            damage,
+            source,
+            damage_type,
+            death_type,
+            None,
+            health_events,
+        )
     }
 
     /// Typed death with C++ `DamageInfo.m_damageFXOverride` residual.
@@ -132,6 +171,7 @@ impl Object {
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         fx_override: Option<crate::game_logic::combat::DamageType>,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
         self.take_damage_from_typed_death_fx_at_frame(
             damage,
@@ -140,6 +180,7 @@ impl Object {
             death_type,
             fx_override,
             crate::game_logic::host_historic_bonus::logic_frame(),
+            health_events,
         )
     }
 
@@ -151,6 +192,7 @@ impl Object {
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         frame: u32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
         self.take_damage_from_typed_death_fx_at_frame(
             damage,
@@ -159,6 +201,7 @@ impl Object {
             death_type,
             None,
             frame,
+            health_events,
         )
     }
 
@@ -170,6 +213,7 @@ impl Object {
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         fx_override: Option<crate::game_logic::combat::DamageType>,
         frame: u32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
         self.take_damage_with_context(
             damage,
@@ -179,6 +223,7 @@ impl Object {
             fx_override,
             frame,
             &DamageHitContext::default(),
+            health_events,
         )
     }
 
@@ -193,6 +238,7 @@ impl Object {
         fx_override: Option<crate::game_logic::combat::DamageType>,
         frame: u32,
         context: &DamageHitContext,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
         let application = self.begin_damage_with_context(
             damage,
@@ -202,6 +248,7 @@ impl Object {
             fx_override,
             frame,
             context,
+            health_events,
         );
         application.finish(self, context.source())
     }
@@ -216,6 +263,7 @@ impl Object {
         fx_override: Option<crate::game_logic::combat::DamageType>,
         frame: u32,
         context: &DamageHitContext,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> DamageApplication {
         // C++ InactiveBody::attemptDamage (InactiveBody.cpp:53-86): no HP except
         // DAMAGE_UNRESISTABLE (onDie once, never DamageFX).
@@ -310,7 +358,7 @@ impl Object {
                 damage_type,
                 damage,
             );
-            self.heal_with_source(amount.max(0.0), context.source());
+            self.heal_with_source(amount.max(0.0), context.source(), health_events);
             if amount > 0.0 {
                 let now = frame;
                 self.last_healing_timestamp = Some(now);
@@ -368,7 +416,7 @@ impl Object {
                         );
                         self.set_ai_state(AIState::Idle);
                         self.target = None;
-                        crate::game_logic::host_damage_log::record_applied(
+                        health_events.record_applied_damage(
                             self.id,
                             if self.health.maximum > 0.0 {
                                 self.health.maximum
@@ -509,6 +557,7 @@ impl Object {
             fx_override,
             frame,
             context,
+            health_events,
         )
     }
 
@@ -520,6 +569,7 @@ impl Object {
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         force_host_hp: bool,
         fx_override: Option<crate::game_logic::combat::DamageType>,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
         self.take_damage_from_typed_death_with_host_hp_at_frame(
             damage,
@@ -530,6 +580,7 @@ impl Object {
             fx_override,
             crate::game_logic::host_historic_bonus::logic_frame(),
             &DamageHitContext::default(),
+            health_events,
         )
     }
 
@@ -543,6 +594,7 @@ impl Object {
         fx_override: Option<crate::game_logic::combat::DamageType>,
         frame: u32,
         context: &DamageHitContext,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> bool {
         let application = self.begin_damage_from_typed_death_with_host_hp_at_frame(
             damage,
@@ -553,6 +605,7 @@ impl Object {
             fx_override,
             frame,
             context,
+            health_events,
         );
         application.finish(self, context.source())
     }
@@ -567,6 +620,7 @@ impl Object {
         fx_override: Option<crate::game_logic::combat::DamageType>,
         frame: u32,
         context: &DamageHitContext,
+        health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> DamageApplication {
         if self.status.destroyed {
             return DamageApplication::Complete(false);
@@ -729,7 +783,7 @@ impl Object {
         if actual_damage > 0.0 || destroyed {
             self.stamp_last_damage_cpp(source, destroyed, damage_type, frame);
         }
-        crate::game_logic::host_damage_log::record_applied(
+        health_events.record_applied_damage(
             self.id,
             actual_damage,
             source,
@@ -1052,10 +1106,17 @@ mod tests {
 
     #[test]
     fn subdual_missile_is_not_hp_unresistable() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         // C++ IsSubdualDamage (Damage.h:95-107) + ActiveBody.cpp:471-488.
         // Pre-fix: map_store collapsed SUBDUAL_MISSILE → Unresistable HP.
         let mut tank = vehicle("SubdualTank", 11, 200.0);
-        assert!(!tank.take_damage_from_typed(80.0, None, DamageType::SubdualMissile));
+        assert!(!tank.take_damage_from_typed(
+            80.0,
+            None,
+            DamageType::SubdualMissile,
+            &mut health_events
+        ));
         assert!(
             (tank.health.current - 200.0).abs() < 1e-3,
             "SUBDUAL_MISSILE must not deal HP, got {}",
@@ -1069,7 +1130,12 @@ mod tests {
         let mut immune = Object::new(ThingTemplate::new("BareImmune"), ObjectId(13), Team::USA);
         assert_eq!(immune.subdual_damage_cap, 0.0);
         let before_hp = immune.health.current;
-        assert!(!immune.take_damage_from_typed(40.0, None, DamageType::SubdualMissile));
+        assert!(!immune.take_damage_from_typed(
+            40.0,
+            None,
+            DamageType::SubdualMissile,
+            &mut health_events
+        ));
         assert_eq!(immune.health.current, before_hp);
         assert_eq!(immune.subdual_damage, 0.0);
 
@@ -1079,7 +1145,12 @@ mod tests {
         assert_eq!(bare.subdual_damage_cap, 100.0);
         bare.health.current = 100.0;
         bare.health.maximum = 100.0;
-        assert!(!bare.take_damage_from_typed(40.0, None, DamageType::SubdualMissile));
+        assert!(!bare.take_damage_from_typed(
+            40.0,
+            None,
+            DamageType::SubdualMissile,
+            &mut health_events
+        ));
         assert!((bare.health.current - 100.0).abs() < 1e-3);
         assert!(
             (bare.subdual_damage - 40.0).abs() < 1e-3,
@@ -1090,11 +1161,18 @@ mod tests {
 
     #[test]
     fn subdual_vehicle_is_not_hp_unresistable() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         // C++ IsSubdualDamage (Damage.h:95-107) + ActiveBody.cpp:471-488.
         // ECMTankVehicleDisabler is SUBDUAL_VEHICLE — accumulate, never HP.
         let mut tank = vehicle("SubdualVehTank", 21, 400.0);
         tank.subdual_damage_cap = 600.0;
-        assert!(!tank.take_damage_from_typed(24.0, None, DamageType::SubdualVehicle));
+        assert!(!tank.take_damage_from_typed(
+            24.0,
+            None,
+            DamageType::SubdualVehicle,
+            &mut health_events
+        ));
         assert!(
             (tank.health.current - 400.0).abs() < 1e-3,
             "SUBDUAL_VEHICLE must not deal HP, got {}",
@@ -1110,12 +1188,14 @@ mod tests {
 
     #[test]
     fn gattling_uses_tank_armor_ten_percent() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         // C++ Armor.ini TankArmor GATTLING 10% via ArmorTemplate::adjustDamage.
         // Pre-fix: Gattling collapsed to Bullet (25%) then armor/(armor+100).
         let mut tank = vehicle("GattlingTank", 13, 1000.0);
         tank.thing.template.armor = 100.0;
         let hp0 = tank.health.current;
-        tank.take_damage_from_typed(100.0, None, DamageType::Gattling);
+        tank.take_damage_from_typed(100.0, None, DamageType::Gattling, &mut health_events);
         let dealt = hp0 - tank.health.current;
         assert!(
             (dealt - 10.0).abs() < 0.05,
@@ -1125,12 +1205,14 @@ mod tests {
 
     #[test]
     fn take_damage_has_no_invented_scalar_armor_formula() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         // C++ ActiveBody.cpp:351, 490-497: adjustDamage then m_damageScalar only.
         // A leftover scalar formula would halve this Explosion hit when armor=100.
         let mut tank = vehicle("ScalarArmorTank", 14, 1000.0);
         tank.thing.template.armor = 100.0;
         let hp0 = tank.health.current;
-        tank.take_damage_from_typed(100.0, None, DamageType::Explosive);
+        tank.take_damage_from_typed(100.0, None, DamageType::Explosive, &mut health_events);
         let dealt = hp0 - tank.health.current;
         assert!(
             (dealt - 100.0).abs() < 0.05,
@@ -1140,6 +1222,8 @@ mod tests {
 
     #[test]
     fn kill_pilot_splits_rider_change_bike() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         // C++ ActiveBody.cpp:365-418 DAMAGE_KILLPILOT RiderChangeContain split.
         let mut moving = vehicle("CombatBike", 21, 150.0);
         moving.is_combat_cycle_transport = true;
@@ -1147,7 +1231,12 @@ mod tests {
             crate::game_logic::ContainModuleKind::RiderChange;
         moving.set_status_moving(true);
         moving.occupants.push(ObjectId(99));
-        assert!(moving.take_damage_from_typed(1.0, None, DamageType::KillPilot));
+        assert!(moving.take_damage_from_typed(
+            1.0,
+            None,
+            DamageType::KillPilot,
+            &mut health_events
+        ));
         assert!(moving.status.destroyed);
         assert!(moving.health.current <= 0.0);
         assert!(!moving.is_unmanned());
@@ -1158,14 +1247,19 @@ mod tests {
             crate::game_logic::ContainModuleKind::RiderChange;
         parked.set_status_moving(false);
         parked.occupants.push(ObjectId(98));
-        assert!(!parked.take_damage_from_typed(1.0, None, DamageType::KillPilot));
+        assert!(!parked.take_damage_from_typed(
+            1.0,
+            None,
+            DamageType::KillPilot,
+            &mut health_events
+        ));
         assert!((parked.health.current - 150.0).abs() < 1e-3);
         assert!(!parked.is_unmanned());
         assert!(parked.occupants.is_empty());
         assert!(parked.rider_change_scuttled_on_frame > 0);
 
         let mut tank = vehicle("Tank", 23, 200.0);
-        assert!(!tank.take_damage_from_typed(1.0, None, DamageType::KillPilot));
+        assert!(!tank.take_damage_from_typed(1.0, None, DamageType::KillPilot, &mut health_events));
         assert!((tank.health.current - 200.0).abs() < 1e-3);
         assert!(tank.is_unmanned());
         assert_eq!(tank.team, Team::Neutral);
@@ -1173,6 +1267,8 @@ mod tests {
 
     #[test]
     fn take_damage_applies_host_hp_same_frame() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         // C++ ActiveBody::internalChangeHealth (ActiveBody.cpp:1188+).
         // Pre-fix: gameworld_damage_authority_live left health.current stale.
         crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
@@ -1181,13 +1277,23 @@ mod tests {
         crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
         crate::gameworld_shadow::begin_shadow_coupled_tick();
         let mut tank = vehicle("SameFrameHp", 24, 100.0);
-        assert!(!tank.take_damage_from_typed(25.0, None, DamageType::Unresistable));
+        assert!(!tank.take_damage_from_typed(
+            25.0,
+            None,
+            DamageType::Unresistable,
+            &mut health_events
+        ));
         assert!(
             (tank.health.current - 75.0).abs() < 1e-3,
             "host HP must update this frame under damage authority, got {}",
             tank.health.current
         );
-        assert!(tank.take_damage_from_typed(80.0, None, DamageType::Unresistable));
+        assert!(tank.take_damage_from_typed(
+            80.0,
+            None,
+            DamageType::Unresistable,
+            &mut health_events
+        ));
         assert!(tank.health.current <= 0.0);
         assert!(tank.status.destroyed);
         crate::gameworld_shadow::end_shadow_coupled_tick();
@@ -1195,6 +1301,8 @@ mod tests {
 
     #[test]
     fn supply_warehouse_and_firewall_use_immortal_body_floor() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         // C++ ImmortalBody.cpp:31-37 + CivilianBuilding.ini SupplyWarehouse
         // / FireWallSegment ImmortalBody. Live host take_damage is attemptDamage.
         let mut warehouse = Object::new(
@@ -1205,14 +1313,24 @@ mod tests {
         warehouse.health.current = 1000.0;
         warehouse.health.maximum = 1000.0;
         assert!(warehouse.uses_immortal_body());
-        assert!(!warehouse.take_damage_from_typed(50_000.0, None, DamageType::Explosive));
+        assert!(!warehouse.take_damage_from_typed(
+            50_000.0,
+            None,
+            DamageType::Explosive,
+            &mut health_events
+        ));
         assert!(
             (warehouse.health.current - 1.0).abs() < 1e-3,
             "SupplyWarehouse must stay at 1 HP, got {}",
             warehouse.health.current
         );
         assert!(!warehouse.status.destroyed);
-        assert!(!warehouse.take_damage_from_typed(99.0, None, DamageType::Unresistable));
+        assert!(!warehouse.take_damage_from_typed(
+            99.0,
+            None,
+            DamageType::Unresistable,
+            &mut health_events
+        ));
         assert!((warehouse.health.current - 1.0).abs() < 1e-3);
         assert!(!warehouse.status.destroyed);
 
@@ -1225,13 +1343,23 @@ mod tests {
         segment.health.maximum = 50.0;
         segment.firewall_segment = true;
         assert!(segment.uses_immortal_body());
-        assert!(!segment.take_damage_from_typed(500.0, None, DamageType::Explosive));
+        assert!(!segment.take_damage_from_typed(
+            500.0,
+            None,
+            DamageType::Explosive,
+            &mut health_events
+        ));
         assert!((segment.health.current - 1.0).abs() < 1e-3);
         assert!(!segment.status.destroyed);
 
         let mut tank = vehicle("AmericaTankCrusader", 33, 400.0);
         assert!(!tank.uses_immortal_body());
-        assert!(tank.take_damage_from_typed(400.0, None, DamageType::Unresistable));
+        assert!(tank.take_damage_from_typed(
+            400.0,
+            None,
+            DamageType::Unresistable,
+            &mut health_events
+        ));
         assert!(tank.status.destroyed);
     }
 
@@ -1247,6 +1375,8 @@ mod tests {
 
     #[test]
     fn healing_applies_armor_coefficient() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         // C++ ActiveBody::attemptHealing (ActiveBody.cpp:801) + Armor.cpp:43-55.
         register_coeff_armor("HealHalfArmor", gamelogic::damage::DamageType::Healing, 0.5);
         let mut tmpl = ThingTemplate::new("HealHalf");
@@ -1260,7 +1390,7 @@ mod tests {
         let mut unit = Object::new(tmpl, ObjectId(41), Team::USA);
         unit.health.current = 40.0;
         unit.health.maximum = 100.0;
-        assert!(!unit.take_damage_from_typed(20.0, None, DamageType::Healing));
+        assert!(!unit.take_damage_from_typed(20.0, None, DamageType::Healing, &mut health_events));
         assert!(
             (unit.health.current - 50.0).abs() < 1e-3,
             "HEALING must use armor coeff 0.5 (heal 10), got {}",
@@ -1270,10 +1400,17 @@ mod tests {
 
     #[test]
     fn microwave_is_hp_through_armor_not_subdual() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         // C++ Damage.h:63 DAMAGE_MICROWAVE; IsSubdualDamage false (Damage.h:95-107).
         // TankArmor MICROWAVE 0%; HumanArmor default 100%.
         let mut tank = vehicle("MicrowaveTank", 42, 100.0);
-        assert!(!tank.take_damage_from_typed(40.0, None, DamageType::Microwave));
+        assert!(!tank.take_damage_from_typed(
+            40.0,
+            None,
+            DamageType::Microwave,
+            &mut health_events
+        ));
         assert!(
             (tank.health.current - 100.0).abs() < 1e-3,
             "TankArmor MICROWAVE 0% must deal 0 HP, got {}",
@@ -1291,7 +1428,12 @@ mod tests {
         let mut ranger = Object::new(inf, ObjectId(43), Team::USA);
         ranger.health.current = 100.0;
         ranger.health.maximum = 100.0;
-        assert!(!ranger.take_damage_from_typed(40.0, None, DamageType::Microwave));
+        assert!(!ranger.take_damage_from_typed(
+            40.0,
+            None,
+            DamageType::Microwave,
+            &mut health_events
+        ));
         assert!(
             (ranger.health.current - 60.0).abs() < 1e-3,
             "infantry MICROWAVE is armor-scaled HP, got {}",
@@ -1301,13 +1443,15 @@ mod tests {
 
         // Leftover host EMP alias is the same store type (Microwave).
         let mut tank2 = vehicle("EmpAliasTank", 44, 100.0);
-        assert!(!tank2.take_damage_from_typed(40.0, None, DamageType::EMP));
+        assert!(!tank2.take_damage_from_typed(40.0, None, DamageType::EMP, &mut health_events));
         assert!((tank2.health.current - 100.0).abs() < 1e-3);
         assert!(tank2.subdual_damage.abs() < 1e-3);
     }
 
     #[test]
     fn status_duration_applies_armor_coefficient() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         // C++ ActiveBody.cpp:351 adjustDamage; 460-464 ConvertDurationFromMsecsToFrames
         // on the armor-adjusted msec.
         register_coeff_armor(
@@ -1338,7 +1482,8 @@ mod tests {
             crate::game_logic::host_usa_pilot::HostDeathType::Normal,
             None,
             frame,
-            &context
+            &context,
+            &mut health_events
         ));
         assert!((o.health.current - 100.0).abs() < 1e-3);
         assert!(o.is_faerie_fire());
@@ -1347,14 +1492,18 @@ mod tests {
 
     #[test]
     fn status_none_does_not_hardcode_faerie_fire() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         let mut o = vehicle("StatusNone", 46, 100.0);
-        assert!(!o.take_damage_from_typed(2000.0, None, DamageType::Status));
+        assert!(!o.take_damage_from_typed(2000.0, None, DamageType::Status, &mut health_events));
         assert!(!o.is_faerie_fire());
         assert!((o.health.current - 100.0).abs() < 1e-3);
     }
 
     #[test]
     fn radiation_field_tick_uses_armor_and_skips_airborne() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         // C++ NukeRadiationFieldWeapon DamageType RADIATION + NOT_AIRBORNE.
         register_coeff_armor(
             "RadTankArmor",
@@ -1370,7 +1519,7 @@ mod tests {
                 armor: Some("RadTankArmor".into()),
                 damage_fx: None,
             });
-        assert!(!tank.take_radiation_field_tick(20.0, None));
+        assert!(!tank.take_radiation_field_tick(20.0, None, &mut health_events));
         assert!(
             (tank.health.current - 90.0).abs() < 1e-3,
             "Radiation must apply armor (50% of 20), got {}",
@@ -1379,7 +1528,7 @@ mod tests {
 
         let mut jet = vehicle("RadJet", 48, 100.0);
         jet.status.airborne_target = true;
-        assert!(!jet.take_radiation_field_tick(25.0, None));
+        assert!(!jet.take_radiation_field_tick(25.0, None, &mut health_events));
         assert!(
             (jet.health.current - 100.0).abs() < 1e-3,
             "NOT_AIRBORNE must skip flying victims, got {}",
@@ -1389,6 +1538,8 @@ mod tests {
 
     #[test]
     fn damage_fx_uses_attacker_veterancy_not_victim() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         use crate::game_logic::host_transition_damage_fx::take_dispatched_armor_damage_fx;
         game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store();
         let mut dfx = game_engine::common::ini::ini_damage_fx::DamageFX::new();
@@ -1432,7 +1583,8 @@ mod tests {
             crate::game_logic::host_usa_pilot::HostDeathType::Normal,
             None,
             0,
-            &context
+            &context,
+            &mut health_events
         ));
         let dispatched = take_dispatched_armor_damage_fx();
         assert!(
@@ -1447,6 +1599,8 @@ mod tests {
 
     #[test]
     fn take_damage_dispatches_armor_damage_fx() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         // C++ ActiveBody.cpp:653 doDamageFX after attemptDamage.
         use crate::game_logic::host_transition_damage_fx::{
             TemplateDamageAudio, take_dispatched_armor_damage_fx,
@@ -1473,7 +1627,12 @@ mod tests {
                 armor: Some("TankArmor".into()),
                 damage_fx: Some("TankDamageFX".into()),
             });
-        assert!(!tank.take_damage_from_typed(20.0, None, DamageType::Unresistable));
+        assert!(!tank.take_damage_from_typed(
+            20.0,
+            None,
+            DamageType::Unresistable,
+            &mut health_events
+        ));
         let dispatched = take_dispatched_armor_damage_fx();
         assert!(
             dispatched
@@ -1486,6 +1645,8 @@ mod tests {
 
     #[test]
     fn take_damage_queues_template_voice_fear_and_attacked_by() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         // C++ ActiveBody.cpp:574 setAttackedBy, :624-637 VoiceFear.
         use crate::game_logic::host_transition_damage_fx::{
             TemplateDamageAudio, set_test_template_audio, set_test_voice_fear_roll,
@@ -1512,7 +1673,12 @@ mod tests {
         ranger.owner_player_id = Some(1);
         ranger.template_name = "FearRanger".into();
         ranger.set_position(glam::Vec3::new(120.0, 4.0, 80.0));
-        assert!(!ranger.take_damage_from_typed(20.0, Some(ObjectId(77)), DamageType::Unresistable));
+        assert!(!ranger.take_damage_from_typed(
+            20.0,
+            Some(ObjectId(77)),
+            DamageType::Unresistable,
+            &mut health_events
+        ));
         assert!((ranger.health.current - 20.0).abs() < 1e-3);
         let pending = ranger.take_pending_transition_damage_fx();
         assert!(
@@ -1559,6 +1725,8 @@ mod tests {
 
     #[test]
     fn poison_field_tick_infects_and_unresistable_does_not() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         // C++ FireWeaponUpdate DAMAGE_POISON → armor + PoisonedBehavior::onDamage.
         let mut unit = Object::new(
             ThingTemplate::new("PoisonInfantry"),
@@ -1572,6 +1740,7 @@ mod tests {
             None,
             DamageType::Toxin,
             crate::game_logic::host_usa_pilot::HostDeathType::PoisonedBeta,
+            &mut health_events
         ));
         let p = unit
             .poisoned_behavior
@@ -1587,12 +1756,14 @@ mod tests {
         let mut bare = Object::new(ThingTemplate::new("NoPoison"), ObjectId(32), Team::USA);
         bare.health.current = 100.0;
         bare.health.maximum = 100.0;
-        bare.take_damage_from_immediate(10.0, None);
+        bare.take_damage_from_immediate(10.0, None, &mut health_events);
         assert!(bare.poisoned_behavior.is_none());
     }
 
     #[test]
     fn poison_dot_unresistable_does_not_reinfect() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         // C++ PoisonedBehavior::update retakes UNRESISTABLE with POISON FX override.
         let mut unit = Object::new(ThingTemplate::new("DotInfantry"), ObjectId(33), Team::USA);
         unit.health.current = 100.0;
@@ -1602,6 +1773,7 @@ mod tests {
             None,
             DamageType::Toxin,
             crate::game_logic::host_usa_pilot::HostDeathType::Poisoned,
+            &mut health_events,
         );
         let amount = unit
             .poisoned_behavior
@@ -1614,6 +1786,7 @@ mod tests {
             DamageType::Unresistable,
             crate::game_logic::host_usa_pilot::HostDeathType::Poisoned,
             Some(DamageType::Toxin),
+            &mut health_events,
         );
         let p = unit.poisoned_behavior.as_ref().unwrap();
         assert!(p.is_active());
@@ -1625,15 +1798,32 @@ mod tests {
 
     #[test]
     fn last_damage_skips_zero_and_same_frame_first_write_wins() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         let mut unit = vehicle("StampTank", 71, 200.0);
-        assert!(!unit.take_damage_from_typed(0.0, Some(ObjectId(1)), DamageType::Bullet));
+        assert!(!unit.take_damage_from_typed(
+            0.0,
+            Some(ObjectId(1)),
+            DamageType::Bullet,
+            &mut health_events
+        ));
         assert!(unit.last_damage_source.is_none());
         assert!(unit.last_damage_timestamp.is_none());
 
-        assert!(!unit.take_damage_from_typed(10.0, Some(ObjectId(1)), DamageType::Unresistable));
+        assert!(!unit.take_damage_from_typed(
+            10.0,
+            Some(ObjectId(1)),
+            DamageType::Unresistable,
+            &mut health_events
+        ));
         assert_eq!(unit.last_damage_source, Some(ObjectId(1)));
         let ts = unit.last_damage_timestamp;
-        assert!(!unit.take_damage_from_typed(10.0, Some(ObjectId(2)), DamageType::Unresistable));
+        assert!(!unit.take_damage_from_typed(
+            10.0,
+            Some(ObjectId(2)),
+            DamageType::Unresistable,
+            &mut health_events
+        ));
         assert_eq!(
             unit.last_damage_source,
             Some(ObjectId(1)),
@@ -1644,9 +1834,16 @@ mod tests {
 
     #[test]
     fn healing_copies_last_damage_info_including_source() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         let mut unit = vehicle("HealTank", 72, 200.0);
         unit.health.current = 50.0;
-        assert!(!unit.take_damage_from_typed(20.0, Some(ObjectId(9)), DamageType::Healing));
+        assert!(!unit.take_damage_from_typed(
+            20.0,
+            Some(ObjectId(9)),
+            DamageType::Healing,
+            &mut health_events
+        ));
         assert_eq!(unit.last_damage_source, Some(ObjectId(9)));
         assert!(unit.last_damage_timestamp.is_some());
         assert!(unit.last_healing_timestamp.is_some());
@@ -1654,6 +1851,8 @@ mod tests {
 
     #[test]
     fn inactive_body_fire_field_ignores_hp_unresistable_dies_once() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         let mut field = Object::new(
             ThingTemplate::new("FireFieldSmall"),
             ObjectId(73),
@@ -1663,16 +1862,33 @@ mod tests {
         field.health.maximum = 50.0;
         field.uses_inactive_body = true;
         field.status.effectively_dead = true;
-        assert!(!field.take_damage_from_typed(20.0, Some(ObjectId(1)), DamageType::Bullet));
+        assert!(!field.take_damage_from_typed(
+            20.0,
+            Some(ObjectId(1)),
+            DamageType::Bullet,
+            &mut health_events
+        ));
         assert!((field.health.current - 50.0).abs() < 1e-3);
         assert!(!field.status.destroyed);
-        assert!(field.take_damage_from_typed(1.0, Some(ObjectId(1)), DamageType::Unresistable));
+        assert!(field.take_damage_from_typed(
+            1.0,
+            Some(ObjectId(1)),
+            DamageType::Unresistable,
+            &mut health_events
+        ));
         assert!(field.status.destroyed);
-        assert!(!field.take_damage_from_typed(1.0, Some(ObjectId(1)), DamageType::Unresistable));
+        assert!(!field.take_damage_from_typed(
+            1.0,
+            Some(ObjectId(1)),
+            DamageType::Unresistable,
+            &mut health_events
+        ));
     }
 
     #[test]
     fn stinger_small_arms_and_sniper_hit_slaves_not_structure() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         use crate::game_logic::host_base_defense::{
             HostHiveDamageClass, hive_damage_class_for_type, init_stinger_hive_slave_roster,
             sync_hive_slave_mirrors,
@@ -1695,7 +1911,12 @@ mod tests {
         let (c, h) = sync_hive_slave_mirrors(&site.hive_slaves);
         site.hive_slave_count = c;
         site.hive_slave_hp = h;
-        assert!(!site.take_damage_from_typed(40.0, Some(ObjectId(5)), DamageType::Bullet));
+        assert!(!site.take_damage_from_typed(
+            40.0,
+            Some(ObjectId(5)),
+            DamageType::Bullet,
+            &mut health_events
+        ));
         assert!((site.health.current - 1000.0).abs() < 0.01);
         assert!((site.hive_slave_hp - 60.0).abs() < 0.01);
         assert_eq!(site.hive_slave_count, 3);
@@ -1705,7 +1926,12 @@ mod tests {
         empty.hive_slave_count = 0;
         empty.hive_slave_hp = 0.0;
         empty.health.current = 1000.0;
-        assert!(!empty.take_damage_from_typed(200.0, Some(ObjectId(5)), DamageType::Sniper));
+        assert!(!empty.take_damage_from_typed(
+            200.0,
+            Some(ObjectId(5)),
+            DamageType::Sniper,
+            &mut health_events
+        ));
         assert!((empty.health.current - 1000.0).abs() < 0.01);
     }
 
@@ -1739,6 +1965,8 @@ mod tests {
 
     #[test]
     fn undead_second_life_restores_final_pristine_body_and_model_state() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         use crate::game_logic::host_battle_bus::BATTLE_BUS_SECOND_LIFE_MAX_HEALTH;
         use crate::game_logic::host_enum_table_residual::{
             HostBodyDamageType, MC_BIT_DAMAGED, MC_BIT_REALLYDAMAGED, MC_BIT_RUBBLE,
@@ -1765,7 +1993,12 @@ mod tests {
                 damage_fx: None,
             });
         assert_eq!(bus.body_damage_state, HostBodyDamageType::Pristine);
-        assert!(!bus.take_damage_from_typed(200.0, None, DamageType::Explosive));
+        assert!(!bus.take_damage_from_typed(
+            200.0,
+            None,
+            DamageType::Explosive,
+            &mut health_events
+        ));
         assert!(bus.armor_set_second_life);
         assert_eq!(bus.health.maximum, BATTLE_BUS_SECOND_LIFE_MAX_HEALTH);
         assert_eq!(bus.health.current, BATTLE_BUS_SECOND_LIFE_MAX_HEALTH);
@@ -1780,6 +2013,8 @@ mod tests {
 
     #[test]
     fn undead_body_intercepts_on_raw_amount_not_post_armor() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         // C++ UndeadBody.cpp:58-64 compares damageInfo->in.m_amount PRE-armor.
         // Flame 0.1 vs 50 HP: raw 200 intercepts even though 20 post-armor would not kill.
         register_coeff_armor("BusFlameArmor", gamelogic::damage::DamageType::Flame, 0.1);
@@ -1795,7 +2030,7 @@ mod tests {
                 armor: Some("BusFlameArmor".into()),
                 damage_fx: None,
             });
-        assert!(!bus.take_damage_from_typed(200.0, None, DamageType::Flame));
+        assert!(!bus.take_damage_from_typed(200.0, None, DamageType::Flame, &mut health_events));
         assert!(
             bus.armor_set_second_life,
             "raw 200 >= 50 must start second life despite 0.1 flame armor"
@@ -1805,6 +2040,8 @@ mod tests {
 
     #[test]
     fn undead_body_does_not_intercept_when_raw_below_health() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         // >100% coefficient: raw 40 < 50, post-armor 80 would kill — C++ does not intercept.
         register_coeff_armor(
             "BusVulnArmor",
@@ -1823,7 +2060,8 @@ mod tests {
                 armor: Some("BusVulnArmor".into()),
                 damage_fx: None,
             });
-        let killed = bus.take_damage_from_typed(40.0, None, DamageType::Explosive);
+        let killed =
+            bus.take_damage_from_typed(40.0, None, DamageType::Explosive, &mut health_events);
         assert!(
             killed,
             "raw 40 < health must not intercept; 2.0 armor should kill"
@@ -1833,6 +2071,8 @@ mod tests {
 
     #[test]
     fn highlander_clamps_raw_then_applies_armor() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         // C++ HighlanderBody.cpp:33-36: min(raw, health-1) then ActiveBody armor.
         // 999 raw → 49, * 0.25 flame = 12.25, HP 37.75. Post-armor clamp would leave 1.
         register_coeff_armor("TreeFlameArmor", gamelogic::damage::DamageType::Flame, 0.25);
@@ -1846,7 +2086,7 @@ mod tests {
                 armor: Some("TreeFlameArmor".into()),
                 damage_fx: None,
             });
-        assert!(!tree.take_damage_from_typed(999.0, None, DamageType::Flame));
+        assert!(!tree.take_damage_from_typed(999.0, None, DamageType::Flame, &mut health_events));
         assert!(
             (tree.health.current - 37.75).abs() < 0.05,
             "raw clamp then 0.25 armor must leave 37.75, got {}",
@@ -1857,6 +2097,8 @@ mod tests {
 
     #[test]
     fn highlander_over100_coeff_can_die_from_non_unresistable() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         // C++ clamps raw only: 40 < 49 so no clamp, *2.0 = 80 kills.
         register_coeff_armor(
             "TreeVulnArmor",
@@ -1873,22 +2115,34 @@ mod tests {
                 armor: Some("TreeVulnArmor".into()),
                 damage_fx: None,
             });
-        assert!(tree.take_damage_from_typed(40.0, None, DamageType::Explosive));
+        assert!(tree.take_damage_from_typed(40.0, None, DamageType::Explosive, &mut health_events));
         assert!(tree.status.destroyed);
     }
 
     #[test]
     fn indestructible_bails_before_hp() {
+        let mut health_events = crate::game_logic::HostHealthEvents::default();
+
         // C++ ActiveBody.cpp:329-330: m_indestructible returns before armor/HP.
         let mut o = vehicle("ScriptProp", 95, 100.0);
         o.set_indestructible(true);
-        assert!(!o.take_damage_from_typed(50.0, None, DamageType::Explosive));
+        assert!(!o.take_damage_from_typed(50.0, None, DamageType::Explosive, &mut health_events));
         assert!((o.health.current - 100.0).abs() < 1e-3);
-        assert!(!o.take_damage_from_typed(999.0, None, DamageType::Unresistable));
+        assert!(!o.take_damage_from_typed(
+            999.0,
+            None,
+            DamageType::Unresistable,
+            &mut health_events
+        ));
         assert!((o.health.current - 100.0).abs() < 1e-3);
         assert!(!o.status.destroyed);
         o.set_indestructible(false);
-        assert!(!o.take_damage_from_typed(10.0, None, DamageType::Unresistable));
+        assert!(!o.take_damage_from_typed(
+            10.0,
+            None,
+            DamageType::Unresistable,
+            &mut health_events
+        ));
         assert!((o.health.current - 90.0).abs() < 1e-3);
     }
 }

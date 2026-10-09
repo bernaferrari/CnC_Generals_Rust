@@ -2394,7 +2394,7 @@ impl PresentationFrame {
     pub fn build_from_gameworld(
         shadow: &crate::gameworld_shadow::GameWorldShadow,
         local_player_id: u32,
-        host: Option<&GameLogic>,
+        host: Option<&mut GameLogic>,
     ) -> Self {
         Self::build_from_gameworld_with_runtime_heightmap_and_discharges(
             shadow,
@@ -2410,7 +2410,7 @@ impl PresentationFrame {
     pub(crate) fn build_from_gameworld_with_runtime_heightmap(
         shadow: &crate::gameworld_shadow::GameWorldShadow,
         local_player_id: u32,
-        host: Option<&GameLogic>,
+        host: Option<&mut GameLogic>,
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
     ) -> Self {
         Self::build_from_gameworld_with_runtime_heightmap_and_discharges(
@@ -2425,11 +2425,11 @@ impl PresentationFrame {
     fn build_from_gameworld_with_runtime_heightmap_and_discharges(
         shadow: &crate::gameworld_shadow::GameWorldShadow,
         local_player_id: u32,
-        host: Option<&GameLogic>,
+        mut host: Option<&mut GameLogic>,
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
         discharges: Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent>,
     ) -> Self {
-        let mut frame = if let Some(logic) = host {
+        let mut frame = if let Some(logic) = host.as_deref_mut() {
             Self::build_from_logic_with_tint_update(
                 logic,
                 local_player_id,
@@ -2440,7 +2440,7 @@ impl PresentationFrame {
         } else {
             // A no-host shell frame cannot reuse a host terrain payload.
             let mut f = Self::build_from_logic_with_tint_update(
-                &GameLogic::new(),
+                &mut GameLogic::new(),
                 local_player_id,
                 None,
                 false,
@@ -2452,7 +2452,7 @@ impl PresentationFrame {
         };
         let host_objects = std::mem::take(&mut frame.objects);
         let gw_n = frame.rebuild_objects_from_gameworld(shadow);
-        if let Some(logic) = host {
+        if let Some(logic) = host.as_deref() {
             frame.bind_draw_playback_handles_from_host(logic);
         }
         // Wave 838: keep host objects when shadow yields nothing.
@@ -2461,7 +2461,7 @@ impl PresentationFrame {
             let _ = frame.overlay_gameworld_shadow(shadow);
         }
         // Wave 498: host FX residual survives GameWorld object rebuild.
-        if let Some(logic) = host {
+        if let Some(logic) = host.as_deref() {
             let _ = frame.overlay_host_fx_residual(logic);
         }
         // Wave 500: object FX residual names → particle list after host FX stamp.
@@ -2484,7 +2484,7 @@ impl PresentationFrame {
     /// Callers must `sync_from_host` before this when a shadow is provided.
     /// Fail-closed: not full GameWorld authority cutover / playable_claim.
     pub fn build_for_engine(
-        logic: &GameLogic,
+        logic: &mut GameLogic,
         local_player_id: u32,
         shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
     ) -> Self {
@@ -2494,7 +2494,7 @@ impl PresentationFrame {
     /// Engine-only presentation build retaining one cached full terrain payload
     /// for every frame in a terrain revision.
     pub(crate) fn build_for_engine_with_runtime_heightmap(
-        logic: &GameLogic,
+        logic: &mut GameLogic,
         local_player_id: u32,
         shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
@@ -2535,7 +2535,7 @@ impl PresentationFrame {
     }
 
     fn build_for_engine_with_runtime_heightmap_and_discharges(
-        logic: &GameLogic,
+        logic: &mut GameLogic,
         local_player_id: u32,
         shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
@@ -2663,7 +2663,7 @@ mod overlay_sw_owner_tests {
             p.shared_special_power_cooldowns = vec![("ParticleCannon".into(), 77.0)];
         }
 
-        let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+        let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
         frame.superweapon_timers.clear();
         frame.superweapon_timers.push(PresentationSuperweaponTimer {
             name: "PUC".into(),

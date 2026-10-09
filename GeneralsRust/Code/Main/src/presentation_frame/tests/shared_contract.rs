@@ -9,7 +9,7 @@ fn shared_hud_contract_borrows_frozen_values_and_updates_live_ui() {
     let mut logic = GameLogic::new();
     let config = golden_skirmish_config("PresentationContract");
     apply_skirmish_config(&mut logic, &config).expect("skirmish config");
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
 
     let hud = frame.hud_read_model();
     assert!(std::ptr::eq(hud.players.as_ptr(), frame.players.as_ptr()));

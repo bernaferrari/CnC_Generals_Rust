@@ -124,6 +124,7 @@ impl GameLogic {
                         death_ty,
                         Some(crate::game_logic::host_poisoned_behavior::poison_dot_fx_override()),
                         self.frame,
+                        &mut self.health_events,
                     );
                     if killed {
                         poison_kill = true;
@@ -330,7 +331,9 @@ impl GameLogic {
                     .objects
                     .get_mut(&object_id)
                     .and_then(|o| o.take_pending_fire_when_damaged_weapon());
-                let damage_events: Vec<_> = crate::game_logic::host_damage_log::snapshot()
+                let damage_events: Vec<_> = self
+                    .health_events
+                    .snapshot_damage()
                     .into_iter()
                     .filter(|event| event.target == object_id)
                     .collect();
@@ -788,7 +791,7 @@ impl GameLogic {
     fn apply_host_attacked_by_from_damage(&mut self) {
         let queued = crate::game_logic::host_transition_damage_fx::take_pending_attacked_by();
         let mut pairs: Vec<(u32, ObjectId)> = queued;
-        for event in crate::game_logic::host_damage_log::snapshot() {
+        for event in self.health_events.snapshot_damage() {
             if let Some(src) = event.source {
                 if let Some(victim) = self.objects.get(&event.target) {
                     if let Some(vp) = victim.owner_player_id {

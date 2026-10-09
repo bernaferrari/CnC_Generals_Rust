@@ -90,7 +90,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -255,8 +255,13 @@ impl GameLogic {
                 } else {
                     (SCORPION_GUN_DAMAGE_TYPE, SCORPION_GUN_DEATH_TYPE)
                 };
-                let destroyed =
-                    obj.take_damage_from_immediate_residual(dmg, source, dt_name, death_name);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    dt_name,
+                    death_name,
+                    &mut self.health_events,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -397,7 +402,11 @@ impl GameLogic {
                 Some(self.frame.saturating_add(TOMAHAWK_FUEL_LIFETIME_FRAMES));
             o.note_producer(source_id);
             o.health.maximum = TOMAHAWK_MISSILE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, TOMAHAWK_MISSILE_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                TOMAHAWK_MISSILE_MAX_HEALTH,
+                &mut self.health_events,
+            );
             o.movement.velocity = vel;
             o.set_orientation(dir.z.atan2(dir.x));
             o.height_die = Some(HostHeightDieData::with_target(
@@ -513,7 +522,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -680,6 +689,7 @@ impl GameLogic {
                     source,
                     TOMAHAWK_DAMAGE_TYPE,
                     TOMAHAWK_DEATH_TYPE,
+                    &mut self.health_events,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -849,7 +859,11 @@ impl GameLogic {
             );
             o.note_producer(source_id);
             o.health.maximum = RAPTOR_MISSILE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, RAPTOR_MISSILE_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                RAPTOR_MISSILE_MAX_HEALTH,
+                &mut self.health_events,
+            );
             o.movement.velocity = dir * launch;
             o.set_orientation(dir.z.atan2(dir.x));
         }
@@ -946,7 +960,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -1090,6 +1104,7 @@ impl GameLogic {
                     source,
                     RAPTOR_DAMAGE_TYPE,
                     RAPTOR_DEATH_TYPE,
+                    &mut self.health_events,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -1274,7 +1289,11 @@ impl GameLogic {
                 Some(self.frame.saturating_add(MIG_MISSILE_IGNITION_DELAY_FRAMES));
             o.note_producer(source_id);
             o.health.maximum = MIG_MISSILE_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, MIG_MISSILE_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                MIG_MISSILE_MAX_HEALTH,
+                &mut self.health_events,
+            );
             o.movement.velocity = dir * launch;
             o.set_orientation(dir.z.atan2(dir.x));
         }
@@ -1367,7 +1386,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -1525,8 +1544,13 @@ impl GameLogic {
                     }
                     MigLoadout::Standard => (MIG_DAMAGE_TYPE, MIG_DEATH_TYPE),
                 };
-                let destroyed =
-                    obj.take_damage_from_immediate_residual(dmg, source, dt_name, death_name);
+                let destroyed = obj.take_damage_from_immediate_residual(
+                    dmg,
+                    source,
+                    dt_name,
+                    death_name,
+                    &mut self.health_events,
+                );
                 hits = hits.saturating_add(1);
                 if destroyed {
                     any_destroyed = true;
@@ -1672,7 +1696,11 @@ impl GameLogic {
             o.fire_base_shell_intended = intended.map(|id| id.0);
             o.note_producer(source_id);
             o.health.maximum = FIRE_BASE_SHELL_MAX_HEALTH;
-            Self::write_object_health_authority_aware(o, FIRE_BASE_SHELL_MAX_HEALTH);
+            Self::write_object_health_authority_aware(
+                o,
+                FIRE_BASE_SHELL_MAX_HEALTH,
+                &mut self.health_events,
+            );
         }
         self.fire_base_shells_spawned = self.fire_base_shells_spawned.saturating_add(1);
         Some(pid)
@@ -1739,7 +1767,7 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_damage_authority_live() {
                     let hp = o.health.current.max(1.0);
                     let oid = o.id;
-                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                    self.health_events.record_damage(oid, hp, None, true);
                 } else {
                     o.health.current = 0.0;
                 }
@@ -1876,6 +1904,7 @@ impl GameLogic {
                     source,
                     FIRE_BASE_DAMAGE_TYPE,
                     FIRE_BASE_DEATH_TYPE,
+                    &mut self.health_events,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {

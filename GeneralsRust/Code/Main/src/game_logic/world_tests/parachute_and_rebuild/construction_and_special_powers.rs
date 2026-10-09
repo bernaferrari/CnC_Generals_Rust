@@ -336,7 +336,6 @@ fn resume_construction_crosses_the_scaffold_obstacle() {
     );
 }
 
-
 #[test]
 fn resume_construction_allows_dead_or_retasked_builder() {
     // C++ ActionManager.cpp:458-485 — stale exclusive builder must not freeze resume.
@@ -2025,7 +2024,7 @@ fn presentation_structure_sw_timer_uses_object_cooldown() {
         p.shared_special_power_cooldowns
             .insert(SpecialPowerType::ParticleCannon, 1.0);
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let row = frame
         .superweapon_timers()
         .iter()
@@ -2043,7 +2042,7 @@ fn presentation_structure_sw_timer_uses_object_cooldown() {
     // InstantDeath immediate-removal path (no death-animation deferral).
     logic.destroy_object(id);
     logic.process_destroy_list();
-    let frame2 = PresentationFrame::build_from_logic(&logic, 1);
+    let frame2 = PresentationFrame::build_from_logic(&mut logic, 1);
     assert!(
         frame2
             .superweapon_timers()
@@ -2426,6 +2425,7 @@ fn countermeasures_diverts_projectile_direct_hits() {
             &mut logic.objects,
             Some(&mut logic.countermeasures),
             1000 + i,
+            &mut logic.health_events,
         );
     }
     assert!(

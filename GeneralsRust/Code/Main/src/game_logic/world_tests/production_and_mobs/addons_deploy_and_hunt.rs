@@ -1645,11 +1645,14 @@ fn battle_bus_undead_body_first_life_converts_to_second_life() {
     }
     // Lethal explosion should intercept → second life 650 HP full.
     let killed = {
-        let bus = game_logic.host_object_mut(bus_id).unwrap();
+        let (bus, health_events) = game_logic
+            .host_object_and_health_events_mut(bus_id)
+            .unwrap();
         bus.take_damage_from_typed(
             500.0,
             None,
             crate::game_logic::combat::DamageType::Explosive,
+            health_events,
         )
     };
     assert!(!killed, "UndeadBody must intercept first lethal hit");
@@ -1712,11 +1715,14 @@ fn battle_bus_undead_damages_passengers_and_empty_hulk_destroys() {
         r.contained_by = Some(bus_id);
     }
     let _ = {
-        let bus = game_logic.host_object_mut(bus_id).unwrap();
+        let (bus, health_events) = game_logic
+            .host_object_and_health_events_mut(bus_id)
+            .unwrap();
         bus.take_damage_from_typed(
             999.0,
             None,
             crate::game_logic::combat::DamageType::Explosive,
+            health_events,
         )
     };
     // First tick applies 50% passenger damage.
@@ -1769,11 +1775,14 @@ fn battle_bus_unresistable_bypasses_undead_body() {
         bus.template_mut().armor = 0.0;
     }
     let killed = {
-        let bus = game_logic.host_object_mut(bus_id).unwrap();
+        let (bus, health_events) = game_logic
+            .host_object_and_health_events_mut(bus_id)
+            .unwrap();
         bus.take_damage_from_typed(
             500.0,
             None,
             crate::game_logic::combat::DamageType::Unresistable,
+            health_events,
         )
     };
     assert!(killed, "UNRESISTABLE must bypass UndeadBody");
@@ -1804,11 +1813,12 @@ fn highlander_body_clamps_normal_and_penalty_damage_unresistable_kills() {
         o.health.current = 50.0;
     }
     let killed = {
-        let o = game_logic.host_object_mut(id).unwrap();
+        let (o, health_events) = game_logic.host_object_and_health_events_mut(id).unwrap();
         o.take_damage_from_typed(
             999.0,
             None,
             crate::game_logic::combat::DamageType::Explosive,
+            health_events,
         )
     };
     assert!(!killed);
@@ -1835,8 +1845,15 @@ fn highlander_body_clamps_normal_and_penalty_damage_unresistable_kills() {
         penalty.health.current = 50.0;
     }
     let penalty_killed = {
-        let penalty = game_logic.host_object_mut(penalty_id).unwrap();
-        penalty.take_damage_from_typed(999.0, None, crate::game_logic::combat::DamageType::Penalty)
+        let (penalty, health_events) = game_logic
+            .host_object_and_health_events_mut(penalty_id)
+            .unwrap();
+        penalty.take_damage_from_typed(
+            999.0,
+            None,
+            crate::game_logic::combat::DamageType::Penalty,
+            health_events,
+        )
     };
     assert!(
         !penalty_killed,
@@ -1852,11 +1869,12 @@ fn highlander_body_clamps_normal_and_penalty_damage_unresistable_kills() {
 
     // UNRESISTABLE kills.
     let killed2 = {
-        let o = game_logic.host_object_mut(id).unwrap();
+        let (o, health_events) = game_logic.host_object_and_health_events_mut(id).unwrap();
         o.take_damage_from_typed(
             10.0,
             None,
             crate::game_logic::combat::DamageType::Unresistable,
+            health_events,
         )
     };
     assert!(killed2);
@@ -2223,6 +2241,7 @@ fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
         &mut logic.objects,
         102,
         Some(&logic.players),
+        &mut logic.health_events,
     );
     logic.combat_system.update_projectiles_with_relationships(
         LOGIC_FRAME_TIMESTEP,
@@ -2231,6 +2250,7 @@ fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
         102,
         Some(&logic.players),
         Some(&logic.team_factory),
+        &mut logic.health_events,
     );
     assert!(
         logic.host_object(target_id).unwrap().health.current < hp_before,

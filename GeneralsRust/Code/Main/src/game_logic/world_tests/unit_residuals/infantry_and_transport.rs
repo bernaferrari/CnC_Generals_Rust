@@ -1364,12 +1364,17 @@ fn fire_weapon_when_damaged_reaction_splash() {
         .create_object("Ranger", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
         .unwrap();
     {
-        let b = logic.objects.get_mut(&bid).unwrap();
+        let (objects, health_events) = (&mut logic.objects, &mut logic.health_events);
+        let b = objects.get_mut(&bid).unwrap();
         b.fire_weapon_when_damaged =
             Some(HostFireWeaponWhenDamagedData::battleship_target_residual());
         b.health.current = 500.0;
-        let _ =
-            b.take_damage_from_typed(50.0, None, crate::game_logic::combat::DamageType::Explosive);
+        let _ = b.take_damage_from_typed(
+            50.0,
+            None,
+            crate::game_logic::combat::DamageType::Explosive,
+            health_events,
+        );
         assert!(
             b.pending_fire_when_damaged_weapon.is_some(),
             "reaction should queue"
@@ -2125,7 +2130,7 @@ fn create_object_die_spawns_on_lifetime_expiry() {
         if crate::gameworld_shadow::gameworld_damage_authority_live() {
             let hp = o.health.current.max(1.0);
             let oid = o.id;
-            crate::game_logic::host_damage_log::record(oid, hp, None, true);
+            logic.health_events.record_damage(oid, hp, None, true);
         } else {
             o.health.current = 0.0;
         }
@@ -2250,11 +2255,17 @@ fn water_edge_damage_on_dry_to_wet_transition() {
     // call internal edge path with manual pre/post.
     // Direct residual: mark wet + apply Water damage as rise residual.
     {
-        let o = logic.objects.get_mut(&id).unwrap();
+        let (objects, health_events) = (&mut logic.objects, &mut logic.health_events);
+        let o = objects.get_mut(&id).unwrap();
         let was = o.cell_is_underwater;
         o.cell_is_underwater = true;
         assert!(!was);
-        let _ = o.take_damage_from_typed(25.0, None, crate::game_logic::combat::DamageType::Water);
+        let _ = o.take_damage_from_typed(
+            25.0,
+            None,
+            crate::game_logic::combat::DamageType::Water,
+            health_events,
+        );
     }
     let hp = logic.objects.get(&id).unwrap().health.current;
     assert!((hp - 75.0).abs() < 1e-3, "hp={hp}");

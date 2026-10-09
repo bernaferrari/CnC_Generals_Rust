@@ -1,8 +1,12 @@
 use super::*;
 
 impl Object {
-    pub fn take_damage(&mut self, damage: f32) -> bool {
-        self.take_damage_from(damage, None)
+    pub fn take_damage(
+        &mut self,
+        damage: f32,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+    ) -> bool {
+        self.take_damage_from(damage, None, health_events)
     }
 
     /// Apply damage with optional C++ BodyModule last-damage-source residual.
@@ -237,7 +241,7 @@ impl Object {
         let collision_angle = self.relative_angle_2d_to(them);
         let other_angle = other.relative_angle_2d_to(us);
         let mut angle_limit = std::f32::consts::FRAC_PI_4; // 45 deg
-                                                           // C++ otherMoving is locomotorGoalType != NONE, not current velocity.
+        // C++ otherMoving is locomotorGoalType != NONE, not current velocity.
         let other_moving = other.locomotor_goal_type != super::LocoGoalType::None;
         if !other_moving {
             angle_limit *= 0.75;
@@ -520,8 +524,8 @@ impl Object {
         let mut mod_force = force;
         if self.is_motive() {
             let dir = self.unit_direction_vector_2d(); // (x,z)
-                                                       // C++ lateralDot = force.x * (-dir.y) + force.y * dir.x
-                                                       // Host: force.x * (-dir.z_comp) + force.z * dir.x where dir=(x,z)
+            // C++ lateralDot = force.x * (-dir.y) + force.y * dir.x
+            // Host: force.x * (-dir.z_comp) + force.z * dir.x where dir=(x,z)
             let lateral_dot = force.x * (-dir.y) + force.z * dir.x;
             mod_force.x = lateral_dot * (-dir.y);
             mod_force.z = lateral_dot * dir.x;
@@ -1590,7 +1594,7 @@ impl Object {
             let nz = -v.z * inv;
             // If already leaving (dot with correction > 0.25), skip.
             let leaving = v.x * nx + v.z * nz; // nx opposite vel so leaving is negative of progress
-                                               // correction direction is opposite into-invalid → along -velocity when moving in
+            // correction direction is opposite into-invalid → along -velocity when moving in
             if leaving > 0.25 {
                 return false;
             }
@@ -1898,11 +1902,7 @@ impl Object {
         let vz = v.z * dir.y;
         let dot = vx + vz;
         let speed = (vx * vx + vz * vz).sqrt();
-        if dot >= 0.0 {
-            speed
-        } else {
-            -speed
-        }
+        if dot >= 0.0 { speed } else { -speed }
     }
 
     /// C++ getAerodynamicFriction residual (clamped).

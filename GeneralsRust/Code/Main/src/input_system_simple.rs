@@ -205,7 +205,7 @@ impl SimpleInputProcessor {
     /// Select all player units asynchronously
 
     fn select_all_units_async(&mut self, game_logic: &mut GameLogic) -> Result<()> {
-        let logic = game_logic;
+        let mut logic = game_logic;
 
         // Wave 953: presentation-only select-all (no live get_objects dual-read).
         let mut all_units = Vec::new();
@@ -223,7 +223,7 @@ impl SimpleInputProcessor {
 
     /// Delete selected units asynchronously
     fn delete_selected_units_async(&mut self, game_logic: &mut GameLogic) -> Result<()> {
-        let logic = game_logic;
+        let mut logic = game_logic;
 
         let selected_objects = if let Some(player) = logic.get_player(self.local_player_id) {
             player.selected_objects.clone()
@@ -250,7 +250,7 @@ impl SimpleInputProcessor {
 
     /// Toggle game pause asynchronously
     fn toggle_pause_async(&mut self, game_logic: &mut GameLogic) -> Result<()> {
-        let logic = game_logic;
+        let mut logic = game_logic;
         let is_paused = logic.is_paused();
         logic.set_paused(!is_paused);
 
@@ -266,7 +266,7 @@ impl SimpleInputProcessor {
     /// Cycle through units asynchronously
 
     fn cycle_units_async(&mut self, game_logic: &mut GameLogic) -> Result<()> {
-        let logic = game_logic;
+        let mut logic = game_logic;
 
         // Wave 953: presentation-only unit cycle (no live get_objects dual-read).
         let mut all_units: Vec<ObjectId> = if let Some(frame) = self.presentation_frame.as_ref() {
@@ -314,7 +314,7 @@ impl SimpleInputProcessor {
         group_num: u8,
         game_logic: &mut GameLogic,
     ) -> Result<()> {
-        let logic = game_logic;
+        let mut logic = game_logic;
 
         let selected_objects = if let Some(player) = logic.get_player(self.local_player_id) {
             player.selected_objects.clone()
@@ -350,7 +350,7 @@ impl SimpleInputProcessor {
             return Ok(());
         };
 
-        let logic = game_logic;
+        let mut logic = game_logic;
         // Wave 953: control-group filter presentation-only (fail-closed without freeze).
         // C++ SELECT_TEAM: getLiveObjects / isSelectable — not CanSelectDrawable.
         let mut selection = Vec::new();
@@ -387,7 +387,7 @@ impl SimpleInputProcessor {
         shift_held: bool,
         game_logic: &mut GameLogic,
     ) -> Result<()> {
-        let logic = game_logic;
+        let mut logic = game_logic;
 
         // Wave 953: pick + friendly classify presentation-only.
         let clicked_object = self.find_object_at_position(world_pos, &logic);
@@ -439,7 +439,7 @@ impl SimpleInputProcessor {
         world_pos: Vec3,
         game_logic: &mut GameLogic,
     ) -> Result<()> {
-        let logic = game_logic;
+        let mut logic = game_logic;
 
         // Get currently selected units
         let selected_objects = if let Some(player) = logic.get_player(self.local_player_id) {
@@ -628,7 +628,7 @@ mod tests {
         let id = logic
             .create_object("SipUnit", Team::USA, glam::Vec3::new(10.0, 0.0, 20.0))
             .expect("id");
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         // Poison live pose — presentation must win.
         if let Some(obj) = logic.host_object_mut(id) {
             obj.set_position(glam::Vec3::new(9999.0, 0.0, 9999.0));

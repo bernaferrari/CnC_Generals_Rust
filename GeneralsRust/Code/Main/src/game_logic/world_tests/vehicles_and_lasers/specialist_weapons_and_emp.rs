@@ -720,7 +720,7 @@ fn supw_patriot_emp_residual_dual_slot_and_disable() {
             w.last_fire_time = -10.0;
         }
     }
-    crate::game_logic::host_damage_log::clear();
+    game_logic.health_events.clear_damage();
     game_logic.frame = 30;
     for _ in 0..30 {
         game_logic.try_base_defense_residual_fire(pat_id);
@@ -732,7 +732,7 @@ fn supw_patriot_emp_residual_dual_slot_and_disable() {
     }
 
     let hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
-    let dealt = test_observed_damage_to(enemy_id, hp_before, hp_after);
+    let dealt = test_observed_damage_to(&game_logic.health_events, enemy_id, hp_before, hp_after);
     assert!(
         dealt > 0.0 || hp_after < hp_before,
         "SupW Patriot ground residual must damage (dealt={dealt}, before={hp_before} after={hp_after})"
@@ -756,7 +756,7 @@ fn supw_patriot_emp_residual_dual_slot_and_disable() {
     if let Some(e) = game_logic.host_object_mut(enemy_id) {
         e.set_position(Vec3::new(5000.0, 0.0, 0.0));
     }
-    crate::game_logic::host_damage_log::clear();
+    game_logic.health_events.clear_damage();
     let air_hp_before = game_logic.host_object(air_id).unwrap().health.current;
     {
         let p = game_logic.host_object_mut(pat_id).unwrap();
@@ -778,7 +778,12 @@ fn supw_patriot_emp_residual_dual_slot_and_disable() {
     }
 
     let air_hp_after = game_logic.host_object(air_id).unwrap().health.current;
-    let dealt_aa = test_observed_damage_to(air_id, air_hp_before, air_hp_after);
+    let dealt_aa = test_observed_damage_to(
+        &game_logic.health_events,
+        air_id,
+        air_hp_before,
+        air_hp_after,
+    );
     assert!(
         dealt_aa > 0.0 || air_hp_after < air_hp_before,
         "SupW Patriot AA residual must damage aircraft (dealt={dealt_aa}, before={air_hp_before} after={air_hp_after})"
