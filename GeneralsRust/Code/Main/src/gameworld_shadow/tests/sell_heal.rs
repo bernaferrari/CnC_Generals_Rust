@@ -37,11 +37,11 @@ fn angry_mob_pdl_damage_source_authority_source() {
             "fn update_nuclear_tanks_radiation_zones",
             // Live radiation residual routes through take_radiation_field_tick
             // with the detonating vehicle as damage source.
-            "take_radiation_field_tick(hit.damage, Some(plan.source_object))",
+            "take_radiation_field_tick(hit.damage,Some(plan.source_object),&mutself.health_events",
         ),
         (
             "fn update_nuke_cannon_radiation_zones",
-            "take_radiation_field_tick(hit.damage, Some(plan.source_object))",
+            "take_radiation_field_tick(hit.damage,Some(plan.source_object),&mutself.health_events",
         ),
         (
             "fn update_toxin_tractor_poison_zones",
@@ -68,9 +68,10 @@ fn angry_mob_pdl_damage_source_authority_source() {
             }
             j += 1;
         };
-        let w = &src[i..=end];
+        let w: String = src[i..=end].split_whitespace().collect();
+        let token: String = token.split_whitespace().collect();
         assert!(
-            w.contains(token),
+            w.contains(&token),
             "{fn_name} must source-attribute residual damage via {token}"
         );
     }
@@ -661,15 +662,15 @@ fn lethal_hp_and_rebuild_start_damage_authority_source() {
     for (fn_name, token) in [
         (
             "fn apply_vehicle_crash_into_immobile",
-            "health_events.record_damage",
+            "self.health_events.record_damage",
         ),
         (
             "fn destroy_eject_parachute_midair",
-            "health_events.record_damage",
+            "self.health_events.record_damage",
         ),
         (
             "fn tick_eject_parachute_residual",
-            "health_events.record_damage",
+            "self.health_events.record_damage",
         ),
         (
             "fn update_rebuild_holes",
@@ -696,7 +697,7 @@ fn lethal_hp_and_rebuild_start_damage_authority_source() {
             }
             j += 1;
         };
-        let w = &src[i..=end];
+        let w: String = src[i..=end].split_whitespace().collect();
         assert!(
             w.contains(token)
                 && (w.contains("gameworld_damage_authority")
@@ -774,15 +775,16 @@ fn suicide_consume_destroy_damage_authority_source() {
             && src.contains("fn mark_object_destroyed_authority_aware"),
         "destroy authority helpers must exist"
     );
+    let compact: String = src.split_whitespace().collect();
     for token in [
-        "mark_destroyed_authority_aware(object_id, None)",
-        "mark_destroyed_authority_aware(source_id, Some(source_id))",
-        "mark_object_destroyed_authority_aware(car, Some(car_id))",
-        "mark_object_destroyed_authority_aware(obj, Some(unit_id))",
-        "mark_object_destroyed_authority_aware(source, None)",
+        "mark_destroyed_authority_aware(object_id,None)",
+        "mark_destroyed_authority_aware(source_id,Some(source_id))",
+        "mark_object_destroyed_authority_aware(car,Some(car_id),&mutself.health_events",
+        "mark_object_destroyed_authority_aware(obj,Some(unit_id),&mutself.health_events",
+        "mark_object_destroyed_authority_aware(source,None,&mutself.health_events",
     ] {
         assert!(
-            src.contains(token),
+            compact.contains(token),
             "expected destroy residual peel {token}"
         );
     }

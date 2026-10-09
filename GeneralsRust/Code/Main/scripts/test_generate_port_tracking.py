@@ -33,6 +33,38 @@ EXPECTED_GUI_HINTS = {
 
 
 class GeneratePortTrackingTests(unittest.TestCase):
+    def test_upgrade_hint_targets_the_canonical_ini_callback(self) -> None:
+        key = ("Source", "Common/INI/INIUpgrade.cpp")
+        destination = "Common/src/common/ini/ini.rs"
+        self.assertEqual(tracking.MANUAL_CPP_TO_RUST[key], destination)
+        source = (SCRIPT_DIR.parents[2] / "Code/GameEngine" / destination).read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("center.parse_upgrade_definition(ini)", source)
+
+    def test_missing_reports_end_with_one_newline(self) -> None:
+        for subsystems in [(), ("Common",), ("Common", "GameLogic")]:
+            with self.subTest(subsystems=subsystems), tempfile.TemporaryDirectory() as temp:
+                path = Path(temp) / "missing.txt"
+                rows = [
+                    tracking.MappingRow(
+                        kind="Source",
+                        source_rel=Path(subsystem) / "Missing.cpp",
+                        subsystem=subsystem,
+                        status=tracking.SOURCE_STATUS_MISSING,
+                        mapped_rel=None,
+                    )
+                    for subsystem in subsystems
+                ]
+                tracking.write_missing(path, rows)
+                report = path.read_text(encoding="utf-8")
+                self.assertTrue(report.endswith("\n"))
+                self.assertFalse(report.endswith("\n\n"))
+                for subsystem in subsystems:
+                    self.assertIn(f"[{subsystem}]\nSource missing:\n", report)
+                if len(subsystems) > 1:
+                    self.assertIn("Include missing:\n\n[GameLogic]", report)
+
     def test_kind_of_case_correct_legacy_hint_wins_over_basename_fallback(self) -> None:
         # These are filename hints, not implementation or behavior evidence.
         destination = Path("Common/src/System/kind_of.rs")

@@ -1088,8 +1088,9 @@ fn residual_auto_fire_damage_source_attribution_source() {
     let src = GAME_LOGIC_HOST_SRC;
     let helper = last_rust_fn_body(src, "residual_auto_fire_apply_damage")
         .expect("residual_auto_fire_apply_damage");
+    let helper: String = helper.split_whitespace().collect();
     assert!(
-        helper.contains("take_damage_from(damage, Some(attacker_id))"),
+        helper.contains("take_damage_from(damage,Some(attacker_id),&mutself.health_events)"),
         "residual auto-fire helper must source-attribute hitscan damage"
     );
     for name in [

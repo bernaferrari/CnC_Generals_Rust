@@ -175,10 +175,10 @@ pub fn shadow_session_after_host_tick(
     let _status_timer_exp = shadow.tick_status_timer_expirations(logic.get_frame());
     // Damage and absolute-health records share one ordered handoff/drain. Keep
     // typed views for existing scoring, fallback, and presentation consumers.
-    let (health_events, early_health_applied) = match logic.health_events.take_early_batch() {
-        Some((events, applied)) => (events, applied),
-        None => (logic.health_events.drain_ordered(), false),
-    };
+    let health_batch = logic.health_events.drain_for_shadow_boundary();
+    let health_events = health_batch.events();
+    let pending_health_events = health_batch.pending_shadow_events();
+    let early_health_applied = !health_batch.shadow_applied_events().is_empty();
     let events: Vec<_> = health_events
         .iter()
         .filter_map(|event| match event {
@@ -632,13 +632,34 @@ pub fn shadow_session_after_host_tick(
     // Match the eager production batch: health follows spawn/destroy admission
     // and precedes max-health/experience. The ordered batch is flushed once;
     // the late scoring/writeback block consumes the receipt without replay.
-    let health_admission = if !early_health_applied && auth {
-        shadow.apply_host_health_events(&health_events)
+    let health_admission = if auth {
+        let (queued, applied, heals) = shadow.apply_host_health_events(pending_health_events);
+        let early_damage = health_batch
+            .shadow_applied_events()
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    crate::game_logic::host_health_log::HostHealthEvent::Damage(_)
+                )
+            })
+            .count();
+        let early_heals = health_batch.shadow_applied_events().len() - early_damage;
+        (
+            early_damage + queued,
+            early_damage + applied,
+            early_heals + heals,
+        )
     } else {
-        if !early_health_applied && !auth {
-            // Keep the existing heal-only path when damage authority is off.
-            let _ = shadow.apply_host_heal_events(&heal_events);
-        }
+        // Keep the existing heal-only path when damage authority is off.
+        let pending_heals: Vec<_> = pending_health_events
+            .iter()
+            .filter_map(|event| match event {
+                crate::game_logic::host_health_log::HostHealthEvent::Heal(event) => Some(*event),
+                crate::game_logic::host_health_log::HostHealthEvent::Damage(_) => None,
+            })
+            .collect();
+        let _ = shadow.apply_host_heal_events(&pending_heals);
         (events.len(), 0, heal_events.len())
     };
     // Wave 686: skip GW re-apply when post-logic eager path already ran.
@@ -2272,13 +2293,8 @@ pub fn shadow_session_after_host_tick(
         let (mut queued, mut applied) = (0usize, 0usize);
         if !health_events.is_empty() {
             // Wave 684/685: consume the ordered health flush receipt.
-            if !early_health_applied {
-                queued = health_admission.0;
-                applied = health_admission.1;
-            } else {
-                queued = events.len();
-                applied = events.len();
-            }
+            queued = health_admission.0;
+            applied = health_admission.1;
             // Host objects with no shadow entity mapping would otherwise lose combat HP.
             // `ev.amount` is already post-armor — apply raw HP via mutation authority (Wave 943).
             if queued < events.len() || early_health_applied {

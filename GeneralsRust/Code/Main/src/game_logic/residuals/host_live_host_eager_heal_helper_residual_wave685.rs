@@ -88,12 +88,12 @@ pub fn honesty_host_eager_heal_helper_source_markers_residual_wave685() -> bool 
     let health_events = include_str!("../host_health_log.rs");
     let api_ok = sh.contains("pub(crate) fn eager_apply_host_health_after_logic")
         && sh.contains("Wave 684/685")
-        && sh.contains("logic.health_events.drain_ordered()")
+        && sh.contains("logic.health_events.drain_for_shadow_boundary()")
         && sh.contains("apply_host_health_events")
-        && sh.contains("logic.health_events.take_early_batch()")
+        && sh.contains("batch.pending_shadow_events()")
         && sh.contains("early_health_applied")
         && health_events.contains("pub struct HostHealthEvents")
-        && health_events.contains("fn drain_ordered(");
+        && health_events.contains("fn drain_for_shadow_boundary(");
     let eng_ok =
         eng.contains("eager_apply_all_host_residuals_after_logic") && eng.contains("Wave 682/925");
     let ok = api_ok && eng_ok && !eng.contains("playable_claim = true");

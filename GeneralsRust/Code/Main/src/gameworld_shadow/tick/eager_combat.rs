@@ -86,11 +86,8 @@ pub(crate) fn eager_apply_host_health_after_logic(
     {
         return 0;
     }
-    let events = logic.health_events.drain_ordered();
-    if events.is_empty() {
-        let _ = logic.health_events.take_early_batch();
-        return 0;
-    }
+    let mut batch = logic.health_events.drain_for_shadow_boundary();
+    let events = batch.pending_shadow_events();
     // A receipt covers the whole ordered batch. If mapping is incomplete,
     // retain it for session admission after spawn instead of applying a prefix
     // and later replaying its damage or claiming the skipped effects completed.
@@ -105,11 +102,14 @@ pub(crate) fn eager_apply_host_health_after_logic(
             .is_some()
     });
     let (damage_queued, damage_applied, heal_queued) = if applied {
-        shadow.apply_host_health_events(&events)
+        shadow.apply_host_health_events(events)
     } else {
         (0, 0, 0)
     };
-    logic.health_events.set_early_batch(events, applied);
+    if applied {
+        batch.mark_shadow_applied();
+    }
+    logic.health_events.set_early_batch(batch);
     damage_queued
         .saturating_add(damage_applied)
         .saturating_add(heal_queued)

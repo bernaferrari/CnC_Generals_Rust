@@ -1448,9 +1448,10 @@ fn superweapon_damage_applies_host_hp() {
     );
     // Facade split: superweapon strikes live in the world_scripts module.
     let gl = include_str!("../../game_logic/world_scripts/special_power_strikes.rs");
+    let gl: String = gl.split_whitespace().collect();
     assert!(
-        gl.contains("take_damage_from_immediate(hit.damage"),
-        "update_special_power_strikes must apply host HP immediately"
+        gl.contains("take_damage_from_immediate_typed_death(hit.damage,Some(plan.source_object),plan.kind.authored_damage_type(),plan.kind.authored_death_type(),&mutself.health_events"),
+        "update_special_power_strikes must apply attributed, typed host HP immediately using its owner's health transport"
     );
 }
 

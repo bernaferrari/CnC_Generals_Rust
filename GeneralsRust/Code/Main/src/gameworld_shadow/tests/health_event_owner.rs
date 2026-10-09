@@ -187,13 +187,13 @@ fn interleaved_eager_and_session_boundaries_keep_the_owners_health_batch() {
         100.0
     );
     assert_eq!(other.host_object(other_id).unwrap().health.current, 100.0);
-    let (batch, applied) = owner
+    let batch = owner
         .health_events
         .take_early_batch()
         .expect("owner receipt retained");
-    assert_eq!(batch.len(), 1);
-    assert!(applied);
-    owner.health_events.set_early_batch(batch, applied);
+    assert_eq!(batch.events().len(), 1);
+    assert_eq!(batch.shadow_applied_events().len(), 1);
+    owner.health_events.set_early_batch(batch);
     let _ = shadow_session_after_host_tick(&mut owner_shadow, &mut owner);
     assert_eq!(
         owner_shadow.world().entity(owner_entity).unwrap().health,
@@ -262,4 +262,135 @@ fn health_event_fallback_admits_unmapped_eager_health_before_new_owner_events() 
     assert_eq!(owner.health_events.snapshot_last_damage().len(), 1);
     run_post_logic_shadow_boundary(None, &mut owner);
     assert_eq!(owner.host_object(id).unwrap().health.current, 70.0);
+}
+
+#[test]
+fn health_handoff_session_admits_events_recorded_after_eager_damage() {
+    let _env = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "1");
+    let (mut owner, id) = admitted_world();
+    owner.set_damage_authority(true);
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&owner);
+    let entity = shadow.entity_for_host(id).unwrap();
+    owner.health_events.record_damage(id, 20.0, None, false);
+    {
+        let _couple = ShadowCoupleGuard::enter();
+        assert!(
+            crate::gameworld_shadow::tick::eager_apply_host_health_after_logic(
+                &mut shadow,
+                &mut owner,
+            ) > 0
+        );
+    }
+    assert_eq!(shadow.world().entity(entity).unwrap().health, 80.0);
+    owner.health_events.record_heal(id, 90.0);
+    owner.health_events.record_damage(id, 20.0, None, false);
+    let _ = shadow_session_after_host_tick(&mut shadow, &mut owner);
+    assert_eq!(owner.host_object(id).unwrap().health.current, 70.0);
+    assert_eq!(shadow.world().entity(entity).unwrap().health, 70.0);
+    assert!(owner.health_events.snapshot_ordered().is_empty());
+    assert!(owner.health_events.take_early_batch().is_none());
+    assert_eq!(owner.health_events.snapshot_last_damage().len(), 2);
+    assert_eq!(owner.health_events.snapshot_last_heal().len(), 1);
+}
+
+#[test]
+fn health_handoff_empty_eager_preserves_an_unmapped_receipt() {
+    let _env = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "1");
+    let (mut owner, id) = admitted_world();
+    owner.set_damage_authority(true);
+    let mut shadow = GameWorldShadow::new(64);
+    owner.health_events.record_heal(id, 90.0);
+    {
+        let _couple = ShadowCoupleGuard::enter();
+        for _ in 0..2 {
+            assert_eq!(
+                crate::gameworld_shadow::tick::eager_apply_host_health_after_logic(
+                    &mut shadow,
+                    &mut owner,
+                ),
+                0
+            );
+        }
+    }
+    owner.health_events.record_damage(id, 20.0, None, false);
+    run_post_logic_shadow_boundary(None, &mut owner);
+    assert_eq!(owner.host_object(id).unwrap().health.current, 70.0);
+    assert_eq!(owner.health_events.snapshot_last_heal().len(), 1);
+    assert_eq!(owner.health_events.snapshot_last_damage().len(), 1);
+    run_post_logic_shadow_boundary(None, &mut owner);
+    assert_eq!(owner.host_object(id).unwrap().health.current, 70.0);
+}
+
+#[test]
+fn health_handoff_repeated_eager_preserves_the_applied_prefix() {
+    let _env = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "1");
+    let (mut owner, id) = admitted_world();
+    owner.set_damage_authority(true);
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&owner);
+    let entity = shadow.entity_for_host(id).unwrap();
+    {
+        let _couple = ShadowCoupleGuard::enter();
+        owner.health_events.record_damage(id, 20.0, None, false);
+        assert!(
+            crate::gameworld_shadow::tick::eager_apply_host_health_after_logic(
+                &mut shadow,
+                &mut owner,
+            ) > 0
+        );
+        assert_eq!(
+            crate::gameworld_shadow::tick::eager_apply_host_health_after_logic(
+                &mut shadow,
+                &mut owner,
+            ),
+            0
+        );
+        owner.health_events.record_damage(id, 10.0, None, false);
+        assert!(
+            crate::gameworld_shadow::tick::eager_apply_host_health_after_logic(
+                &mut shadow,
+                &mut owner,
+            ) > 0
+        );
+    }
+    assert_eq!(shadow.world().entity(entity).unwrap().health, 70.0);
+    let _ = shadow_session_after_host_tick(&mut shadow, &mut owner);
+    assert_eq!(owner.host_object(id).unwrap().health.current, 70.0);
+    assert_eq!(owner.health_events.snapshot_last_damage().len(), 2);
+    assert_eq!(owner.health_events.cumulative_totals(), (30.0, 0));
+    assert!(owner.health_events.snapshot_ordered().is_empty());
+    assert!(owner.health_events.take_early_batch().is_none());
+}
+
+#[test]
+fn health_handoff_preserves_completed_body_writes_after_eager_admission() {
+    let _env = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "1");
+    let (mut owner, id) = admitted_world();
+    owner.set_damage_authority(true);
+    let mut shadow = GameWorldShadow::new(64);
+    shadow.sync_from_host(&owner);
+    let entity = shadow.entity_for_host(id).unwrap();
+    let _couple = ShadowCoupleGuard::enter();
+    let (object, events) = owner.host_object_and_health_events_mut(id).unwrap();
+    object.take_damage(20.0, events);
+    assert_eq!(object.health.current, 80.0);
+    assert!(
+        crate::gameworld_shadow::tick::eager_apply_host_health_after_logic(&mut shadow, &mut owner,)
+            > 0
+    );
+    let (object, events) = owner.host_object_and_health_events_mut(id).unwrap();
+    object.heal(10.0, events);
+    assert_eq!(object.health.current, 90.0);
+    object.take_damage(20.0, events);
+    assert_eq!(object.health.current, 70.0);
+    assert_eq!(object.previous_health, 90.0);
+    let _ = shadow_session_after_host_tick(&mut shadow, &mut owner);
+    let object = owner.host_object(id).unwrap();
+    assert_eq!(object.health.current, 70.0);
+    assert_eq!(object.previous_health, 90.0);
+    assert_eq!(shadow.world().entity(entity).unwrap().health, 70.0);
+    assert_eq!(owner.health_events.snapshot_last_damage().len(), 2);
+    assert_eq!(owner.health_events.snapshot_last_heal().len(), 1);
+    assert!(owner.health_events.snapshot_ordered().is_empty());
 }

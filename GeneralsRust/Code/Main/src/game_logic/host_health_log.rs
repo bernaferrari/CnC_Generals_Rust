@@ -11,6 +11,42 @@ pub(crate) enum HostHealthEvent {
     Heal(super::host_heal_log::HostHealEvent),
 }
 
+/// Ordered receipt for one owner's health handoff. New events extend the
+/// unapplied suffix; admitting them never replays the completed prefix.
+#[derive(Debug, Default)]
+pub(crate) struct HostHealthBatch {
+    events: Vec<HostHealthEvent>,
+    shadow_applied_prefix: usize,
+}
+
+impl HostHealthBatch {
+    pub(crate) fn events(&self) -> &[HostHealthEvent] {
+        &self.events
+    }
+
+    pub(crate) fn shadow_applied_events(&self) -> &[HostHealthEvent] {
+        &self.events[..self.shadow_applied_prefix]
+    }
+
+    pub(crate) fn pending_shadow_events(&self) -> &[HostHealthEvent] {
+        &self.events[self.shadow_applied_prefix..]
+    }
+
+    pub(crate) fn mark_shadow_applied(&mut self) {
+        self.shadow_applied_prefix = self.events.len();
+    }
+
+    fn clear_kind(&mut self, damage: bool) {
+        self.shadow_applied_prefix = self
+            .shadow_applied_events()
+            .iter()
+            .filter(|event| matches!(event, HostHealthEvent::Damage(_)) != damage)
+            .count();
+        self.events
+            .retain(|event| matches!(event, HostHealthEvent::Damage(_)) != damage);
+    }
+}
+
 /// Host-to-shadow event state for one GameLogic instance.
 ///
 /// Pending events and presentation receipts are transient frame state and are
@@ -22,7 +58,7 @@ pub struct HostHealthEvents {
     last_heal: Vec<super::host_heal_log::HostHealEvent>,
     cumulative_damage: f32,
     cumulative_kills: u32,
-    early_ordered_batch: Option<(Vec<HostHealthEvent>, bool)>,
+    early_ordered_batch: Option<HostHealthBatch>,
 }
 
 impl HostHealthEvents {
@@ -119,11 +155,20 @@ impl HostHealthEvents {
     pub(crate) fn drain_for_host_boundary(&mut self) -> Vec<HostHealthEvent> {
         let mut drained = self
             .take_early_batch()
-            .map(|(events, _)| events)
+            .map(|batch| batch.events)
             .unwrap_or_default();
         drained.extend(std::mem::take(&mut self.events));
         self.cache_completed(&drained);
         drained
+    }
+
+    /// Preserve the eager receipt and append later events for this same
+    /// boundary. The prefix records shadow admission, not owner HP writes.
+    pub(crate) fn drain_for_shadow_boundary(&mut self) -> HostHealthBatch {
+        let mut batch = self.take_early_batch().unwrap_or_default();
+        batch.events.extend(std::mem::take(&mut self.events));
+        self.cache_completed(&batch.events);
+        batch
     }
 
     fn cache_completed(&mut self, drained: &[HostHealthEvent]) {
@@ -239,9 +284,9 @@ impl HostHealthEvents {
     }
 
     fn clear_early_kind(&mut self, damage: bool) {
-        if let Some((events, _)) = &mut self.early_ordered_batch {
-            events.retain(|event| matches!(event, HostHealthEvent::Damage(_)) != damage);
-            if events.is_empty() {
+        if let Some(batch) = &mut self.early_ordered_batch {
+            batch.clear_kind(damage);
+            if batch.events.is_empty() {
                 self.early_ordered_batch = None;
             }
         }
@@ -281,11 +326,11 @@ impl HostHealthEvents {
         self.cumulative_kills = 0;
     }
 
-    pub(crate) fn set_early_batch(&mut self, events: Vec<HostHealthEvent>, applied: bool) {
-        self.early_ordered_batch = Some((events, applied));
+    pub(crate) fn set_early_batch(&mut self, batch: HostHealthBatch) {
+        self.early_ordered_batch = (!batch.events.is_empty()).then_some(batch);
     }
 
-    pub(crate) fn take_early_batch(&mut self) -> Option<(Vec<HostHealthEvent>, bool)> {
+    pub(crate) fn take_early_batch(&mut self) -> Option<HostHealthBatch> {
         self.early_ordered_batch.take()
     }
 }
@@ -335,24 +380,79 @@ mod tests {
         let mut a = HostHealthEvents::default();
         let mut b = HostHealthEvents::default();
         a.record_damage(ObjectId(7), 4.0, None, false);
-        let batch = a.drain_ordered();
-        a.set_early_batch(batch, true);
+        let mut batch = a.drain_for_shadow_boundary();
+        batch.mark_shadow_applied();
+        a.set_early_batch(batch);
         b.record_heal(ObjectId(7), 80.0);
         assert!(a.snapshot_ordered().is_empty());
         assert_eq!(b.snapshot_heal().len(), 1);
-        assert!(a.take_early_batch().unwrap().1);
+        assert_eq!(
+            a.take_early_batch().unwrap().shadow_applied_events().len(),
+            1
+        );
         assert!(b.take_early_batch().is_none());
         b.clear();
         assert!(a.snapshot_last_damage().len() == 1);
     }
+
+    #[test]
+    fn health_handoff_retains_the_applied_prefix_before_later_events() {
+        let mut events = HostHealthEvents::default();
+        events.record_damage(ObjectId(1), 20.0, None, false);
+        let mut batch = events.drain_for_shadow_boundary();
+        batch.mark_shadow_applied();
+        events.set_early_batch(batch);
+        events.record_heal(ObjectId(1), 90.0);
+        events.record_damage(ObjectId(1), 10.0, None, false);
+        let batch = events.drain_for_shadow_boundary();
+        assert_eq!(batch.shadow_applied_events().len(), 1);
+        assert!(matches!(
+            batch.pending_shadow_events(),
+            [HostHealthEvent::Heal(_), HostHealthEvent::Damage(_)]
+        ));
+        assert_eq!(events.snapshot_last_damage().len(), 2);
+        assert_eq!(events.snapshot_last_heal().len(), 1);
+    }
+
+    #[test]
+    fn health_handoff_partial_clear_preserves_the_opposite_admission_state() {
+        for clear_damage in [true, false] {
+            let mut events = HostHealthEvents::default();
+            events.record_damage(ObjectId(1), 10.0, None, false);
+            events.record_heal(ObjectId(1), 90.0);
+            let mut batch = events.drain_for_shadow_boundary();
+            batch.mark_shadow_applied();
+            events.set_early_batch(batch);
+            events.record_damage(ObjectId(1), 5.0, None, false);
+            events.record_heal(ObjectId(1), 80.0);
+            let batch = events.drain_for_shadow_boundary();
+            events.set_early_batch(batch);
+            if clear_damage {
+                events.clear_damage();
+            } else {
+                events.clear_heal();
+            }
+            let batch = events.drain_for_shadow_boundary();
+            assert_eq!(batch.events().len(), 2);
+            assert_eq!(batch.shadow_applied_events().len(), 1);
+            assert_eq!(batch.pending_shadow_events().len(), 1);
+            assert!(
+                batch
+                    .events()
+                    .iter()
+                    .all(|event| matches!(event, HostHealthEvent::Damage(_)) != clear_damage)
+            );
+        }
+    }
+
     #[test]
     fn health_event_fallback_partial_clear_retires_only_its_kind_from_an_early_receipt() {
         for clear_damage in [true, false] {
             let mut events = HostHealthEvents::default();
             events.record_damage(ObjectId(1), 10.0, None, false);
             events.record_heal(ObjectId(1), 90.0);
-            let batch = events.drain_ordered();
-            events.set_early_batch(batch, false);
+            let batch = events.drain_for_shadow_boundary();
+            events.set_early_batch(batch);
             if clear_damage {
                 events.clear_damage();
             } else {
