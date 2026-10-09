@@ -212,10 +212,10 @@ pub struct WorldSnapshot {
     #[serde(default)]
     pub object_disguises: Vec<ObjectDisguiseSnapshot>,
 
-    /// Driving logic instance's raw 6-word ADC stream state at save time
-    /// (C++ RandomValue seed array, RandomValue.cpp:150-174). C++ keeps the
-    /// stream process-static and no load path reseeds it, so the post-load
-    /// stream continues from these words.
+    /// Driving logic instance's Rust RNG state in a versioned six-word
+    /// capsule. Untagged C++ state imports as a seed; exact C++ random
+    /// sequence compatibility is intentionally waived. `[0; 6]` means an
+    /// older save omitted this continuation.
     #[serde(default)]
     pub logic_rng_seed_words: [u32; 6],
 

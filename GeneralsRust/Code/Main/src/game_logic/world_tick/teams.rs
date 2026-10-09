@@ -2269,11 +2269,28 @@ mod tests {
         let hop = logic
             .test_wander_in_place_hop(id)
             .expect("wander session started");
-        let dist = host_wander_horiz_dist_sq(hop, origin).sqrt();
-        assert!(
-            dist <= 50.0 + 0.01,
-            "hop {hop:?} must stay inside WanderAboutPointRadius 50, dist={dist}"
+        assert_eq!(
+            host_wander_about_point_delta(logic.host_object(id).unwrap()),
+            5
         );
+        // C++ AIStates.cpp:4661-4670 samples each horizontal axis separately.
+        // WanderAboutPointRadius bounds a square, whose corners exceed a
+        // circle of that radius; a radial test rejects valid C++ hops.
+        let assert_hop = |hop: glam::Vec3| {
+            for offset in [hop.x - origin.x, hop.z - origin.z] {
+                assert!(
+                    offset.abs() <= 50.0 + 0.01,
+                    "hop {hop:?} axis offset {offset} exceeds authored radius 50"
+                );
+                let cells = offset / HOST_WANDER_CELL;
+                assert!(
+                    (cells - cells.round()).abs() < 1.0e-4,
+                    "hop {hop:?} axis offset {offset} must be a whole cell"
+                );
+            }
+            assert_eq!(hop.y, origin.y);
+        };
+        assert_hop(hop);
 
         if let Some(obj) = logic.host_object_mut(id) {
             obj.set_position(hop);
@@ -2286,11 +2303,8 @@ mod tests {
         let next = logic
             .test_wander_in_place_hop(id)
             .expect("C++ never leaves wander-in-place until told");
-        let next_dist = host_wander_horiz_dist_sq(next, origin).sqrt();
-        assert!(
-            next_dist <= 50.0 + 0.01,
-            "re-pick {next:?} must stay inside radius 50, dist={next_dist}"
-        );
+        // The update branch repeats the same independent-axis sampling.
+        assert_hop(next);
     }
 
     #[test]
@@ -2333,6 +2347,7 @@ mod tests {
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(1, Team::USA, "USA", true));
         let id = spawn_wander_civilian(&mut logic, "CivilianInfantryWanderWidth");
+        assert!(logic.apply_unit_locomotor_set(id, "wander"));
         let goal = glam::Vec3::new(400.0, 0.0, 500.0);
         let via = glam::Vec3::new(250.0, 0.0, 350.0);
 
@@ -2341,10 +2356,20 @@ mod tests {
             obj.movement.max_speed = 5.0;
         }
         logic.test_host_wander_issue_path(id, &[via, goal]);
-        let exact = logic
-            .host_object(id)
-            .and_then(|o| o.movement.target_position)
-            .expect("zero-factor dest");
+        let unit = logic.host_object(id).unwrap();
+        // The live target is the first path corner, not the final order goal
+        // (world_paths.rs apply_computed_unit_path skips the starting node).
+        // Assert both canonical final goal and retained intermediate waypoint.
+        let exact = unit.requested_destination.expect("zero-factor final goal");
+        assert_eq!(unit.movement.path.last().copied(), Some(goal));
+        assert!(unit.movement.path.contains(&via));
+        assert_eq!(
+            unit.movement.target_position,
+            unit.movement
+                .path
+                .get(unit.movement.current_path_index)
+                .copied()
+        );
         assert!(
             host_wander_horiz_dist_sq(exact, goal) < 0.01,
             "WanderWidthFactor 0 must keep the exact leftover goal, got {exact:?}"
@@ -2357,11 +2382,22 @@ mod tests {
         let expected = leftover_wander_group_offset(2.0);
         game_engine::common::random_value::set_game_logic_random_seed_state(seed);
         logic.test_host_wander_issue_path(id, &[via, goal]);
-        let dest = logic
-            .host_object(id)
-            .and_then(|o| o.movement.target_position)
-            .expect("offset dest");
+        let unit = logic.host_object(id).unwrap();
+        let dest = unit.requested_destination.expect("offset final goal");
         let want = leftover_apply_wander_group_offset(goal, expected);
+        assert_eq!(unit.movement.path.last().copied(), Some(want));
+        assert!(
+            unit.movement
+                .path
+                .contains(&leftover_apply_wander_group_offset(via, expected))
+        );
+        assert_eq!(
+            unit.movement.target_position,
+            unit.movement
+                .path
+                .get(unit.movement.current_path_index)
+                .copied()
+        );
         assert!(
             host_wander_horiz_dist_sq(dest, want) < 0.01,
             "leftover group offset dest {dest:?} != {want:?} (offset {expected:?})"

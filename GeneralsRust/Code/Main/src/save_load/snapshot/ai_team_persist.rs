@@ -1322,8 +1322,19 @@ mod tests {
             .restore_from_snapshot(&snapshot, &mut restored)
             .expect("restore");
         let loaded = restored.host_object(id).expect("restored ranger");
-        assert_eq!(loaded.movement.path, remaining);
-        assert_eq!(loaded.movement.current_path_index, 0);
+        // The full Object movement record owns the live route, including
+        // traversed nodes and cursor. The remaining-only Unit/TMAI records
+        // must not replace it during a complete-world restore.
+        let original = source.host_object(id).expect("source ranger");
+        assert_eq!(loaded.movement.path, original.movement.path);
+        assert_eq!(
+            loaded.movement.current_path_index,
+            original.movement.current_path_index
+        );
+        assert_eq!(
+            loaded.movement.target_position,
+            original.movement.target_position
+        );
         assert_eq!(
             loaded.requested_destination,
             Some(*remaining.last().unwrap())

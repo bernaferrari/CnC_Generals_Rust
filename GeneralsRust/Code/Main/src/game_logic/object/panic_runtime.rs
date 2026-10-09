@@ -68,6 +68,8 @@ pub(crate) struct PanicSaveState {
     pub(crate) path_timestamp: u32,
     pub(crate) adjust_destinations: bool,
     pub(crate) path_extra_distance: f32,
+    #[serde(default)]
+    pub(crate) wander_width_factor: Option<f32>,
     pub(crate) retry_path: bool,
     pub(crate) try_one_more_repath: bool,
     pub(crate) is_blocked_and_stuck: bool,
@@ -84,6 +86,7 @@ impl PanicSaveState {
             path_timestamp: object.path_timestamp,
             adjust_destinations: object.adjust_destinations,
             path_extra_distance: object.path_extra_distance,
+            wander_width_factor: Some(object.wander_width_factor),
             retry_path: object.retry_path,
             try_one_more_repath: object.try_one_more_repath,
             is_blocked_and_stuck: object.is_blocked_and_stuck,
@@ -99,6 +102,9 @@ impl PanicSaveState {
         object.path_timestamp = self.path_timestamp;
         object.adjust_destinations = self.adjust_destinations;
         object.path_extra_distance = self.path_extra_distance;
+        if let Some(width) = self.wander_width_factor {
+            object.wander_width_factor = width;
+        }
         object.retry_path = self.retry_path;
         object.try_one_more_repath = self.try_one_more_repath;
         object.is_blocked_and_stuck = self.is_blocked_and_stuck;

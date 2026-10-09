@@ -366,6 +366,10 @@ fn panic_state_and_waypoint_path_survive_world_snapshot_roundtrip() {
     assert_eq!(restored_unit.waiting_for_path, source_unit.waiting_for_path);
     assert_eq!(restored_unit.path_timestamp, source_unit.path_timestamp);
     assert_eq!(
+        restored_unit.wander_width_factor,
+        source_unit.wander_width_factor
+    );
+    assert_eq!(
         restored_unit.adjust_destinations,
         source_unit.adjust_destinations
     );

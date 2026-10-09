@@ -55,7 +55,7 @@ impl SnapshotBuilder {
             version: WORLD_SNAPSHOT_BINCODE_VERSION,
             timestamp: std::time::SystemTime::now(),
             frame_number: game_logic.get_current_frame(),
-            // Base seed the driving instance's ADC was last seeded from
+            // Last observed base-seed broadcast for the driving instance
             // (broadcast channel for recorder/skirmish/save reseeds).
             random_seed: game_logic.logic_base_seed as u64,
 
@@ -228,8 +228,8 @@ impl SnapshotBuilder {
             object_experience_trackers: self.snapshot_object_experience_trackers(game_logic),
             object_command_sets: self.snapshot_object_command_sets(game_logic),
             object_disguises: self.snapshot_object_disguises(game_logic),
-            // Driving instance's live ADC words: post-load draws continue
-            // this stream (C++ RandomValue is static; loads never reseed).
+            // Driving instance's Rust RNG continuation. Restoring it after
+            // reconstruction preserves the source world's future draws.
             logic_rng_seed_words: game_logic.logic_random.seed_words(),
             // C++ GameStateMap::xfer moves the exact counter early in load.
             next_object_id: game_logic.next_object_id_for_snapshot().0,
@@ -574,6 +574,19 @@ impl SnapshotBuilder {
         // Rebuild only after all object/status tails (including disabled_held)
         // are transferred, before the first script/construction observer.
         game_logic.restore_player_power();
+
+        // Recreating objects may consume random values; install the saved
+        // continuation only after every restore operation succeeds. This is
+        // instance state, including for callers of the direct builder API.
+        // Older payloads omit this field and use the all-zero sentinel.
+        if snapshot.logic_rng_seed_words != [0; 6] {
+            game_logic
+                .logic_random
+                .set_seed_words(snapshot.logic_rng_seed_words);
+            // This tracks the broadcast, not the actual stream's seed.
+            game_logic.logic_base_seed =
+                game_engine::common::random_value::get_game_logic_random_seed();
+        }
 
         log::info!("World restoration complete");
         Ok(())

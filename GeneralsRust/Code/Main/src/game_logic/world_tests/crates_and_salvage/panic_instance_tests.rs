@@ -29,21 +29,23 @@ struct PanicObservation {
 
 fn seeded_panic_logic(seed: u32) -> GameLogic {
     let mut logic = panic_logic();
-    // Keep entry free of wander RNG; the later waypoint transition exercises
-    // the world-owned stream from inside the real fixed-step boundary.
-    issue_authored_team_panic(&mut logic);
+    // New-match updates first wake at frame 1. Admit the authored order
+    // after the initial frame so the next real step executes Movement.
+    logic.update_with_dt_budget(1.0 / 30.0, 1);
+    logic.logic_random.seed_random(seed);
+    logic.logic_base_seed = game_engine::common::random_value::get_game_logic_random_seed();
+    // This fixture issues its authored request outside the ordinary script
+    // phase. Give that synchronous operation the same owned stream as a tick.
+    let mut random = std::mem::take(&mut logic.logic_random);
+    game_engine::common::random_value::with_logic_rng_owner(&mut random, || {
+        issue_authored_team_panic(&mut logic);
+    });
+    logic.logic_random = random;
     let unit = logic.objects.get_mut(&PANIC_UNIT).expect("panic unit");
     unit.wander_width_factor = 30.0;
     let path_end = *unit.movement.path.last().expect("initial waypoint path");
     unit.set_position(path_end);
     assert_panic_arrival_preconditions(unit);
-
-    logic.logic_random.seed_random(seed);
-    // This field tracks the process seed broadcast, not the independent
-    // stream seed above. Keep the two meanings separate as in the existing
-    // fixed-step owner tests, so the next tick does not adopt a stale global
-    // reseed over this fixture's intentionally distinct stream.
-    logic.logic_base_seed = game_engine::common::random_value::get_game_logic_random_seed();
     logic
 }
 
@@ -215,7 +217,7 @@ fn panic_snapshot_rejects_invalid_internal_move_layer_ordinals() {
 }
 
 #[test]
-fn panic_snapshot_rejects_unreachable_repulsor_timer_capsules() {
+fn panic_snapshot_rejects_unreachable_timer_and_nonfinite_width_capsules() {
     let _terrain = install_panic_waypoint_path();
     let mut source = panic_logic();
     issue_authored_team_panic(&mut source);
@@ -264,6 +266,35 @@ fn panic_snapshot_rejects_unreachable_repulsor_timer_capsules() {
             "unreachable panic timer state ({timer}, {wait_frames}) must be rejected"
         );
     }
+
+    // A finite JSON number can overflow f32 on decode. Reject it before
+    // it can enter waypoint offset arithmetic; absent widths remain valid.
+    let mut malformed = snapshot;
+    let Some(crate::save_load::snapshot::ModuleSnapshot::AIUpdate(module)) = malformed
+        .objects
+        .get_mut(&PANIC_UNIT)
+        .and_then(|object| object.modules.get_mut("AIUpdate"))
+    else {
+        panic!("panic module snapshot exists");
+    };
+    let mut state: serde_json::Value = serde_json::from_str(
+        module
+            .state_machine_data
+            .get("AIPanicState")
+            .expect("panic continuation exists"),
+    )
+    .expect("decode valid panic continuation");
+    state["wander_width_factor"] = serde_json::json!(1e39);
+    module
+        .state_machine_data
+        .insert("AIPanicState".into(), state.to_string());
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    assert!(
+        builder
+            .restore_from_snapshot(&malformed, &mut restored)
+            .is_err()
+    );
 }
 
 fn moving_path_snapshot() -> crate::save_load::snapshot::WorldSnapshot {

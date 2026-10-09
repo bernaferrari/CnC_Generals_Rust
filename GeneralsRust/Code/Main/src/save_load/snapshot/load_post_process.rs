@@ -332,7 +332,7 @@ impl Snapshot for WorldSnapshot {
             ObjectDisguiseSnapshot::default(),
         )?;
 
-        // v22 tail: the driving instance's ADC words plus the exact
+        // v22 tail: the driving instance's RNG state capsule plus the exact
         // next-object-ID counter. Positional record: six raw u32 words
         // then the counter, matching the bincode field order.
         xfer.xfer_marker_label("LogicRngSeedWords")?;

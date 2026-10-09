@@ -23,6 +23,17 @@ pub(super) fn bind_fixture_locomotor(unit: &mut Object, name: &str) {
     assert_eq!(unit.locomotor_surfaces, binding.locomotor_surfaces);
 }
 
+/// Match C++ getRadiusAndCenter/worldToCell before testing a blocked route.
+pub(super) fn admitted_cell_position(logic: &GameLogic, unit: &Object, point: Vec3) -> Vec3 {
+    let grid = &logic.pathfinding_system.grid;
+    let (_, center) = PathfindingGrid::radius_and_center(unit.selection_radius, grid.grid_size());
+    let cell = grid.world_to_grid(point);
+    let position = grid.adjust_coord_to_ground_cell(cell, center);
+    assert_eq!(grid.cell_for_unit_position(position, center), cell);
+    assert_eq!(grid.world_to_grid(position), cell);
+    position
+}
+
 pub(super) fn assert_reachable_side_of_wall(logic: &GameLogic, unit: &Object, wall_x: i32) {
     let grid = &logic.pathfinding_system.grid;
     // The request normalizes an unspecified surface mask to ground. An

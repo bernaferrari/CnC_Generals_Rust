@@ -65,10 +65,17 @@ mod tests {
     #[test]
     fn blocked_astar_does_not_install_direct_through_obstacle_move() {
         let mut logic = GameLogic::new();
-        // distance 15 < 20: pre-fix skipped A* and marched through the wall.
-        let start = Vec3::new(0.0, 0.0, 0.0);
-        let goal = Vec3::new(15.0, 0.0, 0.0);
+        let id = ObjectId(9002);
+        let mut unit = ranger_at(9002, Vec3::ZERO);
+        bind_fixture_locomotor(&mut unit, "BasicHumanLocomotor");
+        // Admit the actual footprint before sealing its neighboring column.
+        // Even diameters use C++ worldToCell's half-cell shift; a raw point
+        // can otherwise round from the asserted clear cell into the wall.
+        let start = admitted_cell_position(&logic, &unit, Vec3::new(100.0, 0.0, 100.0));
         let start_cell = logic.pathfinding_system.grid.world_to_grid(start);
+        unit.set_position(start);
+        // distance 15 < 20: pre-fix skipped A* and marched through the wall.
+        let goal = start + Vec3::new(15.0, 0.0, 0.0);
         let goal_cell = logic.pathfinding_system.grid.world_to_grid(goal);
         assert_ne!(start_cell, goal_cell, "short move must span two cells");
         let wall_x = if start_cell.x < goal_cell.x {
@@ -85,9 +92,6 @@ mod tests {
             "sealed wall must make A* fail"
         );
 
-        let id = ObjectId(9002);
-        let mut unit = ranger_at(9002, start);
-        bind_fixture_locomotor(&mut unit, "BasicHumanLocomotor");
         logic.objects.insert(id, unit);
         logic.move_object_with_pathfinding_for_test(id, goal, None);
 
@@ -3912,6 +3916,9 @@ mod tests {
             obj.movement.current_path_index = 1;
             obj.movement.target_position = Some(Vec3::new(35.0, 0.0, 5.0));
             obj.set_locomotor_goal_position_on_path();
+            // An installed path has completed its request. The concession's
+            // outstanding wait must not survive this explicit reinstall.
+            obj.waiting_for_path = false;
             obj.is_blocked_and_stuck = true;
         }
         for y in 0..logic.pathfinding_system.grid.height() {
@@ -3928,8 +3935,8 @@ mod tests {
         );
         assert_eq!(obj.movement.path.len(), 3, "path must be untouched");
 
-        // After the deadline expires, a stuck unit's successful patch
-        // installs and grants 2s of ignore-collision (AIUpdate.cpp:486-495).
+        // After the deadline expires, a successful patch installs and clears
+        // stuck bookkeeping (AIUpdate.cpp:1753-1754), without a tunnel.
         logic.frame = 80;
         logic.objects.get_mut(&id).unwrap().queue_for_path_frames = 0;
         logic.update_movement_for_test(&[id], 1.0 / 30.0);

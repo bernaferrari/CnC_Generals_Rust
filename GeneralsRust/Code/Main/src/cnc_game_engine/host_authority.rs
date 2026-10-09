@@ -16,11 +16,10 @@ struct StagedRestoreWorld {
     /// Decoded client state stays detached until the candidate world commits.
     game_client_xfer_bytes: Option<Vec<u8>>,
     client_persist: crate::save_load::snapshot::WorldPersistV18,
-    /// Driving-instance logic-RNG ADC words captured at save time.  C++
-    /// keeps RandomValue process-static and no load path reseeds it
-    /// (GameState.cpp:628-741), so the commit boundary reseeds the staged
-    /// instance from these words instead of leaving it on the game-start
-    /// re-derivation.  `[0; 6]` marks a pre-v22 save: keep that stream.
+    /// Driving-instance Rust RNG state capsule captured at save time.
+    /// The commit boundary restores the staged instance from these words
+    /// rather than leaving it on the game-start seed. `[0; 6]` marks a
+    /// pre-v22 save: keep that stream.
     logic_rng_seed_words: [u32; 6],
 }
 
@@ -1127,7 +1126,7 @@ impl CnCGameEngine {
     }
 
     /// Commit-time reseed of a staged world's driving-instance logic RNG from
-    /// the ADC words captured at save time.
+    /// the Rust RNG state capsule captured at save time.
     ///
     /// The staged instance re-derived its words from the game-start base seed
     /// during `start_new_game`; without this, the first post-load tick would
@@ -2648,7 +2647,7 @@ mod staged_restore_tests {
         source.start_new_game(GameMode::Skirmish);
         assert!(source.load_map(&map_name), "load source retail map");
         // Known base seed, then frames so the driving instance adopts the
-        // broadcast and its ADC words advance past a fresh derivation.
+        // broadcast and its RNG state advances past a fresh derivation.
         game_engine::common::random_value::init_game_logic_random(0x1BAD_B002);
         for _ in 0..8 {
             source.tick_logic_frame(FRAME_TIMESTEP, None, None);

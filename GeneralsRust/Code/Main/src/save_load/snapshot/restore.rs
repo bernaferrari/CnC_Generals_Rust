@@ -435,6 +435,14 @@ impl SnapshotBuilder {
                                 "Invalid AI_PANIC repulsor timer continuation".to_owned(),
                             ));
                         }
+                        if panic
+                            .wander_width_factor
+                            .is_some_and(|width| !width.is_finite())
+                        {
+                            return Err(SaveLoadError::Corrupted(
+                                "Invalid AI_PANIC wander width".to_owned(),
+                            ));
+                        }
                         let terrain =
                             gamelogic::terrain::get_terrain_logic()
                                 .read()
