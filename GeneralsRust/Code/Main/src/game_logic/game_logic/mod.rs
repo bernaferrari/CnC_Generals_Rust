@@ -74,8 +74,8 @@ mod world_save;
 mod world_scripts;
 #[path = "../world_tick/mod.rs"]
 mod world_tick;
-pub(super) use world_tick::host_object_footprint;
 pub(crate) use world_tick::FlightTerrainView;
+pub(super) use world_tick::host_object_footprint;
 
 impl GameLogic {
     fn update_player_alive_state(&mut self) {

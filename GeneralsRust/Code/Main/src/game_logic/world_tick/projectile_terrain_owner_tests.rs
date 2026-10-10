@@ -1,6 +1,6 @@
 //! Real Main projectile impact ownership, using C++'s bridge crossing branch.
-use crate::game_logic::{GameLogic, ObjectId, Weapon};
 use crate::game_logic::weapon_bootstrap::{HostDumbProjectileFlight, HostProjectileFlight};
+use crate::game_logic::{GameLogic, ObjectId, Weapon};
 use glam::Vec3;
 
 fn world(deck: f32) -> (GameLogic, ObjectId) {
