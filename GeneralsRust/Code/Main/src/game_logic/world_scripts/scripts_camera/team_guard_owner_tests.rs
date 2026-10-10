@@ -257,6 +257,13 @@ fn team_guard_snapshot_continues_without_reissuing_the_team_command() {
     let builder = crate::save_load::SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&source).unwrap();
     let (mut restored, _, _) = world();
+    // Production loads map definitions before admitting saved instances.
+    restored
+        .team_factory
+        .lock()
+        .unwrap()
+        .init_team("GuardRoster".into(), "".into(), false, None)
+        .unwrap();
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();

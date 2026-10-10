@@ -10,19 +10,19 @@
 //! Players v4 carries canonical host alliance inputs in this sibling chunk.
 //! WorldSnapshot 24 is the save-bundle capability gate; its body is unchanged.
 
+use super::player_team_chunks::PlayerTeamChunks;
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use game_engine::common::system::xfer::Xfer as CommonXfer;
 use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
 use game_engine::common::system::xfer_save::XferSave as CommonXferSave;
 use std::io::{Cursor, Read, Seek, Write};
-use std::sync::Mutex;
 
 pub const CHUNK_PLAYERS: &str = "CHUNK_Players";
 pub const CHUNK_TEAM_FACTORY: &str = "CHUNK_TeamFactory";
 
 const PLAYERS_CHUNK_VERSION: u8 = 4;
-const TEAM_FACTORY_CHUNK_VERSION: u8 = 4;
+const TEAM_FACTORY_CHUNK_VERSION: u8 = 5;
 const MAX_ATTACKED_BY: usize = 16;
 const MAX_GENERIC_SCRIPTS: usize = 16;
 
@@ -107,6 +107,9 @@ impl Default for PlayerRuntimePersist {
 pub struct TeamRuntimePersist {
     pub team_name: String,
     pub team_id: u32,
+    /// Some only for v5 owned continuation; None retains historical admission.
+    pub members: Option<Vec<u32>>,
+    pub controller: Option<u32>,
     pub created: bool,
     pub active: bool,
     pub see_enemy: bool,
@@ -132,6 +135,8 @@ impl Default for TeamRuntimePersist {
         Self {
             team_name: String::new(),
             team_id: 0,
+            members: None,
+            controller: None,
             created: false,
             active: false,
             see_enemy: false,
@@ -160,6 +165,7 @@ pub struct PlayersChunkPersist {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TeamFactoryChunkPersist {
+    pub persist_roster: bool,
     pub unique_team_id: u32,
     pub teams: Vec<TeamRuntimePersist>,
     pub prototypes: Vec<TeamPrototypePersist>,
@@ -171,10 +177,8 @@ pub struct TeamPrototypePersist {
     pub team_name: String,
     pub attack_priority_name: String,
     pub production_priority: i32,
+    pub prototype_id: Option<u32>,
 }
-
-static PENDING_PLAYERS: Mutex<Option<PlayersChunkPersist>> = Mutex::new(None);
-static PENDING_TEAMS: Mutex<Option<TeamFactoryChunkPersist>> = Mutex::new(None);
 
 fn map_xfer<T>(result: std::io::Result<T>) -> SaveLoadResult<T> {
     result.map_err(|e| SaveLoadError::Serialization(e.to_string()))
@@ -198,23 +202,6 @@ fn relationship_to_i32(rel: gamelogic::common::Relationship) -> i32 {
 
 fn leftover_relationship_from_i32(raw: i32) -> gamelogic::common::Relationship {
     relationship_from_i32(raw)
-}
-
-fn science_name_from_type(science: game_engine::common::rts::ScienceType) -> String {
-    if let Some(store) = game_engine::common::rts::get_science_store() {
-        let name = store.get_internal_name_for_science(science);
-        if !name.as_str().is_empty() {
-            return name.to_string();
-        }
-    }
-    if let Some(name) = game_engine::common::ini::ini_science::get_science_store()
-        .get_internal_name_for_science(game_engine::common::ini::ini_science::ScienceType(science))
-    {
-        if !name.as_str().is_empty() {
-            return name.to_string();
-        }
-    }
-    String::new()
 }
 
 fn science_type_from_name(name: &str) -> game_engine::common::rts::ScienceType {
@@ -446,8 +433,12 @@ fn parse_player_entry<R: Read>(
     Ok(player)
 }
 
-pub fn write_players_block<W: Write + Seek>(xfer: &mut CommonXferSave<W>) -> SaveLoadResult<()> {
-    let persist = peek_pending_players().unwrap_or_else(|| capture_players_chunk(None));
+pub fn write_players_block<W: Write + Seek>(
+    xfer: &mut CommonXferSave<W>,
+    chunks: &PlayerTeamChunks,
+) -> SaveLoadResult<()> {
+    let empty = PlayersChunkPersist::default();
+    let persist = chunks.players.as_ref().unwrap_or(&empty);
     let mut version = PLAYERS_CHUNK_VERSION;
     map_xfer(xfer.xfer_version(&mut version, PLAYERS_CHUNK_VERSION))?;
     let mut count = persist.players.len() as u16;
@@ -487,11 +478,10 @@ pub fn parse_players_block(payload: &[u8]) -> SaveLoadResult<PlayersChunkPersist
 
 pub fn write_team_factory_block<W: Write + Seek>(
     xfer: &mut CommonXferSave<W>,
+    chunks: &PlayerTeamChunks,
 ) -> SaveLoadResult<()> {
-    // Main snapshots call `stamp_from_live` with their owning world first. A
-    // standalone block writer has no world context, so emit an empty chunk
-    // instead of reading the process-wide compatibility singleton.
-    let persist = peek_pending_teams().unwrap_or_default();
+    let empty = TeamFactoryChunkPersist::default();
+    let persist = chunks.teams.as_ref().unwrap_or(&empty);
     let mut version = TEAM_FACTORY_CHUNK_VERSION;
     map_xfer(xfer.xfer_version(&mut version, TEAM_FACTORY_CHUNK_VERSION))?;
     let mut unique_team_id = persist.unique_team_id;
@@ -553,6 +543,22 @@ pub fn write_team_factory_block<W: Write + Seek>(
         let mut check_enemy_sighted = team.check_enemy_sighted;
         map_xfer(xfer.xfer_bool(&mut entered_or_exited))?;
         map_xfer(xfer.xfer_bool(&mut check_enemy_sighted))?;
+        let mut has_members = team.members.is_some();
+        map_xfer(xfer.xfer_bool(&mut has_members))?;
+        if let Some(members) = &team.members {
+            let mut count = u32::try_from(members.len())
+                .map_err(|_| SaveLoadError::Serialization("Team roster too large".into()))?;
+            map_xfer(xfer.xfer_unsigned_int(&mut count))?;
+            for id in members {
+                let mut id = *id;
+                map_xfer(xfer.xfer_unsigned_int(&mut id))?;
+            }
+        }
+        let mut has_controller = team.controller.is_some();
+        map_xfer(xfer.xfer_bool(&mut has_controller))?;
+        if let Some(mut id) = team.controller {
+            map_xfer(xfer.xfer_unsigned_int(&mut id))?;
+        }
     }
     let mut proto_count = persist.prototypes.len() as u16;
     map_xfer(xfer.xfer_unsigned_short(&mut proto_count))?;
@@ -563,7 +569,14 @@ pub fn write_team_factory_block<W: Write + Seek>(
         map_xfer(xfer.xfer_ascii_string(&mut name))?;
         map_xfer(xfer.xfer_ascii_string(&mut attack_priority_name))?;
         map_xfer(xfer.xfer_int(&mut production_priority))?;
+        let mut has_id = proto.prototype_id.is_some();
+        map_xfer(xfer.xfer_bool(&mut has_id))?;
+        if let Some(mut id) = proto.prototype_id {
+            map_xfer(xfer.xfer_unsigned_int(&mut id))?;
+        }
     }
+    let mut complete = persist.persist_roster;
+    map_xfer(xfer.xfer_bool(&mut complete))?;
     Ok(())
 }
 
@@ -642,6 +655,30 @@ pub fn parse_team_factory_block(payload: &[u8]) -> SaveLoadResult<TeamFactoryChu
             map_xfer(xfer.xfer_bool(&mut team.check_enemy_sighted))?;
             team.persist_edge_flags = true;
         }
+        if version >= 5 {
+            let mut present = false;
+            map_xfer(xfer.xfer_bool(&mut present))?;
+            if present {
+                let mut count = 0u32;
+                map_xfer(xfer.xfer_unsigned_int(&mut count))?;
+                if count as usize > payload.len() / 4 {
+                    return Err(SaveLoadError::Corrupted("Invalid team member count".into()));
+                }
+                let mut members = Vec::with_capacity(count as usize);
+                for _ in 0..count {
+                    let mut id = 0;
+                    map_xfer(xfer.xfer_unsigned_int(&mut id))?;
+                    members.push(id);
+                }
+                team.members = Some(members);
+            }
+            map_xfer(xfer.xfer_bool(&mut present))?;
+            if present {
+                let mut id = 0;
+                map_xfer(xfer.xfer_unsigned_int(&mut id))?;
+                team.controller = Some(id);
+            }
+        }
         teams.push(team);
     }
     let mut prototypes = Vec::new();
@@ -654,8 +691,21 @@ pub fn parse_team_factory_block(payload: &[u8]) -> SaveLoadResult<TeamFactoryChu
             map_xfer(xfer.xfer_ascii_string(&mut proto.team_name))?;
             map_xfer(xfer.xfer_ascii_string(&mut proto.attack_priority_name))?;
             map_xfer(xfer.xfer_int(&mut proto.production_priority))?;
+            if version >= 5 {
+                let mut present = false;
+                map_xfer(xfer.xfer_bool(&mut present))?;
+                if present {
+                    let mut id = 0;
+                    map_xfer(xfer.xfer_unsigned_int(&mut id))?;
+                    proto.prototype_id = Some(id);
+                }
+            }
             prototypes.push(proto);
         }
+    }
+    let mut persist_roster = false;
+    if version >= 5 {
+        map_xfer(xfer.xfer_bool(&mut persist_roster))?;
     }
     if cursor.position() != payload.len() as u64 {
         return Err(SaveLoadError::Corrupted(
@@ -663,115 +713,11 @@ pub fn parse_team_factory_block(payload: &[u8]) -> SaveLoadResult<TeamFactoryChu
         ));
     }
     Ok(TeamFactoryChunkPersist {
+        persist_roster,
         unique_team_id,
         teams,
         prototypes,
     })
-}
-
-fn capture_leftover_players(
-    team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
-) -> Vec<PlayerRuntimePersist> {
-    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    for idx in 0..list.get_player_count() {
-        let Some(player_arc) = list
-            .get_player(idx as gamelogic::player::PlayerIndex)
-            .cloned()
-        else {
-            continue;
-        };
-        let Ok(player) = player_arc.read() else {
-            continue;
-        };
-        let mut persist = PlayerRuntimePersist {
-            player_id: player.get_player_index() as u32,
-            can_build_units: player.get_can_build_units(),
-            can_build_base: player.get_can_build_base(),
-            is_observer: player.is_player_observer(),
-            skill_points_modifier: player.get_skill_points_modifier(),
-            list_in_score_screen: player.get_list_in_score_screen(),
-            radar_count: player.get_radar_count(),
-            is_player_dead: player.is_player_dead(),
-            disable_proof_radar_count: player.get_disable_proof_radar_count(),
-            radar_disabled: player.is_radar_disabled(),
-            cash_bounty_percent: player.get_cash_bounty(),
-            units_should_hunt: player.get_units_should_hunt(),
-            current_selection: player.get_current_selection_ids(),
-            did_preorder: player.did_player_preorder(),
-            ..PlayerRuntimePersist::default()
-        };
-        persist.sciences = player
-            .get_sciences()
-            .iter()
-            .map(|science| science_name_from_type(*science))
-            .filter(|name| !name.is_empty())
-            .collect();
-        persist.sciences_disabled = player
-            .sciences_disabled_types()
-            .iter()
-            .map(|science| science_name_from_type(*science))
-            .filter(|name| !name.is_empty())
-            .collect();
-        persist.sciences_hidden = player
-            .sciences_hidden_types()
-            .iter()
-            .map(|science| science_name_from_type(*science))
-            .filter(|name| !name.is_empty())
-            .collect();
-        persist.team_relations = player
-            .team_relation_pairs()
-            .into_iter()
-            .map(|(team_id, relationship)| TeamRelPersist {
-                team_name: leftover_team_name(team_factory, team_id),
-                team_id,
-                relationship,
-            })
-            .collect();
-        persist.player_relations = player
-            .player_relation_pairs()
-            .into_iter()
-            .map(|(player_index, relationship)| PlayerRelPersist {
-                player_index,
-                relationship,
-            })
-            .collect();
-        for (i, flag) in persist.attacked_by.iter_mut().enumerate() {
-            *flag = player.get_attacked_by(i as i32);
-        }
-        persist.kind_of_changes = player
-            .kind_of_production_change_entries()
-            .into_iter()
-            .map(|(bits, percent, refs)| KindOfChangePersist {
-                kind_of_name: String::new(),
-                kind_of_bits: bits,
-                percent,
-                refs,
-            })
-            .collect();
-        out.push(persist);
-    }
-    out
-}
-
-fn leftover_team_name(
-    team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
-    team_id: u32,
-) -> String {
-    let Some(team_factory) = team_factory else {
-        return String::new();
-    };
-    let Ok(factory) = team_factory.lock() else {
-        return String::new();
-    };
-    let Some(team) = factory.find_team_by_id(team_id) else {
-        return String::new();
-    };
-    team.read()
-        .map(|guard| guard.get_name().to_string())
-        .unwrap_or_default()
 }
 
 fn leftover_team_id(
@@ -795,14 +741,8 @@ fn leftover_team_id(
         .unwrap_or(0)
 }
 
-fn capture_players_chunk(game_logic: Option<&GameLogic>) -> PlayersChunkPersist {
-    let team_factory = game_logic.map(|logic| &logic.team_factory);
-    let mut persist = PlayersChunkPersist {
-        players: capture_leftover_players(team_factory),
-    };
-    let Some(game_logic) = game_logic else {
-        return persist;
-    };
+pub(super) fn capture_players_chunk(game_logic: &GameLogic) -> PlayersChunkPersist {
+    let mut persist = PlayersChunkPersist::default();
     for (id, player) in game_logic.get_players() {
         let slot = if let Some(existing) = persist
             .players
@@ -867,18 +807,18 @@ fn capture_players_chunk(game_logic: Option<&GameLogic>) -> PlayersChunkPersist 
     persist
 }
 
-fn capture_team_factory_chunk(
+pub(super) fn capture_team_factory_chunk(
     team_factory: &gamelogic::team::TeamFactoryHandle,
-) -> TeamFactoryChunkPersist {
-    let Ok(factory) = team_factory.lock() else {
-        return TeamFactoryChunkPersist::default();
-    };
+) -> SaveLoadResult<TeamFactoryChunkPersist> {
+    let factory = team_factory
+        .lock()
+        .map_err(|e| SaveLoadError::Corrupted(e.to_string()))?;
     let unique_team_id = factory.get_next_team_id();
     let mut teams = Vec::new();
     for team_arc in factory.get_all_teams() {
-        let Ok(team) = team_arc.read() else {
-            continue;
-        };
+        let team = team_arc
+            .read()
+            .map_err(|e| SaveLoadError::Corrupted(e.to_string()))?;
         let mut generic_script_attempts = Vec::with_capacity(MAX_GENERIC_SCRIPTS);
         for i in 0..MAX_GENERIC_SCRIPTS {
             generic_script_attempts.push(team.should_attempt_generic_script(i));
@@ -886,6 +826,8 @@ fn capture_team_factory_chunk(
         teams.push(TeamRuntimePersist {
             team_name: team.get_name().to_string(),
             team_id: team.get_id(),
+            members: Some(team.get_members().to_vec()),
+            controller: team.get_controlling_player_id(),
             created: team.is_created(),
             active: team.is_active(),
             see_enemy: team.get_see_enemy(),
@@ -925,122 +867,21 @@ fn capture_team_factory_chunk(
         .into_iter()
         .map(|proto| TeamPrototypePersist {
             team_name: proto.get_name().to_string(),
+            prototype_id: Some(proto.get_id()),
             attack_priority_name: proto.get_attack_priority_name().to_string(),
             production_priority: proto.get_production_priority(),
         })
         .collect();
     prototypes.sort_by(|a, b| a.team_name.cmp(&b.team_name));
-    TeamFactoryChunkPersist {
+    Ok(TeamFactoryChunkPersist {
+        persist_roster: true,
         unique_team_id,
         teams,
         prototypes,
-    }
+    })
 }
 
-pub fn stamp_from_live(game_logic: &GameLogic) {
-    if let Ok(mut guard) = PENDING_PLAYERS.lock() {
-        *guard = Some(capture_players_chunk(Some(game_logic)));
-    }
-    if let Ok(mut guard) = PENDING_TEAMS.lock() {
-        *guard = Some(capture_team_factory_chunk(&game_logic.team_factory));
-    }
-}
-
-/// Clear this legacy staging pair; other save globals are outside this boundary.
-pub(crate) fn clear_pending_chunks() -> SaveLoadResult<()> {
-    publish_pending_chunks(None, None)
-}
-
-fn publish_pending_chunks(
-    players: Option<PlayersChunkPersist>,
-    teams: Option<TeamFactoryChunkPersist>,
-) -> SaveLoadResult<()> {
-    let mut player_slot = PENDING_PLAYERS
-        .lock()
-        .map_err(|_| SaveLoadError::Unknown("Players staging lock poisoned".into()))?;
-    let mut team_slot = PENDING_TEAMS
-        .lock()
-        .map_err(|_| SaveLoadError::Unknown("Teams staging lock poisoned".into()))?;
-    *player_slot = players;
-    *team_slot = teams;
-    Ok(())
-}
-
-/// Legacy/direct chunk caller: no enclosing file capability requirement.
-pub fn stash_loaded_chunks(players: Option<&[u8]>, teams: Option<&[u8]>) -> SaveLoadResult<()> {
-    stash_chunks_for_world(players, teams, None)
-}
-
-pub(crate) fn stash_chunks_for_world(
-    players: Option<&[u8]>,
-    teams: Option<&[u8]>,
-    world: Option<&super::WorldSnapshot>,
-) -> SaveLoadResult<()> {
-    clear_pending_chunks()?;
-    // Only [1] is the historical NullSnapshot, not an arbitrary short payload.
-    // Decode both candidates before publishing either. This is not whole-load
-    // atomicity: the pair remains process-global and other chunks have owners.
-    let players = match players {
-        None | Some([1]) => None,
-        Some(bytes) => Some(parse_players_block(bytes)?),
-    };
-    let teams = match teams {
-        None | Some([1]) => None,
-        Some(bytes) => Some(parse_team_factory_block(bytes)?),
-    };
-    if let Some(world) = world {
-        validate_host_alliance_coverage(world, players.as_ref())?;
-    }
-    publish_pending_chunks(players, teams)
-}
-
-fn validate_host_alliance_coverage(
-    world: &super::WorldSnapshot,
-    players: Option<&PlayersChunkPersist>,
-) -> SaveLoadResult<()> {
-    if world.version != 24 {
-        return Ok(());
-    }
-    for host in &world.players {
-        let mut matching = players
-            .into_iter()
-            .flat_map(|p| &p.players)
-            .filter(|p| p.player_id == host.id);
-        if matching.next().and_then(|p| p.host_alliance_team).is_none() || matching.next().is_some()
-        {
-            return Err(SaveLoadError::Corrupted(format!(
-                "WorldSnapshot 24 requires one CHUNK_Players host alliance for player {}",
-                host.id,
-            )));
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn validate_pending_host_alliances(world: &super::WorldSnapshot) -> SaveLoadResult<()> {
-    validate_host_alliance_coverage(world, peek_pending_players().as_ref())
-}
-
-fn peek_pending_players() -> Option<PlayersChunkPersist> {
-    PENDING_PLAYERS.lock().ok().and_then(|guard| guard.clone())
-}
-
-fn peek_pending_teams() -> Option<TeamFactoryChunkPersist> {
-    PENDING_TEAMS.lock().ok().and_then(|guard| guard.clone())
-}
-
-fn take_pending_players() -> Option<PlayersChunkPersist> {
-    PENDING_PLAYERS
-        .lock()
-        .ok()
-        .and_then(|mut guard| guard.take())
-}
-
-fn take_pending_teams() -> Option<TeamFactoryChunkPersist> {
-    PENDING_TEAMS.lock().ok().and_then(|mut guard| guard.take())
-}
-
-fn apply_player_to_live(game_logic: &mut GameLogic, persist: &PlayerRuntimePersist) {
+pub(super) fn apply_player_to_live(game_logic: &mut GameLogic, persist: &PlayerRuntimePersist) {
     let Some(player) = game_logic.get_player_mut(persist.player_id) else {
         return;
     };
@@ -1102,97 +943,13 @@ fn apply_player_to_live(game_logic: &mut GameLogic, persist: &PlayerRuntimePersi
     }
 }
 
-fn apply_player_to_leftover(
-    team_factory: &gamelogic::team::TeamFactoryHandle,
-    persist: &PlayerRuntimePersist,
-) {
-    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
-        return;
-    };
-    let Some(player_arc) = list
-        .get_player(persist.player_id as gamelogic::player::PlayerIndex)
-        .cloned()
-    else {
-        return;
-    };
-    drop(list);
-    let Ok(mut player) = player_arc.write() else {
-        return;
-    };
-    for name in &persist.sciences_disabled {
-        let science = science_type_from_name(name);
-        player.set_science_availability(
-            science,
-            gamelogic::player::ScienceAvailabilityType::Disabled,
-        );
-    }
-    for name in &persist.sciences_hidden {
-        let science = science_type_from_name(name);
-        player
-            .set_science_availability(science, gamelogic::player::ScienceAvailabilityType::Hidden);
-    }
-    for name in &persist.sciences {
-        let science = science_type_from_name(name);
-        let _ = player.add_science(science);
-    }
-    for rel in &persist.team_relations {
-        let relationship = leftover_relationship_from_i32(rel.relationship);
-        if rel.team_id != 0 {
-            player.set_team_relationship_by_id(rel.team_id, relationship);
-        } else if !rel.team_name.trim().is_empty() {
-            let team_id = leftover_team_id(Some(team_factory), &rel.team_name);
-            if team_id != 0 {
-                player.set_team_relationship_by_id(team_id, relationship);
-            }
-        }
-    }
-    for rel in &persist.player_relations {
-        player.set_player_relationship_by_index(
-            rel.player_index,
-            leftover_relationship_from_i32(rel.relationship),
-        );
-    }
-    player.set_can_build_units(persist.can_build_units);
-    player.set_can_build_base(persist.can_build_base);
-    player.set_observer(persist.is_observer);
-    player.set_skill_points_modifier(persist.skill_points_modifier);
-    player.set_list_in_score_screen(persist.list_in_score_screen);
-    player.set_defeated(persist.is_player_dead);
-    player.restore_radar_state(
-        persist.radar_count,
-        persist.disable_proof_radar_count,
-        persist.radar_disabled,
-    );
-    player.set_cash_bounty(persist.cash_bounty_percent);
-    player.set_is_preorder(persist.did_preorder);
-    player.restore_units_should_hunt(persist.units_should_hunt);
-    player.set_currently_selected_ai_group(None);
-    for &id in &persist.current_selection {
-        player.add_object_to_current_selection(id);
-    }
-    for (i, &flag) in persist.attacked_by.iter().enumerate() {
-        if flag {
-            player.set_attacked_by(i as i32);
-        }
-    }
-    let leftover_kind: Vec<(u128, f32, u32)> = persist
-        .kind_of_changes
-        .iter()
-        .filter(|entry| entry.kind_of_bits != 0)
-        .map(|entry| (entry.kind_of_bits, entry.percent, entry.refs.max(1)))
-        .collect();
-    if !leftover_kind.is_empty() {
-        player.replace_kind_of_production_changes(&leftover_kind);
-    }
-}
-
-fn apply_teams_to_leftover(
+pub(super) fn apply_teams_to_leftover(
     team_factory: &gamelogic::team::TeamFactoryHandle,
     persist: &TeamFactoryChunkPersist,
-) {
-    let Ok(mut factory) = team_factory.lock() else {
-        return;
-    };
+) -> SaveLoadResult<()> {
+    let mut factory = team_factory
+        .lock()
+        .map_err(|e| SaveLoadError::Corrupted(e.to_string()))?;
     if persist.unique_team_id != 0 {
         factory.set_next_team_id(persist.unique_team_id);
     }
@@ -1200,16 +957,39 @@ fn apply_teams_to_leftover(
         if proto_persist.team_name.trim().is_empty() {
             continue;
         }
-        let Some(prototype) = factory.find_team_prototype(&proto_persist.team_name) else {
-            continue;
-        };
+        let prototype = factory
+            .find_team_prototype(&proto_persist.team_name)
+            .ok_or_else(|| {
+                SaveLoadError::Corrupted(format!(
+                    "Saved prototype {} is absent from the loaded map",
+                    proto_persist.team_name
+                ))
+            })?;
+        if proto_persist
+            .prototype_id
+            .is_some_and(|id| id != prototype.get_id())
+        {
+            return Err(SaveLoadError::Corrupted(
+                "Saved prototype ID does not match map definition".into(),
+            ));
+        }
         let mut updated = (*prototype).clone();
         updated.set_attack_priority_name(proto_persist.attack_priority_name.clone().into());
         updated.set_production_priority(proto_persist.production_priority);
         factory.replace_team_prototype(updated);
     }
     for team_persist in &persist.teams {
-        let team_arc = if team_persist.team_id != 0 {
+        let team_arc = if team_persist.members.is_some() {
+            Some(
+                factory
+                    .restore_owned_team_instance(
+                        &team_persist.team_name,
+                        team_persist.team_id,
+                        team_persist.controller,
+                    )
+                    .map_err(|e| SaveLoadError::Corrupted(e.to_string()))?,
+            )
+        } else if team_persist.team_id != 0 {
             factory.find_team_by_id(team_persist.team_id)
         } else {
             None
@@ -1223,9 +1003,30 @@ fn apply_teams_to_leftover(
         let Some(team_arc) = team_arc else {
             continue;
         };
-        let Ok(mut team) = team_arc.write() else {
-            continue;
-        };
+        // Resolve historical name-only relationships before borrowing the
+        // destination. find_team_instances reads the entire admitted list.
+        let resolved_relations = team_persist
+            .team_relations
+            .iter()
+            .map(|rel| {
+                let id = if rel.team_id != 0 {
+                    rel.team_id
+                } else if !rel.team_name.trim().is_empty() {
+                    factory
+                        .find_team_instances(&rel.team_name)
+                        .into_iter()
+                        .next()
+                        .and_then(|other| other.read().ok().map(|t| t.get_id()))
+                        .unwrap_or(0)
+                } else {
+                    0
+                };
+                (id, rel.relationship)
+            })
+            .collect::<Vec<_>>();
+        let mut team = team_arc
+            .write()
+            .map_err(|e| SaveLoadError::Corrupted(e.to_string()))?;
         let waypoint = if team_persist.current_waypoint_id == 0 {
             None
         } else {
@@ -1251,23 +1052,11 @@ fn apply_teams_to_leftover(
                 team_persist.check_enemy_sighted,
             );
         }
-        for rel in &team_persist.team_relations {
-            let team_id = if rel.team_id != 0 {
-                rel.team_id
-            } else if !rel.team_name.trim().is_empty() {
-                factory
-                    .find_team_instances(&rel.team_name)
-                    .into_iter()
-                    .next()
-                    .and_then(|other| other.read().ok().map(|guard| guard.get_id()))
-                    .unwrap_or(0)
-            } else {
-                0
-            };
+        for (team_id, relationship) in resolved_relations {
             if team_id != 0 {
                 team.set_override_team_relationship(
                     team_id,
-                    leftover_relationship_from_i32(rel.relationship),
+                    leftover_relationship_from_i32(relationship),
                 );
             }
         }
@@ -1278,33 +1067,24 @@ fn apply_teams_to_leftover(
             );
         }
     }
-}
-
-pub fn apply_pending(game_logic: &mut GameLogic) {
-    if let Some(players) = take_pending_players() {
-        for player in &players.players {
-            apply_player_to_live(game_logic, player);
-            apply_player_to_leftover(&game_logic.team_factory, player);
-        }
+    // CPP Team.cpp:1249 keeps an existing instance in place; a missing
+    // instance is constructed/prepended in saved visitation order. Do not
+    // sort, reverse or relink that resulting live list.
+    if persist.unique_team_id != 0 {
+        factory.set_next_team_id(persist.unique_team_id);
     }
-    if let Some(teams) = take_pending_teams() {
-        apply_teams_to_leftover(&game_logic.team_factory, &teams);
-    }
+    Ok(())
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::game_logic::{ObjectId, Player, Team};
     use game_engine::common::system::xfer::Xfer as CommonXfer;
 
-    static SNAPSHOT_TEST_LOCK: Mutex<()> = Mutex::new(());
+    use super::super::player_team_chunks::{apply_pending, stamp_from_live};
 
     #[test]
     fn players_and_team_factory_chunks_round_trip_sciences_relations_and_script_latches() {
-        let _serial = SNAPSHOT_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|err| err.into_inner());
         let mut players = PlayersChunkPersist::default();
         let mut player = PlayerRuntimePersist {
             player_id: 1,
@@ -1328,10 +1108,13 @@ mod tests {
         players.players.push(player);
 
         let mut teams = TeamFactoryChunkPersist {
+            persist_roster: false,
             unique_team_id: 12,
             teams: vec![TeamRuntimePersist {
                 team_name: "HuntWave".into(),
                 team_id: 4,
+                members: None,
+                controller: None,
                 created: false,
                 active: true,
                 see_enemy: true,
@@ -1361,21 +1144,20 @@ mod tests {
                 team_name: "HuntWave".into(),
                 attack_priority_name: "PrioritySetA".into(),
                 production_priority: 42,
+                prototype_id: None,
             }],
         };
         teams.teams[0].generic_script_attempts[0] = true;
 
-        if let Ok(mut guard) = PENDING_PLAYERS.lock() {
-            *guard = Some(players.clone());
-        }
-        if let Ok(mut guard) = PENDING_TEAMS.lock() {
-            *guard = Some(teams.clone());
-        }
+        let chunks = PlayerTeamChunks {
+            players: Some(players.clone()),
+            teams: Some(teams.clone()),
+        };
 
         let mut players_only = Cursor::new(Vec::<u8>::new());
         {
             let mut xfer = CommonXferSave::new(&mut players_only, 1);
-            write_players_block(&mut xfer).expect("write players");
+            write_players_block(&mut xfer, &chunks).expect("write players");
         }
         let player_bytes = players_only.into_inner();
         assert!(player_bytes.len() > 2, "must not be NullSnapshot");
@@ -1406,7 +1188,7 @@ mod tests {
         let mut teams_only = Cursor::new(Vec::<u8>::new());
         {
             let mut xfer = CommonXferSave::new(&mut teams_only, 1);
-            write_team_factory_block(&mut xfer).expect("rewrite teams");
+            write_team_factory_block(&mut xfer, &chunks).expect("rewrite teams");
         }
         let parsed_teams = parse_team_factory_block(&teams_only.into_inner()).expect("parse teams");
         assert_eq!(parsed_teams.unique_team_id, 12);
@@ -1433,9 +1215,6 @@ mod tests {
 
     #[test]
     fn stamp_and_apply_restore_live_science_hide_and_team_relation() {
-        let _serial = SNAPSHOT_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|err| err.into_inner());
         let mut logic = GameLogic::new();
         let mut usa = Player::new(1, Team::USA, "USA", true);
         usa.set_science_availability("SCIENCE_PaladinTank", "Hidden");
@@ -1451,11 +1230,11 @@ mod tests {
         usa.did_preorder = true;
         logic.add_player(usa);
 
-        stamp_from_live(&logic);
+        let chunks = stamp_from_live(&logic).expect("capture owner");
 
         let mut loaded = GameLogic::new();
         loaded.add_player(Player::new(1, Team::USA, "USA", true));
-        apply_pending(&mut loaded);
+        apply_pending(&mut loaded, &chunks).expect("restore owned chunks");
 
         let player = loaded.get_player(1).expect("player");
         assert!(player.is_science_hidden("SCIENCE_PaladinTank"));
@@ -1473,9 +1252,6 @@ mod tests {
 
     #[test]
     fn team_factory_snapshot_captures_and_restores_the_world_owned_factory() {
-        let _serial = SNAPSHOT_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|err| err.into_inner());
         let source = GameLogic::new();
         let mut destination = GameLogic::new();
 
@@ -1497,11 +1273,11 @@ mod tests {
             team.set_state(gamelogic::common::AsciiString::from("SourceState"));
         }
 
-        stamp_from_live(&source);
+        let chunks = stamp_from_live(&source).expect("capture owner");
         let mut bytes = Cursor::new(Vec::<u8>::new());
         {
             let mut xfer = CommonXferSave::new(&mut bytes, 1);
-            write_team_factory_block(&mut xfer).expect("write source factory chunk");
+            write_team_factory_block(&mut xfer, &chunks).expect("write source factory chunk");
         }
         let team_bytes = bytes.into_inner();
         let parsed = parse_team_factory_block(&team_bytes).expect("parse factory chunk");
@@ -1512,12 +1288,11 @@ mod tests {
         assert_eq!(parsed.teams[0].state, "SourceState");
         let source_team_id = parsed.teams[0].team_id;
 
-        // Snapshot staging remains process-global for compatibility; this
-        // test verifies the authoritative factory target is the destination
-        // world's explicit owner.
-        *PENDING_PLAYERS.lock().expect("pending players") = None;
-        *PENDING_TEAMS.lock().expect("pending teams") = Some(parsed);
-        apply_pending(&mut destination);
+        let chunks = PlayerTeamChunks {
+            players: None,
+            teams: Some(parsed),
+        };
+        apply_pending(&mut destination, &chunks).expect("restore owning factory");
 
         let source_factory = source.team_factory.lock().expect("source factory");
         assert_eq!(

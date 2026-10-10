@@ -691,8 +691,9 @@ impl TeamFactory {
     /// C++ Reference: `TeamPrototype::iterate_TeamInstanceList()` used by
     /// `ScriptEngine::executeScript()` when `conditionTeamName` is set.
     pub fn find_team_instances(&self, prototype_name: &str) -> Vec<Arc<RwLock<Team>>> {
-        self.teams
-            .values()
+        self.instance_order
+            .iter()
+            .filter_map(|id| self.teams.get(id))
             .filter_map(|team| {
                 let guard = team.read().ok()?;
                 (guard.get_name() == prototype_name).then_some(team.clone())
@@ -702,7 +703,10 @@ impl TeamFactory {
 
     /// Return all live team instances.
     pub fn get_all_teams(&self) -> Vec<Arc<RwLock<Team>>> {
-        self.teams.values().cloned().collect()
+        self.instance_order
+            .iter()
+            .filter_map(|id| self.teams.get(id).cloned())
+            .collect()
     }
 
     /// Adjust production priority for a team prototype at runtime.

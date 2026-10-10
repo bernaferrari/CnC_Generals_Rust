@@ -844,19 +844,17 @@ impl SnapshotBuilder {
                 attacked_frame: 0,
             });
         }
-        crate::save_load::apply_pending_player_team_chunks(game_logic);
         Ok(())
     }
 
     pub(super) fn restore_all_teams(
         &self,
         teams: &[TeamSnapshot],
-        game_logic: &mut GameLogic,
+        _game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         // Leftover Team::xfer latches (created/active/see_enemy/destroy_threshold
         // / generic-script flags). Must not call set_active(created=true).
         let _ = teams;
-        crate::save_load::apply_pending_player_team_chunks(game_logic);
         Ok(())
     }
 

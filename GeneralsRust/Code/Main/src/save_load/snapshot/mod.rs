@@ -124,6 +124,7 @@ mod warehouse_crippling_persist;
 mod weapon_leech_persist;
 
 mod particle_system_save;
+mod player_team_chunks;
 mod player_team_persist;
 mod terrain_visual_save;
 
@@ -166,15 +167,18 @@ pub use persist_v18::{
     CameraPersist, WorldPersistV18, peek_pending_camera, set_pending_camera, take_pending_camera,
 };
 pub use player::*;
-pub use player_team_persist::{
-    CHUNK_PLAYERS, CHUNK_TEAM_FACTORY, apply_pending as apply_pending_player_team_chunks,
+pub use player_team_chunks::{
+    PlayerTeamChunks, apply_pending as apply_pending_player_team_chunks,
     stamp_from_live as stamp_player_team_chunks,
-    stash_loaded_chunks as stash_loaded_player_team_chunks, write_players_block,
-    write_team_factory_block,
+    stash_loaded_chunks as stash_loaded_player_team_chunks,
 };
-pub(crate) use player_team_persist::{
-    clear_pending_chunks as clear_pending_player_team_chunks,
-    stash_chunks_for_world as stash_player_team_chunks_for_world, validate_pending_host_alliances,
+pub(crate) use player_team_chunks::{
+    bind_chunks_to_world as bind_player_team_chunks,
+    chunks_from_world as player_team_chunks_from_world, validate_host_alliances,
+};
+pub use player_team_persist::{
+    CHUNK_PLAYERS, CHUNK_TEAM_FACTORY, PlayersChunkPersist, TeamFactoryChunkPersist,
+    write_players_block, write_team_factory_block,
 };
 pub use special_powers::*;
 pub use terrain::*;

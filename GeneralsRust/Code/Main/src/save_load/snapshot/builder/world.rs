@@ -51,7 +51,7 @@ impl SnapshotBuilder {
         super::super::player_upgrade_persist::stamp_completed_upgrades(&mut players, game_logic);
 
         // Create the world snapshot with actual game state
-        let snapshot = WorldSnapshot {
+        let mut snapshot = WorldSnapshot {
             version: WORLD_SNAPSHOT_BINCODE_VERSION,
             timestamp: std::time::SystemTime::now(),
             frame_number: game_logic.get_current_frame(),
@@ -236,7 +236,9 @@ impl SnapshotBuilder {
             pending_combat: game_logic.combat_system.pending_combat_snapshot(),
         };
 
-        super::super::player_team_persist::stamp_from_live(game_logic);
+        let chunks = super::super::player_team_chunks::stamp_from_live(game_logic)?;
+        super::super::player_team_chunks::validate_roster(&snapshot, &chunks)?;
+        super::super::player_team_chunks::bind_chunks_to_world(&mut snapshot, &chunks)?;
 
         log::info!(
             "World snapshot complete: {} objects, {} players",
@@ -271,6 +273,9 @@ impl SnapshotBuilder {
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
         validate_direct_world_snapshot_version(snapshot.version)?;
+        let player_team_chunks = super::super::player_team_chunks::chunks_from_world(snapshot)?;
+        super::super::player_team_chunks::validate_roster(snapshot, &player_team_chunks)?;
+        super::super::player_team_chunks::validate_definitions(game_logic, &player_team_chunks)?;
         // This direct API mutates the receiver below and may subsequently fail.
         // Its transient result must not describe the previous world after a
         // partial restore. Production loading isolates this work in a candidate.
@@ -292,7 +297,7 @@ impl SnapshotBuilder {
 
         // C++ parity order: players/teams before objects, then world systems.
         self.restore_all_players(&snapshot.players, game_logic)?;
-        super::super::player_team_persist::apply_pending(game_logic);
+        super::super::player_team_chunks::apply_before_objects(game_logic, &player_team_chunks)?;
         self.restore_player_ranks(snapshot, game_logic)?;
         self.restore_player_energy(snapshot, game_logic)?;
         self.restore_player_template_bindings(snapshot, game_logic)?;
@@ -600,6 +605,7 @@ impl SnapshotBuilder {
                 .set_seed_words(snapshot.logic_rng_seed_words);
         }
 
+        super::super::player_team_chunks::apply_members(game_logic, &player_team_chunks)?;
         log::info!("World restoration complete");
         Ok(())
     }

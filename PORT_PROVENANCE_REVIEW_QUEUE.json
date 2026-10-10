@@ -12614,6 +12614,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/roster_restore.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/script_guard_roster_tests.rs"
             },
@@ -188978,7 +188983,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "3703ab8f518e3cdc26a9805bd527e47fadcbbadc8627c4379660d9d0a9d0ef55",
+  "provenance_input_digest": "ef42b80e207cd617e02e1a27221b472be4bdb61f59dc8246fcb4ed6799d81b93",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

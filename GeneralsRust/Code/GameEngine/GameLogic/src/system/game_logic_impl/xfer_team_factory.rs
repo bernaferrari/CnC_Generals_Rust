@@ -111,8 +111,8 @@ fn xfer_team_prototype_snapshot(
     }
 
     let proto_name = prototype.get_name().to_string();
-    let mut instances = factory.find_team_instances(&proto_name);
-    instances.sort_by_key(|team| team.read().ok().map(|t| t.get_id()).unwrap_or(0));
+    // CPP Team.cpp:1213 follows the admitted prototype instance list.
+    let instances = factory.find_team_instances(&proto_name);
     let mut instance_count = instances.len() as u16;
     xfer.xfer_unsigned_short(&mut instance_count)?;
 

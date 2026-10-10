@@ -1,5 +1,4 @@
-//! Real-file hostility continuation. Source finishes before restored construction.
-//! Serial ordering does not establish isolation of the existing global save slots.
+//! Real-file hostility continuation and instance-owned player/team save capsules.
 use game_client::effects::particle_manager::{
     ParticleSystemManager, get_particle_system_manager_mut,
 };
@@ -23,7 +22,7 @@ const TARGET: &str = "AllianceSaveTarget";
 fn admit_catalogs() {
     assert!(generals_main::assets::get_asset_manager().is_none());
     assert!(
-        game_engine::common::thing::thing_factory::try_get_thing_factory()
+        game_engine::common::thing::thing_factory::get_thing_factory()
             .unwrap()
             .is_none()
     );
@@ -457,8 +456,8 @@ fn pending_players_do_not_leak_across_real_file_loads() {
     ];
     let mut failures = Vec::new();
     for (name, payload, should_error) in cases {
-        // A successful public decode intentionally leaves pending explicit rows.
-        manager.load_game_snapshot("seed").unwrap();
+        // Retain a successful decoded file while attempting a separate candidate.
+        let _retained_seed = manager.load_game_snapshot("seed").unwrap();
         std::fs::write(
             manager.get_save_path(name),
             replace_chunk(&original, "CHUNK_Players", payload),
@@ -761,8 +760,10 @@ fn historical_players_rows_keep_their_own_layout_and_defaults() {
         for id in 0..2 {
             decoded.add_player(Player::new(id, Team::USA, "Codec", true));
         }
-        generals_main::save_load::stash_loaded_player_team_chunks(Some(&payload), None).unwrap();
-        generals_main::save_load::apply_pending_player_team_chunks(&mut decoded);
+        let chunks =
+            generals_main::save_load::stash_loaded_player_team_chunks(Some(&payload), None)
+                .unwrap();
+        generals_main::save_load::apply_pending_player_team_chunks(&mut decoded, &chunks).unwrap();
         for id in 0..2 {
             let p = decoded.get_player(id).unwrap();
             assert!(!p.can_build_units);
@@ -880,12 +881,46 @@ fn world_versions_23_and_24_keep_nonempty_direct_and_bincode_alignment() {
                 Some(&players_payload(4, [Some(-1), Some(-1)])),
             );
         }
-        std::fs::write(manager.get_save_path("version"), bundle).unwrap();
+        std::fs::write(manager.get_save_path("version"), &bundle).unwrap();
         let (decoded, _) = manager.load_game_snapshot("version").unwrap();
         assert_eq!(decoded.version, version);
+        // The named sibling chunks now belong to the returned snapshot. This
+        // bundle deliberately changes Players, so expect the new capsule while
+        // retaining an exact comparison of every other snapshot byte/field.
+        let mut expected: WorldSnapshot = bincode_legacy::deserialize(&encoded).unwrap();
+        let chunks = generals_main::save_load::stash_loaded_player_team_chunks(
+            Some(&chunk_payload(&bundle, "CHUNK_Players")),
+            Some(&chunk_payload(&bundle, "CHUNK_TeamFactory")),
+        )
+        .unwrap();
+        let (players, teams) = encoded_player_team_chunks(&chunks);
+        let bytes = bincode_legacy::serialize(&(
+            chunks.players.as_ref().map(|_| players),
+            chunks.teams.as_ref().map(|_| teams),
+        ))
+        .unwrap();
+        assert!(expected.lifecycle_tail.ends_with(b"PTSC"));
+        let old_len = u32::from_le_bytes(
+            expected.lifecycle_tail
+                [expected.lifecycle_tail.len() - 8..expected.lifecycle_tail.len() - 4]
+                .try_into()
+                .unwrap(),
+        ) as usize;
+        expected
+            .lifecycle_tail
+            .truncate(expected.lifecycle_tail.len() - 8 - old_len);
+        let encoded: Vec<u8> = bytes
+            .iter()
+            .flat_map(|b| format!("{b:02x}").into_bytes())
+            .collect();
+        expected.lifecycle_tail.extend_from_slice(&encoded);
+        expected
+            .lifecycle_tail
+            .extend_from_slice(&(encoded.len() as u32).to_le_bytes());
+        expected.lifecycle_tail.extend_from_slice(b"PTSC");
         assert_eq!(
             serde_json::to_value(&decoded).unwrap(),
-            serde_json::to_value(&snapshot).unwrap()
+            serde_json::to_value(&expected).unwrap()
         );
     }
     for version in [0, 1, 22, 25, u32::MAX] {
@@ -961,8 +996,11 @@ fn new_file_bundle_requires_exact_host_alliance_coverage() {
         ("version_zero", Some(vec![0, 0, 0])),
         ("future", Some(vec![5, 0, 0])),
     ];
+    let retained =
+        generals_main::save_load::stash_loaded_player_team_chunks(Some(&all), None).unwrap();
+    let retained_bytes = encoded_player_team_chunks(&retained);
     for (name, payload) in cases {
-        manager.load_game_snapshot("seed").unwrap();
+        let _retained_seed = manager.load_game_snapshot("seed").unwrap();
         std::fs::write(
             manager.get_save_path(name),
             replace_chunk(&original, "CHUNK_Players", payload.as_deref()),
@@ -973,10 +1011,17 @@ fn new_file_bundle_requires_exact_host_alliance_coverage() {
         println!("v24 coverage {name}: {result:?}");
         assert!(result.is_err(), "{name}");
         assert!(restored.get_players().is_empty() && restored.host_objects().is_empty());
-        // A failed attempt must also have cleared the pair, not only returned an error.
+        // A failed candidate cannot modify a separately retained capsule.
         restored.add_player(Player::new(0, Team::USA, "Fresh", true));
-        generals_main::save_load::apply_pending_player_team_chunks(&mut restored);
         assert_eq!(restored.get_player(0).unwrap().alliance_team, -1, "{name}");
+        assert_eq!(
+            encoded_player_team_chunks(&retained),
+            retained_bytes,
+            "{name}"
+        );
+        generals_main::save_load::apply_pending_player_team_chunks(&mut restored, &retained)
+            .unwrap();
+        assert_eq!(restored.get_player(0).unwrap().alliance_team, 41, "{name}");
     }
     // Native-only rows do not require a host value in an empty host world.
     let empty = world();
@@ -993,17 +1038,33 @@ fn new_file_bundle_requires_exact_host_alliance_coverage() {
     }
 }
 
-// This public projection stamps legacy save slots, so use it only AFTER the
-// candidate pair has been applied; never let capture mask the pending data.
+// Capture returns an owned value; observing a live world cannot replace any
+// independently decoded candidate waiting to be applied.
 fn captured_team_next_id(host: &GameLogic) -> u32 {
     use game_engine::common::system::xfer_save::XferSave as CommonSave;
-    generals_main::save_load::stamp_player_team_chunks(host);
+    let chunks = generals_main::save_load::stamp_player_team_chunks(host).unwrap();
     let mut cursor = std::io::Cursor::new(Vec::new());
-    generals_main::save_load::write_team_factory_block(&mut CommonSave::new(&mut cursor, 1))
-        .unwrap();
+    generals_main::save_load::write_team_factory_block(
+        &mut CommonSave::new(&mut cursor, 1),
+        &chunks,
+    )
+    .unwrap();
     let bytes = cursor.into_inner();
-    assert_eq!(bytes[0], 4);
+    assert_eq!(bytes[0], 5);
     u32::from_le_bytes(bytes[1..5].try_into().unwrap())
+}
+
+fn encoded_player_team_chunks(
+    chunks: &generals_main::save_load::PlayerTeamChunks,
+) -> (Vec<u8>, Vec<u8>) {
+    use game_engine::common::system::xfer_save::XferSave as CommonSave;
+    let mut players = std::io::Cursor::new(Vec::new());
+    let mut teams = std::io::Cursor::new(Vec::new());
+    generals_main::save_load::write_players_block(&mut CommonSave::new(&mut players, 1), chunks)
+        .unwrap();
+    generals_main::save_load::write_team_factory_block(&mut CommonSave::new(&mut teams, 1), chunks)
+        .unwrap();
+    (players.into_inner(), teams.into_inner())
 }
 
 #[test]
@@ -1012,14 +1073,16 @@ fn player_team_pair_does_not_publish_one_successful_half() {
         apply_pending_player_team_chunks, stash_loaded_player_team_chunks,
     };
     let players = players_payload(4, [Some(71), Some(72)]);
-    // Valid empty TeamFactory4: version, unique-id, team-count, prototype-count.
+    // Valid historical empty TeamFactory4; new writers use version5.
     let teams = vec![4, 77, 0, 0, 0, 0, 0, 0, 0];
-    let verify_empty_pair = || {
+    let retained = stash_loaded_player_team_chunks(Some(&players), Some(&teams)).unwrap();
+    let encoded = encoded_player_team_chunks(&retained);
+    let verify_empty_pair = |chunks: &generals_main::save_load::PlayerTeamChunks| {
         let mut host = world();
         host.add_player(Player::new(0, Team::USA, "Pair", true));
         let next = 1;
         assert_ne!(next, 77);
-        apply_pending_player_team_chunks(&mut host);
+        apply_pending_player_team_chunks(&mut host, chunks).unwrap();
         assert_eq!(host.get_player(0).unwrap().alliance_team, -1);
         assert_eq!(captured_team_next_id(&host), next);
     };
@@ -1028,32 +1091,37 @@ fn player_team_pair_does_not_publish_one_successful_half() {
         t.push(0);
         t
     }] {
-        stash_loaded_player_team_chunks(Some(&players), Some(&teams)).unwrap();
         assert!(stash_loaded_player_team_chunks(Some(&players), Some(&bad)).is_err());
-        verify_empty_pair();
-        stash_loaded_player_team_chunks(Some(&players), Some(&teams)).unwrap();
         assert!(stash_loaded_player_team_chunks(Some(&bad), Some(&teams)).is_err());
-        verify_empty_pair();
+        // No partially decoded value escapes either failure. A valid retained
+        // pair stays intact and a fresh world remains completely unmodified.
+        assert_eq!(encoded_player_team_chunks(&retained), encoded);
+        verify_empty_pair(&stash_loaded_player_team_chunks(None, None).unwrap());
+        let mut host = world();
+        host.add_player(Player::new(0, Team::USA, "Pair", true));
+        apply_pending_player_team_chunks(&mut host, &retained).unwrap();
+        assert_eq!(host.get_player(0).unwrap().alliance_team, 71);
+        assert_eq!(captured_team_next_id(&host), 77);
     }
     for absent in [None, Some(&[1][..])] {
-        stash_loaded_player_team_chunks(Some(&players), Some(&teams)).unwrap();
-        stash_loaded_player_team_chunks(absent, absent).unwrap();
-        verify_empty_pair();
-        // Each absence clears just that side; the other valid side still applies.
-        stash_loaded_player_team_chunks(Some(&players), absent).unwrap();
+        let empty = stash_loaded_player_team_chunks(absent, absent).unwrap();
+        verify_empty_pair(&empty);
+        // Absence belongs to this capsule only; its valid sibling still applies.
+        let chunks = stash_loaded_player_team_chunks(Some(&players), absent).unwrap();
         let mut host = world();
         host.add_player(Player::new(0, Team::USA, "Pair", true));
         let next = 1;
-        apply_pending_player_team_chunks(&mut host);
+        apply_pending_player_team_chunks(&mut host, &chunks).unwrap();
         assert_eq!(host.get_player(0).unwrap().alliance_team, 71);
         assert_eq!(captured_team_next_id(&host), next);
         drop(host);
-        stash_loaded_player_team_chunks(absent, Some(&teams)).unwrap();
+        let chunks = stash_loaded_player_team_chunks(absent, Some(&teams)).unwrap();
         let mut host = world();
         host.add_player(Player::new(0, Team::USA, "Pair", true));
-        apply_pending_player_team_chunks(&mut host);
+        apply_pending_player_team_chunks(&mut host, &chunks).unwrap();
         assert_eq!(host.get_player(0).unwrap().alliance_team, -1);
         assert_eq!(captured_team_next_id(&host), 77);
+        assert_eq!(encoded_player_team_chunks(&retained), encoded);
     }
 }
 
@@ -1089,18 +1157,18 @@ fn explicit_unassigned_value_is_distinct_from_absent_host_authority() {
         p.alliance_team = 91 + id as i32;
         host.add_player(p);
     }
-    generals_main::save_load::stash_loaded_player_team_chunks(
+    let chunks = generals_main::save_load::stash_loaded_player_team_chunks(
         Some(&players_payload(4, [Some(-1), None])),
         None,
     )
     .unwrap();
-    generals_main::save_load::apply_pending_player_team_chunks(&mut host);
+    generals_main::save_load::apply_pending_player_team_chunks(&mut host, &chunks).unwrap();
     assert_eq!(host.get_player(0).unwrap().alliance_team, -1);
     assert_eq!(host.get_player(1).unwrap().alliance_team, 92);
 }
 
 #[test]
-fn file_open_or_container_failure_clears_the_pending_pair() {
+fn file_open_or_container_failure_preserves_retained_owned_pair() {
     let directory = TempDir::new().unwrap();
     let mut manager = SaveFileManager::with_save_directory(directory.path());
     manager.init().unwrap();
@@ -1108,13 +1176,156 @@ fn file_open_or_container_failure_clears_the_pending_pair() {
     let players = players_payload(4, [Some(71), Some(72)]);
     let teams = vec![4, 77, 0, 0, 0, 0, 0, 0, 0];
     for name in ["missing", "invalid"] {
-        generals_main::save_load::stash_loaded_player_team_chunks(Some(&players), Some(&teams))
-            .unwrap();
+        let retained =
+            generals_main::save_load::stash_loaded_player_team_chunks(Some(&players), Some(&teams))
+                .unwrap();
+        let encoded = encoded_player_team_chunks(&retained);
         assert!(manager.load_game_snapshot(name).is_err());
+        assert_eq!(encoded_player_team_chunks(&retained), encoded);
         let mut host = world();
         host.add_player(Player::new(0, Team::USA, "Fresh", true));
-        generals_main::save_load::apply_pending_player_team_chunks(&mut host);
         assert_eq!(host.get_player(0).unwrap().alliance_team, -1);
         assert_eq!(captured_team_next_id(&host), 1);
+        generals_main::save_load::apply_pending_player_team_chunks(&mut host, &retained).unwrap();
+        assert_eq!(host.get_player(0).unwrap().alliance_team, 71);
+        assert_eq!(captured_team_next_id(&host), 77);
+    }
+}
+
+fn capsule_host() -> GameLogic {
+    let mut host = world();
+    for id in 0..2 {
+        host.add_player(Player::new(id, Team::USA, "Capsule", id == 0));
+    }
+    host
+}
+
+fn assert_capsule_host(host: &GameLogic, alliances: [i32; 2], next_team: u32) {
+    for id in 0..2 {
+        assert_eq!(
+            host.get_player(id).unwrap().alliance_team,
+            alliances[id as usize]
+        );
+    }
+    assert_eq!(captured_team_next_id(host), next_team);
+}
+
+#[test]
+fn retained_player_team_capsules_are_independent_of_decode_capture_and_other_worlds() {
+    use generals_main::save_load::{
+        apply_pending_player_team_chunks, stash_loaded_player_team_chunks,
+    };
+    let players_a = players_payload(4, [Some(71), Some(72)]);
+    let players_b = players_payload(4, [Some(81), Some(82)]);
+    let teams_a = vec![4, 77, 0, 0, 0, 0, 0, 0, 0];
+    let teams_b = vec![4, 99, 0, 0, 0, 0, 0, 0, 0];
+    let a = stash_loaded_player_team_chunks(Some(&players_a), Some(&teams_a)).unwrap();
+    let encoded_a = encoded_player_team_chunks(&a);
+    let b = stash_loaded_player_team_chunks(Some(&players_b), Some(&teams_b)).unwrap();
+    let encoded_b = encoded_player_team_chunks(&b);
+    assert_ne!(encoded_a, encoded_b);
+    // Invalid and absent decodes cannot overwrite an already retained candidate.
+    assert!(stash_loaded_player_team_chunks(Some(&players_a), Some(&[4, 1])).is_err());
+    assert!(stash_loaded_player_team_chunks(Some(&[4, 1]), Some(&teams_b)).is_err());
+    let absent = stash_loaded_player_team_chunks(None, None).unwrap();
+    for reverse in [false, true] {
+        let mut first = capsule_host();
+        let mut second = capsule_host();
+        assert_capsule_host(&first, [-1, -1], 1);
+        assert_capsule_host(&second, [-1, -1], 1);
+        // Capturing another live world and writing B cannot replace A.
+        let _other_capture = generals_main::save_load::stamp_player_team_chunks(&second).unwrap();
+        assert_eq!(encoded_player_team_chunks(&b), encoded_b);
+        if reverse {
+            apply_pending_player_team_chunks(&mut second, &b).unwrap();
+            apply_pending_player_team_chunks(&mut first, &a).unwrap();
+        } else {
+            apply_pending_player_team_chunks(&mut first, &a).unwrap();
+            apply_pending_player_team_chunks(&mut second, &b).unwrap();
+        }
+        assert_capsule_host(&first, [71, 72], 77);
+        assert_capsule_host(&second, [81, 82], 99);
+        for id in 0..2 {
+            assert_eq!(
+                first.get_player(id).unwrap().map_relationship(1 - id),
+                Some(Relationship::Enemies)
+            );
+            assert_eq!(
+                second.get_player(id).unwrap().map_relationship(1 - id),
+                Some(Relationship::Enemies)
+            );
+        }
+        second.reset();
+        apply_pending_player_team_chunks(&mut second, &absent).unwrap();
+        drop(second);
+        assert_capsule_host(&first, [71, 72], 77);
+        assert_eq!(encoded_player_team_chunks(&a), encoded_a);
+        assert_eq!(encoded_player_team_chunks(&b), encoded_b);
+        // Explicit capsules are reusable observations, not consumed global slots.
+        apply_pending_player_team_chunks(&mut first, &a).unwrap();
+        assert_capsule_host(&first, [71, 72], 77);
+    }
+}
+
+#[test]
+fn retained_decoded_files_restore_their_own_players_and_teams_in_either_order() {
+    let directory = TempDir::new().unwrap();
+    let mut manager = SaveFileManager::with_save_directory(directory.path());
+    manager.init().unwrap();
+    for (name, alliances, next_team) in [("retained_a", [71, 72], 77), ("retained_b", [81, 82], 99)]
+    {
+        let mut source = capsule_host();
+        for id in 0..2 {
+            let player = source.get_player_mut(id).unwrap();
+            player.alliance_team = alliances[id as usize];
+            player.set_map_relationship(1 - id, Relationship::Enemies);
+        }
+        let mut historical_teams = vec![4];
+        historical_teams.extend_from_slice(&u32::to_le_bytes(next_team));
+        historical_teams.extend_from_slice(&[0, 0, 0, 0]);
+        let teams = generals_main::save_load::stash_loaded_player_team_chunks(
+            None,
+            Some(&historical_teams),
+        )
+        .unwrap();
+        generals_main::save_load::apply_pending_player_team_chunks(&mut source, &teams).unwrap();
+        manager.save_game(name, &source, &info()).unwrap();
+        assert_capsule_host(&source, alliances, next_team);
+    }
+    // Both public decodes complete before either candidate is restored. This
+    // OLD-compatible sequence exposes B replacing A's sibling chunk metadata.
+    let (a, _) = manager.load_game_snapshot("retained_a").unwrap();
+    let (b, _) = manager.load_game_snapshot("retained_b").unwrap();
+    assert!(
+        manager
+            .load_game_snapshot("missing_retained_candidate")
+            .is_err()
+    );
+    let builder = generals_main::save_load::SnapshotBuilder::new();
+    for reverse in [false, true] {
+        let mut first = world();
+        let mut second = world();
+        if reverse {
+            builder.restore_from_snapshot(&b, &mut second).unwrap();
+            builder.restore_from_snapshot(&a, &mut first).unwrap();
+        } else {
+            builder.restore_from_snapshot(&a, &mut first).unwrap();
+            builder.restore_from_snapshot(&b, &mut second).unwrap();
+        }
+        assert_capsule_host(&first, [71, 72], 77);
+        assert_capsule_host(&second, [81, 82], 99);
+        for id in 0..2 {
+            assert_eq!(
+                first.get_player(id).unwrap().map_relationship(1 - id),
+                Some(Relationship::Enemies)
+            );
+            assert_eq!(
+                second.get_player(id).unwrap().map_relationship(1 - id),
+                Some(Relationship::Enemies)
+            );
+        }
+        second.reset();
+        drop(second);
+        assert_capsule_host(&first, [71, 72], 77);
     }
 }

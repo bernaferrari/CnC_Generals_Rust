@@ -891,7 +891,6 @@ impl SaveFileManager {
             Vec::new()
         };
         set_pending_save_game_mode(Some(cpp_game_mode_from_live(game_logic.game_mode())));
-        crate::save_load::stamp_player_team_chunks(game_logic);
 
         // C++ GameState::saveGame (GameState.cpp:534) makes sure the save
         // directory exists at save time; our atomic flow writes into
@@ -959,7 +958,6 @@ impl SaveFileManager {
         &self,
         filename: &str,
     ) -> SaveLoadResult<(WorldSnapshot, SaveGameInfo)> {
-        clear_pending_player_team_chunks()?;
         let save_path = self.get_save_path(filename);
         if !save_path.exists() {
             return Err(SaveLoadError::FileNotFound(filename.to_string()));
@@ -1229,8 +1227,9 @@ impl SaveFileManager {
         game_client_bytes: &[u8],
         save_directory: &Path,
     ) -> SaveLoadResult<Vec<u8>> {
+        let player_team_chunks = player_team_chunks_from_world(world_snapshot)?;
         if save_info.save_type != SaveFileType::Mission {
-            validate_pending_host_alliances(world_snapshot)?;
+            validate_host_alliances(world_snapshot, &player_team_chunks)?;
         }
         let ghost_bytes = capture_w3d_ghost_xfer_bytes().unwrap_or_default();
         let particle_system_bytes = capture_particle_system_xfer_bytes().unwrap_or_default();
@@ -1343,8 +1342,8 @@ impl SaveFileManager {
                         xfer,
                         &world_snapshot.persist_v18,
                     ),
-                    CHUNK_PLAYERS => write_players_block(xfer),
-                    CHUNK_TEAM_FACTORY => write_team_factory_block(xfer),
+                    CHUNK_PLAYERS => write_players_block(xfer, &player_team_chunks),
+                    CHUNK_TEAM_FACTORY => write_team_factory_block(xfer, &player_team_chunks),
 
                     _ => write_null_snapshot_version(xfer),
                 })?;
@@ -1396,7 +1395,6 @@ impl SaveFileManager {
         data: &[u8],
         save_dir: &Path,
     ) -> SaveLoadResult<(WorldSnapshot, SaveGameInfo)> {
-        clear_pending_player_team_chunks()?;
         discard_stashed_campaign_state();
         store_loaded_game_state_map_mode(None);
         let blocks = walk_named_chunks(data)?;
@@ -1507,11 +1505,12 @@ impl SaveFileManager {
                 ));
             }
         };
-        stash_player_team_chunks_for_world(
+        let player_team_chunks = stash_loaded_player_team_chunks(
             players_payload.as_deref(),
             team_factory_payload.as_deref(),
-            Some(&world_snapshot),
         )?;
+        validate_host_alliances(&world_snapshot, &player_team_chunks)?;
+        bind_player_team_chunks(&mut world_snapshot, &player_team_chunks)?;
         apply_persist_chunks(
             &mut world_snapshot,
             ingame_ui_payload.as_deref(),

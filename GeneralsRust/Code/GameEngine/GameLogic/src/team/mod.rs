@@ -62,6 +62,7 @@ include!("snapshot.rs");
 include!("prototype.rs");
 include!("factory.rs");
 include!("factory_access.rs");
+mod roster_restore;
 include!("tests.rs");
 
 #[cfg(test)]
@@ -74,6 +75,7 @@ pub const TEAM_SRC: &str = concat!(
     include_str!("factory_access.rs"),
     include_str!("ids.rs"),
     include_str!("prototype.rs"),
+    include_str!("roster_restore.rs"),
     include_str!("snapshot.rs"),
     include_str!("team_actions.rs"),
     include_str!("team_areas.rs"),
