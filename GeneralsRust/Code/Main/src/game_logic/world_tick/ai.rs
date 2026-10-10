@@ -57,17 +57,14 @@ impl GameLogic {
                     }
                 }
                 // Wave 761: under coupled GameWorld shadow, status timer expire
-                // (faerie/repulsor/disable/frenzy/continuous-fire/selection flash)
+                // (faerie/repulsor/frenzy/continuous-fire/selection flash)
                 // is owned by `tick_status_timer_expirations` + writeback. Host must
                 // not dual-expire mid-frame. Eject-invulnerable stays host-only
                 // (no GW until_frame field yet).
                 let peel_status_timers = crate::gameworld_shadow::gameworld_shadow_enabled()
                     && crate::gameworld_shadow::shadow_coupled_tick_active();
                 if !peel_status_timers {
-                    obj.tick_disabled_hacked(self.frame);
                     obj.tick_selection_flash();
-                    obj.tick_disabled_emp(self.frame);
-                    obj.tick_disabled_paralyzed(self.frame);
                     obj.tick_weapon_bonus_frenzy(self.frame);
                     obj.tick_faerie_fire(self.frame);
                 }
@@ -117,7 +114,7 @@ impl GameLogic {
                 // authority only changes pose ownership; its diagnostic shadow
                 // does not schedule or apply another poison pulse.
                 if let Some((dot, death_ty)) = obj.tick_poisoned_behavior(self.frame) {
-                    let killed = obj.take_damage_from_typed_death_fx_at_frame(
+                    let killed = obj.take_damage_from_typed_death_fx_at_frame_with_repulsor_policy(
                         dot,
                         None,
                         crate::game_logic::combat::DamageType::Unresistable,
@@ -125,6 +122,7 @@ impl GameLogic {
                         Some(crate::game_logic::host_poisoned_behavior::poison_dot_fx_override()),
                         self.frame,
                         &mut self.health_events,
+                        &self.enable_repulsors,
                     );
                     if killed {
                         poison_kill = true;

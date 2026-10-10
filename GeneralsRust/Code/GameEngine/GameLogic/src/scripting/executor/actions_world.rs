@@ -1202,9 +1202,23 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_set_base_construction_speed(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         let delay_seconds = self.get_int_param(action, 1)?;
+        // CPP updateBaseConstructionSpeed calls Player::setTeamDelaySeconds;
+        // the original signed seconds are carried unchanged to the owner.
+        if let Some(result) = driver.ai_player(
+            crate::scripting::engine::ScriptAiPlayerRequest::SetTeamDelay {
+                player: &player_name,
+                seconds: delay_seconds,
+            },
+        ) {
+            if let Err(error) = result {
+                log::warn!("Owned scripted AI player effect failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         log::debug!(
             "Setting base construction speed for '{}' to {} seconds",
             player_name,

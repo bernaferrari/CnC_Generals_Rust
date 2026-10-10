@@ -1519,12 +1519,13 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from_immediate_residual(
+                let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
                     dmg,
                     source,
                     BUGGY_DAMAGE_TYPE,
                     BUGGY_DEATH_TYPE,
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {

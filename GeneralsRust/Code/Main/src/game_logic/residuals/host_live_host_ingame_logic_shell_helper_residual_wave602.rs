@@ -152,7 +152,7 @@ pub fn honesty_host_ingame_logic_shell_helper_source_markers_residual_wave602() 
     };
     let logic_ok = logic.contains("Wave 602")
         && logic.contains("CoupledTickGuard")
-        && logic.contains("host_run_coupled_fast_forward_loop")
+        && logic.contains("host_run_fast_forward_loop")
         && logic.contains("host_finalize_presentation_after_logic")
         && logic.contains("host_tick_game_client_presentation_shell")
         // 2026-09-07 re-pin: the dual-tick policy gate was deleted from this

@@ -704,6 +704,24 @@ impl SnapshotBuilder {
         players: &[PlayerSnapshot],
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
+        // Local view selection belongs to the receiving session. The existing
+        // wire is_human flag describes controller type, including remote humans.
+        let local_ids: HashSet<u32> = game_logic
+            .get_players()
+            .values()
+            .filter(|player| player.is_local && players.iter().any(|saved| saved.id == player.id))
+            .map(|player| player.id)
+            .collect();
+        let fallback_local = local_ids
+            .is_empty()
+            .then(|| {
+                players
+                    .iter()
+                    .filter(|player| player.is_human)
+                    .map(|player| player.id)
+                    .min()
+            })
+            .flatten();
         game_logic.clear_all_players();
         for snap in players {
             let statistics = PlayerStatistics {
@@ -754,7 +772,8 @@ impl SnapshotBuilder {
                 selected_objects: Vec::new(),
                 unlocked_sciences,
                 queued_upgrades,
-                is_local: snap.is_human,
+                is_human: snap.is_human,
+                is_local: local_ids.contains(&snap.id) || fallback_local == Some(snap.id),
                 is_alive: snap.is_active,
                 is_observer: false,
                 did_preorder: false,
@@ -1214,7 +1233,7 @@ impl SnapshotBuilder {
         let ai_player_ids: Vec<u32> = game_logic
             .get_players()
             .iter()
-            .filter_map(|(id, player)| (!player.is_local).then_some(*id))
+            .filter_map(|(id, player)| (!player.is_human).then_some(*id))
             .collect();
 
         for player_id in ai_player_ids {

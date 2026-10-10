@@ -59,9 +59,6 @@ pub(super) struct Waves801840 {
     pub host_money_crate_delete_dual_peel_method_names_wave817_ok: bool,
     pub host_money_crate_delete_dual_peel_nav_commands_wave817_ok: bool,
     pub host_money_crate_delete_dual_peel_live_wave817_ok: bool,
-    pub host_player_radar_dual_peel_method_names_wave818_ok: bool,
-    pub host_player_radar_dual_peel_nav_commands_wave818_ok: bool,
-    pub host_player_radar_dual_peel_live_wave818_ok: bool,
     pub host_dozer_bored_dual_peel_method_names_wave819_ok: bool,
     pub host_dozer_bored_dual_peel_nav_commands_wave819_ok: bool,
     pub host_dozer_bored_dual_peel_live_wave819_ok: bool,
@@ -231,12 +228,6 @@ pub(super) fn evaluate() -> Waves801840 {
             honesty_host_money_crate_delete_dual_peel_nav_commands_residual_wave817(),
         host_money_crate_delete_dual_peel_live_wave817_ok:
             simulate_live_host_money_crate_delete_dual_peel_honesty(),
-        host_player_radar_dual_peel_method_names_wave818_ok:
-            honesty_host_player_radar_dual_peel_method_names_residual_wave818(),
-        host_player_radar_dual_peel_nav_commands_wave818_ok:
-            honesty_host_player_radar_dual_peel_nav_commands_residual_wave818(),
-        host_player_radar_dual_peel_live_wave818_ok:
-            simulate_live_host_player_radar_dual_peel_honesty(),
         host_dozer_bored_dual_peel_method_names_wave819_ok:
             honesty_host_dozer_bored_dual_peel_method_names_residual_wave819(),
         host_dozer_bored_dual_peel_nav_commands_wave819_ok:

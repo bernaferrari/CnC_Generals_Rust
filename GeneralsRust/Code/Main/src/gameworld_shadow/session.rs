@@ -134,6 +134,12 @@ pub fn run_post_logic_shadow_boundary(
     shadow: Option<&mut GameWorldShadow>,
     logic: &mut GameLogic,
 ) -> usize {
+    if *logic.gameworld_authority()
+        == crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority::DEFAULT_OFF
+        && !shadow_coupled_tick_active()
+    {
+        return super::run_owned_host_boundary(shadow, logic);
+    }
     if let Some(shadow) = shadow {
         let probe = shadow_session_after_host_tick(shadow, logic);
         if !probe.full_match() {
@@ -2199,35 +2205,6 @@ pub fn shadow_session_after_host_tick(
         // Wave 634: drain combat-status ready log after GW writeback.
         let _cst_ready =
             logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::CombatStatus);
-    }
-    // Wave 818: player radar transitions residual. Runs on EVERY coupled
-    // session tick, NOT only under movement authority: under shadow the GW
-    // recompute owns radar_count (step.rs skips host update_player_radar when
-    // coupled), so this peel is the only live grant path onto host Player
-    // (C++ Player::addRadar via RadarUpgrade.cpp:111; RadarUpdate.cpp never
-    // grants). Inside the movement gate it never fired live and the minimap
-    // radar stayed zeroed.
-    for ev in crate::game_logic::host_player_radar_log::drain() {
-        use crate::game_logic::host_radar::{RADAR_OFFLINE_AUDIO, RADAR_ONLINE_AUDIO};
-        if let Some(p) = logic.get_player_mut(ev.player_id) {
-            p.set_radar_state(ev.radar_count, p.radar_disabled);
-        }
-        let (came_online, went_offline) = logic.host_radar.record_player_radar(
-            ev.radar_count.max(0) as u32,
-            ev.had_radar,
-            ev.has_radar,
-        );
-        if came_online {
-            logic.queue_audio_event(
-                crate::game_logic::game_logic::AudioEventRequest::new(RADAR_ONLINE_AUDIO)
-                    .with_priority(130),
-            );
-        } else if went_offline {
-            logic.queue_audio_event(
-                crate::game_logic::game_logic::AudioEventRequest::new(RADAR_OFFLINE_AUDIO)
-                    .with_priority(130),
-            );
-        }
     }
     let _prod_wb = shadow.writeback_production_to_host(logic);
     // Wave 714/937: same-frame host complete/spawn via production authority boundary after GW writeback.

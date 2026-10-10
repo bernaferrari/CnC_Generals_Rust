@@ -230,11 +230,6 @@ pub use crate::game_logic::host_live_ai_dock_dual_world_empty_gate_residual_wave
     honesty_live_ai_dock_dual_world_empty_gate_nav_commands_residual_wave397,
     simulate_live_ai_dock_dual_world_empty_gate_honesty,
 };
-pub use crate::game_logic::host_live_ai_groups_dual_world_empty_gate_residual_wave398::{
-    honesty_live_ai_groups_dual_world_empty_gate_method_names_residual_wave398,
-    honesty_live_ai_groups_dual_world_empty_gate_nav_commands_residual_wave398,
-    simulate_live_ai_groups_dual_world_empty_gate_honesty,
-};
 pub use crate::game_logic::host_live_artillery_barrage_power_dual_world_empty_gate_residual_wave399::{
     honesty_live_artillery_barrage_power_dual_world_empty_gate_method_names_residual_wave399,
     honesty_live_artillery_barrage_power_dual_world_empty_gate_nav_commands_residual_wave399,

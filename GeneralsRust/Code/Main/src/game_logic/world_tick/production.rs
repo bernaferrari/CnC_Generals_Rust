@@ -1,6 +1,13 @@
 //! Host tick `impl GameLogic` — `production`.
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
+
+/// The two original callback points cannot be interchanged by exit helpers.
+enum SpawnReadyCallbacks {
+    AlreadyNotified,
+    NotifyAfterExit,
+}
+
 impl GameLogic {
     /// C++ DozerActionDoActionState BUILD (DozerAIUpdate.cpp:482-526):
     /// progress only after idle at ACTION dock (`DOZER_DO_BUILD_AT_DOCK`).
@@ -283,15 +290,11 @@ impl GameLogic {
                     // Defer EVA until after borrow ends.
                     ready_superweapons.push(id);
                 }
-                // Wave 744: under coupled GameWorld shadow, radar-extend complete
-                // is owned by writeback + host_apply_radar_extend_ready_completions.
-                // Host must not dual-complete via tick_radar_extend mid-frame.
-                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-                    && crate::gameworld_shadow::shadow_coupled_tick_active())
-                {
-                    if obj.tick_radar_extend(self.frame) {
-                        radar_extend_done.push(id);
-                    }
+                // C++ RadarUpdate completes strictly after its own deadline.
+                // The object's owner advances this timer; the shadow has no
+                // corresponding completion ticker.
+                if obj.tick_radar_extend(self.frame) {
+                    radar_extend_done.push(id);
                 }
                 // C++ `ProductionUpdate::updateDoors` owns the visual door
                 // state.  GameWorld sole-ticks queue progress, but has no door
@@ -1502,7 +1505,7 @@ impl GameLogic {
                 if raw != 0 && !self.objects.contains_key(&preferred) {
                     let saved_next = self.next_object_id;
                     self.next_object_id = preferred;
-                    let spawned = self.create_object_for_owner_or_team(
+                    let spawned = self.create_production_object_for_owner_or_team(
                         template,
                         team,
                         owner_player_id,
@@ -1519,7 +1522,7 @@ impl GameLogic {
                     self.next_object_id = saved_next;
                 }
                 // Bind present (preferred collision or create miss): host allocate + map.
-                return self.create_object_for_owner_or_team(
+                return self.create_production_object_for_owner_or_team(
                     template,
                     team,
                     owner_player_id,
@@ -1542,7 +1545,7 @@ impl GameLogic {
                 return None;
             }
         }
-        self.create_object_for_owner_or_team(template, team, owner_player_id, spawn_pos)
+        self.create_production_object_for_owner_or_team(template, team, owner_player_id, spawn_pos)
     }
 
     /// Wave 595: host unit production completion residual — spawn, door, exit delay,
@@ -1727,13 +1730,19 @@ impl GameLogic {
         Some(self.factory_exit_coord_to_cell(adj, center_in_cell, dest.y))
     }
 
+    /// AIPlayer::onUnitProduced follows its current exit goal to team home
+    /// with no ignored factory (C++ passes NULL for ignoreObstacle).
+    pub(crate) fn follow_ai_production_home_path(&mut self, unit: ObjectId, path: &[Vec3]) {
+        self.follow_exit_production_path(unit, path, None);
+    }
+
     /// C++ `AIUpdateInterface::aiFollowExitProductionPath`.
     /// Ignore the producer, walk the authored points, and path through units.
     fn follow_exit_production_path(
         &mut self,
         unit_id: ObjectId,
         path: &[Vec3],
-        ignore_producer: ObjectId,
+        ignore_producer: Option<ObjectId>,
     ) {
         if path.is_empty() {
             return;
@@ -1744,12 +1753,7 @@ impl GameLogic {
             unit.adjust_destinations = false;
             unit.can_path_through_units = true;
         }
-        self.path_approach_with_state_ignoring(
-            unit_id,
-            path[0],
-            AIState::Moving,
-            Some(ignore_producer),
-        );
+        self.path_approach_with_state_ignoring(unit_id, path[0], AIState::Moving, ignore_producer);
         for &wp in path.iter().skip(1) {
             // The A*-installed end and the authored snapped point can differ
             // only in ground Y; C++ path cells live on the 2D ground grid
@@ -1813,7 +1817,7 @@ impl GameLogic {
                 }
             }
             unit.can_path_through_units = true;
-            unit.ignored_obstacle_id = Some(ignore_producer);
+            unit.ignored_obstacle_id = ignore_producer;
             unit.is_attack_path = false;
             unit.last_command_source =
                 crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
@@ -1838,8 +1842,43 @@ impl GameLogic {
     /// (notify/door/exit/path) for the newly allocated host ObjectId.
     /// Still host ObjectId authority — not full GameWorld spawn-ID ownership.
     pub fn host_apply_production_spawn_ready_completions(&mut self) -> usize {
-        // Wave 679: drain production-spawn ready log and apply host presentation residual.
+        self.host_apply_production_spawn_ready_completions_with_build_complete(
+            Self::apply_create_modules_on_build_complete,
+        )
+    }
+
+    pub(crate) fn host_apply_production_spawn_ready_completions_with_build_complete(
+        &mut self,
+        on_build_complete: impl FnMut(&mut Self, ObjectId),
+    ) -> usize {
+        // Wave 679: paid ProductionUpdate deliveries retain the drain boundary.
         let events = crate::game_logic::host_production_spawn_ready_log::drain();
+        self.apply_spawn_ready_events(
+            events,
+            SpawnReadyCallbacks::NotifyAfterExit,
+            on_build_complete,
+        )
+    }
+
+    /// SpawnBehavior already notified Player/AI at allocation. Admit only its
+    /// owned exit event, without draining another paid factory's pending output.
+    pub(crate) fn host_apply_supply_spawn_ready_completion(
+        &mut self,
+        event: crate::game_logic::host_production_spawn_ready_log::HostProductionSpawnReadyEvent,
+    ) -> usize {
+        self.apply_spawn_ready_events(
+            std::iter::once(event),
+            SpawnReadyCallbacks::AlreadyNotified,
+            |_, _| {},
+        )
+    }
+
+    fn apply_spawn_ready_events(
+        &mut self,
+        events: impl IntoIterator<Item = crate::game_logic::host_production_spawn_ready_log::HostProductionSpawnReadyEvent>,
+        callbacks: SpawnReadyCallbacks,
+        mut on_build_complete: impl FnMut(&mut Self, ObjectId),
+    ) -> usize {
         let mut n = 0usize;
         let mut voice_create_played: std::collections::HashSet<ObjectId> =
             std::collections::HashSet::new();
@@ -1860,28 +1899,6 @@ impl GameLogic {
             // exitObjectViaDoor). Anti-stack is the doubled natural-rally
             // waypoint, not a spawn offset.
             let sole = crate::gameworld_shadow::gameworld_production_sole_tick_enabled();
-            // C++ VoiceCreated + UnitReady residual.
-            self.notify_unit_production_complete(new_id, producer_id, &template);
-            // C++ ProductionUpdate.cpp:827-832: first unit of a QuantityModifier
-            // batch also plays per-unit VoiceCreate (before oneProductionSuccessful).
-            if voice_create_played.insert(producer_id) {
-                if let Some(unit) = self.objects.get(&new_id) {
-                    if let Some(event) =
-                        crate::game_logic::audio_dispatch_impl::resolve_unit_voice_event(
-                            &unit.template_name,
-                            crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Create,
-                        )
-                    {
-                        let pos = unit.get_position();
-                        self.queue_audio_event(
-                            crate::game_logic::game_logic::AudioEventRequest::new(&event)
-                                .with_object(new_id)
-                                .with_position(pos)
-                                .with_priority(141),
-                        );
-                    }
-                }
-            }
             // C++ ProductionUpdate door + CONSTRUCTION_COMPLETE residual on producer.
             // Completing a unit opens only the reserved ExitDoorType (DOOR_1..4).
             let reserved_door = self
@@ -2062,7 +2079,7 @@ impl GameLogic {
                 } else if is_queue {
                     exit_path.push(natural);
                 }
-                self.follow_exit_production_path(new_id, &exit_path, producer_id);
+                self.follow_exit_production_path(new_id, &exit_path, Some(producer_id));
             }
 
             // SupplyCenterProductionExitUpdate performs the ordinary exit
@@ -2073,6 +2090,43 @@ impl GameLogic {
             if producer_exit_metadata.is_some_and(|exit| exit.is_supply_center()) {
                 let _ = self.force_supply_center_collector_wanting(new_id, producer_id);
                 self.grant_supply_center_exit_temporary_stealth(producer_id, new_id);
+            }
+            // ProductionUpdate.cpp:798-825 exits before notifying Player/AI
+            // and Create modules. AI home/dock orders must not be overwritten
+            // by a factory exit installed after onBuildComplete.
+            // C++ VoiceCreated + UnitReady residual.
+            if matches!(callbacks, SpawnReadyCallbacks::NotifyAfterExit) {
+                self.notify_unit_production_complete_with_build_complete(
+                    new_id,
+                    producer_id,
+                    &template,
+                    &mut on_build_complete,
+                );
+            } else {
+                // SpawnBehavior notified AI before exit, and its ordinary
+                // AtCreation path already completed the host Create callbacks.
+                self.notify_unit_production_presentation(new_id, &template);
+                self.unit_ready_events = self.unit_ready_events.saturating_add(1);
+            }
+            // C++ ProductionUpdate.cpp:827-832: first unit of a QuantityModifier
+            // batch also plays per-unit VoiceCreate (before oneProductionSuccessful).
+            if voice_create_played.insert(producer_id) {
+                if let Some(unit) = self.objects.get(&new_id) {
+                    if let Some(event) =
+                        crate::game_logic::audio_dispatch_impl::resolve_unit_voice_event(
+                            &unit.template_name,
+                            crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Create,
+                        )
+                    {
+                        let pos = unit.get_position();
+                        self.queue_audio_event(
+                            crate::game_logic::game_logic::AudioEventRequest::new(&event)
+                                .with_object(new_id)
+                                .with_position(pos)
+                                .with_priority(141),
+                        );
+                    }
+                }
             }
             n = n.saturating_add(1);
         }

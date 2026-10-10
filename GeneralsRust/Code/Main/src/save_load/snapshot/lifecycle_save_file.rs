@@ -8,6 +8,7 @@ use std::time::{Duration, SystemTime};
 
 fn save_info(filename: &str) -> SaveGameInfo {
     SaveGameInfo {
+        pristine_map_name: None,
         filename: filename.to_string(),
         display_name: filename.to_string(),
         description: "lifecycle tail save_file round-trip".to_string(),

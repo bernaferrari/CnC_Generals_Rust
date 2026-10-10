@@ -239,6 +239,7 @@ fn save_file_roundtrip_preserves_pending_special_power_strike() {
     source.set_current_frame(30);
 
     let info = SaveGameInfo {
+        pristine_map_name: None,
         filename: "special_power_strike_rt".to_string(),
         display_name: "Special Power Strike Roundtrip".to_string(),
         description: "residual pending strike save/load".to_string(),
@@ -539,6 +540,7 @@ fn save_file_roundtrip_preserves_pending_host_upgrade() {
     assert_eq!(source.host_upgrades().pending_count(), 1);
 
     let info = SaveGameInfo {
+        pristine_map_name: None,
         filename: "host_upgrade_rt".to_string(),
         display_name: "Host Upgrade Roundtrip".to_string(),
         description: "residual pending upgrade save/load".to_string(),

@@ -1105,17 +1105,7 @@ impl GameLogic {
                     }
                 }
                 HostScriptPlayerMiscRequest::RepairNamed { player, structure } => {
-                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
-                        continue;
-                    };
-                    let Some(id) = self.host_object_id_by_script_name(&structure) else {
-                        continue;
-                    };
-                    let mut ai_mgr = std::mem::take(&mut self.ai_manager);
-                    if let Some(ai) = ai_mgr.ai_players.get_mut(&pid) {
-                        ai.repair_structure(self, id);
-                    }
-                    self.ai_manager = ai_mgr;
+                    self.apply_owned_script_ai_repair(&player, &structure);
                 }
                 HostScriptPlayerMiscRequest::ExcludeFromScore { player } => {
                     let Some(pid) = self.host_player_id_for_script_token(&player) else {
@@ -1140,6 +1130,30 @@ impl GameLogic {
                     self.kill_player_for_victory(pid);
                 }
             }
+        }
+    }
+
+    /// Observe this owner's body before borrowing its AI queue. The manager
+    /// stays installed throughout synchronous script execution.
+    pub(super) fn apply_owned_script_ai_repair(&mut self, player: &str, structure: &str) {
+        let Some(pid) = self.host_player_id_for_script_token(player) else {
+            return;
+        };
+        let Some(id) = self.host_object_id_by_script_name(structure) else {
+            return;
+        };
+        let Some(object) = self.host_object(id) else {
+            return;
+        };
+        if matches!(
+            object.body_damage_state,
+            crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine
+        ) && object.health.current + 0.01 >= object.health.maximum
+        {
+            return;
+        }
+        if let Some(ai) = self.ai_manager.ai_players.get_mut(&pid) {
+            ai.queue_damaged_structure_repair(id);
         }
     }
 

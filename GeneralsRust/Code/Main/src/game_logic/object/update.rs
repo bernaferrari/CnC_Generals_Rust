@@ -230,8 +230,9 @@ impl Object {
         if self.host_uses_close_enough_dist_3d() {
             return current.distance(last);
         }
-        let treat_as_aircraft = !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(self)
-            || matches!(self.loco_appearance, LocomotorAppearance::Hover)
+        let treat_as_aircraft = !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(
+            self,
+        ) || matches!(self.loco_appearance, LocomotorAppearance::Hover)
             || self.path_extra_distance
                 > crate::game_logic::host_ai_path_combat_residual_wave105::PATHFIND_CLOSE_ENOUGH;
         if !treat_as_aircraft {
@@ -274,7 +275,6 @@ impl Object {
         } else {
             flight
         }
-        
     }
 
     /// C++ `AIFollowPathState`: length from the current goal to the next
@@ -416,13 +416,12 @@ impl Object {
                     };
                 if let Some(waypoint) = next_waypoint {
                     self.movement.target_position = Some(waypoint);
-                    self.adjust_destinations = if self.movement.current_path_index + 1
-                        < self.movement.path.len()
-                    {
-                        false
-                    } else {
-                        crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(self)
-                    };
+                    self.adjust_destinations =
+                        if self.movement.current_path_index + 1 < self.movement.path.len() {
+                            false
+                        } else {
+                            crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(self)
+                        };
                     self.refresh_follow_path_extra_distance();
                 } else if matches!(self.ai_state, AIState::AttackMoving) {
                     self.movement.path.clear();
@@ -576,7 +575,6 @@ impl Object {
                 }
             }
 
-
             // Wings/Thrust specialized residual (may set position itself).
             if matches!(self.loco_appearance, LocomotorAppearance::Thrust) {
                 self.move_towards_thrust(target_pos, dist_2d, goal_speed, dt);
@@ -627,13 +625,12 @@ impl Object {
                     };
                 if let Some(waypoint) = next_waypoint {
                     self.movement.target_position = Some(waypoint);
-                    self.adjust_destinations = if self.movement.current_path_index + 1
-                        < self.movement.path.len()
-                    {
-                        false
-                    } else {
-                        crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(self)
-                    };
+                    self.adjust_destinations =
+                        if self.movement.current_path_index + 1 < self.movement.path.len() {
+                            false
+                        } else {
+                            crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(self)
+                        };
                     self.is_braking = false;
                     self.refresh_follow_path_extra_distance();
                 } else {

@@ -11,9 +11,57 @@ pub(crate) struct UnitAiRuntime {
     hunt_scan: Option<u32>,
     guard_anchor: Option<Vec3>,
     quick_exit: Option<u32>,
+    wander: Option<WanderState>,
+}
+
+/// C++ AIWander state data belongs to the admitted object's machine.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct WanderInPlace {
+    pub(crate) origin: Vec3,
+    pub(crate) hop: Vec3,
+    pub(crate) timer: i32,
+    pub(crate) wait_frames: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct WanderPath {
+    pub(crate) timer: i32,
+    pub(crate) wait_frames: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum WanderState {
+    InPlace(WanderInPlace),
+    Path(WanderPath),
 }
 
 impl UnitAiRuntime {
+    pub(crate) fn wander_in_place(&self) -> Option<WanderInPlace> {
+        match self.wander {
+            Some(WanderState::InPlace(state)) => Some(state),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn wander_path(&self) -> Option<WanderPath> {
+        match self.wander {
+            Some(WanderState::Path(state)) => Some(state),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn set_wander(&mut self, state: Option<WanderState>) {
+        self.wander = state;
+    }
+
+    pub(crate) fn set_wander_timer(&mut self, timer: i32) {
+        match self.wander.as_mut() {
+            Some(WanderState::InPlace(state)) => state.timer = timer,
+            Some(WanderState::Path(state)) => state.timer = timer,
+            None => {}
+        }
+    }
+
     pub(crate) fn guard_scan_deadline(&self) -> Option<u32> {
         self.guard_scan
     }

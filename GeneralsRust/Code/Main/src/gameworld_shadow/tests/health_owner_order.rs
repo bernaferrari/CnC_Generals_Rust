@@ -161,7 +161,7 @@ fn coupled_owner_healing_is_visible_to_repeated_borrows_and_damage_state() {
     let _couple = ShadowCoupleGuard::enter();
     with_coupled_shadow(&mut shadow, || {
         logic
-            .with_host_logic_after_sync(|owner| {
+            .with_host_logic_step(|owner| {
                 owner_heal(owner, id, 30.0);
                 assert_eq!(owner.host_authoritative_health(id), Some(60.0));
                 owner_heal(owner, id, 30.0);
@@ -257,7 +257,7 @@ fn completed_damage_after_coupled_healing_is_not_replayed_without_session() {
         let _couple = ShadowCoupleGuard::enter();
         with_coupled_shadow(&mut shadow, || {
             logic
-                .with_host_logic_after_sync(|owner| {
+                .with_host_logic_step(|owner| {
                     let (object, health_events) =
                         owner.host_object_and_health_events_mut(id).unwrap();
                     if heal_first {
@@ -351,7 +351,7 @@ fn fatal_owner_damage_reacts_to_zero_health_and_cannot_write_back_stale_hp() {
     let _couple = ShadowCoupleGuard::enter();
     with_coupled_shadow(&mut shadow, || {
         logic
-            .with_host_logic_after_sync(|owner| {
+            .with_host_logic_step(|owner| {
                 assert!(owner_damage(owner, id, 100.0));
                 assert_eq!(owner.host_authoritative_health(id), Some(0.0));
             })

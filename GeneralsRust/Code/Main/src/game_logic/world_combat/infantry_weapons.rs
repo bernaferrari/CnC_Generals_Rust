@@ -73,12 +73,13 @@ impl GameLogic {
                 } else {
                     (SCUD_DAMAGE_TYPE, SCUD_DEATH_TYPE)
                 };
-                let destroyed = obj.take_damage_from_immediate_residual(
+                let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
                     dmg,
                     source,
                     dt_name,
                     death_name,
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -1366,7 +1367,13 @@ impl GameLogic {
             if let Some(t) = self.objects.get_mut(&vid) {
                 total_damage += damage;
                 objects_hit += 1;
-                if t.take_damage_from_typed(damage, killer, damage_type, &mut self.health_events) {
+                if t.take_damage_from_typed_with_repulsor_policy(
+                    damage,
+                    killer,
+                    damage_type,
+                    &mut self.health_events,
+                    &self.enable_repulsors,
+                ) {
                     destroy_ids.push(vid);
                 }
             }
@@ -1900,12 +1907,13 @@ impl GameLogic {
         // C++ FlammableUpdate.cpp:202-212 doAflameDamage DAMAGE_FLAME / DEATH_BURNED.
         for (id, dmg) in aflame_dots {
             if let Some(o) = self.objects.get_mut(&id) {
-                let _ = o.take_damage_from_typed_death(
+                let _ = o.take_damage_from_typed_death_with_repulsor_policy(
                     dmg,
                     Some(id),
                     crate::game_logic::combat::DamageType::Flame,
                     crate::game_logic::host_usa_pilot::HostDeathType::Burned,
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 );
             }
         }
@@ -2147,13 +2155,15 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from_immediate_typed_death(
-                        hit.damage,
-                        Some(plan.source_object),
-                        crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type(),
-                        plan.death_type,
-                        &mut self.health_events,
-                    );
+                    let killed = target
+                        .take_damage_from_immediate_typed_death_with_repulsor_policy(
+                            hit.damage,
+                            Some(plan.source_object),
+                            crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type(),
+                            plan.death_type,
+                            &mut self.health_events,
+                            &self.enable_repulsors,
+                        );
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -2203,10 +2213,11 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_radiation_field_tick(
+                    let killed = target.take_radiation_field_tick_with_repulsor_policy(
                         hit.damage,
                         Some(plan.source_object),
                         &mut self.health_events,
+                        &self.enable_repulsors,
                     );
                     total_damage += hit.damage;
                     applications += 1;

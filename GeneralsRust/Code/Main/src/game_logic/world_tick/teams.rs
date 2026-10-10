@@ -1,54 +1,16 @@
 //! Host tick `impl GameLogic` — `teams`.
 #![allow(unused_imports, non_snake_case)]
 mod panic;
+#[cfg(test)]
+mod retaliation_owner_tests;
+#[cfg(test)]
+mod wander_owner_tests;
 use super::super::*;
 
 /// C++ `PATHFIND_CELL_SIZE_F`.
 const HOST_WANDER_CELL: f32 = 10.0;
 
-/// C++ `AIWanderInPlaceState` origin + current hop + leftover repulsor timer.
-struct HostWanderInPlace {
-    origin: glam::Vec3,
-    hop: glam::Vec3,
-    timer: i32,
-    wait_frames: i32,
-}
-
-/// C++ `AIWanderState` / `AIPanicState` leftover-bail timer while following a path.
-struct HostWanderPath {
-    timer: i32,
-    wait_frames: i32,
-}
-
-fn wander_in_place_sessions()
--> &'static std::sync::Mutex<std::collections::HashMap<u32, HostWanderInPlace>> {
-    static SESSIONS: std::sync::LazyLock<
-        std::sync::Mutex<std::collections::HashMap<u32, HostWanderInPlace>>,
-    > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
-    &SESSIONS
-}
-
-fn wander_in_place_lock()
--> std::sync::MutexGuard<'static, std::collections::HashMap<u32, HostWanderInPlace>> {
-    wander_in_place_sessions()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-fn wander_path_sessions()
--> &'static std::sync::Mutex<std::collections::HashMap<u32, HostWanderPath>> {
-    static SESSIONS: std::sync::LazyLock<
-        std::sync::Mutex<std::collections::HashMap<u32, HostWanderPath>>,
-    > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
-    &SESSIONS
-}
-
-fn wander_path_lock()
--> std::sync::MutexGuard<'static, std::collections::HashMap<u32, HostWanderPath>> {
-    wander_path_sessions()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
+use crate::game_logic::object::unit_ai_runtime::{WanderInPlace, WanderPath, WanderState};
 
 /// Leftover `AIWanderState::update_group_offset` / `AIPanicState::update_group_offset`.
 /// C++ `m_groupOffset = GameLogicRandomValue(-delta,delta)*PATHFIND_CELL_SIZE_F`
@@ -191,211 +153,79 @@ impl GameLogic {
 
     /// C++ AI vision mood factor residual (AI_VISIONFACTOR_MOOD).
     pub fn adjusted_vision_range_for_mood(&self, unit_id: ObjectId) -> f32 {
+        self.host_adjusted_vision_range(unit_id, false)
+    }
+
+    /// C++ AI.cpp:780–846, AIGuard.cpp:176. Ordinary borrows from one match.
+    /// No AI interface means no range; contained units use their largest weapon
+    /// range before mood is considered. Human controllers do not have mood bits.
+    pub fn host_std_guard_ranges(&self, unit_id: ObjectId) -> (f32, f32) {
+        (
+            self.host_adjusted_vision_range(unit_id, true),
+            self.host_adjusted_vision_range(unit_id, false),
+        )
+    }
+
+    fn host_adjusted_vision_range(&self, unit_id: ObjectId, inner: bool) -> f32 {
         let Some(obj) = self.objects.get(&unit_id) else {
             return 0.0;
         };
-        let base = obj.vision_range.max(0.0);
+        if obj.get_template().authored_ai_update_interface() != Some(true) {
+            return 0.0;
+        }
+        let data = self.ai_definitions.data();
+        let controller = obj.owner_player_id.and_then(|id| self.players.get(&id));
+        let human = controller.is_some_and(|player| player.is_human);
+        let modifier = match (human, inner) {
+            (true, true) => data.guard_inner_modifier_human,
+            (true, false) => data.guard_outer_modifier_human,
+            (false, true) => data.guard_inner_modifier_ai,
+            (false, false) => data.guard_outer_modifier_ai,
+        };
+        let mut range = obj.vision_range * modifier;
         if obj.contained_by.is_some() {
             let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
-            let mut weapon_r = -1.0f32;
-            for slot in 0u8..8 {
-                if let Some(w) = obj.weapon_slot(slot) {
-                    let r = (obj.effective_weapon_range(w.range) - under).max(0.0);
-                    if r > weapon_r {
-                        weapon_r = r;
-                    }
-                }
-            }
-            return weapon_r;
-        }
-        use crate::game_logic::host_radar_stealth_vision_residual::{
-            VISION_AGGRESSIVE_RANGE_MODIFIER_RESIDUAL, VISION_ALERT_RANGE_MODIFIER_RESIDUAL,
-            VISION_GUARD_OUTER_MODIFIER_AI_RESIDUAL, VISION_GUARD_OUTER_MODIFIER_HUMAN_RESIDUAL,
-        };
-        let leftover = {
-            let store = game_engine::common::ini::get_ai_data_store();
-            let store = store.read().expect("AI data store read lock");
-            store.get_active().map(|d| {
-                (
-                    d.alert_range_modifier,
-                    d.aggressive_range_modifier,
-                    d.guard_outer_modifier_human,
-                    d.guard_outer_modifier_ai,
-                )
-            })
-        };
-        let leftover = leftover.or_else(|| {
-            gamelogic::ai::the_ai().read().ok().and_then(|ai| {
-                Some(ai.get_ai_data()).map(|d| {
-                    (
-                        d.alert_range_modifier,
-                        d.aggressive_range_modifier,
-                        d.guard_outer_modifier_human,
-                        d.guard_outer_modifier_ai,
-                    )
+            return (0u8..8)
+                .filter_map(|slot| {
+                    obj.weapon_slot(slot).map(|weapon| {
+                        (obj.effective_weapon_range_for_slot(slot, weapon.range) - under).max(0.0)
+                    })
                 })
-            })
-        });
-        let (alert, aggressive, outer_human, outer_ai) = leftover
-            .map(|(a, g, h, i)| {
-                (
-                    if a > 0.0 {
-                        a
-                    } else {
-                        VISION_ALERT_RANGE_MODIFIER_RESIDUAL
-                    },
-                    if g > 0.0 {
-                        g
-                    } else {
-                        VISION_AGGRESSIVE_RANGE_MODIFIER_RESIDUAL
-                    },
-                    if h > 0.0 {
-                        h
-                    } else {
-                        VISION_GUARD_OUTER_MODIFIER_HUMAN_RESIDUAL
-                    },
-                    if i > 0.0 {
-                        i
-                    } else {
-                        VISION_GUARD_OUTER_MODIFIER_AI_RESIDUAL
-                    },
-                )
-            })
-            .unwrap_or((
-                VISION_ALERT_RANGE_MODIFIER_RESIDUAL,
-                VISION_AGGRESSIVE_RANGE_MODIFIER_RESIDUAL,
-                VISION_GUARD_OUTER_MODIFIER_HUMAN_RESIDUAL,
-                VISION_GUARD_OUTER_MODIFIER_AI_RESIDUAL,
-            ));
-        let player_is_human = self
-            .player_id_for_team(obj.team)
-            .and_then(|pid| self.players.get(&pid))
-            .map(|p| p.is_local)
-            .unwrap_or(false);
-        let mult = if player_is_human {
-            1.0
-        } else {
-            match obj.ai_attitude.clamp(-2, 2) {
-                -2 => 0.0, // Sleep: ignore all
-                -1 => 1.0, // Passive: wait-for-attack (range still used for last-attacker)
-                0 => 1.0,  // Normal
-                1 => alert,
-                _ => aggressive,
-            }
-        };
-        let owner = if player_is_human {
-            outer_human
-        } else {
-            outer_ai
-        };
-        base * mult * owner
-    }
-
-    /// C++ AIGuardMachine::getStdGuardRange / outer vision (no GUARDINNER).
-    /// Returns (inner, outer). Sleep mood yields (0, 0).
-    pub fn host_std_guard_ranges(&self, unit_id: ObjectId) -> (f32, f32) {
-        let Some(obj) = self.objects.get(&unit_id) else {
-            return (0.0, 0.0);
-        };
-        let player_is_human = self
-            .player_id_for_team(obj.team)
-            .and_then(|pid| self.players.get(&pid))
-            .map(|p| p.is_local)
-            .unwrap_or(false);
-        let mood = obj.ai_attitude.clamp(-2, 2);
-        let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
-        let mut weapon_r = -1.0f32;
-        for slot in 0u8..8 {
-            if let Some(w) = obj.weapon_slot(slot) {
-                let r = (obj.effective_weapon_range(w.range) - under).max(0.0);
-                if r > weapon_r {
-                    weapon_r = r;
-                }
+                .fold(-1.0_f32, f32::max);
+        }
+        // C++ getMoodMatrixValue returns zero without a controlling player.
+        // That selects AI owner modifiers but introduces no mood bits.
+        if !human && controller.is_some() {
+            match obj.ai_attitude {
+                -2 => return 0.0,
+                1 => range *= data.alert_range_modifier,
+                2 => range *= data.aggressive_range_modifier,
+                _ => {} // Passive, Normal, or unknown attitude (C++ normal).
             }
         }
-        let contained = obj.contained_by.is_some();
-        let base = obj.vision_range.max(0.0);
-        let inner =
-            crate::game_logic::host_radar_stealth_vision_residual::vision_adjusted_range_residual(
-                base,
-                player_is_human,
-                true,
-                contained,
-                weapon_r,
-                mood == 1,
-                mood >= 2,
-                mood <= -2,
-                true,
-            );
-        let outer =
-            crate::game_logic::host_radar_stealth_vision_residual::vision_adjusted_range_residual(
-                base,
-                player_is_human,
-                false,
-                contained,
-                weapon_r,
-                mood == 1,
-                mood >= 2,
-                mood <= -2,
-                true,
-            );
-        (inner, outer)
+        range
     }
 
     /// C++ TAiData::m_guardChaseUnitFrames — leftover AIData, else retail 4s.
     pub fn host_guard_chase_unit_frames(&self) -> u32 {
-        let store = game_engine::common::ini::get_ai_data_store();
-        let store = store.read().expect("AI data store read lock");
-        let leftover = store
-            .get_active()
-            .map(|d| d.guard_chase_unit_frames)
-            .filter(|&frames| frames > 0)
-            .or_else(|| {
-                gamelogic::ai::the_ai().read().ok().and_then(|ai| {
-                    Some(ai.get_ai_data())
-                        .map(|d| d.guard_chase_unit_frames)
-                        .filter(|&frames| frames > 0)
-                })
-            });
-        leftover.unwrap_or(
-            crate::game_logic::host_radar_stealth_vision_residual::GUARD_CHASE_UNIT_FRAMES_RESIDUAL,
-        )
+        let value = self.ai_definitions.data().guard_chase_unit_frames;
+        if value > 0 {
+            value
+        } else {
+            crate::game_logic::host_radar_stealth_vision_residual::GUARD_CHASE_UNIT_FRAMES_RESIDUAL
+        }
     }
 
     /// C++ TAiData::m_guardEnemyScanRate — leftover AIData, else 0.5s.
     pub fn host_guard_enemy_scan_rate(&self) -> u32 {
-        let store = game_engine::common::ini::get_ai_data_store();
-        let store = store.read().expect("AI data store read lock");
-        store
-            .get_active()
-            .map(|d| d.guard_enemy_scan_rate)
-            .filter(|&rate| rate > 0)
-            .or_else(|| {
-                gamelogic::ai::the_ai().read().ok().and_then(|ai| {
-                    Some(ai.get_ai_data())
-                        .map(|d| d.guard_enemy_scan_rate)
-                        .filter(|&rate| rate > 0)
-                })
-            })
-            .unwrap_or(30)
+        let value = self.ai_definitions.data().guard_enemy_scan_rate;
+        if value > 0 { value } else { 30 }
     }
 
     /// C++ TAiData::m_guardEnemyReturnScanRate — leftover AIData, else 1s.
     pub fn host_guard_enemy_return_scan_rate(&self) -> u32 {
-        let store = game_engine::common::ini::get_ai_data_store();
-        let store = store.read().expect("AI data store read lock");
-        store
-            .get_active()
-            .map(|d| d.guard_enemy_return_scan_rate)
-            .filter(|&rate| rate > 0)
-            .or_else(|| {
-                gamelogic::ai::the_ai().read().ok().and_then(|ai| {
-                    Some(ai.get_ai_data())
-                        .map(|d| d.guard_enemy_return_scan_rate)
-                        .filter(|&rate| rate > 0)
-                })
-            })
-            .unwrap_or(60)
+        let value = self.ai_definitions.data().guard_enemy_return_scan_rate;
+        if value > 0 { value } else { 60 }
     }
 
     /// C++ PartitionFilterRejectBuildings — keep non-buildings; computer
@@ -844,14 +674,12 @@ impl GameLogic {
     /// C++ TAiData::m_enableRepulsors residual.
     pub fn set_enable_repulsors(&mut self, enabled: bool) {
         self.enable_repulsors = enabled;
-        crate::game_logic::host_repulsor_gate::set_enabled(enabled);
     }
 
     /// C++ GameEngine.cpp:480 TheAI init after AIData.ini — live player path.
-    /// `GameLogic::new` stays false (TAiData ctor); start_new_game applies this.
+    /// A missing definition keeps the C++ TAiData constructor default false.
     pub fn apply_aidata_enable_repulsors(&mut self) {
-        self.enable_repulsors =
-            crate::game_logic::host_repulsor_gate::apply_resolved_to_leftover_and_gate();
+        self.enable_repulsors = self.ai_definitions.data().enable_repulsors;
     }
 
     /// C++ Object::setStatus(OBJECT_STATUS_REPULSOR) residual.
@@ -918,13 +746,12 @@ impl GameLogic {
         if d2 > max_d * max_d {
             return false;
         }
-        // Controlling player must be human (local residual).
-        let human = self
-            .players
-            .values()
-            .find(|p| p.team == victim.team)
-            .map(|p| p.is_local && p.logical_retaliation_mode_enabled)
-            .unwrap_or(false);
+        // C++ ActiveBody.cpp:726 reads this object's controlling player.
+        // UI locality and another player's faction do not identify its owner.
+        let human = victim
+            .owner_player_id
+            .and_then(|owner| self.players.get(&owner))
+            .is_some_and(|player| player.is_human && player.logical_retaliation_mode_enabled);
         if !human {
             return false;
         }
@@ -1427,7 +1254,11 @@ impl GameLogic {
         if waypoints.is_empty() {
             return;
         }
-        wander_in_place_lock().remove(&id.0);
+        let Some(object) = self.host_object_mut(id) else {
+            return;
+        };
+        // Exit the previous wander before issuing the new path's callbacks.
+        object.unit_ai_runtime.set_wander(None);
         let offset = self
             .host_object(id)
             .map(|obj| leftover_wander_group_offset(obj.wander_width_factor))
@@ -1448,31 +1279,32 @@ impl GameLogic {
             }
         }
         let _ = self.assign_unit_path(id, goal, via);
-        wander_path_lock().insert(
-            id.0,
-            HostWanderPath {
-                timer: 0,
-                wait_frames: leftover_wander_wait_frames(id),
-            },
-        );
+        if let Some(object) = self.host_object_mut(id) {
+            object
+                .unit_ai_runtime
+                .set_wander(Some(WanderState::Path(WanderPath {
+                    timer: 0,
+                    wait_frames: leftover_wander_wait_frames(id),
+                })));
+        }
     }
 
     /// C++ `AIWanderInPlaceState::chooseNewGoal` — loco radius, re-pick each hop.
     fn host_wander_in_place(&mut self, id: ObjectId, origin: glam::Vec3) {
-        wander_path_lock().remove(&id.0);
-        let dest = match self.host_object(id) {
-            Some(obj) => host_wander_choose_hop(obj, origin),
-            None => origin,
+        let Some(object) = self.host_object(id) else {
+            return;
         };
-        wander_in_place_lock().insert(
-            id.0,
-            HostWanderInPlace {
-                origin,
-                hop: dest,
-                timer: 0,
-                wait_frames: leftover_wander_wait_frames(id),
-            },
-        );
+        let dest = host_wander_choose_hop(object, origin);
+        if let Some(object) = self.host_object_mut(id) {
+            object
+                .unit_ai_runtime
+                .set_wander(Some(WanderState::InPlace(WanderInPlace {
+                    origin,
+                    hop: dest,
+                    timer: 0,
+                    wait_frames: leftover_wander_wait_frames(id),
+                })));
+        }
         if host_wander_horiz_dist_sq(dest, origin) > 0.25 {
             let _ = self.unit_command_move_to(id, dest);
         }
@@ -1523,9 +1355,15 @@ impl GameLogic {
     fn tick_host_wander_in_place(&mut self) {
         let mut flee = Vec::new();
 
-        let path_sessions: Vec<(u32, i32, i32)> = wander_path_lock()
+        let path_sessions: Vec<(u32, i32, i32)> = self
+            .objects
             .iter()
-            .map(|(&id, session)| (id, session.timer, session.wait_frames))
+            .filter_map(|(id, object)| {
+                object
+                    .unit_ai_runtime
+                    .wander_path()
+                    .map(|state| (id.0, state.timer, state.wait_frames))
+            })
             .collect();
         if !path_sessions.is_empty() {
             let mut path_drop = Vec::new();
@@ -1559,27 +1397,31 @@ impl GameLogic {
                 }
                 path_timers.push((raw, new_timer));
             }
-            let mut map = wander_path_lock();
             for raw in path_drop {
-                map.remove(&raw);
+                if let Some(object) = self.host_object_mut(ObjectId(raw)) {
+                    object.unit_ai_runtime.set_wander(None);
+                }
             }
             for (raw, timer) in path_timers {
-                if let Some(session) = map.get_mut(&raw) {
-                    session.timer = timer;
+                if let Some(object) = self.host_object_mut(ObjectId(raw)) {
+                    object.unit_ai_runtime.set_wander_timer(timer);
                 }
             }
         }
 
-        let sessions: Vec<(u32, glam::Vec3, glam::Vec3, i32, i32)> = wander_in_place_lock()
+        let sessions: Vec<(u32, glam::Vec3, glam::Vec3, i32, i32)> = self
+            .objects
             .iter()
-            .map(|(&id, session)| {
-                (
-                    id,
-                    session.origin,
-                    session.hop,
-                    session.timer,
-                    session.wait_frames,
-                )
+            .filter_map(|(id, object)| {
+                object.unit_ai_runtime.wander_in_place().map(|state| {
+                    (
+                        id.0,
+                        state.origin,
+                        state.hop,
+                        state.timer,
+                        state.wait_frames,
+                    )
+                })
             })
             .collect();
         if sessions.is_empty() {
@@ -1635,24 +1477,26 @@ impl GameLogic {
             }
         }
         {
-            let mut map = wander_in_place_lock();
             for raw in drop {
-                map.remove(&raw);
+                if let Some(object) = self.host_object_mut(ObjectId(raw)) {
+                    object.unit_ai_runtime.set_wander(None);
+                }
             }
             for (raw, origin, hop, timer, wait) in &reissue {
-                map.insert(
-                    *raw,
-                    HostWanderInPlace {
-                        origin: *origin,
-                        hop: *hop,
-                        timer: *timer,
-                        wait_frames: *wait,
-                    },
-                );
+                if let Some(object) = self.host_object_mut(ObjectId(*raw)) {
+                    object
+                        .unit_ai_runtime
+                        .set_wander(Some(WanderState::InPlace(WanderInPlace {
+                            origin: *origin,
+                            hop: *hop,
+                            timer: *timer,
+                            wait_frames: *wait,
+                        })));
+                }
             }
             for (raw, timer) in keep_timers {
-                if let Some(session) = map.get_mut(&raw) {
-                    session.timer = timer;
+                if let Some(object) = self.host_object_mut(ObjectId(raw)) {
+                    object.unit_ai_runtime.set_wander_timer(timer);
                 }
             }
         }
@@ -2207,7 +2051,9 @@ impl GameLogic {
     }
 
     pub fn test_wander_in_place_hop(&self, id: ObjectId) -> Option<glam::Vec3> {
-        wander_in_place_lock().get(&id.0).map(|session| session.hop)
+        self.host_object(id)
+            .and_then(|object| object.unit_ai_runtime.wander_in_place())
+            .map(|state| state.hop)
     }
 
     pub fn test_host_wander_issue_path(&mut self, id: ObjectId, waypoints: &[glam::Vec3]) {
@@ -2215,11 +2061,13 @@ impl GameLogic {
     }
 
     pub fn test_wander_path_active(&self, id: ObjectId) -> bool {
-        wander_path_lock().contains_key(&id.0)
+        self.host_object(id)
+            .is_some_and(|object| object.unit_ai_runtime.wander_path().is_some())
     }
 
     pub fn test_wander_in_place_active(&self, id: ObjectId) -> bool {
-        wander_in_place_lock().contains_key(&id.0)
+        self.host_object(id)
+            .is_some_and(|object| object.unit_ai_runtime.wander_in_place().is_some())
     }
 
     pub fn scan_guard_retaliate_inner_for_test(&self, unit_id: ObjectId) -> Option<ObjectId> {
@@ -2796,11 +2644,19 @@ mod tests {
     #[test]
     fn guard_retaliate_inner_skips_neutral_civilians() {
         let mut logic = GameLogic::new();
+        // These scan fixtures admit AIUpdate plus explicit authored factors.
+        logic.set_ai_definition_base(game_engine::common::ini::AIData {
+            guard_inner_modifier_human: 1.1,
+            guard_inner_modifier_ai: 1.8,
+            ..Default::default()
+        });
         let id = ObjectId(25124);
         let civ = ObjectId(25125);
         let enemy = ObjectId(25126);
         w25_spawn_fighter(&mut logic, id, "W25RetN", Team::USA, glam::Vec3::ZERO);
         if let Some(o) = logic.objects.get_mut(&id) {
+            o.template_mut()
+                .set_authored_ai_update_interface(Some(true));
             o.guard_retaliate_anchor = Some(glam::Vec3::ZERO);
         }
         w25_spawn_fighter(
@@ -2833,11 +2689,19 @@ mod tests {
     #[test]
     fn guard_retaliate_inner_skips_off_map_and_uses_2d() {
         let mut logic = GameLogic::new();
+        // These scan fixtures admit AIUpdate plus explicit authored factors.
+        logic.set_ai_definition_base(game_engine::common::ini::AIData {
+            guard_inner_modifier_human: 1.1,
+            guard_inner_modifier_ai: 1.8,
+            ..Default::default()
+        });
         let id = ObjectId(25100);
         let off_id = ObjectId(25101);
         let on_id = ObjectId(25102);
         w25_spawn_fighter(&mut logic, id, "W25RetOn", Team::USA, glam::Vec3::ZERO);
         if let Some(o) = logic.objects.get_mut(&id) {
+            o.template_mut()
+                .set_authored_ai_update_interface(Some(true));
             o.guard_retaliate_anchor = Some(glam::Vec3::ZERO);
             o.owner_player_id = Some(0);
         }

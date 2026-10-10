@@ -92,6 +92,7 @@ impl GameStateManager {
 
         // Create save info
         let save_info = SaveGameInfo {
+            pristine_map_name: None,
             filename: slot_name.to_string(),
             display_name: slot_name.to_string(),
             description: description.to_string(),

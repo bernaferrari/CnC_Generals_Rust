@@ -511,21 +511,12 @@ impl GameLogic {
         use gamelogic::common::Relationship;
 
         let step = {
-            let store = game_engine::common::ini::get_ai_data_store();
-            let from_store = store.read().ok().and_then(|guard| {
-                guard
-                    .get_active()
-                    .map(|d| d.attack_priority_distance_modifier)
-            });
-            from_store
-                .filter(|v| *v > 0.0)
-                .or_else(|| {
-                    gamelogic::ai::the_ai().read().ok().and_then(|ai| {
-                        Some(ai.get_ai_data()).map(|d| d.attack_priority_distance_modifier)
-                    })
-                })
-                .filter(|v| *v > 0.0)
-                .unwrap_or(ATTACK_PRIORITY_DISTANCE_MODIFIER)
+            let value = self.ai_definitions.data().attack_priority_distance_modifier;
+            if value > 0.0 {
+                value
+            } else {
+                ATTACK_PRIORITY_DISTANCE_MODIFIER
+            }
         };
         let kind = classify_command_button_hunt_special(button);
         let hunter_off = self.hunt_pos_off_map(hunter_pos);
@@ -1495,11 +1486,12 @@ impl GameLogic {
         for (pid, dmg) in passenger_hits {
             if let Some(p) = self.objects.get_mut(&pid) {
                 if p.is_alive() {
-                    let _ = p.take_damage_from_typed(
+                    let _ = p.take_damage_from_typed_with_repulsor_policy(
                         dmg,
                         None,
                         DamageType::Explosive,
                         &mut self.health_events,
+                        &self.enable_repulsors,
                     );
                 }
             }

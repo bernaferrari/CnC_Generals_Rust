@@ -1068,6 +1068,7 @@ impl GameLogicSubsystem for DefaultGameLogicSubsystem {
     async fn save_game(&mut self, slot: u32) -> Result<()> {
         let filename = format!("slot_{slot}");
         let save_info = SaveGameInfo {
+            pristine_map_name: None,
             filename: filename.clone(),
             display_name: format!("Slot {slot}"),
             description: format!("Subsystem save slot {slot}"),

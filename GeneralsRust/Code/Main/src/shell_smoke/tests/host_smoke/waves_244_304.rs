@@ -619,21 +619,6 @@ pub(super) fn assert_waves_244_304(r: &ShellSmokeResult) {
         r.detail
     );
     assert!(
-        r.live_enhanced_player_dual_world_empty_gate_method_names_wave287_ok,
-        "live enhanced player dual-world empty gate method names residual pack wave287: {}",
-        r.detail
-    );
-    assert!(
-        r.live_enhanced_player_dual_world_empty_gate_nav_commands_wave287_ok,
-        "live enhanced player dual-world empty gate nav commands residual pack wave287: {}",
-        r.detail
-    );
-    assert!(
-        r.live_enhanced_player_dual_world_empty_gate_live_wave287_ok,
-        "live enhanced player dual-world empty gate live residual wave287: {}",
-        r.detail
-    );
-    assert!(
         r.live_hijacker_update_dual_world_empty_gate_method_names_wave288_ok,
         "live hijacker update dual-world empty gate method names residual pack wave288: {}",
         r.detail

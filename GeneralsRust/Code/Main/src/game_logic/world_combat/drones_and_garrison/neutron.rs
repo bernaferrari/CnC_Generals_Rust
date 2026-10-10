@@ -284,17 +284,23 @@ impl GameLogic {
             match effect {
                 NeutronEffect::KillInfantry => {
                     // Residual: kill infantry (take full health damage).
-                    let _ = obj.take_damage_from(
+                    let _ = obj.take_damage_from_with_repulsor_policy(
                         obj.health.current.max(1.0) * 10.0,
                         caster_id,
                         &mut self.health_events,
+                        &self.enable_repulsors,
                     );
                     if !obj.is_alive() || obj.health.current <= 0.0 {
                         infantry_kills = infantry_kills.saturating_add(1);
                         destroy_ids.push(id);
                     } else {
                         // Force kill residual.
-                        let _ = obj.take_damage_from(999_999.0, caster_id, &mut self.health_events);
+                        let _ = obj.take_damage_from_with_repulsor_policy(
+                            999_999.0,
+                            caster_id,
+                            &mut self.health_events,
+                            &self.enable_repulsors,
+                        );
                         infantry_kills = infantry_kills.saturating_add(1);
                         destroy_ids.push(id);
                     }
@@ -317,10 +323,11 @@ impl GameLogic {
                     }
                 }
                 NeutronEffect::KillVehicle => {
-                    let _ = obj.take_damage_from(
+                    let _ = obj.take_damage_from_with_repulsor_policy(
                         obj.health.current.max(1.0) * 10.0,
                         caster_id,
                         &mut self.health_events,
+                        &self.enable_repulsors,
                     );
                     vehicle_kills = vehicle_kills.saturating_add(1);
                     destroy_ids.push(id);
@@ -347,13 +354,19 @@ impl GameLogic {
                 }
                 occ.set_contained_by(None);
                 occ.set_ai_state(AIState::Idle);
-                let _ = occ.take_damage_from(
+                let _ = occ.take_damage_from_with_repulsor_policy(
                     occ.health.current.max(1.0) * 10.0,
                     caster_id,
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 );
                 if occ.is_alive() && occ.health.current > 0.0 && !occ.status.destroyed {
-                    let _ = occ.take_damage_from(999_999.0, caster_id, &mut self.health_events);
+                    let _ = occ.take_damage_from_with_repulsor_policy(
+                        999_999.0,
+                        caster_id,
+                        &mut self.health_events,
+                        &self.enable_repulsors,
+                    );
                 }
                 passengers_killed = passengers_killed.saturating_add(1);
                 infantry_kills = infantry_kills.saturating_add(1);

@@ -397,8 +397,12 @@ impl GameLogic {
                 return;
             };
             let before = target.health.current;
-            let destroyed =
-                target.take_damage_from(weapon_damage, Some(attacker_id), &mut self.health_events);
+            let destroyed = target.take_damage_from_with_repulsor_policy(
+                weapon_damage,
+                Some(attacker_id),
+                &mut self.health_events,
+                &self.enable_repulsors,
+            );
             let hp_lost = (before - target.health.current).max(0.0);
             if destroyed {
                 let victim_pos = target.get_position();

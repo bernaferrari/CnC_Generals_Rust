@@ -14,6 +14,17 @@ use glam::Vec3;
 #[cfg(feature = "game_client")]
 use game_client::terrain::height_map::HeightMap;
 
+/// Headless simulation keeps the same owned height samples without rendering
+/// material/tile data. Both backends use the sampler below.
+#[cfg(not(feature = "game_client"))]
+#[derive(Debug, Clone)]
+struct HeightMap {
+    width: u32,
+    height: u32,
+    heights: Vec<f32>,
+    max_height: f32,
+}
+
 // --- Wave 81 map height sample residual (C++ MAP_XY_FACTOR / MAP_HEIGHT_SCALE) ---
 
 /// C++ `MAP_XY_FACTOR` residual — world units per heightmap cell (X/Y).
@@ -114,7 +125,6 @@ pub fn honesty_map_height_sample_residual_pack_wave81() -> bool {
 /// Terrain data loaded from a heightmap with a world-space mapping.
 #[derive(Debug, Clone)]
 pub struct TerrainData {
-    #[cfg(feature = "game_client")]
     heightmap: HeightMap,
     world_min: Vec3,
     world_max: Vec3,
@@ -160,6 +170,42 @@ impl TerrainData {
         }
     }
 
+    /// Admit actual map-authored raw heights on the headless production path.
+    /// Mapping, border and triangle sampling match the existing native backend.
+    #[cfg(not(feature = "game_client"))]
+    pub(crate) fn from_raw_heightmap(
+        width: u32,
+        height: u32,
+        raw: &[u8],
+        world_min: Vec3,
+        world_max: Vec3,
+        border_size: u32,
+    ) -> Option<Self> {
+        if width == 0
+            || height == 0
+            || raw.len() != (width as usize).checked_mul(height as usize)?
+        {
+            return None;
+        }
+        let playable_w = width.saturating_sub(border_size.saturating_mul(2)).max(2) as f32;
+        let playable_h = height.saturating_sub(border_size.saturating_mul(2)).max(2) as f32;
+        Some(Self {
+            heightmap: HeightMap {
+                width,
+                height,
+                heights: raw.iter().map(|h| *h as f32 / 255.0).collect(),
+                max_height: 255.0 * MAP_HEIGHT_SAMPLE_SCALE,
+            },
+            world_min,
+            world_max,
+            border_size,
+            scale_x: (world_max.x - world_min.x) / (playable_w - 1.0),
+            scale_z: (world_max.z - world_min.z) / (playable_h - 1.0),
+            water_plane_y: None,
+            water_polygons: Vec::new(),
+        })
+    }
+
     /// Flat dry map. Tests attach a water polygon without a retail heightmap.
     pub fn flat(world_min: Vec3, world_max: Vec3) -> Self {
         #[cfg(feature = "game_client")]
@@ -170,6 +216,12 @@ impl TerrainData {
         #[cfg(not(feature = "game_client"))]
         {
             Self {
+                heightmap: HeightMap {
+                    width: 2,
+                    height: 2,
+                    heights: vec![0.0; 4],
+                    max_height: 0.0,
+                },
                 world_min,
                 world_max,
                 scale_x: 10.0,
@@ -195,14 +247,45 @@ impl TerrainData {
         self.heightmap.clone()
     }
 
-    #[cfg(feature = "game_client")]
     fn sample_normalized(&self, x: u32, z: u32) -> f32 {
         let x = x.min(self.heightmap.width.saturating_sub(1));
         let z = z.min(self.heightmap.height.saturating_sub(1));
         self.heightmap.heights[(z * self.heightmap.width + x) as usize]
     }
 
-    #[cfg(feature = "game_client")]
+    /// Logic-safe raw height query from BaseHeightMap.cpp:858-909. Unlike the
+    /// presentation mapping below, C++ uses fixed 10-unit cells and clips to a
+    /// single sample near the outer edge (BaseHeightMap.h:115-131).
+    pub(crate) fn logic_height_at_world(&self, world: Vec3) -> f32 {
+        let x = world.x / MAP_HEIGHT_SAMPLE_XY_FACTOR;
+        let z = world.z / MAP_HEIGHT_SAMPLE_XY_FACTOR;
+        let floor_x = x.floor();
+        let floor_z = z.floor();
+        let ix = floor_x as i32 + self.border_size as i32;
+        let iz = floor_z as i32 + self.border_size as i32;
+        let sample = |x: i32, z: i32| {
+            self.sample_normalized(
+                x.clamp(0, self.heightmap.width as i32 - 1) as u32,
+                z.clamp(0, self.heightmap.height as i32 - 1) as u32,
+            )
+        };
+        if ix > self.heightmap.width as i32 - 3
+            || iz > self.heightmap.height as i32 - 3
+            || ix < 1
+            || iz < 1
+        {
+            return sample(ix, iz) * self.heightmap.max_height;
+        }
+        triangle_split_height_sample(
+            sample(ix, iz),
+            sample(ix + 1, iz),
+            sample(ix, iz + 1),
+            sample(ix + 1, iz + 1),
+            x - floor_x,
+            z - floor_z,
+        ) * self.heightmap.max_height
+    }
+
     pub fn height_at_world(&self, world: Vec3) -> f32 {
         let u = ((world.x - self.world_min.x) / self.scale_x + self.border_size as f32)
             .clamp(0.0, self.heightmap.width as f32 - 1.0);

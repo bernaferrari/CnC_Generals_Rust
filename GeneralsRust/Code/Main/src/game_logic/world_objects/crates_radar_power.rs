@@ -871,8 +871,7 @@ impl GameLogic {
     /// GLA RadarVan GrantUpgradeCreate Upgrade_GLARadar + RadarUpgrade DisableProof.
     pub(crate) fn update_player_radar(&mut self) {
         use crate::game_logic::host_radar::{
-            RADAR_OFFLINE_AUDIO, RADAR_ONLINE_AUDIO, drain_leftover_radar_disabled_edges,
-            is_disabled_for_radar, is_legal_radar_provider,
+            RADAR_OFFLINE_AUDIO, RADAR_ONLINE_AUDIO, is_disabled_for_radar, is_legal_radar_provider,
         };
         use crate::game_logic::host_upgrades::{
             normalize_upgrade_identity, radar_provider_required_research_upgrade,
@@ -885,7 +884,12 @@ impl GameLogic {
             .iter()
             .map(|(&id, player)| (id, player.has_radar()))
             .collect();
-        for edge in drain_leftover_radar_disabled_edges() {
+        let edges: Vec<_> = self
+            .objects
+            .values_mut()
+            .flat_map(Object::take_radar_disabled_edges)
+            .collect();
+        for edge in edges {
             let Some(pid) = edge.player_id else {
                 continue;
             };

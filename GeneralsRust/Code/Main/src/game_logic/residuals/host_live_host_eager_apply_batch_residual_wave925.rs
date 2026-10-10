@@ -86,8 +86,7 @@ pub fn honesty_host_eager_apply_batch_nav_commands_residual_wave925() -> bool {
 pub fn honesty_host_eager_apply_batch_residual_pack_wave925() -> bool {
     let cnc = cnc_source();
     let gw = gw_source();
-    let cascade_raw =
-        super::harness::rust_fn_body(cnc, "host_run_coupled_fast_forward_loop").unwrap_or("");
+    let cascade_raw = super::harness::rust_fn_body(cnc, "host_run_fast_forward_loop").unwrap_or("");
     let cascade = non_comment_code(cascade_raw);
     let batch_raw = code_window(gw, "fn eager_apply_all_host_residuals_after_logic", 6000);
     let tick = cascade.find("Self::host_update_logic_frame");

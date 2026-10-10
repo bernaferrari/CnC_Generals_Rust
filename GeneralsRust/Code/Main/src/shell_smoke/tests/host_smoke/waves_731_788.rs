@@ -199,21 +199,6 @@ pub(super) fn assert_waves_731_788(r: &ShellSmokeResult) {
         r.detail
     );
     assert!(
-        r.host_radar_extend_no_dual_complete_method_names_wave744_ok,
-        "host radar_extend_no_dual_complete method names residual pack wave744: {}",
-        r.detail
-    );
-    assert!(
-        r.host_radar_extend_no_dual_complete_nav_commands_wave744_ok,
-        "host radar_extend_no_dual_complete nav commands residual pack wave744: {}",
-        r.detail
-    );
-    assert!(
-        r.host_radar_extend_no_dual_complete_live_wave744_ok,
-        "host radar_extend_no_dual_complete live residual wave744: {}",
-        r.detail
-    );
-    assert!(
         r.host_lifetime_kill_no_damage_auth_hp_stomp_method_names_wave745_ok,
         "host lifetime_kill_no_damage_auth_hp_stomp method names residual pack wave745: {}",
         r.detail

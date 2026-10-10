@@ -1353,7 +1353,7 @@ fn engine_object_bridge_off_by_default() {
 }
 
 #[test]
-fn host_damage_move_write_appears_in_gameworld_single_hp() {
+fn owned_damage_and_move_do_not_implicitly_publish_to_comparison_world() {
     let _env_guard = authority_env_lock();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(
@@ -1398,8 +1398,8 @@ fn host_damage_move_write_appears_in_gameworld_single_hp() {
         logic.host_authoritative_health(oid).expect("hp")
     });
     assert!(
-        (auth_hp - gw_hp).abs() < 1e-4,
-        "authoritative HP must be GameWorld, not a second number; auth={auth_hp} gw={gw_hp}"
+        (auth_hp - 75.0).abs() < 1e-4,
+        "ordinary HP query must observe the canonical owned body; auth={auth_hp} gw={gw_hp}"
     );
     let auth_pose = with_coupled_shadow(&mut shadow, || {
         logic.host_authoritative_pose(oid).expect("pose")
@@ -1424,7 +1424,7 @@ fn host_damage_move_write_appears_in_gameworld_single_hp() {
 }
 
 #[test]
-fn host_object_mut_overlays_and_commits_view_to_gameworld() {
+fn host_object_mut_borrows_owned_fields_without_observation_ingress() {
     let _env_guard = authority_env_lock();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(gameworld_shadow_enabled());
@@ -1451,13 +1451,12 @@ fn host_object_mut_overlays_and_commits_view_to_gameworld() {
         {
             let o = logic.host_object_mut(oid).expect("view");
             assert!(
-                (o.health.current - 40.0).abs() < 1e-3,
-                "host_object_mut must overlay GameWorld HP; got {}",
+                (o.health.current - 80.0).abs() < 1e-3,
+                "host_object_mut must borrow the owned body; got {}",
                 o.health.current
             );
             o.health.current = 33.0;
         }
-        logic.commit_dirty_host_objects_to_gameworld();
     });
     let gw_hp = shadow.world().entity(eid).expect("e").health;
     assert!(
@@ -1467,13 +1466,13 @@ fn host_object_mut_overlays_and_commits_view_to_gameworld() {
     let auth = with_coupled_shadow(&mut shadow, || {
         logic.host_authoritative_health(oid).expect("auth")
     });
-    assert!((auth - 40.0).abs() < 1e-4);
+    assert!((auth - 33.0).abs() < 1e-4);
 
     drop(_couple);
 }
 
 #[test]
-fn host_fat_fields_write_through_to_gameworld() {
+fn owned_fat_fields_remain_visible_without_implicit_shadow_publication() {
     let _env_guard = authority_env_lock();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(
@@ -1533,7 +1532,6 @@ fn host_fat_fields_write_through_to_gameworld() {
             frame, logic.frame,
             "stamp must read logic frame while mutating the object map field"
         );
-        logic.commit_dirty_host_objects_to_gameworld();
     });
 
     let eid = shadow.entity_for_host(carrier).expect("map");
@@ -1581,12 +1579,11 @@ fn host_fat_fields_write_through_to_gameworld() {
     );
     assert_eq!(
         with_coupled_shadow(&mut shadow, || logic.host_authoritative_move_dest(carrier)),
-        None,
-        "authoritative dest stays None until write-through"
+        Some([77.0, 0.0, 1.0]),
+        "ordinary dest query observes the owned mutation immediately"
     );
 
-    // Host HashMap may still hold a copy; authoritative APIs must not treat a
-    // disagreeing host-only value as truth.
+    // Comparison state remains independent of the canonical owned values.
     with_coupled_shadow(&mut shadow, || {
         if let Some(o) = logic.host_object_mut(carrier) {
             o.movement.target_position = Some(glam::Vec3::new(99.0, 0.0, 99.0));
@@ -1600,8 +1597,8 @@ fn host_fat_fields_write_through_to_gameworld() {
     );
     assert_eq!(
         with_coupled_shadow(&mut shadow, || logic.host_authoritative_move_dest(carrier)),
-        None,
-        "authoritative dest stays GameWorld"
+        Some([99.0, 0.0, 99.0]),
+        "ordinary dest query always observes the same owner"
     );
 
     drop(_couple);
@@ -1638,7 +1635,7 @@ fn world_tick_split_borrow_still_reads_frame() {
 }
 
 #[test]
-fn host_object_store_hashmap_poke_is_not_authoritative_truth() {
+fn host_object_store_mutation_is_canonical_without_shadow_writeback() {
     let _env_guard = authority_env_lock();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     assert!(
@@ -1679,14 +1676,13 @@ fn host_object_store_hashmap_poke_is_not_authoritative_truth() {
             .host_stamp_attack_substate_at_frame(oid, crate::game_logic::AttackSubState::FireWeapon)
             .expect("split-borrow store + frame");
         assert_eq!(stamped, logic.frame);
-        logic.commit_dirty_host_objects_to_gameworld();
     });
 
     let spawn_hp = with_coupled_shadow(&mut shadow, || logic.host_authoritative_health(oid));
-    assert_ne!(
+    assert_eq!(
         spawn_hp,
         Some(60.0),
-        "coupled read-view must not last-write HashMap HP"
+        "owned body mutation is immediately visible"
     );
     let eid = shadow.entity_for_host(oid).expect("map");
     let ent = shadow.world().entity(eid).expect("e");
@@ -1704,8 +1700,8 @@ fn host_object_store_hashmap_poke_is_not_authoritative_truth() {
     }
     assert_eq!(
         with_coupled_shadow(&mut shadow, || logic.host_authoritative_health(oid)),
-        spawn_hp,
-        "HashMap health poke must not be truth"
+        Some(1.0),
+        "ordinary query must read the same canonical body"
     );
     assert_ne!(shadow.world().entity(eid).expect("e").health, 1.0);
 
@@ -1718,10 +1714,9 @@ fn host_object_store_hashmap_poke_is_not_authoritative_truth() {
     drop(_couple);
 }
 
-/// C++ Object HP is BodyModule (single store). `is_alive` must not treat a
-/// stale HashMap field as truth while GameWorld is coupled.
+/// C++ Object HP is its BodyModule. A comparison session cannot replace it.
 #[test]
-fn is_alive_uses_coupled_gameworld_health() {
+fn is_alive_uses_owned_body_even_with_conflicting_comparison_health() {
     let _env_guard = authority_env_lock();
     crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
 
@@ -1751,12 +1746,12 @@ fn is_alive_uses_coupled_gameworld_health() {
                 .is_some_and(|o| o.health.current > 0.0)
         );
         assert!(
-            !logic.host_object(oid).expect("obj").is_alive(),
-            "shipped is_alive must follow GameWorld HP (C++ BodyModule), not HashMap"
+            logic.host_object(oid).expect("obj").is_alive(),
+            "ordinary is_alive observes the canonical owned body"
         );
         assert!(
-            (logic.host_object(oid).expect("obj").get_health_percentage() - 0.0).abs() < 1e-5,
-            "shipped get_health_percentage must follow GameWorld HP"
+            (logic.host_object(oid).expect("obj").get_health_percentage() - 1.0).abs() < 1e-5,
+            "health percentage observes the canonical owned body"
         );
     });
 
@@ -1797,8 +1792,8 @@ fn snapshot_builder_uses_authoritative_health() {
     });
     let obj_snap = snap.objects.get(&oid).expect("snap obj");
     assert!(
-        (obj_snap.health.current - 37.0).abs() < 1e-4,
-        "snapshot health must be GameWorld (C++ BodyModule xfer), got {}",
+        (obj_snap.health.current - 99.0).abs() < 1e-4,
+        "snapshot must serialize the canonical owned body, got {}",
         obj_snap.health.current
     );
 
@@ -1897,13 +1892,17 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
     assert_eq!(lethal_event[0].target, lethal);
     assert!(lethal_event[0].destroyed);
     crate::gameworld_shadow::run_post_logic_shadow_boundary(None, &mut logic);
-    assert_eq!(logic.host_object(lethal).unwrap().health.current, 0.0);
-    assert_eq!(logic.host_object(lethal).unwrap().previous_health, 100.0);
-    assert!(logic.host_object(lethal).unwrap().status.destroyed);
+    // CPP GameLogic.cpp:3762 completes destruction before the next frame.
+    assert!(logic.host_object(lethal).is_none());
+    assert!(!logic.has_pending_destroy_work());
+    let completed = logic.health_events.snapshot_last_damage();
+    assert_eq!(completed.len(), 1);
+    assert_eq!(completed[0].target, lethal);
+    assert!(completed[0].destroyed);
     crate::gameworld_shadow::run_post_logic_shadow_boundary(None, &mut logic);
-    assert_eq!(logic.host_object(lethal).unwrap().health.current, 0.0);
-    assert_eq!(logic.host_object(lethal).unwrap().previous_health, 100.0);
-    assert!(logic.host_object(lethal).unwrap().status.destroyed);
+    assert!(logic.host_object(lethal).is_none());
+    assert!(!logic.has_pending_destroy_work());
+    assert_eq!(logic.health_events.snapshot_last_damage(), completed);
 
     logic.health_events.clear_damage();
 }
@@ -2090,9 +2089,9 @@ fn coupled_tick_group_speed_reads_script_damage_from_host_owner_before_shadow_bo
             "the in-step script damage passed through the production damage channel"
         );
 
-        // The owner phase is over when tick_logic_frame returns. Until normal
-        // boundary writeback, the coupled shadow remains at its synced 100 HP.
-        assert_eq!(logic.host_authoritative_health(slow), Some(100.0));
+        // Ordinary body queries stay canonical after the step as well.
+        // The independent comparison remains at its original 100 HP.
+        assert_eq!(logic.host_authoritative_health(slow), Some(30.0));
         let shadow_hp = crate::gameworld_shadow::with_active_shadow(|active| {
             active.world().entity(slow_eid).expect("slow entity").health
         })
@@ -2103,7 +2102,7 @@ fn coupled_tick_group_speed_reads_script_damage_from_host_owner_before_shadow_bo
 }
 
 #[test]
-fn host_logic_after_sync_keeps_repeated_object_mutations_and_getters_on_owner() {
+fn host_logic_step_active_keeps_repeated_object_mutations_and_getters_on_owner() {
     let _env_guard = AuthorityEnvGuard::lock().set("GENERALS_GAMEWORLD_SHADOW", "1");
     let mut logic = GameLogic::new();
     apply_skirmish_config(&mut logic, &golden_skirmish_config("OwnerPhase")).expect("config");
@@ -2123,8 +2122,6 @@ fn host_logic_after_sync_keeps_repeated_object_mutations_and_getters_on_owner() 
 
     let _couple = ShadowCoupleGuard::enter();
     with_coupled_shadow(&mut shadow, || {
-        // This is the same begin-of-step ingress used by update_simulation.
-        logic.sync_authoritative_view_from_gameworld();
         assert_eq!(logic.host_authoritative_target(source), None);
         let before = crate::gameworld_shadow::with_active_shadow(|active| {
             active
@@ -2138,7 +2135,7 @@ fn host_logic_after_sync_keeps_repeated_object_mutations_and_getters_on_owner() 
         assert_eq!([before.x, before.y, before.z], [1.0, 0.0, 2.0]);
 
         logic
-            .with_host_logic_after_sync(|owner| {
+            .with_host_logic_step(|owner| {
                 owner
                     .with_host_object_mut(source, |object| {
                         object.set_order_target(Some(target));
@@ -2178,15 +2175,17 @@ fn host_logic_after_sync_keeps_repeated_object_mutations_and_getters_on_owner() 
 
                 // A nested phase cannot replace/reset the active guard. It is
                 // rejected while the original owner scope remains active.
-                assert!(owner.with_host_logic_after_sync(|_| ()).is_none());
+                assert!(owner.with_host_logic_step(|_| ()).is_none());
                 assert_eq!(owner.host_authoritative_target(source), Some(target));
             })
             .expect("enter host-owned post-sync phase");
 
-        // The guard has restored observation policy. GameWorld still owns the
-        // coupled view until the normal boundary; no early writeback occurred.
-        assert_eq!(logic.host_authoritative_target(source), None);
-        assert_eq!(logic.host_authoritative_pose(source), Some([1.0, 0.0, 2.0]));
+        // Leaving the reentry guard never changes the source of ordinary reads.
+        assert_eq!(logic.host_authoritative_target(source), Some(target));
+        assert_eq!(
+            logic.host_authoritative_pose(source),
+            Some(final_owner_position)
+        );
         let source_after = crate::gameworld_shadow::with_active_shadow(|active| {
             active
                 .world()
@@ -2200,38 +2199,32 @@ fn host_logic_after_sync_keeps_repeated_object_mutations_and_getters_on_owner() 
     });
 }
 
-// Keep the existing test host_object_mut_overlays_and_commits_view_to_gameworld
-// unchanged. It is the out-of-phase 40 (GameWorld) vs 33 (host poked view)
-// sentinel; the new guard test above asserts that owner preference is temporary.
-
 #[test]
-fn host_logic_after_sync_guard_restores_on_return_and_unwind() {
+fn host_logic_step_active_guard_restores_on_return_and_unwind() {
     let mut logic = GameLogic::new();
     logic
-        .with_host_logic_after_sync(|_| ())
+        .with_host_logic_step(|_| ())
         .expect("first phase entry");
-    assert!(logic.with_host_logic_after_sync(|_| ()).is_some());
+    assert!(logic.with_host_logic_step(|_| ()).is_some());
 
     let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = logic.with_host_logic_after_sync(|_| panic!("exercise guard drop"));
+        let _ = logic.with_host_logic_step(|_| panic!("exercise guard drop"));
     }));
     assert!(unwind.is_err());
-    assert!(logic.with_host_logic_after_sync(|_| ()).is_some());
+    assert!(logic.with_host_logic_step(|_| ()).is_some());
 }
 
 #[test]
-fn update_simulation_enters_owner_phase_between_sync_and_scripts() {
+fn update_simulation_enters_owned_step_without_shadow_ingress() {
     let wrapper = rust_fn_body(GAME_LOGIC_HOST_SRC, "update_simulation").expect("step wrapper");
-    let sync = wrapper
-        .find("sync_authoritative_view_from_gameworld()")
-        .expect("sync");
-    let phase = wrapper
-        .find("with_host_logic_after_sync")
-        .expect("owner phase");
-    assert!(sync < phase, "begin sync precedes owner-phase entry");
+    assert!(!wrapper.contains("sync_authoritative_view_from_gameworld"));
+    assert!(wrapper.contains("with_host_logic_step"));
+    let operations = include_str!("../../game_logic/world_objects/host_ops_writeback.rs");
+    assert!(!operations.contains("overlay_object_from_gameworld"));
+    assert!(!operations.contains("commit_dirty_host_objects_to_gameworld"));
 
     let body =
-        rust_fn_body(GAME_LOGIC_HOST_SRC, "update_simulation_after_sync").expect("owned phases");
+        rust_fn_body(GAME_LOGIC_HOST_SRC, "update_simulation_in_step").expect("owned phases");
     let scripts = body
         .find("evaluate_and_execute_scripts(dt)")
         .expect("scripts");

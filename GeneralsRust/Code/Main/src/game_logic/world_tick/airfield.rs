@@ -3100,11 +3100,12 @@ impl GameLogic {
                 }
                 if amount > 0.0 && jet.health.current + 1e-3 < jet.health.maximum {
                     if let Some(jet) = self.objects.get_mut(&jet_id) {
-                        let _ = jet.take_damage_from_typed(
+                        let _ = jet.take_damage_from_typed_with_repulsor_policy(
                             amount,
                             Some(airfield_id),
                             crate::game_logic::combat::DamageType::Healing,
                             &mut self.health_events,
+                            &self.enable_repulsors,
                         );
                     }
                 }

@@ -360,21 +360,12 @@ impl GameLogic {
                     continue; // C++ skip zero priority
                 }
                 let step = {
-                    let store = game_engine::common::ini::get_ai_data_store();
-                    let from_store = store.read().ok().and_then(|guard| {
-                        guard
-                            .get_active()
-                            .map(|d| d.attack_priority_distance_modifier)
-                    });
-                    from_store
-                        .filter(|v| *v > 0.0)
-                        .or_else(|| {
-                            gamelogic::ai::the_ai().read().ok().and_then(|ai| {
-                                Some(ai.get_ai_data()).map(|d| d.attack_priority_distance_modifier)
-                            })
-                        })
-                        .filter(|v| *v > 0.0)
-                        .unwrap_or(ATTACK_PRIORITY_DISTANCE_MODIFIER)
+                    let value = self.ai_definitions.data().attack_priority_distance_modifier;
+                    if value > 0.0 {
+                        value
+                    } else {
+                        ATTACK_PRIORITY_DISTANCE_MODIFIER
+                    }
                 };
                 let modifier = (dist / step) as i32;
                 let mut mod_pri = cur - modifier;
@@ -707,7 +698,7 @@ impl GameLogic {
         use find_enemy_flags::*;
         let mut flags = CAN_ATTACK;
         if let Some(o) = self.objects.get(&unit_id) {
-            if Self::aidata_attack_uses_line_of_sight()
+            if self.aidata_attack_uses_line_of_sight()
                 && o.is_kind_of(crate::game_logic::KindOf::AttackNeedsLineOfSight)
             {
                 flags |= CAN_SEE;
@@ -719,7 +710,7 @@ impl GameLogic {
         if (auto_idle & AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS) != 0 {
             flags |= ATTACK_BUILDINGS;
         }
-        if Self::aidata_attack_ignore_insignificant_buildings() {
+        if self.aidata_attack_ignore_insignificant_buildings() {
             flags |= IGNORE_INSIGNIFICANT_BUILDINGS;
         }
         let _ = (pos, team);
@@ -727,29 +718,15 @@ impl GameLogic {
     }
 
     /// C++ `TheAI->getAiData()->m_attackIgnoreInsignificantBuildings`.
-    fn aidata_attack_ignore_insignificant_buildings() -> bool {
-        let store = game_engine::common::ini::get_ai_data_store();
-        if let Some(data) = store.read().expect("AI data store read lock").get_active() {
-            return data.attack_ignore_insignificant_buildings;
-        }
-        gamelogic::ai::the_ai()
-            .read()
-            .ok()
-            .and_then(|ai| Some(ai.get_ai_data()).map(|d| d.attack_ignore_insignificant_buildings))
-            .unwrap_or(false)
+    fn aidata_attack_ignore_insignificant_buildings(&self) -> bool {
+        self.ai_definitions
+            .data()
+            .attack_ignore_insignificant_buildings
     }
 
     /// C++ `TheAI->getAiData()->m_attackUsesLineOfSight` (default true).
-    fn aidata_attack_uses_line_of_sight() -> bool {
-        let store = game_engine::common::ini::get_ai_data_store();
-        if let Some(data) = store.read().expect("AI data store read lock").get_active() {
-            return data.attack_uses_line_of_sight;
-        }
-        gamelogic::ai::the_ai()
-            .read()
-            .ok()
-            .and_then(|ai| Some(ai.get_ai_data()).map(|d| d.attack_uses_line_of_sight))
-            .unwrap_or(true)
+    fn aidata_attack_uses_line_of_sight(&self) -> bool {
+        self.ai_definitions.data().attack_uses_line_of_sight
     }
 
     /// Idle mood auto-acquire: if idle and mood allows, set attack target.
@@ -1575,8 +1552,13 @@ mod common_target_parity {
             AUTO_ACQUIRE_IDLE, AUTO_ACQUIRE_IDLE_STEALTHED,
         };
         let mut logic = GameLogic::new();
+        logic.set_ai_definition_base(game_engine::common::ini::AIData {
+            guard_outer_modifier_ai: 2.2,
+            ..Default::default()
+        });
         logic.frame = 100;
         let mut at = ThingTemplate::new("StealthScout");
+        at.set_authored_ai_update_interface(Some(true));
         at.add_kind_of(KindOf::Infantry);
         at.add_kind_of(KindOf::Attackable);
         let aid = ObjectId(2601);
@@ -1626,23 +1608,18 @@ mod common_target_parity {
         use gamelogic::object::update::ai_update_interface::{
             AUTO_ACQUIRE_IDLE, AUTO_ACQUIRE_IDLE_ATTACK_BUILDINGS,
         };
-        let prev = {
-            let store = game_engine::common::ini::get_ai_data_store();
-            let mut store = store.write().expect("AI data store write lock");
-            store.ensure_base();
-            let prev = store
-                .get_active()
-                .map(|d| d.attack_ignore_insignificant_buildings)
-                .unwrap_or(false);
-            if let Some(data) = store.get_active_mut() {
-                data.attack_ignore_insignificant_buildings = true;
-            }
-            prev
-        };
         {
             let mut logic = GameLogic::new();
+            logic.set_ai_definition_base(game_engine::common::ini::AIData {
+                guard_outer_modifier_ai: 2.2,
+                ..Default::default()
+            });
+            let mut definitions = logic.ai_definitions.data().clone();
+            definitions.attack_ignore_insignificant_buildings = true;
+            logic.set_ai_definition_base(definitions);
             logic.frame = 100;
             let mut at = ThingTemplate::new("MoodHutAtk");
+            at.set_authored_ai_update_interface(Some(true));
             at.add_kind_of(KindOf::Infantry);
             at.add_kind_of(KindOf::Attackable);
             let aid = ObjectId(2701);
@@ -1691,13 +1668,6 @@ mod common_target_parity {
                 Some(inf),
                 "ignore-insig must still acquire units"
             );
-        }
-        {
-            let store = game_engine::common::ini::get_ai_data_store();
-            let mut store = store.write().expect("AI data store write lock");
-            if let Some(data) = store.get_active_mut() {
-                data.attack_ignore_insignificant_buildings = prev;
-            }
         }
     }
 

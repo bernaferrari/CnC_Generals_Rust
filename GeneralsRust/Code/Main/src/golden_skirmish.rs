@@ -842,6 +842,7 @@ fn mid_match_save_load_ok(logic: &GameLogic, map_identity: &str) -> bool {
     let mut mgr = SaveFileManager::with_save_directory(&save_dir);
     let file_ok = if mgr.init().is_ok() {
         let info = SaveGameInfo {
+            pristine_map_name: None,
             filename: "golden_mid".into(),
             display_name: "Golden Mid".into(),
             description: "golden mid-match".into(),

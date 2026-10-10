@@ -607,7 +607,7 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::PlayerSetRanklevellimit => self.do_player_set_ranklevellimit(action),
             ScriptActionType::PlayerPurchaseScience => self.do_player_purchase_science(action),
             ScriptActionType::PlayerRepairNamedStructure => {
-                self.do_player_repair_named_structure(action)
+                self.do_player_repair_named_structure(action, driver)
             }
             ScriptActionType::PlayerAffectReceivingExperience => {
                 self.do_player_affect_receiving_experience(action)
@@ -618,7 +618,9 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::PlayerScienceAvailability => {
                 self.do_player_science_availability(action)
             }
-            ScriptActionType::PlayerSelectSkillset => self.do_player_select_skillset(action),
+            ScriptActionType::PlayerSelectSkillset => {
+                self.do_player_select_skillset(action, driver)
+            }
 
             // ============================================================================
             // ADDITIONAL CAMERA ACTIONS
@@ -791,7 +793,7 @@ impl ScriptActionDispatcher<'_> {
             // CONSTRUCTION/TECHTREE ACTIONS
             // ============================================================================
             ScriptActionType::SetBaseConstructionSpeed => {
-                self.do_set_base_construction_speed(action)
+                self.do_set_base_construction_speed(action, driver)
             }
             ScriptActionType::TechtreeModifyBuildabilityObject => {
                 self.do_techtree_modify_buildability_object(action)

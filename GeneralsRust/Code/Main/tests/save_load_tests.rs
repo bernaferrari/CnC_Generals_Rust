@@ -571,6 +571,7 @@ fn test_error_types() {
 #[test]
 fn test_save_game_info() {
     let info = SaveGameInfo {
+        pristine_map_name: None,
         filename: "quicksave".to_string(),
         display_name: "Quick Save".to_string(),
         description: "Auto-generated quick save".to_string(),
@@ -675,6 +676,7 @@ mod integration_tests {
 
     fn save_info(filename: &str, save_type: SaveFileType) -> SaveGameInfo {
         SaveGameInfo {
+            pristine_map_name: None,
             filename: filename.to_string(),
             display_name: "Save Fixture".to_string(),
             description: "Deterministic save/load fixture".to_string(),

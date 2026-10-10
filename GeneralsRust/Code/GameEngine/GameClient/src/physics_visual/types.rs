@@ -4,7 +4,7 @@
 //! at the presentation boundary before constructing these records.
 
 /// C++ `PI` as used by Drawable.cpp overlap / suspension math.
-pub const CPP_PI: f32 = 3.14159265359;
+pub const CPP_PI: f32 = std::f32::consts::PI;
 
 /// C++ `LocomotorAppearance` cases that `calcPhysicsXform` dispatches on.
 ///

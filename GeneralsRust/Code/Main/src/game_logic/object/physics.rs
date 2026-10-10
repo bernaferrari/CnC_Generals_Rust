@@ -746,6 +746,25 @@ impl Object {
     /// `ground_y` is surface height at object XZ (water when underwater).
     /// Returns true if needs constant calling.
     pub fn handle_behavior_z(&mut self, ground_y: f32, goal_y: Option<f32>) -> bool {
+        let highest_surface = if matches!(
+            self.loco_behavior_z,
+            LocomotorBehaviorZ::SmoothRelativeToHighestLayer
+        ) {
+            leftover_highest_layer_height(self.get_position(), ground_y)
+        } else {
+            ground_y
+        };
+        self.handle_behavior_z_with_highest_surface(ground_y, goal_y, highest_surface)
+    }
+
+    /// The live world supplies its own layer observation at the current pose.
+    /// Standalone reference callers retain the legacy terrain adapter above.
+    pub(crate) fn handle_behavior_z_with_highest_surface(
+        &mut self,
+        ground_y: f32,
+        goal_y: Option<f32>,
+        highest_surface: f32,
+    ) -> bool {
         match self.loco_behavior_z {
             LocomotorBehaviorZ::NoZMotiveForce => false,
             LocomotorBehaviorZ::SeaLevel => {
@@ -781,8 +800,7 @@ impl Object {
                 self.apply_surface_relative_lift(ground_y, goal_y)
             }
             LocomotorBehaviorZ::SmoothRelativeToHighestLayer => {
-                let surface = leftover_highest_layer_height(self.get_position(), ground_y);
-                self.apply_surface_relative_lift(surface, goal_y)
+                self.apply_surface_relative_lift(highest_surface, goal_y)
             }
             LocomotorBehaviorZ::AbsoluteHeight => {
                 // C++ Locomotor.cpp:2288-2317 — same lift as SurfaceRelative

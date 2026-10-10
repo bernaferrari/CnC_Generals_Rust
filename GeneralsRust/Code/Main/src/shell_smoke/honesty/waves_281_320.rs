@@ -26,9 +26,6 @@ pub(super) struct Waves281320 {
     pub live_dumb_projectile_dual_world_empty_gate_method_names_wave286_ok: bool,
     pub live_dumb_projectile_dual_world_empty_gate_nav_commands_wave286_ok: bool,
     pub live_dumb_projectile_dual_world_empty_gate_live_wave286_ok: bool,
-    pub live_enhanced_player_dual_world_empty_gate_method_names_wave287_ok: bool,
-    pub live_enhanced_player_dual_world_empty_gate_nav_commands_wave287_ok: bool,
-    pub live_enhanced_player_dual_world_empty_gate_live_wave287_ok: bool,
     pub live_hijacker_update_dual_world_empty_gate_method_names_wave288_ok: bool,
     pub live_hijacker_update_dual_world_empty_gate_nav_commands_wave288_ok: bool,
     pub live_hijacker_update_dual_world_empty_gate_live_wave288_ok: bool,
@@ -157,12 +154,6 @@ pub(super) fn evaluate(
             honesty_live_dumb_projectile_dual_world_empty_gate_nav_commands_residual_wave286(),
         live_dumb_projectile_dual_world_empty_gate_live_wave286_ok:
             simulate_live_dumb_projectile_dual_world_empty_gate_honesty(),
-        live_enhanced_player_dual_world_empty_gate_method_names_wave287_ok:
-            honesty_live_enhanced_player_dual_world_empty_gate_method_names_residual_wave287(),
-        live_enhanced_player_dual_world_empty_gate_nav_commands_wave287_ok:
-            honesty_live_enhanced_player_dual_world_empty_gate_nav_commands_residual_wave287(),
-        live_enhanced_player_dual_world_empty_gate_live_wave287_ok:
-            simulate_live_enhanced_player_dual_world_empty_gate_honesty(),
         live_hijacker_update_dual_world_empty_gate_method_names_wave288_ok:
             honesty_live_hijacker_update_dual_world_empty_gate_method_names_residual_wave288(),
         live_hijacker_update_dual_world_empty_gate_nav_commands_wave288_ok:

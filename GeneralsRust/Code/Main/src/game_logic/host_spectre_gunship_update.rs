@@ -392,7 +392,7 @@ pub fn honesty_spectre_gunship_update_residual_ok() -> bool {
                 && created
                 && {
                     let start = Vec3::new(-250.0, 120.0, -250.0);
-                    let tick = d.tick(start, 0.785_398_2, 0);
+                    let tick = d.tick(start, std::f32::consts::FRAC_PI_4, 0);
                     let moved =
                         (tick.pos.x - start.x).abs() > 1.0 || (tick.pos.z - start.z).abs() > 1.0;
                     let placed = (d.attack_area_decal.position - d.initial_target).length() < 0.01
@@ -515,8 +515,7 @@ mod override_clamp_tests {
         d.override_target = far_click;
         d.constrain_override();
         assert!(
-            (d.initial_target.x - 500.0).abs() < 0.01
-                && (d.initial_target.z - 500.0).abs() < 0.01,
+            (d.initial_target.x - 500.0).abs() < 0.01 && (d.initial_target.z - 500.0).abs() < 0.01,
             "epicenter must stay latched at the strike target"
         );
         let dx = d.override_target.x - d.initial_target.x;

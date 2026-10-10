@@ -776,10 +776,11 @@ impl GameLogic {
                 if !target.is_alive() {
                     continue;
                 }
-                let destroyed = target.take_damage_from_immediate(
+                let destroyed = target.take_damage_from_immediate_with_repulsor_policy(
                     pulse.damage,
                     Some(pulse.source_object),
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {

@@ -38,9 +38,6 @@ pub mod host_prone_update;
 #[path = "host_radius_decal_update.rs"]
 pub mod host_radius_decal_update;
 
-#[path = "host_repulsor_gate.rs"]
-pub mod host_repulsor_gate;
-
 #[path = "host_smart_bomb_target_homing.rs"]
 pub mod host_smart_bomb_target_homing;
 

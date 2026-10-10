@@ -770,6 +770,12 @@ fn mood_auto_acquire_logs_decision_under_authority() {
     host_ai_decision_log::clear();
     let _couple = super::ShadowCoupleGuard::enter();
     let mut logic = GameLogic::new();
+    logic.set_ai_definition_base(game_engine::common::ini::AIData {
+        guard_outer_modifier_human: 1.333,
+        guard_outer_modifier_ai: 2.2,
+        aggressive_range_modifier: 1.5,
+        ..Default::default()
+    });
     logic.set_ai_decision_authority(true);
     logic.set_ai_attack_authority(true);
     let cfg = golden_skirmish_config("MoodAcq");
@@ -778,6 +784,7 @@ fn mood_auto_acquire_logs_decision_under_authority() {
         let mut t = ThingTemplate::new("MaU");
         t.add_kind_of(KindOf::Infantry);
         t.add_kind_of(KindOf::Attackable);
+        t.set_authored_ai_update_interface(Some(true));
         logic.templates.insert("MaU".into(), t);
     }
     let oid = logic

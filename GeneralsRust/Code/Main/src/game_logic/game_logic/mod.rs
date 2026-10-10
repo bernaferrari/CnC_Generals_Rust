@@ -113,12 +113,9 @@ impl GameLogic {
     }
 
     pub fn evaluate_victory_condition(&mut self) -> Option<VictoryCondition> {
-        // Wave 816: under coupled shadow, player is_alive owned by GW expire + writeback.
-        if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-            && crate::gameworld_shadow::shadow_coupled_tick_active())
-        {
-            self.update_player_alive_state();
-        }
+        // Player life is derived from this session's canonical objects at the
+        // original victory phase, regardless of any comparison context.
+        self.update_player_alive_state();
         let outcome = self.victory_conditions.evaluate_with_world_factory(
             &self.players,
             &self.objects,
@@ -248,7 +245,10 @@ mod accepted_projectile_owner_tests;
 mod radius_decal_clock_owner_tests;
 
 #[cfg(test)]
-mod pose_owner_tests;
+pub(crate) mod pose_owner_tests;
+
+#[cfg(test)]
+mod world_read_owner_tests;
 
 #[cfg(test)]
 #[path = "../victory_owner_tests.rs"]

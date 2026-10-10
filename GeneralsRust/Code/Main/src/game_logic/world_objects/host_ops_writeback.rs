@@ -1174,412 +1174,18 @@ impl GameLogic {
         }
     }
 
-    /// Wave 946: scoped host-object mutation authority.
-    /// Shadow writebacks mutate host objects only through this boundary
-    /// (no direct `get_objects_mut` dual-writes from the shadow crate).
-    ///
-    /// When a GameWorld shadow session is coupled the HashMap is a read-view:
-    /// overlay from GameWorld, apply residual side effects, do not last-write
-    /// HP/pose/target/weapon/contain back. Shadow-off keeps the host field.
+    /// Borrow the canonical object for one synchronous mutation.
+    /// Observation sessions cannot replace its fields or receive implicit writes.
     pub fn with_host_object_mut<R>(
         &mut self,
         id: ObjectId,
         f: impl FnOnce(&mut crate::game_logic::object::Object) -> R,
     ) -> Option<R> {
-        let obj = self.host_object_mut(id)?;
-        let r = f(obj);
-        if !crate::gameworld_shadow::shadow_coupled_tick_active() {
-            self.push_coupled_host_object_mutations(id);
-        }
-        self.host_view_dirty.remove(&id);
-        Some(r)
+        self.objects.get_mut(&id).map(f)
     }
 
-    /// Copy GameWorld HP / pose / target / fat fields onto the HashMap view.
-    fn overlay_object_from_gameworld(&mut self, id: ObjectId) {
-        if self.host_logic_after_sync {
-            return;
-        }
-        use crate::gameworld_shadow::{CoupledFatView, with_active_shadow};
-        // Mid-frame authority logs own these fields until writeback; resolve
-        // the skip flags BEFORE the shadow visit so a fully log-owned object
-        // skips building the fat view (it clones Vecs per object) and so the
-        // per-field clones below are skipped for log-owned fields.
-        let skip_hp = self.health_events.has_damage(id) || self.health_events.has_heal(id);
-        let skip_weapon = crate::game_logic::host_weapon_stats_log::has_pending(id);
-        let skip_ai = crate::game_logic::host_ai_state_log::has_pending(id)
-            || crate::game_logic::host_combat_attack_log::has_pending(id);
-        let skip_contain = crate::game_logic::host_contain_log::has_pending(id);
-        let skip_move = crate::game_logic::host_movement_log::has_pending(id);
-        let need_fat = !(skip_weapon && skip_ai && skip_contain && skip_move);
-        // One TLS shadow visit per object (was five ambient round trips):
-        // read HP / pose / target / fat facts in a single closure.
-        let facts = with_active_shadow(|shadow| {
-            let eid = shadow.entity_for_host(id)?;
-            let e = shadow.world().entity(eid);
-            Some((
-                e.map(|e| e.health),
-                e.map(|e| {
-                    let p = e.transform.position;
-                    [p.x, p.y, p.z]
-                }),
-                e.and_then(|e| e.attack_target)
-                    .and_then(|tid| shadow.host_for_entity(tid)),
-                e.filter(|_| need_fat).map(|e| CoupledFatView {
-                    weapon_ammo: e.weapon_ammo,
-                    weapon_clip_size: e.weapon_clip_size,
-                    active_weapon_slot: e.active_weapon_slot,
-                    weapon_fire_status: e.weapon_fire_status,
-                    attack_substate_ordinal: e.attack_substate_ordinal,
-                    ai_state_ordinal: e.ai_state_ordinal,
-                    occupant_count: e.occupant_count,
-                    contained_by_host: e.contained_by_host,
-                    // Log-owned fields never read the clone; skip the copy.
-                    garrisoned_host_ids: if skip_contain {
-                        Vec::new()
-                    } else {
-                        e.garrisoned_host_ids.clone()
-                    },
-                    move_target: e.move_target,
-                    path_waypoints: if skip_move {
-                        Vec::new()
-                    } else {
-                        e.path_waypoints.clone()
-                    },
-                    path_index: e.path_index,
-                }),
-            ))
-        });
-        let Some((hp, pose, target, fat)) = facts.flatten() else {
-            return;
-        };
-        let Some(obj) = self.objects.get_mut(&id) else {
-            return;
-        };
-        if !skip_hp {
-            if let Some(h) = hp {
-                obj.health.current = h;
-                if h <= 0.0 {
-                    obj.status.destroyed = true;
-                }
-            }
-        }
-        if let Some([x, y, z]) = pose {
-            obj.set_position(glam::Vec3::new(x, y, z));
-        }
-        obj.target = target;
-        if let Some(fat) = fat {
-            if !skip_weapon {
-                if let Some(w) = obj.weapon.as_mut() {
-                    if fat.weapon_ammo == u32::MAX {
-                        w.ammo = None;
-                    } else {
-                        w.ammo = Some(fat.weapon_ammo);
-                    }
-                    if fat.weapon_clip_size > 0 {
-                        w.clip_size = fat.weapon_clip_size;
-                    }
-                }
-            }
-            if !skip_ai {
-                obj.attack_substate =
-                    crate::game_logic::AttackSubState::from_ordinal(fat.attack_substate_ordinal);
-                obj.ai_state = crate::gameworld_shadow::GameWorldShadow::ai_state_from_ordinal(
-                    fat.ai_state_ordinal,
-                );
-            }
-            if !skip_contain {
-                obj.contained_by = if fat.contained_by_host == 0 {
-                    None
-                } else {
-                    Some(ObjectId(fat.contained_by_host))
-                };
-                if !fat.garrisoned_host_ids.is_empty() || !obj.occupants.is_empty() {
-                    obj.occupants = fat
-                        .garrisoned_host_ids
-                        .iter()
-                        .copied()
-                        .map(ObjectId)
-                        .collect();
-                }
-            }
-            if !skip_move {
-                obj.movement.target_position =
-                    fat.move_target.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
-                if !fat.path_waypoints.is_empty() {
-                    obj.movement.path = fat
-                        .path_waypoints
-                        .iter()
-                        .map(|p| glam::Vec3::new(p[0], p[1], p[2]))
-                        .collect();
-                    obj.movement.current_path_index = fat.path_index as usize;
-                } else {
-                    obj.movement.path.clear();
-                    obj.movement.current_path_index = 0;
-                }
-            }
-        }
-    }
-
-    /// Refresh every mapped object from GameWorld so the HashMap is a view.
-    pub fn sync_authoritative_view_from_gameworld(&mut self) {
-        if self.host_logic_after_sync {
-            return;
-        }
-        if !crate::gameworld_shadow::gameworld_shadow_enabled() {
-            return;
-        }
-        if crate::gameworld_shadow::with_active_shadow(|_| ()).is_none() {
-            return;
-        }
-        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
-        for id in ids {
-            self.overlay_object_from_gameworld(id);
-        }
-    }
-
-    /// Drain the dirty set. Coupled shadow: no-op — phases 0–6 last-write via
-    /// logs/mutations; the HashMap is a read-view. Uncoupled: push residual.
-    pub fn commit_dirty_host_objects_to_gameworld(&mut self) {
-        let dirty = std::mem::take(&mut self.host_view_dirty);
-        if crate::gameworld_shadow::shadow_coupled_tick_active() {
-            return;
-        }
-        for id in dirty {
-            self.push_coupled_host_object_mutations(id);
-        }
-    }
-
-    /// Push HP/pose/target from the host ID-map view into GameWorld (coupled only).
-    fn push_coupled_host_object_mutations(&self, id: ObjectId) {
-        use crate::gameworld_shadow::{push_coupled_world_mutation, with_active_shadow};
-        use gamelogic::world::WorldMutation;
-        use gamelogic::world::entities::EntityProductionItem;
-        let Some(obj) = self.host_objects().get(&id) else {
-            return;
-        };
-        let Some(eid) = with_active_shadow(|s| s.entity_for_host(id)).flatten() else {
-            return;
-        };
-        let pos = obj.get_position();
-        // Mid-frame health records own HP until admission; do not stomp GameWorld.
-        if !self.health_events.has_damage(id) && !self.health_events.has_heal(id) {
-            let _ = push_coupled_world_mutation(WorldMutation::SetHealth {
-                target: eid,
-                health: obj.health.current,
-            });
-        }
-        let _ = push_coupled_world_mutation(WorldMutation::SetTransform {
-            target: eid,
-            position: [pos.x, pos.y, pos.z],
-            orientation: obj.get_orientation(),
-        });
-        let gw_target = obj
-            .target
-            .and_then(|tid| with_active_shadow(|s| s.entity_for_host(tid)).flatten());
-        let _ = push_coupled_world_mutation(WorldMutation::SetAttackTarget {
-            attacker: eid,
-            target: gw_target,
-        });
-        if !crate::game_logic::host_movement_log::has_pending(id) {
-            let _ = push_coupled_world_mutation(WorldMutation::SetMoveTarget {
-                unit: eid,
-                destination: obj
-                    .movement
-                    .target_position
-                    .map(|dest| [dest.x, dest.y, dest.z]),
-            });
-            let path_waypoints: Vec<[f32; 3]> =
-                obj.movement.path.iter().map(|p| [p.x, p.y, p.z]).collect();
-            let _ = push_coupled_world_mutation(WorldMutation::SetMovement {
-                target: eid,
-                velocity: [
-                    obj.movement.velocity.x,
-                    obj.movement.velocity.y,
-                    obj.movement.velocity.z,
-                ],
-                max_speed: obj.movement.max_speed,
-                accel: obj.movement.acceleration,
-                turn_rate: obj.movement.turn_rate,
-                path_index: obj.movement.current_path_index.min(u16::MAX as usize) as u16,
-                path_len: obj.movement.path.len().min(u16::MAX as usize) as u16,
-                path_waypoints,
-                waiting_for_path: obj.waiting_for_path,
-                locomotor_surfaces: obj.locomotor_surfaces,
-                is_attack_path: obj.is_attack_path,
-                is_blocked_and_stuck: obj.is_blocked_and_stuck,
-                is_braking: obj.is_braking,
-                is_safe_path: obj.is_safe_path,
-                queue_for_path_frames: obj.queue_for_path_frames,
-                path_timestamp: obj.path_timestamp,
-                cur_max_blocked_speed: obj.cur_max_blocked_speed,
-                num_frames_blocked: obj.num_frames_blocked,
-                is_blocked: obj.is_blocked,
-                move_away_from_id: obj.move_away_from.map(|i| i.0),
-                requested_victim_id: obj.requested_victim_id.map(|i| i.0),
-            });
-        }
-        if !crate::game_logic::host_weapon_stats_log::has_pending(id) {
-            if let Some(w) = obj.weapon.as_ref() {
-                let sec = obj.secondary_weapon.as_ref();
-                let _ = push_coupled_world_mutation(WorldMutation::SetWeaponStats {
-                    target: eid,
-                    has_weapon: true,
-                    weapon_damage: w.damage,
-                    weapon_range: w.range,
-                    weapon_min_range: w.min_range,
-                    weapon_reload_time: w.reload_time,
-                    weapon_last_fire_time: w.last_fire_time,
-                    weapon_clip_size: w.clip_size,
-                    weapon_clip_reload_time: w.clip_reload_time,
-                    weapon_ammo: w.ammo.unwrap_or(u32::MAX),
-                    weapon_can_target_air: w.can_target_air,
-                    weapon_can_target_ground: w.can_target_ground,
-                    weapon_projectile_speed: w.projectile_speed,
-                    has_secondary_weapon: sec.is_some(),
-                    secondary_weapon_damage: sec.map(|s| s.damage).unwrap_or(0.0),
-                    secondary_weapon_range: sec.map(|s| s.range).unwrap_or(0.0),
-                    leech_range_active_primary: obj.leech_range_active_primary,
-                    leech_range_active_secondary: obj.leech_range_active_secondary,
-                });
-            }
-            use gamelogic::world::{
-                WEAPON_SLOT_MINE_CLEAR, WEAPON_SLOT_PRIMARY, WEAPON_SLOT_SECONDARY,
-                WEAPON_SLOT_TERTIARY, WeaponSlotFacts,
-            };
-            let slot_facts = |slot: u8, w: Option<&crate::game_logic::Weapon>| {
-                w.map(|w| WeaponSlotFacts {
-                    present: true,
-                    clip_size: w.clip_size,
-                    ammo: w.ammo.unwrap_or(u32::MAX),
-                    reload_time: w.reload_time,
-                    last_fire_time: w.last_fire_time,
-                    barrel_cursor: obj
-                        .weapon_barrel_states
-                        .get(slot as usize)
-                        .map(|b| b.current_barrel)
-                        .unwrap_or(0),
-                    barrel_count: obj
-                        .weapon_barrel_states
-                        .get(slot as usize)
-                        .map(|b| b.barrel_count)
-                        .unwrap_or(0),
-                    lock_type: if obj.weapon_lock_slot == slot {
-                        obj.weapon_lock_type as u8
-                    } else {
-                        0
-                    },
-                })
-            };
-            for (slot, w) in [
-                (WEAPON_SLOT_PRIMARY, obj.weapon.as_ref()),
-                (WEAPON_SLOT_SECONDARY, obj.secondary_weapon.as_ref()),
-                (WEAPON_SLOT_TERTIARY, obj.tertiary_weapon.as_ref()),
-                (
-                    WEAPON_SLOT_MINE_CLEAR,
-                    obj.mine_clearing_primary_weapon.as_ref(),
-                ),
-            ] {
-                if let Some(facts) = slot_facts(slot, w) {
-                    let _ = push_coupled_world_mutation(WorldMutation::SetWeaponSlot {
-                        target: eid,
-                        slot,
-                        facts,
-                    });
-                }
-            }
-        }
-        if !crate::game_logic::host_combat_attack_log::has_pending(id)
-            && !crate::game_logic::host_ai_state_log::has_pending(id)
-        {
-            let _ = push_coupled_world_mutation(WorldMutation::SetAiState {
-                target: eid,
-                ordinal: crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
-                    &obj.ai_state,
-                ),
-            });
-            let _ = push_coupled_world_mutation(WorldMutation::SetCombatAttack {
-                target: eid,
-                pre_attack_target_host: obj.pre_attack_target.map(|t| t.0).unwrap_or(0),
-                pre_attack_ready_at: obj.pre_attack_ready_at,
-                consecutive_shots_at_target: obj.consecutive_shots_at_target,
-                max_shots_to_fire: obj.max_shots_to_fire,
-                attack_substate_ordinal: obj.attack_substate.to_ordinal(),
-                approach_timestamp: obj.approach_timestamp,
-                continuous_fire_victim: obj.continuous_fire_victim,
-                maintain_pos_valid: obj.maintain_pos_valid,
-                maintain_pos: obj.maintain_pos.map(|p| [p.x, p.y, p.z]),
-                temporary_move_frames: obj.temporary_move_frames,
-                group_speed_factor: obj.group_speed_factor,
-            });
-        }
-        if !crate::game_logic::host_contain_log::has_pending(id) {
-            let _ = push_coupled_world_mutation(WorldMutation::SetContain {
-                target: eid,
-                contained_by_host: obj.contained_by.map(|c| c.0).unwrap_or(0),
-                garrison_count: Some(obj.occupants.len().min(u16::MAX as usize) as u16),
-                garrisoned_host_ids: Some(obj.occupants.iter().map(|o| o.0).collect()),
-            });
-        }
-        if crate::gameworld_shadow::gameworld_production_authority_enabled()
-            && !crate::gameworld_shadow::gameworld_production_sole_tick_enabled()
-            && !crate::game_logic::host_production_log::has_pending(id)
-        {
-            if let Some(bd) = obj.building_data.as_ref() {
-                let items: Vec<EntityProductionItem> = bd
-                    .production_queue
-                    .iter()
-                    .take(16)
-                    .map(|it| EntityProductionItem {
-                        template_name: it.template_name.clone(),
-                        progress: it.progress,
-                        total_time: it.total_time,
-                        construction_frames: it.construction_frames,
-                        cost_supplies: it.cost.supplies,
-                        is_upgrade: it.is_upgrade(),
-                        quantity_total: it.quantity_total.max(1),
-                        quantity_produced: it.quantity_produced,
-                    })
-                    .collect();
-                let _ = push_coupled_world_mutation(WorldMutation::SetProductionQueue {
-                    target: eid,
-                    items,
-                });
-                if bd.queue_exit_state_initialized {
-                    let _ = push_coupled_world_mutation(WorldMutation::SetProductionExitRuntime {
-                        target: eid,
-                        exit_delay_remaining_frames: bd.exit_delay_remaining_frames,
-                        exit_burst_remaining: bd.exit_burst_remaining,
-                        queue_exit_state_initialized: true,
-                    });
-                }
-            }
-            let _ = push_coupled_world_mutation(WorldMutation::SetProductionDoor {
-                target: eid,
-                production_door_phase: obj.production_door_phase,
-                production_door_phase_end_frame: obj.production_door_phase_end_frame,
-                production_door_hold_open: obj.production_door_hold_open,
-            });
-        }
-        if crate::gameworld_shadow::gameworld_construction_authority_enabled()
-            && !crate::gameworld_shadow::gameworld_construction_sole_tick_enabled()
-            && !crate::game_logic::host_construction_log::has_pending(id)
-        {
-            let _ = push_coupled_world_mutation(WorldMutation::SetConstruction {
-                target: eid,
-                percent: obj.construction_percent.clamp(-1.0, 1.0),
-                under_construction: obj.status.under_construction,
-            });
-        }
-    }
-
-    /// Authoritative weapon clip ammo (GameWorld when coupled).
+    /// Current ammo on the receiving world's canonical primary weapon.
     pub fn host_authoritative_weapon_ammo(&self, id: ObjectId) -> Option<u32> {
-        if let Some(a) = crate::gameworld_shadow::coupled_entity_weapon_ammo(id) {
-            if a != u32::MAX {
-                return Some(a);
-            }
-        }
         self.host_object(id)
             .and_then(|o| o.weapon.as_ref())
             .and_then(|w| w.ammo)
@@ -1588,12 +1194,8 @@ impl GameLogic {
     /// Freeze the C++ `Drawable::updateDrawableClipStatus` arguments for all
     /// concrete host WeaponSet slots.
     ///
-    /// A coupled GameWorld currently owns one primary weapon clip record.  It
-    /// is authoritative while present, so Main exposes only that exact pair
-    /// and deliberately leaves secondary/tertiary unset rather than mixing a
-    /// stale host mirror into a live GameWorld presentation frame.  The
-    /// uncoupled host retains all three slots and reports each independently,
-    /// matching Object::adjustModelConditionForWeaponStatus iteration order.
+    /// Read each owned WeaponSet slot in C++ iteration order. Presentation
+    /// freezes these facts without selecting a separate entity store.
     pub fn host_authoritative_projectile_clip_statuses(
         &self,
         id: ObjectId,
@@ -1601,26 +1203,6 @@ impl GameLogic {
         let valid_clip = |shots_remaining: u32, max_shots: u32| {
             (max_shots > 0 && shots_remaining <= max_shots).then_some((shots_remaining, max_shots))
         };
-
-        if let Some(fat) = crate::gameworld_shadow::coupled_entity_fat_view(id) {
-            // C++ Weapon::getRemainingAmmo reports zero while a reloaded
-            // clip's backing counter has already been reset to full.
-            let shots_remaining = if fat.active_weapon_slot == 0
-                && fat.weapon_fire_status
-                    == crate::game_logic::object::WeaponFireStatus::ReloadingClip as u8
-            {
-                0
-            } else {
-                fat.weapon_ammo
-            };
-            return [
-                (fat.weapon_ammo != u32::MAX)
-                    .then(|| valid_clip(shots_remaining, fat.weapon_clip_size))
-                    .flatten(),
-                None,
-                None,
-            ];
-        }
 
         let Some(object) = self.host_object(id) else {
             return [None; 3];
@@ -1651,26 +1233,17 @@ impl GameLogic {
         let obj = self.objects.get_mut(&id)?;
         obj.attack_substate = sub;
         obj.approach_timestamp = frame;
-        if !crate::gameworld_shadow::shadow_coupled_tick_active() {
-            self.host_view_dirty.insert(id);
-        }
         Some(frame)
     }
 
-    /// Authoritative AttackStateMachine substate ordinal (GameWorld when coupled).
+    /// AttackStateMachine substate on the receiving object.
     pub fn host_authoritative_attack_substate(&self, id: ObjectId) -> Option<u8> {
-        if let Some(s) = crate::gameworld_shadow::coupled_entity_attack_substate(id) {
-            return Some(s);
-        }
         self.host_object(id).map(|o| o.attack_substate.to_ordinal())
     }
 
-    /// Authoritative occupant/garrison count (GameWorld when coupled).
+    /// Occupant/garrison count on the receiving world.
     /// TunnelContain redirects to the controlling player's TunnelTracker.
     pub fn host_authoritative_occupant_count(&self, id: ObjectId) -> Option<u16> {
-        if let Some(n) = crate::gameworld_shadow::coupled_entity_occupant_count(id) {
-            return Some(n);
-        }
         let o = self.host_object(id)?;
         if o.is_tunnel_network_style_container()
             || crate::game_logic::host_tunnel_network::is_tunnel_network_template(&o.template_name)
@@ -1681,7 +1254,13 @@ impl GameLogic {
                     .min(u16::MAX as usize) as u16,
             );
         }
-        Some(o.occupants.len().min(u16::MAX as usize) as u16)
+        let count = o
+            .building_data
+            .as_ref()
+            .map_or(o.occupants.len(), |building| {
+                building.garrisoned_units.len()
+            });
+        Some(count.min(u16::MAX as usize) as u16)
     }
 
     /// Authoritative contained-unit list. Tunnels export the shared player pool
@@ -1700,38 +1279,21 @@ impl GameLogic {
         o.contained_units()
     }
 
-    /// Authoritative move destination (GameWorld when coupled).
-    ///
-    /// If a fat view is mapped, `None` dest is authoritative (stopped unit).
-    /// Do not fall back to a disagreeing HashMap dest.
+    /// Current move destination; None means the receiving object is stopped.
     pub fn host_authoritative_move_dest(&self, id: ObjectId) -> Option<[f32; 3]> {
-        if let Some(fat) = crate::gameworld_shadow::coupled_entity_fat_view(id) {
-            return fat.move_target;
-        }
         self.host_object(id)
             .and_then(|o| o.movement.target_position)
-            .map(|p| [p.x, p.y, p.z])
+            .map(|p| p.to_array())
     }
 
-    /// During the post-ingress logic phase, observe this instance's live body.
-    /// Outside that phase, coupled observation still reads GameWorld.
+    /// Current health of the receiving world's canonical body at every phase.
     pub fn host_authoritative_health(&self, id: ObjectId) -> Option<f32> {
-        if self.host_logic_after_sync {
-            return self.objects.get(&id).map(|o| o.health.current);
-        }
-        if let Some(h) = crate::gameworld_shadow::coupled_entity_health(id) {
-            return Some(h);
-        }
         self.host_object(id).map(|o| o.health.current)
     }
 
     /// Authoritative construction: `(percent, under_construction)`.
-    /// GameWorld when mapped, else host HashMap fields.
-    /// Fraction is host/GW 0–1; use `host_authoritative_construction_cpp` for 0–100.
+    /// Fraction is 0–1; use `host_authoritative_construction_cpp` for 0–100.
     pub fn host_authoritative_construction(&self, id: ObjectId) -> Option<(f32, bool)> {
-        if let Some(c) = crate::gameworld_shadow::coupled_entity_construction(id) {
-            return Some(c);
-        }
         self.host_object(id)
             .map(|o| (o.construction_percent, o.status.under_construction))
     }
@@ -1749,45 +1311,23 @@ impl GameLogic {
         })
     }
 
-    /// Authoritative pose: GameWorld when the coupled session is live, else host field.
+    /// Pose of the receiving world's canonical object.
     pub fn host_authoritative_pose(&self, id: ObjectId) -> Option<[f32; 3]> {
-        if self.host_logic_after_sync {
-            return self.objects.get(&id).map(|o| o.get_position().to_array());
-        }
-        if let Some(p) = crate::gameworld_shadow::coupled_entity_pose(id) {
-            return Some(p);
-        }
-        self.host_object(id).map(|o| {
-            let p = o.get_position();
-            [p.x, p.y, p.z]
-        })
+        self.host_object(id).map(|o| o.get_position().to_array())
     }
 
-    /// Authoritative cash: GameWorld when the coupled session is live, else host field.
+    /// Cash owned by the receiving player.
     pub fn host_authoritative_cash(&self, player_id: u32) -> Option<u32> {
-        if let Some(c) = crate::gameworld_shadow::coupled_player_cash(player_id) {
-            return Some(c);
-        }
         self.get_player(player_id).map(|p| p.resources.supplies)
     }
 
-    /// Live owner target during the logic phase; coupled view outside it.
-    ///
-    /// If a fat view is mapped, `None` target is authoritative (no target).
-    /// Do not fall back to a disagreeing HashMap target.
+    /// Target of the receiving object; None is an actual cleared target.
     pub fn host_authoritative_target(&self, id: ObjectId) -> Option<ObjectId> {
-        if self.host_logic_after_sync {
-            return self.objects.get(&id).and_then(|o| o.target);
-        }
-        if crate::gameworld_shadow::coupled_entity_fat_view(id).is_some() {
-            return crate::gameworld_shadow::coupled_entity_target_host(id);
-        }
         self.host_object(id).and_then(|o| o.target)
     }
 
     /// Wave 955/958: host-authority object borrow (preferred over get_object dual-read).
-    /// When shadow is coupled this HashMap is an ID map / read-through view of
-    /// GameWorld; use `host_authoritative_*` for HP/pose/cash/target.
+    /// The world owns these live values. A comparison session is an observer.
     #[inline]
     pub fn host_object(&self, id: ObjectId) -> Option<&crate::game_logic::object::Object> {
         self.objects.get(&id)
@@ -1816,16 +1356,11 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
     ) -> Option<&mut crate::game_logic::object::Object> {
-        self.overlay_object_from_gameworld(id);
-        if !crate::gameworld_shadow::shadow_coupled_tick_active() && self.objects.contains_key(&id)
-        {
-            self.host_view_dirty.insert(id);
-        }
         self.objects.get_mut(&id)
     }
 
     /// Borrow the admitted object and its world's ordered health transport.
-    /// Preserve the same shadow overlay and dirty marking as host_object_mut.
+    /// Split the owner borrow without selecting another world or copying fields.
     pub(crate) fn host_object_and_health_events_mut(
         &mut self,
         id: ObjectId,
@@ -1833,11 +1368,6 @@ impl GameLogic {
         &mut crate::game_logic::object::Object,
         &mut crate::game_logic::HostHealthEvents,
     )> {
-        self.overlay_object_from_gameworld(id);
-        if !crate::gameworld_shadow::shadow_coupled_tick_active() && self.objects.contains_key(&id)
-        {
-            self.host_view_dirty.insert(id);
-        }
         self.objects
             .get_mut(&id)
             .map(|object| (object, &mut self.health_events))

@@ -117,10 +117,14 @@ impl PathfindingGrid {
                 }
 
                 // Base ortho/diag cost (COST_ORTHOGONAL=1, COST_DIAGONAL≈1.414).
-                let mut movement_cost = if is_diag { 1.414_213_5 } else { 1.0 };
+                let mut movement_cost = if is_diag {
+                    std::f32::consts::SQRT_2
+                } else {
+                    1.0
+                };
                 // C++ costSoFar pinched surcharge (AIPathfind.cpp:1701-1703).
                 if self.is_pinched(neighbor) {
-                    movement_cost += 1.414_213_5;
+                    movement_cost += std::f32::consts::SQRT_2;
                 }
                 match self.occupancy_cost(neighbor, None, false, 0, 0, Some(start)) {
                     None => continue, // enemyFixed abort
@@ -208,7 +212,7 @@ impl PathfindingGrid {
             // Aircraft goals belong to these host objects, even when another
             // match's presentation shadow happens to reuse their numeric IDs.
             let alive = if is_aircraft {
-                obj.is_alive_from_host_state()
+                obj.is_alive()
             } else {
                 obj.is_alive()
             };
@@ -721,7 +725,7 @@ impl PathfindingGrid {
     /// Ground movers (including unmanned helipad aircraft) reserve ground goals.
     /// The footprint is derived on demand; it is never published into Core AI.
     fn aircraft_goal_footprint(&self, obj: &Object) -> Option<(GridPos, i32, i32)> {
-        if !obj.is_alive_from_host_state()
+        if !obj.is_alive()
             || obj.is_kind_of(KindOf::Immobile)
             || Self::is_doing_ground_movement(obj)
             || !Self::is_aircraft_that_adjusts_destination(obj)

@@ -493,7 +493,7 @@ impl GameInitializer {
             return;
         }
 
-        if let Err(err) = load_map_ini_create_overrides_from_path(&path) {
+        if let Err(err) = load_map_ini_create_overrides_from_path(&path, None) {
             log::warn!("Failed to load map override INI '{}': {}", path, err);
             if let Some(contents) = Self::read_text_file(&path) {
                 if let Err(err) = load_map_ini_ui_overrides_from_contents(&contents) {
@@ -582,6 +582,15 @@ impl GameInitializer {
 
 /// C++ GameLogic.cpp:2407-2408 `ini.load(..., INI_LOAD_CREATE_OVERRIDES)`.
 pub fn load_map_ini_create_overrides_from_contents(contents: &str) -> Result<(), String> {
+    load_map_ini_create_overrides_with_target(contents, None)
+}
+
+fn load_map_ini_create_overrides_with_target(
+    contents: &str,
+    target: Option<
+        std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
+    >,
+) -> Result<(), String> {
     if contents.trim().is_empty() {
         return Ok(());
     }
@@ -595,7 +604,7 @@ pub fn load_map_ini_create_overrides_from_contents(contents: &str) -> Result<(),
         nanos
     ));
     fs::write(&path, contents).map_err(|err| err.to_string())?;
-    let result = load_map_ini_create_overrides_from_path(&path);
+    let result = load_map_ini_create_overrides_from_path(&path, target);
     let _ = fs::remove_file(&path);
     result
 }
@@ -603,10 +612,33 @@ pub fn load_map_ini_create_overrides_from_contents(contents: &str) -> Result<(),
 /// C++ loadMapINI dispatches the full block table. If a mixed Object block
 /// aborts the file, still apply CommandSet/CommandButton/Upgrade overrides.
 pub fn load_map_ini_ui_overrides_from_contents(contents: &str) -> Result<usize, String> {
+    load_map_ini_ui_overrides_with_target(contents, None)
+}
+
+/// Explicit owner-local AIData target, including fallback UI dispatches.
+/// The parser retains no handle after this synchronous call.
+pub fn load_map_ini_ui_overrides_with_ai_data(
+    contents: &str,
+    target: std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
+) -> Result<usize, String> {
+    load_map_ini_ui_overrides_with_target(contents, Some(target))
+}
+
+fn load_map_ini_ui_overrides_with_target(
+    contents: &str,
+    target: Option<
+        std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
+    >,
+) -> Result<usize, String> {
     const UI_BLOCKS: &[&str] = &["CommandButton", "CommandSet", "Upgrade"];
-    match load_map_ini_create_overrides_from_contents(contents) {
+    match load_map_ini_create_overrides_with_target(contents, target.clone()) {
         Ok(()) => Ok(count_map_ini_blocks(contents, UI_BLOCKS)),
         Err(full_err) => {
+            // A detached definition draft is transactional. UI-only recovery
+            // must not turn a partially failed AIData parse into admission.
+            if target.is_some() {
+                return Err(full_err);
+            }
             let mut applied = 0usize;
             let mut last_err = full_err;
             for token in UI_BLOCKS {
@@ -614,7 +646,7 @@ pub fn load_map_ini_ui_overrides_from_contents(contents: &str) -> Result<usize, 
                 if extracted.trim().is_empty() {
                     continue;
                 }
-                match load_map_ini_create_overrides_from_contents(&extracted) {
+                match load_map_ini_create_overrides_with_target(&extracted, target.clone()) {
                     Ok(()) => applied += count_map_ini_blocks(&extracted, &[token]),
                     Err(err) => last_err = err,
                 }
@@ -628,8 +660,16 @@ pub fn load_map_ini_ui_overrides_from_contents(contents: &str) -> Result<usize, 
     }
 }
 
-fn load_map_ini_create_overrides_from_path<P: AsRef<Path>>(path: P) -> Result<(), String> {
+fn load_map_ini_create_overrides_from_path<P: AsRef<Path>>(
+    path: P,
+    target: Option<
+        std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
+    >,
+) -> Result<(), String> {
     let mut ini = INI::new();
+    if let Some(target) = target {
+        ini.set_ai_data_store_target(target);
+    }
     ini.load(path, INILoadType::CreateOverrides)
         .map_err(|err| err.to_string())
 }

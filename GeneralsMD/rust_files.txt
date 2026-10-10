@@ -441,11 +441,9 @@
 ../GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_update.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/ai/async_player.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/ai/dock.rs
-../GeneralsRust/Code/GameEngine/GameLogic/src/ai/enhanced_player.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/ai/formations.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/ai/group_pathfinding.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/ai/group.rs
-../GeneralsRust/Code/GameEngine/GameLogic/src/ai/groups.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/ai/guard_retaliate.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/ai/guard.rs
 ../GeneralsRust/Code/GameEngine/GameLogic/src/ai/integration.rs

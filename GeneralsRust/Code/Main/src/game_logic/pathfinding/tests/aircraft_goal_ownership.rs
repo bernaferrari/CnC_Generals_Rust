@@ -566,10 +566,9 @@ fn authored_aircraft_liveness_ignores_same_id_foreign_shadow_health() {
                 "positive control reads the dead foreign shadow"
             );
             assert!(
-                !driving.objects[&hover].is_alive(),
-                "ambient liveness sees the conflicting foreign HP"
+                driving.objects[&hover].is_alive(),
+                "ordinary liveness uses the owned body"
             );
-            assert!(driving.objects[&hover].is_alive_from_host_state());
             assert_eq!(
                 driving
                     .pathfinding_system
@@ -613,8 +612,10 @@ fn authored_aircraft_liveness_ignores_same_id_foreign_shadow_health() {
                 Some(220.0),
                 "positive control reads the live foreign shadow"
             );
-            assert!(driving.objects[&hover].is_alive());
-            assert!(!driving.objects[&hover].is_alive_from_host_state());
+            assert!(
+                !driving.objects[&hover].is_alive(),
+                "a healthy foreign body cannot revive this owner"
+            );
             assert!(
                 driving
                     .pathfinding_system

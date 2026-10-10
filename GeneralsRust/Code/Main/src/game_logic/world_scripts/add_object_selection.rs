@@ -1266,30 +1266,17 @@ impl GameLogic {
     pub fn setup_skirmish_ai(&mut self, human_player_id: u32) {
         println!("🤖 Setting up AI opponents for skirmish match...");
 
-        // Definitions belong to this match's stores. Initializing opponents
-        // must not reset a process-global AI allocator or integration manager.
-        {
-            let definitions = self
-                .engine_stores
-                .ai_data()
-                .read()
-                .unwrap_or_else(|e| e.into_inner());
-            if let Some(data) = definitions.get_active() {
-                self.engine_stores
-                    .ai()
-                    .write()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .init_from_authored_data(data);
-            }
-        }
-
         // Add AI players for non-human players
         for player_id in 0..4 {
             if player_id == human_player_id {
                 continue;
             }
             let team = self.players.get(&player_id).and_then(|p| {
-                if !p.is_alive || p.name == "ReplayObserver" || p.team == Team::Neutral {
+                if p.is_human
+                    || !p.is_alive
+                    || p.name == "ReplayObserver"
+                    || p.team == Team::Neutral
+                {
                     None
                 } else {
                     Some(p.team)

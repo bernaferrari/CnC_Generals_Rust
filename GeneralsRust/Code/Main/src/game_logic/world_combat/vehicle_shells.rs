@@ -255,12 +255,13 @@ impl GameLogic {
                 } else {
                     (SCORPION_GUN_DAMAGE_TYPE, SCORPION_GUN_DEATH_TYPE)
                 };
-                let destroyed = obj.take_damage_from_immediate_residual(
+                let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
                     dmg,
                     source,
                     dt_name,
                     death_name,
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -684,12 +685,13 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from_immediate_residual(
+                let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
                     dmg,
                     source,
                     TOMAHAWK_DAMAGE_TYPE,
                     TOMAHAWK_DEATH_TYPE,
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -1099,12 +1101,13 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from_immediate_residual(
+                let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
                     dmg,
                     source,
                     RAPTOR_DAMAGE_TYPE,
                     RAPTOR_DEATH_TYPE,
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -1544,12 +1547,13 @@ impl GameLogic {
                     }
                     MigLoadout::Standard => (MIG_DAMAGE_TYPE, MIG_DEATH_TYPE),
                 };
-                let destroyed = obj.take_damage_from_immediate_residual(
+                let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
                     dmg,
                     source,
                     dt_name,
                     death_name,
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -1899,12 +1903,13 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from_immediate_residual(
+                let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
                     dmg,
                     source,
                     FIRE_BASE_DAMAGE_TYPE,
                     FIRE_BASE_DEATH_TYPE,
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {

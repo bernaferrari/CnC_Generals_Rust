@@ -94,7 +94,7 @@ pub fn honesty_host_direct_order_boundary_residual_pack_wave929() -> bool {
     let mov = non_comment_code(code_window(cnc, "fn host_command_move", 400));
     let amov = non_comment_code(code_window(cnc, "fn host_command_attack_move", 400));
     let tick = non_comment_code(
-        super::harness::rust_fn_body(cnc, "host_run_coupled_fast_forward_loop").unwrap_or(""),
+        super::harness::rust_fn_body(cnc, "host_run_fast_forward_loop").unwrap_or(""),
     );
     let host_tick = non_comment_code(
         super::harness::rust_fn_body(cnc, "host_update_logic_frame").unwrap_or(""),

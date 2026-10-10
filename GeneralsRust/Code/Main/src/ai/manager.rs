@@ -111,12 +111,35 @@ impl AIManager {
             .map(|(&id, ai)| (id, ai.enemy_player_id))
             .collect();
         let destroyed = game_logic.take_ai_team_destroy_notifications();
-        for (slot, ai_player) in players.values_mut().enumerate() {
+        let scripts = gamelogic::scripting::engine::get_script_engine().clone();
+        let mut ordered: Vec<_> = players.values_mut().collect();
+        for slot in 0..ordered.len() {
+            let (before, remaining) = ordered.split_at_mut(slot);
+            let (ai_player, after) = remaining.split_first_mut().expect("current AI slot");
             for (team_id, team_name) in &destroyed {
                 ai_player.ai_pre_team_destroy(Some(*team_id), team_name);
             }
             ai_player.peer_ai_targets = peer_targets.clone();
-            ai_player.update_with_ai_data(game_logic, current_time, ai_data);
+            let mut notify = |current: &mut AIPlayer, _world: &mut GameLogic, id, name: &str| {
+                for peer in before.iter_mut() {
+                    peer.ai_pre_team_destroy(Some(id), name);
+                }
+                current.ai_pre_team_destroy(Some(id), name);
+                for peer in after.iter_mut() {
+                    peer.ai_pre_team_destroy(Some(id), name);
+                }
+            };
+            // Existing Core player-class compatibility input, resolved at the
+            // outer phase. hq-tctn5 tracks admitting this class into Main state.
+            let skirmish = ai_player.leftover_is_skirmish_ai();
+            ai_player.update_with_ai_data_and_team_owner(
+                game_logic,
+                current_time,
+                ai_data,
+                skirmish,
+                &scripts,
+                &mut notify,
+            );
             // C++ getCurrentEnemy observes earlier slots after their update,
             // and later slots before theirs, during this same synchronous pass.
             peer_targets[slot].1 = ai_player.enemy_player_id;
@@ -1008,9 +1031,7 @@ mod aidata_owner_tests {
         wf.add_kind_of(crate::game_logic::KindOf::Structure);
         world.templates.insert("AmericaWarFactory".into(), wf);
 
-        let mut store = world.engine_stores.ai_data().write().unwrap();
-        store.ensure_base();
-        let data = store.get_active_mut().unwrap();
+        let mut data = world.ai_definitions.data().clone();
         data.rotate_skirmish_bases = false;
         data.max_recruit_distance = wf_offset;
         data.team_resources_to_build = team_resources;
@@ -1037,7 +1058,7 @@ mod aidata_owner_tests {
             automatically_build: true,
         });
         data.side_build_lists.push(list);
-        drop(store);
+        world.set_ai_definition_base(data);
 
         let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
         ai.base_center = Vec3::new(-40.0, 0.0, -40.0);
@@ -1428,10 +1449,9 @@ mod aidata_owner_tests {
                 0,
             ));
             world.ai_manager.ai_players.insert(1, ai);
-            let mut catalog = world.engine_stores.ai_data().write().unwrap();
-            catalog.ensure_base();
-            catalog.get_active_mut().unwrap().max_recruit_distance = radius;
-            drop(catalog);
+            let mut data = world.ai_definitions.data().clone();
+            data.max_recruit_distance = radius;
+            world.set_ai_definition_base(data);
             (world, id)
         }
         fn completed(world: &crate::game_logic::GameLogic) -> u32 {
@@ -1503,15 +1523,10 @@ mod aidata_owner_tests {
             unit.set_cost(700, 0);
             world.templates.insert(unit.name.clone(), unit);
             world.get_player_mut(1).unwrap().resources.supplies = 300;
-            world
-                .engine_stores
-                .ai()
-                .write()
-                .unwrap()
-                .update_ai_data(|data| {
-                    data.resources_poor = 1_000;
-                    data.team_poor_mod = rate;
-                });
+            let mut data = world.ai_definitions.data().clone();
+            data.resources_poor = 1_000;
+            data.team_poor_mod = rate;
+            world.set_ai_definition_base(data);
         }
         foreign.activate();
         let mut first_ai = first.ai_manager.ai_players.remove(&1).unwrap();

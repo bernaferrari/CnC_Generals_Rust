@@ -1230,6 +1230,7 @@ fn save_file_roundtrip_preserves_secondary_weapon() {
     }
 
     let info = SaveGameInfo {
+        pristine_map_name: None,
         filename: "secondary_weapon_rt".to_string(),
         display_name: "Secondary Weapon Roundtrip".to_string(),
         description: "residual secondary_weapon save/load".to_string(),

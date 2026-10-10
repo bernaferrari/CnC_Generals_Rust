@@ -1055,9 +1055,12 @@ impl PathfindingGrid {
                 slot.cells.clear();
                 slot.destroyed = false;
                 slot.ground_connect_cells.clear();
+                self.flight_bridge_order.retain(|existing| *existing != id);
+                self.flight_bridge_order.insert(0, id);
                 return id;
             }
         }
+        self.flight_bridge_order.insert(0, id);
         self.bridge_layers.push(HostBridgeLayer {
             id,
             from_left,
@@ -1203,7 +1206,7 @@ impl PathfindingGrid {
         // per-player bitset: posUnit==seeker / ignoreId skip, then one
         // ALLIES→allyFixedCount (or canCrushOrSquish→enemyFixed) verdict.
         let Some(player) = seeker_player else {
-            return Some(3.0 * 1.414_213_5);
+            return Some(3.0 * std::f32::consts::SQRT_2);
         };
         let bit = 1u16 << player.min(15);
         let friend = bit | ally_mask;
@@ -1227,7 +1230,7 @@ impl PathfindingGrid {
                 }
             } else if !bits.pos_moving {
                 // C++ ALLIES + UNIT_PRESENT_FIXED → allyFixedCount cost.
-                return Some(3.0 * 1.414_213_5);
+                return Some(3.0 * std::f32::consts::SQRT_2);
             }
         } else {
             // No single identity recorded — fall back to the bitset view so
@@ -1243,12 +1246,12 @@ impl PathfindingGrid {
         if (bits.moving & friend) != 0 {
             if let Some(s) = start {
                 if (pos.x - s.x).abs() < 10 && (pos.y - s.y).abs() < 10 {
-                    extra += 3.0 * 1.414_213_5;
+                    extra += 3.0 * std::f32::consts::SQRT_2;
                 }
             }
         }
         if (bits.fixed & friend) != 0 {
-            extra += 3.0 * 1.414_213_5;
+            extra += 3.0 * std::f32::consts::SQRT_2;
         }
         Some(extra)
     }

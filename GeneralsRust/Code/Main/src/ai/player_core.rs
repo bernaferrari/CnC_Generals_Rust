@@ -332,6 +332,27 @@ impl AIPlayer {
         current_time: f32,
         ai_data: &AiDataView,
     ) {
+        let scripts = gamelogic::scripting::engine::get_script_engine().clone();
+        let skirmish = self.leftover_is_skirmish_ai();
+        self.update_with_ai_data_and_team_owner(
+            game_logic,
+            current_time,
+            ai_data,
+            skirmish,
+            &scripts,
+            &mut super::team_lifecycle::notify_installed_team_destroy,
+        );
+    }
+
+    pub(super) fn update_with_ai_data_and_team_owner(
+        &mut self,
+        game_logic: &mut GameLogic,
+        current_time: f32,
+        ai_data: &AiDataView,
+        skirmish: bool,
+        scripts: &gamelogic::scripting::engine::ScriptEngineHandle,
+        notify: &mut super::team_lifecycle::TeamDestroyObserver<'_>,
+    ) {
         if !self.is_active {
             return;
         }
@@ -350,7 +371,7 @@ impl AIPlayer {
         // checkReadyTeams — activate ready-queue teams (AIPlayer.cpp:2729-2803)
         self.check_ready_teams(game_logic, current_time);
         // checkQueuedTeams — expire / disband / promote (AIPlayer.cpp:2810-2870)
-        self.check_queued_teams(game_logic, current_time);
+        self.check_queued_teams_with_owner(game_logic, current_time, skirmish, scripts, notify);
         // doTeamBuilding
         self.update_military_management_with_ai_data(game_logic, current_time, ai_data);
         self.do_upgrades_and_skills_with_ai_data(game_logic, ai_data);
@@ -707,7 +728,6 @@ impl AIPlayer {
         ai_data
             .catalog()
             .map(|data| data.rotate_skirmish_bases)
-            .or_else(|| ai_data.runtime().map(|data| data.rotate_skirmish_bases))
             .unwrap_or(false)
     }
 
@@ -715,7 +735,6 @@ impl AIPlayer {
         let distance = ai_data
             .catalog()
             .map(|data| data.max_recruit_distance)
-            .or_else(|| ai_data.runtime().map(|data| data.max_recruit_distance))
             .unwrap_or(0.0);
         if distance > 0.0 { distance } else { 99_999.0 }
     }
@@ -744,29 +763,7 @@ impl AIPlayer {
                     .collect(),
             );
         }
-        let data = ai_data.runtime()?;
-        let entry = data
-            .side_build_lists
-            .iter()
-            .find(|entry| entry.side.eq_ignore_ascii_case(side))?;
-        let list = entry.build_list.as_ref()?;
-        let mut out = Vec::new();
-        let mut cur = Some(list.as_ref());
-        while let Some(info) = cur {
-            let name = info.get_template_name().to_string();
-            if !name.is_empty() {
-                let loc = info.get_location().clone();
-                out.push(SideBuildPad {
-                    template: name,
-                    position: Vec3::new(loc.x, loc.z, loc.y),
-                    rebuilds: info.get_num_rebuilds() as i32,
-                    initially_built: info.is_initially_built(),
-                    automatically_build: info.is_automatic_build(),
-                });
-            }
-            cur = info.get_next();
-        }
-        if out.is_empty() { None } else { Some(out) }
+        None
     }
 
     /// C++ `AIData.ini` `SideInfo` name for the live host team.
@@ -865,39 +862,7 @@ impl AIPlayer {
             ];
             sets.iter().any(|set| !set.is_empty()).then_some(sets)
         })();
-        if configured.is_some() {
-            return configured;
-        }
-        (|| {
-            let info = ai_data
-                .runtime()?
-                .side_info
-                .iter()
-                .find(|info| info.side.eq_ignore_ascii_case(side))?;
-            let sets = [
-                Self::science_names_from_skill_ids(
-                    info.skill_set_1.num_skills,
-                    &info.skill_set_1.skills,
-                ),
-                Self::science_names_from_skill_ids(
-                    info.skill_set_2.num_skills,
-                    &info.skill_set_2.skills,
-                ),
-                Self::science_names_from_skill_ids(
-                    info.skill_set_3.num_skills,
-                    &info.skill_set_3.skills,
-                ),
-                Self::science_names_from_skill_ids(
-                    info.skill_set_4.num_skills,
-                    &info.skill_set_4.skills,
-                ),
-                Self::science_names_from_skill_ids(
-                    info.skill_set_5.num_skills,
-                    &info.skill_set_5.skills,
-                ),
-            ];
-            sets.iter().any(|set| !set.is_empty()).then_some(sets)
-        })()
+        configured
     }
 
     /// ZH general residual first sciences when parsed AIData is not loaded.

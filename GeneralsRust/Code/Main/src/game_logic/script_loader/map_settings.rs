@@ -6,7 +6,7 @@ pub fn parse_map_settings(map_name: &str) -> LoaderResult<MapMetadata> {
     let Some(chunky) = load_chunky_map(map_name)? else {
         return Ok(meta);
     };
-    parse_map_settings_from_loaded_chunky(map_name, &chunky, meta)
+    parse_map_settings_from_loaded_chunky(map_name, &chunky, meta, None)
 }
 
 /// C++ `WorldHeightMap::ParseLightingDataChunk` (WorldHeightMap.cpp:758-829).
@@ -313,13 +313,39 @@ fn sync_live_snow_manager_from_common() {
 /// Parse settings from an already-decompressed chunky map.
 pub fn parse_map_settings_from_chunky(chunky: &ChunkyMap) -> LoaderResult<MapMetadata> {
     let map_name = chunky.source.to_string_lossy();
-    parse_map_settings_from_loaded_chunky(map_name.as_ref(), chunky, MapMetadata::default())
+    parse_map_settings_from_loaded_chunky(map_name.as_ref(), chunky, MapMetadata::default(), None)
+}
+
+/// Production map and Solo overrides parse only into the driving draft.
+pub(crate) fn parse_map_settings_from_chunky_with_ai_data(
+    chunky: &ChunkyMap,
+    draft: std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
+) -> LoaderResult<MapMetadata> {
+    let map_name = chunky.source.to_string_lossy();
+    parse_map_settings_from_chunky_with_ai_data_from_source(chunky, draft, map_name.as_ref())
+}
+
+/// Decode the supplied CKMP body, while resolving companion files explicitly.
+pub(crate) fn parse_map_settings_from_chunky_with_ai_data_from_source(
+    chunky: &ChunkyMap,
+    draft: std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
+    definition_source: &str,
+) -> LoaderResult<MapMetadata> {
+    parse_map_settings_from_loaded_chunky(
+        definition_source,
+        chunky,
+        MapMetadata::default(),
+        Some(draft),
+    )
 }
 
 fn parse_map_settings_from_loaded_chunky(
     map_name: &str,
     chunky: &ChunkyMap,
     mut meta: MapMetadata,
+    ai_data_target: Option<
+        std::sync::Arc<std::sync::RwLock<game_engine::common::ini::ini_ai_data::AIDataStore>>,
+    >,
 ) -> LoaderResult<MapMetadata> {
     let body = &chunky.bytes[chunky.body_offset..];
     if let Some((ver, payload)) = find_chunk_by_label(body, &chunky.toc, "GlobalLighting")? {
@@ -379,14 +405,22 @@ fn parse_map_settings_from_loaded_chunky(
         .flatten();
 
     // Heightmap hint: look for common heightmap filenames next to the .map.
-    if let Some(map_path) = locate_map_file(map_name) {
+    if let Some(map_path) = resolve_map_companion_source(map_name) {
         if let Some(dir) = map_path.parent() {
             if let Some((_, contents)) =
                 first_readable_map_ini_companion(dir, &["Map.ini", "map.ini"])
             {
                 // C++ GameLogic.cpp:2404-2408 loadMapINI — full block table
                 // via INI_LOAD_CREATE_OVERRIDES (CommandSet/CommandButton/Upgrade).
-                let _ = overlay_map_ini_create_overrides(&contents);
+                if let Some(target) = ai_data_target.as_ref() {
+                    gamelogic::system::load_map_ini_ui_overrides_with_ai_data(
+                        &contents,
+                        std::sync::Arc::clone(target),
+                    )
+                    .map_err(GameLogicError::Configuration)?;
+                } else {
+                    let _ = overlay_map_ini_create_overrides(&contents);
+                }
                 // ParticleSystem still needs the live GameClient manager hook.
                 let _ = overlay_map_ini_particle_systems(&contents);
                 // Weather CREATE_OVERRIDES + SnowManager flake spacing.
@@ -430,7 +464,15 @@ fn parse_map_settings_from_loaded_chunky(
             if let Some((_, contents)) =
                 first_readable_map_ini_companion(dir, &["Solo.ini", "solo.ini"])
             {
-                let _ = overlay_map_ini_create_overrides(&contents);
+                if let Some(target) = ai_data_target.as_ref() {
+                    gamelogic::system::load_map_ini_ui_overrides_with_ai_data(
+                        &contents,
+                        std::sync::Arc::clone(target),
+                    )
+                    .map_err(GameLogicError::Configuration)?;
+                } else {
+                    let _ = overlay_map_ini_create_overrides(&contents);
+                }
             }
 
             // C++ parity: only treat dedicated heightmap companions as terrain sources.

@@ -222,6 +222,14 @@ fn exact_parsed_structure_power_for_button(
     parsed_structure_superweapon_matches_button(requested, &parsed).then_some(parsed)
 }
 
+/// The real GUARD_AREA cursor query borrows only its driving match.
+fn owned_radius_cursor_guard_range(
+    world: &crate::game_logic::GameLogic,
+    seed: Option<crate::game_logic::ObjectId>,
+) -> f32 {
+    seed.map_or(0.0, |id| world.host_std_guard_ranges(id).0)
+}
+
 impl CnCGameEngine {
     /// C++ `TheInGameUI->getGUICommand()` option bits, or `None` when no
     /// GUI command is armed (force-attack then uses current-selection pick).
@@ -597,6 +605,11 @@ impl CnCGameEngine {
     /// Never uses the construction_panel OFFENSIVE_SPECIALPOWER=0 table.
     pub(super) fn resolve_radius_cursor_radius(&self, cursor_type: &str) -> f32 {
         let seed = self.ui_selection_seed_id();
+        // GUARD_AREA is authoritative even at zero; the GameClient adapter
+        // otherwise resolves a potentially unrelated Core object with this ID.
+        if cursor_type == "GUARD_AREA" {
+            return self.radius_cursor_guard_range(seed);
+        }
 
         #[cfg(feature = "game_client")]
         {
@@ -692,27 +705,7 @@ impl CnCGameEngine {
     }
 
     fn radius_cursor_guard_range(&self, seed: Option<crate::game_logic::ObjectId>) -> f32 {
-        let Some(id) = seed else {
-            return 0.0;
-        };
-        let leftover = gamelogic::ai::guard::AIGuardMachine::get_std_guard_range(id.0);
-        if leftover > 0.0 {
-            if leftover > 100.0
-                || gamelogic::object::registry::OBJECT_REGISTRY
-                    .get_object(id.0)
-                    .is_some()
-            {
-                return leftover;
-            }
-        }
-        let (inner, _) = self.game_logic.host_std_guard_ranges(id);
-        if inner > 0.0 {
-            inner
-        } else if leftover > 0.0 {
-            leftover
-        } else {
-            0.0
-        }
+        owned_radius_cursor_guard_range(&self.game_logic, seed)
     }
 
     fn leftover_special_power_radius_cursor(&self, cursor_type: &str) -> f32 {
@@ -2822,3 +2815,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "ui_commands/guard_owner_tests.rs"]
+mod guard_owner_tests;

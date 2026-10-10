@@ -43,6 +43,7 @@ mod construct;
 mod counts;
 mod couple_guard;
 mod factory_authority;
+mod host_observation_boundary;
 mod presentation;
 mod session;
 mod writeback_combat_status;
@@ -50,6 +51,7 @@ mod writeback_core;
 mod writeback_misc;
 mod writeback_production;
 pub use couple_guard::*;
+pub(crate) use host_observation_boundary::run_owned_host_boundary;
 pub use presentation::*;
 pub use session::*;
 

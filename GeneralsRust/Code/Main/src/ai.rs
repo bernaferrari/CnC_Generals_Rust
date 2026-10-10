@@ -57,10 +57,8 @@ pub struct AIWorkOrder {
     pub num_required: u32,
     pub is_required: bool,
     pub priority: u32,
-    /// Producer-linked units already accounted for by this order.  A factory
-    /// can have produced matching units before this order was queued, so those
-    /// must not be mistaken for this team's completion when the host polls the
-    /// authoritative production result.
+    /// Units delivered to or recruited for this order. Retained in the queue
+    /// snapshot for team membership and continuation, never inferred by polling.
     pub observed_unit_ids: Vec<ObjectId>,
     /// C++ `WorkOrder::m_isResourceGatherer`.  This is only set for the paid
     /// follow-up collector that `AIPlayer::queueSupplyTruck` prepends; the
@@ -409,6 +407,10 @@ mod destination_clearance;
 mod economy;
 mod manager;
 mod player_core;
+mod production_callback;
+mod team_lifecycle;
+#[cfg(test)]
+mod team_lifecycle_tests;
 mod teams;
 
 #[cfg(test)]

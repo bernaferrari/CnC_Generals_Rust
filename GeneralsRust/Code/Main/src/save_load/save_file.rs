@@ -449,6 +449,7 @@ fn parse_cpp_game_state_header(payload: &[u8]) -> SaveLoadResult<SaveGameInfo> {
     );
     let save_date = civil_utc_to_system_time(year, month, day, hour, minute, second, milliseconds);
     Ok(SaveGameInfo {
+        pristine_map_name: None,
         filename: String::new(),
         display_name: description.clone(),
         description,
@@ -603,17 +604,21 @@ fn apply_persist_chunks(
 fn write_game_state_map_block<W: Write + Seek>(
     xfer: &mut CommonXferSave<W>,
     save_info: &SaveGameInfo,
+    save_directory: &Path,
 ) -> SaveLoadResult<()> {
     let mut version = 2u8;
     xfer.xfer_version(&mut version, 2)
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
     let leaf = map_leaf_name(&save_info.map_name);
     write_ascii(xfer, &format!("Save\\{leaf}"))?;
-    let pristine = if save_info.map_name.is_empty() {
-        String::new()
-    } else {
-        format!("Maps\\{}", leaf)
-    };
+    let pristine_source = save_info
+        .pristine_map_name
+        .as_deref()
+        .unwrap_or(&save_info.map_name);
+    let user_data = game_engine::common::global_data::read()
+        .get_user_data_dir()
+        .to_string();
+    let pristine = super::map_paths::to_portable(pristine_source, save_directory, &user_data);
     write_ascii(xfer, &pristine)?;
     let mut game_mode = pending_save_game_mode();
     xfer.xfer_int(&mut game_mode)
@@ -648,12 +653,16 @@ fn write_game_state_map_block<W: Write + Seek>(
     Ok(())
 }
 
-fn extract_embedded_map(payload: &[u8], save_dir: &Path) -> Option<PathBuf> {
+fn extract_embedded_map(payload: &[u8], save_dir: &Path) -> Option<(PathBuf, String)> {
     let mut xfer = CommonXferLoad::new(Cursor::new(payload), SAVE_FILE_VERSION);
     let mut version = 0u8;
     xfer.xfer_version(&mut version, 2).ok()?;
     let save_game_map = read_ascii(&mut xfer).ok()?;
-    let _pristine = read_ascii(&mut xfer).ok()?;
+    let portable_pristine = read_ascii(&mut xfer).ok()?;
+    let user_data = game_engine::common::global_data::read()
+        .get_user_data_dir()
+        .to_string();
+    let pristine = super::map_paths::from_portable(&portable_pristine, save_dir, &user_data);
     if version >= 2 {
         let mut game_mode = 0i32;
         xfer.xfer_int(&mut game_mode).ok()?;
@@ -677,7 +686,7 @@ fn extract_embedded_map(payload: &[u8], save_dir: &Path) -> Option<PathBuf> {
     let _ = std::fs::create_dir_all(save_dir);
     let dest = save_dir.join(leaf);
     std::fs::write(&dest, buffer).ok()?;
-    Some(dest)
+    Some((dest, pristine))
 }
 
 fn walk_named_chunks(data: &[u8]) -> SaveLoadResult<Vec<(String, Vec<u8>)>> {
@@ -890,8 +899,16 @@ impl SaveFileManager {
         std::fs::create_dir_all(&self.temp_directory)?;
 
         // Save to temporary file first
-        let write_result =
-            self.save_to_file(&temp_path, &world_snapshot, save_info, &client_xfer_bytes);
+        let mut effective_info = save_info.clone();
+        if effective_info.pristine_map_name.is_none() {
+            effective_info.pristine_map_name = game_logic.map_definition_source.clone();
+        }
+        let write_result = self.save_to_file(
+            &temp_path,
+            &world_snapshot,
+            &effective_info,
+            &client_xfer_bytes,
+        );
         set_pending_save_game_mode(None);
         write_result?;
 
@@ -967,6 +984,7 @@ impl SaveFileManager {
     /// Quick save to slot 0
     pub fn quick_save(&mut self, game_logic: &GameLogic) -> SaveLoadResult<()> {
         let save_info = SaveGameInfo {
+            pristine_map_name: None,
             filename: "quicksave".to_string(),
             display_name: "Quick Save".to_string(),
             description: "Quick save".to_string(),
@@ -1003,6 +1021,7 @@ impl SaveFileManager {
             .as_secs();
 
         let save_info = SaveGameInfo {
+            pristine_map_name: None,
             filename: format!("autosave_{}", timestamp),
             display_name: "Auto Save".to_string(),
             description: format!("Automatic save at {}", timestamp),
@@ -1112,6 +1131,7 @@ impl SaveFileManager {
             world_snapshot,
             save_info,
             client_xfer_bytes,
+            &self.save_directory,
         )?;
         writer.write_all(&encoded)?;
         writer.flush()?;
@@ -1158,13 +1178,19 @@ impl SaveFileManager {
         world_snapshot: &WorldSnapshot,
         save_info: &SaveGameInfo,
     ) -> SaveLoadResult<Vec<u8>> {
-        Self::write_common_sav_chunks_with_client_bytes(world_snapshot, save_info, &[])
+        Self::write_common_sav_chunks_with_client_bytes(
+            world_snapshot,
+            save_info,
+            &[],
+            Path::new("Save"),
+        )
     }
 
     fn write_common_sav_chunks_with_client_bytes(
         world_snapshot: &WorldSnapshot,
         save_info: &SaveGameInfo,
         client_xfer_bytes: &[u8],
+        save_directory: &Path,
     ) -> SaveLoadResult<Vec<u8>> {
         validate_direct_world_snapshot_version(world_snapshot.version)?;
         let logic_payload = bincode_legacy::serialize(world_snapshot)
@@ -1174,6 +1200,7 @@ impl SaveFileManager {
             save_info,
             logic_payload,
             client_xfer_bytes,
+            save_directory,
         )
     }
 
@@ -1184,12 +1211,14 @@ impl SaveFileManager {
         world_snapshot: &WorldSnapshot,
         save_info: &SaveGameInfo,
         logic_payload: Vec<u8>,
+        save_directory: &Path,
     ) -> SaveLoadResult<Vec<u8>> {
         Self::write_common_sav_chunks_with_payload_and_client(
             world_snapshot,
             save_info,
             logic_payload,
             &[],
+            save_directory,
         )
     }
 
@@ -1198,6 +1227,7 @@ impl SaveFileManager {
         save_info: &SaveGameInfo,
         logic_payload: Vec<u8>,
         game_client_bytes: &[u8],
+        save_directory: &Path,
     ) -> SaveLoadResult<Vec<u8>> {
         if save_info.save_type != SaveFileType::Mission {
             validate_pending_host_alliances(world_snapshot)?;
@@ -1229,7 +1259,9 @@ impl SaveFileManager {
                         }
                         Ok(())
                     }
-                    CHUNK_GAME_STATE_MAP => write_game_state_map_block(xfer, save_info),
+                    CHUNK_GAME_STATE_MAP => {
+                        write_game_state_map_block(xfer, save_info, save_directory)
+                    }
                     CHUNK_GHOST_OBJECT => {
                         write_null_snapshot_version(xfer)?;
                         if !ghost_bytes.is_empty() {
@@ -1369,6 +1401,7 @@ impl SaveFileManager {
         store_loaded_game_state_map_mode(None);
         let blocks = walk_named_chunks(data)?;
         let mut save_info = SaveGameInfo {
+            pristine_map_name: None,
             filename: String::new(),
             display_name: String::new(),
             description: String::new(),
@@ -1439,8 +1472,9 @@ impl SaveFileManager {
                 // embedded .map in the Save directory and always sets
                 // TheWritableGlobalData->m_mapName to that scratch path.
                 // An installed same-named retail map must not override it.
-                if let Some(extracted) = extract_embedded_map(&payload, save_dir) {
+                if let Some((extracted, pristine)) = extract_embedded_map(&payload, save_dir) {
                     save_info.map_name = extracted.to_string_lossy().into_owned();
+                    save_info.pristine_map_name = (!pristine.is_empty()).then_some(pristine);
                 }
             } else if token.eq_ignore_ascii_case(CHUNK_INGAME_UI) {
                 ingame_ui_payload = Some(payload);
@@ -1521,6 +1555,7 @@ impl SaveFileManager {
             _ => SaveFileType::Normal,
         };
         SaveGameInfo {
+            pristine_map_name: None,
             filename: String::new(),
             display_name: state
                 .get_metadata("display_name")

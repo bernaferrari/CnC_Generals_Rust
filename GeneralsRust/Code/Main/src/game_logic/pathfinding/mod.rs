@@ -45,7 +45,6 @@ pub struct PendingHostPath {
     /// Set only for a tighten order. The drain sets the unit flag true
     /// after install. Not persisted.
     pub restore_adjust_on_install: bool,
-
 }
 
 /// Grid-based pathfinding node
@@ -283,6 +282,8 @@ pub struct PathfindingGrid {
     ground_connect: Vec<u8>,
     /// C++ `Pathfinder::m_layers[2..=14]`.
     bridge_layers: Vec<HostBridgeLayer>,
+    /// Terrain bridge visitation order, separate from pathfinder layer IDs.
+    flight_bridge_order: Vec<u8>,
     /// C++ PathfindLayer pos/goal occupancy (updatePos/updateGoal).
     layer_occ: HashMap<u8, LayerOccupancy>,
     /// C++ `m_wallPieces` geometry for `allocateCellsForWallLayer`.
@@ -328,6 +329,7 @@ pub struct PathfindingGrid {
 }
 
 mod grid_core;
+mod grid_flight;
 mod grid_layers;
 mod grid_routing;
 mod system_attack;
@@ -596,7 +598,7 @@ impl FlowField {
 
                 let movement_cost =
                     if (neighbor.x - current.x).abs() == 1 && (neighbor.y - current.y).abs() == 1 {
-                        1.414_213_5
+                        std::f32::consts::SQRT_2
                     } else {
                         1.0
                     };
@@ -753,6 +755,7 @@ fn clear_cell_for_diameter_impl(
 /// Main pathfinding system
 #[derive(Debug)]
 pub struct PathfindingSystem {
+    ai_definitions: std::sync::Arc<game_engine::common::ini::AIData>,
     pub grid: PathfindingGrid,
     flow_fields: HashMap<ObjectId, FlowField>, // Flow fields for different goals
     /// Active host logic frame (set via note_logic_frame).

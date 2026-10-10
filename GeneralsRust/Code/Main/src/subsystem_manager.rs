@@ -467,6 +467,20 @@ impl AudioManagerSubsystem {
         }
     }
 
+    /// Install only the real audio delivery queue in an isolated test process.
+    /// Device initialization is unnecessary for checking logic-to-audio delivery.
+    #[cfg(test)]
+    pub(crate) fn install_test_queue() {
+        let mut manager = SubsystemManager::new();
+        manager.add_subsystem(Self::new());
+        assert!(SUBSYSTEM_MANAGER.set(Arc::new(Mutex::new(manager))).is_ok());
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_test_queue() -> Vec<crate::game_logic::AudioEventRequest> {
+        with_subsystem_mut::<Self, _>(Self::drain_events).expect("installed audio subsystem")
+    }
+
     pub fn queue_event(&mut self, event: crate::game_logic::AudioEventRequest) {
         self.queued_events.push(event);
     }

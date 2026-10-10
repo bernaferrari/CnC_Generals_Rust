@@ -16,19 +16,21 @@ impl GameLogic {
             return;
         };
         if subdual > 0.0 {
-            let _ = n.take_damage_from_typed(
+            let _ = n.take_damage_from_typed_with_repulsor_policy(
                 subdual,
                 None,
                 crate::game_logic::combat::DamageType::SubdualUnresistable,
                 &mut self.health_events,
+                &self.enable_repulsors,
             );
         }
         if transfer_dmg > 0.0 {
-            let _ = n.take_damage_from_typed(
+            let _ = n.take_damage_from_typed_with_repulsor_policy(
                 transfer_dmg,
                 source,
                 crate::game_logic::combat::DamageType::Unresistable,
                 &mut self.health_events,
+                &self.enable_repulsors,
             );
         }
     }
@@ -113,8 +115,12 @@ impl GameLogic {
             if dmg <= 0.0 {
                 continue;
             }
-            let destroyed =
-                v.take_damage_from_immediate(dmg, Some(dying_id), &mut self.health_events);
+            let destroyed = v.take_damage_from_immediate_with_repulsor_policy(
+                dmg,
+                Some(dying_id),
+                &mut self.health_events,
+                &self.enable_repulsors,
+            );
             if destroyed {
                 destroy_ids.push(vid);
             }
@@ -915,12 +921,13 @@ impl GameLogic {
             let killed = if let Some(obj) = self.objects.get_mut(&id) {
                 // Structure topple crush residual is effectively unresistable for units
                 // under the fall sweep (C++ doDamageLine lethality residual).
-                let mut dead = obj.take_damage_from_typed_death(
+                let mut dead = obj.take_damage_from_typed_death_with_repulsor_policy(
                     best_dmg,
                     Some(building_id),
                     crate::game_logic::combat::DamageType::Unresistable,
                     crate::game_logic::host_usa_pilot::HostDeathType::Crushed,
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 );
                 if !dead && (obj.status.destroyed || obj.health.current <= 0.0) {
                     dead = true;

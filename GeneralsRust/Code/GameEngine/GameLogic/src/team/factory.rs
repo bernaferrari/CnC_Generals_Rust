@@ -17,6 +17,28 @@ pub struct TeamFactory {
     host_pre_team_destroy: Vec<(TeamID, String)>,
 }
 
+/// One still-visible team whose deletion is driven by an explicit Main owner.
+/// The identity pin prevents callbacks from finalizing a replacement with the same ID.
+#[derive(Debug)]
+pub struct HostTeamDeletion {
+    id: TeamID,
+    name: String,
+    members: Vec<ObjectID>,
+    identity: Arc<RwLock<Team>>,
+}
+
+impl HostTeamDeletion {
+    pub fn id(&self) -> TeamID {
+        self.id
+    }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn members(&self) -> &[ObjectID] {
+        &self.members
+    }
+}
+
 impl TeamFactory {
     /// Create new team factory
     pub fn new() -> Self {
@@ -748,6 +770,42 @@ impl TeamFactory {
         }
 
         self.teams.remove(&team_id);
+    }
+
+    /// C++ TeamFactory::teamAboutToBeDeleted, restricted to this factory's metadata.
+    /// Main supplies the player/script/member callbacks before finalization; this
+    /// path never discovers a Core Player, AI controller, or Object registry.
+    pub fn prepare_host_team_deletion(&mut self, team_id: TeamID) -> Option<HostTeamDeletion> {
+        let identity = self.teams.get(&team_id)?.clone();
+        let (name, members) = {
+            let team = identity.read().unwrap_or_else(|e| e.into_inner());
+            (team.get_name().to_string(), team.get_members().to_vec())
+        };
+        for other in self.teams.values() {
+            other
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove_override_team_relationship(team_id);
+        }
+        Some(HostTeamDeletion {
+            id: team_id,
+            name,
+            members,
+            identity,
+        })
+    }
+
+    /// Finish only the team prepared above, after synchronous owner callbacks.
+    pub fn finalize_host_team_deletion(&mut self, deletion: HostTeamDeletion) -> bool {
+        if !self
+            .teams
+            .get(&deletion.id)
+            .is_some_and(|team| Arc::ptr_eq(team, &deletion.identity))
+        {
+            return false;
+        }
+        self.teams.remove(&deletion.id);
+        true
     }
 
     /// C++ TeamPrototype ctor/dtor + initTeam owner lookup (Team.cpp:216-223, 799-800).

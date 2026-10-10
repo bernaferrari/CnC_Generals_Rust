@@ -729,11 +729,12 @@ impl GameLogic {
                 let was = target.is_subdued();
                 // C++ ActiveBody.cpp:471-487 SUBDUAL_BUILDING — no HP; disable
                 // when currentSubdual >= maxHealth (:1292-1294).
-                let _ = target.take_damage_from_typed(
+                let _ = target.take_damage_from_typed_with_repulsor_policy(
                     HOST_MICROWAVE_SUBDUAL_PULSE,
                     None,
                     crate::game_logic::combat::DamageType::SubdualBuilding,
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 );
                 if !was && target.is_subdued() {
                     new_grants = new_grants.saturating_add(1);
@@ -930,11 +931,12 @@ impl GameLogic {
                     continue;
                 }
                 any_pos = Some(o.get_position());
-                let killed = o.take_damage_from_immediate_typed(
+                let killed = o.take_damage_from_immediate_typed_with_repulsor_policy(
                     dmg,
                     Some(src),
                     crate::game_logic::combat::DamageType::Microwave,
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 );
                 applications = applications.saturating_add(1);
                 if killed {

@@ -906,9 +906,6 @@ fn main() {
         && r.live_dumb_projectile_dual_world_empty_gate_nav_commands_wave286_ok
         && r.live_dumb_projectile_dual_world_empty_gate_live_wave286_ok
         // Wave 287 residual honesty (enhanced player dual-world empty gates).
-        && r.live_enhanced_player_dual_world_empty_gate_method_names_wave287_ok
-        && r.live_enhanced_player_dual_world_empty_gate_nav_commands_wave287_ok
-        && r.live_enhanced_player_dual_world_empty_gate_live_wave287_ok
         // Wave 288 residual honesty (hijacker update dual-world empty gates).
         && r.live_hijacker_update_dual_world_empty_gate_method_names_wave288_ok
         && r.live_hijacker_update_dual_world_empty_gate_nav_commands_wave288_ok
@@ -1325,9 +1322,6 @@ fn main() {
         && r.live_ai_dock_dual_world_empty_gate_nav_commands_wave397_ok
         && r.live_ai_dock_dual_world_empty_gate_live_wave397_ok
         // Wave 398 residual honesty (AI groups dual-world empty gates).
-        && r.live_ai_groups_dual_world_empty_gate_method_names_wave398_ok
-        && r.live_ai_groups_dual_world_empty_gate_nav_commands_wave398_ok
-        && r.live_ai_groups_dual_world_empty_gate_live_wave398_ok
         // Wave 399 residual honesty (artillery barrage dual-world empty gates).
         && r.live_artillery_barrage_power_dual_world_empty_gate_method_names_wave399_ok
         && r.live_artillery_barrage_power_dual_world_empty_gate_nav_commands_wave399_ok

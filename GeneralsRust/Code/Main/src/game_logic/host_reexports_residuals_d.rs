@@ -370,16 +370,6 @@ pub use super::host_live_host_queue_stamp_memory_clippy_wave874::{
     honesty_host_queue_stamp_residual_pack_wave874, simulate_live_host_queue_stamp_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_host_radar_extend_no_dual_complete_residual_wave744::{
-    honesty_host_radar_extend_no_dual_complete_method_names_residual_wave744,
-    honesty_host_radar_extend_no_dual_complete_nav_commands_residual_wave744,
-    honesty_host_radar_extend_no_dual_complete_residual_pack_wave744,
-    honesty_host_radar_extend_no_dual_complete_source_markers_residual_wave744,
-    residual_host_radar_extend_no_dual_complete_last_action,
-    residual_host_radar_extend_no_dual_complete_ok,
-    simulate_live_host_radar_extend_no_dual_complete_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_host_radar_extend_ready_log_helper_residual_wave625::{
     honesty_host_radar_extend_ready_log_helper_method_names_residual_wave625,
     honesty_host_radar_extend_ready_log_helper_nav_commands_residual_wave625,

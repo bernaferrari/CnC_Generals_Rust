@@ -224,13 +224,6 @@ pub use super::host_live_ai_group_dual_world_empty_gate_residual_wave401::{
     simulate_live_ai_group_core_dual_world_empty_gate_honesty_wave401,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_ai_groups_dual_world_empty_gate_residual_wave398::{
-    honesty_live_ai_groups_dual_world_empty_gate_method_names_residual_wave398,
-    honesty_live_ai_groups_dual_world_empty_gate_nav_commands_residual_wave398,
-    honesty_live_ai_groups_dual_world_empty_gate_residual_pack_wave398,
-    simulate_live_ai_groups_dual_world_empty_gate_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_ai_integration_dual_world_empty_gate_residual_wave285::{
     honesty_live_ai_integration_dual_world_empty_gate_method_names_residual_wave285,
     honesty_live_ai_integration_dual_world_empty_gate_nav_commands_residual_wave285,
@@ -1000,13 +993,6 @@ pub use super::host_live_engine_presentation_player_ui_residual_wave234::{
     honesty_live_engine_presentation_player_ui_nav_commands_residual_wave234,
     honesty_live_engine_presentation_player_ui_residual_pack_wave234,
     simulate_live_engine_presentation_player_ui_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_enhanced_player_dual_world_empty_gate_residual_wave287::{
-    honesty_live_enhanced_player_dual_world_empty_gate_method_names_residual_wave287,
-    honesty_live_enhanced_player_dual_world_empty_gate_nav_commands_residual_wave287,
-    honesty_live_enhanced_player_dual_world_empty_gate_residual_pack_wave287,
-    simulate_live_enhanced_player_dual_world_empty_gate_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_ensure_presentation_env_instance_residual_wave474::{

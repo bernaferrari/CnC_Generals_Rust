@@ -703,11 +703,12 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from_immediate_typed(
+                    let killed = target.take_damage_from_immediate_typed_with_repulsor_policy(
                         hit.damage,
                         Some(plan.source_object),
                         crate::game_logic::combat::DamageType::Flame,
                         &mut self.health_events,
+                        &self.enable_repulsors,
                     );
                     total_damage += hit.damage;
                     applications += 1;
@@ -1049,12 +1050,13 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from_immediate_residual(
+                let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
                     dmg,
                     source,
                     INFERNO_CANNON_DAMAGE_TYPE,
                     INFERNO_CANNON_DEATH_TYPE,
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -1228,11 +1230,12 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from_immediate_typed(
+                    let killed = target.take_damage_from_immediate_typed_with_repulsor_policy(
                         hit.damage,
                         Some(plan.source_object),
                         crate::game_logic::combat::DamageType::Flame,
                         &mut self.health_events,
+                        &self.enable_repulsors,
                     );
                     total_damage += hit.damage;
                     applications += 1;
@@ -1748,12 +1751,13 @@ impl GameLogic {
                     if audio_pos.is_none() {
                         audio_pos = Some(target.get_position());
                     }
-                    let killed = target.take_damage_from_immediate_residual(
+                    let killed = target.take_damage_from_immediate_residual_with_repulsor_policy(
                         hit.damage,
                         Some(plan.mob_id),
                         crate::game_logic::host_angry_mob::ANGRY_MOB_PISTOL_DAMAGE_TYPE,
                         crate::game_logic::host_angry_mob::ANGRY_MOB_PISTOL_DEATH_TYPE,
                         &mut self.health_events,
+                        &self.enable_repulsors,
                     );
                     total_damage += hit.damage;
                     applications += 1;
@@ -2230,10 +2234,11 @@ impl GameLogic {
                         continue;
                     }
                     // BodyModule last_damage_source residual for cash bounty killer.
-                    let destroyed = target.take_damage_from_immediate(
+                    let destroyed = target.take_damage_from_immediate_with_repulsor_policy(
                         hit.damage,
                         Some(plan.source_object),
                         &mut self.health_events,
+                        &self.enable_repulsors,
                     );
                     total_damage += hit.damage;
                     objects_hit += 1;

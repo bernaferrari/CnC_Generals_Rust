@@ -82,12 +82,13 @@ impl super::super::GameLogic {
             if !other.is_alive() {
                 return;
             }
-            let _ = other.take_damage_from_typed_death(
+            let _ = other.take_damage_from_typed_death_with_repulsor_policy(
                 damage,
                 Some(self_id),
                 damage_type,
                 death_type,
                 &mut self.health_events,
+                &self.enable_repulsors,
             );
         }
     }

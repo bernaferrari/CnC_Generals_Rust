@@ -1774,6 +1774,9 @@ impl CnCGameEngine {
                     worker_stop_if_abandoned()?;
                     Self::emit_startup_load_progress(&sender, 0.18, "Creating game session");
                     let mut game_logic = GameLogic::initialize();
+                    // Explicit engine-content admission before this session loads a map.
+                    let definitions = crate::game_logic::ai_definitions::AiDefinitions::from_engine_baseline();
+                    game_logic.set_ai_definition_base(definitions.baseline().clone());
                     Self::emit_startup_load_progress(&sender, 0.22, "Priming object templates");
 
                     if map_requested_from_initial_file {

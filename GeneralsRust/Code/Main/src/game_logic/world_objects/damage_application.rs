@@ -83,6 +83,33 @@ impl GameLogic {
         context: &DamageHitContext,
         killer_team_override: Option<Team>,
     ) -> Option<OwnedDamageResult> {
+        self.apply_owned_damage_with_killer_team_and_after_fx(
+            victim_id,
+            damage,
+            source_id,
+            damage_type,
+            death_type,
+            fx_override,
+            context,
+            killer_team_override,
+            |_, _| {},
+        )
+    }
+
+    /// The observer runs at this same real synchronous DamageFX boundary;
+    /// policy is then read from the driving world, never captured at ingress.
+    pub(in crate::game_logic) fn apply_owned_damage_with_killer_team_and_after_fx(
+        &mut self,
+        victim_id: ObjectId,
+        damage: f32,
+        source_id: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        fx_override: Option<crate::game_logic::combat::DamageType>,
+        context: &DamageHitContext,
+        killer_team_override: Option<Team>,
+        after_damage_fx: impl FnOnce(&mut Self, ObjectId),
+    ) -> Option<OwnedDamageResult> {
         let victim = self.objects.get_mut(&victim_id)?;
         let before_hp = victim.health.current;
         let application: DamageApplication = victim.begin_damage_with_context(
@@ -118,8 +145,17 @@ impl GameLogic {
             .objects
             .get_mut(&victim_id)
             .expect("damage victim remains installed until destroy-list cleanup");
+        let after_fx = application.dispatch_damage_fx(victim, source.as_ref());
+        if after_fx.had_active_body() {
+            after_damage_fx(self, victim_id);
+        }
+        let enable_repulsors = self.enable_repulsors;
+        let victim = self
+            .objects
+            .get_mut(&victim_id)
+            .expect("post-FX victim remains installed until destroy-list cleanup");
         Some(OwnedDamageResult {
-            destroyed: application.finish(victim, source.as_ref()),
+            destroyed: after_fx.finish(victim, source.as_ref(), enable_repulsors),
             hp_lost,
             victim_position,
             victim_team,
@@ -302,3 +338,11 @@ impl GameLogic {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "repulsor_owner_tests.rs"]
+mod repulsor_owner_tests;
+
+#[cfg(test)]
+#[path = "repulsor_fx_order_tests.rs"]
+mod repulsor_fx_order_tests;

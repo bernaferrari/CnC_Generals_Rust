@@ -28,39 +28,13 @@
 
 use game_engine::common::system::radar::{Coord3D, RadarEventType, get_radar_system};
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
 
 /// Leftover `Object::on_disabled_edge` radar add/remove pending apply.
 #[derive(Debug, Clone, Copy)]
-pub struct LeftoverRadarDisabledEdge {
+pub struct RadarDisabledEdge {
     pub player_id: Option<u32>,
     pub becoming_disabled: bool,
     pub disable_proof: bool,
-}
-
-thread_local! {
-    static LEFTOVER_RADAR_DISABLED_EDGES: RefCell<Vec<LeftoverRadarDisabledEdge>> =
-        const { RefCell::new(Vec::new()) };
-}
-
-/// Record leftover onDisabledEdge radar walk for the controlling player.
-pub fn record_leftover_radar_disabled_edge(
-    player_id: Option<u32>,
-    becoming_disabled: bool,
-    disable_proof: bool,
-) {
-    LEFTOVER_RADAR_DISABLED_EDGES.with(|log| {
-        log.borrow_mut().push(LeftoverRadarDisabledEdge {
-            player_id,
-            becoming_disabled,
-            disable_proof,
-        });
-    });
-}
-
-/// Drain leftover onDisabledEdge radar walks (Player::removeRadar/addRadar).
-pub fn drain_leftover_radar_disabled_edges() -> Vec<LeftoverRadarDisabledEdge> {
-    LEFTOVER_RADAR_DISABLED_EDGES.with(|log| std::mem::take(&mut *log.borrow_mut()))
 }
 
 /// Logic frames per second (host fixed step).

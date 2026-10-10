@@ -566,13 +566,15 @@ impl GameLogic {
                     }
                     // C++ Weapon.cpp dealDamage / NeutronMissileSlowDeath: authored
                     // DamageType through Armor.ini. Not DAMAGE_UNRESISTABLE.
-                    let destroyed = target.take_damage_from_immediate_typed_death(
-                        hit.damage,
-                        Some(plan.source_object),
-                        plan.kind.authored_damage_type(),
-                        plan.kind.authored_death_type(),
-                        &mut self.health_events,
-                    );
+                    let destroyed = target
+                        .take_damage_from_immediate_typed_death_with_repulsor_policy(
+                            hit.damage,
+                            Some(plan.source_object),
+                            plan.kind.authored_damage_type(),
+                            plan.kind.authored_death_type(),
+                            &mut self.health_events,
+                            &self.enable_repulsors,
+                        );
 
                     total_damage += hit.damage;
                     objects_hit += 1;
@@ -893,13 +895,15 @@ impl GameLogic {
                 }
                 if hit.damage > 0.0 && alive {
                     // C++ NeutronMissileSlowDeathUpdate.cpp:284-286 DAMAGE_EXPLOSION / DEATH_EXPLODED.
-                    let destroyed = obj.take_damage_from_immediate_typed_death(
-                        hit.damage,
-                        Some(meta.source_object),
-                        crate::game_logic::combat::DamageType::Explosive,
-                        crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
-                        &mut self.health_events,
-                    );
+                    let destroyed = obj
+                        .take_damage_from_immediate_typed_death_with_repulsor_policy(
+                            hit.damage,
+                            Some(meta.source_object),
+                            crate::game_logic::combat::DamageType::Explosive,
+                            crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
+                            &mut self.health_events,
+                            &self.enable_repulsors,
+                        );
 
                     if destroyed {
                         destroy_ids.push((id, meta.source_team));
@@ -1221,13 +1225,15 @@ impl GameLogic {
                         .map(|o| o.team)
                         .unwrap_or(Team::Neutral);
                     if let Some(obj) = self.objects.get_mut(&vid) {
-                        let destroyed = obj.take_damage_from_immediate_typed_death(
-                            dmg,
-                            Some(gid),
-                            crate::game_logic::combat::DamageType::Water,
-                            HostDeathType::Flooded,
-                            &mut self.health_events,
-                        );
+                        let destroyed = obj
+                            .take_damage_from_immediate_typed_death_with_repulsor_policy(
+                                dmg,
+                                Some(gid),
+                                crate::game_logic::combat::DamageType::Water,
+                                HostDeathType::Flooded,
+                                &mut self.health_events,
+                                &self.enable_repulsors,
+                            );
                         if destroyed {
                             destroy_ids.push((vid, team));
                         }
@@ -1272,10 +1278,11 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_radiation_field_tick(
+                    let killed = target.take_radiation_field_tick_with_repulsor_policy(
                         hit.damage,
                         Some(plan.source_object),
                         &mut self.health_events,
+                        &self.enable_repulsors,
                     );
                     total_damage += hit.damage;
                     applications += 1;
@@ -1343,13 +1350,15 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from_immediate_typed_death(
-                        hit.damage,
-                        Some(plan.source_object),
-                        crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type(),
-                        plan.death_type,
-                        &mut self.health_events,
-                    );
+                    let killed = target
+                        .take_damage_from_immediate_typed_death_with_repulsor_policy(
+                            hit.damage,
+                            Some(plan.source_object),
+                            crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type(),
+                            plan.death_type,
+                            &mut self.health_events,
+                            &self.enable_repulsors,
+                        );
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -1847,18 +1856,20 @@ impl GameLogic {
                     // Gattling keeps its immediate residual path.
                     let killed = match hit.stream {
                         HostSpectreOrbitDamageStream::Howitzer => target
-                            .take_damage_from_immediate_typed_death(
+                            .take_damage_from_immediate_typed_death_with_repulsor_policy(
                                 hit.damage,
                                 Some(plan.source_object),
                                 crate::game_logic::combat::DamageType::Explosive,
                                 crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
                                 &mut self.health_events,
+                                &self.enable_repulsors,
                             ),
                         HostSpectreOrbitDamageStream::Gattling => target
-                            .take_damage_from_immediate(
+                            .take_damage_from_immediate_with_repulsor_policy(
                                 hit.damage,
                                 Some(plan.source_object),
                                 &mut self.health_events,
+                                &self.enable_repulsors,
                             ),
                     };
                     total_damage += hit.damage;
@@ -2042,13 +2053,15 @@ impl GameLogic {
                         continue;
                     }
                     // C++ ParticleUplinkCannonUpdate.cpp:633-634 module DamageType/DeathType.
-                    let killed = target.take_damage_from_immediate_typed_death(
-                        hit.damage,
-                        Some(plan.source_object),
-                        damage_type,
-                        death_type,
-                        &mut self.health_events,
-                    );
+                    let killed = target
+                        .take_damage_from_immediate_typed_death_with_repulsor_policy(
+                            hit.damage,
+                            Some(plan.source_object),
+                            damage_type,
+                            death_type,
+                            &mut self.health_events,
+                            &self.enable_repulsors,
+                        );
 
                     total_damage += hit.damage;
                     applications += 1;
@@ -2827,13 +2840,15 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from_immediate_typed_death(
-                        hit.damage,
-                        Some(plan.source_object),
-                        damage_type,
-                        death_type,
-                        &mut self.health_events,
-                    );
+                    let killed = target
+                        .take_damage_from_immediate_typed_death_with_repulsor_policy(
+                            hit.damage,
+                            Some(plan.source_object),
+                            damage_type,
+                            death_type,
+                            &mut self.health_events,
+                            &self.enable_repulsors,
+                        );
 
                     total_damage += hit.damage;
                     applications += 1;

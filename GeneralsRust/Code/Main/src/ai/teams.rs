@@ -13,7 +13,20 @@ impl AIPlayer {
         current_time: f32,
         ai_data: &AiDataView,
     ) {
-        self.reconcile_produced_units(game_logic);
+        // C++ WorkOrder::validateFactory: failed production must release the
+        // association so a later pass can submit to a surviving producer.
+        for team in &mut self.team_queue {
+            for order in &mut team.work_orders {
+                if order.factory_id.is_some_and(|id| {
+                    !game_logic
+                        .host_object(id)
+                        .is_some_and(|factory| factory.is_alive())
+                }) {
+                    order.factory_id = None;
+                    order.queued_count = 0;
+                }
+            }
+        }
         // Retail queueUnits invokes queueSupplyTruck before walking the usual
         // TeamInQueue work orders.  Its priority order therefore gets an idle
         // SupplyCenter and pays through ordinary ProductionUpdate immediately.
@@ -95,34 +108,13 @@ impl AIPlayer {
                 )
             };
             if let Some(factory_id) = factory_id {
-                // Snapshot matching output before the request is submitted.
-                // A priority order may join an already-busy factory, whose
-                // earlier output belongs to another order.
-                let mut preexisting: Vec<ObjectId> = game_logic
-                    .host_objects()
-                    .iter()
-                    .filter_map(|(&unit_id, unit)| {
-                        (game_logic.object_owned_by_player(unit, self.player_id)
-                            && unit.producer_id == Some(factory_id)
-                            && unit.template_name.eq_ignore_ascii_case(&template_name))
-                        .then_some(unit_id)
-                    })
-                    .collect();
-                preexisting.sort_by_key(|id| id.0);
-
                 let queued = game_logic.enqueue_production(factory_id, template_name.clone());
                 if let Some(team) = self.team_queue.get_mut(team_index) {
                     if let Some(work_order) = team.work_orders.get_mut(order_index) {
-                        // Only bind factory on success — failed enqueue (wrong type,
-                        // full queue, cash) must retry next military tick.  Record
-                        // pre-existing matching output before the enqueue so a unit
-                        // made for an older queue cannot complete this order.
+                        // Only a successful request binds this order. Factory
+                        // delivery, not preexisting producer-linked objects,
+                        // advances completion at the synchronous callback.
                         if queued {
-                            for unit_id in preexisting {
-                                if !work_order.observed_unit_ids.contains(&unit_id) {
-                                    work_order.observed_unit_ids.push(unit_id);
-                                }
-                            }
                             work_order.factory_id = Some(factory_id);
                             work_order.queued_count = work_order.queued_count.saturating_add(1);
                             produced = produced.saturating_add(1);
@@ -178,7 +170,6 @@ impl AIPlayer {
         ai_data
             .catalog()
             .map(|data| data.team_resources_to_build)
-            .or_else(|| ai_data.runtime().map(|data| data.team_resources_to_build))
             .filter(|value| *value > 0.0)
             .unwrap_or(Self::TEAM_RESOURCES_TO_START)
     }
@@ -240,8 +231,9 @@ impl AIPlayer {
                 // C++: team->m_team == deletedTeam
                 return qid != did;
             }
-            // Fallback: name compare when m_team handle was never stamped.
-            if q.team_id.is_none() && !deleted_name.is_empty() {
+            // Legacy unstamped notification only. A real deleted instance
+            // cannot equal a null queue handle, even with the same name.
+            if deleted_team_id.is_none() && q.team_id.is_none() && !deleted_name.is_empty() {
                 return q.name != deleted_name;
             }
             true
@@ -385,7 +377,26 @@ impl AIPlayer {
     }
 
     /// C++ `TeamInQueue::disband` (`AIPlayer.cpp:3554-3566`).
-    pub(super) fn disband_queued_team(&self, game_logic: &mut GameLogic, team: &AITeamQueue) {
+    pub(super) fn disband_queued_team(&mut self, game_logic: &mut GameLogic, team: &AITeamQueue) {
+        let scripts = gamelogic::scripting::engine::get_script_engine().clone();
+        let skirmish = self.leftover_is_skirmish_ai();
+        self.disband_queued_team_with_owner(
+            game_logic,
+            team,
+            skirmish,
+            &scripts,
+            &mut super::team_lifecycle::notify_installed_team_destroy,
+        );
+    }
+
+    pub(super) fn disband_queued_team_with_owner(
+        &mut self,
+        game_logic: &mut GameLogic,
+        team: &AITeamQueue,
+        skirmish: bool,
+        scripts: &gamelogic::scripting::engine::ScriptEngineHandle,
+        notify: &mut super::team_lifecycle::TeamDestroyObserver<'_>,
+    ) {
         let default_name =
             game_logic.default_host_team_instance_name(Some(self.player_id), self.team);
         let mut member_ids: HashSet<u32> = self
@@ -402,12 +413,20 @@ impl AIPlayer {
         }
 
         let Some(src_id) = team.team_id else {
-            if self.leftover_is_skirmish_ai() {
-                Self::clear_leftover_team_flags();
+            if skirmish {
+                if let Some(engine) = scripts.write().unwrap_or_else(|e| e.into_inner()).as_mut() {
+                    engine.clear_team_flags();
+                }
             }
             return;
         };
-        let default_arc = Self::leftover_default_team_arc(self.player_id);
+        let default_arc = self
+            .team_factory
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .find_team_instances(&default_name)
+            .into_iter()
+            .next();
         let default_id = default_arc
             .as_ref()
             .and_then(|arc| arc.read().ok().map(|tg| tg.get_id()));
@@ -431,12 +450,12 @@ impl AIPlayer {
             }
         }
         if !self.leftover_prototype_is_singleton(&team.name) {
-            if let Ok(mut factory) = self.team_factory.lock() {
-                factory.team_about_to_be_deleted(src_id);
-            }
+            game_logic.delete_ai_team_owned(self, src_id, scripts, notify);
         }
-        if self.leftover_is_skirmish_ai() {
-            Self::clear_leftover_team_flags();
+        if skirmish {
+            if let Some(engine) = scripts.write().unwrap_or_else(|e| e.into_inner()).as_mut() {
+                engine.clear_team_flags();
+            }
         }
     }
 
@@ -867,6 +886,25 @@ impl AIPlayer {
 
     /// C++ `AIPlayer::checkQueuedTeams` (`AIPlayer.cpp:2810-2870`).
     pub(super) fn check_queued_teams(&mut self, game_logic: &mut GameLogic, current_time: f32) {
+        let scripts = gamelogic::scripting::engine::get_script_engine().clone();
+        let skirmish = self.leftover_is_skirmish_ai();
+        self.check_queued_teams_with_owner(
+            game_logic,
+            current_time,
+            skirmish,
+            &scripts,
+            &mut super::team_lifecycle::notify_installed_team_destroy,
+        );
+    }
+
+    pub(super) fn check_queued_teams_with_owner(
+        &mut self,
+        game_logic: &mut GameLogic,
+        current_time: f32,
+        skirmish: bool,
+        scripts: &gamelogic::scripting::engine::ScriptEngineHandle,
+        notify: &mut super::team_lifecycle::TeamDestroyObserver<'_>,
+    ) {
         let mut i = 0;
         while i < self.team_queue.len() {
             if !self.team_queue[i].is_build_time_expired(&self.team_factory, current_time) {
@@ -882,7 +920,7 @@ impl AIPlayer {
                     i += 1;
                 }
             } else if let Some(team) = self.team_queue.remove(i) {
-                self.disband_queued_team(game_logic, &team);
+                self.disband_queued_team_with_owner(game_logic, &team, skirmish, scripts, notify);
                 log::debug!(
                     "AI Player {} disbanded expired team: {}",
                     self.player_id,
@@ -1580,11 +1618,11 @@ impl AIPlayer {
         self.next_team_time = current_time + (timer as f32 / LOGIC_FRAMES_PER_SECOND);
     }
 
-    /// `AIPlayer::team_wealth_params`: world-owned runtime AIData with retail
+    /// `AIPlayer::team_wealth_params`: world-owned effective AIData with retail
     /// Default/AIData.ini fallbacks when a field is zero / unset.
     pub(super) fn team_wealth_params(ai_data: &AiDataView) -> (i32, i32, f32, f32) {
         ai_data
-            .runtime()
+            .catalog()
             .map(|data| {
                 (
                     if data.resources_poor > 0 {

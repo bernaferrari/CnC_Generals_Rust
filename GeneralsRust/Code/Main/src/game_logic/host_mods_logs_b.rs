@@ -190,6 +190,3 @@ pub mod host_height_die_kill_log;
 
 #[path = "host_inferno_shell_projectile_log.rs"]
 pub mod host_inferno_shell_projectile_log;
-
-#[path = "host_player_radar_log.rs"]
-pub mod host_player_radar_log;

@@ -250,7 +250,7 @@ fn pose_default_public_update_keeps_transform_and_saved_geometry_coherent() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn isolated_at(module_path: &str, test: &str, run: impl FnOnce()) {
+pub(crate) fn isolated_at(module_path: &str, test: &str, run: impl FnOnce()) {
     use std::io::Read;
     use std::process::Stdio;
 
@@ -313,6 +313,6 @@ fn isolated_at(module_path: &str, test: &str, run: impl FnOnce()) {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn isolated_at(_: &str, _: &str, run: impl FnOnce()) {
+pub(crate) fn isolated_at(_: &str, _: &str, run: impl FnOnce()) {
     run();
 }

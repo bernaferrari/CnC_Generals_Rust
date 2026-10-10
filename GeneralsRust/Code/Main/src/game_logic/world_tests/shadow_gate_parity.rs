@@ -54,7 +54,7 @@ impl Drop for ShadowEnvPin {
 /// inside `begin/end_shadow_coupled_tick` with the instance's authority
 /// context published (all channels off in these tests), then the post-logic
 /// eager residual batch and the shadow session boundary run exactly like
-/// `host_run_coupled_fast_forward_loop`.
+/// `host_run_fast_forward_loop`.
 fn coupled_frame(shadow: &mut GameWorldShadow, logic: &mut GameLogic) {
     begin_shadow_coupled_tick();
     with_coupled_shadow(shadow, || {

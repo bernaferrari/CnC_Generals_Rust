@@ -53,6 +53,7 @@ fn state(
 
 fn save_info() -> SaveGameInfo {
     SaveGameInfo {
+        pristine_map_name: None,
         filename: "experience".to_string(),
         display_name: "Experience round trip".to_string(),
         description: String::new(),

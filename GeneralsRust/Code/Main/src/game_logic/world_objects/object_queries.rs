@@ -1313,7 +1313,6 @@ impl GameLogic {
         self.objects.clear();
         // Playback/retry deadlines are transient; restored IDs start fresh.
         self.ambient_sound_retries.clear();
-        self.host_view_dirty.clear();
         self.next_object_id = ObjectId(1);
         self.next_formation_id = 1;
     }

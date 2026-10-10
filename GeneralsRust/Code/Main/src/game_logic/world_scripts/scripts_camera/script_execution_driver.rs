@@ -1,8 +1,8 @@
 //! Live synchronous Main owner for one ScriptEngine action walk.
 use super::*;
 use gamelogic::scripting::engine::{
-    ScriptCameraRequest, ScriptDisplayRequest, ScriptExecutionDriver, ScriptObjectStatus,
-    ScriptOwnerQuery, ScriptTeamStatus,
+    ScriptAiPlayerRequest, ScriptCameraRequest, ScriptDisplayRequest, ScriptExecutionDriver,
+    ScriptObjectStatus, ScriptOwnerQuery, ScriptTeamStatus,
 };
 
 pub(super) struct HostScriptExecutionDriver<'a> {
@@ -57,6 +57,36 @@ impl<'a> HostScriptExecutionDriver<'a> {
 }
 
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+    fn ai_player(
+        &mut self,
+        request: ScriptAiPlayerRequest<'_>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        match request {
+            ScriptAiPlayerRequest::RepairNamed { player, structure } => {
+                self.world.apply_owned_script_ai_repair(player, structure);
+            }
+            ScriptAiPlayerRequest::SelectSkillset {
+                player,
+                script_skillset,
+            } => {
+                if let Some(pid) = self.world.host_player_id_for_script_token(player) {
+                    if let Some(ai) = self.world.ai_manager.ai_players.get_mut(&pid) {
+                        // CPP doAffectPlayerSkillset decrements exactly once.
+                        ai.select_skillset(script_skillset - 1);
+                    }
+                }
+            }
+            ScriptAiPlayerRequest::SetTeamDelay { player, seconds } => {
+                if let Some(pid) = self.world.host_player_id_for_script_token(player) {
+                    if let Some(ai) = self.world.ai_manager.ai_players.get_mut(&pid) {
+                        ai.set_team_delay_seconds(seconds);
+                    }
+                }
+            }
+        }
+        Some(Ok(()))
+    }
+
     fn camera_movement_finished(&mut self) -> Option<bool> {
         Some(self.world.mission_scripts.is_camera_movement_finished())
     }

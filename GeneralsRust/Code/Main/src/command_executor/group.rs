@@ -22,30 +22,14 @@ use std::collections::{HashMap, HashSet};
 
 impl<'a> CommandExecutor<'a> {
     /// C++ `TheAI->getAiData()->m_minDistanceForGroup` /
-    /// `m_distanceRequiresGroup`. Store first, leftover the_ai, then retail
+    /// `m_distanceRequiresGroup` from this world, with existing retail
     /// residuals (100 / 500).
-    fn group_path_distance_thresholds() -> (f32, f32) {
+    fn group_path_distance_thresholds(&self) -> (f32, f32) {
         use crate::game_logic::host_ai_path_combat_residual_wave105::{
             DISTANCE_REQUIRES_GROUP_RESIDUAL, MIN_DISTANCE_FOR_GROUP_RESIDUAL,
         };
-        let from_store = {
-            let store = game_engine::common::ini::get_ai_data_store();
-            let store = store.read().expect("AI data store read lock");
-            store
-                .get_active()
-                .map(|d| (d.min_distance_for_group, d.distance_requires_group))
-        };
-        let (min_d, req) = from_store
-            .or_else(|| {
-                gamelogic::ai::the_ai().read().ok().and_then(|ai| {
-                    Some(ai.get_ai_data())
-                        .map(|d| (d.min_distance_for_group, d.distance_requires_group))
-                })
-            })
-            .unwrap_or((
-                MIN_DISTANCE_FOR_GROUP_RESIDUAL,
-                DISTANCE_REQUIRES_GROUP_RESIDUAL,
-            ));
+        let data = self.game_logic.ai_definitions.data();
+        let (min_d, req) = (data.min_distance_for_group, data.distance_requires_group);
         // C++ ctor default for DistanceRequiresGroup is 0.0; retail INI is 500.
         // Treat non-positive as unset so short-span groups still use closest-to-dest.
         (
@@ -269,12 +253,7 @@ impl<'a> CommandExecutor<'a> {
 
     /// C++ `Pathfinder::isLinePassable` host analog for
     /// `AIGroup::friend_computeGroundPath` (`AIGroup.cpp:590-611`).
-    fn infantry_line_passable_to_center(
-        &self,
-        from: Vec3,
-        center: Vec3,
-        surfaces: u32,
-    ) -> bool {
+    fn infantry_line_passable_to_center(&self, from: Vec3, center: Vec3, surfaces: u32) -> bool {
         self.game_logic
             .pathfinding_system
             .line_passable_for_surfaces(from, center, surfaces)
@@ -382,7 +361,7 @@ impl<'a> CommandExecutor<'a> {
         let bbox_dx = max.x - min.x;
         let bbox_dz = max.y - min.y;
         let mut span_sqr = bbox_dx * bbox_dx + bbox_dz * bbox_dz;
-        let (min_d, req) = Self::group_path_distance_thresholds();
+        let (min_d, req) = self.group_path_distance_thresholds();
         if span_sqr > req * req {
             // Use group span as the distance metric (C++).
             closest_sqr = span_sqr;
@@ -487,9 +466,7 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
             // C++ sums AI members first. Held riders are skipped here and below.
-            if o.contained_by.is_some()
-                || o.status.disabled_held
-                || !Self::member_has_ai_update(o)
+            if o.contained_by.is_some() || o.status.disabled_held || !Self::member_has_ai_update(o)
             {
                 continue;
             }

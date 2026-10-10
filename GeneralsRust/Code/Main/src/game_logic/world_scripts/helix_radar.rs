@@ -144,12 +144,13 @@ impl GameLogic {
             }
             if let Some(victim) = self.objects.get_mut(&vid) {
                 blast_hits = blast_hits.saturating_add(1);
-                if victim.take_damage_from_immediate_residual(
+                if victim.take_damage_from_immediate_residual_with_repulsor_policy(
                     dmg,
                     Some(tank_id),
                     NUCLEAR_TANK_DAMAGE_TYPE,
                     NUCLEAR_TANK_DEATH_TYPE,
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 ) {
                     destroy_ids.push((vid, tank_team));
                 }
@@ -211,10 +212,11 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_radiation_field_tick(
+                    let killed = target.take_radiation_field_tick_with_repulsor_policy(
                         hit.damage,
                         Some(plan.source_object),
                         &mut self.health_events,
+                        &self.enable_repulsors,
                     );
                     total_damage += hit.damage;
                     applications += 1;
@@ -489,12 +491,13 @@ impl GameLogic {
             }
             if let Some(victim) = self.objects.get_mut(&vid) {
                 hits = hits.saturating_add(1);
-                if victim.take_damage_from_immediate_residual(
+                if victim.take_damage_from_immediate_residual_with_repulsor_policy(
                     dmg,
                     Some(plant.planter_id),
                     crate::game_logic::host_booby_trap::BOOBY_DAMAGE_TYPE,
                     crate::game_logic::host_booby_trap::BOOBY_DEATH_TYPE,
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 ) {
                     destroy_ids.push((vid, plant.planter_team));
                 }
@@ -776,12 +779,13 @@ impl GameLogic {
                 if let Some(victim) = self.objects.get_mut(&vid) {
                     blast_damage += dmg.min(victim.health.current.max(0.0));
                     blast_hits = blast_hits.saturating_add(1);
-                    if victim.take_damage_from_immediate_residual(
+                    if victim.take_damage_from_immediate_residual_with_repulsor_policy(
                         dmg,
                         Some(source_object),
                         crate::game_logic::host_helix_napalm::HELIX_NAPALM_DAMAGE_TYPE,
                         crate::game_logic::host_helix_napalm::HELIX_NAPALM_DEATH_TYPE,
                         &mut self.health_events,
+                        &self.enable_repulsors,
                     ) {
                         destroy_ids.push((vid, source_team));
                     }
@@ -852,11 +856,12 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from_immediate_typed(
+                    let killed = target.take_damage_from_immediate_typed_with_repulsor_policy(
                         hit.damage,
                         Some(plan.source_object),
                         crate::game_logic::combat::DamageType::Flame,
                         &mut self.health_events,
+                        &self.enable_repulsors,
                     );
                     total_damage += hit.damage;
                     applications += 1;
@@ -951,12 +956,13 @@ impl GameLogic {
             }
             if let Some(victim) = self.objects.get_mut(&vid) {
                 damage_dealt += dmg.min(victim.health.current.max(0.0));
-                if victim.take_damage_from_immediate_residual(
+                if victim.take_damage_from_immediate_residual_with_repulsor_policy(
                     dmg,
                     Some(car_id),
                     crate::game_logic::host_car_bomb::SUICIDE_CAR_BOMB_DAMAGE_TYPE,
                     crate::game_logic::host_car_bomb::SUICIDE_CAR_BOMB_DEATH_TYPE,
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 ) {
                     destroy_ids.push((vid, car_team));
                 }

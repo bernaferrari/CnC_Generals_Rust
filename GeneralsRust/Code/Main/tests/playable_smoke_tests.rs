@@ -216,6 +216,7 @@ where
 
 fn smoke_save_info(filename: &str) -> SaveGameInfo {
     SaveGameInfo {
+        pristine_map_name: None,
         filename: filename.to_string(),
         display_name: "Playable Smoke Save".to_string(),
         description: "Mini skirmish smoke test round trip".to_string(),

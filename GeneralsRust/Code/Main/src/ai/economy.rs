@@ -79,15 +79,8 @@ impl AIPlayer {
         ai_data: &AiDataView,
     ) {
         let queue_due = current_time >= self.next_team_queue_time;
-        // C++ `AIPlayer::onUnitProduced` sets m_teamDelay to zero after the
-        // factory has actually created the unit.  Poll the producer link on
-        // each host-AI update so a completed unit wakes its waiting order on
-        // the next frame instead of idling until the normal two-second pass.
-        // `process_team_queue` reconciles again when it runs; that second
-        // observation is empty and keeps the queue mutation in one place.
-        let unit_completed = !queue_due && self.reconcile_produced_units(game_logic);
-
-        if queue_due || unit_completed {
+        // Factory callbacks synchronously clear this timer at delivery.
+        if queue_due {
             // C++ queueUnits runs before selection, so established orders get
             // first use of an idle factory.
             self.process_team_queue_with_ai_data(game_logic, current_time, ai_data);
@@ -1119,10 +1112,7 @@ impl AIPlayer {
     }
 
     pub(super) fn aidata_supply_center_safe_radius(ai_data: &AiDataView) -> Option<f32> {
-        ai_data
-            .catalog()
-            .map(|data| data.supply_center_safe_radius)
-            .or_else(|| ai_data.runtime().map(|data| data.supply_center_safe_radius))
+        ai_data.catalog().map(|data| data.supply_center_safe_radius)
     }
 
     /// C++ `AIPlayer::isSupplySourceAttacked`.
@@ -1653,108 +1643,6 @@ impl AIPlayer {
             // Do not return: retail keeps walking completed centers and may
             // begin one collector order for each in the same economic tick.
         }
-    }
-
-    /// Account for units that have physically left their producing factory.
-    ///
-    /// C++ `AIPlayer::onUnitProduced` receives the factory and newly-created
-    /// unit directly, increments `m_numCompleted`, and clears
-    /// `m_factoryID`.  Main owns the production simulation, so its equivalent
-    /// is the stable `producer_id` stamped during the live completion path.
-    /// Never treat a successful enqueue as a completed work order: doing so
-    /// made teams disappear before any of their units existed.
-    pub(super) fn reconcile_produced_units(&mut self, game_logic: &mut GameLogic) -> bool {
-        let mut observed_completion = false;
-        let mut completed_resource_collectors: Vec<(ObjectId, ObjectId)> = Vec::new();
-        for team in &mut self.team_queue {
-            for order in &mut team.work_orders {
-                let Some(factory_id) = order.factory_id else {
-                    continue;
-                };
-
-                // The only outstanding request for a normal work order is
-                // bound to this factory.  If the producer died, C++ can no
-                // longer deliver that request; allow a future queue pass to
-                // find a replacement factory instead of retaining a dead ID.
-                let factory_alive = game_logic
-                    .host_object(factory_id)
-                    .map(|factory| factory.is_alive())
-                    .unwrap_or(false);
-                if !factory_alive {
-                    order.factory_id = None;
-                    order.queued_count = 0;
-                    continue;
-                }
-
-                let remaining = order.num_required.saturating_sub(order.num_completed);
-                if remaining == 0 {
-                    order.factory_id = None;
-                    order.queued_count = 0;
-                    continue;
-                }
-
-                // `producer_id` is applied before the spawned unit enters the
-                // normal AI update, so this observes the real factory exit
-                // rather than inferring a completion from a queue mutation.
-                let mut produced: Vec<ObjectId> = game_logic
-                    .host_objects()
-                    .iter()
-                    .filter_map(|(&unit_id, unit)| {
-                        (game_logic.object_owned_by_player(unit, self.player_id)
-                            && unit.producer_id == Some(factory_id)
-                            && unit
-                                .template_name
-                                .eq_ignore_ascii_case(&order.template_name)
-                            && !order.observed_unit_ids.contains(&unit_id))
-                        .then_some(unit_id)
-                    })
-                    .collect();
-                // HashMap iteration is deliberately not an ordering contract;
-                // preserve the C++ one-unit-at-a-time work-order progression.
-                produced.sort_by_key(|id| id.0);
-
-                let mut accepted = 0u32;
-                for unit_id in produced.into_iter().take(remaining as usize) {
-                    order.observed_unit_ids.push(unit_id);
-                    if order.is_resource_gatherer {
-                        if let Some(center_id) = order.supply_center_id {
-                            completed_resource_collectors.push((unit_id, center_id));
-                        }
-                    }
-                    if self.dozer_queued_for_repair
-                        && Self::is_dozer_work_order_template(&order.template_name)
-                    {
-                        self.repair_dozer = Some(unit_id);
-                        self.dozer_queued_for_repair = false;
-                        if let Some(unit) = game_logic.host_object(unit_id) {
-                            self.repair_dozer_origin = unit.get_position();
-                        }
-                    }
-                    accepted = accepted.saturating_add(1);
-                }
-                if accepted == 0 {
-                    continue;
-                }
-
-                order.num_completed = order
-                    .num_completed
-                    .saturating_add(accepted)
-                    .min(order.num_required);
-                order.queued_count = order.queued_count.saturating_sub(accepted);
-                observed_completion = true;
-                // `onUnitProduced` releases the factory association for the
-                // next required unit.  Host queues one at a time as C++ does.
-                order.factory_id = None;
-            }
-        }
-        // C++ `onUnitProduced` performs the SupplyTruckAI wanting/dock setup
-        // immediately after matching the work order.  Do it after releasing
-        // the queue borrow so these are real typed gather commands, not a
-        // synthetic resource credit.
-        for (collector_id, center_id) in completed_resource_collectors {
-            let _ = self.route_collector_to_supply_center(game_logic, collector_id, center_id);
-        }
-        observed_completion
     }
 }
 

@@ -633,6 +633,7 @@ fn violations(logic: &GameLogic, case: Case, updates: u32) -> Vec<String> {
 
 fn info() -> SaveGameInfo {
     SaveGameInfo {
+        pristine_map_name: None,
         filename: "power".into(),
         display_name: "Saved power first frame".into(),
         description: String::new(),

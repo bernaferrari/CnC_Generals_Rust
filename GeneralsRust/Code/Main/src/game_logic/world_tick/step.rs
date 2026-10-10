@@ -5,25 +5,25 @@ use super::super::*;
 #[path = "ai_phase_tests.rs"]
 mod ai_phase_tests;
 /// A bounded loan of this instance across its synchronous logic phases.
-/// Drop also restores observation policy on freeze and unwinding.
-struct HostLogicAfterSync<'a> {
+/// Drop releases the reentry guard on freeze and unwinding.
+struct HostLogicStep<'a> {
     logic: &'a mut GameLogic,
 }
 
-impl std::ops::Deref for HostLogicAfterSync<'_> {
+impl std::ops::Deref for HostLogicStep<'_> {
     type Target = GameLogic;
     fn deref(&self) -> &GameLogic {
         self.logic
     }
 }
-impl std::ops::DerefMut for HostLogicAfterSync<'_> {
+impl std::ops::DerefMut for HostLogicStep<'_> {
     fn deref_mut(&mut self) -> &mut GameLogic {
         self.logic
     }
 }
-impl Drop for HostLogicAfterSync<'_> {
+impl Drop for HostLogicStep<'_> {
     fn drop(&mut self) {
-        self.logic.host_logic_after_sync = false;
+        self.logic.host_logic_step_active = false;
     }
 }
 
@@ -388,7 +388,6 @@ impl GameLogic {
             dropped_excess_time,
         };
 
-        self.commit_dirty_host_objects_to_gameworld();
         // C++ processDestroyList runs inside every GameLogic::update
         // (GameLogic.cpp:3762), not once after the fixed-step catch-up batch.
     }
@@ -446,7 +445,7 @@ impl GameLogic {
     /// ```
     pub(in super::super) fn update_simulation(&mut self, dt: f32) -> SimulationStepOutcome {
         assert!(
-            !self.host_logic_after_sync,
+            !self.host_logic_step_active,
             "nested update on the same GameLogic"
         );
         // Pin this world's engine stores for the whole step. Compatibility
@@ -459,29 +458,29 @@ impl GameLogic {
             // Keep active particle systems themselves, but never replay old
             // spawn events forever on later presentation frames.
             self.combat_particles.clear_frame_events();
-            // HashMap starts the tick as a GameWorld view (HP/pose/target/fat fields).
-            self.sync_authoritative_view_from_gameworld();
-            self.with_host_logic_after_sync(|logic| logic.update_simulation_after_sync(dt))
+            // The driving world already owns its live Object values.
+            // A comparison session never supplies begin-step state.
+            self.with_host_logic_step(|logic| logic.update_simulation_in_step(dt))
                 .expect("a fixed step enters its owner phase once")
         })
     }
 
-    /// Borrow live Object state after the actual begin-step sync. No new
-    /// ingress is allowed until this operation returns. A second world owns
-    /// its own phase independently; a nested loan of this one is rejected.
-    pub(crate) fn with_host_logic_after_sync<R>(
+    /// Enter this instance's synchronous logic step. A second world has its
+    /// own reentry guard; a nested step on this one is rejected.
+    /// This guard never changes where Object reads obtain their values.
+    pub(crate) fn with_host_logic_step<R>(
         &mut self,
         run: impl FnOnce(&mut Self) -> R,
     ) -> Option<R> {
-        if self.host_logic_after_sync {
+        if self.host_logic_step_active {
             return None;
         }
-        self.host_logic_after_sync = true;
-        let mut owner = HostLogicAfterSync { logic: self };
+        self.host_logic_step_active = true;
+        let mut owner = HostLogicStep { logic: self };
         Some(run(&mut owner))
     }
 
-    fn update_simulation_after_sync(&mut self, dt: f32) -> SimulationStepOutcome {
+    fn update_simulation_in_step(&mut self, dt: f32) -> SimulationStepOutcome {
         debug_assert!(
             std::sync::Arc::ptr_eq(
                 &gamelogic::system::engine_stores::active(),
@@ -1486,10 +1485,9 @@ impl GameLogic {
         self.update_battle_drone_repair_residual(dt);
         // CommandCenter / RadarVan radar-online residual (Player::hasRadar).
         // Fail-closed: not full RadarUpgrade grant / power-brownout disable-proof path.
-        // Wave 818: host-sole unless movement authority live: radar_count owned by GW tick + logs.
-        if !crate::gameworld_shadow::gameworld_movement_authority_live() {
-            self.update_player_radar();
-        }
+        // Radar belongs to each controlling Player. Recompute at the ordinary
+        // host phase; a presentation/comparison shadow cannot grant radar.
+        self.update_player_radar();
         self.drain_masked_object_selection();
         self.update_power_disabled_state();
 
@@ -1562,6 +1560,7 @@ impl GameLogic {
         // -----------------------------------------------------------------------
         // C++: for( Object *obj = m_objList; obj; obj = obj->getNextObject() )
         // C++:   if( obj->isDisabled() ) obj->checkDisabledStatus();
+        self.expire_owned_disabled_statuses();
         self.check_bridge_disabled_statuses();
 
         // -----------------------------------------------------------------------
@@ -2258,7 +2257,7 @@ mod tests {
         assert_eq!(frozen.sim_time_seconds, 0.0);
     }
     #[test]
-    fn host_logic_after_sync_phase_restores_after_real_frozen_and_advanced_steps() {
+    fn host_logic_step_active_phase_restores_after_real_frozen_and_advanced_steps() {
         let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         drop_pending_clear_game_data();
 
@@ -2269,7 +2268,7 @@ mod tests {
         assert_eq!(logic.frame, 0, "frozen update does not advance frame");
         assert_eq!(logic.fixed_step_diagnostics().frozen_steps, 1);
         assert!(
-            logic.with_host_logic_after_sync(|_| ()).is_some(),
+            logic.with_host_logic_step(|_| ()).is_some(),
             "real frozen return must drop the owner phase"
         );
 
@@ -2278,7 +2277,7 @@ mod tests {
         assert_eq!(logic.frame, 1, "advanced update advances one frame");
         assert_eq!(logic.fixed_step_diagnostics().steps_run, 1);
         assert!(
-            logic.with_host_logic_after_sync(|_| ()).is_some(),
+            logic.with_host_logic_step(|_| ()).is_some(),
             "real advanced return must drop the owner phase"
         );
         drop_pending_clear_game_data();
@@ -2290,19 +2289,19 @@ mod tests {
         drop_pending_clear_game_data();
         let mut first = GameLogic::new();
         first
-            .with_host_logic_after_sync(|first| {
+            .with_host_logic_step(|first| {
                 // Construction is inert even while a different instance is driving.
                 let mut second = GameLogic::new();
-                assert!(!second.host_logic_after_sync);
-                assert!(first.host_logic_after_sync);
+                assert!(!second.host_logic_step_active);
+                assert!(first.host_logic_step_active);
                 second.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, Some(1));
                 assert_eq!(second.frame, 1);
-                assert!(!second.host_logic_after_sync);
-                assert!(first.host_logic_after_sync);
-                assert!(first.with_host_logic_after_sync(|_| ()).is_none());
+                assert!(!second.host_logic_step_active);
+                assert!(first.host_logic_step_active);
+                assert!(first.with_host_logic_step(|_| ()).is_none());
             })
             .expect("first owner scope");
-        assert!(!first.host_logic_after_sync);
+        assert!(!first.host_logic_step_active);
         drop_pending_clear_game_data();
     }
 }

@@ -1477,7 +1477,7 @@ fn group_path_thresholds_read_aidata_store() {
         .expect("group_path_distance_thresholds");
     let w = &src[i..src.len().min(i + 1800)];
     assert!(
-        w.contains("get_ai_data_store")
+        w.contains("self.game_logic.ai_definitions.data()")
             && w.contains("min_distance_for_group")
             && w.contains("distance_requires_group"),
         "group-path must read leftover AIData thresholds"
@@ -1487,18 +1487,12 @@ fn group_path_thresholds_read_aidata_store() {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use glam::Vec3;
 
-    let prev = {
-        let store = game_engine::common::ini::get_ai_data_store();
-        let mut store = store.write().expect("AI data store write lock");
-        store.ensure_base();
-        let data = store.get_active_mut().expect("aidata");
-        let prev = (data.min_distance_for_group, data.distance_requires_group);
-        data.min_distance_for_group = 10000.0;
-        data.distance_requires_group = 50000.0;
-        prev
-    };
     {
         let mut logic = GameLogic::new();
+        let mut data = logic.ai_definitions.data().clone();
+        data.min_distance_for_group = 10000.0;
+        data.distance_requires_group = 50000.0;
+        logic.set_ai_definition_base(data);
         let mut tpl = ThingTemplate::new("GP_TH");
         tpl.add_kind_of(KindOf::Vehicle);
         tpl.add_kind_of(KindOf::Selectable);
@@ -1516,14 +1510,6 @@ fn group_path_thresholds_read_aidata_store() {
                 !exec.compute_ground_path_should_group(&[a, b], Vec3::new(300.0, 0.0, 0.0)),
                 "click below AIData MinDistanceForGroup must skip group path"
             );
-        }
-    }
-    {
-        let store = game_engine::common::ini::get_ai_data_store();
-        let mut store = store.write().expect("AI data store write lock");
-        if let Some(data) = store.get_active_mut() {
-            data.min_distance_for_group = prev.0;
-            data.distance_requires_group = prev.1;
         }
     }
 }

@@ -617,7 +617,7 @@ impl GameLogic {
             };
             let mut dict = Dict::new();
             dict.set_ascii_string(key_player_name(), player_name.clone());
-            dict.set_bool(key_player_is_human(), player.is_local);
+            dict.set_bool(key_player_is_human(), player.is_human);
             let display = if player.name.is_empty() {
                 player_name.clone()
             } else {
@@ -647,7 +647,7 @@ impl GameLogic {
             };
             dict.set_int(key_multiplayer_start_index(), start_index);
             if matches!(self.game_mode, GameMode::Skirmish) {
-                dict.set_bool(key_player_is_skirmish(), !player.is_local);
+                dict.set_bool(key_player_is_skirmish(), !player.is_human);
             }
             sides.add_side(&dict);
 

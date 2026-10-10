@@ -11,6 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 fn fixture_save_info() -> SaveGameInfo {
     SaveGameInfo {
+        pristine_map_name: None,
         filename: "legacy_fixture".to_string(),
         display_name: "Legacy production fixture".to_string(),
         description: "v1 bincode production payload".to_string(),
@@ -159,6 +160,7 @@ fn host_lists_cpp_game_state_version_2_without_rejecting() {
         let mut cursor = Cursor::new(&mut payload);
         let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
         let info = SaveGameInfo {
+            pristine_map_name: None,
             filename: "retail".into(),
             display_name: "Retail Save".into(),
             description: "C++ listed".into(),
@@ -211,6 +213,7 @@ fn game_state_header_writes_empty_campaign_and_invalid_mission() {
         write_cpp_game_state_header(
             &mut xfer,
             &SaveGameInfo {
+                pristine_map_name: None,
                 filename: "skirmish".into(),
                 display_name: "Skirmish".into(),
                 description: "Skirmish".into(),
@@ -292,6 +295,7 @@ fn cpp_chunk_game_logic_does_not_report_successful_empty_world() {
         write_cpp_game_state_header(
             &mut xfer,
             &SaveGameInfo {
+                pristine_map_name: None,
                 filename: "retail".into(),
                 display_name: "Retail Save".into(),
                 description: "C++ listed".into(),
@@ -510,6 +514,7 @@ fn game_state_map_round_trips_live_game_mode() {
         let mut cursor = Cursor::new(&mut payload);
         let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
         let info = SaveGameInfo {
+            pristine_map_name: None,
             filename: "mode".into(),
             display_name: "Mode".into(),
             description: "mode".into(),
@@ -522,7 +527,7 @@ fn game_state_map_round_trips_live_game_mode() {
             difficulty: GameDifficulty::Medium,
             save_type: SaveFileType::Normal,
         };
-        write_game_state_map_block(&mut xfer, &info).expect("write map");
+        write_game_state_map_block(&mut xfer, &info, Path::new("Save")).expect("write map");
     }
     set_pending_save_game_mode(None);
     store_loaded_game_state_map_mode(None);
@@ -582,6 +587,7 @@ fn failed_load_does_not_apply_chunk_campaign_to_live_match() {
         write_cpp_game_state_header(
             &mut xfer,
             &SaveGameInfo {
+                pristine_map_name: None,
                 filename: "bad_campaign".into(),
                 display_name: "Bad Campaign".into(),
                 description: "failed load".into(),

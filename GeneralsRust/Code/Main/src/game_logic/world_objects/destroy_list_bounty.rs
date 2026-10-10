@@ -305,12 +305,13 @@ impl GameLogic {
                     if let Some(unit) = self.objects.get_mut(&sid) {
                         // C++ DAMAGE_FALLING / DEATH_SPLATTED / HUGE_DAMAGE_AMOUNT
                         // (AIPathfind.cpp:4143-4148).
-                        if unit.take_damage_from_immediate_typed_death(
+                        if unit.take_damage_from_immediate_typed_death_with_repulsor_policy(
                             1.0e9,
                             Some(event.id),
                             crate::game_logic::combat::DamageType::Falling,
                             crate::game_logic::host_usa_pilot::HostDeathType::Splatted,
                             &mut self.health_events,
+                            &self.enable_repulsors,
                         ) {
                             self.objects_to_destroy
                                 .push_back(DestructionEvent::after_death(sid, event.killer));
@@ -599,21 +600,23 @@ impl GameLogic {
                             // then kill() if percent == 1.0 and still alive.
                             if damage_pct > 0.0 {
                                 let dmg = unit.max_health * damage_pct;
-                                let destroyed = unit.take_damage_from_typed_death(
-                                    dmg,
-                                    Some(event.id),
-                                    crate::game_logic::combat::DamageType::Unresistable,
-                                    crate::game_logic::host_usa_pilot::HostDeathType::Burned,
-                                    &mut self.health_events,
-                                );
+                                let destroyed = unit
+                                    .take_damage_from_typed_death_with_repulsor_policy(
+                                        dmg,
+                                        Some(event.id),
+                                        crate::game_logic::combat::DamageType::Unresistable,
+                                        crate::game_logic::host_usa_pilot::HostDeathType::Burned,
+                                        &mut self.health_events,
+                                        &self.enable_repulsors,
+                                    );
                                 let flame_proof_kill = !destroyed
                                     && !unit.status.destroyed
                                     && (damage_pct - 1.0).abs() < f32::EPSILON;
                                 if flame_proof_kill {
-                                    let _ = unit.take_damage_from_immediate(
+                                    let _ = unit.take_damage_from_immediate_with_repulsor_policy(
                                         crate::game_logic::host_partition_collision_physics_residual::PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL,
                                         Some(event.id),
-                                     &mut self.health_events);
+                                     &mut self.health_events, &self.enable_repulsors,);
                                     unit.status.destroyed = true;
                                 }
                                 if destroyed || flame_proof_kill || unit.status.destroyed {
@@ -635,10 +638,10 @@ impl GameLogic {
                             if !free_to_exit {
                                 // C++ TransportContain::killRidersWhoAreNotFreeToExit
                                 // — default DestroyRidersWhoAreNotFreeToExit is false → kill().
-                                let _ = unit.take_damage_from_immediate(
+                                let _ = unit.take_damage_from_immediate_with_repulsor_policy(
                                     crate::game_logic::host_partition_collision_physics_residual::PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL,
                                     Some(event.id),
-                                 &mut self.health_events);
+                                 &mut self.health_events, &self.enable_repulsors,);
                                 unit.status.destroyed = true;
                                 unit.set_contained_by(None);
                                 if let Some(player_id) =

@@ -59,11 +59,35 @@ pub enum ScriptDisplayRequest<'a> {
 mod camera_requests;
 pub use camera_requests::ScriptCameraRequest;
 
+/// CPP ScriptActions:2243,6210,1250: synchronous player AI effects.
+/// Skillsets remain script-numbered until the receiving owner converts them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptAiPlayerRequest<'a> {
+    RepairNamed {
+        player: &'a str,
+        structure: &'a str,
+    },
+    SelectSkillset {
+        player: &'a str,
+        script_skillset: i32,
+    },
+    SetTeamDelay {
+        player: &'a str,
+        seconds: i32,
+    },
+}
+
 /// Synchronous effects and live queries of the actual execution owner.
 /// The driver is borrowed for execution only; it is never installed in the
 /// engine, dispatcher context, or a process-wide active slot.
 pub trait ScriptExecutionDriver {
     fn after_action(&mut self) -> GameLogicResult<()>;
+
+    /// Some is authoritative even when the owner is missing or returns an
+    /// error. None selects only the standalone Core player adapter.
+    fn ai_player(&mut self, _request: ScriptAiPlayerRequest<'_>) -> Option<GameLogicResult<()>> {
+        None
+    }
 
     /// None selects the standalone retained-handler adapter. Some is
     /// authoritative, including a failed callback: never retry on another

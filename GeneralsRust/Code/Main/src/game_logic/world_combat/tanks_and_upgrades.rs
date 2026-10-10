@@ -341,12 +341,13 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from_immediate_residual(
+                let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
                     dmg,
                     source,
                     BATTLE_MASTER_DAMAGE_TYPE,
                     BATTLE_MASTER_DEATH_TYPE,
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -770,12 +771,13 @@ impl GameLogic {
             } else {
                 (REDGUARD_DAMAGE_TYPE, REDGUARD_DEATH_TYPE)
             };
-            let destroyed = obj.take_damage_from_immediate_residual(
+            let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
                 damage,
                 source,
                 dt_name,
                 death_name,
                 &mut self.health_events,
+                &self.enable_repulsors,
             );
             hits = 1;
             if destroyed {
@@ -1137,12 +1139,13 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from_immediate_residual(
+                let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
                     dmg,
                     source,
                     TANK_HUNTER_DAMAGE_TYPE,
                     TANK_HUNTER_DEATH_TYPE,
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {

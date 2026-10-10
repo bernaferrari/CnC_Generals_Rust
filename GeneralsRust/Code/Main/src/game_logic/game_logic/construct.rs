@@ -50,7 +50,11 @@ impl GameLogic {
         let mission_hooks = MissionScriptHooks::new();
         let team_factory = gamelogic::team::TeamFactoryHandle::new();
 
+        let ai_definitions =
+            crate::game_logic::ai_definitions::AiDefinitions::from_engine_baseline();
         let mut instance = Self {
+            ai_definitions,
+            map_definition_source: None,
             health_events: crate::game_logic::HostHealthEvents::default(),
             // C++ engine-init order (GameEngine.cpp:468-481): the upgrade
             // center and AI stores exist before the world that owns them.
@@ -68,12 +72,11 @@ impl GameLogic {
             enable_repulsors: false,
             retaliate_friends_radius: 120.0,
             max_retaliate_distance: 210.0,
-            host_logic_after_sync: false,
+            host_logic_step_active: false,
             gameworld_authority:
                 crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority::DEFAULT_OFF,
             objects: HostObjectStore::new(),
             warehouse_crippling_states: HashMap::new(),
-            host_view_dirty: HashSet::new(),
             vision_last_looks: HashMap::new(),
             vision_last_reveal_all: HashMap::new(),
             vision_last_shroud: HashMap::new(),
@@ -704,6 +707,7 @@ impl GameLogic {
             replay_observer_player_id: None,
             install_multiplayer_scripts: false,
         };
+        instance.refresh_pathfinding_ai_definitions();
         instance.rebuild_objective_lookup();
         // C++ GameLogic::GameLogic only initializes fields. Constructing a
         // candidate must not publish its authority, store bundle, or override
@@ -734,6 +738,7 @@ impl GameLogic {
         self.world_min = Vec3::new(-width * 0.5, 0.0, -height * 0.5);
         self.world_max = Vec3::new(width * 0.5, 0.0, height * 0.5);
         self.pathfinding_system = PathfindingSystem::new_with_origin(self.world_min, width, height);
+        self.refresh_pathfinding_ai_definitions();
         // Terrain-provided extent must seed TheRadar samples (C++ newMap).
         self.host_radar_on_map_loaded();
     }
@@ -741,6 +746,10 @@ impl GameLogic {
     /// Reset method - matching C++ GameLogic interface
     pub fn reset(&mut self) {
         log::debug!("GameLogic::reset() - resetting game state");
+        self.map_definition_source = None;
+        self.ai_definitions.reset();
+        self.apply_aidata_enable_repulsors();
+        self.refresh_pathfinding_ai_definitions();
         self.publish_gameworld_authority_context();
         Self::register_leftover_object_create_overrides_overlay();
         // start_new_game boundary (world_runtime.rs) routes through here: a
@@ -778,7 +787,6 @@ impl GameLogic {
         self.warehouse_crippling_states.clear();
         self.mission_scripts.clear_warehouse_set_values();
         self.host_dock_approach_queues.get_mut().clear();
-        self.host_view_dirty.clear();
         self.vision_last_looks.clear();
         self.vision_last_reveal_all.clear();
         self.vision_last_shroud.clear();

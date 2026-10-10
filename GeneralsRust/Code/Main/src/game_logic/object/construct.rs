@@ -1161,6 +1161,7 @@ impl Object {
             formation_id: 0,
             formation_offset: glam::Vec2::ZERO,
             overcharge_enabled: false,
+            pending_radar_disabled_edges: Vec::new(),
             active_weapon_slot: 0,
             weapon_lock_type: WeaponLockType::NotLocked,
             weapon_lock_slot: 0,
@@ -2090,6 +2091,7 @@ impl Object {
             formation_id: 0,
             formation_offset: glam::Vec2::ZERO,
             overcharge_enabled: false,
+            pending_radar_disabled_edges: Vec::new(),
             active_weapon_slot: 0,
             weapon_lock_type: WeaponLockType::NotLocked,
             weapon_lock_slot: 0,
@@ -2481,24 +2483,11 @@ impl Object {
     }
 
     pub fn is_alive(&self) -> bool {
-        self.is_alive_with_health(|| {
-            crate::gameworld_shadow::coupled_entity_health(self.id).unwrap_or(self.health.current)
-        })
-    }
-
-    /// Snapshot restoration owns the receiving object's transferred fields;
-    /// an unrelated published shadow may reuse this numeric ObjectId.
-    pub(crate) fn is_alive_from_host_state(&self) -> bool {
-        self.is_alive_with_health(|| self.health.current)
-    }
-
-    fn is_alive_with_health(&self, health: impl FnOnce() -> f32) -> bool {
         if self.status.destroyed || self.status.effectively_dead || self.status.keep_as_rubble {
             return false;
         }
-        // Read HP only after the lifetime flags. The ordinary caller may
-        // read coupled BodyModule state; restore supplies its transferred HP.
-        if health() <= 0.0 {
+        // C++ body health and lifetime flags belong to this object.
+        if self.health.current <= 0.0 {
             return false;
         }
         // C++ effectively-dead during SlowDeath / air crash sequences.
@@ -2536,9 +2525,8 @@ impl Object {
     }
 
     pub fn get_health_percentage(&self) -> f32 {
-        // C++ BodyModule::getHealth() / getMaxHealth() — GW when coupled.
-        let current =
-            crate::gameworld_shadow::coupled_entity_health(self.id).unwrap_or(self.health.current);
+        // C++ BodyModule::getHealth() / getMaxHealth() on this body.
+        let current = self.health.current;
         let max_h = if self.health.maximum > 0.0 {
             self.health.maximum
         } else {
@@ -2592,14 +2580,6 @@ impl Object {
     }
 
     pub fn is_constructed(&self) -> bool {
-        if let Some((pct, uc)) = crate::gameworld_shadow::coupled_entity_construction(self.id) {
-            return !uc || pct + 1e-6 >= 1.0;
-        }
-        self.is_constructed_from_host_state()
-    }
-
-    /// Receiving-state counterpart of the ordinary coupled-aware predicate.
-    pub(crate) fn is_constructed_from_host_state(&self) -> bool {
         !self.status.under_construction && self.construction_percent >= 1.0
     }
 

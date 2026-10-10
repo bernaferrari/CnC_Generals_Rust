@@ -1058,6 +1058,7 @@ impl CnCGameEngine {
             crate::save_load::campaign_header_from_campaign_manager();
 
         SaveGameInfo {
+            pristine_map_name: self.game_logic.map_definition_source.clone(),
             filename: slot.to_string(),
             display_name: display_name.to_string(),
             description: description.to_string(),
@@ -1406,6 +1407,7 @@ impl CnCGameEngine {
         slot: &str,
         active_mode: crate::game_logic::GameMode,
         template_catalog: &std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
+        ai_definition_base: &game_engine::common::ini::AIData,
     ) -> Result<StagedRestoreWorld, String> {
         // A previous aborted decode cannot lend its client chunk to this save.
         let _ = crate::save_load::snapshot::take_loaded_game_client_xfer();
@@ -1421,6 +1423,7 @@ impl CnCGameEngine {
             slot,
             active_mode,
             template_catalog,
+            ai_definition_base,
             |snapshot, staged| {
                 save_file_manager
                     .restore_game_snapshot(snapshot, staged)
@@ -1442,6 +1445,7 @@ impl CnCGameEngine {
         slot: &str,
         active_mode: crate::game_logic::GameMode,
         template_catalog: &std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
+        ai_definition_base: &game_engine::common::ini::AIData,
         restore_snapshot: F,
     ) -> Result<StagedRestoreWorld, String>
     where
@@ -1485,6 +1489,7 @@ impl CnCGameEngine {
         let staged_effects = crate::game_logic::staged_world_effects::StagedWorldEffects::enter();
         let runtime_stage = gamelogic::runtime_world_transaction::RuntimeWorldStage::begin();
         let mut staged = crate::game_logic::GameLogic::new();
+        staged.set_ai_definition_base(ai_definition_base.clone());
         staged.start_new_game_for_restore(mode);
         // Map object restoration needs the live INI/template catalog.  Keep
         // custom/mod templates from the source match while retaining the fresh
@@ -1494,7 +1499,8 @@ impl CnCGameEngine {
         // Preserve the saved logical identity in `GameLogic::map_name`; the
         // prior resolution above only proves that this exact identity maps to
         // a real on-disk retail file rather than to a development fallback.
-        if !staged.load_map(saved_map) {
+        let definition_source = save_info.pristine_map_name.as_deref().unwrap_or(saved_map);
+        if !staged.load_map_with_definition_source(saved_map, definition_source) {
             return Err(format!(
                 "failed to load saved map '{saved_map}' from '{resolved_map_name}'"
             ));
@@ -1568,6 +1574,7 @@ impl CnCGameEngine {
             slot,
             active_mode,
             &template_catalog,
+            self.game_logic.ai_definitions.baseline(),
         ) {
             Ok(staged) => staged,
             Err(err) => {
@@ -2097,6 +2104,7 @@ mod staged_restore_tests {
 
     fn save_info(slot: &str, map_name: String) -> SaveGameInfo {
         SaveGameInfo {
+            pristine_map_name: None,
             filename: slot.to_string(),
             display_name: slot.to_string(),
             description: "staged restore test".to_string(),
@@ -2227,6 +2235,7 @@ mod staged_restore_tests {
             "missing_map",
             GameMode::Shell,
             &catalog,
+            source.ai_definitions.baseline(),
         ) {
             Ok(_) => panic!("missing saved map must reject before a false InGame restore"),
             Err(err) => err,
@@ -2253,6 +2262,7 @@ mod staged_restore_tests {
             "corrupt_client",
             GameMode::Skirmish,
             &catalog,
+            logic.ai_definitions.baseline(),
             |_snapshot, _staged| panic!("invalid client chunk must fail before stage restore"),
         )
         .err()
@@ -2273,6 +2283,9 @@ mod staged_restore_tests {
         saves.init().expect("initialize temporary save directory");
 
         let mut source = GameLogic::new();
+        let mut ai_base = source.ai_definitions.baseline().clone();
+        ai_base.resources_poor = 3217;
+        source.set_ai_definition_base(ai_base);
         source.start_new_game(GameMode::Skirmish);
         assert!(source.load_map(&map_name), "load source retail map");
         // Seed a save-time FOW state that differs from map-start reveals. The
@@ -2338,6 +2351,7 @@ mod staged_restore_tests {
             "valid_map",
             GameMode::Shell,
             &catalog,
+            source.ai_definitions.baseline(),
         )
         .expect("saved map should load before restore");
         let extracted_map = std::path::Path::new(&restored.info.map_name);
@@ -2364,6 +2378,16 @@ mod staged_restore_tests {
         )
         .expect("staged client chunk remains valid until commit");
         assert!(restored.logic.isInGame());
+
+        assert_eq!(
+            restored.logic.ai_definitions.baseline().resources_poor,
+            3217
+        );
+        assert_eq!(
+            format!("{:?}", restored.logic.ai_definitions.data()),
+            format!("{:?}", source.ai_definitions.data()),
+            "saved-map reconstruction uses the source engine baseline and original map/Solo overrides"
+        );
         assert_eq!(
             restored.logic.get_current_map_name(),
             restored.info.map_name
@@ -2399,6 +2423,9 @@ mod staged_restore_tests {
         saves.init().expect("initialize temporary save directory");
 
         let mut source = GameLogic::new();
+        let mut ai_base = source.ai_definitions.baseline().clone();
+        ai_base.resources_poor = 7654;
+        source.set_ai_definition_base(ai_base);
         source.start_new_game(GameMode::Skirmish);
         assert!(source.load_map(&map_name), "load source retail map");
         // Seed compatibility state independently of match setup. A failed
@@ -2537,6 +2564,7 @@ mod staged_restore_tests {
         #[cfg(not(feature = "game_client"))]
         let staged_client_bytes: Option<Vec<u8>> = None;
 
+        let retained_ai_definitions = source.ai_definitions.snapshot();
         let err = match CnCGameEngine::stage_decoded_saved_world_for_restore(
             &snapshot,
             info,
@@ -2544,8 +2572,10 @@ mod staged_restore_tests {
             "forced_stage_failure",
             GameMode::Skirmish,
             &catalog,
+            source.ai_definitions.baseline(),
             |_snapshot, staged| {
                 assert!(staged.isInGame(), "failure is injected after map load");
+                assert_eq!(staged.ai_definitions.baseline().resources_poor, 7654);
                 assert!(gamelogic::runtime_world_transaction::world_runtime_staging_active());
                 assert!(crate::game_logic::staged_world_effects::world_stage_effects_active());
                 // The map candidate has already emitted its normal object
@@ -2562,6 +2592,10 @@ mod staged_restore_tests {
             Err(err) => err,
         };
         assert!(err.contains("forced failure after staged snapshot restore"));
+        assert!(
+            Arc::ptr_eq(&retained_ai_definitions, &source.ai_definitions.snapshot()),
+            "failed candidate must leave live AI definitions unchanged"
+        );
 
         #[cfg(feature = "game_client")]
         assert_eq!(
@@ -2599,6 +2633,232 @@ mod staged_restore_tests {
             actual, expected,
             "all map/snapshot-reachable TLS queues and last-drain state must survive rollback"
         );
+    }
+
+    /// GameLogic::loadMapINI uses pristineMapName for companions, while the
+    /// extracted GameStateMap remains the authoritative saved geometry.
+    #[test]
+    fn embedded_saved_map_restores_original_ai_companions_without_replacing_geometry() {
+        fn map_bytes(ambient: [f32; 3]) -> Vec<u8> {
+            let mut out = game_engine::common::system::DataChunkOutput::new();
+            out.open_data_chunk("GlobalLighting", 1);
+            out.write_int(2); // Afternoon
+            for _ in 0..4 {
+                for _ in 0..2 {
+                    for value in ambient {
+                        out.write_real(value);
+                    }
+                    for value in [0.8, 0.8, 0.8, 0.0, 0.0, -1.0] {
+                        out.write_real(value);
+                    }
+                }
+            }
+            out.close_data_chunk();
+            out.into_ckmp_bytes()
+        }
+        struct CreatedDirectories(Vec<std::path::PathBuf>);
+        impl Drop for CreatedDirectories {
+            fn drop(&mut self) {
+                for directory in &self.0 {
+                    // Only remove directories this fixture created, and only
+                    // if empty; concurrent/user content is never removed.
+                    let _ = std::fs::remove_dir(directory);
+                }
+            }
+        }
+        for bare_lookup in [false, true] {
+            let _logs = WorldStageLogRestore::take();
+            let temp = tempfile::tempdir().unwrap();
+            let retail_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../windows_game/extracted_big_files/MapsZH/Maps");
+            let mut created = Vec::new();
+            if bare_lookup {
+                let mut path = retail_root.as_path();
+                while !path.exists() {
+                    created.push(path.to_path_buf());
+                    path = path.parent().unwrap();
+                }
+                std::fs::create_dir_all(&retail_root).unwrap();
+            }
+            let _created_directories = CreatedDirectories(created);
+            let retail_dir = bare_lookup.then(|| {
+                tempfile::Builder::new()
+                    .prefix("Hq2umeiBare")
+                    .tempdir_in(&retail_root)
+                    .unwrap()
+            });
+            let original_dir = retail_dir.as_ref().map_or_else(
+                || temp.path().join("authored"),
+                |dir| dir.path().to_path_buf(),
+            );
+            std::fs::create_dir_all(&original_dir).unwrap();
+            let bare_name = original_dir.file_name().unwrap().to_str().unwrap();
+            let original_map = original_dir.join(if bare_lookup {
+                format!("{bare_name}.map")
+            } else {
+                "OwnedSavedMap.map".to_string()
+            });
+            let saved_geometry = map_bytes([0.1, 0.2, 0.3]);
+            std::fs::write(&original_map, &saved_geometry).unwrap();
+            std::fs::write(
+                original_dir.join("Map.ini"),
+                "AIData\n WallHeight = 31\n GuardEnemyScanRate = 1500\n End\n",
+            )
+            .unwrap();
+            std::fs::write(
+                original_dir.join("Solo.ini"),
+                "AIData\n GuardEnemyScanRate = 2500\n AttackUsesLineOfSight = No\n End\n",
+            )
+            .unwrap();
+            let resolved_source = original_map.to_str().unwrap().to_string();
+            let map_name = if bare_lookup {
+                bare_name.to_string()
+            } else {
+                resolved_source.clone()
+            };
+            let resolved_source = crate::game_logic::script_loader::find_map_file(&map_name)
+                .expect("qualified and bare fixture must resolve actual authored map")
+                .to_string_lossy()
+                .into_owned();
+            assert_eq!(
+                std::path::Path::new(&resolved_source)
+                    .canonicalize()
+                    .unwrap(),
+                original_map.canonicalize().unwrap()
+            );
+            let mut source = GameLogic::new();
+            let mut base = source.ai_definitions.baseline().clone();
+            base.resources_poor = 4321;
+            base.guard_enemy_scan_rate = 15;
+            base.wall_height = 21.0;
+            source.set_ai_definition_base(base);
+            source.start_new_game(GameMode::Skirmish);
+            assert!(source.load_map(&map_name));
+            assert_eq!(
+                source.get_current_map_name(),
+                map_name,
+                "resolved companion identity must not replace the logical map name"
+            );
+            assert_eq!(source.host_guard_enemy_scan_rate(), 75);
+            assert_eq!(source.ai_definitions.data().wall_height, 31.0);
+            assert!(!source.ai_definitions.data().attack_uses_line_of_sight);
+            assert_eq!(
+                source.last_parsed_map_settings().unwrap().ambient_color,
+                Some([0.1, 0.2, 0.3])
+            );
+            let source_definitions = source.ai_definitions.snapshot();
+            let catalog = source.templates.clone();
+            let mut saves = SaveFileManager::with_save_directory(temp.path().join("save"));
+            saves.init().unwrap();
+            saves
+                .save_game(
+                    "owned_companions",
+                    &source,
+                    &save_info("owned_companions", map_name.clone()),
+                )
+                .unwrap();
+            // Original map geometry now differs. Its companions intentionally remain.
+            let changed_geometry = map_bytes([0.7, 0.8, 0.9]);
+            std::fs::write(&original_map, &changed_geometry).unwrap();
+            std::fs::remove_file(&original_map).unwrap();
+            assert!(
+                !original_map.exists(),
+                "embedded restore must not require original geometry"
+            );
+            let foreign = gamelogic::system::engine_stores::new_for_world();
+            {
+                let mut data = foreign.ai_data().write().unwrap();
+                data.ensure_base();
+                data.get_active_mut().unwrap().wall_height = 999.0;
+                data.get_active_mut().unwrap().guard_enemy_scan_rate = 777;
+            }
+            gamelogic::system::engine_stores::with_active_stores(&foreign, || {
+                let (snapshot, info) = saves.load_game_snapshot("owned_companions").unwrap();
+                let extracted = std::path::Path::new(&info.map_name);
+                assert_ne!(extracted, original_map);
+                assert_eq!(std::fs::read(extracted).unwrap(), saved_geometry);
+                assert_ne!(std::fs::read(extracted).unwrap(), changed_geometry);
+                let pristine = info
+                    .pristine_map_name
+                    .as_deref()
+                    .expect("native pristine identity");
+                assert_eq!(pristine, resolved_source);
+                assert_eq!(
+                    source.map_definition_source.as_deref(),
+                    Some(resolved_source.as_str())
+                );
+                let staged = CnCGameEngine::stage_decoded_saved_world_for_restore(
+                    &snapshot,
+                    info,
+                    None,
+                    "owned_companions",
+                    GameMode::Skirmish,
+                    &catalog,
+                    source.ai_definitions.baseline(),
+                    |snapshot, candidate| {
+                        saves
+                            .restore_game_snapshot(snapshot, candidate)
+                            .map_err(|err| err.to_string())
+                    },
+                )
+                .unwrap();
+                assert_eq!(
+                    staged
+                        .logic
+                        .last_parsed_map_settings()
+                        .unwrap()
+                        .ambient_color,
+                    Some([0.1, 0.2, 0.3]),
+                    "decode saved geometry, never reread changed original geometry"
+                );
+                assert_eq!(
+                    format!("{:?}", staged.logic.ai_definitions.data()),
+                    format!("{:?}", source_definitions),
+                    "rebuild original engine + Map.ini + Solo.ini definitions"
+                );
+                assert_eq!(staged.logic.ai_definitions.baseline().resources_poor, 4321);
+                assert_eq!(
+                    foreign
+                        .ai_data()
+                        .read()
+                        .unwrap()
+                        .get_active()
+                        .unwrap()
+                        .wall_height,
+                    999.0
+                );
+                assert!(Arc::ptr_eq(
+                    &source_definitions,
+                    &source.ai_definitions.snapshot()
+                ));
+                // Re-save the extracted map, retaining its original companion identity.
+                saves
+                    .save_game(
+                        "owned_resave",
+                        &staged.logic,
+                        &save_info("owned_resave", staged.info.map_name.clone()),
+                    )
+                    .unwrap();
+                let (_, resaved_info) = saves.load_game_snapshot("owned_resave").unwrap();
+                assert_eq!(
+                    resaved_info.pristine_map_name,
+                    staged.info.pristine_map_name
+                );
+                let mut ordinary = staged.logic;
+                ordinary.reset();
+                assert!(ordinary.map_definition_source.is_none());
+                std::fs::write(&original_map, &changed_geometry).unwrap();
+                assert!(ordinary.load_map(&map_name));
+                assert_eq!(
+                    ordinary.map_definition_source.as_deref(),
+                    Some(resolved_source.as_str())
+                );
+                assert_eq!(
+                    ordinary.last_parsed_map_settings().unwrap().ambient_color,
+                    Some([0.7, 0.8, 0.9])
+                );
+            });
+        }
     }
 
     #[test]
@@ -2694,6 +2954,7 @@ mod staged_restore_tests {
             "rng_continue",
             GameMode::Shell,
             &catalog,
+            source.ai_definitions.baseline(),
         )
         .expect("stage RNG continuation save");
         assert_eq!(

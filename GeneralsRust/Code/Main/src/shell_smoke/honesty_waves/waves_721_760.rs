@@ -77,9 +77,6 @@ pub(super) struct Waves721760 {
     pub host_production_door_sole_no_dual_tick_method_names_wave743_ok: bool,
     pub host_production_door_sole_no_dual_tick_nav_commands_wave743_ok: bool,
     pub host_production_door_sole_no_dual_tick_live_wave743_ok: bool,
-    pub host_radar_extend_no_dual_complete_method_names_wave744_ok: bool,
-    pub host_radar_extend_no_dual_complete_nav_commands_wave744_ok: bool,
-    pub host_radar_extend_no_dual_complete_live_wave744_ok: bool,
     pub host_lifetime_kill_no_damage_auth_hp_stomp_method_names_wave745_ok: bool,
     pub host_lifetime_kill_no_damage_auth_hp_stomp_nav_commands_wave745_ok: bool,
     pub host_lifetime_kill_no_damage_auth_hp_stomp_live_wave745_ok: bool,
@@ -269,12 +266,6 @@ pub(super) fn evaluate() -> Waves721760 {
             honesty_host_production_door_sole_no_dual_tick_nav_commands_residual_wave743(),
         host_production_door_sole_no_dual_tick_live_wave743_ok:
             simulate_live_host_production_door_sole_no_dual_tick_honesty(),
-        host_radar_extend_no_dual_complete_method_names_wave744_ok:
-            honesty_host_radar_extend_no_dual_complete_method_names_residual_wave744(),
-        host_radar_extend_no_dual_complete_nav_commands_wave744_ok:
-            honesty_host_radar_extend_no_dual_complete_nav_commands_residual_wave744(),
-        host_radar_extend_no_dual_complete_live_wave744_ok:
-            simulate_live_host_radar_extend_no_dual_complete_honesty(),
         host_lifetime_kill_no_damage_auth_hp_stomp_method_names_wave745_ok:
             honesty_host_lifetime_kill_no_damage_auth_hp_stomp_method_names_residual_wave745(),
         host_lifetime_kill_no_damage_auth_hp_stomp_nav_commands_wave745_ok:

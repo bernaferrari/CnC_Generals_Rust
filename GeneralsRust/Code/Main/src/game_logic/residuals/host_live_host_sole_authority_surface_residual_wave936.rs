@@ -63,7 +63,7 @@ const ALLOWED_NAKED_GAMELOGIC_FNS_WAVE936: &[&str] = &[
     // config routing + control_bar_bridge mode-gate removal exposed them).
     "publish_eva_host_frame_and_tick",
     "apply_presentation_camera_residual",
-    "host_run_coupled_fast_forward_loop",
+    "host_run_fast_forward_loop",
     "host_tick_game_client_presentation_shell",
     "host_update_logic_frame",
     "host_try_load_game_authority",
@@ -238,4 +238,3 @@ mod tests {
         assert!(simulate_live_host_sole_authority_surface_honesty());
     }
 }
-

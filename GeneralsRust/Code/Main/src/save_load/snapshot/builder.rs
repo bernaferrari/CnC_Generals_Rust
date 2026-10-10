@@ -418,7 +418,7 @@ impl SnapshotBuilder {
                 id: player.id,
                 name: player.name.clone(),
                 team: player.team,
-                is_human: player.is_local,
+                is_human: player.is_human,
                 is_active: player.is_alive,
                 resources: player.resources,
                 population: PopulationInfo {

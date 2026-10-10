@@ -40,7 +40,7 @@ fn water_radar_color() -> [f32; 3] {
                 [r, g, b]
             }
         })
-        .unwrap_or([140.0 / 255.0, 140.0 / 255.0, 255.0 / 255.0])
+        .unwrap_or([140.0 / 255.0, 140.0 / 255.0, 1.0])
 }
 
 fn sample_world(radar: &RadarSystem, x: i32, y: i32) -> Option<Coord3D> {

@@ -465,11 +465,6 @@ pub use crate::game_logic::host_live_host_production_door_sole_no_dual_tick_resi
     honesty_host_production_door_sole_no_dual_tick_nav_commands_residual_wave743,
     simulate_live_host_production_door_sole_no_dual_tick_honesty,
 };
-pub use crate::game_logic::host_live_host_radar_extend_no_dual_complete_residual_wave744::{
-    honesty_host_radar_extend_no_dual_complete_method_names_residual_wave744,
-    honesty_host_radar_extend_no_dual_complete_nav_commands_residual_wave744,
-    simulate_live_host_radar_extend_no_dual_complete_honesty,
-};
 pub use crate::game_logic::host_live_host_lifetime_kill_no_damage_auth_hp_stomp_residual_wave745::{
     honesty_host_lifetime_kill_no_damage_auth_hp_stomp_method_names_residual_wave745,
     honesty_host_lifetime_kill_no_damage_auth_hp_stomp_nav_commands_residual_wave745,

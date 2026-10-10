@@ -1450,7 +1450,7 @@ fn superweapon_damage_applies_host_hp() {
     let gl = include_str!("../../game_logic/world_scripts/special_power_strikes.rs");
     let gl: String = gl.split_whitespace().collect();
     assert!(
-        gl.contains("take_damage_from_immediate_typed_death(hit.damage,Some(plan.source_object),plan.kind.authored_damage_type(),plan.kind.authored_death_type(),&mutself.health_events"),
+        gl.contains("take_damage_from_immediate_typed_death_with_repulsor_policy(hit.damage,Some(plan.source_object),plan.kind.authored_damage_type(),plan.kind.authored_death_type(),&mutself.health_events,&self.enable_repulsors,"),
         "update_special_power_strikes must apply attributed, typed host HP immediately using its owner's health transport"
     );
 }
@@ -1620,14 +1620,7 @@ fn victory_script_registry_empty_safe() {
 }
 
 #[test]
-fn enhanced_ai_system_registry_empty() {
-    let ep = include_str!("../../../../GameEngine/GameLogic/src/ai/enhanced_player.rs");
-    // Wave 559: enhanced AI peels centralize empty-registry via dual_world_registry_unavailable.
-    assert!(
-        ep.matches("dual_world_registry_unavailable()").count() >= 3
-            || ep.matches("OBJECT_REGISTRY.is_empty()").count() >= 3,
-        "enhanced AI dual-world scans must early-out when registry empty"
-    );
+fn system_registry_empty() {
     // System split: GameLogic update/rebuild lives in system/game_logic_impl/
     // (system/game_logic.rs is an unused shim); registry peels are centralized
     // via dual_world_registry_unavailable().
@@ -1769,9 +1762,9 @@ fn production_tick_builds_presentation_after_side_systems() {
     // The frame driver invokes the fast-forward helper before finalizing.
     // Its definition appears later in this split file, so declaration offsets
     // cannot establish runtime order. Check the call and the helper separately.
-    let host_update_call = eng.find("self.host_run_coupled_fast_forward_loop(");
+    let host_update_call = eng.find("self.host_run_fast_forward_loop(");
     let loop_body = include_str!("../../cnc_game_engine/camera_drain.rs")
-        .split_once("fn host_run_coupled_fast_forward_loop(")
+        .split_once("fn host_run_fast_forward_loop(")
         .expect("fixed-step helper")
         .1;
     assert!(loop_body.contains("Self::host_update_logic_frame("));

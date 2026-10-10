@@ -1897,44 +1897,86 @@ fn jet_stop_idle_timer_sneaky_and_lockon() {
 
 #[test]
 fn jet_takeoff_pause_afterburner_and_lift_ramp() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    use glam::Vec3;
-    let mut t = ThingTemplate::new("AmericaJetRaptor");
-    t.add_kind_of(KindOf::Aircraft);
-    let mut jet = Object::new(t, ObjectId(4), Team::USA);
-    let flight_binding = crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(
-        "RaptorJetLocomotor",
-    )
-    .expect("authored Raptor flight locomotor");
-    jet.set_position(Vec3::new(0.0, 0.0, 0.0));
-    jet.apply_taxiing_locomotor_set();
-    assert_eq!(jet.jet_ai.cur_locomotor_set.as_deref(), Some("SET_TAXIING"));
-    // Retail Locomotor.ini: BasicJetTaxiLocomotor Speed = 50 dist/sec.
-    assert!((jet.movement.max_speed - 50.0).abs() < 0.05);
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "jet_takeoff_pause_afterburner_and_lift_ramp",
+        || {
+            use crate::game_logic::{KindOf, Team, ThingTemplate};
+            use glam::Vec3;
+            // The ramp requires authored flight lift; a minimal name-only catalog
+            // seed promises speed, not the complete retail Locomotor definition.
+            use crate::game_logic::host_upgrade_module_residuals::{
+                AuthoredLocomotorSet, HostLocomotorSetKind,
+            };
+            use game_engine::common::ini::ini_locomotor::{
+                get_locomotor_store_mut, parse_locomotor_template_definition,
+            };
+            for (name, surfaces, speed, lift) in [
+                ("FixtureRaptorFlight", "AIR", "175", "120"),
+                ("FixtureRaptorTaxi", "GROUND", "50", "0"),
+            ] {
+                let properties = [
+                    ("Surfaces", surfaces),
+                    ("Speed", speed),
+                    ("Lift", lift),
+                    ("LiftDamaged", "80"),
+                ]
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect();
+                let definition = parse_locomotor_template_definition(name, &properties).unwrap();
+                get_locomotor_store_mut().add_template(definition).unwrap();
+            }
+            let mut t = ThingTemplate::new("AmericaJetRaptor");
+            t.add_kind_of(KindOf::Aircraft);
+            t.authored_locomotor_sets = Some(vec![
+                AuthoredLocomotorSet {
+                    kind: HostLocomotorSetKind::Normal,
+                    members: vec!["FixtureRaptorFlight".into()],
+                },
+                AuthoredLocomotorSet {
+                    kind: HostLocomotorSetKind::Taxiing,
+                    members: vec!["FixtureRaptorTaxi".into()],
+                },
+            ]);
+            let mut jet = Object::new(t, ObjectId(4), Team::USA);
+            let flight_binding =
+                crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(
+                    "FixtureRaptorFlight",
+                )
+                .expect("authored Raptor flight locomotor");
+            assert!((flight_binding.max_lift - 120.0 / 900.0).abs() < 1e-6);
+            jet.set_position(Vec3::new(0.0, 0.0, 0.0));
+            jet.apply_taxiing_locomotor_set();
+            assert_eq!(jet.jet_ai.cur_locomotor_set.as_deref(), Some("SET_TAXIING"));
+            // Retail Locomotor.ini: BasicJetTaxiLocomotor Speed = 50 dist/sec.
+            assert!((jet.movement.max_speed - 50.0).abs() < 0.05);
 
-    jet.begin_jet_runway_takeoff(0, Vec3::new(100.0, 0.0, 0.0), 100.0, false);
-    assert!(jet.jet_ai.afterburners_on);
-    assert!(jet.jet_ai.takeoff_in_progress);
-    assert_eq!(jet.max_lift, 0.0);
-    assert!(
-        !jet.jet_ai.allow_air_loco,
-        "pause still uses the taxi locomotor"
+            jet.begin_jet_runway_takeoff(0, Vec3::new(100.0, 0.0, 0.0), 100.0, false);
+            assert!(jet.jet_ai.afterburners_on);
+            assert!(jet.jet_ai.takeoff_in_progress);
+            assert_eq!(jet.max_lift, 0.0);
+            assert!(
+                !jet.jet_ai.allow_air_loco,
+                "pause still uses the taxi locomotor"
+            );
+            assert!(!jet.jet_should_transfer_runway(0));
+            assert!(jet.jet_should_transfer_runway(1));
+            let _ = jet.tick_jet_takeoff_lift(1);
+            jet.set_position(Vec3::new(50.0, 0.0, 0.0));
+            let _ = jet.tick_jet_takeoff_lift(jet.jet_ai.takeoff_pause_until);
+            assert_eq!(
+                jet.jet_ai.takeoff_max_lift, flight_binding.max_lift,
+                "C++ captures flight lift when the pause ends and NORMAL is selected"
+            );
+            assert!(
+                jet.max_lift > 0.0 && jet.max_lift < flight_binding.max_lift,
+                "lift={}",
+                jet.max_lift
+            );
+            assert_eq!(jet.max_lift, flight_binding.max_lift * 0.25);
+        },
     );
-    assert!(!jet.jet_should_transfer_runway(0));
-    assert!(jet.jet_should_transfer_runway(1));
-    let _ = jet.tick_jet_takeoff_lift(1);
-    jet.set_position(Vec3::new(50.0, 0.0, 0.0));
-    let _ = jet.tick_jet_takeoff_lift(jet.jet_ai.takeoff_pause_until);
-    assert_eq!(
-        jet.jet_ai.takeoff_max_lift, flight_binding.max_lift,
-        "C++ captures flight lift when the pause ends and NORMAL is selected"
-    );
-    assert!(
-        jet.max_lift > 0.0 && jet.max_lift < flight_binding.max_lift,
-        "lift={}",
-        jet.max_lift
-    );
-    assert_eq!(jet.max_lift, flight_binding.max_lift * 0.25);
 }
 
 #[test]

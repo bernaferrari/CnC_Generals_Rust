@@ -1889,11 +1889,9 @@ mod tests {
     #[test]
     fn safe_queue_one_repulsor_clears_the_old_path() {
         let mut logic = GameLogic::new();
-        {
-            let mut definitions = logic.engine_stores.ai_data().write().unwrap();
-            definitions.ensure_base();
-            definitions.get_active_mut().unwrap().repulsed_distance = 40.0;
-        }
+        let mut definitions = logic.ai_definitions.data().clone();
+        definitions.repulsed_distance = 40.0;
+        logic.set_ai_definition_base(definitions);
         let id = ObjectId(9631);
         let threat = ObjectId(9632);
         let mut tmpl = ThingTemplate::new("Ranger");

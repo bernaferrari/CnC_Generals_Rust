@@ -61,12 +61,7 @@ pub fn calc_motorcycle(
     );
 
     // C++ Drawable.cpp:2342-2343 — `> 0.5 && < -0.5` is impossible.
-    let unclamped_roll = loco.roll + loco.acceleration_roll;
-    info.total_roll = if unclamped_roll > 0.5 && unclamped_roll < -0.5 {
-        unclamped_roll
-    } else {
-        0.0
-    };
+    info.total_roll = 0.0;
 
     info.total_z = 0.0;
     let pitch_height = body.major_radius * (info.total_pitch - ground_pitch).sin();

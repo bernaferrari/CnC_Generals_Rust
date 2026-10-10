@@ -225,6 +225,11 @@ pub struct AIDataStore {
 }
 
 impl AIDataStore {
+    /// Consume an explicitly owned parser draft in original override order.
+    pub fn into_definitions(self) -> Vec<AIData> {
+        self.entries
+    }
+
     pub fn get_active(&self) -> Option<&AIData> {
         self.entries.last()
     }

@@ -18,9 +18,13 @@ pub struct GameLogic {
     pub(crate) host_physics_visuals:
         std::cell::RefCell<crate::presentation_frame::physics_visual_host::HostPhysicsVisualState>,
     pub(crate) drawable_tint_envelopes: crate::game_logic::DrawableTintEnvelopes,
+    /// Original Map.ini/Solo.ini source when geometry came from an embedded save.
+    pub(crate) map_definition_source: Option<String>,
+    /// Immutable AI definitions admitted by this match, including map overrides.
+    pub(crate) ai_definitions: crate::game_logic::ai_definitions::AiDefinitions,
     /// GameLogic-owned engine stores (C++ TheUpgradeCenter / TheAI context).
     /// Created inertly and installed as the active bundle at the world-start
-    /// boundaries (`GameLogic::new` outside a staged restore, `reset` for
+    /// boundaries (`reset` for
     /// staged candidates, staged-world commit); on world drop the bundle is
     /// popped from the active stack, reinstating the bundle this one
     /// displaced (see `install_as_active_stores` and
@@ -50,25 +54,14 @@ pub struct GameLogic {
     /// Defaults all-off: host `GameLogic` is the sole writer (C++ single store).
     pub(crate) gameworld_authority:
         crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority,
-    /// Transient borrowing phase after this instance's begin-step ingress.
-    /// The driving step owns Object writes until its RAII scope ends; never
-    /// serialized or published by construction.
-    pub(in crate::game_logic) host_logic_after_sync: bool,
-    /// Objects in the world.
-    ///
-    /// Own field (not a method on `&mut GameLogic`) so ticks can
-    /// `self.objects.get_mut` while still reading `self.frame`.
-    /// When a GameWorld shadow session is coupled this map is an ID roster /
-    /// read-view outside the synchronous owner phase. Begin-step ingress
-    /// overlays it once; scripts/commands then borrow the live Object values.
-    /// Coupled ticks do not dirty-push HashMap mutations back. Fail-open host
-    /// fields only when shadow is off. Main still allocates ObjectId.
+    /// Reject a nested step on this same instance; it never selects read authority.
+    pub(in crate::game_logic) host_logic_step_active: bool,
+    /// Canonical mutable Object values for this match. Ordinary reads, scripts,
+    /// commands and save snapshots all borrow these same admitted objects.
     pub objects: HostObjectStore,
     /// C++ `SupplyWarehouseCripplingBehavior` clocks, scoped to this game.
     pub(in crate::game_logic) warehouse_crippling_states:
         HashMap<ObjectId, crate::game_logic::host_supply_gather::WarehouseCripplingState>,
-    /// Host ids mutated this tick that must write through to GameWorld.
-    pub(super) host_view_dirty: HashSet<ObjectId>,
     /// C++ Object partition last-look: unlook previous then look on move/death.
     /// (x, y, z, radius, player_mask) in shroud Coord3D space.
     pub(super) vision_last_looks: HashMap<ObjectId, (f32, f32, f32, f32, u32)>,
@@ -77,9 +70,7 @@ pub struct GameLogic {
     /// C++ `m_partitionLastShroud` (Object::shroud / doShroudCover).
     pub(super) vision_last_shroud: HashMap<ObjectId, (f32, f32, f32, f32, u32)>,
 
-    /// Players in the game. Coupled shadow: supplies/power/sciences last-write
-    /// from GameWorld `PlayerData` (economy writeback). This map is a read-view
-    /// plus residual UI/selection fields.
+    /// Canonical player state, including supplies, power, sciences and selection.
     pub(super) players: HashMap<u32, Player>,
     /// C++ GameLogic::m_rankLevelLimit; awards and scripts use this match's cap.
     pub(super) rank_level_limit: i32,

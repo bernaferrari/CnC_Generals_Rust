@@ -153,10 +153,11 @@ impl GameLogic {
             } else if avenger_air {
                 self.avenger.record_air_laser_fire();
                 if let Some(target) = self.objects.get_mut(&target_id) {
-                    let destroyed = target.take_damage_from(
+                    let destroyed = target.take_damage_from_with_repulsor_policy(
                         weapon_damage,
                         Some(attacker_id),
                         &mut self.health_events,
+                        &self.enable_repulsors,
                     );
                     if destroyed {
                         let victim_pos = target.get_position();

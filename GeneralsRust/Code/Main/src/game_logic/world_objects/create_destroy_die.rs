@@ -3,8 +3,14 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
-mod grant_upgrade;
 mod death;
+mod grant_upgrade;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BuildCompleteTiming {
+    AtCreation,
+    AfterFactoryExit,
+}
 
 /// Zero the continuous-fire ramp state when a template re-seeds base weapons.
 fn reset_continuous_fire_state(object: &mut Object) {
@@ -228,6 +234,15 @@ impl GameLogic {
         &mut self,
         center_id: ObjectId,
     ) -> Option<ObjectId> {
+        self.spawn_supply_center_one_shot_collector_with_observer(center_id, |_, _| {})
+    }
+
+    /// Observe this same synchronous SpawnBehavior callback, before its exit.
+    pub(crate) fn spawn_supply_center_one_shot_collector_with_observer(
+        &mut self,
+        center_id: ObjectId,
+        after_player_created: impl FnOnce(&mut Self, ObjectId),
+    ) -> Option<ObjectId> {
         let (team, owner_player_id, mut spawn_pos, orientation, custom_rally) = {
             let center = self.host_object(center_id)?;
             if !center.is_alive()
@@ -325,15 +340,19 @@ impl GameLogic {
             spawned.producer_id = Some(center_id);
             spawned.set_orientation(orientation);
         }
-        crate::game_logic::host_production_spawn_ready_log::record(
-            spawned_id,
-            center_id,
-            spawn_template,
-            [spawn_pos.x, spawn_pos.y, spawn_pos.z],
-            custom_rally.map(|rally| [rally.x, rally.y, rally.z]),
-        );
-        let _ =
-            self.apply_production_authority_op(ProductionAuthorityOp::ApplySpawnReadyCompletions);
+        // CPP SpawnBehavior.cpp:613-616 notifies Player/AI immediately after
+        // allocation, before exitObjectViaDoor (705). Paid production differs.
+        self.notify_owned_ai_unit_produced(center_id, spawned_id);
+        after_player_created(self, spawned_id);
+        let event =
+            crate::game_logic::host_production_spawn_ready_log::HostProductionSpawnReadyEvent {
+                unit: spawned_id,
+                producer: center_id,
+                template: spawn_template,
+                spawn_pos: [spawn_pos.x, spawn_pos.y, spawn_pos.z],
+                rally: custom_rally.map(|rally| [rally.x, rally.y, rally.z]),
+            };
+        let _ = self.host_apply_supply_spawn_ready_completion(event);
         self.grant_supply_center_exit_temporary_stealth(center_id, spawned_id);
         if let Some(center) = self.host_object_mut(center_id) {
             center.supply_center_spawn_behavior_fired = true;
@@ -975,7 +994,13 @@ impl GameLogic {
         position: Vec3,
     ) -> Option<ObjectId> {
         let owner_player_id = self.unique_player_id_for_team(team);
-        let id = self.create_object_with_owner(template_name, team, owner_player_id, position)?;
+        let id = self.create_object_with_owner(
+            template_name,
+            team,
+            owner_player_id,
+            position,
+            BuildCompleteTiming::AtCreation,
+        )?;
         self.apply_cash_bounty_on_object_created(id);
         Some(id)
     }
@@ -992,8 +1017,13 @@ impl GameLogic {
         if team == Team::Neutral {
             return None;
         }
-        let id =
-            self.create_object_with_owner(template_name, team, Some(owner_player_id), position)?;
+        let id = self.create_object_with_owner(
+            template_name,
+            team,
+            Some(owner_player_id),
+            position,
+            BuildCompleteTiming::AtCreation,
+        )?;
         self.apply_cash_bounty_on_object_created(id);
         Some(id)
     }
@@ -1014,6 +1044,28 @@ impl GameLogic {
             None => self.create_object(template_name, team, position),
         }
     }
+    /// ProductionUpdate calls onCreate at allocation, but onBuildComplete
+    /// only after exit and Player::onUnitCreated (CPP:798-825). Map/script
+    /// creation retains its immediate completion behavior.
+    pub(crate) fn create_production_object_for_owner_or_team(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        position: Vec3,
+    ) -> Option<ObjectId> {
+        let owner = owner_player_id.or_else(|| self.unique_player_id_for_team(team));
+        let id = self.create_object_with_owner(
+            template_name,
+            team,
+            owner,
+            position,
+            BuildCompleteTiming::AfterFactoryExit,
+        )?;
+        self.apply_cash_bounty_on_object_created(id);
+        Some(id)
+    }
+
     /// Bind `template_name` to an already-loaded host ThingTemplate.
     ///
     /// C++ `ThingFactory` is filled once in `GameEngine::init`. The host catalog
@@ -1113,6 +1165,7 @@ impl GameLogic {
         team: Team,
         owner_player_id: Option<u32>,
         position: Vec3,
+        build_complete_timing: BuildCompleteTiming,
     ) -> Option<ObjectId> {
         if owner_player_id.is_some_and(|player_id| {
             self.players.get(&player_id).map(|player| player.team) != Some(team)
@@ -2212,7 +2265,9 @@ impl GameLogic {
             // C++ GrantUpgradeCreate::onCreate for map-placed / instant-finished
             // objects (ExemptStatus=UNDER_CONSTRUCTION and not constructing).
             self.apply_grant_upgrade_create_on_create(id);
-            if !starts_under_construction {
+            if !starts_under_construction
+                && build_complete_timing == BuildCompleteTiming::AtCreation
+            {
                 // C++ GameLogic.cpp:1878-1885 every map object runs CreateModules
                 // onBuildComplete (SupplyCenter/GrantUpgrade/Preorder/LockWeapon/SP).
                 self.apply_create_modules_on_build_complete(id);
@@ -2673,7 +2728,7 @@ impl GameLogic {
     /// C++ GameLogic.cpp:1878-1885 / ProductionUpdate.cpp:819-825 — every
     /// CreateModule `onBuildComplete` for map-placed and production-finished
     /// objects.  Does not fire construction-complete EVA/radar.
-    pub(in super::super) fn apply_create_modules_on_build_complete(&mut self, object_id: ObjectId) {
+    pub(crate) fn apply_create_modules_on_build_complete(&mut self, object_id: ObjectId) {
         self.apply_preorder_create(object_id);
         let grants = self
             .objects

@@ -23,3 +23,6 @@ mod weapon_upgrades;
 
 #[cfg(test)]
 mod unit_ai_runtime_tests;
+
+#[cfg(test)]
+mod residual_repulsor_owner_tests;

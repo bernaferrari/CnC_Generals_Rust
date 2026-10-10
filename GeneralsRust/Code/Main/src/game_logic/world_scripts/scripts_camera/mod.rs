@@ -258,3 +258,6 @@ mod remaining_camera_owner_tests;
 
 #[cfg(test)]
 mod camera_view_drain_tests;
+
+#[cfg(test)]
+mod script_ai_player_owner_tests;

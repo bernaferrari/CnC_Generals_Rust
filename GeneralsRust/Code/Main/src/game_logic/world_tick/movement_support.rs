@@ -755,8 +755,25 @@ impl GameLogic {
                     continue;
                 }
                 let pos = obj.get_position();
-                let gy = self.terrain_height_at(pos).unwrap_or(obj.ground_height);
-                let sy = self.surface_ht_at(pos).unwrap_or(gy);
+                let flight_terrain = super::flight_terrain::FlightTerrainView {
+                    grid: &self.pathfinding_system.grid,
+                    terrain: self.terrain.as_ref(),
+                    samples: self.pathfinding_height_samples.as_ref(),
+                };
+                let smooth = matches!(
+                    obj.loco_behavior_z,
+                    LocomotorBehaviorZ::SmoothRelativeToHighestLayer
+                );
+                let gy = if smooth {
+                    flight_terrain.raw_ground(pos, obj.ground_height)
+                } else {
+                    self.terrain_height_at(pos).unwrap_or(obj.ground_height)
+                };
+                let sy = if smooth {
+                    gy
+                } else {
+                    self.surface_ht_at(pos).unwrap_or(gy)
+                };
                 let sy = if matches!(
                     obj.loco_behavior_z,
                     LocomotorBehaviorZ::RelativeToGroundAndBuildings
@@ -766,7 +783,7 @@ impl GameLogic {
                     obj.loco_behavior_z,
                     LocomotorBehaviorZ::SmoothRelativeToHighestLayer
                 ) {
-                    obj.highest_layer_surface_ht(sy)
+                    flight_terrain.highest_surface(obj)
                 } else {
                     sy
                 };
@@ -822,6 +839,11 @@ impl GameLogic {
             let mut plant_goal: Option<Vec3> = None;
             let mut blocked_out = false;
             let mut restamp_after_move = false;
+            let flight_terrain = super::flight_terrain::FlightTerrainView {
+                grid: &self.pathfinding_system.grid,
+                terrain: self.terrain.as_ref(),
+                samples: self.pathfinding_height_samples.as_ref(),
+            };
             'unit: {
                 if let Some(obj) = self.objects.get_mut(&id) {
                     obj.landing_splat_done = false;
@@ -858,8 +880,15 @@ impl GameLogic {
                         }
                         // Leftover unused `handle_behavior_z_for` via leftover
                         // `get_surface_ht_at_pt`. Single Z — never pose-Y then double.
-                        let sy = obj.leftover_surface_ht(surface_y);
-                        Self::apply_live_handle_behavior_z(obj, sy, None);
+                        let sy = if matches!(
+                            obj.loco_behavior_z,
+                            LocomotorBehaviorZ::SmoothRelativeToHighestLayer
+                        ) {
+                            flight_terrain.highest_surface(obj)
+                        } else {
+                            obj.leftover_surface_ht(surface_y)
+                        };
+                        Self::apply_live_handle_behavior_z(obj, sy, None, Some(&flight_terrain));
                         Self::stamp_object_airborne_target(obj, ground_y, &mut self.health_events);
                         obj.cur_max_blocked_speed = 999_999.0;
                         break 'unit;
@@ -958,7 +987,12 @@ impl GameLogic {
                                 &self.pathfinding_system.grid,
                                 surfaces,
                             ) {
-                                Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                                Self::apply_live_handle_behavior_z(
+                                    obj,
+                                    surface_y,
+                                    None,
+                                    Some(&flight_terrain),
+                                );
                                 Self::stamp_object_airborne_target(
                                     obj,
                                     ground_y,
@@ -977,7 +1011,12 @@ impl GameLogic {
                             obj.num_frames_blocked = 1;
                         }
                         obj.cur_max_blocked_speed = 999_999.0;
-                        Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                        Self::apply_live_handle_behavior_z(
+                            obj,
+                            surface_y,
+                            None,
+                            Some(&flight_terrain),
+                        );
                         Self::stamp_object_airborne_target(obj, ground_y, &mut self.health_events);
                         break 'unit;
                     }
@@ -1116,7 +1155,12 @@ impl GameLogic {
                                     obj.pending_evacuate_on_stop = true;
                                     obj.pending_exit_after_evacuate = and_exit;
                                 }
-                                Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                                Self::apply_live_handle_behavior_z(
+                                    obj,
+                                    surface_y,
+                                    None,
+                                    Some(&flight_terrain),
+                                );
                                 Self::stamp_object_airborne_target(
                                     obj,
                                     ground_y,
@@ -1245,7 +1289,12 @@ impl GameLogic {
                                     }
                                 }
                                 obj.record_host_movement();
-                                Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                                Self::apply_live_handle_behavior_z(
+                                    obj,
+                                    surface_y,
+                                    None,
+                                    Some(&flight_terrain),
+                                );
                                 Self::stamp_object_airborne_target(
                                     obj,
                                     ground_y,
@@ -1355,7 +1404,12 @@ impl GameLogic {
                                 && obj.downhill_only_blocks_goal(current_pos.y, goal_y)
                             {
                                 obj.record_host_movement();
-                                Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                                Self::apply_live_handle_behavior_z(
+                                    obj,
+                                    surface_y,
+                                    None,
+                                    Some(&flight_terrain),
+                                );
                                 Self::stamp_object_airborne_target(
                                     obj,
                                     ground_y,
@@ -1370,7 +1424,12 @@ impl GameLogic {
                             if matches!(obj.loco_appearance, LocomotorAppearance::Thrust) {
                                 obj.move_towards_thrust(target_pos, on_path_dist, speed, dt);
                                 obj.notify_terrain_trees_on_unit_move();
-                                Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                                Self::apply_live_handle_behavior_z(
+                                    obj,
+                                    surface_y,
+                                    None,
+                                    Some(&flight_terrain),
+                                );
                                 Self::stamp_object_airborne_target(
                                     obj,
                                     ground_y,
@@ -1629,7 +1688,12 @@ impl GameLogic {
                                         obj.effective_turn_rate() * dt,
                                     );
                                     obj.record_host_movement();
-                                    Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                                    Self::apply_live_handle_behavior_z(
+                                        obj,
+                                        surface_y,
+                                        None,
+                                        Some(&flight_terrain),
+                                    );
                                     Self::stamp_object_airborne_target(
                                         obj,
                                         ground_y,
@@ -1799,7 +1863,12 @@ impl GameLogic {
                             // W3DTreeBuffer::unitMoved (topple/push). set_position
                             // also notifies on integer XY change for GameWorld writeback.
                             obj.notify_terrain_trees_on_unit_move();
-                            Self::apply_live_handle_behavior_z(obj, surface_y, None);
+                            Self::apply_live_handle_behavior_z(
+                                obj,
+                                surface_y,
+                                None,
+                                Some(&flight_terrain),
+                            );
                             if was_braking {
                                 // C++ :981 dx/dy/dz are not recomputed. :1096 reads
                                 // the post-handleBehaviorZ position and adds that
@@ -1938,7 +2007,14 @@ impl GameLogic {
                             }
                             let _ = obj.loco_maintain_appearance(dt);
                             let sy = if matches!(obj.loco_appearance, LocomotorAppearance::Wings) {
-                                obj.leftover_surface_ht(surface_y)
+                                if matches!(
+                                    obj.loco_behavior_z,
+                                    LocomotorBehaviorZ::SmoothRelativeToHighestLayer
+                                ) {
+                                    flight_terrain.highest_surface(obj)
+                                } else {
+                                    obj.leftover_surface_ht(surface_y)
+                                }
                             } else {
                                 surface_y
                             };
@@ -1947,7 +2023,12 @@ impl GameLogic {
                             } else {
                                 obj.maintain_pos.map(|p| p.y)
                             };
-                            Self::apply_live_handle_behavior_z(obj, sy, goal_y);
+                            Self::apply_live_handle_behavior_z(
+                                obj,
+                                sy,
+                                goal_y,
+                                Some(&flight_terrain),
+                            );
                             // C++ friend_endingMove only runs from the move state.
                             // Idle maintain (goal still coincident) must not clear
                             // the queue or the ignored obstacle.
@@ -2015,11 +2096,23 @@ impl GameLogic {
                         // C++ maintainCurrentPosition: appearance, then one Z update.
                         let _ = obj.loco_maintain_appearance(dt);
                         let sy = if matches!(obj.loco_appearance, LocomotorAppearance::Wings) {
-                            obj.leftover_surface_ht(surface_y)
+                            if matches!(
+                                obj.loco_behavior_z,
+                                LocomotorBehaviorZ::SmoothRelativeToHighestLayer
+                            ) {
+                                flight_terrain.highest_surface(obj)
+                            } else {
+                                obj.leftover_surface_ht(surface_y)
+                            }
                         } else {
                             surface_y
                         };
-                        Self::apply_live_handle_behavior_z(obj, sy, obj.maintain_pos.map(|p| p.y));
+                        Self::apply_live_handle_behavior_z(
+                            obj,
+                            sy,
+                            obj.maintain_pos.map(|p| p.y),
+                            Some(&flight_terrain),
+                        );
                     }
                     // C++ AIUpdate.cpp:2270. Clamp from this frame's locomotor
                     // `blocked` local, not the collision flag cleared at :2125.

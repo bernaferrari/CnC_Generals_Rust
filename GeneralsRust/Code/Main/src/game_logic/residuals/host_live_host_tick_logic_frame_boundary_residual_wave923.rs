@@ -99,7 +99,7 @@ pub fn honesty_host_tick_logic_frame_boundary_residual_pack_wave923() -> bool {
         super::harness::rust_fn_body(gl, "step_simulation_with_callbacks").unwrap_or(""),
     );
     let loop_body = non_comment_code(
-        super::harness::rust_fn_body(cnc, "host_run_coupled_fast_forward_loop").unwrap_or(""),
+        super::harness::rust_fn_body(cnc, "host_run_fast_forward_loop").unwrap_or(""),
     );
     let ok = host.contains("tick_logic_frame_with_boundary")
         && tick.contains("step_simulation_with_callbacks")

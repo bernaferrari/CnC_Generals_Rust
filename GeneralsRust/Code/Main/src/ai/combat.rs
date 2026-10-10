@@ -686,6 +686,11 @@ impl AIPlayer {
         {
             return;
         }
+        self.queue_damaged_structure_repair(structure_id);
+    }
+
+    /// Queue a structure after its driving owner has observed a damaged body.
+    pub(crate) fn queue_damaged_structure_repair(&mut self, structure_id: ObjectId) {
         if self.structures_to_repair.contains(&structure_id) {
             return;
         }
@@ -731,7 +736,6 @@ impl AIPlayer {
             gamelogic::ai::pathfind_complete::SURFACE_GROUND
         };
         let is_crusher = unit.crusher_level > 0;
-        let from = gamelogic::common::Coord3D::new(unit_pos.x, unit_pos.z, unit_pos.y);
         let hop_targets: Vec<gamelogic::common::Coord3D> = {
             let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() else {
                 return false;
@@ -744,9 +748,6 @@ impl AIPlayer {
             }
             out
         };
-        let loco = gamelogic::locomotor::LocomotorSet::from_surfaces(surfaces);
-        let ai_store = gamelogic::ai::the_ai();
-        let leftover_pf = ai_store.read().ok().and_then(|ai| ai.pathfinder());
 
         for target in hop_targets {
             let hop = Vec3::new(target.x, target.z, target.y);
@@ -754,19 +755,6 @@ impl AIPlayer {
             // would report true and skip a destroyed span.
             if game_logic.quick_path_exists(unit_pos, hop, surfaces, is_crusher) {
                 continue;
-            }
-            if let Some(pf_arc) = leftover_pf.as_ref() {
-                if let Ok(pf) = pf_arc.read() {
-                    if pf.client_safe_quick_does_path_exist(&loco, &from, &target) {
-                        // Leftover terrain still joins; live already said no.
-                    }
-                    if let Some(bridge_id) = pf.find_broken_bridge(&loco, &from, &target) {
-                        if bridge_id != 0 {
-                            self.repair_structure_in_view(game_logic, ObjectId(bridge_id));
-                            return true;
-                        }
-                    }
-                }
             }
             if let Some(bridge_id) = game_logic.find_broken_bridge(unit_pos, hop) {
                 self.repair_structure_in_view(game_logic, bridge_id);

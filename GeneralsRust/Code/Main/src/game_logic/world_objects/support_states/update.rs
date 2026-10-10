@@ -2533,12 +2533,12 @@ impl GameLogic {
                                                         .maximum
                                                         .max(target.max_health)
                                                         .max(1.0);
-                                                    target.take_damage_from_typed_death(
+                                                    target.take_damage_from_typed_death_with_repulsor_policy(
                                                         max_hp,
                                                         Some(object_id),
                                                         crate::game_logic::combat::DamageType::Unresistable,
                                                         crate::game_logic::host_usa_pilot::HostDeathType::Detonated,
-                                                     &mut self.health_events)
+                                                     &mut self.health_events, &self.enable_repulsors,)
                                                 })
                                                 .unwrap_or(false);
                                             if destroyed {
@@ -2819,17 +2819,19 @@ impl GameLogic {
                             if booby {
                                 // Detonate trap residual damage on both.
                                 if let Some(t) = self.objects.get_mut(&special_target_id) {
-                                    let _ = t.take_damage_from(
+                                    let _ = t.take_damage_from_with_repulsor_policy(
                                         t.health.maximum.max(1.0),
                                         Some(object_id),
                                         &mut self.health_events,
+                                        &self.enable_repulsors,
                                     );
                                 }
                                 if let Some(b) = self.objects.get_mut(&object_id) {
-                                    let _ = b.take_damage_from(
+                                    let _ = b.take_damage_from_with_repulsor_policy(
                                         b.health.maximum.max(1.0),
                                         Some(special_target_id),
                                         &mut self.health_events,
+                                        &self.enable_repulsors,
                                     );
                                 }
                                 let t_dead = self

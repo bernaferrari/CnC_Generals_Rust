@@ -1469,6 +1469,11 @@ pub struct Object {
 
     /// Toggleable weapon/overcharge state flags
     pub overcharge_enabled: bool,
+    /// Object-local onDisabledEdge callbacks awaiting the driving owner's
+    /// bounded admission. Loading derives radar from final transferred state.
+    #[serde(skip)]
+    pub(crate) pending_radar_disabled_edges: Vec<crate::game_logic::host_radar::RadarDisabledEdge>,
+
     pub active_weapon_slot: u8,
     /// C++ WeaponSet lock residual.
     #[serde(default)]
@@ -3285,6 +3290,7 @@ pub const OBJECT_SRC: &str = concat!(
     include_str!("construct.rs"),
     include_str!("damage.rs"),
     include_str!("damage/application.rs"),
+    include_str!("damage/world_policy.rs"),
     include_str!("death.rs"),
     include_str!("install.rs"),
     include_str!("jets.rs"),

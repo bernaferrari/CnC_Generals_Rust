@@ -4,12 +4,12 @@
 //! C&C Generals save/load system from PopupSaveLoad.wnd.
 
 use super::{
-    layout, sound_files, utils, ClickSpring, Interactive, KeyCode, MouseButton, Renderable, Screen,
-    UIEvent, UIRenderContext,
+    ClickSpring, Interactive, KeyCode, MouseButton, Renderable, Screen, UIEvent, UIRenderContext,
+    layout, sound_files, utils,
 };
 use crate::localization;
 use crate::save_load::{
-    get_save_load_manager, init_save_load_system, SaveFileType, SaveLoadManager,
+    SaveFileType, SaveLoadManager, get_save_load_manager, init_save_load_system,
 };
 use log::info;
 use std::time::SystemTime;
@@ -989,10 +989,11 @@ mod tests {
         let (x, y) = SaveLoadMenu::click_rect(confirm);
         assert!(menu.handle_mouse_click(x, y, MouseButton::Left).is_none());
         assert_eq!(menu.dialog_state(), SaveLoadDialogState::OverwriteConfirm);
-        assert!(menu
-            .drain_pending_events()
-            .iter()
-            .all(|event| { !matches!(event, UIEvent::SaveGame { .. }) }));
+        assert!(
+            menu.drain_pending_events()
+                .iter()
+                .all(|event| { !matches!(event, UIEvent::SaveGame { .. }) })
+        );
     }
 
     #[test]
@@ -1117,6 +1118,7 @@ mod tests {
     #[test]
     fn list_campaign_columns_empty_without_campaign() {
         let campaign = crate::save_load::SaveGameInfo {
+            pristine_map_name: None,
             filename: "camp".into(),
             display_name: "camp".into(),
             description: "camp".into(),
@@ -1130,6 +1132,7 @@ mod tests {
             save_type: SaveFileType::Normal,
         };
         let skirmish = crate::save_load::SaveGameInfo {
+            pristine_map_name: None,
             campaign_side: None,
             mission_number: None,
             ..campaign.clone()

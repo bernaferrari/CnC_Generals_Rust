@@ -1,16 +1,48 @@
 //! Behavior suite extracted from `science_and_upgrades`.
 use super::*;
 
+// These authored guard participants have AIUpdate interfaces and the retail
+// AIData modifiers whose behavior the existing assertions describe. Their
+// controller identity is explicit even when the test inserts an object directly.
+fn guard_test_world() -> GameLogic {
+    let mut world = GameLogic::new();
+    world.set_ai_definition_base(game_engine::common::ini::AIData {
+        guard_inner_modifier_human: 1.1,
+        guard_outer_modifier_human: 1.333,
+        guard_inner_modifier_ai: 1.8,
+        guard_outer_modifier_ai: 2.2,
+        alert_range_modifier: 1.1,
+        aggressive_range_modifier: 1.5,
+        ..Default::default()
+    });
+    world.add_player(Player::new(0, Team::USA, "GuardHuman", true));
+    world.add_player(Player::new(1, Team::China, "GuardChinaAI", false));
+    world.add_player(Player::new(2, Team::GLA, "GuardGlaAI", false));
+    world
+}
+
+fn guard_test_object(mut template: ThingTemplate, id: ObjectId, team: Team) -> Object {
+    template.set_authored_ai_update_interface(Some(true));
+    let mut object = Object::new(template, id, team);
+    object.owner_player_id = match team {
+        Team::USA => Some(0),
+        Team::China => Some(1),
+        Team::GLA => Some(2),
+        Team::Neutral => None,
+    };
+    object
+}
+
 #[test]
 fn enter_guard_does_not_shoot_enemies() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     let mut ht = ThingTemplate::new("Terrorist");
     ht.add_kind_of(KindOf::Infantry);
     ht.add_kind_of(KindOf::Attackable);
     ht.enter_guard = true;
     let hid = ObjectId(4710);
-    let mut h = Object::new(ht, hid, Team::GLA);
+    let mut h = guard_test_object(ht, hid, Team::GLA);
     h.set_position(glam::Vec3::ZERO);
     h.guard_position = Some(glam::Vec3::ZERO);
     h.vision_range = 150.0;
@@ -44,14 +76,14 @@ fn hijack_guard_boards_enemy_vehicle() {
     use crate::game_logic::{
         AIState, KindOf, Object, ObjectId, PendingSpecialAbility, Team, ThingTemplate, Weapon,
     };
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     let mut ht = ThingTemplate::new("Hijacker");
     ht.add_kind_of(KindOf::Infantry);
     ht.add_kind_of(KindOf::Attackable);
     ht.enter_guard = true;
     ht.hijack_guard = true;
     let hid = ObjectId(4720);
-    let mut h = Object::new(ht, hid, Team::GLA);
+    let mut h = guard_test_object(ht, hid, Team::GLA);
     h.set_position(glam::Vec3::ZERO);
     h.guard_position = Some(glam::Vec3::ZERO);
     h.vision_range = 150.0;
@@ -88,14 +120,14 @@ fn hijack_guard_inner_scan_skips_aircraft_and_drone() {
     // C++ ActionManager::canHijackVehicle: not KINDOF_AIRCRAFT, not KINDOF_DRONE.
     // Closest Comanche/drone must lose to a farther legal tank.
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     let mut ht = ThingTemplate::new("Hijacker");
     ht.add_kind_of(KindOf::Infantry);
     ht.add_kind_of(KindOf::Attackable);
     ht.enter_guard = true;
     ht.hijack_guard = true;
     let hid = ObjectId(4722);
-    let mut h = Object::new(ht, hid, Team::GLA);
+    let mut h = guard_test_object(ht, hid, Team::GLA);
     h.set_position(glam::Vec3::ZERO);
     logic.objects.insert(hid, h);
 
@@ -145,12 +177,12 @@ fn hijack_guard_inner_scan_skips_aircraft_and_drone() {
 #[test]
 fn sleep_guard_range_is_zero_not_hardcoded_80() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     let mut gt = ThingTemplate::new("Sleeper");
     gt.add_kind_of(KindOf::Infantry);
     gt.add_kind_of(KindOf::Attackable);
     let gid = ObjectId(4730);
-    let mut g = Object::new(gt, gid, Team::China);
+    let mut g = guard_test_object(gt, gid, Team::China);
     g.set_position(glam::Vec3::ZERO);
     g.guard_position = Some(glam::Vec3::ZERO);
     g.guard_radius = 80.0;
@@ -184,11 +216,11 @@ fn sleep_guard_range_is_zero_not_hardcoded_80() {
 #[test]
 fn aggressive_guard_range_is_mood_widened() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     let mut nt = ThingTemplate::new("NormalG");
     nt.add_kind_of(KindOf::Infantry);
     let nid = ObjectId(4740);
-    let mut n = Object::new(nt, nid, Team::China);
+    let mut n = guard_test_object(nt, nid, Team::China);
     n.vision_range = 100.0;
     n.ai_attitude = 0;
     logic.objects.insert(nid, n);
@@ -196,7 +228,7 @@ fn aggressive_guard_range_is_mood_widened() {
     let mut at = ThingTemplate::new("AggroG");
     at.add_kind_of(KindOf::Infantry);
     let aid = ObjectId(4741);
-    let mut a = Object::new(at, aid, Team::China);
+    let mut a = guard_test_object(at, aid, Team::China);
     a.vision_range = 100.0;
     a.ai_attitude = 2;
     logic.objects.insert(aid, a);
@@ -216,7 +248,7 @@ fn aggressive_guard_range_is_mood_widened() {
 #[test]
 fn notify_computer_killer_only() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     logic
         .players
         .insert(0, Player::new(0, Team::USA, "Human", true));
@@ -244,12 +276,12 @@ fn notify_computer_killer_only() {
 #[test]
 fn begin_guard_retaliate_sets_state_and_anchor() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     let mut t = ThingTemplate::new("GR");
     t.add_kind_of(KindOf::Infantry);
     t.add_kind_of(KindOf::Attackable);
     let id = ObjectId(4501);
-    let mut o = Object::new(t, id, Team::USA);
+    let mut o = guard_test_object(t, id, Team::USA);
     o.set_position(glam::Vec3::new(10.0, 0.0, 20.0));
     o.weapon = Some(Weapon {
         range: 50.0,
@@ -272,11 +304,11 @@ fn begin_guard_retaliate_sets_state_and_anchor() {
 #[test]
 fn guard_retaliate_ends_when_victim_dead() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     let mut t = ThingTemplate::new("GR2");
     t.add_kind_of(KindOf::Infantry);
     let id = ObjectId(4510);
-    let mut o = Object::new(t, id, Team::USA);
+    let mut o = guard_test_object(t, id, Team::USA);
     o.set_position(glam::Vec3::ZERO);
     o.weapon = Some(Weapon {
         range: 40.0,
@@ -318,19 +350,30 @@ fn guard_retaliate_ends_when_victim_dead() {
 #[test]
 fn friends_retaliate_against_nearby_aggressor() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     // Human local player USA
     logic
         .players
         .insert(0, Player::new(0, Team::USA, "P0", true));
     logic.set_logical_retaliation_mode(0, true);
+    // The original player's relationship map, not faction spelling, admits enemies.
+    logic
+        .players
+        .get_mut(&0)
+        .unwrap()
+        .set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+    logic
+        .players
+        .get_mut(&2)
+        .unwrap()
+        .set_map_relationship(0, gamelogic::common::Relationship::Enemies);
 
     // Victim
     let mut vt = ThingTemplate::new("Vic");
     vt.add_kind_of(KindOf::Infantry);
     vt.add_kind_of(KindOf::Attackable);
     let vid = ObjectId(4401);
-    let mut victim = Object::new(vt, vid, Team::USA);
+    let mut victim = guard_test_object(vt, vid, Team::USA);
     victim.set_position(glam::Vec3::new(0.0, 0.0, 0.0));
     victim.health.current = 100.0;
     victim.health.maximum = 100.0;
@@ -341,7 +384,7 @@ fn friends_retaliate_against_nearby_aggressor() {
     ft.add_kind_of(KindOf::Infantry);
     ft.add_kind_of(KindOf::Attackable);
     let fid = ObjectId(4402);
-    let mut friend = Object::new(ft, fid, Team::USA);
+    let mut friend = guard_test_object(ft, fid, Team::USA);
     friend.set_position(glam::Vec3::new(30.0, 0.0, 0.0));
     friend.set_ai_state(AIState::Idle);
     friend.weapon = Some(Weapon {
@@ -356,7 +399,7 @@ fn friends_retaliate_against_nearby_aggressor() {
     et.add_kind_of(KindOf::Infantry);
     et.add_kind_of(KindOf::Attackable);
     let eid = ObjectId(4403);
-    let mut enemy = Object::new(et, eid, Team::GLA);
+    let mut enemy = guard_test_object(et, eid, Team::GLA);
     enemy.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
     enemy.health.current = 100.0;
     enemy.health.maximum = 100.0;
@@ -374,7 +417,7 @@ fn friends_retaliate_against_nearby_aggressor() {
 #[test]
 fn friends_retaliate_skipped_when_mode_off() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     logic
         .players
         .insert(0, Player::new(0, Team::USA, "P0", true));
@@ -392,7 +435,7 @@ fn friends_retaliate_skipped_when_mode_off() {
     ft.add_kind_of(KindOf::Attackable);
     let fid = ObjectId(4412);
     logic.objects.insert(fid, {
-        let mut o = Object::new(ft, fid, Team::USA);
+        let mut o = guard_test_object(ft, fid, Team::USA);
         o.set_position(glam::Vec3::new(20.0, 0.0, 0.0));
         o.set_ai_state(AIState::Idle);
         o.weapon = Some(Weapon {
@@ -416,12 +459,12 @@ fn friends_retaliate_skipped_when_mode_off() {
 #[test]
 fn guard_idle_acquire_uses_inner_not_outer() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     let mut gt = ThingTemplate::new("InnerGuard");
     gt.add_kind_of(KindOf::Infantry);
     gt.add_kind_of(KindOf::Attackable);
     let gid = ObjectId(6101);
-    let mut g = Object::new(gt, gid, Team::China);
+    let mut g = guard_test_object(gt, gid, Team::China);
     g.set_position(glam::Vec3::ZERO);
     g.guard_position = Some(glam::Vec3::ZERO);
     g.vision_range = 100.0;
@@ -451,12 +494,12 @@ fn guard_idle_acquire_uses_inner_not_outer() {
 #[test]
 fn guarding_object_flying_only_skips_ground() {
     use crate::game_logic::{AIState, GuardMode, KindOf, Object, ObjectId, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     let mut ht = ThingTemplate::new("AAGuard");
     ht.add_kind_of(KindOf::Infantry);
     ht.add_kind_of(KindOf::Attackable);
     let hid = ObjectId(6110);
-    let mut h = Object::new(ht, hid, Team::USA);
+    let mut h = guard_test_object(ht, hid, Team::USA);
     h.set_position(glam::Vec3::ZERO);
     h.vision_range = 200.0;
     h.weapon = Some(wave21_guard_weapon());
@@ -526,12 +569,12 @@ fn guard_area_polygon_rejects_outside_and_covers_far_corner() {
         .expect("terrain")
         .add_trigger_area(trigger);
 
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     let mut gt = ThingTemplate::new("PolyGuard");
     gt.add_kind_of(KindOf::Infantry);
     gt.add_kind_of(KindOf::Attackable);
     let gid = ObjectId(6121);
-    let mut g = Object::new(gt, gid, Team::China);
+    let mut g = guard_test_object(gt, gid, Team::China);
     g.set_position(glam::Vec3::new(0.0, 0.0, 20.0));
     g.guard_position = Some(glam::Vec3::new(0.0, 0.0, 20.0));
     g.guard_area_trigger = Some("Wave21GuardAreaPoly".into());
@@ -577,12 +620,12 @@ fn guard_retaliate_chase_gives_up_on_timer() {
     use crate::game_logic::{
         AIState, GUARD_CHASE_PHASE_RETALIATE, KindOf, Object, ObjectId, Team, ThingTemplate,
     };
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     let mut t = ThingTemplate::new("ChaseGiver");
     t.add_kind_of(KindOf::Infantry);
     t.add_kind_of(KindOf::Attackable);
     let id = ObjectId(6130);
-    let mut o = Object::new(t, id, Team::USA);
+    let mut o = guard_test_object(t, id, Team::USA);
     o.set_position(glam::Vec3::ZERO);
     o.vision_range = 100.0;
     o.weapon = Some(wave21_guard_weapon());
@@ -633,7 +676,7 @@ fn guard_retaliate_chase_gives_up_on_timer() {
 #[test]
 fn guard_retaliate_inner_scan_allows_base_defense() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Player, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     logic
         .players
         .insert(0, Player::new(0, Team::USA, "Human", true));
@@ -642,7 +685,7 @@ fn guard_retaliate_inner_scan_allows_base_defense() {
     t.add_kind_of(KindOf::Infantry);
     t.add_kind_of(KindOf::Attackable);
     let id = ObjectId(6140);
-    let mut o = Object::new(t, id, Team::USA);
+    let mut o = guard_test_object(t, id, Team::USA);
     o.set_position(glam::Vec3::ZERO);
     o.owner_player_id = Some(0);
     o.vision_range = 200.0;
@@ -694,7 +737,7 @@ fn guard_retaliate_inner_scan_allows_base_defense() {
 #[test]
 fn guard_retaliate_computer_scan_allows_any_enemy_structure() {
     use crate::game_logic::{KindOf, Object, ObjectId, Player, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     logic
         .players
         .insert(1, Player::new(1, Team::China, "AI", false));
@@ -703,7 +746,7 @@ fn guard_retaliate_computer_scan_allows_any_enemy_structure() {
     t.add_kind_of(KindOf::Infantry);
     t.add_kind_of(KindOf::Attackable);
     let id = ObjectId(6150);
-    let mut o = Object::new(t, id, Team::China);
+    let mut o = guard_test_object(t, id, Team::China);
     o.set_position(glam::Vec3::ZERO);
     o.owner_player_id = Some(1);
     o.vision_range = 200.0;
@@ -751,12 +794,12 @@ fn host_guardee_follow_is_per_axis_two_cells_not_inner_radius() {
     // C++ AIGuard.cpp:722-730 — 2.5 cells on X (25wu) is still well inside
     // inner vision (~80+). Pre-fix live only followed when farther than inner.
 
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     let mut gt = ThingTemplate::new("RangerFollow");
     gt.add_kind_of(KindOf::Infantry);
     gt.add_kind_of(KindOf::Attackable);
     let gid = ObjectId(6201);
-    let mut g = Object::new(gt, gid, Team::USA);
+    let mut g = guard_test_object(gt, gid, Team::USA);
     g.set_position(glam::Vec3::ZERO);
     g.vision_range = 200.0;
     g.weapon = Some(wave21_guard_weapon());
@@ -797,12 +840,12 @@ fn inner_guard_attack_switches_to_new_last_attacker() {
     const INNER: u8 = 1;
     const AGGRESSOR: u8 = 3;
 
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     let mut gt = ThingTemplate::new("InnerSwitch");
     gt.add_kind_of(KindOf::Infantry);
     gt.add_kind_of(KindOf::Attackable);
     let gid = ObjectId(6210);
-    let mut g = Object::new(gt, gid, Team::USA);
+    let mut g = guard_test_object(gt, gid, Team::USA);
     g.set_position(glam::Vec3::ZERO);
     g.guard_position = Some(glam::Vec3::ZERO);
     g.guard_radius = 200.0;
@@ -848,12 +891,12 @@ fn inner_guard_attack_switches_to_new_last_attacker() {
 fn guard_idle_acquire_uses_scan_rate_cadence() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
 
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     let mut gt = ThingTemplate::new("ScanCadence");
     gt.add_kind_of(KindOf::Infantry);
     gt.add_kind_of(KindOf::Attackable);
     let gid = ObjectId(6220);
-    let mut g = Object::new(gt, gid, Team::China);
+    let mut g = guard_test_object(gt, gid, Team::China);
     g.set_position(glam::Vec3::ZERO);
     g.guard_position = Some(glam::Vec3::ZERO);
     g.vision_range = 200.0;
@@ -914,14 +957,14 @@ fn end_guard_chase_attack_clears_team_attack_common_target() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Player, Team, ThingTemplate};
     const INNER: u8 = 1;
 
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     logic.add_player(Player::new(1, Team::China, "China AI", false));
 
     let mut gt = ThingTemplate::new("W26ChaseClear");
     gt.add_kind_of(KindOf::Infantry);
     gt.add_kind_of(KindOf::Attackable);
     let gid = ObjectId(6301);
-    let mut g = Object::new(gt, gid, Team::China);
+    let mut g = guard_test_object(gt, gid, Team::China);
     g.set_position(glam::Vec3::ZERO);
     g.guard_position = Some(glam::Vec3::ZERO);
     g.vision_range = 200.0;
@@ -946,12 +989,13 @@ fn end_guard_chase_attack_clears_team_attack_common_target() {
         .team_common_attack_targets
         .insert("China_GuardSquad".into(), eid);
 
-    // Victim left the inner ring: chase-exit must drop the shared victim.
+    // Authored AI outer range is 200 * 2.2 * 1.5 = 660.
+    // Victim left the outer ring: chase-exit must drop the shared victim.
     logic
         .objects
         .get_mut(&eid)
         .unwrap()
-        .set_position(glam::Vec3::new(400.0, 0.0, 0.0));
+        .set_position(glam::Vec3::new(800.0, 0.0, 0.0));
     logic.update_support_states(&[gid, eid], 1.0 / 30.0);
     assert!(
         !logic
@@ -969,14 +1013,14 @@ fn retaliate_chase_exit_clears_team_attack_common_target() {
         AIState, GUARD_CHASE_PHASE_RETALIATE, KindOf, Object, ObjectId, Player, Team, ThingTemplate,
     };
 
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     logic.add_player(Player::new(1, Team::USA, "USA AI", false));
 
     let mut gt = ThingTemplate::new("W26RetClear");
     gt.add_kind_of(KindOf::Infantry);
     gt.add_kind_of(KindOf::Attackable);
     let gid = ObjectId(6310);
-    let mut g = Object::new(gt, gid, Team::USA);
+    let mut g = guard_test_object(gt, gid, Team::USA);
     g.set_position(glam::Vec3::ZERO);
     g.vision_range = 200.0;
     g.weapon = Some(wave21_guard_weapon());
@@ -1020,14 +1064,14 @@ fn guarding_object_prefers_team_attack_common_target() {
     // as well as Area. A squad guarding a dozer must focus-fire the shared victim.
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Player, Team, ThingTemplate};
 
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     logic.add_player(Player::new(1, Team::USA, "USA AI", false));
 
     let mut gt = ThingTemplate::new("W26ObjGuard");
     gt.add_kind_of(KindOf::Infantry);
     gt.add_kind_of(KindOf::Attackable);
     let gid = ObjectId(6320);
-    let mut g = Object::new(gt, gid, Team::USA);
+    let mut g = guard_test_object(gt, gid, Team::USA);
     g.set_position(glam::Vec3::ZERO);
     g.vision_range = 200.0;
     g.weapon = Some(wave21_guard_weapon());
@@ -1083,14 +1127,14 @@ fn enter_guard_inner_scan_requires_can_enter_object() {
         ThingTemplate,
     };
 
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     let mut ht = ThingTemplate::new("W26Terrorist");
     ht.add_kind_of(KindOf::Infantry);
     ht.add_kind_of(KindOf::Attackable);
     ht.enter_guard = true;
     ht.transport_slot_count = Some(1);
     let hid = ObjectId(6330);
-    let mut h = Object::new(ht, hid, Team::GLA);
+    let mut h = guard_test_object(ht, hid, Team::GLA);
     h.set_position(glam::Vec3::ZERO);
     h.vision_range = 200.0;
     logic.objects.insert(hid, h);
@@ -1174,12 +1218,12 @@ fn area_guard_outer_chase_uses_polygon_radius() {
         .expect("terrain")
         .add_trigger_area(trigger);
 
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     let mut gt = ThingTemplate::new("PolyOuterGuard");
     gt.add_kind_of(KindOf::Infantry);
     gt.add_kind_of(KindOf::Attackable);
     let gid = ObjectId(6301);
-    let mut g = Object::new(gt, gid, Team::China);
+    let mut g = guard_test_object(gt, gid, Team::China);
     let center = glam::Vec3::new(300.0, 0.0, 300.0);
     g.set_position(center);
     g.guard_position = Some(center);
@@ -1220,12 +1264,12 @@ fn area_guard_outer_chase_uses_polygon_radius() {
 #[test]
 fn guard_retaliate_scan_victim_uses_inner_1_5x_not_aggressor() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     let mut t = ThingTemplate::new("ScanLeash");
     t.add_kind_of(KindOf::Infantry);
     t.add_kind_of(KindOf::Attackable);
     let id = ObjectId(6310);
-    let mut o = Object::new(t, id, Team::USA);
+    let mut o = guard_test_object(t, id, Team::USA);
     o.set_position(glam::Vec3::ZERO);
     o.vision_range = 180.0;
     o.weapon = Some(wave21_guard_weapon());
@@ -1320,12 +1364,12 @@ fn guard_retaliate_scan_victim_uses_inner_1_5x_not_aggressor() {
 #[test]
 fn guard_walks_back_to_post_after_chase() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     let mut gt = ThingTemplate::new("ReturnGuard");
     gt.add_kind_of(KindOf::Infantry);
     gt.add_kind_of(KindOf::Attackable);
     let gid = ObjectId(6320);
-    let mut g = Object::new(gt, gid, Team::China);
+    let mut g = guard_test_object(gt, gid, Team::China);
     g.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
     g.guard_position = Some(glam::Vec3::ZERO);
     g.vision_range = 200.0;
@@ -1372,12 +1416,14 @@ fn guard_walks_back_to_post_after_chase() {
 #[test]
 fn without_pursuit_acquires_while_guarder_outside_ring() {
     use crate::game_logic::{AIState, GuardMode, KindOf, Object, ObjectId, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
+    // This case authors a remote human guard: 180 * 1.1 = 198 < 250.
+    logic.players.get_mut(&1).unwrap().is_human = true;
     let mut gt = ThingTemplate::new("NoPursuitGuard");
     gt.add_kind_of(KindOf::Infantry);
     gt.add_kind_of(KindOf::Attackable);
     let gid = ObjectId(6330);
-    let mut g = Object::new(gt, gid, Team::China);
+    let mut g = guard_test_object(gt, gid, Team::China);
     g.set_position(glam::Vec3::new(250.0, 0.0, 0.0));
     g.guard_position = Some(glam::Vec3::ZERO);
     g.guard_mode = GuardMode::WithoutPursuit;
@@ -1411,12 +1457,12 @@ fn guard_retaliate_outer_refreshes_timer_while_victim_in_std_guard() {
     // C++ AIGuardRetaliateOuterState::update: if goal is within stdGuardRange
     // of the center, m_attackGiveUpFrame = now + GuardChaseUnitsDuration.
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     let mut t = ThingTemplate::new("OuterRefresh");
     t.add_kind_of(KindOf::Infantry);
     t.add_kind_of(KindOf::Attackable);
     let id = ObjectId(6401);
-    let mut o = Object::new(t, id, Team::USA);
+    let mut o = guard_test_object(t, id, Team::USA);
     o.set_position(glam::Vec3::ZERO);
     o.vision_range = 180.0;
     o.weapon = Some(wave21_guard_weapon());
@@ -1458,7 +1504,7 @@ fn tn_guard_nemesis_uses_tunnel_attack_goal() {
     // C++ AITNGuardIdleState::lookForInnerTarget: tunnel getAI()->getGoalObject()
     // ENEMIES become the shared nemesis even when the tunnel took no damage.
     use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     logic.add_player(Player::new(1, Team::GLA, "GLA AI", false));
 
@@ -1468,6 +1514,7 @@ fn tn_guard_nemesis_uses_tunnel_attack_goal() {
     }
 
     let mut rebel = ThingTemplate::new("GLARebelGoal");
+    rebel.set_authored_ai_update_interface(Some(true));
     rebel
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Attackable)
@@ -1524,7 +1571,7 @@ fn tn_guard_nemesis_skips_no_effect_and_stale_scan() {
     // windowed by TheAI->getAiData()->m_guardEnemyScanRate.
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     logic.add_player(Player::new(1, Team::GLA, "GLA AI", false));
 
@@ -1601,7 +1648,7 @@ fn tn_guard_nemesis_rejects_unattackable_damager() {
     // C++ lookForInnerTarget: getAbleToAttackSpecificObject(
     // ATTACK_TUNNEL_NETWORK_GUARD) — Unattackable must not hijack the slot.
     use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
+    let mut logic = guard_test_world();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
     logic.add_player(Player::new(1, Team::GLA, "GLA AI", false));
 
@@ -1611,6 +1658,7 @@ fn tn_guard_nemesis_rejects_unattackable_damager() {
     }
 
     let mut rebel = ThingTemplate::new("GLARebelGate");
+    rebel.set_authored_ai_update_interface(Some(true));
     rebel
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Attackable)

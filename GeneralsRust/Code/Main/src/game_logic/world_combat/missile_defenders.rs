@@ -685,12 +685,13 @@ impl GameLogic {
                     continue;
                 }
                 if let Some(obj) = self.objects.get_mut(&id) {
-                    let destroyed = obj.take_damage_from_immediate_residual(
+                    let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
                         dmg,
                         source,
                         SUICIDE_DAMAGE_TYPE,
                         SUICIDE_DEATH_TYPE,
                         &mut self.health_events,
+                        &self.enable_repulsors,
                     );
                     hits = hits.saturating_add(1);
                     if destroyed {
@@ -746,12 +747,13 @@ impl GameLogic {
                     continue;
                 }
                 if let Some(obj) = self.objects.get_mut(&id) {
-                    let destroyed = obj.take_damage_from_immediate_residual(
+                    let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
                         dmg,
                         source,
                         RPG_DAMAGE_TYPE,
                         RPG_DEATH_TYPE,
                         &mut self.health_events,
+                        &self.enable_repulsors,
                     );
                     hits = hits.saturating_add(1);
                     if destroyed {
@@ -784,13 +786,15 @@ impl GameLogic {
                                 }
                                 _ => (REBEL_MG_DAMAGE_TYPE, REBEL_MG_DEATH_TYPE),
                             };
-                            let destroyed = obj.take_damage_from_immediate_residual(
-                                dmg,
-                                source,
-                                dt_name,
-                                death_name,
-                                &mut self.health_events,
-                            );
+                            let destroyed = obj
+                                .take_damage_from_immediate_residual_with_repulsor_policy(
+                                    dmg,
+                                    source,
+                                    dt_name,
+                                    death_name,
+                                    &mut self.health_events,
+                                    &self.enable_repulsors,
+                                );
                             hits = hits.saturating_add(1);
                             if destroyed {
                                 any_destroyed = true;
@@ -931,12 +935,13 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from_immediate_residual(
+                let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
                     dmg,
                     source,
                     TOXIN_DAMAGE_TYPE,
                     toxin_death_type_name(anthrax),
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -1059,12 +1064,13 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from_immediate_residual(
+                let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
                     dmg,
                     source,
                     TOXIN_DAMAGE_TYPE,
                     toxin_death_type_name(anthrax),
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -1228,13 +1234,15 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed = target.take_damage_from_immediate_typed_death(
-                        hit.damage,
-                        Some(plan.source_object),
-                        crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type(),
-                        plan.death_type,
-                        &mut self.health_events,
-                    );
+                    let killed = target
+                        .take_damage_from_immediate_typed_death_with_repulsor_policy(
+                            hit.damage,
+                            Some(plan.source_object),
+                            crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type(),
+                            plan.death_type,
+                            &mut self.health_events,
+                            &self.enable_repulsors,
+                        );
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -1432,12 +1440,13 @@ impl GameLogic {
                 continue;
             }
             if let Some(obj) = self.objects.get_mut(&id) {
-                let destroyed = obj.take_damage_from_immediate_residual(
+                let destroyed = obj.take_damage_from_immediate_residual_with_repulsor_policy(
                     dmg,
                     source,
                     ROCKET_POD_DAMAGE_TYPE,
                     ROCKET_POD_DEATH_TYPE,
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {
@@ -2141,7 +2150,7 @@ impl GameLogic {
             if !occ.is_alive() {
                 continue;
             }
-            let killed = occ.take_damage_with_context(
+            let killed = occ.take_damage_with_context_with_repulsor_policy(
                 BUNKER_BUSTER_HARM_AMOUNT,
                 attacker_id,
                 occupant_damage_type,
@@ -2150,6 +2159,7 @@ impl GameLogic {
                 self.frame,
                 &context,
                 &mut self.health_events,
+                &self.enable_repulsors,
             );
             if killed || !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed {
                 kills = kills.saturating_add(1);
@@ -2172,12 +2182,13 @@ impl GameLogic {
             bunker_buster_structure_damage(base_weapon_damage, is_bunker, had_occupants);
         let mut destroyed = false;
         if let Some(target) = self.objects.get_mut(&target_id) {
-            destroyed = target.take_damage_from_immediate_residual(
+            destroyed = target.take_damage_from_immediate_residual_with_repulsor_policy(
                 structure_dmg,
                 attacker_id,
                 STEALTH_JET_MISSILE_DAMAGE_TYPE,
                 STEALTH_JET_MISSILE_DEATH_TYPE,
                 &mut self.health_events,
+                &self.enable_repulsors,
             );
             if destroyed {
                 self.mark_object_for_destruction(target_id, Some(attacker_team));
@@ -2292,14 +2303,20 @@ impl GameLogic {
                 continue;
             }
             let owner_pid = occ.owner_player_id;
-            let _ = occ.take_damage_from(
+            let _ = occ.take_damage_from_with_repulsor_policy(
                 BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0),
                 attacker_id,
                 &mut self.health_events,
+                &self.enable_repulsors,
             );
             let dead = !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed;
             if !dead {
-                let _ = occ.take_damage_from(999_999.0, attacker_id, &mut self.health_events);
+                let _ = occ.take_damage_from_with_repulsor_policy(
+                    999_999.0,
+                    attacker_id,
+                    &mut self.health_events,
+                    &self.enable_repulsors,
+                );
             }
             let dead = !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed;
             if !dead {

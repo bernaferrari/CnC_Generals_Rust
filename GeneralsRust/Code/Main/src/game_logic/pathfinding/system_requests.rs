@@ -9,6 +9,7 @@ impl PathfindingSystem {
         const GRID_SIZE: f32 = 10.0; // 10 units per grid cell
 
         Self {
+            ai_definitions: std::sync::Arc::new(game_engine::common::ini::AIData::default()),
             grid: PathfindingGrid::new_with_origin(origin, world_width, world_height, GRID_SIZE),
             flow_fields: HashMap::new(),
             logic_frame: 0,
@@ -956,16 +957,18 @@ impl PathfindingSystem {
     }
 
     /// C++ `TheAI->getAiData()->m_attackUsesLineOfSight` (default true).
-    pub(super) fn attack_uses_line_of_sight() -> bool {
-        let store = game_engine::common::ini::get_ai_data_store();
-        if let Some(data) = store.read().expect("AI data store read lock").get_active() {
-            return data.attack_uses_line_of_sight;
-        }
-        gamelogic::ai::the_ai()
-            .read()
-            .ok()
-            .and_then(|ai| Some(ai.get_ai_data()).map(|d| d.attack_uses_line_of_sight))
-            .unwrap_or(true)
+    pub(in crate::game_logic) fn set_ai_definitions(
+        &mut self,
+        definitions: std::sync::Arc<game_engine::common::ini::AIData>,
+    ) {
+        // CPP Pathfinder::reset/newMap admits the effective authored wall height
+        // (AIPathfind.cpp:3873,4526), independently of wall-piece geometry.
+        self.grid.set_wall_height(definitions.wall_height);
+        self.ai_definitions = definitions;
+    }
+
+    pub(super) fn attack_uses_line_of_sight(&self) -> bool {
+        self.ai_definitions.attack_uses_line_of_sight
     }
 
     /// C++ `Pathfinder::isAttackViewBlockedByObstacle` leftover gates + static Bresenham.
@@ -976,7 +979,7 @@ impl PathfindingSystem {
         attacker: Option<&Object>,
         victim: Option<&Object>,
     ) -> bool {
-        if !Self::attack_uses_line_of_sight() {
+        if !self.attack_uses_line_of_sight() {
             return false;
         }
         if let Some(atk) = attacker {
@@ -1291,10 +1294,9 @@ impl PathfindingSystem {
         } else {
             major
         };
-        if self.grid.wall_height <= 0.0 && geom.authored && geom.height > 0.0 {
-            self.grid.wall_height = geom.height;
-        }
-        if self.grid.wall_height <= 0.0 && wall_height > 0.0 {
+        // CPP wall elevation is the admitted AIData value, including zero;
+        // the object's geometry controls its footprint, not this layer height.
+        if self.grid.wall_height <= 0.0 {
             self.grid.wall_height = wall_height;
         }
         self.grid.add_wall_piece(

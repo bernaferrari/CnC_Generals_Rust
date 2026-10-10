@@ -21,11 +21,11 @@ fn angry_mob_pdl_damage_source_authority_source() {
         ),
         (
             "fn update_scud_poison_zones",
-            "take_damage_from_immediate_typed_death(",
+            "take_damage_from_immediate_typed_death_with_repulsor_policy(",
         ),
         (
             "fn update_bomb_truck_poison_zones",
-            "take_damage_from_immediate_typed_death(",
+            "take_damage_from_immediate_typed_death_with_repulsor_policy(",
         ),
         ("fn update_inferno_fire_zones", "Some(plan.source_object),"),
         ("fn update_firewalls", "Some(plan.source_object),"),
@@ -37,15 +37,15 @@ fn angry_mob_pdl_damage_source_authority_source() {
             "fn update_nuclear_tanks_radiation_zones",
             // Live radiation residual routes through take_radiation_field_tick
             // with the detonating vehicle as damage source.
-            "take_radiation_field_tick(hit.damage,Some(plan.source_object),&mutself.health_events",
+            "take_radiation_field_tick_with_repulsor_policy(hit.damage,Some(plan.source_object),&mutself.health_events,&self.enable_repulsors,",
         ),
         (
             "fn update_nuke_cannon_radiation_zones",
-            "take_radiation_field_tick(hit.damage,Some(plan.source_object),&mutself.health_events",
+            "take_radiation_field_tick_with_repulsor_policy(hit.damage,Some(plan.source_object),&mutself.health_events,&self.enable_repulsors,",
         ),
         (
             "fn update_toxin_tractor_poison_zones",
-            "take_damage_from_immediate_typed_death(",
+            "take_damage_from_immediate_typed_death_with_repulsor_policy(",
         ),
     ] {
         let i = src

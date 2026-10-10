@@ -50,8 +50,6 @@ pub type GUICommandType = u32;
 pub type HackerAttackMode = u32;
 pub use game_engine::common::rts::ScienceType;
 
-pub mod enhanced_player;
-pub mod groups;
 pub mod integration;
 pub mod object_registry;
 mod target_acquisition;

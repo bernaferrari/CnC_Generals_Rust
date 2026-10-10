@@ -3411,11 +3411,12 @@ impl GameLogic {
                 }
                 if let Some(victim) = self.objects.get_mut(&vid) {
                     // C++ DemoTrap/LandMine weapons are EXPLOSION, not UNRESISTABLE.
-                    if victim.take_damage_from_typed(
+                    if victim.take_damage_from_typed_with_repulsor_policy(
                         dmg,
                         Some(mine_id),
                         crate::game_logic::combat::DamageType::Explosive,
                         &mut self.health_events,
+                        &self.enable_repulsors,
                     ) && !chain_pad
                     {
                         destroy_ids.push((vid, mine_team));
@@ -3535,8 +3536,12 @@ impl GameLogic {
                 continue;
             }
             if let Some(victim) = self.objects.get_mut(&vid) {
-                if victim.take_damage_from(dmg, Some(mine_id), &mut self.health_events)
-                    && !chain_pad
+                if victim.take_damage_from_with_repulsor_policy(
+                    dmg,
+                    Some(mine_id),
+                    &mut self.health_events,
+                    &self.enable_repulsors,
+                ) && !chain_pad
                 {
                     destroy_ids.push((vid, mine_team));
                 } else if chain_pad {
@@ -3862,12 +3867,13 @@ impl GameLogic {
                             None,
                         );
                     } else if let Some(obj) = self.objects.get_mut(&mine_id) {
-                        obj.take_damage_from_typed_death(
+                        obj.take_damage_from_typed_death_with_repulsor_policy(
                             obj.health.maximum.max(1.0),
                             Some(building_id),
                             crate::game_logic::combat::DamageType::LandMine,
                             crate::game_logic::host_usa_pilot::HostDeathType::Exploded,
                             &mut self.health_events,
+                            &self.enable_repulsors,
                         );
                     }
                 }

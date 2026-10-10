@@ -46,7 +46,25 @@ impl GameLogic {
     }
 
     /// Load a map with optional milestone progress reporting.
-    pub fn load_map_with_progress<F>(&mut self, map_name: &str, mut report_progress: F) -> bool
+    pub fn load_map_with_progress<F>(&mut self, map_name: &str, report_progress: F) -> bool
+    where
+        F: FnMut(f32, &str),
+    {
+        self.load_map_with_definition_source_and_progress(map_name, None, report_progress)
+    }
+
+    /// Saved geometry stays on the extracted map; only companion INIs use the
+    /// original source, as in C++ GameLogic::loadMapINI saved-directory branch.
+    pub(crate) fn load_map_with_definition_source(&mut self, map_name: &str, source: &str) -> bool {
+        self.load_map_with_definition_source_and_progress(map_name, Some(source), |_, _| {})
+    }
+
+    fn load_map_with_definition_source_and_progress<F>(
+        &mut self,
+        map_name: &str,
+        definition_source: Option<&str>,
+        mut report_progress: F,
+    ) -> bool
     where
         F: FnMut(f32, &str),
     {
@@ -60,7 +78,10 @@ impl GameLogic {
         // fallback: if both attempts fail, callers must see that no map loaded.
         self.map_loaded = false;
         self.map_name = map_name.to_string();
+        self.map_definition_source = Some(definition_source.unwrap_or(map_name).to_string());
         self.pathfinding_height_samples = None;
+        // A new map must not inherit the preceding map's raw flight surface.
+        self.terrain = None;
         self.runtime_terrain_texture_classes.clear();
         self.configure_victory_rules_for_map(map_name);
         self.scripts_loaded = false;
@@ -92,6 +113,15 @@ impl GameLogic {
         if let Some(path) = &resolved_map {
             log::info!("Resolved map '{}' to '{}'", map_name, path.display());
             if let Ok(Some(chunky)) = super::script_loader::load_chunky_map(map_name) {
+                // An ordinary bare/virtual name must retain the directory
+                // actually resolved by this decode for future saved companions.
+                // Saved pristine identities remain explicit, independent from
+                // the extracted ChunkyMap geometry source.
+                let definition_source = definition_source.map_or_else(
+                    || chunky.source.to_string_lossy().into_owned(),
+                    str::to_string,
+                );
+                self.map_definition_source = Some(definition_source.clone());
                 if let Some(chunks) = super::script_loader::inspect_map_chunks_from_chunky(&chunky)
                 {
                     log::debug!(
@@ -154,8 +184,26 @@ impl GameLogic {
                 // Replace the test map with parsed object placements for basic fidelity.
                 let settings_started = Instant::now();
                 report_progress(0.52, "Reading map settings");
-                let parsed = super::script_loader::parse_map_settings_from_chunky(&chunky);
-                let parsed_settings = parsed.ok();
+                let ai_draft = self.ai_definitions.map_override_draft();
+                let parsed =
+                    super::script_loader::parse_map_settings_from_chunky_with_ai_data_from_source(
+                        &chunky,
+                        std::sync::Arc::clone(&ai_draft),
+                        &definition_source,
+                    );
+                let parsed_settings = match parsed {
+                    Ok(meta) => match self.admit_ai_map_overrides(ai_draft) {
+                        Ok(()) => Some(meta),
+                        Err(err) => {
+                            log::warn!("Map AI definition admission failed: {err}");
+                            return false;
+                        }
+                    },
+                    Err(err) => {
+                        log::warn!("Map settings parse failed: {err}");
+                        return false;
+                    }
+                };
                 log::info!(
                     "Map '{}' settings parse finished in {:.2}s (present={})",
                     map_name,
@@ -448,6 +496,7 @@ impl GameLogic {
                         self.world_width,
                         self.world_height,
                     );
+                    self.refresh_pathfinding_ai_definitions();
                     log::info!(
                         "Map '{}' bounds set to min({:.1},{:.1},{:.1}) max({:.1},{:.1},{:.1})",
                         map_name,
@@ -458,6 +507,18 @@ impl GameLogic {
                         self.world_max.y,
                         self.world_max.z
                     );
+
+                    #[cfg(not(feature = "game_client"))]
+                    if let Some(hm) = heightmap_data.as_ref() {
+                        self.terrain = super::terrain::TerrainData::from_raw_heightmap(
+                            hm.width.max(1) as u32,
+                            hm.height.max(1) as u32,
+                            &hm.data,
+                            self.world_min,
+                            self.world_max,
+                            hm.border_size.max(0) as u32,
+                        );
+                    }
 
                     #[cfg(feature = "game_client")]
                     if let Some(hm) = heightmap_data.as_ref() {
@@ -543,6 +604,7 @@ impl GameLogic {
                         self.world_width,
                         self.world_height,
                     );
+                    self.refresh_pathfinding_ai_definitions();
                 }
 
                 if let Ok(mut shroud_mgr) = self.engine_stores.shroud().lock() {

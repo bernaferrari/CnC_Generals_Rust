@@ -20,26 +20,10 @@ impl GameLogic {
     /// Map overrides and fallback definitions come from the driving instance.
     /// Copy only the two pathfinding values; no guard escapes into callbacks.
     pub(in super::super) fn pathfind_ai_rules(&self) -> PathfindAiRules {
-        let definitions = self
-            .engine_stores
-            .ai_data()
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
-        if let Some(data) = definitions.get_active() {
-            return PathfindAiRules {
-                repulsed_distance: data.repulsed_distance,
-                wall_height: data.wall_height,
-            };
-        }
-        drop(definitions);
-        let ai = self
-            .engine_stores
-            .ai()
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
+        let data = self.ai_definitions.data();
         PathfindAiRules {
-            repulsed_distance: ai.get_ai_data().repulsed_distance,
-            wall_height: ai.get_ai_data().wall_height,
+            repulsed_distance: data.repulsed_distance,
+            wall_height: data.wall_height,
         }
     }
 }

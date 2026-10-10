@@ -1911,12 +1911,13 @@ impl GameLogic {
                                     crate::game_logic::host_usa_pilot::HostDeathType::from_ordinal(
                                         ev.death_type as u8,
                                     );
-                                let _ = obj.take_damage_from_typed_death(
+                                let _ = obj.take_damage_from_typed_death_with_repulsor_policy(
                                     amount,
                                     Some(ev.victim),
                                     dtype,
                                     death,
                                     &mut self.health_events,
+                                    &self.enable_repulsors,
                                 );
                             }
                         }
@@ -2161,12 +2162,13 @@ impl GameLogic {
                     }
                     for uid in occupants {
                         if let Some(unit) = self.objects.get_mut(&uid) {
-                            let _ = unit.take_damage_from_typed_death(
+                            let _ = unit.take_damage_from_typed_death_with_repulsor_policy(
                                 crate::game_logic::host_bridge_behavior::BRIDGE_SPLAT_DAMAGE,
                                 Some(id),
                                 crate::game_logic::combat::DamageType::Falling,
                                 crate::game_logic::host_usa_pilot::HostDeathType::Splatted,
                                 &mut self.health_events,
+                                &self.enable_repulsors,
                             );
                         }
                     }

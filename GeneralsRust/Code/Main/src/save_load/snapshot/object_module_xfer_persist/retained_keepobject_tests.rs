@@ -73,6 +73,7 @@ fn fixture() -> Fixture {
 
 fn save_info() -> SaveGameInfo {
     SaveGameInfo {
+        pristine_map_name: None,
         filename: "kept_rubble".into(),
         display_name: "Kept rubble".into(),
         description: "hq-btakc actual SaveFileManager route".into(),

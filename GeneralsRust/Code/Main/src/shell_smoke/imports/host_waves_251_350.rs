@@ -170,11 +170,6 @@ pub use crate::game_logic::host_live_dumb_projectile_dual_world_empty_gate_resid
     honesty_live_dumb_projectile_dual_world_empty_gate_nav_commands_residual_wave286,
     simulate_live_dumb_projectile_dual_world_empty_gate_honesty,
 };
-pub use crate::game_logic::host_live_enhanced_player_dual_world_empty_gate_residual_wave287::{
-    honesty_live_enhanced_player_dual_world_empty_gate_method_names_residual_wave287,
-    honesty_live_enhanced_player_dual_world_empty_gate_nav_commands_residual_wave287,
-    simulate_live_enhanced_player_dual_world_empty_gate_honesty,
-};
 pub use crate::game_logic::host_live_hijacker_update_dual_world_empty_gate_residual_wave288::{
     honesty_live_hijacker_update_dual_world_empty_gate_method_names_residual_wave288,
     honesty_live_hijacker_update_dual_world_empty_gate_nav_commands_residual_wave288,

@@ -232,6 +232,7 @@ fn same_faction_command_phase_preserves_human_attack() {
 
 fn info() -> SaveGameInfo {
     SaveGameInfo {
+        pristine_map_name: None,
         filename: "alliance".into(),
         display_name: "Alliance continuation".into(),
         description: String::new(),

@@ -324,26 +324,41 @@ fn weaponset_change_unlocks_unless_shared_across_sets() {
 
 #[test]
 fn retarget_inside_continuous_fire_coast_keeps_consecutive_shots() {
-    let mut attacker = Object::new(
-        ThingTemplate::new("ChinaGattlingTank"),
-        ObjectId(1),
-        Team::China,
-    );
-    attacker.consecutive_shot_target = Some(ObjectId(2));
-    attacker.consecutive_shots_at_target = 5;
-    attacker.continuous_fire_coast_until_frame = u32::MAX;
-    attacker.record_shot_at_target(ObjectId(3));
-    assert_eq!(attacker.consecutive_shots_at_target, 6);
-    assert_eq!(attacker.consecutive_shot_target, Some(ObjectId(3)));
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "retarget_inside_continuous_fire_coast_keeps_consecutive_shots",
+        || {
+            let mut attacker = Object::new(
+                ThingTemplate::new("ChinaGattlingTank"),
+                ObjectId(1),
+                Team::China,
+            );
+            // Explicit admitted GattlingTankGun thresholds; a bare object template
+            // without Weapon.ini cannot imply a continuous-fire state machine.
+            attacker.continuous_fire_one_shots = 2;
+            attacker.continuous_fire_two_shots = 6;
+            crate::game_logic::host_historic_bonus::set_logic_frame(10);
+            attacker.consecutive_shot_target = Some(ObjectId(2));
+            attacker.consecutive_shots_at_target = 5;
+            attacker.continuous_fire_coast_until_frame = u32::MAX;
+            attacker.record_shot_at_target(ObjectId(3));
+            assert_eq!(attacker.consecutive_shots_at_target, 6);
+            assert_eq!(attacker.consecutive_shot_target, Some(ObjectId(3)));
+            assert_eq!(
+                attacker.continuous_fire_level, 1,
+                "six shots cross One2 into MEAN, not strictly beyond Two6"
+            );
 
-    attacker.continuous_fire_coast_until_frame = 0;
-    attacker.record_shot_at_target(ObjectId(4));
-    // C++ FiringTracker::shotFired (:111-131) + coolDown (:319-321):
-    // block 1 crossed '> ContinuousFireOne' into MEAN; this retargeted
-    // shot restarts at 1 < ContinuousFireOne, so it coolDown()s — the
-    // demoting shot leaves no count and no victim.
-    assert_eq!(attacker.consecutive_shots_at_target, 0);
-    assert_eq!(attacker.consecutive_shot_target, None);
+            attacker.continuous_fire_coast_until_frame = 0;
+            attacker.record_shot_at_target(ObjectId(4));
+            // C++ FiringTracker::shotFired (:111-131) + coolDown (:319-321):
+            // block 1 crossed '> ContinuousFireOne=2' into MEAN; this retargeted
+            // shot restarts at 1 < ContinuousFireOne, so it coolDown()s — the
+            // demoting shot leaves no count and no victim.
+            assert_eq!(attacker.consecutive_shots_at_target, 0);
+            assert_eq!(attacker.consecutive_shot_target, None);
+        },
+    );
 }
 
 #[test]

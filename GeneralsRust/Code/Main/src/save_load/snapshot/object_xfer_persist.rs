@@ -1884,6 +1884,9 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
                     crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding,
                 ) {
                     object.loco_appearance = binding.appearance;
+                    // CPP Locomotor.cpp:2201 selects Z behavior from the same
+                    // immutable current template, not serialized motion state.
+                    object.loco_behavior_z = binding.behavior_z;
                 }
             }
             let locomotor_body_saved = entry.has_locomotor_template

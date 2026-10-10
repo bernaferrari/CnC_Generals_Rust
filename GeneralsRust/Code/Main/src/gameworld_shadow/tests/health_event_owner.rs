@@ -89,10 +89,17 @@ fn another_world_boundary_cannot_admit_the_owners_lethal_damage() {
     assert!(!foreign.status.on_die_started);
     assert!(!other.has_pending_destroy_work());
     run_post_logic_shadow_boundary(None, &mut owner);
-    assert!(owner.host_object(id).unwrap().status.on_die_started);
-    assert!(owner.has_pending_destroy_work());
+    // The completed production boundary performs onDie and final cleanup;
+    // only this owner may remove the admitted object and retain its receipt.
+    assert!(owner.host_object(id).is_none());
+    assert!(!owner.has_pending_destroy_work());
+    let completed = owner.health_events.snapshot_last_damage();
+    assert_eq!(completed.len(), 1);
+    assert_eq!(completed[0].target, id);
+    assert!(completed[0].destroyed);
     owner.process_destroy_list();
     assert!(owner.host_object(id).is_none());
+    assert_eq!(owner.health_events.snapshot_last_damage(), completed);
     assert!(other.host_object(other_id).unwrap().is_alive());
     assert!(owner.health_events.snapshot_damage().is_empty());
     owner.health_events.clear();

@@ -673,9 +673,21 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_player_repair_named_structure(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         let structure_name = self.get_string_param(action, 1)?;
+        if let Some(result) = driver.ai_player(
+            crate::scripting::engine::ScriptAiPlayerRequest::RepairNamed {
+                player: &player_name,
+                structure: &structure_name,
+            },
+        ) {
+            if let Err(error) = result {
+                log::warn!("Owned scripted AI player effect failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         log::debug!(
             "Player '{}' repairing structure '{}'",
             player_name,
@@ -816,9 +828,21 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_player_select_skillset(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         let mut skillset = self.get_int_param(action, 1)?;
+        if let Some(result) = driver.ai_player(
+            crate::scripting::engine::ScriptAiPlayerRequest::SelectSkillset {
+                player: &player_name,
+                script_skillset: skillset,
+            },
+        ) {
+            if let Err(error) = result {
+                log::warn!("Owned scripted AI player effect failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         log::debug!("Player '{}' selecting skillset {}", player_name, skillset);
         crate::scripting::executor::request_host_script_player_misc(
             crate::scripting::executor::HostScriptPlayerMiscRequest::SelectSkillset {

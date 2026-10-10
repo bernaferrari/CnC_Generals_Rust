@@ -344,25 +344,6 @@ impl CnCGameEngine {
         };
     }
 
-    pub(super) fn runtime_host_cmd_click_live_enhanced_player_dual_world_empty_gate(
-        &mut self,
-        args: &HashMap<String, String>,
-    ) {
-        let action = args
-            .get("action")
-            .map(|v| v.trim().to_ascii_lowercase())
-            .unwrap_or_else(|| "prepare".to_string());
-        let ok = match action.as_str() {
-            "live" | "prepare" => false,
-            _ => self.host_unknown_action_fail_closed(false),
-        };
-        self.runtime_host_last_gameplay_cmd = if ok {
-            format!("click_live_enhanced_player_dual_world_empty_gate_ok_{action}")
-        } else {
-            format!("click_live_enhanced_player_dual_world_empty_gate_miss_{action}")
-        };
-    }
-
     pub(super) fn runtime_host_cmd_click_live_hijacker_update_dual_world_empty_gate(
         &mut self,
         args: &HashMap<String, String>,
@@ -799,7 +780,6 @@ impl CnCGameEngine {
             format!("click_live_collision_system_dual_world_empty_gate_miss_{action}")
         };
     }
-
 
     pub(super) fn runtime_host_cmd_click_live_structure_topple_dual_world_empty_gate(
         &mut self,

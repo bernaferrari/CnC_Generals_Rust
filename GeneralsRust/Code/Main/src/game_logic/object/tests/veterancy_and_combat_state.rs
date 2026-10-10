@@ -1095,35 +1095,59 @@ fn mine_clearing_weapon_set_swap_resets_primary_barrel_cursor() {
 
 #[test]
 fn fire_sound_loop_extends_and_stops() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
-    let mut tmpl = ThingTemplate::new("FlameLoop");
-    tmpl.primary_weapon_name = Some("DragonTankFlameWeapon".into());
-    tmpl.set_health(100.0);
-    tmpl.add_kind_of(KindOf::Vehicle);
-    tmpl.add_kind_of(KindOf::Attackable);
-    let mut o = Object::new(tmpl, ObjectId(7), Team::China);
-    o.weapon = Some(Weapon {
-        damage: 5.0,
-        range: 50.0,
-        reload_time: 0.1,
-        last_fire_time: -100.0,
-        ..Weapon::default()
-    });
-    crate::game_logic::host_fire_sound_loop_log::clear();
-    o.stamp_fire_sound_loop_after_shot(10, Some("DragonTankFlameWeapon"));
-    assert!(o.fire_sound_loop_until_frame > 10);
-    let start = crate::game_logic::host_fire_sound_loop_log::drain();
-    assert_eq!(start.len(), 1);
-    assert!(start[0].start);
-    // refresh should not re-emit start while still active
-    o.stamp_fire_sound_loop_after_shot(11, Some("DragonTankFlameWeapon"));
-    assert!(crate::game_logic::host_fire_sound_loop_log::drain().is_empty());
-    let stop_at = o.fire_sound_loop_until_frame;
-    o.tick_fire_sound_loop(stop_at);
-    let stop = crate::game_logic::host_fire_sound_loop_log::drain();
-    assert_eq!(stop.len(), 1);
-    assert!(!stop[0].start);
-    assert_eq!(o.fire_sound_loop_until_frame, 0);
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "fire_sound_loop_extends_and_stops",
+        || {
+            use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+            // CPP FiringTracker.cpp:138 reads the fired template's authored timer.
+            assert_eq!(
+                crate::assets::ini_template_loader::register_weapons_from_ini_text(
+                    r#"
+Weapon FixtureDragonLoopWeapon
+  FireSound = DragonTankWeaponLoop
+  FireSoundLoopTime = 80
+End
+"#
+                ),
+                1
+            );
+            assert_eq!(
+                crate::game_logic::weapon_bootstrap::host_fire_sound_loop_frames_for_weapon_name(
+                    "FixtureDragonLoopWeapon"
+                ),
+                3
+            );
+            let mut tmpl = ThingTemplate::new("FlameLoop");
+            tmpl.primary_weapon_name = Some("FixtureDragonLoopWeapon".into());
+            tmpl.set_health(100.0);
+            tmpl.add_kind_of(KindOf::Vehicle);
+            tmpl.add_kind_of(KindOf::Attackable);
+            let mut o = Object::new(tmpl, ObjectId(7), Team::China);
+            o.weapon = Some(Weapon {
+                damage: 5.0,
+                range: 50.0,
+                reload_time: 0.1,
+                last_fire_time: -100.0,
+                ..Weapon::default()
+            });
+            crate::game_logic::host_fire_sound_loop_log::clear();
+            o.stamp_fire_sound_loop_after_shot(10, Some("FixtureDragonLoopWeapon"));
+            assert!(o.fire_sound_loop_until_frame > 10);
+            let start = crate::game_logic::host_fire_sound_loop_log::drain();
+            assert_eq!(start.len(), 1);
+            assert!(start[0].start);
+            // refresh should not re-emit start while still active
+            o.stamp_fire_sound_loop_after_shot(11, Some("FixtureDragonLoopWeapon"));
+            assert!(crate::game_logic::host_fire_sound_loop_log::drain().is_empty());
+            let stop_at = o.fire_sound_loop_until_frame;
+            o.tick_fire_sound_loop(stop_at);
+            let stop = crate::game_logic::host_fire_sound_loop_log::drain();
+            assert_eq!(stop.len(), 1);
+            assert!(!stop[0].start);
+            assert_eq!(o.fire_sound_loop_until_frame, 0);
+        },
+    );
 }
 
 #[test]

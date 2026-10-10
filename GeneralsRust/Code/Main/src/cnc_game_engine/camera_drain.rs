@@ -672,41 +672,38 @@ impl CnCGameEngine {
         } else {
             None
         };
-        // Coupled host→shadow frame: sole-tick systems freeze host percent only
-        // while this is set AND the engine owns a live GameWorldShadow that will
-        // write back after the host tick. Host-only gates / missing shadow leave
-        // host construction/production advancing (fail-open).
-        // Wave 904/916: single-authority is unconditional — the dual crate tick
-        // gate and its env opt-in were removed (Main GameLogic is the sole host).
-        let couple_shadow = self.gameworld_shadow.is_some();
-        // Keep coupled-frame depth RAII-owned and publish the live shadow via
-        // the forget-safe scoped `with_coupled_shadow`: the exact previous
-        // couple slot is restored on exit AND unwind, so a panic cannot leave
-        // a raw shadow handle live into a later frame. The shadow is taken
-        // out of `self` for the scope so host helpers can still borrow `self`
-        // while the scope owns the exclusive shadow borrow; it is restored
-        // before presentation, matching the existing authority boundary.
-        let mut coupled_shadow_slot = self.gameworld_shadow.take();
+        // Ordinary matches keep all simulation writes and timers in Main.
+        // Only an explicitly enabled authority experiment publishes a shadow.
+        let couple_shadow = self.gameworld_shadow.is_some()
+            && *self.game_logic.gameworld_authority()
+                != crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority::DEFAULT_OFF;
+        // Take the observer so its exclusive borrow is explicit across the
+        // per-step boundary; restore it before presentation.
+        let mut observer_slot = self.gameworld_shadow.take();
         let coupled_tick_guard =
             couple_shadow.then(crate::gameworld_shadow::CoupledTickGuard::enter);
         // Each replay fast-forward iteration offers one host update, but a host
         // update may produce zero, one, or several fixed 30 Hz logic steps.
-        // Advance the coupled GameWorld last-writer boundary for the *actual*
-        // number of completed logic steps: production, exit-delay,
-        // construction, special-power, and movement must not follow render
-        // iteration count. Deferring the boundary until after the four offers
-        // made these shadow-owned channels run at one quarter speed.
+        // Complete admission and observation for every actual logic step.
+        // Production, construction and movement follow logic frames rather
+        // than presentation or fast-forward iteration count.
         if couple_shadow {
-            let shadow = coupled_shadow_slot
+            let shadow = observer_slot
                 .as_mut()
                 .expect("couple_shadow implies a live GameWorldShadow");
             crate::gameworld_shadow::with_coupled_shadow(shadow, || {
-                self.host_run_coupled_fast_forward_loop(dt, ff_steps, step_budget, couple_shadow);
+                self.host_run_fast_forward_loop(dt, ff_steps, step_budget, true, None);
             });
         } else {
-            self.host_run_coupled_fast_forward_loop(dt, ff_steps, step_budget, couple_shadow);
+            self.host_run_fast_forward_loop(
+                dt,
+                ff_steps,
+                step_budget,
+                false,
+                observer_slot.as_mut(),
+            );
         }
-        self.gameworld_shadow = coupled_shadow_slot.take();
+        self.gameworld_shadow = observer_slot.take();
         // Script FPS applied from presentation residual after snapshot build (below).
         // Live take remains for boot path when no frame is produced this tick.
 
@@ -2354,17 +2351,15 @@ impl CnCGameEngine {
         }
     }
 
-    /// Wave 602/925: one fast-forward batch of host updates under the live
-    /// coupled shadow publication (see `host_run_ingame_logic_presentation_frame`).
-    ///
-    /// Runs inside `with_coupled_shadow` when a shadow is live; interior
-    /// GameWorld access flows through the ambient coupled accessors.
-    fn host_run_coupled_fast_forward_loop(
+    /// Complete each actual logic step before observing it. Optional authority
+    /// experiments retain their separate scoped publication path.
+    fn host_run_fast_forward_loop(
         &mut self,
         dt: f32,
         ff_steps: usize,
         headless_step_budget: Option<usize>,
         couple_shadow: bool,
+        mut owned_observer: Option<&mut crate::gameworld_shadow::GameWorldShadow>,
     ) {
         for _ in 0..ff_steps {
             let gather_eligible = self.host_physical_gather_evidence_eligible();
@@ -2395,8 +2390,22 @@ impl CnCGameEngine {
                                 shadow, logic,
                             );
                         });
+                        *presentation_entity_count =
+                            Self::host_run_gameworld_shadow_after_logic(logic);
+                    } else if *logic.gameworld_authority()
+                        == crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority::DEFAULT_OFF
+                    {
+                        *presentation_entity_count =
+                            crate::gameworld_shadow::run_owned_host_boundary(
+                                owned_observer.as_deref_mut(),
+                                logic,
+                            );
+                    } else {
+                        // An explicit authority experiment may run without a
+                        // shadow. Preserve its host-only admission boundary.
+                        *presentation_entity_count =
+                            crate::gameworld_shadow::run_post_logic_shadow_boundary(None, logic);
                     }
-                    *presentation_entity_count = Self::host_run_gameworld_shadow_after_logic(logic);
                 },
             );
             if !self.game_paused {
@@ -2407,8 +2416,8 @@ impl CnCGameEngine {
 
     /// Wave 597: GameWorld shadow session residual via single boundary.
     ///
-    /// Ends a coupled shadow tick when requested. Host remains temporary
-    /// mid-frame owner; shadow is last-writer for HP/cash/pose.
+    /// Compatibility boundary for explicit authority experiments and probes.
+    /// Ordinary match frames pass their observation mirror directly.
     pub(super) fn host_run_gameworld_shadow_after_logic(
         logic: &mut crate::game_logic::GameLogic,
     ) -> usize {

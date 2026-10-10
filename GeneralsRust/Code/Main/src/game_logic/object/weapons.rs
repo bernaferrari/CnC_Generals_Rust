@@ -555,9 +555,8 @@ impl Object {
     /// secondary can reach.
     pub fn chosen_fire_slot_in_range(&self, target: &Object, current_time: f32) -> bool {
         let hit = |slot: u8| {
-            self.weapon_slot(slot).is_some_and(|w| {
-                self.can_target_with_slot(target, w, Some(slot))
-            })
+            self.weapon_slot(slot)
+                .is_some_and(|w| self.can_target_with_slot(target, w, Some(slot)))
         };
         let ready = |slot: u8| self.can_fire_slot(slot, current_time);
         if self.weapon_lock_type != WeaponLockType::NotLocked {
@@ -1520,7 +1519,6 @@ fn leftover_parse_controlled_weapon_slots(template_name: &str) -> Option<u32> {
     }
     (mask != 0).then_some(mask)
 }
-
 
 #[cfg(test)]
 mod tests;

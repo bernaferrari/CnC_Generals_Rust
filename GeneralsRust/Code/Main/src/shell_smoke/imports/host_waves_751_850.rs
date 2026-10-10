@@ -325,11 +325,6 @@ pub use crate::game_logic::host_live_host_money_crate_delete_dual_peel_residual_
     honesty_host_money_crate_delete_dual_peel_nav_commands_residual_wave817,
     simulate_live_host_money_crate_delete_dual_peel_honesty,
 };
-pub use crate::game_logic::host_live_host_player_radar_dual_peel_residual_wave818::{
-    honesty_host_player_radar_dual_peel_method_names_residual_wave818,
-    honesty_host_player_radar_dual_peel_nav_commands_residual_wave818,
-    simulate_live_host_player_radar_dual_peel_honesty,
-};
 pub use crate::game_logic::host_live_host_dozer_bored_dual_peel_residual_wave819::{
     honesty_host_dozer_bored_dual_peel_method_names_residual_wave819,
     honesty_host_dozer_bored_dual_peel_nav_commands_residual_wave819,

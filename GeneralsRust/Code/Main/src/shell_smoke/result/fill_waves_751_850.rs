@@ -199,9 +199,6 @@ fn fill_waves_751_850(
     out.host_money_crate_delete_dual_peel_method_names_wave817_ok = waves.host_money_crate_delete_dual_peel_method_names_wave817_ok;
     out.host_money_crate_delete_dual_peel_nav_commands_wave817_ok = waves.host_money_crate_delete_dual_peel_nav_commands_wave817_ok;
     out.host_money_crate_delete_dual_peel_live_wave817_ok = waves.host_money_crate_delete_dual_peel_live_wave817_ok;
-    out.host_player_radar_dual_peel_method_names_wave818_ok = waves.host_player_radar_dual_peel_method_names_wave818_ok;
-    out.host_player_radar_dual_peel_nav_commands_wave818_ok = waves.host_player_radar_dual_peel_nav_commands_wave818_ok;
-    out.host_player_radar_dual_peel_live_wave818_ok = waves.host_player_radar_dual_peel_live_wave818_ok;
     out.host_dozer_bored_dual_peel_method_names_wave819_ok = waves.host_dozer_bored_dual_peel_method_names_wave819_ok;
     out.host_dozer_bored_dual_peel_nav_commands_wave819_ok = waves.host_dozer_bored_dual_peel_nav_commands_wave819_ok;
     out.host_dozer_bored_dual_peel_live_wave819_ok = waves.host_dozer_bored_dual_peel_live_wave819_ok;

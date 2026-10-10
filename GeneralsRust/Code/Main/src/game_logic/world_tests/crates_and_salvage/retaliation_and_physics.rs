@@ -43,13 +43,18 @@ fn damaged_can_be_repulsed_sets_temporary_repulsor() {
     o.health.current = 100.0;
     o.health.maximum = 100.0;
     logic.objects.insert(id, o);
-    let destroyed = {
-        let (objects, health_events) = (&mut logic.objects, &mut logic.health_events);
-        objects
-            .get_mut(&id)
-            .unwrap()
-            .take_damage(10.0, health_events)
-    };
+    let destroyed = logic
+        .apply_owned_damage(
+            id,
+            10.0,
+            None,
+            crate::game_logic::combat::DamageType::Bullet,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            &crate::game_logic::object::DamageHitContext::default(),
+        )
+        .unwrap()
+        .destroyed;
     assert!(!destroyed);
     {
         let o = &logic.objects[&id];
@@ -72,7 +77,6 @@ fn damaged_can_be_repulsed_sets_temporary_repulsor() {
 #[test]
 fn damaged_repulsor_disabled_when_enable_off() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
-    crate::game_logic::host_repulsor_gate::set_enabled(false);
     let mut t = ThingTemplate::new("CivOff");
     t.add_kind_of(KindOf::CanBeRepulsed);
     let id = ObjectId(4302);
@@ -170,19 +174,19 @@ fn try_idle_repulse_flees_flagged_repulsor() {
 #[test]
 fn start_new_game_applies_retail_enable_repulsors() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
-    crate::game_logic::host_repulsor_gate::clear_aidata_ini_applied_for_test();
-    crate::game_logic::host_repulsor_gate::set_enabled(false);
     let mut logic = GameLogic::new();
     assert!(
         !logic.enable_repulsors,
         "C++ TAiData ctor default is false until AIData.ini"
     );
+    let mut definitions = game_engine::common::ini::AIData::default();
+    definitions.enable_repulsors = true; // authored Default/AIData.ini Yes
+    logic.set_ai_definition_base(definitions);
     logic.start_new_game(GameMode::Skirmish);
     assert!(
         logic.enable_repulsors,
         "retail Default/AIData.ini EnableRepulsors=Yes on live start_new_game"
     );
-    assert!(crate::game_logic::host_repulsor_gate::is_enabled());
 
     let mut t = ThingTemplate::new("CivLivePanic");
     t.add_kind_of(KindOf::Infantry);
@@ -192,13 +196,18 @@ fn start_new_game_applies_retail_enable_repulsors() {
     o.health.current = 100.0;
     o.health.maximum = 100.0;
     logic.objects.insert(id, o);
-    let destroyed = {
-        let (objects, health_events) = (&mut logic.objects, &mut logic.health_events);
-        objects
-            .get_mut(&id)
-            .unwrap()
-            .take_damage(10.0, health_events)
-    };
+    let destroyed = logic
+        .apply_owned_damage(
+            id,
+            10.0,
+            None,
+            crate::game_logic::combat::DamageType::Bullet,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            &crate::game_logic::object::DamageHitContext::default(),
+        )
+        .unwrap()
+        .destroyed;
     assert!(!destroyed);
     assert!(
         logic.objects[&id].status.repulsor,
@@ -207,31 +216,16 @@ fn start_new_game_applies_retail_enable_repulsors() {
 }
 
 #[test]
-fn apply_aidata_enable_repulsors_honors_parsed_ini_no() {
-    crate::game_logic::host_repulsor_gate::mark_aidata_ini_applied();
-    {
-        let store = game_engine::common::ini::get_ai_data_store();
-        let mut store = store.write().expect("AI data store write lock");
-        store.ensure_base();
-        if let Some(data) = store.get_active_mut() {
-            data.enable_repulsors = false;
-        }
-    }
+fn apply_aidata_enable_repulsors_honors_owned_ini_no() {
     let mut logic = GameLogic::new();
+    let mut definitions = game_engine::common::ini::AIData::default();
+    definitions.enable_repulsors = false;
+    logic.set_ai_definition_base(definitions);
     logic.apply_aidata_enable_repulsors();
     assert!(
         !logic.enable_repulsors,
-        "parsed EnableRepulsors=No must win over retail Yes"
+        "owned EnableRepulsors=No controls the driving world"
     );
-    assert!(!crate::game_logic::host_repulsor_gate::is_enabled());
-    crate::game_logic::host_repulsor_gate::clear_aidata_ini_applied_for_test();
-    {
-        let store = game_engine::common::ini::get_ai_data_store();
-        let mut store = store.write().expect("AI data store write lock");
-        if let Some(data) = store.get_active_mut() {
-            data.enable_repulsors = false;
-        }
-    }
 }
 
 #[test]

@@ -1,6 +1,7 @@
 pub mod campaign;
 pub mod compression;
 pub mod game_state;
+mod map_paths;
 pub mod replay;
 pub mod save_file;
 pub mod snapshot;
@@ -75,6 +76,10 @@ pub struct SaveGameInfo {
     pub display_name: String,
     pub description: String,
     pub map_name: String,
+    /// Decoded GameStateMap companion identity, separate from extracted geometry.
+    /// Transport only: native positional fields and legacy JSON schema stay unchanged.
+    #[serde(skip)]
+    pub pristine_map_name: Option<String>,
     pub campaign_side: Option<String>,
     pub mission_number: Option<u32>,
     pub save_date: SystemTime,
@@ -517,6 +522,7 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("temp dir");
         let mut files = SaveFileManager::with_save_directory(&dir);
         let save_info = SaveGameInfo {
+            pristine_map_name: None,
             filename: "menu_v2".into(),
             display_name: "Host V2".into(),
             description: "Host V2".into(),

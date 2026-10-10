@@ -1242,17 +1242,6 @@ pub use super::host_live_host_player_alive_dual_peel_residual_wave816::{
     simulate_live_host_player_alive_dual_peel_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_host_player_radar_dual_peel_residual_wave818::{
-    honesty_host_player_radar_dual_peel_method_names_residual_wave818,
-    honesty_host_player_radar_dual_peel_nav_commands_residual_wave818,
-    honesty_host_player_radar_dual_peel_residual_pack_wave818,
-    honesty_host_player_radar_dual_peel_source_markers_residual_wave818,
-    residual_host_player_radar_dual_peel_last_action, residual_host_player_radar_dual_peel_ok,
-    simulate_host_player_radar_dual_peel_collect_source,
-    simulate_host_player_radar_dual_peel_dispatch_source,
-    simulate_live_host_player_radar_dual_peel_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_host_pob_failclosed_boot_residual_wave895::{
     honesty_host_pob_failclosed_boot_method_names_residual_wave895,
     honesty_host_pob_failclosed_boot_nav_commands_residual_wave895,

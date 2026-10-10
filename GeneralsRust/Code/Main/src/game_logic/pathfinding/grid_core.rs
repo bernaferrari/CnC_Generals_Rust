@@ -67,6 +67,7 @@ impl PathfindingGrid {
             occ_obstacle_team: vec![0xFFu8; cells],
             permanent_blast_crater_cells: HashSet::new(),
             bridge_layers: Vec::new(),
+            flight_bridge_order: Vec::new(),
             layer_occ: HashMap::new(),
             wall_pieces: Vec::new(),
             wall_cells: HashMap::new(),
@@ -1073,6 +1074,7 @@ impl PathfindingGrid {
         self.transparent_bits.fill(0);
         self.ground_connect.fill(0);
         self.bridge_layers.clear();
+        self.flight_bridge_order.clear();
         // C++ classifyMap keeps m_layers[LAYER_WALL] when pieces remain
         // (AIPathfind.cpp:4650-4651). Do not drop the deck on terrain rebuild.
         self.allocate_and_classify_wall_layer();

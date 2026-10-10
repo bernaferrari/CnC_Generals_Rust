@@ -1,10 +1,10 @@
 //! Read-only inputs for host strategic AI decisions.
 //!
 //! `AiWorldView` borrows live player, object, template and partition state so decisions see
-//! synchronous command effects in the same phase. `AiDataView` separately owns cloned
+//! synchronous command effects in the same phase. `AiDataView` shares immutable
 //! definition values captured once before an AI manager pass; its store guards do not cross
-//! player callbacks. Mutable command execution remains in the host world adapters. Native
-//! per-unit AI stays in GameLogic; this module is not a second unit simulator.
+//! player callbacks. Mutable command execution remains in the host world adapters. Per-unit
+//! AI executes on Main objects; this module only provides strategic read inputs.
 
 use crate::game_logic::{
     GameLogic, Object, ObjectId, Player, PlayerTemplateIdentity, Team, ThingTemplate,
@@ -13,43 +13,23 @@ use glam::Vec3;
 use std::collections::HashMap;
 
 /// Immutable definitions captured once at the start of a synchronous AI manager
-/// update. This owns cloned data and holds no store lock while callbacks mutate
-/// the driving GameLogic.
+/// update. This shares an immutable snapshot while callbacks mutate the
+/// driving GameLogic.
 pub(super) struct AiDataView {
-    catalog: Option<game_engine::common::ini::AIData>,
-    runtime: Option<gamelogic::ai::AiData>,
+    definitions: std::sync::Arc<game_engine::common::ini::AIData>,
 }
 
 impl AiDataView {
     pub(super) fn from_world(world: &GameLogic) -> Self {
-        let catalog_store = world.engine_stores.ai_data();
-        let catalog = catalog_store
-            .read()
-            .expect("AI data store read lock")
-            .get_active()
-            .cloned();
-        let runtime_store = world.engine_stores.ai();
-        let runtime = Some(
-            runtime_store
-                .read()
-                .expect("world AI definitions read lock")
-                .get_ai_data()
-                .clone(),
-        );
-        Self { catalog, runtime }
+        Self {
+            definitions: world.ai_definitions.snapshot(),
+        }
     }
-
     pub(super) fn from_source(source: &(impl AiReadSource + ?Sized)) -> Self {
-        let view = source.ai_view();
-        Self::from_world(view.world)
+        Self::from_world(source.ai_view().world)
     }
-
     pub(super) fn catalog(&self) -> Option<&game_engine::common::ini::AIData> {
-        self.catalog.as_ref()
-    }
-
-    pub(super) fn runtime(&self) -> Option<&gamelogic::ai::AiData> {
-        self.runtime.as_ref()
+        Some(&self.definitions)
     }
 }
 

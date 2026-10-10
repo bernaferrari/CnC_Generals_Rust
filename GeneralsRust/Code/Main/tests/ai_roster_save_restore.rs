@@ -381,6 +381,7 @@ fn violations(logic: &GameLogic, case: Case) -> Vec<String> {
 
 fn info() -> SaveGameInfo {
     SaveGameInfo {
+        pristine_map_name: None,
         filename: "roster".into(),
         display_name: "AI roster restore".into(),
         description: String::new(),

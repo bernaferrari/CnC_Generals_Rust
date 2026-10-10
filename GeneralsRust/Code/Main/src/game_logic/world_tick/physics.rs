@@ -140,11 +140,12 @@ impl GameLogic {
             if obj.is_kind_of(KindOf::Projectile) {
                 continue;
             }
-            let killed = obj.take_damage_from_typed(
+            let killed = obj.take_damage_from_typed_with_repulsor_policy(
                 damage_amount,
                 None,
                 crate::game_logic::combat::DamageType::Water,
                 &mut self.health_events,
+                &self.enable_repulsors,
             );
             hit = hit.saturating_add(1);
             if killed || obj.status.destroyed || obj.health.current <= 0.0 {
@@ -1230,6 +1231,7 @@ impl GameLogic {
         obj: &mut Object,
         ground_y: f32,
         goal_y: Option<f32>,
+        terrain: Option<&super::flight_terrain::FlightTerrainView<'_>>,
     ) {
         // C++ handleBehaviorZ always receives locomotor goalPos; PRECISE_Z_POS
         // selects goal.z over preferredHeight + surface (Locomotor.cpp:2296-2300).
@@ -1256,7 +1258,12 @@ impl GameLogic {
         if hover && matches!(obj.loco_behavior_z, LocomotorBehaviorZ::NoZMotiveForce) {
             obj.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
         }
-        let _ = obj.handle_behavior_z(ground_y, goal_y);
+        if let Some(terrain) = terrain {
+            let highest = terrain.highest_surface(obj);
+            let _ = obj.handle_behavior_z_with_highest_surface(ground_y, goal_y, highest);
+        } else {
+            let _ = obj.handle_behavior_z(ground_y, goal_y);
+        }
         match obj.loco_behavior_z {
             LocomotorBehaviorZ::SurfaceRelativeHeight
             | LocomotorBehaviorZ::SmoothRelativeToHighestLayer
@@ -1336,7 +1343,7 @@ impl GameLogic {
         ground_y: f32,
         goal_y: Option<f32>,
     ) {
-        Self::apply_live_handle_behavior_z(obj, ground_y, goal_y);
+        Self::apply_live_handle_behavior_z(obj, ground_y, goal_y, None);
     }
     #[cfg(test)]
     pub fn transfer_attack_for_test(&mut self, from_id: ObjectId, to_id: ObjectId) -> usize {

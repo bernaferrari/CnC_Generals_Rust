@@ -565,6 +565,7 @@ fn assert_checkpoint(logic: &GameLogic, ids: Ids, case: Case, observation: &Valu
 
 fn info() -> SaveGameInfo {
     SaveGameInfo {
+        pristine_map_name: None,
         filename: "strategy".into(),
         display_name: "Strategy continuation".into(),
         description: String::new(),

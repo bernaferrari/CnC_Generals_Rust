@@ -96,7 +96,7 @@ pub fn honesty_host_sim_timing_snapshot_residual_pack_wave908() -> bool {
         super::harness::rust_fn_body(cnc, "host_update_logic_frame").unwrap_or(""),
     );
     let loop_body = non_comment_code(
-        super::harness::rust_fn_body(cnc, "host_run_coupled_fast_forward_loop").unwrap_or(""),
+        super::harness::rust_fn_body(cnc, "host_run_fast_forward_loop").unwrap_or(""),
     );
     let tick = non_comment_code(
         super::harness::rust_fn_body(&gl, "tick_logic_frame_with_boundary").unwrap_or(""),

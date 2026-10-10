@@ -312,6 +312,7 @@ fn pending_combat_snapshot_rejects_old_schema_before_mutating_live_owner() {
 
 fn save_info(slot: &str) -> crate::save_load::SaveGameInfo {
     crate::save_load::SaveGameInfo {
+        pristine_map_name: None,
         filename: slot.to_string(),
         display_name: "Typed pending combat".to_string(),
         description: "actual authored accepted and finite damage continuation".to_string(),

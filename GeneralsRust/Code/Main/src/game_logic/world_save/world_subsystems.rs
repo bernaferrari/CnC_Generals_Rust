@@ -873,15 +873,12 @@ impl GameLogic {
 
     /// Sample terrain heights into the current pathfinding grid resolution for save/load parity.
     pub fn snapshot_terrain_heights_for_path_grid(&self) -> Option<Vec<f32>> {
-        #[cfg(feature = "game_client")]
-        {
-            let terrain = self.terrain.as_ref()?;
-            let width = self.pathfinding_system.grid.width().max(0);
-            let height = self.pathfinding_system.grid.height().max(0);
-            if width == 0 || height == 0 {
-                return None;
-            }
-
+        let width = self.pathfinding_system.grid.width().max(0) as u32;
+        let height = self.pathfinding_system.grid.height().max(0) as u32;
+        if width == 0 || height == 0 {
+            return None;
+        }
+        if let Some(terrain) = self.terrain.as_ref() {
             let grid_size = self.pathfinding_system.grid.grid_size();
             let origin = self.pathfinding_system.grid.origin();
             let mut samples = Vec::with_capacity((width * height) as usize);
@@ -895,16 +892,10 @@ impl GameLogic {
                     samples.push(terrain.height_at_world(pos));
                 }
             }
-            Some(samples)
+            return Some(samples);
         }
-        #[cfg(not(feature = "game_client"))]
-        {
-            let cache = self.pathfinding_height_samples.as_ref()?;
-            let width = self.pathfinding_system.grid.width().max(0) as u32;
-            let height = self.pathfinding_system.grid.height().max(0) as u32;
-
-            (cache.width == width && cache.height == height).then_some(cache.values.clone())
-        }
+        let cache = self.pathfinding_height_samples.as_ref()?;
+        (cache.width == width && cache.height == height).then_some(cache.values.clone())
     }
 
     /// Restore coarse terrain heights from a grid snapshot (used to recover post-load height queries).
@@ -1075,8 +1066,15 @@ impl GameLogic {
         self.ensure_generic_bridge_objects();
         self.pathfinding_system.grid.pinch_tighten_cliffs();
         if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() {
+            let mut flight_order = Vec::new();
             terrain.for_each_bridge(|bridge| {
                 let info = bridge.get_bridge_info();
+                flight_order.push([
+                    Vec3::new(info.from_left.x, info.from_left.z, info.from_left.y),
+                    Vec3::new(info.from_right.x, info.from_right.z, info.from_right.y),
+                    Vec3::new(info.to_right.x, info.to_right.z, info.to_right.y),
+                    Vec3::new(info.to_left.x, info.to_left.z, info.to_left.y),
+                ]);
                 let destroyed = info.cur_damage_state == gamelogic::common::BodyDamageType::Rubble;
                 // C++ Coord3D ground is XY / height Z; host path grid is XZ / height Y.
                 self.pathfinding_system.grid.stamp_bridge_deck(
@@ -1094,6 +1092,9 @@ impl GameLogic {
                     info.bridge_object_id,
                 );
             });
+            self.pathfinding_system
+                .grid
+                .admit_flight_bridge_order(&flight_order);
         }
         self.sync_host_bridge_rubble_and_scaffolds();
         self.pathfinding_system.grid.rebuild_terrain_zones();

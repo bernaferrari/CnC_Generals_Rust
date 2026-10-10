@@ -134,6 +134,7 @@ fn popup_and_host_write_common_sav_chunks_and_restore_authority() {
     }
 
     let info = SaveGameInfo {
+        pristine_map_name: None,
         filename: "auth_rt".to_string(),
         display_name: "Auth".to_string(),
         description: "host authoritative restore".to_string(),
@@ -212,6 +213,7 @@ fn companion_aware_save_preserves_client_drawable_snapshot() {
         }],
     };
     let save_info = SaveGameInfo {
+        pristine_map_name: None,
         filename: "client_drawable_companion".to_string(),
         display_name: "Client Drawable Companion".to_string(),
         description: "v4 renderer companion".to_string(),

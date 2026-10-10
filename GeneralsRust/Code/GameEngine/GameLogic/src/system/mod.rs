@@ -74,6 +74,7 @@ pub use victory_conditions::{
 pub use game_initialization::{
     GameDifficulty, GameInitParams, GameInitializer, GameMode, GameState, MapCacheManager,
     load_map_ini_create_overrides_from_contents, load_map_ini_ui_overrides_from_contents,
+    load_map_ini_ui_overrides_with_ai_data,
 };
 
 #[cfg(test)]

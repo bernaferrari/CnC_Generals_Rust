@@ -259,6 +259,7 @@ fn upgrade_completion_owner_actual_file_writer_restores_pending_and_completed_re
         .init()
         .expect("actual SaveFileManager initialization");
     let info = SaveGameInfo {
+        pristine_map_name: None,
         filename: "upgrade_owner".to_owned(),
         display_name: "Upgrade owner".to_owned(),
         description: "Authored ordinary research".to_owned(),

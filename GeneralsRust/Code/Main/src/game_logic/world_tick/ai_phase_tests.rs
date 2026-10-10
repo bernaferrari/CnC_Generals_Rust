@@ -131,18 +131,17 @@ fn skirmish_rules_and_wall_height_belong_to_the_driving_match() {
     let mut first = match_with_player();
     let mut second = match_with_player();
     for (logic, repulsed, wall) in [(&mut first, 40.0, 21.0), (&mut second, 90.0, 55.0)] {
-        let mut rules = logic.engine_stores.ai_data().write().unwrap();
-        rules.ensure_base();
-        let data = rules.get_active_mut().unwrap();
+        let mut data = logic.ai_definitions.data().clone();
         data.repulsed_distance = repulsed;
         data.wall_height = wall;
+        logic.set_ai_definition_base(data);
     }
     for (logic, repulsed, wall) in [(&mut first, 40.0, 21.0), (&mut second, 90.0, 55.0)] {
         logic.setup_skirmish_ai(0);
         {
-            let ai = logic.engine_stores.ai().read().unwrap();
-            assert_eq!(ai.get_ai_data().repulsed_distance, repulsed);
-            assert_eq!(ai.get_ai_data().wall_height, wall);
+            let data = logic.ai_definitions.data();
+            assert_eq!(data.repulsed_distance, repulsed);
+            assert_eq!(data.wall_height, wall);
         }
         let mut template = ThingTemplate::new("AIPhaseWall");
         template.add_kind_of(KindOf::WalkOnTopOfWall);

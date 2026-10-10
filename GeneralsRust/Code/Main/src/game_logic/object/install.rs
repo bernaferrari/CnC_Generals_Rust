@@ -841,7 +841,6 @@ impl Object {
     pub(crate) fn on_disabled_edge(&mut self, becoming_disabled: bool) {
         use crate::game_logic::host_radar::{
             leftover_on_disabled_edge_radar, leftover_radar_upgrade_is_applied,
-            record_leftover_radar_disabled_edge,
         };
         use crate::game_logic::host_upgrades::{
             UPGRADE_CHINA_RADAR, normalize_upgrade_identity,
@@ -859,15 +858,23 @@ impl Object {
         });
         let applied = leftover_radar_upgrade_is_applied(&self.template_name, tagged);
         if let Some(disable_proof) = leftover_on_disabled_edge_radar(&self.template_name, applied) {
-            record_leftover_radar_disabled_edge(
-                self.owner_player_id,
-                becoming_disabled,
-                disable_proof,
+            self.pending_radar_disabled_edges.push(
+                crate::game_logic::host_radar::RadarDisabledEdge {
+                    player_id: self.owner_player_id,
+                    becoming_disabled,
+                    disable_proof,
+                },
             );
         }
         // Intentionally keep `overcharge_enabled`. C++ OverchargeBehavior
         // stays active and continues DAMAGE_PENALTY; Energy::adjustPower
         // only mutates the player's pool.
+    }
+
+    pub(crate) fn take_radar_disabled_edges(
+        &mut self,
+    ) -> Vec<crate::game_logic::host_radar::RadarDisabledEdge> {
+        std::mem::take(&mut self.pending_radar_disabled_edges)
     }
 
     /// C++ goInvulnerable residual (OCL InvulnerableTime post-eject).

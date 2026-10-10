@@ -1090,8 +1090,8 @@ fn residual_auto_fire_damage_source_attribution_source() {
         .expect("residual_auto_fire_apply_damage");
     let helper: String = helper.split_whitespace().collect();
     assert!(
-        helper.contains("take_damage_from(damage,Some(attacker_id),&mutself.health_events)"),
-        "residual auto-fire helper must source-attribute hitscan damage"
+        helper.contains("take_damage_from_with_repulsor_policy(damage,Some(attacker_id),&mutself.health_events,&self.enable_repulsors,)"),
+        "residual auto-fire helper must source-attribute hitscan damage and borrow its world policy after FX"
     );
     for name in [
         "try_sentry_drone_residual_fire",

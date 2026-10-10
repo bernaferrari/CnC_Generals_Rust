@@ -45,7 +45,7 @@ fn dest_line_cells(sx: i32, sy: i32, ex: i32, ey: i32) -> Vec<(i32, i32)> {
 
 impl GameLogic {
     /// C++ `Pathfinder::moveAlliesAwayFromDestination` (AIPathfind.cpp:6911-6922).
-    /// Factory-exit dest-line: leftover occupancy first, then host idle allies.
+    /// Factory-exit destination line resolves only this match's objects.
     pub fn move_allies_away_from_destination(&mut self, unit_id: ObjectId, destination: Vec3) {
         let Some(unit) = self.objects.get(&unit_id) else {
             return;
@@ -54,22 +54,6 @@ impl GameLogic {
         let ignore = unit.ignored_obstacle_id;
         let mover_player = unit.owner_player_id.unwrap_or(unit.team as u32);
         let mover_team = unit.team;
-
-        let leftover_from = gamelogic::common::Coord3D::new(from.x, from.z, from.y);
-        let leftover_dest =
-            gamelogic::common::Coord3D::new(destination.x, destination.z, destination.y);
-        let ai_store = gamelogic::ai::the_ai();
-        if let Ok(ai) = ai_store.read() {
-            if let Some(pf) = ai.pathfinder() {
-                if let Ok(pf) = pf.read() {
-                    let _ = pf.move_allies_away_from_destination_for(
-                        unit_id.0,
-                        &leftover_from,
-                        &leftover_dest,
-                    );
-                }
-            }
-        }
 
         let from_c = self.pathfinding_system.grid.world_to_grid(from);
         let to_c = self.pathfinding_system.grid.world_to_grid(destination);

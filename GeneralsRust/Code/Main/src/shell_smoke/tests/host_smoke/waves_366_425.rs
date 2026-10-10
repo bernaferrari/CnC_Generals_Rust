@@ -484,21 +484,6 @@ pub(super) fn assert_waves_366_425(r: &ShellSmokeResult) {
         r.detail
     );
     assert!(
-        r.live_ai_groups_dual_world_empty_gate_method_names_wave398_ok,
-        "live ai groups dual-world empty gate method names residual pack wave398: {}",
-        r.detail
-    );
-    assert!(
-        r.live_ai_groups_dual_world_empty_gate_nav_commands_wave398_ok,
-        "live ai groups dual-world empty gate nav commands residual pack wave398: {}",
-        r.detail
-    );
-    assert!(
-        r.live_ai_groups_dual_world_empty_gate_live_wave398_ok,
-        "live ai groups dual-world empty gate live residual wave398: {}",
-        r.detail
-    );
-    assert!(
         r.live_artillery_barrage_power_dual_world_empty_gate_method_names_wave399_ok,
         "live artillery barrage power dual-world empty gate method names residual pack wave399: {}",
         r.detail

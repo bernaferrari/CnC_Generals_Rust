@@ -187,12 +187,12 @@ pub fn simulate_host_gameworld_shadow_session_helper_collect_source() -> bool {
 pub fn simulate_host_gameworld_shadow_session_helper_dispatch_source() -> bool {
     let eng = eng_source();
     let host = fn_body(eng, "fn host_update_logic_frame(").unwrap_or("");
-    let loop_body = fn_body(eng, "fn host_run_coupled_fast_forward_loop(").unwrap_or("");
+    let loop_body = fn_body(eng, "fn host_run_fast_forward_loop(").unwrap_or("");
     let driver = fn_body(eng, "fn host_run_ingame_logic_presentation_frame(").unwrap_or("");
     let gather = loop_body.find("host_drain_physical_gather_dropoffs");
     let eager = loop_body.find("eager_apply_all_host_residuals_after_logic");
     let shadow = loop_body.find("host_run_gameworld_shadow_after_logic(logic)");
-    let completed = driver.find("self.host_run_coupled_fast_forward_loop");
+    let completed = driver.find("self.host_run_fast_forward_loop");
     let finalize = driver.find("self.host_finalize_presentation_after_logic()");
     let ok = host.contains("tick_logic_frame_with_boundary")
         && gather.zip(eager).is_some_and(|(a, b)| a < b)

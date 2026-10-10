@@ -8,7 +8,7 @@ impl GameLogic {
     /// players that happen to use the same faction.  A legacy team-only object
     /// may retain the old behavior only when that faction has one unambiguous
     /// active player; an explicit but stale owner fails closed instead.
-    pub(in super::super) fn player_owner_for_host_object(&self, object: &Object) -> Option<u32> {
+    pub(crate) fn player_owner_for_host_object(&self, object: &Object) -> Option<u32> {
         match object.owner_player_id {
             Some(player_id) => self
                 .players
@@ -87,12 +87,29 @@ impl GameLogic {
         let player_ids: Vec<u32> = self.players.keys().copied().collect();
         for player_id in player_ids {
             let totals = self.power_totals_for_player(player_id, |object| {
-                object.is_constructed_from_host_state() && object.is_alive_from_host_state()
+                object.is_constructed() && object.is_alive()
             });
             if let Some(player) = self.players.get_mut(&player_id) {
                 Self::apply_derived_power(player, totals);
                 Self::apply_power_sabotage(player);
             }
+        }
+    }
+
+    /// Object::onDisabledEdge adjusts this owner's generation synchronously.
+    /// Reuse the canonical grid fold without aging sabotage or replaying income.
+    pub(in super::super) fn refresh_power_after_disabled_expiry(&mut self, player_id: u32) {
+        let totals = self.power_totals_for_player(player_id, |object| {
+            object.is_constructed() && object.is_alive()
+        });
+        if let Some(player) = self.players.get_mut(&player_id) {
+            Self::apply_derived_power(player, totals);
+            Self::apply_power_sabotage(player);
+            crate::game_logic::host_economy_log::record(
+                player_id,
+                player.resources.supplies,
+                player.power_available,
+            );
         }
     }
 

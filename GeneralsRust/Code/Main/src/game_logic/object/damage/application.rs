@@ -25,6 +25,11 @@ pub(in crate::game_logic) struct ActiveDamageContinuation {
     pub(super) start_second_life: bool,
 }
 
+/// Linear post-FX phase: the world may release its victim borrow and observe
+/// current owner policy before finishing the original synchronous impact.
+#[must_use = "finish the same impact after observing its owner's post-FX policy"]
+pub(in crate::game_logic) struct DamageAfterFx(DamageApplication);
+
 impl DamageApplication {
     pub(in crate::game_logic) fn killed(&self) -> bool {
         match self {
@@ -40,39 +45,72 @@ impl DamageApplication {
         }
     }
 
-    /// Source is freshly observed after world credit and death callbacks, or
-    /// supplied by the immediate standalone wrapper with no world credit.
+    pub(in crate::game_logic) fn dispatch_damage_fx(
+        self,
+        victim: &mut Object,
+        source: Option<&HostDamageFxVictim>,
+    ) -> DamageAfterFx {
+        if let Self::Active(tail) = &self {
+            assert_eq!(
+                tail.victim_id, victim.id,
+                "damage continuation victim identity changed"
+            );
+            let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
+                victim,
+                tail.fx_type,
+                tail.actual_damage,
+                tail.frame,
+                source,
+            );
+        }
+        DamageAfterFx(self)
+    }
+
+    /// Standalone calls supply an explicit inert policy: there is no world to
+    /// discover. The driving-world path observes policy only after actual FX.
     pub(in crate::game_logic) fn finish(
         self,
         victim: &mut Object,
         source: Option<&HostDamageFxVictim>,
+        enable_repulsors: bool,
     ) -> bool {
-        match self {
-            Self::Complete(killed) => killed,
-            Self::Active(tail) => tail.finish(victim, source),
+        self.dispatch_damage_fx(victim, source)
+            .finish(victim, source, enable_repulsors)
+    }
+}
+
+impl DamageAfterFx {
+    pub(in crate::game_logic) fn had_active_body(&self) -> bool {
+        matches!(self.0, DamageApplication::Active(_))
+    }
+    pub(in crate::game_logic) fn finish(
+        self,
+        victim: &mut Object,
+        source: Option<&HostDamageFxVictim>,
+        enable_repulsors: bool,
+    ) -> bool {
+        match self.0 {
+            DamageApplication::Complete(killed) => killed,
+            DamageApplication::Active(tail) => {
+                tail.finish_after_damage_fx(victim, source, enable_repulsors)
+            }
         }
     }
 }
 
 impl ActiveDamageContinuation {
-    fn finish(self, victim: &mut Object, source: Option<&HostDamageFxVictim>) -> bool {
+    fn finish_after_damage_fx(
+        self,
+        victim: &mut Object,
+        source: Option<&HostDamageFxVictim>,
+        enable_repulsors: bool,
+    ) -> bool {
         assert_eq!(
             self.victim_id, victim.id,
             "damage continuation victim identity changed"
         );
-        let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
-            victim,
-            self.fx_type,
-            self.actual_damage,
-            self.frame,
-            source,
-        );
-
         // C++ ActiveBody.cpp:655–662 follows DamageFX, even on a lethal hit.
-        if crate::game_logic::host_repulsor_gate::is_enabled()
-            && victim.is_kind_of(KindOf::CanBeRepulsed)
-            && !victim.status.repulsor
-        {
+        if enable_repulsors && victim.is_kind_of(KindOf::CanBeRepulsed) && !victim.status.repulsor {
             victim.repulsor_until_frame = 60; // 2 seconds @ 30Hz
             victim.set_status_repulsor(true);
         }

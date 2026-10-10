@@ -83,6 +83,33 @@ fn read_text_with_fallback(path: &Path) -> Option<String> {
     }
 }
 
+/// C++ loadMapINI derives a directory from pristineMapName; the original
+/// geometry may be absent after a save has supplied its embedded map. Resolve
+/// companions through the same virtual/native/workspace roots independently.
+fn resolve_map_companion_source(map_name: &str) -> Option<PathBuf> {
+    if let Some(path) = locate_map_file(map_name) {
+        return Some(path);
+    }
+    let normalized = normalize_virtual_path_str(map_name);
+    if normalized.is_empty() {
+        return None;
+    }
+    let source = PathBuf::from(normalized);
+    let directory = source.parent()?;
+    let leaf = source.file_name()?;
+    for name in ["Map.ini", "map.ini", "Solo.ini", "solo.ini"] {
+        let companion = directory.join(name);
+        if let Some(path) = locate_map_file(companion.to_string_lossy().as_ref()) {
+            // This source identity supplies only the resolved directory/stem;
+            // the caller still decodes geometry from the supplied ChunkyMap.
+            return Some(path.parent()?.join(leaf));
+        }
+    }
+    // A mounted filesystem may expose companion files without a native map
+    // or directory. Keep the explicit virtual identity for file-level reads.
+    Some(source)
+}
+
 fn first_readable_map_ini_companion(dir: &Path, names: &[&str]) -> Option<(PathBuf, String)> {
     for name in names {
         let path = dir.join(name);

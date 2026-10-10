@@ -93,6 +93,7 @@ pub use object::{
     PATHFIND_CELL_SIZE_F_RESIDUAL, PhysicsTurningType, calc_slow_down_dist,
     is_same_position_residual,
 };
+pub(crate) mod ai_definitions;
 pub mod host_radar;
 pub mod partition_coi;
 pub mod partition_manager;

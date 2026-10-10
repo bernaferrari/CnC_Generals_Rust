@@ -102,10 +102,11 @@ impl GameLogic {
                 }
                 damage_dealt += hit.damage.min(victim.health.current.max(0.0));
                 blast_hits = blast_hits.saturating_add(1);
-                if victim.take_damage_from_immediate(
+                if victim.take_damage_from_immediate_with_repulsor_policy(
                     hit.damage,
                     Some(source_id),
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 ) {
                     destroy_ids.push((hit.target_id, source_team));
                 }
@@ -168,10 +169,11 @@ impl GameLogic {
                 }
                 damage_dealt += hit.damage.min(victim.health.current.max(0.0));
                 blast_hits = blast_hits.saturating_add(1);
-                if victim.take_damage_from_immediate(
+                if victim.take_damage_from_immediate_with_repulsor_policy(
                     hit.damage,
                     Some(source_id),
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 ) {
                     destroy_ids.push((hit.target_id, source_team));
                 }
@@ -1220,6 +1222,43 @@ impl GameLogic {
         producer_id: ObjectId,
         template_name: &str,
     ) {
+        self.notify_unit_production_complete_with_build_complete(
+            unit_id,
+            producer_id,
+            template_name,
+            Self::apply_create_modules_on_build_complete,
+        );
+    }
+
+    /// Synchronous domain callback seam: production owns delivery ordering,
+    /// while authored Create modules retain their ordinary mutable world access.
+    pub(crate) fn notify_unit_production_complete_with_build_complete(
+        &mut self,
+        unit_id: ObjectId,
+        producer_id: ObjectId,
+        template_name: &str,
+        on_build_complete: impl FnOnce(&mut Self, ObjectId),
+    ) {
+        if !self.objects.contains_key(&unit_id) {
+            return;
+        }
+        self.notify_unit_production_presentation(unit_id, template_name);
+        // C++ Player::onUnitCreated (ProductionUpdate.cpp:815) completes
+        // this match's AI work order before authored Create callbacks.
+        self.notify_owned_ai_unit_produced(producer_id, unit_id);
+        // C++ ProductionUpdate.cpp:819-825 create onBuildComplete after spawn,
+        // including SpecialPowerCreate::startPowerRecharge.
+        on_build_complete(self, unit_id);
+        self.unit_ready_events = self.unit_ready_events.saturating_add(1);
+    }
+
+    /// Existing VoiceCreated presentation, independent of the two original
+    /// Player/AI notification points used by SpawnBehavior and ProductionUpdate.
+    pub(crate) fn notify_unit_production_presentation(
+        &mut self,
+        unit_id: ObjectId,
+        template_name: &str,
+    ) {
         let Some(unit) = self.objects.get(&unit_id) else {
             return;
         };
@@ -1242,11 +1281,6 @@ impl GameLogic {
             );
         }
         let _ = local;
-        // C++ ProductionUpdate.cpp:819-825 create onBuildComplete after spawn,
-        // including SpecialPowerCreate::startPowerRecharge.
-        self.apply_create_modules_on_build_complete(unit_id);
-        let _ = producer_id;
-        self.unit_ready_events = self.unit_ready_events.saturating_add(1);
     }
 
     pub fn honesty_structure_complete_ok(&self) -> bool {
@@ -1522,11 +1556,12 @@ impl GameLogic {
                     if damage > 0.0 {
                         // C++ explicitly issues DAMAGE_PENALTY here, rather
                         // than the generic unresistable residual damage type.
-                        let _ = obj.take_damage_from_typed(
+                        let _ = obj.take_damage_from_typed_with_repulsor_policy(
                             damage,
                             Some(id),
                             crate::game_logic::combat::DamageType::Penalty,
                             &mut self.health_events,
+                            &self.enable_repulsors,
                         );
                     }
                     self.overcharge_drain_ticks = self.overcharge_drain_ticks.saturating_add(1);

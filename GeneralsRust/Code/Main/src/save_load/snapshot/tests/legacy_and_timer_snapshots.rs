@@ -10,7 +10,9 @@ fn direct_xfer_rejects_old_rust_outer_versions() {
         source.version = version;
         let mut output = Cursor::new(Vec::new());
         let mut writer = XferSave::new(&mut output);
-        assert!(matches!(source.xfer(&mut writer), Err(SaveLoadError::VersionMismatch { actual, .. }) if actual == version));
+        assert!(
+            matches!(source.xfer(&mut writer), Err(SaveLoadError::VersionMismatch { actual, .. }) if actual == version)
+        );
         drop(writer);
         assert!(output.into_inner().is_empty());
         let mut bytes = Cursor::new(Vec::new());
@@ -22,7 +24,9 @@ fn direct_xfer_rejects_old_rust_outer_versions() {
         drop(writer);
         let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
         let mut destination = WorldSnapshot::default();
-        assert!(matches!(destination.xfer(&mut reader), Err(SaveLoadError::VersionMismatch { actual, .. }) if actual == version));
+        assert!(
+            matches!(destination.xfer(&mut reader), Err(SaveLoadError::VersionMismatch { actual, .. }) if actual == version)
+        );
         let mut following = 0;
         reader.xfer_u32(&mut following).unwrap();
         assert_eq!(following, sentinel);
@@ -106,6 +110,7 @@ fn companion_save_round_trips_mid_recoil_animation_and_discharge_sequence() {
         }],
     };
     let save_info = SaveGameInfo {
+        pristine_map_name: None,
         filename: "mid_recoil".to_string(),
         display_name: "Mid Recoil".to_string(),
         description: "recoil phases".to_string(),
@@ -155,9 +160,8 @@ fn load_resets_model_state_before_recoil_restore() {
 fn companion_save_round_trips_w3d_ghost_snapshots() {
     use crate::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
     use gamelogic::object::w3d_ghost_object::{
-        Matrix3x4, ParentGeometrySnapshot, RenderObjectClass, RenderObjectState,
-        RenderSubObjectSnapshot, W3DDrawableInfo, OBJECTSHROUD_FOGGED,
-        THE_W3D_GHOST_OBJECT_MANAGER,
+        Matrix3x4, OBJECTSHROUD_FOGGED, ParentGeometrySnapshot, RenderObjectClass,
+        RenderObjectState, RenderSubObjectSnapshot, THE_W3D_GHOST_OBJECT_MANAGER, W3DDrawableInfo,
     };
     use std::time::{Duration, SystemTime};
 
@@ -202,6 +206,7 @@ fn companion_save_round_trips_w3d_ghost_snapshots() {
     let mut manager = SaveFileManager::with_save_directory(save_dir.path());
     manager.init().expect("init");
     let save_info = SaveGameInfo {
+        pristine_map_name: None,
         filename: "ghosts".to_string(),
         display_name: "Ghosts".to_string(),
         description: "ghost xfer".to_string(),
@@ -414,10 +419,12 @@ fn snapshot_round_trips_object_instance_name() {
 
     let builder = SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
-    assert!(snapshot
-        .object_instance_guards
-        .iter()
-        .any(|entry| entry.object_id == id && entry.instance_name == "ScriptNamedRanger"));
+    assert!(
+        snapshot
+            .object_instance_guards
+            .iter()
+            .any(|entry| entry.object_id == id && entry.instance_name == "ScriptNamedRanger")
+    );
 
     let mut restored = GameLogic::new();
     restored.templates = source.templates.clone();
@@ -528,19 +535,23 @@ fn snapshot_round_trips_cia_vision_spied_and_registry() {
         .create_object("TestTank", Team::China, Vec3::new(400.0, 0.0, 400.0))
         .expect("enemy");
     assert!(source.activate_cia_intelligence(0, Team::USA, Some(caster)));
-    assert!(source
-        .host_object(enemy)
-        .unwrap()
-        .is_vision_spied_by_player(0));
+    assert!(
+        source
+            .host_object(enemy)
+            .unwrap()
+            .is_vision_spied_by_player(0)
+    );
     assert_eq!(source.cia_intelligence().active_count(), 1);
     let expires = source.cia_intelligence().active_scans()[0].expires_frame;
 
     let builder = SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
-    assert!(snapshot
-        .vision_spied
-        .iter()
-        .any(|entry| entry.object_id == enemy && entry.vision_spied_mask != 0));
+    assert!(
+        snapshot
+            .vision_spied
+            .iter()
+            .any(|entry| entry.object_id == enemy && entry.vision_spied_mask != 0)
+    );
     assert_eq!(snapshot.cia_intelligence.active_count(), 1);
 
     let mut restored = GameLogic::new();
@@ -595,10 +606,12 @@ fn snapshot_round_trips_builder_id_and_dozer_build_task() {
 
     let builder = SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
-    assert!(snapshot
-        .builder_tasks
-        .iter()
-        .any(|entry| { entry.object_id == scaffold && entry.builder_id == Some(dozer) }));
+    assert!(
+        snapshot
+            .builder_tasks
+            .iter()
+            .any(|entry| { entry.object_id == scaffold && entry.builder_id == Some(dozer) })
+    );
     assert!(snapshot.builder_tasks.iter().any(|entry| {
         entry.object_id == dozer
             && entry.dozer_task_build_target == Some(scaffold)
@@ -774,17 +787,21 @@ fn snapshot_round_trips_sole_heal_contain_original_team_formation() {
     let snapshot = builder
         .create_world_snapshot(&source)
         .expect("persist snapshot");
-    assert!(snapshot
-        .object_persist
-        .iter()
-        .any(|entry| entry.object_id == patient
-            && entry.sole_healing_benefactor == Some(healer)
-            && entry.contained_by_frame == Some(350)
-            && entry.formation_id == 7));
-    assert!(snapshot
-        .object_persist
-        .iter()
-        .any(|entry| entry.object_id == building && entry.original_team == Some(Team::China)));
+    assert!(
+        snapshot
+            .object_persist
+            .iter()
+            .any(|entry| entry.object_id == patient
+                && entry.sole_healing_benefactor == Some(healer)
+                && entry.contained_by_frame == Some(350)
+                && entry.formation_id == 7)
+    );
+    assert!(
+        snapshot
+            .object_persist
+            .iter()
+            .any(|entry| entry.object_id == building && entry.original_team == Some(Team::China))
+    );
 
     let mut restored = GameLogic::new();
     restored.templates = source.templates.clone();
@@ -888,12 +905,16 @@ fn snapshot_round_trips_scoring_restriction_cave_tunnel_airfield() {
         .expect("restore");
     assert!(!gamelogic::helpers::TheGameLogic::is_scoring_enabled());
     assert!(restored.skirmish_rules().limit_superweapons);
-    assert!(restored
-        .cave_system_residual()
-        .is_in_network(1, ObjectId(20)));
-    assert!(restored
-        .tunnel_network_residual()
-        .is_in_network(1, ObjectId(40)));
+    assert!(
+        restored
+            .cave_system_residual()
+            .is_in_network(1, ObjectId(20))
+    );
+    assert!(
+        restored
+            .tunnel_network_residual()
+            .is_in_network(1, ObjectId(40))
+    );
     assert_eq!(
         restored.snapshot_airfield_parking_spaces()[0].1[0].0,
         Some(ObjectId(60))
@@ -979,9 +1000,11 @@ fn snapshot_round_trips_v18_ui_script_radar_water_drawable() {
     );
     assert!(!restored.peek_script_named_timer_display_shown());
     assert!(!restored.peek_script_superweapon_display_enabled());
-    assert!(restored
-        .peek_script_superweapon_hidden_objects()
-        .contains(&ObjectId(88)));
+    assert!(
+        restored
+            .peek_script_superweapon_hidden_objects()
+            .contains(&ObjectId(88))
+    );
     assert!(restored.radar_forced());
     assert!(!restored.radar_script_enabled());
     let _ = gamelogic::scripting::engine::with_script_engine_ref(|engine| {

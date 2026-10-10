@@ -109,6 +109,8 @@ pub struct Player {
     pub selected_objects: Vec<ObjectId>,
     pub unlocked_sciences: HashSet<String>,
     pub queued_upgrades: HashSet<String>,
+    /// C++ Player::m_playerType == PLAYER_HUMAN; independent of the local view.
+    pub is_human: bool,
     pub is_local: bool,
     pub is_alive: bool,
     /// C++ `Player::m_observer` / `isPlayerObserver`.
@@ -374,7 +376,7 @@ impl Player {
     /// C++ `GameCommon.h MAX_PLAYER_COUNT`.
     pub const MAX_ATTACKED_BY_PLAYERS: usize = 16;
 
-    pub fn new(id: u32, team: Team, name: &str, is_local: bool) -> Self {
+    pub fn new(id: u32, team: Team, name: &str, is_human: bool) -> Self {
         Self {
             id,
             team,
@@ -392,7 +394,8 @@ impl Player {
             selected_objects: Vec::new(),
             unlocked_sciences: HashSet::new(),
             queued_upgrades: HashSet::new(),
-            is_local,
+            is_human,
+            is_local: is_human,
             did_preorder: false,
             is_alive: true,
             is_observer: false,
@@ -1449,6 +1452,11 @@ impl Player {
     /// `playerStartMoney` replaces `Player::new`'s $10k fallback.
     /// Skirmish lobby cash is applied separately (`replace_default_money=false`).
     pub fn apply_map_side_dict(&mut self, dict: &Dict, replace_default_money: bool) {
+        // C++ Player::initFromDict chooses controller from the authored side,
+        // never from local-player identity or whether strategic AI is active.
+        if replace_default_money || dict.get_type(key_player_is_human()).is_some() {
+            self.is_human = dict.get_bool(key_player_is_human());
+        }
         let map_name = dict.get_ascii_string(key_player_name());
         if !map_name.is_empty() {
             self.map_side.map_player_name = map_name;
@@ -1883,8 +1891,8 @@ pub(super) struct HostHeliTakeoffOrLanding {
 /// `self.frame` split-borrow).
 ///
 /// Deref to the inner `HashMap` so existing `self.objects.get_mut` call sites
-/// keep compiling. When a GameWorld session is coupled the map is a roster /
-/// read-view — `host_authoritative_*` is truth.
+/// keep compiling. These are the canonical values owned by the match;
+/// comparison sessions do not supply state through this store.
 #[derive(Debug, Default)]
 pub struct HostObjectStore {
     pub(super) map: HashMap<ObjectId, Object>,
@@ -2168,8 +2176,9 @@ mod map_side_dict_tests {
         const NAME: &str = "Upgrade_W4106AcademyRadar";
         gamelogic::upgrade::center::with_upgrade_center_mut(|center| {
             let mut ini = game_engine::common::ini::INI::new();
-            let source =
-                format!("Upgrade {NAME}\nBuildCost = 800\nAcademyClassify = ACT_UPGRADE_RADAR\nEnd\n");
+            let source = format!(
+                "Upgrade {NAME}\nBuildCost = 800\nAcademyClassify = ACT_UPGRADE_RADAR\nEnd\n"
+            );
             ini.with_inline_source(&source, |ini| {
                 // parse_upgrade_definition expects the upgrade-name line
                 // already staged in the tokenizer buffer (INI::get_next_token

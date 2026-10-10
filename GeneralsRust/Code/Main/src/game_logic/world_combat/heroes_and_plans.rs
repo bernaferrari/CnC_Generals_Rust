@@ -479,12 +479,13 @@ impl GameLogic {
             r.set_status_unselectable(false);
             r.set_status_no_collisions(false);
             // DAMAGE_FALLING / DEATH_SPLATTED residual if this kill finishes them.
-            let killed = r.take_damage_from_typed_death(
+            let killed = r.take_damage_from_typed_death_with_repulsor_policy(
                 dmg,
                 None,
                 crate::game_logic::combat::DamageType::Unresistable,
                 HostDeathType::Splatted,
                 &mut self.health_events,
+                &self.enable_repulsors,
             );
             if !killed {
                 r.allow_to_fall = true;
@@ -2091,12 +2092,13 @@ impl GameLogic {
                         (ANGRY_MOB_ROCK_DAMAGE_TYPE, ANGRY_MOB_ROCK_DEATH_TYPE)
                     }
                 };
-                let destroyed = v.take_damage_from_immediate_residual(
+                let destroyed = v.take_damage_from_immediate_residual_with_repulsor_policy(
                     dmg,
                     source,
                     dt_name,
                     death_name,
                     &mut self.health_events,
+                    &self.enable_repulsors,
                 );
                 hits = hits.saturating_add(1);
                 if destroyed {

@@ -756,7 +756,12 @@ impl GameLogic {
         let mut kill_xp = 0.0;
         if let Some(target) = self.objects.get_mut(&target_id) {
             // Source-attributed residual: BodyModule last_damage_source + damage log.
-            destroyed = target.take_damage_from(damage, Some(attacker_id), &mut self.health_events);
+            destroyed = target.take_damage_from_with_repulsor_policy(
+                damage,
+                Some(attacker_id),
+                &mut self.health_events,
+                &self.enable_repulsors,
+            );
             if crate::gameworld_shadow::gameworld_fire_spawn_authority_live() {
                 crate::game_logic::host_fire_spawn_log::record_residual_hitscan(
                     attacker_id,
@@ -1094,7 +1099,7 @@ mod health_owner_tests {
         let _couple = ShadowCoupleGuard::enter();
         with_coupled_shadow(&mut shadow, || {
             logic
-                .with_host_logic_after_sync(|owner| {
+                .with_host_logic_step(|owner| {
                     owner.set_health_absolute_authority_aware(id, 70.0);
                     assert_eq!(owner.host_authoritative_health(id), Some(70.0));
                     let (object, health_events) =
