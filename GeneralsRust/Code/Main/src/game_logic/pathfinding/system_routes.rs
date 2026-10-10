@@ -1083,12 +1083,7 @@ impl PathfindingSystem {
         crusher_level: u8,
         seeker_id: u32,
     ) -> Vec3 {
-        let mut dest = dest;
         let layer = self.grid.layer_for_destination(group_dest);
-        if let Some(terrain) = gamelogic::helpers::TheTerrainLogic::get() {
-            let common = gamelogic::common::PathfindLayerEnum::from_u32(layer as u32);
-            dest.y = terrain.get_layer_height(dest.x, dest.z, common);
-        }
         let dest_cell = self.grid.world_to_grid(dest);
         let group_cell = self.grid.world_to_grid(group_dest);
         self.grid.query_from = Some(self.grid.world_to_grid(from));
@@ -1106,14 +1101,28 @@ impl PathfindingSystem {
         self.grid.query_from = None;
         self.grid.query_orig_dest = None;
         self.grid.query_seeker_id = 0;
-        match adj {
-            Some(cell) => {
-                let mut w = self.grid.grid_to_world(cell);
-                w.y = dest.y;
-                w
-            }
-            None => dest,
-        }
+        let mut adjusted = adj.map_or(dest, |cell| self.grid.grid_to_world(cell));
+        // AIPathfind.cpp:8945 samples the selected layer at the final adjusted
+        // XY, not the original request. This immutable content/grid is owned
+        // by the receiving match; no Core terrain/AI selection is necessary.
+        let raw_ground = self.grid.admitted_raw_terrain.as_ref().map_or_else(
+            || {
+                let cell = self.grid.world_to_grid(adjusted);
+                self.terrain_height_samples
+                    .as_ref()
+                    .and_then(|(width, height, values)| {
+                        (cell.x >= 0 && cell.y >= 0 && cell.x < *width && cell.y < *height)
+                            .then(|| values.get((cell.y * *width + cell.x) as usize).copied())
+                            .flatten()
+                    })
+                    .unwrap_or(0.0)
+            },
+            |terrain| terrain.logic_height_at_world(adjusted),
+        );
+        adjusted.y = self
+            .grid
+            .layer_height_clipped(adjusted, layer as u8, raw_ground);
+        adjusted
     }
 
     /// C++ `Path::computePointOnPath` on a host XZ polyline.

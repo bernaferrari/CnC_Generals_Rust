@@ -74,6 +74,31 @@ impl PathfindingGrid {
         self.flight_bridge_order = order;
     }
 
+    /// W3DTerrainLogic::getLayerHeight defaults to clip=true for path goals.
+    /// Only still-linked spans participate; buried decks fall back to raw ground.
+    pub(super) fn layer_height_clipped(&self, pos: Vec3, layer: u8, raw_ground: f32) -> f32 {
+        if layer == 15 && self.is_point_on_wall(pos) {
+            return self.wall_height;
+        }
+        if layer != 1 && layer != 15 && self.flight_bridge_order.contains(&layer) {
+            if let Some(bridge) = self.bridge_layers.iter().find(|b| b.id == layer) {
+                let corners = [
+                    bridge.from_left,
+                    bridge.from_right,
+                    bridge.to_right,
+                    bridge.to_left,
+                ];
+                if flight_point_on_bridge(pos, &corners) {
+                    let deck = bridge_deck_height(&corners, pos.x, pos.z);
+                    if deck > raw_ground {
+                        return deck;
+                    }
+                }
+            }
+        }
+        raw_ground
+    }
+
     /// clip=false keeps the selected non-ground layer beyond its footprint.
     /// Bridge health filters selection only, not this selected-layer read.
     pub(crate) fn layer_height_unclipped(&self, pos: Vec3, layer: u8, raw_ground: f32) -> f32 {

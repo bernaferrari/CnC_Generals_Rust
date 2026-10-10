@@ -244,7 +244,7 @@ impl PathfindingGrid {
         if let Some(id) = self.host_deck_layer_at(pos) {
             return self.layer_world_height(pos, PathfindLayerEnum::from_u32(id as u32), x, z);
         }
-        sample_host_ground_height(x, z)
+        self.admitted_ground_height(Vec3::new(x, 0.0, z))
     }
 
     pub(super) fn layer_world_height(
@@ -255,30 +255,8 @@ impl PathfindingGrid {
         z: f32,
     ) -> f32 {
         let _ = pos;
-        match layer {
-            PathfindLayerEnum::Wall => {
-                if self.wall_height > 0.0 {
-                    self.wall_height
-                } else {
-                    sample_host_ground_height(x, z)
-                }
-            }
-            PathfindLayerEnum::Ground | PathfindLayerEnum::Invalid => {
-                sample_host_ground_height(x, z)
-            }
-            _ => {
-                if let Some(bridge) = self.bridge_layers.iter().find(|l| l.id == layer as u8) {
-                    let corners = [
-                        bridge.from_left,
-                        bridge.from_right,
-                        bridge.to_right,
-                        bridge.to_left,
-                    ];
-                    return bridge_deck_height(&corners, x, z);
-                }
-                sample_host_ground_height(x, z)
-            }
-        }
+        let location = Vec3::new(x, 0.0, z);
+        self.layer_height_clipped(location, layer as u8, self.admitted_ground_height(location))
     }
 
     pub fn is_blocked(&self, pos: GridPos) -> bool {
