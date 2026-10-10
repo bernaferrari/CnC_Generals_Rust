@@ -56,6 +56,13 @@ pub struct ScriptBridgeStatus {
     pub repaired: bool,
 }
 
+/// CPP ScriptConditions1029/1086: only the enemy family filters relationships.
+#[derive(Debug, Clone, Copy)]
+pub enum ScriptSightingFilter<'a> {
+    Relationship(i32),
+    Types(&'a [String]),
+}
+
 /// Parsed display effect for the game driving this action. Borrowed text is
 /// valid only during the synchronous callback; the owner queues its own copy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -124,6 +131,21 @@ pub enum ScriptWaterRequest<'a> {
 /// engine, dispatcher context, or a process-wide active slot.
 pub trait ScriptExecutionDriver {
     fn after_action(&mut self) -> GameLogicResult<()>;
+
+    /// Resolve literal object/player identities against this execution's world.
+    /// Types are the driving engine's current ObjectTypes contents. Missing
+    /// and Present(false) are authoritative; only Unavailable uses Core's
+    /// standalone adapter. No registry presence selects a live Main owner.
+    fn sighted(
+        &self,
+        _unit: &str,
+        _player: &str,
+        _filter: ScriptSightingFilter<'_>,
+        _current_player: Option<&str>,
+        _this_object: Option<ObjectID>,
+    ) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Unavailable
+    }
 
     /// Resolve raw player/source literals before any standalone token or
     /// registry lookup. Present consumes only this execution's engine event;

@@ -4,7 +4,7 @@
 //! Observable script behavior is unchanged.
 
 use super::*;
-use crate::scripting::engine::ScriptOwnerQuery;
+use crate::scripting::engine::{ScriptOwnerQuery, ScriptSightingFilter};
 
 impl ScriptConditionEvaluator<'_> {
     // ============================================================================
@@ -1424,7 +1424,32 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_enemy_sighted(
         &self,
         condition: &Condition,
+        driver: &dyn ScriptExecutionDriver,
     ) -> Result<ScriptConditionResult, ScriptError> {
+        // Choose the borrowed owner before any standalone token, registry,
+        // or frozen-host lookup. CPP object/player parameters are literals.
+        let raw = |index| {
+            condition
+                .get_parameter(index)
+                .map(|p| p.get_string())
+                .ok_or_else(|| {
+                    ScriptError::ParameterNotFound(format!("Parameter {index} not found"))
+                })
+        };
+        let engine = self.context.borrowed_engine();
+        let current_player = engine.get_current_player_name();
+        match driver.sighted(
+            raw(0)?,
+            raw(2)?,
+            ScriptSightingFilter::Relationship(self.get_condition_int_param(condition, 1)?),
+            current_player.as_deref(),
+            engine.script_object_id(),
+        ) {
+            ScriptOwnerQuery::Present(found) => return Ok(Self::bool_result(found)),
+            ScriptOwnerQuery::Missing => return Ok(ScriptConditionResult::False),
+            ScriptOwnerQuery::Unavailable => {}
+        }
+
         let unit_name = self.get_condition_string_param(condition, 0)?;
         let alliance = self.get_condition_int_param(condition, 1)?;
         let player_name = self.get_condition_string_param(condition, 2)?;
@@ -1517,7 +1542,34 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_type_sighted(
         &self,
         condition: &Condition,
+        driver: &dyn ScriptExecutionDriver,
     ) -> Result<ScriptConditionResult, ScriptError> {
+        // Choose the borrowed owner before any standalone token, registry,
+        // or frozen-host lookup. CPP object/player parameters are literals.
+        let raw = |index| {
+            condition
+                .get_parameter(index)
+                .map(|p| p.get_string())
+                .ok_or_else(|| {
+                    ScriptError::ParameterNotFound(format!("Parameter {index} not found"))
+                })
+        };
+        let engine = self.context.borrowed_engine();
+        let current_player = engine.get_current_player_name();
+        let types = self.resolve_object_types_param(raw(1)?);
+        let type_names: Vec<String> = types.iter().map(|t| t.as_str().to_owned()).collect();
+        match driver.sighted(
+            raw(0)?,
+            raw(2)?,
+            ScriptSightingFilter::Types(&type_names),
+            current_player.as_deref(),
+            engine.script_object_id(),
+        ) {
+            ScriptOwnerQuery::Present(found) => return Ok(Self::bool_result(found)),
+            ScriptOwnerQuery::Missing => return Ok(ScriptConditionResult::False),
+            ScriptOwnerQuery::Unavailable => {}
+        }
+
         let unit_name = self.get_condition_string_param(condition, 0)?;
         let type_or_list_name = self.get_condition_string_param(condition, 1)?;
         let player_name = self.get_condition_string_param(condition, 2)?;

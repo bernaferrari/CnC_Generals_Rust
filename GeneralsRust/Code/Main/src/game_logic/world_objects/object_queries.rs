@@ -514,6 +514,69 @@ impl GameLogic {
         )
     }
 
+    /// CPP ScriptConditions1029 -> Object1548 -> Team1447 -> Player542.
+    /// Sighting observes explicit relationships even for defeated players;
+    /// it cannot use the combat helper's ambient Core player-list fallback.
+    pub(crate) fn script_sighting_relationship(
+        &self,
+        source: &Object,
+        target: &Object,
+    ) -> gamelogic::common::Relationship {
+        use gamelogic::common::Relationship;
+        if source.is_undetected_defector() {
+            return Relationship::Neutral;
+        }
+        if target.is_undetected_defector() {
+            return Relationship::Allies;
+        }
+        // CPP Player763 defaults to "team" + authored playerName. Display
+        // labels are not team identities when map metadata supplies a name.
+        let team_name = |object: &Object| {
+            if !object.team_instance_name.is_empty() {
+                return object.team_instance_name.clone();
+            }
+            object
+                .owner_player_id
+                .and_then(|id| self.players.get(&id))
+                .map(|player| {
+                    let name = if player.map_side.map_player_name.is_empty() {
+                        &player.name
+                    } else {
+                        &player.map_side.map_player_name
+                    };
+                    format!("team{name}")
+                })
+                .unwrap_or_default()
+        };
+        let source_team = team_name(source);
+        let target_team = team_name(target);
+        if let Some(relationship) = leftover_source_team_override(
+            &self.team_factory,
+            &source_team,
+            &target_team,
+            target.owner_player_id,
+        ) {
+            return relationship;
+        }
+        let Some(player) = source.owner_player_id.and_then(|id| self.players.get(&id)) else {
+            return Relationship::Neutral;
+        };
+        player
+            .team_instance_team_override(&source_team, &target_team)
+            .or_else(|| {
+                target
+                    .owner_player_id
+                    .and_then(|id| player.team_instance_player_override(&source_team, id))
+            })
+            .or_else(|| player.team_relationship_override(&target_team))
+            .or_else(|| {
+                target
+                    .owner_player_id
+                    .and_then(|id| player.map_relationship(id))
+            })
+            .unwrap_or(Relationship::Neutral)
+    }
+
     /// C++ `Object::getRelationship` from frozen owner ids (Weapon.cpp:1360).
     /// `source` is the viewer (`curVictim->getRelationship(source)` when the
     /// first pair is the victim).

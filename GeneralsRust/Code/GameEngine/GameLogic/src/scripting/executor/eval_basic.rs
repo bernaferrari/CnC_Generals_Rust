@@ -374,8 +374,8 @@ impl ScriptConditionEvaluator<'_> {
             // ============================================================================
             // MISCELLANEOUS CONDITIONS
             // ============================================================================
-            ConditionType::EnemySighted => self.eval_enemy_sighted(condition),
-            ConditionType::TypeSighted => self.eval_type_sighted(condition),
+            ConditionType::EnemySighted => self.eval_enemy_sighted(condition, driver),
+            ConditionType::TypeSighted => self.eval_type_sighted(condition, driver),
             ConditionType::MissionAttempts => self.eval_mission_attempts(condition),
             ConditionType::SupplySourceSafe => self.eval_supply_source_safe(condition),
             ConditionType::SupplySourceAttacked => self.eval_supply_source_attacked(condition),

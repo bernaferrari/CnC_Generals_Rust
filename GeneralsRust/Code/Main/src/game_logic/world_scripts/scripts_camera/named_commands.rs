@@ -3,7 +3,7 @@ use super::*;
 use gamelogic::scripting::engine::ScriptNamedCommand;
 
 impl GameLogic {
-    fn owned_named_script_object(
+    pub(super) fn owned_named_script_object(
         &self,
         name: &str,
         this_object: Option<ObjectId>,

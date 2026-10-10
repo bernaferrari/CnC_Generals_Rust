@@ -1261,37 +1261,38 @@ fn live_named_created_true_from_host_snapshot() {
 }
 
 #[test]
-fn live_enemy_and_type_sighted_use_host_snapshot() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
-
-    let _test_lock = crate::test_sync::lock();
-    crate::object::registry::OBJECT_REGISTRY.clear();
-    crate::scripting::clear_host_script_query_snapshot();
-
-    let mut looker = live_host_named_object("LookerScout", 7, true);
-    looker.x = 0.0;
-    looker.z = 0.0;
-    looker.vision_range = 150.0;
-    looker.team = 1;
-    looker.owner_player = "PlyrAmerica".into();
-
-    let mut enemy = live_host_named_object("EnemyRanger", 8, true);
-    enemy.x = 40.0;
-    enemy.z = 0.0;
-    enemy.vision_range = 100.0;
-    enemy.team = 0;
-    enemy.owner_player = "PlyrGLA".into();
-    enemy.template_name = "AmericaRanger".into();
-
-    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
-        named: [("LookerScout".into(), 7)].into_iter().collect(),
-        objects: vec![looker, enemy.clone()],
-        ..Default::default()
-    });
-
+fn enemy_and_type_sighted_dispatch_to_the_owned_query() {
+    use crate::scripting::engine::{ScriptExecutionDriver, ScriptOwnerQuery, ScriptSightingFilter};
+    struct SightingOwner {
+        visible: bool,
+    }
+    impl ScriptExecutionDriver for SightingOwner {
+        fn after_action(&mut self) -> crate::GameLogicResult<()> {
+            Ok(())
+        }
+        fn sighted(
+            &self,
+            unit: &str,
+            player: &str,
+            filter: ScriptSightingFilter<'_>,
+            current_player: Option<&str>,
+            this_object: Option<u32>,
+        ) -> ScriptOwnerQuery<bool> {
+            assert_eq!(unit, "LookerScout");
+            assert_eq!(player, "PlyrGLA");
+            assert_eq!(current_player, None);
+            assert_eq!(this_object, None);
+            match filter {
+                ScriptSightingFilter::Relationship(alliance) => assert_eq!(alliance, 0),
+                ScriptSightingFilter::Types(names) => assert_eq!(names, &["AmericaRanger"]),
+            }
+            ScriptOwnerQuery::Present(self.visible)
+        }
+    }
+    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().unwrap();
     let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
-
+    let mut owner = SightingOwner { visible: true };
     let mut enemy_sighted = Condition::new(ConditionType::EnemySighted);
     enemy_sighted
         .add_parameter(Parameter::with_string(
@@ -1309,9 +1310,11 @@ fn live_enemy_and_type_sighted_use_host_snapshot() {
         ))
         .unwrap();
     assert_eq!(
-        evaluator.evaluate_condition(&mut enemy_sighted).unwrap(),
+        evaluator
+            .evaluate_condition_with_driver(&mut enemy_sighted, &mut owner)
+            .unwrap(),
         ScriptConditionResult::True,
-        "ENEMY_SIGHTED must use host vision when OBJECT_REGISTRY is empty"
+        "selected EnemySighted owner is authoritative"
     );
 
     let mut type_sighted = Condition::new(ConditionType::TypeSighted);
@@ -1334,34 +1337,24 @@ fn live_enemy_and_type_sighted_use_host_snapshot() {
         ))
         .unwrap();
     assert_eq!(
-        evaluator.evaluate_condition(&mut type_sighted).unwrap(),
+        evaluator
+            .evaluate_condition_with_driver(&mut type_sighted, &mut owner)
+            .unwrap(),
         ScriptConditionResult::True,
-        "TYPE_SIGHTED must use host vision when OBJECT_REGISTRY is empty"
+        "selected TypeSighted owner is authoritative"
     );
 
-    enemy.stealthed_hidden = true;
-    let mut looker = live_host_named_object("LookerScout", 7, true);
-    looker.x = 0.0;
-    looker.z = 0.0;
-    looker.vision_range = 150.0;
-    looker.team = 1;
-    looker.owner_player = "PlyrAmerica".into();
-    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
-        named: [("LookerScout".into(), 7)].into_iter().collect(),
-        objects: vec![looker, enemy],
-        ..Default::default()
-    });
-    assert_eq!(
-        evaluator.evaluate_condition(&mut enemy_sighted).unwrap(),
-        ScriptConditionResult::False,
-        "undetected stealth must fail host ENEMY_SIGHTED"
-    );
-    assert_eq!(
-        evaluator.evaluate_condition(&mut type_sighted).unwrap(),
-        ScriptConditionResult::False,
-        "undetected stealth must fail host TYPE_SIGHTED"
-    );
-    crate::scripting::clear_host_script_query_snapshot();
+    // Contract test for live owner result changes. Main sighting_owner_tests
+    // exercise actual geometry, relationship, visibility and lifecycle rules.
+    owner.visible = false;
+    for condition in [&mut enemy_sighted, &mut type_sighted] {
+        assert_eq!(
+            evaluator
+                .evaluate_condition_with_driver(condition, &mut owner)
+                .unwrap(),
+            ScriptConditionResult::False
+        );
+    }
 }
 
 #[test]

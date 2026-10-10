@@ -1,9 +1,10 @@
 //! Live synchronous Main owner for one ScriptEngine action walk.
 use super::*;
+use gamelogic::common::Relationship;
 use gamelogic::scripting::engine::{
     ScriptAiPlayerRequest, ScriptBridgeStatus, ScriptCameraRequest, ScriptDisplayRequest,
     ScriptExecutionDriver, ScriptNamedCommand, ScriptObjectStatus, ScriptOwnerQuery,
-    ScriptPlayerEventSource, ScriptTeamStatus, ScriptWaterRequest,
+    ScriptPlayerEventSource, ScriptSightingFilter, ScriptTeamStatus, ScriptWaterRequest,
 };
 use std::sync::{Arc, RwLock};
 
@@ -136,7 +137,98 @@ impl<'a> HostScriptExecutionDriver<'a> {
     }
 }
 
+impl HostScriptExecutionDriver<'_> {
+    /// CPP OpenContain::addOrRemoveObjFromWorld removes enclosed riders and
+    /// their descendants from the partition. Non-enclosing riders stay visible.
+    fn sighting_candidate_is_in_partition(&self, candidate: &Object) -> bool {
+        let mut rider = candidate;
+        // A valid containment chain cannot visit more objects than this world
+        // owns. Broken references and cycles cannot supply a visible candidate.
+        for _ in 0..self.world.host_objects().len() {
+            let Some(container_id) = rider.contained_by else {
+                return true;
+            };
+            let Some(container) = self.world.host_object(container_id) else {
+                return false;
+            };
+            if container.is_enclosing_container_for(rider) {
+                return false;
+            }
+            rider = container;
+        }
+        false
+    }
+}
+
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+    fn sighted(
+        &self,
+        unit: &str,
+        player: &str,
+        filter: ScriptSightingFilter<'_>,
+        current_player: Option<&str>,
+        this_object: Option<gamelogic::common::ObjectID>,
+    ) -> ScriptOwnerQuery<bool> {
+        let Some(looker) = self
+            .world
+            .owned_named_script_object(unit, this_object.map(ObjectId))
+            .and_then(|id| self.world.host_object(id))
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let Some(player) = self
+            .script_player_id(player, current_player)
+            .filter(|id| self.world.players.contains_key(id))
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        // CPP Object1757/2800 updates OFF_MAP from the current terrain extent.
+        // Main canonical poses and admitted extent supply the same 2D test.
+        let off_map = |object: &Object| {
+            let pos = object.get_position();
+            pos.x < self.world.world_min.x
+                || pos.x > self.world.world_max.x
+                || pos.z < self.world.world_min.z
+                || pos.z > self.world.world_max.z
+        };
+        let source = looker.get_position();
+        let source_off_map = off_map(looker);
+        let found = self.world.host_objects().values().any(|candidate| {
+            if candidate.id == looker.id
+                || candidate.status.effectively_dead
+                || !self.sighting_candidate_is_in_partition(candidate)
+                || candidate.is_effectively_stealthed()
+                || off_map(candidate) != source_off_map
+                || candidate.owner_player_id != Some(player)
+            {
+                return false;
+            }
+            let position = candidate.get_position();
+            let dx = position.x - source.x;
+            let dz = position.z - source.z;
+            // CPP FROM_CENTER_2D rejects equality; altitude is irrelevant.
+            if !(dx * dx + dz * dz < looker.vision_range * looker.vision_range) {
+                return false;
+            }
+            match filter {
+                ScriptSightingFilter::Types(names) => {
+                    names.iter().any(|name| *name == candidate.template_name)
+                }
+                ScriptSightingFilter::Relationship(alliance) => {
+                    let relationship = self.world.script_sighting_relationship(looker, candidate);
+                    match alliance {
+                        0 => relationship == Relationship::Enemies,
+                        1 => relationship == Relationship::Neutral,
+                        2 => relationship == Relationship::Allies,
+                        _ => false,
+                    }
+                }
+            }
+        });
+        // CPP filters candidate life, not the looking object's life.
+        ScriptOwnerQuery::Present(found)
+    }
+
     fn skirmish_player_can_build_any(
         &self,
         player: &str,
