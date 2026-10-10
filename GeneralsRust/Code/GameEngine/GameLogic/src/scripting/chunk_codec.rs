@@ -5,7 +5,11 @@ use super::engine::with_script_engine_ref;
 use game_engine::common::system::{DataChunkInfo, DataChunkInput};
 use std::rc::Rc;
 
-/// Ordered definition keys from one engine, with no mutable simulation state.
+/// Ordered definition keys for one script read/write operation.
+///
+/// Keys retain the engine's name-key namespace. DataChunk IO resolves names in
+/// that namespace; moving this numeric catalog across independent thread-local
+/// namespaces does not make it portable (hq-8po5n).
 #[derive(Clone, Default)]
 pub struct ScriptTemplateLookup {
     condition_keys: Vec<u32>,
@@ -23,6 +27,14 @@ impl ScriptTemplateLookup {
             action_keys,
         }
     }
+    pub(crate) fn condition_key(&self, kind: ConditionType) -> Option<u32> {
+        self.condition_keys.get(kind as usize).copied()
+    }
+
+    pub(crate) fn action_key(&self, kind: ScriptActionType) -> Option<u32> {
+        self.action_keys.get(kind as usize).copied()
+    }
+
     /// C++ Scripts.cpp:1663-1680: prefer the stored ordinal, then first key match.
     pub fn resolve_condition(&self, stored: ConditionType, key: u32) -> ConditionType {
         if self.condition_keys.get(stored as usize) == Some(&key) {

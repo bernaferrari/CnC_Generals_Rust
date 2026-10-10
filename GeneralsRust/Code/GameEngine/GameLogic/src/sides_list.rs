@@ -10,6 +10,7 @@ use crate::common::well_known_keys::{
 };
 use crate::common::xfer::Xfer;
 use crate::common::{AsciiString, Bool, Dict, Int, MAX_PLAYER_COUNT, Snapshot, UnicodeString};
+use crate::scripting::chunk_codec::ScriptTemplateLookup;
 use crate::scripting::{
     ScriptList, ScriptListReadInfo, XferSnapshot, parse_player_scripts_list_chunk,
 };
@@ -680,7 +681,11 @@ impl SidesList {
         self.parse_sides_data_chunk_internal(input, info, false)
     }
 
-    pub fn write_sides_data_chunk(&mut self, output: &mut DataChunkOutput) {
+    pub fn write_sides_data_chunk(
+        &mut self,
+        output: &mut DataChunkOutput,
+        templates: &ScriptTemplateLookup,
+    ) {
         output.open_data_chunk("SidesList", 3);
 
         output.write_int(self.get_num_sides() as i32);
@@ -724,7 +729,7 @@ impl SidesList {
         for side in &self.sides {
             script_lists.push(side.get_script_list());
         }
-        ScriptList::write_scripts_data_chunk(output, &script_lists);
+        ScriptList::write_scripts_data_chunk(output, &script_lists, templates);
 
         output.close_data_chunk();
         let _ = self.validate_sides();

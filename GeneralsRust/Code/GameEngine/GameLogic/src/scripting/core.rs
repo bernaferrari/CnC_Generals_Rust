@@ -12,7 +12,7 @@ use crate::common::ALL_KIND_OF;
 use crate::common::{KindOf, ObjectStatusMaskType};
 use crate::object::behavior::auto_heal_behavior::parse_kind_of;
 use crate::scripting::XferSnapshot;
-use crate::scripting::engine::get_script_engine;
+use crate::scripting::chunk_codec::ScriptTemplateLookup;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{DataChunkInfo, DataChunkInput, DataChunkOutput};
 use game_engine::common::system::{Xfer, XferStatus, XferVersion};
@@ -1567,20 +1567,14 @@ impl Condition {
     pub fn write_condition_data_chunk(
         mut condition: Option<&Condition>,
         output: &mut DataChunkOutput,
+        templates: &ScriptTemplateLookup,
     ) {
         while let Some(cur) = condition {
             output.open_data_chunk("Condition", K_SCRIPT_CONDITION_VERSION_4);
             output.write_int(cur.condition_type as i32);
-            let mut key = NameKeyGenerator::name_to_key("Bogus");
-            if let Ok(engine_lock) = get_script_engine().read() {
-                if let Some(engine) = engine_lock.as_ref() {
-                    if let Some(template) =
-                        engine.get_condition_template(cur.condition_type as usize)
-                    {
-                        key = template.base.internal_name_key;
-                    }
-                }
-            }
+            let key = templates
+                .condition_key(cur.condition_type)
+                .unwrap_or_else(|| NameKeyGenerator::name_to_key("Bogus"));
             output.write_name_key(key);
             output.write_int(cur.num_parms as i32);
             for index in 0..cur.num_parms {
@@ -1755,11 +1749,12 @@ impl OrCondition {
     pub fn write_or_condition_data_chunk(
         mut condition: Option<&OrCondition>,
         output: &mut DataChunkOutput,
+        templates: &ScriptTemplateLookup,
     ) {
         while let Some(cur) = condition {
             output.open_data_chunk("OrCondition", K_SCRIPT_OR_CONDITION_DATA_VERSION_1);
             if let Some(first_and) = cur.first_and.as_deref() {
-                Condition::write_condition_data_chunk(Some(first_and), output);
+                Condition::write_condition_data_chunk(Some(first_and), output, templates);
             }
             output.close_data_chunk();
             condition = cur.next_or.as_deref();
@@ -1860,18 +1855,14 @@ impl ScriptAction {
         mut action: Option<&ScriptAction>,
         output: &mut DataChunkOutput,
         label: &str,
+        templates: &ScriptTemplateLookup,
     ) {
         while let Some(cur) = action {
             output.open_data_chunk(label, K_SCRIPT_ACTION_VERSION_2);
             output.write_int(cur.action_type as i32);
-            let mut key = NameKeyGenerator::name_to_key("Bogus");
-            if let Ok(engine_lock) = get_script_engine().read() {
-                if let Some(engine) = engine_lock.as_ref() {
-                    if let Some(template) = engine.get_action_template(cur.action_type as usize) {
-                        key = template.base.internal_name_key;
-                    }
-                }
-            }
+            let key = templates
+                .action_key(cur.action_type)
+                .unwrap_or_else(|| NameKeyGenerator::name_to_key("Bogus"));
             output.write_name_key(key);
             output.write_int(cur.num_parms as i32);
             for index in 0..cur.num_parms {
@@ -2094,7 +2085,11 @@ impl Script {
         Box::new(new_script)
     }
 
-    pub fn write_script_data_chunk(mut script: Option<&Script>, output: &mut DataChunkOutput) {
+    pub fn write_script_data_chunk(
+        mut script: Option<&Script>,
+        output: &mut DataChunkOutput,
+        templates: &ScriptTemplateLookup,
+    ) {
         while let Some(cur) = script {
             output.open_data_chunk("Script", K_SCRIPT_DATA_VERSION_2);
             output.write_ascii_string(&cur.script_name);
@@ -2109,16 +2104,22 @@ impl Script {
             output.write_byte(cur.is_subroutine as u8);
             output.write_int(cur.delay_evaluation_seconds);
             if let Some(condition) = cur.condition.as_deref() {
-                OrCondition::write_or_condition_data_chunk(Some(condition), output);
+                OrCondition::write_or_condition_data_chunk(Some(condition), output, templates);
             }
             if let Some(action) = cur.action.as_deref() {
-                ScriptAction::write_action_data_chunk(Some(action), output, "ScriptAction");
+                ScriptAction::write_action_data_chunk(
+                    Some(action),
+                    output,
+                    "ScriptAction",
+                    templates,
+                );
             }
             if let Some(action_false) = cur.action_false.as_deref() {
                 ScriptAction::write_action_data_chunk(
                     Some(action_false),
                     output,
                     "ScriptActionFalse",
+                    templates,
                 );
             }
             output.close_data_chunk();
@@ -2227,14 +2228,18 @@ impl ScriptGroup {
         Box::new(new_group)
     }
 
-    pub fn write_group_data_chunk(mut group: Option<&ScriptGroup>, output: &mut DataChunkOutput) {
+    pub fn write_group_data_chunk(
+        mut group: Option<&ScriptGroup>,
+        output: &mut DataChunkOutput,
+        templates: &ScriptTemplateLookup,
+    ) {
         while let Some(cur) = group {
             output.open_data_chunk("ScriptGroup", K_SCRIPT_GROUP_DATA_VERSION_2);
             output.write_ascii_string(&cur.group_name);
             output.write_byte(cur.is_group_active as u8);
             output.write_byte(cur.is_group_subroutine as u8);
             if let Some(script) = cur.first_script.as_deref() {
-                Script::write_script_data_chunk(Some(script), output);
+                Script::write_script_data_chunk(Some(script), output, templates);
             }
             output.close_data_chunk();
             group = cur.next_group.as_deref();
@@ -2360,24 +2365,29 @@ impl ScriptList {
     pub fn write_scripts_data_chunk(
         output: &mut DataChunkOutput,
         script_lists: &[Option<&ScriptList>],
+        templates: &ScriptTemplateLookup,
     ) {
         output.open_data_chunk("PlayerScriptsList", K_SCRIPTS_DATA_VERSION_1);
         for list in script_lists {
             output.open_data_chunk("ScriptList", K_SCRIPT_LIST_DATA_VERSION_1);
             if let Some(list) = list {
-                list.write_script_list_data_chunk(output);
+                list.write_script_list_data_chunk(output, templates);
             }
             output.close_data_chunk();
         }
         output.close_data_chunk();
     }
 
-    pub fn write_script_list_data_chunk(&self, output: &mut DataChunkOutput) {
+    pub fn write_script_list_data_chunk(
+        &self,
+        output: &mut DataChunkOutput,
+        templates: &ScriptTemplateLookup,
+    ) {
         if let Some(script) = self.first_script.as_deref() {
-            Script::write_script_data_chunk(Some(script), output);
+            Script::write_script_data_chunk(Some(script), output, templates);
         }
         if let Some(group) = self.first_group.as_deref() {
-            ScriptGroup::write_group_data_chunk(Some(group), output);
+            ScriptGroup::write_group_data_chunk(Some(group), output, templates);
         }
     }
 }
