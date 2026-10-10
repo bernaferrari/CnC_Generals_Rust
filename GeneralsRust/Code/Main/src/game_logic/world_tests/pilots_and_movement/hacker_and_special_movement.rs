@@ -1774,11 +1774,28 @@ fn disable_vehicle_hack_command_disables_after_reach() {
     );
     assert_eq!(game_logic.hero_abilities().vehicle_disables, 1);
 
-    // Expire residual timer → vehicle recovers.
+    // GameLogic.cpp:3783-3792 checks disabled status at end of frame;
+    // Object.cpp:2317-2328 clears it at the deadline, after the AI phase.
     let until = target_after.status.disabled_hacked_until_frame;
     assert!(until > game_logic.frame);
+    game_logic.frame = until - 1;
+    game_logic.expire_owned_disabled_statuses();
+    assert!(
+        game_logic
+            .host_object(target_id)
+            .unwrap()
+            .is_hacked_disabled()
+    );
     game_logic.frame = until;
     game_logic.update_ai(&[target_id], 1.0 / 60.0);
+    assert!(
+        game_logic
+            .host_object(target_id)
+            .unwrap()
+            .is_hacked_disabled(),
+        "AI observes the disable until the original end-of-frame expiry phase"
+    );
+    game_logic.expire_owned_disabled_statuses();
     let recovered = game_logic
         .host_object(target_id)
         .expect("target should exist");

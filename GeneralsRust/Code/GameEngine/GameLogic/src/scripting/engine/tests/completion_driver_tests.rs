@@ -45,7 +45,6 @@ fn bool_result(result: ScriptConditionResult) -> bool {
 
 #[test]
 fn borrowed_engine_timers_are_authoritative_for_true_and_false() {
-    let _guard = crate::test_sync::lock();
     for (kind, name) in [
         (ConditionType::HasFinishedSpeech, "Briefing"),
         (ConditionType::HasFinishedAudio, "Explosion"),
@@ -104,7 +103,6 @@ fn borrowed_engine_timers_are_authoritative_for_true_and_false() {
 
 #[test]
 fn public_wrapper_and_driver_walk_query_the_same_canonical_timer() {
-    let _guard = crate::test_sync::lock();
     let own = ScriptEngine::new().unwrap();
     let mut tail = own.snapshot_xfer_tail();
     tail.testing_speech = vec![("Briefing".into(), 20)];
@@ -139,7 +137,6 @@ fn public_wrapper_and_driver_walk_query_the_same_canonical_timer() {
 
 #[test]
 fn malformed_completion_conditions_leave_canonical_timers_untouched() {
-    let _guard = crate::test_sync::lock();
     let own = ScriptEngine::new().unwrap();
     let mut tail = own.snapshot_xfer_tail();
     tail.testing_speech = vec![("Briefing".into(), 20)];
@@ -169,7 +166,6 @@ fn and_chain(first: Condition, second: Condition) -> Box<Condition> {
 
 #[test]
 fn completion_queries_preserve_and_or_short_circuit_order() {
-    let _guard = crate::test_sync::lock();
     let own = ScriptEngine::new().unwrap();
     let state = std::cell::RefCell::new(ScriptContext::new());
     state.borrow_mut().current_frame = 10;

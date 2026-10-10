@@ -464,3 +464,123 @@ fn bridge_scan_identity_does_not_depend_on_a_unique_pathfinder_layer() {
         },
     );
 }
+
+fn payload_radius_bridge_case(amount: f32) {
+    let position = Vec3::new(50.0, 5.0, 50.0);
+    let mut world = GameLogic::new();
+    let own = bridge(&mut world, position);
+    let mut foreign = GameLogic::new();
+    let other = bridge(&mut foreign, position);
+    assert_eq!(own, other);
+    world.frame = 10;
+    let result = world.apply_fuel_air_radius_damage(
+        ObjectId(u32::MAX),
+        None,
+        Team::USA,
+        position,
+        amount,
+        1.0,
+        DamageType::Unresistable,
+    );
+    // Only the span was directly admitted; repairable bridge husks are not
+    // physically destroyed and linked recipients do not inflate strike stats.
+    assert_eq!(result, (amount, 1, 0));
+    assert_eq!(world.objects[&own.0].health.current, 200.0 - amount);
+    for id in [own.1, own.2] {
+        assert_eq!(
+            world.objects[&id].health.current,
+            100.0 - amount * 0.5,
+            "linked towers outside the radius finish before the payload returns"
+        );
+    }
+    if amount == 200.0 {
+        for id in [own.0, own.1, own.2] {
+            assert!(world.objects[&id].status.on_die_started);
+            assert!(world.objects[&id].status.keep_as_rubble);
+        }
+        let terrain = world.world_services.terrain().read().unwrap();
+        assert!(terrain.bridge_damage_states_changed());
+        assert!(terrain.is_bridge_broken(own.0.0));
+    }
+    assert!(crate::game_logic::host_bridge_behavior::drain_mirrors().is_empty());
+    assert!(crate::game_logic::host_bridge_behavior::drain_death_links().is_empty());
+    foreign.sync_host_bridge_rubble_and_scaffolds();
+    for id in [other.0, other.1, other.2] {
+        assert_eq!(
+            foreign.objects[&id].health.current,
+            foreign.objects[&id].health.maximum
+        );
+    }
+    foreign.reset();
+    assert_eq!(world.objects[&own.0].health.current, 200.0 - amount);
+}
+
+#[test]
+fn payload_radius_finishes_linked_damage_before_returning() {
+    isolated(
+        "payload_radius_finishes_linked_damage_before_returning",
+        || payload_radius_bridge_case(20.0),
+    );
+}
+
+#[test]
+fn payload_radius_finishes_linked_deaths_without_counting_repairable_husks() {
+    isolated(
+        "payload_radius_finishes_linked_deaths_without_counting_repairable_husks",
+        || payload_radius_bridge_case(200.0),
+    );
+}
+
+#[test]
+fn fuel_air_final_phase_finishes_linked_bridge_callbacks_before_returning() {
+    isolated(
+        "fuel_air_final_phase_finishes_linked_bridge_callbacks_before_returning",
+        || {
+            use crate::game_logic::host_fuel_air_gas_slow_death::{
+                FuelAirGasPhase, HostFuelAirGasSlowDeathData,
+            };
+            let position = Vec3::new(50.0, 5.0, 50.0);
+            let mut world = GameLogic::new();
+            let (span, first, second, _) = bridge(&mut world, position);
+            // Final SupW radius is70. Both towers are callback recipients only.
+            world
+                .objects
+                .get_mut(&first)
+                .unwrap()
+                .set_position(position - Vec3::X * 200.0);
+            world
+                .objects
+                .get_mut(&second)
+                .unwrap()
+                .set_position(position + Vec3::X * 200.0);
+            let mut template = ThingTemplate::new("SupW_AuroraFuelAirGas");
+            template.set_health(1.0);
+            world.templates.insert(template.name.clone(), template);
+            let gas = world
+                .create_object("SupW_AuroraFuelAirGas", Team::USA, position)
+                .unwrap();
+            let mut data = HostFuelAirGasSlowDeathData::start(0, true);
+            data.phase = FuelAirGasPhase::MidpointDone;
+            data.initial_fx_queued = true;
+            world.objects.get_mut(&gas).unwrap().fuel_air_gas_slow_death = Some(data);
+            world.frame = 30;
+            world.update_fuel_air_gas_slow_death();
+            assert_eq!(world.fuel_air_gas_reg.final_detonations, 1);
+            for id in [span, first, second] {
+                assert_eq!(world.objects[&id].health.current, 0.0);
+                assert!(world.objects[&id].status.on_die_started);
+            }
+            assert!(
+                world
+                    .world_services
+                    .terrain()
+                    .read()
+                    .unwrap()
+                    .is_bridge_broken(span.0)
+            );
+            assert!(world.objects[&gas].status.destroyed);
+            assert!(crate::game_logic::host_bridge_behavior::drain_mirrors().is_empty());
+            assert!(crate::game_logic::host_bridge_behavior::drain_death_links().is_empty());
+        },
+    );
+}

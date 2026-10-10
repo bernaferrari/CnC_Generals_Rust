@@ -1325,7 +1325,7 @@ impl GameLogic {
         }
     }
 
-    /// Applies radius damage; returns (total damage dealt, objects hit,
+    /// Applies radius damage; returns (attempted damage, direct objects hit,
     /// objects destroyed) so live DeliverPayload flights can credit the
     /// queued special-power strike (C++ Weapon::damageArea stats).
     pub(crate) fn apply_fuel_air_radius_damage(
@@ -1360,27 +1360,30 @@ impl GameLogic {
             })
             .map(|(id, _)| *id)
             .collect();
-        let mut destroy_ids = Vec::new();
         let mut total_damage = 0.0_f32;
         let mut objects_hit = 0_u32;
+        let mut destroyed = 0_u32;
         for vid in victims {
-            if let Some(t) = self.objects.get_mut(&vid) {
-                total_damage += damage;
-                objects_hit += 1;
-                if t.take_damage_from_typed_with_repulsor_policy(
-                    damage,
-                    killer,
+            // Weapon.cpp:1470 completes this victim's callbacks and onDie
+            // before visiting the next frozen candidate. Keep objects installed.
+            let Some(result) = self.apply_owned_damage(
+                vid,
+                damage,
+                killer,
+                damage_type,
+                crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
                     damage_type,
-                    &mut self.health_events,
-                    &self.enable_repulsors,
-                ) {
-                    destroy_ids.push(vid);
-                }
-            }
-        }
-        let destroyed = destroy_ids.len() as u32;
-        for vid in destroy_ids {
-            self.mark_object_for_destruction(vid, None);
+                ),
+                None,
+                &crate::game_logic::object::DamageHitContext::default(),
+            ) else {
+                continue;
+            };
+            total_damage += damage;
+            objects_hit += 1;
+            // Direct-hit statistics preserve repairable husk/second-life policy;
+            // linked callbacks and armor clipping do not inflate these counts.
+            destroyed += u32::from(result.destroyed);
         }
         (total_damage, objects_hit, destroyed)
     }

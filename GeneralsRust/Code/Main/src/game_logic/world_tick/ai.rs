@@ -28,7 +28,8 @@ impl GameLogic {
 
         // First pass: Dispatch object AI through the existing state machine.
         for &object_id in object_ids {
-            // Expire DISABLED_HACKED / DISABLED_EMP / Frenzy residual timers.
+            // Advance local update timers. DISABLED_HACKED/EMP expire in
+            // the separate end-of-frame disabled-status phase.
             let mut topple_kill = false;
             let mut final_death_destroy = false;
             let mut lifetime_kill = false;
