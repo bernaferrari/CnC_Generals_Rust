@@ -286,8 +286,8 @@ fn logical_extent_queue_admission_uses_driving_active_boundary_and_constructor_i
             }
             let mut first = GameLogic::new();
             let mut other = GameLogic::new();
-            first.override_world_size(320.0, 320.0);
-            other.override_world_size(320.0, 320.0);
+            first.override_world_size(640.0, 640.0);
+            other.override_world_size(640.0, 640.0);
             admit_boundary(&mut first, 12);
             admit_boundary(&mut other, 25);
             with_foreign_held(|| {
@@ -301,43 +301,88 @@ fn logical_extent_queue_admission_uses_driving_active_boundary_and_constructor_i
                 assert!(!grid.in_logical_extent(GridPos::new(51, 51)));
                 first.process_pathfind_queue();
                 other.process_pathfind_queue();
-                assert!(
-                    first
-                        .pathfinding_system
-                        .grid
-                        .in_logical_extent(GridPos::new(11, 11))
-                );
+                //640-unit Main world is centered at-320. Thus world0 is
+                //cell32, and the CPP boundary hi-exclusive cell counts give
+                //A32..43, B32..56, then A32..37 independently of query helpers.
                 assert!(
                     !first
                         .pathfinding_system
                         .grid
-                        .in_logical_extent(GridPos::new(12, 12))
+                        .in_logical_extent(GridPos::new(31, 31))
+                );
+                assert!(
+                    first
+                        .pathfinding_system
+                        .grid
+                        .in_logical_extent(GridPos::new(32, 32))
+                );
+                assert!(
+                    !other
+                        .pathfinding_system
+                        .grid
+                        .in_logical_extent(GridPos::new(31, 31))
                 );
                 assert!(
                     other
                         .pathfinding_system
                         .grid
-                        .in_logical_extent(GridPos::new(24, 24))
+                        .in_logical_extent(GridPos::new(32, 32))
+                );
+                assert!(
+                    !other
+                        .pathfinding_system
+                        .grid
+                        .in_logical_extent(GridPos::new(57, 57))
+                );
+                assert!(
+                    first
+                        .pathfinding_system
+                        .grid
+                        .in_logical_extent(GridPos::new(43, 43))
+                );
+                assert!(
+                    !first
+                        .pathfinding_system
+                        .grid
+                        .in_logical_extent(GridPos::new(44, 44))
+                );
+                assert!(
+                    other
+                        .pathfinding_system
+                        .grid
+                        .in_logical_extent(GridPos::new(56, 56))
                 );
                 admit_boundary(&mut first, 6);
                 first.process_pathfind_queue();
                 assert!(
+                    !first
+                        .pathfinding_system
+                        .grid
+                        .in_logical_extent(GridPos::new(31, 31))
+                );
+                assert!(
                     first
                         .pathfinding_system
                         .grid
-                        .in_logical_extent(GridPos::new(5, 5))
+                        .in_logical_extent(GridPos::new(32, 32))
+                );
+                assert!(
+                    first
+                        .pathfinding_system
+                        .grid
+                        .in_logical_extent(GridPos::new(37, 37))
                 );
                 assert!(
                     !first
                         .pathfinding_system
                         .grid
-                        .in_logical_extent(GridPos::new(6, 6))
+                        .in_logical_extent(GridPos::new(38, 38))
                 );
                 assert!(
                     other
                         .pathfinding_system
                         .grid
-                        .in_logical_extent(GridPos::new(24, 24))
+                        .in_logical_extent(GridPos::new(56, 56))
                 );
             });
         },
