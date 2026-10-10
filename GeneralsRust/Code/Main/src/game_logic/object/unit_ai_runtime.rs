@@ -90,6 +90,11 @@ impl UnitAiRuntime {
         self.quick_exit = deadline;
     }
 
+    pub(crate) fn clear_guard(&mut self) {
+        self.guard_scan = None;
+        self.guard_anchor = None;
+    }
+
     pub(crate) fn clear_hunt(&mut self) {
         self.hunt_scan = None;
     }

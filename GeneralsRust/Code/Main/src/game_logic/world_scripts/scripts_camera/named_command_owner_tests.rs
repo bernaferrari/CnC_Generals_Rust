@@ -333,6 +333,18 @@ fn named_commands_ignore_foreign_core_member() {
                 &[(ScriptActionType::NamedHunt, "NamedUnit", "")],
             );
             assert!(world.host_object(id).unwrap().hunting);
+            execute(
+                &mut world,
+                &[(ScriptActionType::NamedGuard, "NamedUnit", "")],
+            );
+            assert_eq!(
+                world.host_object(id).unwrap().ai_state,
+                AIState::GuardingArea
+            );
+            assert_eq!(
+                world.host_object(id).unwrap().last_command_source,
+                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
+            );
             assert_eq!(foreign.read().unwrap().get_group_id(), Some(91));
             assert!(Arc::ptr_eq(
                 &foreign,

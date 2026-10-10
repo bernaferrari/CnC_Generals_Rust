@@ -157,18 +157,7 @@ impl GameLogic {
                     }
                 }
                 HostScriptHuntGuardRequest::NamedGuard { unit } => {
-                    // C++ doNamedGuard: AIUpdateInterface only (Stinger/stun still guard).
-                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
-                        continue;
-                    };
-                    if !self.host_script_unit_can_guard(id) {
-                        continue;
-                    }
-                    let Some(pos) = self.host_object(id).map(|u| u.get_position()) else {
-                        continue;
-                    };
-                    let _ = self.apply_unit_locomotor_set(id, "normal");
-                    let _ = self.unit_command_guard_position(id, pos);
+                    self.apply_owned_named_guard(&unit, None);
                 }
                 HostScriptHuntGuardRequest::PlayerHunt { player } => {
                     let Some(pid) = self.host_player_id_for_script_token(&player) else {

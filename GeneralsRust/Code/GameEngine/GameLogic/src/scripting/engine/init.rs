@@ -1418,7 +1418,8 @@ mod script_object_context_tests {
             ) -> Option<GameLogicResult<()>> {
                 let unit = match request {
                     ScriptNamedCommand::ForceAttack { unit, .. }
-                    | ScriptNamedCommand::Hunt { unit } => unit,
+                    | ScriptNamedCommand::Hunt { unit }
+                    | ScriptNamedCommand::Guard { unit } => unit,
                     ScriptNamedCommand::FaceObject { .. } => {
                         panic!("unexpected named command: {request:?}");
                     }
@@ -1463,10 +1464,24 @@ mod script_object_context_tests {
                     .unwrap(),
                 ScriptActionResult::Success
             );
+            let mut guard = ScriptAction::new(ScriptActionType::NamedGuard);
+            guard
+                .add_parameter(Parameter::with_string(
+                    ParameterType::Unit,
+                    THIS_OBJECT.into(),
+                ))
+                .unwrap();
+            assert_eq!(
+                dispatcher
+                    .execute_action_with_driver(&guard, &mut owner)
+                    .unwrap(),
+                ScriptActionResult::Success
+            );
         });
         assert_eq!(
             owner.0,
             vec![
+                (THIS_OBJECT.into(), Some(73)),
                 (THIS_OBJECT.into(), Some(73)),
                 (THIS_OBJECT.into(), Some(73))
             ]

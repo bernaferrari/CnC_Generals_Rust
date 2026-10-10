@@ -94,13 +94,14 @@ pub enum ScriptAiPlayerRequest<'a> {
     },
 }
 
-/// CPP ScriptActions1042–1062/1966–1980/6081–6095: synchronous named AI commands.
+/// CPP ScriptActions1042–1062/1861–1878/1966–1980/6081–6095: named AI commands.
 /// The owner resolves literal names and THIS_OBJECT within its own object store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScriptNamedCommand<'a> {
     ForceAttack { unit: &'a str, target: &'a str },
     FaceObject { unit: &'a str, target: &'a str },
     Hunt { unit: &'a str },
+    Guard { unit: &'a str },
 }
 
 /// CPP ScriptActions water changes are synchronous with the next action.

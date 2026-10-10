@@ -606,79 +606,103 @@ fn executor_named_stop_dispatches_direct_ai_without_player_owner() {
     );
 }
 
-#[test]
-fn executor_named_guard_leaves_group_selects_locomotor_and_sets_guard_mode() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+struct NamedGuardOwner {
+    calls: Vec<(String, Option<ObjectID>)>,
+    reject: bool,
+}
 
-    get_object_manager().write().unwrap().reset();
-    get_named_object_tracker().clear().unwrap();
-
-    let commands = Arc::new(Mutex::new(Vec::new()));
-    let locomotors = Arc::new(Mutex::new(Vec::new()));
-    let guard_id = 8500;
-    let guard = crate::object_manager::GameObjectInstance::new(
-        guard_id,
-        None,
-        None,
-        ObjectCreationFlags::new(),
-    )
-    .expect("test guard instance");
-
-    {
-        let __base_arc = guard.base();
-        let mut base = __base_arc.write().unwrap();
-        base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
-            commands: Arc::clone(&commands),
-            locomotors: Arc::clone(&locomotors),
-        }))));
-        base.enter_group(&crate::ai::AIGroup::new(94));
-        assert_eq!(base.get_group_id(), Some(94));
+impl crate::scripting::engine::ScriptExecutionDriver for NamedGuardOwner {
+    fn after_action(&mut self) -> GameLogicResult<()> {
+        Ok(())
     }
 
-    let guard_id = guard.get_id();
-    get_object_manager()
-        .write()
-        .unwrap()
-        .register_object_instance(guard, Coord3D::new(9.0, 5.0, 0.0))
-        .unwrap();
-    get_named_object_tracker()
-        .register_named_object("ExecutorGuard".to_string(), guard_id)
-        .unwrap();
+    fn named_command(
+        &mut self,
+        request: crate::scripting::engine::ScriptNamedCommand<'_>,
+        this_object: Option<ObjectID>,
+    ) -> Option<GameLogicResult<()>> {
+        let crate::scripting::engine::ScriptNamedCommand::Guard { unit } = request else {
+            panic!("unexpected named command: {request:?}");
+        };
+        self.calls.push((unit.into(), this_object));
+        Some(if self.reject {
+            Err(GameLogicError::ModuleError(
+                "guard owner rejected command".into(),
+            ))
+        } else {
+            Ok(())
+        })
+    }
+}
 
+#[test]
+fn executor_named_guard_leaves_group_selects_locomotor_and_sets_guard_mode() {
+    // Main's real object tests own leaveGroup -> NORMAL -> position guard,
+    // NORMAL mode and SCRIPT source. Core verifies actual dispatcher selection
+    // of that owner, including its authoritative missing-object no-op.
+    let engine = ScriptEngine::new().expect("script engine");
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
+    let mut owner = NamedGuardOwner {
+        calls: Vec::new(),
+        reject: false,
+    };
     let mut action = ScriptAction::new(ScriptActionType::NamedGuard);
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Unit,
-            "ExecutorGuard".to_string(),
+            "ExecutorGuard".into(),
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
-    dispatcher.do_named_guard(&action).unwrap();
-
-    assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
     assert_eq!(
-        *commands.lock().unwrap(),
-        vec![(
-            AiCommandType::GuardPosition,
-            None,
-            None,
-            GuardMode::Normal.as_i32(),
-            CommandSourceType::FromScript,
-        )]
+        dispatcher
+            .execute_action_with_driver(&action, &mut owner)
+            .unwrap(),
+        ScriptActionResult::Success
     );
-    assert_eq!(
-        get_object_manager()
-            .read()
-            .unwrap()
-            .with_object(guard_id, |o| o
-                .base()
-                .read()
-                .ok()
-                .and_then(|b| b.get_group_id()))
-            .flatten(),
-        None
+    assert_eq!(owner.calls, vec![("ExecutorGuard".into(), None)]);
+
+    // An authoritative error cannot fall back to a global registry or queue.
+    owner.reject = true;
+    assert!(matches!(
+        dispatcher.execute_action_with_driver(&action, &mut owner),
+        Err(ScriptError::ExecutionFailed(message)) if message.contains("guard owner rejected command")
+    ));
+    assert_eq!(owner.calls.len(), 2);
+}
+
+#[test]
+fn named_guard_requires_unit_parameter_before_owner_dispatch() {
+    let engine = ScriptEngine::new().unwrap();
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
+    let mut owner = NamedGuardOwner {
+        calls: Vec::new(),
+        reject: false,
+    };
+    let action = ScriptAction::new(ScriptActionType::NamedGuard);
+    assert!(
+        dispatcher
+            .execute_action_with_driver(&action, &mut owner)
+            .is_err()
+    );
+    assert!(owner.calls.is_empty());
+}
+
+#[test]
+fn default_named_guard_driver_leaves_standalone_adapter_available() {
+    use crate::scripting::engine::{ScriptExecutionDriver, ScriptNamedCommand};
+    struct UnavailableOwner;
+    impl ScriptExecutionDriver for UnavailableOwner {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            Ok(())
+        }
+    }
+    assert!(
+        UnavailableOwner
+            .named_command(ScriptNamedCommand::Guard { unit: "Guard" }, None)
+            .is_none()
     );
 }
 

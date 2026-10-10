@@ -360,7 +360,7 @@ impl GameLogic {
     }
 
     /// C++ AIGuardReturnState::onEnter — walk to guardee / polygon center / post.
-    fn return_guard_to_post(&mut self, object_id: ObjectId) {
+    pub(crate) fn return_guard_to_post(&mut self, object_id: ObjectId) {
         let Some(o) = self.objects.get(&object_id) else {
             return;
         };

@@ -35,19 +35,7 @@ impl GameLogic {
             return;
         }
         self.apply_unit_locomotor_set(id, "normal");
-        let unit = self.host_object(id).expect("resolved Hunt unit");
-        let sleeping_ai = unit.ai_attitude()
-            == crate::game_logic::host_strategy_center::HostAiAttitude::Sleep
-            && unit
-                .owner_player_id
-                .and_then(|pid| self.players.get(&pid))
-                .is_none_or(|p| !p.is_human);
-        if !unit.is_alive()
-            || unit.status.effectively_dead
-            || sleeping_ai
-            || !unit.is_mobile_for_ai_command()
-            || unit.is_kind_of(KindOf::Projectile)
-        {
+        if !self.owned_named_ai_command_admitted(id) {
             return;
         }
 
@@ -57,6 +45,39 @@ impl GameLogic {
         // onEnter, rather than adopting an ambient stream on the next tick.
         let deadline = self.frame.wrapping_add(self.logic_random.next_u32() % 31);
         let unit = self.host_object_mut(id).expect("admitted Hunt unit");
+        Self::clear_owned_named_ai_goal(unit);
+        unit.last_command_source =
+            crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
+        unit.auto_acquire_when_idle = true;
+        unit.hunting = true;
+        unit.set_ai_state(AIState::Patrolling);
+        unit.mark_jet_command_for_reload_interrupt(true);
+        unit.set_status_moving(false);
+        unit.unit_ai_runtime.set_hunt_scan_deadline(Some(deadline));
+    }
+
+    /// CPP AIUpdate.cpp2572/4014: SCRIPT admission uses the simulation
+    /// controller and Object::isMobile, independently of display locality.
+    fn owned_named_ai_command_admitted(&self, id: ObjectId) -> bool {
+        let Some(unit) = self.host_object(id) else {
+            return false;
+        };
+        let sleeping_ai = unit.ai_attitude()
+            == crate::game_logic::host_strategy_center::HostAiAttitude::Sleep
+            && unit
+                .owner_player_id
+                .and_then(|pid| self.players.get(&pid))
+                .is_none_or(|p| !p.is_human);
+        unit.is_alive()
+            && !unit.status.effectively_dead
+            && !sleeping_ai
+            && unit.is_mobile_for_ai_command()
+            && !unit.is_kind_of(KindOf::Projectile)
+    }
+
+    /// The bounded onExit phase shared by commands that clear the current
+    /// AI machine. It borrows only the canonical object, with no registry lookup.
+    fn clear_owned_named_ai_goal(unit: &mut Object) {
         if unit.hunting || matches!(unit.ai_state, AIState::Patrolling) {
             unit.release_weapon_lock(WeaponLockType::LockedTemporarily);
         }
@@ -89,14 +110,53 @@ impl GameLogic {
         unit.set_guard_position(None);
         unit.set_guard_target(None);
         unit.end_guard_retaliate();
+    }
+
+    /// CPP ScriptActions.cpp1861: leaveGroup, capture position, NORMAL,
+    /// then SCRIPT GuardPosition. Even a rejected order keeps the first effects.
+    pub(super) fn apply_owned_named_guard(&mut self, name: &str, this_object: Option<ObjectId>) {
+        let Some(id) = self.owned_named_script_object(name, this_object) else {
+            return;
+        };
+        let unit = self.host_object_mut(id).expect("resolved Guard unit");
+        if !unit.has_ai_update_interface() {
+            return;
+        }
+        unit.set_formation(0, glam::Vec2::ZERO);
+        let position = unit.get_position();
+        let clear_team_target = matches!(unit.guard_chase_phase, 1 | 3);
+        self.apply_unit_locomotor_set(id, "normal");
+        if !self.owned_named_ai_command_admitted(id) {
+            return;
+        }
+        self.drop_jet_targeters_on_attack_exit(id);
+        if clear_team_target {
+            self.set_host_team_common_target(id, None);
+        }
+        self.clear_unit_movement_path(id);
+        // A new AIGuardReturnState owns a new scan deadline at onEnter.
+        // Use the existing session stream; no global RNG publication is needed.
+        let rate = self.host_guard_enemy_return_scan_rate();
+        let draw = self.logic_random.next_u32();
+        let delay = if rate == u32::MAX {
+            draw
+        } else {
+            draw % (rate + 1)
+        };
+        let deadline = self.frame.wrapping_add(delay);
+        let unit = self.host_object_mut(id).expect("admitted Guard unit");
+        Self::clear_owned_named_ai_goal(unit);
+        unit.clear_guard_chase();
+        unit.unit_ai_runtime.clear_guard();
+        unit.unit_ai_runtime.clear_hunt();
+        unit.hunting = false;
+        unit.set_guard_mode(GuardMode::Normal);
+        unit.set_guard_position(Some(position));
         unit.last_command_source =
             crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
-        unit.auto_acquire_when_idle = true;
-        unit.hunting = true;
-        unit.set_ai_state(AIState::Patrolling);
         unit.mark_jet_command_for_reload_interrupt(true);
-        unit.set_status_moving(false);
-        unit.unit_ai_runtime.set_hunt_scan_deadline(Some(deadline));
+        unit.unit_ai_runtime.set_guard_scan_deadline(Some(deadline));
+        self.return_guard_to_post(id);
     }
 
     pub(super) fn apply_owned_named_script_command(
@@ -104,14 +164,23 @@ impl GameLogic {
         request: ScriptNamedCommand<'_>,
         this_object: Option<ObjectId>,
     ) {
-        if let ScriptNamedCommand::Hunt { unit } = request {
-            self.apply_owned_named_hunt(unit, this_object);
-            return;
+        match request {
+            ScriptNamedCommand::Hunt { unit } => {
+                self.apply_owned_named_hunt(unit, this_object);
+                return;
+            }
+            ScriptNamedCommand::Guard { unit } => {
+                self.apply_owned_named_guard(unit, this_object);
+                return;
+            }
+            _ => {}
         }
         let (unit, target) = match request {
             ScriptNamedCommand::ForceAttack { unit, target }
             | ScriptNamedCommand::FaceObject { unit, target } => (unit, target),
-            ScriptNamedCommand::Hunt { .. } => unreachable!("Hunt handled above"),
+            ScriptNamedCommand::Hunt { .. } | ScriptNamedCommand::Guard { .. } => {
+                unreachable!("single-unit command handled above")
+            }
         };
         let Some(id) = self.owned_named_script_object(unit, this_object) else {
             return;
@@ -144,7 +213,9 @@ impl GameLogic {
             .set_formation(0, glam::Vec2::ZERO);
         self.apply_unit_locomotor_set(id, "normal");
         match request {
-            ScriptNamedCommand::Hunt { .. } => unreachable!("Hunt handled above"),
+            ScriptNamedCommand::Hunt { .. } | ScriptNamedCommand::Guard { .. } => {
+                unreachable!("single-unit command handled above")
+            }
             ScriptNamedCommand::ForceAttack { .. } => {
                 self.host_object_mut(id)
                     .expect("resolved script unit")

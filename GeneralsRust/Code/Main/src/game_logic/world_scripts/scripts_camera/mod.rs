@@ -270,4 +270,8 @@ mod named_command_owner_tests;
 mod player_event_owner_tests;
 
 #[cfg(test)]
+mod named_command_test_support;
+#[cfg(test)]
+mod named_guard_owner_tests;
+#[cfg(test)]
 mod named_hunt_owner_tests;
