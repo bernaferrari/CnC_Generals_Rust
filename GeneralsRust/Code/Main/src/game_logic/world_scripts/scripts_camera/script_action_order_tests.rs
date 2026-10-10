@@ -142,14 +142,23 @@ fn driving_main_team_status_uses_exact_owner_identity_and_existing_empty_team() 
             let beta = world
                 .create_object_for_player("TeamQueryInfantry", 1, glam::Vec3::new(10.0, 0.0, 0.0))
                 .unwrap();
-            let alpha_name = world.default_host_team_instance_name(Some(0), Team::USA);
-            let beta_name = world.default_host_team_instance_name(Some(1), Team::USA);
-            assert_ne!(alpha_name, beta_name);
-            world
-                .host_object_mut(alpha)
-                .unwrap()
-                .team_instance_name
-                .clear();
+            let mut factory = world.team_factory.lock().unwrap();
+            let mut ids = Vec::new();
+            for (name, member, owner) in [("ExplicitAlpha", alpha, 0), ("ExplicitBeta", beta, 1)] {
+                factory
+                    .init_team(name.into(), "".into(), false, None)
+                    .unwrap();
+                let team = factory.create_inactive_team(name).unwrap();
+                let mut team = team.write().unwrap();
+                team.add_member(member.0);
+                team.set_controlling_player_id(Some(owner));
+                ids.push(team.get_id());
+            }
+            drop(factory);
+            let (alpha_team, beta_team) = (ids[0], ids[1]);
+            // Writable host names cannot select or merge these rosters.
+            world.host_object_mut(alpha).unwrap().team_instance_name = "SameName".into();
+            world.host_object_mut(beta).unwrap().team_instance_name = "SameName".into();
             world
                 .host_object_mut(beta)
                 .unwrap()
@@ -170,35 +179,36 @@ fn driving_main_team_status_uses_exact_owner_identity_and_existing_empty_team() 
                 dead: false,
             });
             assert_eq!(
-                HostScriptExecutionDriver::new(&mut world).team_status(&alpha_name),
+                HostScriptExecutionDriver::new(&mut world).team_status(alpha_team),
                 idle
             );
             assert_eq!(
-                HostScriptExecutionDriver::new(&mut world).team_status(&beta_name),
+                HostScriptExecutionDriver::new(&mut world).team_status(beta_team),
                 moving
             );
             world.host_object_mut(alpha).unwrap().team_instance_name = "ExplicitAlpha".into();
             world.host_object_mut(beta).unwrap().team_instance_name = "ExplicitBeta".into();
             assert_eq!(
-                HostScriptExecutionDriver::new(&mut world).team_status("ExplicitAlpha"),
+                HostScriptExecutionDriver::new(&mut world).team_status(alpha_team),
                 idle
             );
             assert_eq!(
-                HostScriptExecutionDriver::new(&mut world).team_status("ExplicitBeta"),
+                HostScriptExecutionDriver::new(&mut world).team_status(beta_team),
                 moving
             );
             assert_eq!(
-                HostScriptExecutionDriver::new(&mut world).team_status(&alpha_name),
+                HostScriptExecutionDriver::new(&mut world).team_status(u32::MAX),
                 ScriptOwnerQuery::Missing
             );
             let mut factory = world.team_factory.lock().unwrap();
             factory
                 .init_team("EmptyActualTeam".into(), "".into(), false, None)
                 .unwrap();
-            factory.create_inactive_team("EmptyActualTeam").unwrap();
+            let empty_team = factory.create_inactive_team("EmptyActualTeam").unwrap();
+            let empty_id = empty_team.read().unwrap().get_id();
             drop(factory);
             assert_eq!(
-                HostScriptExecutionDriver::new(&mut world).team_status("EmptyActualTeam"),
+                HostScriptExecutionDriver::new(&mut world).team_status(empty_id),
                 ScriptOwnerQuery::Present(ScriptTeamStatus {
                     has_group: true,
                     idle: true,

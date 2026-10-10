@@ -45,15 +45,19 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn resolve_team_name_token(&self, raw: &str) -> String {
         match raw {
-            THIS_TEAM => self
-                .context
-                .with_engine_ref(|engine| {
-                    engine
-                        .get_condition_team_name()
-                        .or_else(|| engine.get_calling_team_name())
-                })
-                .flatten()
-                .unwrap_or_else(|| raw.to_string()),
+            THIS_TEAM => match &self.this_team_name {
+                crate::scripting::engine::ScriptOwnerQuery::Present(name) => name.clone(),
+                crate::scripting::engine::ScriptOwnerQuery::Missing => String::new(),
+                crate::scripting::engine::ScriptOwnerQuery::Unavailable => self
+                    .context
+                    .with_engine_ref(|engine| {
+                        engine
+                            .get_calling_team_name()
+                            .or_else(|| engine.get_condition_team_name())
+                    })
+                    .flatten()
+                    .unwrap_or_default(),
+            },
             TEAM_THE_PLAYER => {
                 // C++ ScriptEngine::getTeamNamed (ScriptEngine.cpp:5935-5939).
                 if !is_generals_challenge_campaign() {
@@ -222,6 +226,62 @@ impl ScriptActionDispatcher<'_> {
         driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let action_type = action.get_action_type();
+        // Immutable operation metadata comes from the driving session. A
+        // missing exact reference never consults a foreign factory by ID.
+        let selected = self
+            .context
+            .with_engine_ref(|engine| {
+                engine
+                    .get_calling_team_id()
+                    .or_else(|| engine.get_condition_team_id())
+            })
+            .flatten();
+        self.this_team_name = selected
+            .map(|id| driver.team_name(id))
+            .unwrap_or(crate::scripting::engine::ScriptOwnerQuery::Missing);
+
+        if matches!(
+            action_type,
+            ScriptActionType::TeamExecuteSequentialScript
+                | ScriptActionType::TeamExecuteSequentialScriptLooping
+                | ScriptActionType::TeamStopSequentialScript
+        ) {
+            let team = self.get_string_param(action, 0)?;
+            let script = if action_type == ScriptActionType::TeamStopSequentialScript {
+                None
+            } else {
+                let name = self.get_string_param(action, 1)?;
+                let Some(script) = self
+                    .context
+                    .with_engine_ref(|engine| engine.find_script_clone_by_name(&name))
+                    .flatten()
+                else {
+                    return Ok(ScriptActionResult::Success);
+                };
+                let loops = if action_type == ScriptActionType::TeamExecuteSequentialScriptLooping {
+                    self.get_int_param(action, 2)? - 1
+                } else {
+                    0
+                };
+                Some((script, loops))
+            };
+            let result = self
+                .context
+                .with_engine_ref(|engine| {
+                    driver.team_sequential(
+                        &team,
+                        engine.get_calling_team_id(),
+                        engine.get_condition_team_id(),
+                        script,
+                        engine,
+                    )
+                })
+                .flatten();
+            if let Some(result) = result {
+                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                return Ok(ScriptActionResult::Success);
+            }
+        }
 
         // Dispatch to the appropriate handler based on action type
         let result = match action_type {
@@ -240,15 +300,10 @@ impl ScriptActionDispatcher<'_> {
                 let (calling, condition) = self
                     .context
                     .with_engine_ref(|engine| {
-                        (
-                            engine.get_calling_team_name(),
-                            engine.get_condition_team_name(),
-                        )
+                        (engine.get_calling_team_id(), engine.get_condition_team_id())
                     })
                     .unwrap_or_default();
-                if let Some(result) =
-                    driver.team_guard(&team, calling.as_deref(), condition.as_deref())
-                {
+                if let Some(result) = driver.team_guard(&team, calling, condition) {
                     result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
                     Ok(ScriptActionResult::Success)
                 } else {
@@ -466,7 +521,22 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::TeamApplyAttackPrioritySet => {
                 self.do_team_apply_attack_priority_set(action)
             }
-            ScriptActionType::TeamSetAttitude => self.do_team_set_attitude(action),
+            ScriptActionType::TeamSetAttitude => {
+                let team = self.get_string_param(action, 0)?;
+                let mood = self.get_int_param(action, 1)?;
+                let (calling, condition) = self
+                    .context
+                    .with_engine_ref(|engine| {
+                        (engine.get_calling_team_id(), engine.get_condition_team_id())
+                    })
+                    .unwrap_or_default();
+                if let Some(result) = driver.team_attitude(&team, calling, condition, mood) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_team_set_attitude(action)
+                }
+            }
             ScriptActionType::TeamExecuteSequentialScript => {
                 self.do_team_execute_sequential_script(action)
             }
@@ -1377,17 +1447,11 @@ impl ScriptActionDispatcher<'_> {
         &self,
         team_name: &str,
     ) -> Result<Arc<RwLock<crate::team::Team>>, ScriptError> {
-        let team_name = self.resolve_team_name_token(team_name);
-        let factory = get_team_factory();
-        if let Ok(mut factory_guard) = factory.lock() {
-            factory_guard
-                .find_team(&team_name)
-                .ok_or_else(|| ScriptError::TeamNotFound(team_name.to_string()))
-        } else {
-            Err(ScriptError::ExecutionFailed(
-                "Failed to lock team factory".to_string(),
-            ))
-        }
+        let resolved = self.resolve_team_name_token(team_name);
+        self.context
+            .with_engine_ref(|engine| engine.standalone_context_team(&resolved))
+            .flatten()
+            .ok_or_else(|| ScriptError::TeamNotFound(resolved))
     }
 
     /// Get a team by name, creating it if missing (matches ScriptActions::createUnitOnTeamAt).

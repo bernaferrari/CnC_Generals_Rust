@@ -291,7 +291,7 @@ mod tests {
         let w = &src[open..=close];
         assert!(
             w.contains("run_script")
-                && w.contains("Some(event.team_name.as_str())")
+                && w.contains("Some(event.team_id)")
                 && !w.contains("append_sequential_script"),
             "Team event flush must runScript(name, team) like C++ updateState"
         );
@@ -316,7 +316,7 @@ mod tests {
         let generic_w = &src[generic..src.len().min(generic + 3500)];
         assert!(
             generic_w.contains("friend_execute_action")
-                && generic_w.contains("pending.team_name")
+                && generic_w.contains("Some(team_id)")
                 && !generic_w.contains("evaluator.execute_action_sequence"),
             "updateGenericScripts path must friend_executeAction with team"
         );
@@ -536,9 +536,9 @@ mod tests {
 
         let queued = drain_pending_team_script_events();
         assert_eq!(queued.len(), 2);
-        assert_eq!(queued[0].team_name, "ScriptHookTeam");
+        assert_eq!(queued[0].team_id, team.read().unwrap().get_id());
         assert_eq!(queued[0].script_name, "OnCreateTeamScript");
-        assert_eq!(queued[1].team_name, "ScriptHookTeam");
+        assert_eq!(queued[1].team_id, team.read().unwrap().get_id());
         assert_eq!(queued[1].script_name, "OnUnitDestroyedTeamScript");
     }
 

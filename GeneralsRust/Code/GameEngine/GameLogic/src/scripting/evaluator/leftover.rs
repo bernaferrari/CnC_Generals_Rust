@@ -9,8 +9,8 @@ impl ScriptEvaluator {
             THIS_TEAM => self
                 .with_evaluation_engine_ref(|engine| {
                     engine
-                        .get_condition_team_name()
-                        .or_else(|| engine.get_calling_team_name())
+                        .get_calling_team_name()
+                        .or_else(|| engine.get_condition_team_name())
                 })
                 .flatten()
                 .unwrap_or_else(|| raw.to_string()),

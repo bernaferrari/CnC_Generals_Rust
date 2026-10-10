@@ -190,14 +190,24 @@ pub trait ScriptExecutionDriver {
     }
 
     /// CPP ScriptActions1882: the driving owner resolves the raw team against
-    /// its own roster. Both context names are supplied before token resolution;
+    /// its own roster. Both context identities are supplied before token resolution;
     /// THIS_TEAM prefers calling_team. Some is authoritative even for absence
     /// or an error; None retains the standalone Core adapter.
     fn team_guard(
         &mut self,
         _team: &str,
-        _calling_team: Option<&str>,
-        _condition_team: Option<&str>,
+        _calling_team: Option<TeamID>,
+        _condition_team: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn team_attitude(
+        &mut self,
+        _team: &str,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+        _mood: i32,
     ) -> Option<GameLogicResult<()>> {
         None
     }
@@ -234,7 +244,33 @@ pub trait ScriptExecutionDriver {
         ScriptOwnerQuery::Unavailable
     }
 
-    fn team_status(&self, _name: &str) -> ScriptOwnerQuery<ScriptTeamStatus> {
+    /// Ordered instances belonging to the driving session. Missing means an
+    /// absent prototype; an empty Present list is authoritative too.
+    fn team_instances(&self, _name: &str) -> ScriptOwnerQuery<Vec<TeamID>> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    fn team_name(&self, _id: TeamID) -> ScriptOwnerQuery<String> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    /// The callback controller, including human players (unlike sequential AI).
+    fn team_current_player(&self, _id: TeamID) -> ScriptOwnerQuery<Option<String>> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    fn team_sequential(
+        &mut self,
+        _team: &str,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+        _script: Option<(Script, i32)>,
+        _engine: &ScriptEngine,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn team_status(&self, _id: TeamID) -> ScriptOwnerQuery<ScriptTeamStatus> {
         ScriptOwnerQuery::Unavailable
     }
 
@@ -250,7 +286,7 @@ pub trait ScriptExecutionDriver {
     fn sequential_current_player(
         &self,
         _object_id: ObjectID,
-        _team_name: Option<&str>,
+        _team_id: Option<TeamID>,
     ) -> ScriptOwnerQuery<Option<String>> {
         ScriptOwnerQuery::Unavailable
     }
@@ -1061,7 +1097,7 @@ impl XferSnapshot for AttackPriorityInfo {
 /// Sequential Script matching C++ SequentialScript
 #[derive(Debug, Clone)]
 pub struct SequentialScript {
-    pub team_to_exec_on: Option<String>, // Team name instead of pointer
+    pub team_to_exec_on: Option<TeamID>, // Exact instance identity, never a prototype name
     pub object_id: u32,
     pub script_to_execute_sequentially: Option<Box<Script>>,
     pub current_instruction: i32, // Which action currently executing
@@ -1118,41 +1154,20 @@ impl XferSnapshot for SequentialScript {
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)?;
 
-        let mut team_id: TeamID = TEAM_ID_INVALID;
-        if xfer.get_xfer_mode() == game_engine::system::XferMode::Save {
-            if let Some(team_name) = self.team_to_exec_on.as_deref() {
-                if let Ok(mut factory) = TheTeamFactory().lock() {
-                    if let Some(team) = factory.find_team(team_name) {
-                        if let Ok(team_guard) = team.read() {
-                            team_id = team_guard.get_id();
-                        }
-                    }
-                }
-            }
-        }
-        // SAFETY: `team_id` is an initialized stack `TeamID`; `xfer_user`
-        // moves exactly `size_of::<TeamID>()` bytes within this call and
-        // never retains the pointer.
-        unsafe {
-            xfer.xfer_user(
-                &mut team_id as *mut TeamID as *mut u8,
-                std::mem::size_of::<TeamID>(),
-            )?
-        };
-        if xfer.get_xfer_mode() == game_engine::system::XferMode::Load {
-            if team_id == TEAM_ID_INVALID {
-                self.team_to_exec_on = None;
-            } else if let Ok(factory) = TheTeamFactory().lock() {
-                if let Some(team) = factory.find_team_by_id(team_id) {
-                    if let Ok(team_guard) = team.read() {
-                        self.team_to_exec_on = Some(team_guard.get_name().to_string());
-                    } else {
-                        return Err(XferStatus::InvalidData);
-                    }
-                } else {
+        let mut team_id = self.team_to_exec_on.unwrap_or(TEAM_ID_INVALID);
+        // C++ xferUser and this unsigned scalar transfer use exactly the
+        // native TeamID bytes; the initialized scalar stays behind a safe API.
+        xfer.xfer_unsigned_int(&mut team_id)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            if team_id != TEAM_ID_INVALID {
+                let factory = TheTeamFactory()
+                    .lock()
+                    .map_err(|_| XferStatus::InvalidData)?;
+                if factory.find_team_by_id(team_id).is_none() {
                     return Err(XferStatus::InvalidData);
                 }
             }
+            self.team_to_exec_on = (team_id != TEAM_ID_INVALID).then_some(team_id);
         }
 
         let mut object_id = self.object_id;
@@ -1237,9 +1252,9 @@ pub struct ScriptEngineInner {
     // Game state
     end_game_timer: i32,
     close_window_timer: i32,
-    calling_team: Option<String>,   // Team name instead of pointer
+    calling_team: Option<TeamID>,   // Exact callback instance
     calling_object: Option<u32>,    // Object ID instead of pointer
-    condition_team: Option<String>, // Team name instead of pointer
+    condition_team: Option<TeamID>, // Exact condition instance
     condition_object: Option<u32>,  // Object ID instead of pointer
     first_update: bool,
     current_player: Option<String>, // Player name instead of pointer

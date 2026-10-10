@@ -1,3 +1,17 @@
+/// Restores only callback fields: conditionTeam has a separate lifetime.
+struct CallingContextRestore<'a> {
+    engine: &'a ScriptEngine,
+    calling_team: Option<TeamID>,
+    current_player: Option<String>,
+}
+impl Drop for CallingContextRestore<'_> {
+    fn drop(&mut self) {
+        let mut inner = self.engine.lock_inner_mut();
+        inner.calling_team = self.calling_team;
+        inner.current_player = self.current_player.clone();
+    }
+}
+
 // ScriptEngine construction, templates, script lists, and reset
 //
 // Split from `scripting/engine.rs` for module-size parity.
@@ -134,25 +148,79 @@ impl ScriptEngine {
         self.with_inner(|inner| inner.current_player.clone())
     }
 
-    /// Owned snapshot — never a borrow into `UnsafeCell`.
-    pub fn get_calling_team_name(&self) -> Option<String> {
-        self.with_inner(|inner| inner.calling_team.clone())
+    pub fn get_calling_team_id(&self) -> Option<TeamID> {
+        self.with_inner(|inner| inner.calling_team)
     }
 
-    /// C++ `ScriptEngine::friend_executeAction(action, pThisTeam)`.
-    ///
-    /// Saves calling team / current player, binds `pThisTeam` (by name) as the
-    /// calling team and its controlling player as current player, runs the
-    /// action chain, then restores prior context.
-    pub fn friend_execute_action(
+    pub fn get_condition_team_id(&self) -> Option<TeamID> {
+        self.with_inner(|inner| inner.condition_team)
+    }
+
+    /// Name projection for standalone Core token adapters. Production drivers
+    /// receive IDs directly; names never become mutable context authority.
+    pub fn get_calling_team_name(&self) -> Option<String> {
+        Self::standalone_team_name(self.get_calling_team_id())
+    }
+
+    pub fn get_condition_team_name(&self) -> Option<String> {
+        Self::standalone_team_name(self.get_condition_team_id())
+    }
+
+    fn standalone_team_name(id: Option<TeamID>) -> Option<String> {
+        let team = get_team_factory().lock().ok()?.find_team_by_id(id?)?;
+        team.read().ok().map(|team| team.get_name().to_string())
+    }
+
+    pub(crate) fn standalone_context_team(
         &self,
-        action: &crate::scripting::core::ScriptAction,
-        team_name: Option<&str>,
-    ) {
+        raw: &str,
+    ) -> Option<Arc<RwLock<crate::team::Team>>> {
+        let (calling, condition) =
+            self.with_inner(|inner| (inner.calling_team, inner.condition_team));
+        let factory = get_team_factory().lock().ok()?;
+        if raw == crate::scripting::core::THIS_TEAM {
+            return factory.find_team_by_id(calling.or(condition)?);
+        }
+        for id in [calling, condition].into_iter().flatten() {
+            if let Some(team) = factory.find_team_by_id(id) {
+                let matches = team.read().ok().is_some_and(|team| team.get_name() == raw);
+                if matches {
+                    return Some(team);
+                }
+            }
+        }
+        let team = factory.find_team_instances(raw).into_iter().next()?;
+        if factory
+            .find_team_prototype(raw)
+            .is_some_and(|proto| proto.is_singleton())
+            && !team.read().ok().is_some_and(|team| team.is_active())
+        {
+            return None;
+        }
+        Some(team)
+    }
+
+    fn standalone_team_player(id: TeamID) -> Option<String> {
+        let team = get_team_factory().lock().ok()?.find_team_by_id(id)?;
+        let player_id = team.read().ok()?.get_controlling_player_id()?;
+        let player = crate::player::player_list()
+            .read()
+            .ok()?
+            .get_player(player_id as i32)
+            .cloned()?;
+        player
+            .read()
+            .ok()
+            .and_then(|player| NameKeyGenerator::key_to_name(player.get_player_name_key()))
+    }
+
+    /// C++ friend_executeAction scopes the actual team and its controller,
+    /// preserving conditionTeam. No borrow survives synchronous callbacks.
+    pub fn friend_execute_action(&self, action: &ScriptAction, team_id: Option<TeamID>) {
         let mut driver = CanonicalScriptExecutionDriver;
         self.friend_execute_action_with_driver(
             action,
-            team_name,
+            team_id,
             crate::scripting::executor::ScriptContext::new(),
             &mut driver,
         );
@@ -160,78 +228,36 @@ impl ScriptEngine {
 
     pub fn friend_execute_action_with_driver(
         &self,
-        action: &crate::scripting::core::ScriptAction,
-        team_name: Option<&str>,
+        action: &ScriptAction,
+        team_id: Option<TeamID>,
         context: crate::scripting::executor::ScriptContext,
         driver: &mut dyn ScriptExecutionDriver,
     ) {
+        let current_player = team_id.and_then(|id| match driver.team_current_player(id) {
+            ScriptOwnerQuery::Present(player) => player,
+            ScriptOwnerQuery::Missing => None,
+            ScriptOwnerQuery::Unavailable => Self::standalone_team_player(id),
+        });
+        let restore = self.with_inner(|inner| CallingContextRestore {
+            engine: self,
+            calling_team: inner.calling_team,
+            current_player: inner.current_player.clone(),
+        });
+        {
+            let mut inner = self.lock_inner_mut();
+            inner.calling_team = team_id;
+            inner.current_player = current_player;
+        }
         let context = std::cell::RefCell::new(context);
         let mut execution = ScriptExecution::new(&context, driver);
-        let (saved_team, saved_player) = {
-            let mut inner = self.lock_inner_mut();
-            let saved_team = inner.calling_team.take();
-            let saved_player = inner.current_player.take();
-            inner.calling_team = team_name.map(|s| s.to_string());
-            inner.current_player = None;
-            (saved_team, saved_player)
-        };
-
-        if let Some(tname) = team_name {
-            if let Ok(mut factory) = get_team_factory().lock() {
-                if let Some(team_arc) = factory.find_team(tname) {
-                    if let Ok(team_guard) = team_arc.read() {
-                        if let Some(player_id) = team_guard.get_controlling_player_id() {
-                            let current_player = crate::player::player_list()
-                                .read()
-                                .ok()
-                                .and_then(|list| list.get_player(player_id as i32).cloned())
-                                .and_then(|p| {
-                                    p.read().ok().and_then(|pg| {
-                                        game_engine::common::name_key_generator::NameKeyGenerator::key_to_name(
-                                            pg.get_player_name_key(),
-                                        )
-                                    })
-                                });
-                            self.lock_inner_mut().current_player = current_player;
-                        }
-                    }
-                }
-            }
-        }
-
         self.with_active(|| {
-            self.friend_execute_action_active(
-                action,
-                team_name,
-                saved_team,
-                saved_player,
-                &mut execution,
-            )
+            let mut dispatcher =
+                crate::scripting::executor::ScriptActionDispatcher::new(self, &context);
+            if let Err(err) = self.execute_action_chain(action, &mut dispatcher, &mut execution) {
+                log::warn!("friend_execute_action: {}", err);
+            }
         });
-    }
-
-    fn friend_execute_action_active(
-        &self,
-        action: &crate::scripting::core::ScriptAction,
-        team_name: Option<&str>,
-        saved_team: Option<String>,
-        saved_player: Option<String>,
-        execution: &mut ScriptExecution<'_>,
-    ) {
-        let mut dispatcher =
-            crate::scripting::executor::ScriptActionDispatcher::new(self, execution.context);
-        if let Err(err) = self.execute_action_chain(action, &mut dispatcher, execution) {
-            log::warn!("friend_execute_action: {}", err);
-        }
-
-        let mut inner = self.lock_inner_mut();
-        inner.calling_team = saved_team;
-        inner.current_player = saved_player;
-    }
-
-    /// Owned snapshot — never a borrow into `UnsafeCell`.
-    pub fn get_condition_team_name(&self) -> Option<String> {
-        self.with_inner(|inner| inner.condition_team.clone())
+        drop(restore);
     }
 
     /// Set temporary runtime context used by external script evaluation helpers.
@@ -240,8 +266,8 @@ impl ScriptEngine {
     pub fn set_external_eval_context(
         &mut self,
         current_player: Option<String>,
-        condition_team: Option<String>,
-    ) -> (Option<String>, Option<String>) {
+        condition_team: Option<TeamID>,
+    ) -> (Option<String>, Option<TeamID>) {
         let inner = self.inner.get_mut();
         let saved = (inner.current_player.clone(), inner.condition_team.clone());
         inner.current_player = current_player;
@@ -250,7 +276,7 @@ impl ScriptEngine {
     }
 
     /// Restore runtime context previously returned by `set_external_eval_context`.
-    pub fn restore_external_eval_context(&mut self, saved: (Option<String>, Option<String>)) {
+    pub fn restore_external_eval_context(&mut self, saved: (Option<String>, Option<TeamID>)) {
         let inner = self.inner.get_mut();
         inner.current_player = saved.0;
         inner.condition_team = saved.1;

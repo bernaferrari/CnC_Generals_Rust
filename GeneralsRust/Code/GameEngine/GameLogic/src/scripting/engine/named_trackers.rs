@@ -160,7 +160,7 @@ impl ScriptEngine {
                 .sequential_scripts
                 .iter()
                 .map(|script| SequentialScriptSnapshot {
-                    team_id: Self::sequential_team_id(script.team_to_exec_on.as_deref()),
+                    team_id: script.team_to_exec_on.unwrap_or(TEAM_ID_INVALID),
                     object_id: script.object_id,
                     script_name: script
                         .script_to_execute_sequentially
@@ -191,7 +191,7 @@ impl ScriptEngine {
             script.times_to_loop = snap.times_to_loop;
             script.frames_to_wait = snap.frames_to_wait;
             script.dont_advance_instruction = snap.dont_advance_instruction;
-            script.team_to_exec_on = Self::sequential_team_name(snap.team_id);
+            script.team_to_exec_on = (snap.team_id != TEAM_ID_INVALID).then_some(snap.team_id);
             if !snap.script_name.is_empty() {
                 script.script_to_execute_sequentially = Some(Box::new(
                     self.find_script_clone_by_name(&snap.script_name)
@@ -207,31 +207,6 @@ impl ScriptEngine {
             script.runtime_token = Self::allocate_sequential_runtime_token(&mut inner);
             inner.sequential_scripts.push(script);
         }
-    }
-
-    fn sequential_team_id(team_name: Option<&str>) -> TeamID {
-        let Some(team_name) = team_name else {
-            return TEAM_ID_INVALID;
-        };
-        let Ok(mut factory) = TheTeamFactory().lock() else {
-            return TEAM_ID_INVALID;
-        };
-        factory
-            .find_team(team_name)
-            .and_then(|team| team.read().ok().map(|guard| guard.get_id()))
-            .unwrap_or(TEAM_ID_INVALID)
-    }
-
-    fn sequential_team_name(team_id: TeamID) -> Option<String> {
-        if team_id == TEAM_ID_INVALID {
-            return None;
-        }
-        let Ok(factory) = TheTeamFactory().lock() else {
-            return None;
-        };
-        factory
-            .find_team_by_id(team_id)
-            .and_then(|team| team.read().ok().map(|guard| guard.get_name().to_string()))
     }
 
     /// Increment a named counter by `amount`.
@@ -796,21 +771,27 @@ impl ScriptEngine {
     }
 
     /// Check if a specific team has any active sequential scripts running.
-    pub fn has_active_sequential_script_for_team(&self, team_name: &str) -> bool {
+    pub fn has_active_sequential_script_for_team(&self, team_id: TeamID) -> bool {
         self.with_inner(|inner| {
             inner
                 .sequential_scripts
                 .iter()
-                .any(|script| script.team_to_exec_on.as_deref() == Some(team_name))
+                .any(|script| script.team_to_exec_on == Some(team_id))
         })
     }
 
     /// Remove all sequential scripts bound to a specific team.
-    pub fn remove_all_sequential_scripts_for_team(&self, team_name: &str) {
+    pub fn remove_all_sequential_scripts_for_team(&self, team_id: TeamID) {
         let mut inner = self.lock_inner_mut();
         inner
             .sequential_scripts
-            .retain(|script| script.team_to_exec_on.as_deref() != Some(team_name));
+            .retain(|script| script.team_to_exec_on != Some(team_id));
+        if inner.calling_team == Some(team_id) {
+            inner.calling_team = None;
+        }
+        if inner.condition_team == Some(team_id) {
+            inner.condition_team = None;
+        }
     }
 
     /// Set frame wait timer for all sequential scripts running on an object.
@@ -825,10 +806,10 @@ impl ScriptEngine {
     }
 
     /// Set frame wait timer for all sequential scripts running on a team.
-    pub fn set_sequential_timer_for_team(&mut self, team_name: &str, frame_count: i32) {
+    pub fn set_sequential_timer_for_team(&mut self, team_id: TeamID, frame_count: i32) {
         let inner = self.inner.get_mut();
         for script in &mut inner.sequential_scripts {
-            if script.team_to_exec_on.as_deref() == Some(team_name) {
+            if script.team_to_exec_on == Some(team_id) {
                 script.frames_to_wait = frame_count;
                 return;
             }
@@ -1444,20 +1425,11 @@ impl ScriptEngine {
     }
 
     // PARITY_NOTE: C++ ScriptEngine::notifyOfTeamDestruction
-    pub fn notify_of_team_destruction(&mut self, team_name: &str) {
-        if team_name.is_empty() {
+    pub fn notify_of_team_destruction(&self, team_id: TeamID) {
+        if team_id == TEAM_ID_INVALID {
             return;
         }
-
-        self.remove_all_sequential_scripts_for_team(team_name);
-        let inner = self.inner.get_mut();
-
-        if inner.calling_team.as_deref() == Some(team_name) {
-            inner.calling_team = None;
-        }
-        if inner.condition_team.as_deref() == Some(team_name) {
-            inner.condition_team = None;
-        }
+        self.remove_all_sequential_scripts_for_team(team_id);
     }
 
     // PARITY_NOTE: C++ ScriptEngine::forceUnfreezeTime
@@ -1497,50 +1469,28 @@ impl ScriptEngine {
     }
 
     // PARITY_NOTE: C++ ScriptEngine::runScript
-    pub fn run_script(&mut self, script_name: &str, team_name: Option<&str>) {
+    pub fn run_script(&mut self, script_name: &str, team_id: Option<TeamID>) {
         if script_name.is_empty() || script_name == "<none>" {
             return;
         }
 
-        let (saved_current_player, saved_calling_team) = {
-            let inner = self.inner.get_mut();
-            let saved_current_player = inner.current_player.clone();
-            let saved_calling_team = inner.calling_team.take();
-            inner.condition_team = None;
-            inner.current_player = None;
-
-            if let Some(team_name_str) = team_name {
-                inner.calling_team = Some(team_name_str.to_string());
-                if let Ok(mut factory) = get_team_factory().lock() {
-                    if let Some(team_arc) = factory.find_team(team_name_str) {
-                        if let Ok(team_guard) = team_arc.read() {
-                            if let Some(player_id) = team_guard.get_controlling_player_id() {
-                                inner.current_player = crate::player::player_list()
-                                    .read()
-                                    .ok()
-                                    .and_then(|list| list.get_player(player_id as i32).cloned())
-                                    .and_then(|p| {
-                                        p.read().ok().and_then(|p| {
-                                            game_engine::common::name_key_generator::NameKeyGenerator::key_to_name(
-                                                p.get_player_name_key(),
-                                            )
-                                        })
-                                    });
-                            }
-                        }
-                    }
-                }
-            }
-            (saved_current_player, saved_calling_team)
-        };
+        let restore = self.with_inner(|inner| CallingContextRestore {
+            engine: self,
+            calling_team: inner.calling_team,
+            current_player: inner.current_player.clone(),
+        });
+        {
+            let mut inner = self.lock_inner_mut();
+            inner.condition_team = None; // runScript deliberately clears this.
+            inner.calling_team = team_id;
+            inner.current_player = team_id.and_then(Self::standalone_team_player);
+        }
 
         let _found = self
             .execute_subroutine_by_name(script_name)
             .unwrap_or(false);
 
-        let inner = self.inner.get_mut();
-        inner.calling_team = saved_calling_team;
-        inner.current_player = saved_current_player;
+        drop(restore);
     }
 
     // PARITY_NOTE: C++ ScriptEngine::runObjectScript
@@ -1567,41 +1517,24 @@ impl ScriptEngine {
     pub fn evaluate_conditions(
         &mut self,
         script: &mut Script,
-        team_name: Option<&str>,
+        team_id: Option<TeamID>,
         player_name: Option<&str>,
     ) -> bool {
-        let (saved_calling_team, saved_current_player) = {
-            let inner = self.inner.get_mut();
-            let saved_calling_team = inner.calling_team.take();
-            let saved_current_player = inner.current_player.clone();
-
-            inner.calling_team = team_name.map(|s| s.to_string());
-
-            if player_name.is_some() {
-                inner.current_player = player_name.map(|s| s.to_string());
-            } else if let Some(ref tname) = inner.calling_team {
-                if let Ok(mut factory) = get_team_factory().lock() {
-                    if let Some(team_arc) = factory.find_team(tname) {
-                        if let Ok(team_guard) = team_arc.read() {
-                            if let Some(pid) = team_guard.get_controlling_player_id() {
-                                inner.current_player = crate::player::player_list()
-                                    .read()
-                                    .ok()
-                                    .and_then(|list| list.get_player(pid as i32).cloned())
-                                    .and_then(|p| {
-                                        p.read().ok().and_then(|p| {
-                                            game_engine::common::name_key_generator::NameKeyGenerator::key_to_name(
-                                                p.get_player_name_key(),
-                                            )
-                                        })
-                                    });
-                            }
-                        }
-                    }
-                }
+        let restore = self.with_inner(|inner| CallingContextRestore {
+            engine: self,
+            calling_team: inner.calling_team,
+            current_player: inner.current_player.clone(),
+        });
+        let controller = team_id.and_then(Self::standalone_team_player);
+        {
+            let mut inner = self.lock_inner_mut();
+            inner.calling_team = team_id;
+            if let Some(controller) = controller {
+                inner.current_player = Some(controller);
+            } else if let Some(player) = player_name {
+                inner.current_player = Some(player.to_string());
             }
-            (saved_calling_team, saved_current_player)
-        };
+        }
 
         // C++ ScriptEngine::evaluateConditions walks OR/AND then evaluateCondition.
         // evaluateCondition handles TRUE/FALSE/COUNTER/FLAG/TIMER locally and
@@ -1622,9 +1555,7 @@ impl ScriptEngine {
             false
         };
 
-        let inner = self.inner.get_mut();
-        inner.calling_team = saved_calling_team;
-        inner.current_player = saved_current_player;
+        drop(restore);
         result
     }
 

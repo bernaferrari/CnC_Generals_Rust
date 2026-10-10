@@ -60,15 +60,19 @@ impl ScriptConditionEvaluator<'_> {
                         .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
                 })
                 .unwrap_or_else(|| raw.to_string()),
-            THIS_TEAM => self
-                .context
-                .with_engine_ref(|engine| {
-                    engine
-                        .get_condition_team_name()
-                        .or_else(|| engine.get_calling_team_name())
-                })
-                .flatten()
-                .unwrap_or_else(|| raw.to_string()),
+            THIS_TEAM => match &self.this_team_name {
+                crate::scripting::engine::ScriptOwnerQuery::Present(name) => name.clone(),
+                crate::scripting::engine::ScriptOwnerQuery::Missing => String::new(),
+                crate::scripting::engine::ScriptOwnerQuery::Unavailable => self
+                    .context
+                    .with_engine_ref(|engine| {
+                        engine
+                            .get_calling_team_name()
+                            .or_else(|| engine.get_condition_team_name())
+                    })
+                    .flatten()
+                    .unwrap_or_default(),
+            },
             TEAM_THE_PLAYER => {
                 // C++ ScriptEngine::getTeamNamed (ScriptEngine.cpp:5935-5939):
                 // remap teamThePlayer only in Generals Challenge campaigns.
@@ -102,37 +106,9 @@ impl ScriptConditionEvaluator<'_> {
         team_name: &str,
     ) -> Option<Arc<RwLock<crate::team::Team>>> {
         let resolved = self.resolve_string_token(team_name);
-        let calling = self
-            .context
-            .with_engine_ref(|engine| {
-                engine
-                    .get_calling_team_name()
-                    .or_else(|| engine.get_condition_team_name())
-            })
-            .flatten();
-        let preferred = calling.filter(|name| name == &resolved);
-
-        let factory = get_team_factory();
-        let factory_guard = factory.lock().ok()?;
-        let pick = |name: &str| -> Option<Arc<RwLock<crate::team::Team>>> {
-            let team = factory_guard.find_team_instances(name).into_iter().next()?;
-            if factory_guard
-                .find_team_prototype(name)
-                .is_some_and(|proto| proto.is_singleton())
-            {
-                let active = team.read().ok().is_some_and(|guard| guard.is_active());
-                if !active {
-                    return None;
-                }
-            }
-            Some(team)
-        };
-        if let Some(name) = preferred {
-            if let Some(team) = pick(&name) {
-                return Some(team);
-            }
-        }
-        pick(&resolved)
+        self.context
+            .with_engine_ref(|engine| engine.standalone_context_team(&resolved))
+            .flatten()
     }
 
     pub(crate) fn get_trigger_area(
@@ -194,6 +170,20 @@ impl ScriptConditionEvaluator<'_> {
         condition: &mut Condition,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptConditionResult, ScriptError> {
+        // Immutable operation metadata comes from the driving session. A
+        // missing exact reference never consults a foreign factory by ID.
+        let selected = self
+            .context
+            .with_engine_ref(|engine| {
+                engine
+                    .get_calling_team_id()
+                    .or_else(|| engine.get_condition_team_id())
+            })
+            .flatten();
+        self.this_team_name = selected
+            .map(|id| driver.team_name(id))
+            .unwrap_or(crate::scripting::engine::ScriptOwnerQuery::Missing);
+
         let condition_type = condition.get_condition_type();
 
         // These edge-triggered events select their player/source owner before

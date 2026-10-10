@@ -12,7 +12,7 @@
 struct SequentialContextRestore<'a> {
     engine: &'a ScriptEngine,
     current_player: Option<String>,
-    condition_team: Option<String>,
+    condition_team: Option<TeamID>,
     condition_object: Option<u32>,
 }
 
@@ -22,6 +22,17 @@ impl Drop for SequentialContextRestore<'_> {
         inner.current_player = self.current_player.clone();
         inner.condition_team = self.condition_team.clone();
         inner.condition_object = self.condition_object;
+    }
+}
+
+/// executeScript only scopes conditionTeam, not player/object mutations.
+struct ConditionContextRestore<'a> {
+    engine: &'a ScriptEngine,
+    team: Option<TeamID>,
+}
+impl Drop for ConditionContextRestore<'_> {
+    fn drop(&mut self) {
+        self.engine.lock_inner_mut().condition_team = self.team;
     }
 }
 
@@ -417,24 +428,30 @@ impl ScriptEngine {
         }
 
         // Team-scoped condition evaluation (C++ uses `conditionTeamName` to iterate instances).
-        let saved_condition_team = self.lock_inner_mut().condition_team.take();
-
-        let condition_team_name = script.condition_team_name.trim().to_string();
+        let restore = self.with_inner(|inner| ConditionContextRestore {
+            engine: self,
+            team: inner.condition_team,
+        });
+        let condition_team_name = script.condition_team_name.trim();
         if !condition_team_name.is_empty() {
-            let instances = crate::team::get_team_factory()
-                .lock()
-                .ok()
-                .map(|factory| factory.find_team_instances(&condition_team_name))
-                .unwrap_or_default();
-
+            let instances = match execution.driver.team_instances(condition_team_name) {
+                ScriptOwnerQuery::Present(ids) => ids,
+                ScriptOwnerQuery::Missing => Vec::new(),
+                ScriptOwnerQuery::Unavailable => get_team_factory()
+                    .lock()
+                    .ok()
+                    .map(|factory| {
+                        factory
+                            .find_team_instances(condition_team_name)
+                            .into_iter()
+                            .filter_map(|team| team.read().ok().map(|team| team.get_id()))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            };
             if !instances.is_empty() {
-                for team_arc in instances {
-                    let team_name = team_arc
-                        .read()
-                        .ok()
-                        .map(|t| t.get_name().to_string())
-                        .unwrap_or_else(|| condition_team_name.clone());
-                    self.lock_inner_mut().condition_team = Some(team_name);
+                for id in instances {
+                    self.lock_inner_mut().condition_team = Some(id);
                     self.evaluate_and_execute_script(
                         script,
                         condition_evaluator,
@@ -443,7 +460,6 @@ impl ScriptEngine {
                         false,
                     )?;
                 }
-                self.lock_inner_mut().condition_team = saved_condition_team;
                 return Ok(());
             }
         }
@@ -456,7 +472,7 @@ impl ScriptEngine {
             execution,
             true,
         )?;
-        self.lock_inner_mut().condition_team = saved_condition_team;
+        drop(restore);
         Ok(())
     }
 
@@ -723,25 +739,24 @@ impl ScriptEngine {
             }
 
             let mut it_advanced = false;
-            let team_name = sequence.team_to_exec_on.clone();
+            let team_id = sequence.team_to_exec_on;
             let object_id = sequence.object_id;
             let driving_object = if object_id == INVALID_ID {
                 ScriptOwnerQuery::Missing
             } else {
                 execution.driver.object_status(object_id)
             };
-            let driving_team = team_name
-                .as_deref()
-                .map(|name| execution.driver.team_status(name))
+            let driving_team = team_id
+                .map(|id| execution.driver.team_status(id))
                 .unwrap_or(ScriptOwnerQuery::Missing);
-            let team_arc = team_name
+            let team_arc = team_id
                 .as_ref()
                 .filter(|_| matches!(driving_team, ScriptOwnerQuery::Unavailable))
-                .and_then(|name| {
+                .and_then(|id| {
                     get_team_factory()
                         .lock()
                         .ok()
-                        .and_then(|mut factory| factory.find_team(name))
+                        .and_then(|factory| factory.find_team_by_id(*id))
                 });
             let object_arc = (object_id != INVALID_ID
                 && matches!(driving_object, ScriptOwnerQuery::Unavailable))
@@ -773,7 +788,7 @@ impl ScriptEngine {
 
             let current_player = match execution
                 .driver
-                .sequential_current_player(object_id, team_name.as_deref())
+                .sequential_current_player(object_id, team_id)
             {
                 ScriptOwnerQuery::Present(player) => player,
                 ScriptOwnerQuery::Missing => None,
@@ -826,7 +841,7 @@ impl ScriptEngine {
                     if let Some(action) = action {
                         if !self.prepare_sequential_action_context(
                             token,
-                            team_name.clone(),
+                            team_id,
                             (object_arc.is_some()
                                 || matches!(driving_object, ScriptOwnerQuery::Present(_)))
                             .then_some(object_id),
@@ -893,9 +908,8 @@ impl ScriptEngine {
                         // CPP ScriptEngine.cpp:7992-8021 re-queries live AI
                         // after the synchronous effects of this instruction.
                         let object_after = execution.driver.object_status(object_id);
-                        let team_after = team_name
-                            .as_deref()
-                            .map(|name| execution.driver.team_status(name))
+                        let team_after = team_id
+                            .map(|id| execution.driver.team_status(id))
                             .unwrap_or(ScriptOwnerQuery::Missing);
                         let obj_idle_now = match object_after {
                             ScriptOwnerQuery::Present(status) => status.has_ai && status.idle,
@@ -1127,11 +1141,11 @@ impl ScriptEngine {
     fn prepare_sequential_action_context(
         &self,
         token: u64,
-        team_name: Option<String>,
+        team_id: Option<TeamID>,
         object_id: Option<u32>,
     ) -> bool {
         let mut inner = self.lock_inner_mut();
-        inner.condition_team = team_name;
+        inner.condition_team = team_id;
         inner.condition_object = object_id;
         let Some(script) = inner
             .sequential_scripts

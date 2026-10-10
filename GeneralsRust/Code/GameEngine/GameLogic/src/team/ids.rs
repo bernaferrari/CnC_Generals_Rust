@@ -51,7 +51,7 @@ pub const MAX_GENERIC_SCRIPTS: usize = 16;
 
 #[derive(Debug, Clone)]
 struct PendingTeamScriptEvent {
-    team_name: String,
+    team_id: TeamID,
     script_name: String,
 }
 
@@ -71,14 +71,14 @@ fn pending_team_script_events() -> &'static Mutex<Vec<PendingTeamScriptEvent>> {
     PENDING_TEAM_SCRIPT_EVENTS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
-fn queue_team_script_event(team_name: &str, script_name: &str) {
-    if team_name.is_empty() || script_name.is_empty() {
+fn queue_team_script_event(team_id: TeamID, script_name: &str) {
+    if team_id == TEAM_ID_INVALID || script_name.is_empty() {
         return;
     }
 
     if let Ok(mut pending) = pending_team_script_events().lock() {
         pending.push(PendingTeamScriptEvent {
-            team_name: team_name.to_string(),
+            team_id,
             script_name: script_name.to_string(),
         });
     }
@@ -148,7 +148,7 @@ pub fn flush_pending_team_script_events() {
     };
 
     for event in pending {
-        engine.run_script(&event.script_name, Some(event.team_name.as_str()));
+        engine.run_script(&event.script_name, Some(event.team_id));
     }
 }
 

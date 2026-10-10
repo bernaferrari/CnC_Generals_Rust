@@ -7,10 +7,10 @@ fn isolated(name: &str, run: impl FnOnce()) {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(module_path!(), name, run);
 }
 
-fn script_engine(name: &str) -> ScriptEngine {
+fn script_engine(id: u32) -> ScriptEngine {
     let engine = ScriptEngine::new().unwrap();
     let mut sequential = SequentialScript::new();
-    sequential.team_to_exec_on = Some(name.into());
+    sequential.team_to_exec_on = Some(id);
     engine.append_sequential_script(sequential);
     engine
 }
@@ -135,8 +135,8 @@ fn deletion_notifies_scripts_and_owned_players_before_members_and_metadata() {
             let foreign_before = foreign_controller_bytes();
             *gamelogic::scripting::engine::get_script_engine()
                 .write()
-                .unwrap() = Some(script_engine("DeleteTeam"));
-            let scripts = ScriptEngineHandle::from_engine(script_engine("DeleteTeam"));
+                .unwrap() = Some(script_engine(id));
+            let scripts = ScriptEngineHandle::from_engine(script_engine(id));
             let mut actor = controller(&world, 1, id, unit, false);
             world
                 .ai_manager
@@ -164,7 +164,7 @@ fn deletion_notifies_scripts_and_owned_players_before_members_and_metadata() {
                         .unwrap()
                         .as_ref()
                         .unwrap()
-                        .has_active_sequential_script_for_team(name)
+                        .has_active_sequential_script_for_team(deleted)
                 );
                 assert!(
                     owner
@@ -208,7 +208,7 @@ fn deletion_notifies_scripts_and_owned_players_before_members_and_metadata() {
                     .unwrap()
                     .as_ref()
                     .unwrap()
-                    .has_active_sequential_script_for_team("DeleteTeam"),
+                    .has_active_sequential_script_for_team(id),
                 "deletion must use the explicitly borrowed script owner"
             );
             assert!(called);
@@ -262,7 +262,7 @@ fn actual_ai_disband_purges_preceding_current_and_following_borrowed_players() {
             let before = foreign_controller_bytes();
             *gamelogic::scripting::engine::get_script_engine()
                 .write()
-                .unwrap() = Some(script_engine("DeleteTeam"));
+                .unwrap() = Some(script_engine(id));
             let unrelated = world
                 .team_factory
                 .lock()
@@ -355,7 +355,7 @@ fn actual_ai_disband_purges_preceding_current_and_following_borrowed_players() {
                     .unwrap()
                     .as_ref()
                     .unwrap()
-                    .has_active_sequential_script_for_team("DeleteTeam")
+                    .has_active_sequential_script_for_team(id)
             );
             assert_eq!(foreign.read().unwrap().get_team_id(), Some(id));
             assert_eq!(foreign_controller_bytes(), before);
@@ -384,7 +384,7 @@ fn singleton_disband_transfers_members_without_destruction_callbacks() {
         "singleton_disband_transfers_members_without_destruction_callbacks",
         || {
             let (mut world, id, unit) = owner_world(true);
-            let scripts = ScriptEngineHandle::from_engine(script_engine("DeleteTeam"));
+            let scripts = ScriptEngineHandle::from_engine(script_engine(id));
             let mut actor = controller(&world, 1, id, unit, false);
             let queue = actor.team_queue.front().unwrap().clone();
             actor.disband_queued_team_with_owner(
@@ -412,7 +412,7 @@ fn singleton_disband_transfers_members_without_destruction_callbacks() {
                     .unwrap()
                     .as_ref()
                     .unwrap()
-                    .has_active_sequential_script_for_team("DeleteTeam")
+                    .has_active_sequential_script_for_team(id)
             );
             assert_eq!(actor.team_queue.len(), 1);
         },

@@ -8,7 +8,7 @@ use gamelogic::scripting::core::{
 };
 use gamelogic::scripting::engine::ScriptEngine;
 
-fn team(world: &GameLogic, name: &str, members: &[ObjectId], singleton: bool, active: bool) {
+fn team(world: &GameLogic, name: &str, members: &[ObjectId], singleton: bool, active: bool) -> u32 {
     let mut factory = world.team_factory.lock().unwrap();
     if factory.find_team_prototype(name).is_none() {
         factory
@@ -25,6 +25,7 @@ fn team(world: &GameLogic, name: &str, members: &[ObjectId], singleton: bool, ac
     for id in members {
         roster.add_member(id.0);
     }
+    roster.get_id()
 }
 
 fn action(name: &str) -> ScriptAction {
@@ -133,26 +134,23 @@ fn team_guard_same_ids_are_owned_by_the_driving_world() {
 #[test]
 fn team_guard_calling_team_precedes_condition_team() {
     let (mut world, calling, condition) = world();
-    team(&world, "CallingGuard", &[calling], true, false);
-    team(&world, "ConditionGuard", &[condition], false, true);
+    let calling_id = team(&world, "CallingGuard", &[calling], true, false);
+    let condition_id = team(&world, "ConditionGuard", &[condition], false, true);
     let post = world.host_object(calling).unwrap().get_position();
     let mut engine = ScriptEngine::new().unwrap();
-    engine.set_external_eval_context(None, Some("ConditionGuard".into()));
+    engine.set_external_eval_context(None, Some(condition_id));
     engine.set_counter("TeamObserved", 0).unwrap();
     engine.friend_execute_action_with_driver(
         &action(THIS_TEAM),
-        Some("CallingGuard"),
+        Some(calling_id),
         gamelogic::scripting::executor::ScriptContext::at_frame(0),
         &mut HostScriptExecutionDriver::new(&mut world),
     );
     assert_eq!(engine.get_counter("TeamObserved").unwrap().value, 1);
     assert_guard(&world, calling, post);
     assert_eq!(world.host_object(condition).unwrap().guard_position, None);
-    assert_eq!(
-        engine.get_condition_team_name().as_deref(),
-        Some("ConditionGuard")
-    );
-    assert_eq!(engine.get_calling_team_name(), None);
+    assert_eq!(engine.get_condition_team_id(), Some(condition_id));
+    assert_eq!(engine.get_calling_team_id(), None);
 }
 
 #[test]

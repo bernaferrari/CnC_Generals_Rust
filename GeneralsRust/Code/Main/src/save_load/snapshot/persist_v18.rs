@@ -681,6 +681,24 @@ pub fn restore_persist_v18(
     persist: &WorldPersistV18,
     game_logic: &mut GameLogic,
 ) -> SaveLoadResult<()> {
+    // CPP SequentialScript::xfer8143 rejects a retained missing nonzero ID.
+    // Team admission precedes this tail; validate the receiver's exact roster
+    // before mutating any script engine or resolving names in another world.
+    {
+        let factory = game_logic.team_factory.lock().map_err(|error| {
+            SaveLoadError::Corrupted(format!("Cannot validate saved script teams: {error}"))
+        })?;
+        for sequence in &persist.script_sequential {
+            if sequence.team_id != gamelogic::team::TEAM_ID_INVALID
+                && factory.find_team_by_id(sequence.team_id).is_none()
+            {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Sequential script '{}' references missing team {}",
+                    sequence.script_name, sequence.team_id
+                )));
+            }
+        }
+    }
     game_logic.set_rank_level_limit(persist.rank_level_limit);
     TheGameLogic::set_show_behind_building_markers(persist.show_behind_building_markers);
     TheGameLogic::set_draw_icon_ui(persist.draw_icon_ui);

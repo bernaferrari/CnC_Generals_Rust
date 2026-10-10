@@ -1087,7 +1087,7 @@ fn executor_team_stop_sequential_script_requires_live_team() {
     let engine = ScriptEngine::new().expect("script engine");
     {
         let mut missing_team_script = SequentialScript::new();
-        missing_team_script.team_to_exec_on = Some("MissingSequentialTeam".to_string());
+        missing_team_script.team_to_exec_on = Some(1);
         engine.append_sequential_script(missing_team_script);
     }
 
@@ -1104,7 +1104,7 @@ fn executor_team_stop_sequential_script_requires_live_team() {
     dispatcher.do_team_stop_sequential_script(&action).unwrap();
 
     assert!(
-        engine.has_active_sequential_script_for_team("MissingSequentialTeam"),
+        engine.has_active_sequential_script_for_team(1),
         "C++ doTeamStopSequentialScript returns before removal when the team cannot be resolved"
     );
 
@@ -1123,7 +1123,7 @@ fn executor_team_stop_sequential_script_requires_live_team() {
 
     dispatcher.do_team_stop_sequential_script(&action).unwrap();
 
-    assert!(!engine.has_active_sequential_script_for_team("MissingSequentialTeam"));
+    assert!(!engine.has_active_sequential_script_for_team(1));
 }
 
 #[test]
@@ -2457,7 +2457,17 @@ fn active_team_sequential_actions_keep_cxx_lookup_idle_append_order() {
                 .expect("start sequential action"),
             ScriptActionResult::Success
         );
-        assert!(engine.has_active_sequential_script_for_team(TEAM_NAME));
+        assert!(
+            engine.has_active_sequential_script_for_team(
+                get_team_factory()
+                    .lock()
+                    .unwrap()
+                    .find_team_instances(TEAM_NAME)[0]
+                    .read()
+                    .unwrap()
+                    .get_id()
+            )
+        );
 
         let mut stop = ScriptAction::new(ScriptActionType::TeamStopSequentialScript);
         stop.add_parameter(Parameter::with_string(
@@ -2471,7 +2481,17 @@ fn active_team_sequential_actions_keep_cxx_lookup_idle_append_order() {
                 .expect("stop sequential action"),
             ScriptActionResult::Success
         );
-        assert!(!engine.has_active_sequential_script_for_team(TEAM_NAME));
+        assert!(
+            !engine.has_active_sequential_script_for_team(
+                get_team_factory()
+                    .lock()
+                    .unwrap()
+                    .find_team_instances(TEAM_NAME)[0]
+                    .read()
+                    .unwrap()
+                    .get_id()
+            )
+        );
     });
 
     get_team_factory().lock().unwrap().reset();

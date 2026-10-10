@@ -112,6 +112,66 @@ impl GameLogic {
         unit.end_guard_retaliate();
     }
 
+    /// SCRIPT groupIdle keeps group/locomotor preparation intact. Ordinary
+    /// player Stop has additional effects and cannot stand in for this command.
+    pub(super) fn apply_owned_script_idle(&mut self, id: ObjectId) {
+        self.apply_owned_script_idle_member(id, &mut std::collections::HashSet::new());
+    }
+
+    fn apply_owned_script_idle_member(
+        &mut self,
+        id: ObjectId,
+        visited: &mut std::collections::HashSet<ObjectId>,
+    ) {
+        // Malformed/stale containment links cannot reenter an already visited
+        // object. Effects remain depth first at the original synchronous point.
+        if !visited.insert(id) {
+            return;
+        }
+        let Some(unit) = self.host_object(id) else {
+            return;
+        };
+        let occupants = unit.contained_units();
+        let has_ai = unit.has_ai_update_interface();
+        if has_ai {
+            // CPP2572 general command admission and3067 privateIdle: Idle
+            // accepts immobile AI. The mobile check belongs to Guard/Hunt.
+            let sleeping_ai = unit.ai_attitude()
+                == crate::game_logic::host_strategy_center::HostAiAttitude::Sleep
+                && unit
+                    .owner_player_id
+                    .and_then(|pid| self.players.get(&pid))
+                    .is_none_or(|player| !player.is_human);
+            if !unit.is_alive()
+                || unit.status.effectively_dead
+                || sleeping_ai
+                || unit.is_kind_of(KindOf::Projectile)
+                || unit.is_surrendered
+            {
+                return;
+            }
+            self.drop_jet_targeters_on_attack_exit(id);
+            self.clear_unit_movement_path(id);
+            let unit = self.host_object_mut(id).expect("admitted SCRIPT Idle unit");
+            Self::clear_owned_named_ai_goal(unit);
+            unit.stop();
+            unit.clear_guard_chase();
+            unit.unit_ai_runtime.clear_guard();
+            unit.unit_ai_runtime.clear_hunt();
+            unit.hunting = false;
+            unit.set_ai_state(AIState::Idle);
+            unit.last_command_source =
+                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
+            unit.mark_jet_command_for_reload_interrupt(true);
+        }
+        // CPP privateIdle3094 and AIGroup2069 also idle garrisoned AI.
+        for occupant in occupants {
+            if occupant != id {
+                self.apply_owned_script_idle_member(occupant, visited);
+            }
+        }
+    }
+
     /// CPP ScriptActions.cpp1861: leaveGroup, capture position, NORMAL,
     /// then SCRIPT GuardPosition. Even a rejected order keeps the first effects.
     pub(super) fn apply_owned_named_guard(&mut self, name: &str, this_object: Option<ObjectId>) {

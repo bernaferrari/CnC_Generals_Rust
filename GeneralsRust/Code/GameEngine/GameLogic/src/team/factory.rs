@@ -798,7 +798,7 @@ impl TeamFactory {
         if let Some(name) = &team_name {
             if let Ok(mut engine) = get_script_engine().write() {
                 if let Some(engine) = engine.as_mut() {
-                    engine.notify_of_team_destruction(name);
+                    engine.notify_of_team_destruction(team_id);
                 }
             }
         }
@@ -1056,6 +1056,10 @@ fn execute_pending_team_generic_script_evals(script_evals: Vec<PendingTeamGeneri
     let evaluator = ScriptEvaluator::new(script_engine.clone());
 
     for pending in script_evals {
+        let team_id = match pending.team.read() {
+            Ok(team) => team.get_id(),
+            Err(_) => continue,
+        };
         let Some(mut script) = pending
             .prototype
             .take_or_load_generic_script_runtime(pending.script_index)
@@ -1068,10 +1072,7 @@ fn execute_pending_team_generic_script_evals(script_evals: Vec<PendingTeamGeneri
 
         let saved_context = match script_engine.write() {
             Ok(mut engine_guard) => engine_guard.as_mut().map(|engine| {
-                engine.set_external_eval_context(
-                    pending.current_player_name.clone(),
-                    Some(pending.team_name.clone()),
-                )
+                engine.set_external_eval_context(pending.current_player_name.clone(), Some(team_id))
             }),
             Err(_) => None,
         };
@@ -1102,7 +1103,7 @@ fn execute_pending_team_generic_script_evals(script_evals: Vec<PendingTeamGeneri
                         // C++ friend_executeAction(action, this) — team-scoped.
                         if let Ok(mut eng) = script_engine.write() {
                             if let Some(e) = eng.as_mut() {
-                                e.friend_execute_action(&action, Some(pending.team_name.as_str()));
+                                e.friend_execute_action(&action, Some(team_id));
                             }
                         }
                     }

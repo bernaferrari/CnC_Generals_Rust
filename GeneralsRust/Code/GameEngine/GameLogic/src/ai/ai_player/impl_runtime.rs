@@ -380,7 +380,14 @@ impl AIPlayer {
                                             if let Some(e) = eng.as_mut() {
                                                 e.friend_execute_action(
                                                     &action,
-                                                    Some(name.as_str()),
+                                                    self.team_build_queue[i]
+                                                        .team
+                                                        .as_ref()
+                                                        .and_then(|team| {
+                                                            team.read()
+                                                                .ok()
+                                                                .map(|team| team.get_id())
+                                                        }),
                                                 );
                                             }
                                         }
@@ -476,7 +483,8 @@ impl AIPlayer {
         };
 
         // Get side info from AI data
-        let ai_store = the_ai();let side_info = ai_store.read().ok().and_then(|ai_guard| {
+        let ai_store = the_ai();
+        let side_info = ai_store.read().ok().and_then(|ai_guard| {
             let data = ai_guard.get_ai_data();
             data.side_info
                 .iter()
@@ -711,7 +719,8 @@ impl AIPlayer {
                         {
                             // Adjust destination onto a reachable cell with dozer loco set.
                             if let Some(loco_set) = ai.get_locomotor_set_clone() {
-                                let ai_store = the_ai(); if let Ok(ai_sys) = ai_store.read() {
+                                let ai_store = the_ai();
+                                if let Ok(ai_sys) = ai_store.read() {
                                     if let Some(pf_arc) = ai_sys.pathfinder() {
                                         if let Ok(pf) = pf_arc.read() {
                                             let surfaces = loco_set.get_valid_surfaces();

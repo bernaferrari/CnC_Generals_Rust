@@ -1330,7 +1330,13 @@ fn leftover_team_sequential_progresses_when_host_members_idle() {
 
     let engine = ScriptEngine::new().unwrap();
     let mut sequence = SequentialScript::new();
-    sequence.team_to_exec_on = Some("HostSeqTeam".to_string());
+    sequence.team_to_exec_on = get_team_factory()
+        .lock()
+        .unwrap()
+        .find_team_instances("HostSeqTeam")[0]
+        .read()
+        .ok()
+        .map(|team| team.get_id());
     sequence.script_to_execute_sequentially = Some(Box::new({
         let mut script = Script::new();
         script.script_name = "HostTeamSeq".to_string();
@@ -1353,7 +1359,6 @@ fn leftover_team_sequential_progresses_when_host_members_idle() {
 
 #[test]
 fn sequential_scripts_snapshot_preserves_count_and_instruction() {
-    let _lock = crate::test_sync::lock();
     let engine = ScriptEngine::new().unwrap();
     let mut sequence = SequentialScript::new();
     sequence.object_id = 0x51_5E_0002;

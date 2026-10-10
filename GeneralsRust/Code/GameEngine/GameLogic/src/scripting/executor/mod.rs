@@ -1417,6 +1417,8 @@ impl ScriptContext {
 /// This is the main entry point for executing script actions
 pub struct ScriptActionDispatcher<'engine> {
     context: ExecutionContext<'engine>,
+    /// Read-only name projection refreshed at each driving-owner action.
+    this_team_name: crate::scripting::engine::ScriptOwnerQuery<String>,
 }
 
 impl<'engine> ScriptActionDispatcher<'engine> {
@@ -1444,6 +1446,7 @@ impl<'engine> ScriptActionDispatcher<'engine> {
     ) -> Self {
         Self {
             context: ExecutionContext::borrowed(engine, state),
+            this_team_name: crate::scripting::engine::ScriptOwnerQuery::Unavailable,
         }
     }
 }
@@ -1455,6 +1458,8 @@ impl<'engine> ScriptActionDispatcher<'engine> {
 #[allow(dead_code)]
 pub struct ScriptConditionEvaluator<'engine> {
     context: ExecutionContext<'engine>,
+    /// Read-only projection; the engine's canonical references remain IDs.
+    this_team_name: crate::scripting::engine::ScriptOwnerQuery<String>,
 }
 
 impl<'engine> ScriptConditionEvaluator<'engine> {
@@ -1466,6 +1471,7 @@ impl<'engine> ScriptConditionEvaluator<'engine> {
     ) -> Self {
         Self {
             context: ExecutionContext::borrowed(engine, state),
+            this_team_name: crate::scripting::engine::ScriptOwnerQuery::Unavailable,
         }
     }
 

@@ -5,7 +5,7 @@ use super::*;
 use crate::scripting::core::THIS_TEAM;
 use crate::scripting::engine::ScriptExecutionDriver;
 
-type GuardCall = (String, Option<String>, Option<String>);
+type GuardCall = (String, Option<u32>, Option<u32>);
 
 #[derive(Default)]
 struct GuardOwner {
@@ -23,14 +23,10 @@ impl ScriptExecutionDriver for GuardOwner {
     fn team_guard(
         &mut self,
         team: &str,
-        calling_team: Option<&str>,
-        condition_team: Option<&str>,
+        calling_team: Option<u32>,
+        condition_team: Option<u32>,
     ) -> Option<GameLogicResult<()>> {
-        self.calls.push((
-            team.into(),
-            calling_team.map(str::to_owned),
-            condition_team.map(str::to_owned),
-        ));
+        self.calls.push((team.into(), calling_team, condition_team));
         Some(if self.reject {
             Err(GameLogicError::ModuleError(
                 "team guard owner rejected command".into(),
@@ -54,7 +50,7 @@ fn guard_action(team: &str) -> ScriptAction {
 #[test]
 fn team_guard_dispatches_raw_token_and_condition_from_borrowed_engine() {
     let mut engine = ScriptEngine::new().unwrap();
-    let saved = engine.set_external_eval_context(None, Some("OwnedConditionTeam".into()));
+    let saved = engine.set_external_eval_context(None, Some(19));
     let context = std::cell::RefCell::new(ScriptContext::at_frame(19));
     let mut owner = GuardOwner::default();
     {
@@ -71,45 +67,34 @@ fn team_guard_dispatches_raw_token_and_condition_from_borrowed_engine() {
     assert_eq!(
         owner.calls,
         vec![
-            (THIS_TEAM.into(), None, Some("OwnedConditionTeam".into())),
-            (
-                "LiteralGuardTeam".into(),
-                None,
-                Some("OwnedConditionTeam".into())
-            ),
+            (THIS_TEAM.into(), None, Some(19)),
+            ("LiteralGuardTeam".into(), None, Some(19)),
         ],
         "the owner must receive the raw token before ambient THIS_TEAM resolution"
     );
     engine.restore_external_eval_context(saved);
-    assert_eq!(engine.get_condition_team_name(), None);
+    assert_eq!(engine.get_condition_team_id(), None);
 }
 
 #[test]
 fn team_guard_friend_action_passes_both_contexts_and_restores_calling_team() {
     let mut engine = ScriptEngine::new().unwrap();
-    let saved = engine.set_external_eval_context(None, Some("OwnedConditionTeam".into()));
+    let saved = engine.set_external_eval_context(None, Some(19));
     let mut owner = GuardOwner::default();
     engine.friend_execute_action_with_driver(
         &guard_action(THIS_TEAM),
-        Some("OwnedCallingTeam"),
+        Some(31),
         ScriptContext::at_frame(31),
         &mut owner,
     );
     assert_eq!(
         owner.calls,
-        vec![(
-            THIS_TEAM.into(),
-            Some("OwnedCallingTeam".into()),
-            Some("OwnedConditionTeam".into())
-        )],
+        vec![(THIS_TEAM.into(), Some(31), Some(19))],
         "calling and condition teams remain distinct until owner resolution"
     );
     assert_eq!(owner.completed_actions, 1);
-    assert_eq!(engine.get_calling_team_name(), None);
-    assert_eq!(
-        engine.get_condition_team_name().as_deref(),
-        Some("OwnedConditionTeam")
-    );
+    assert_eq!(engine.get_calling_team_id(), None);
+    assert_eq!(engine.get_condition_team_id(), Some(19));
     engine.restore_external_eval_context(saved);
 }
 
@@ -168,7 +153,7 @@ fn default_team_guard_driver_keeps_standalone_adapter_available() {
     }
     assert!(
         UnavailableOwner
-            .team_guard(THIS_TEAM, Some("Calling"), Some("Condition"))
+            .team_guard(THIS_TEAM, Some(31), Some(19))
             .is_none()
     );
     // Do not execute the standalone branch: its separate registry fixtures

@@ -481,6 +481,7 @@ impl AIPlayer {
 
         let mut team = TeamInQueue::new();
         team.team_name = Some(team_name.to_string());
+        let created_team_id = team_arc.read().ok().map(|team| team.get_id());
         team.team = Some(team_arc);
         team.priority_build = priority_build;
         team.frame_started = TheGameLogic::get_frame();
@@ -511,7 +512,7 @@ impl AIPlayer {
                     drop(script_engine);
                     if let Ok(mut eng) = get_script_engine().write() {
                         if let Some(e) = eng.as_mut() {
-                            e.friend_execute_action(&action, Some(team_name));
+                            e.friend_execute_action(&action, created_team_id);
                         }
                     }
                 }

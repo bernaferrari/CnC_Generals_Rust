@@ -5,6 +5,7 @@ use gamelogic::scripting::engine::{
     ScriptExecutionDriver, ScriptNamedCommand, ScriptObjectStatus, ScriptOwnerQuery,
     ScriptPlayerEventSource, ScriptTeamStatus, ScriptWaterRequest,
 };
+use std::sync::{Arc, RwLock};
 
 pub(super) struct HostScriptExecutionDriver<'a> {
     world: &'a mut GameLogic,
@@ -126,33 +127,12 @@ impl<'a> HostScriptExecutionDriver<'a> {
         }
     }
 
-    fn team_owner(&self, name: &str) -> Option<Option<u32>> {
-        // Query this world's existing team instances without find_team's
-        // auto-creation or selecting the ambient TeamFactory.
-        let teams = self.world.team_factory.lock().ok()?.get_all_teams();
-        for team in teams {
-            let Ok(team) = team.read() else { continue };
-            if team.get_name().as_str().eq_ignore_ascii_case(name.trim()) {
-                return Some(team.get_controlling_player_id());
-            }
-        }
-        None
-    }
-
-    fn matches_team(&self, object: &crate::game_logic::object::Object, name: &str) -> bool {
-        let needle = name.trim();
-        if needle.is_empty() {
-            return false;
-        }
-        // Same exact identity predicate as host_script_team_census_member_ids;
-        // include dead members without joining another same-faction player.
-        if !object.team_instance_name.is_empty() {
-            object.team_instance_name.eq_ignore_ascii_case(needle)
-        } else {
-            self.world
-                .default_host_team_instance_name(object.owner_player_id, object.team)
-                .eq_ignore_ascii_case(needle)
-        }
+    fn owned_team(&self, id: u32) -> Option<Arc<RwLock<gamelogic::team::Team>>> {
+        self.world
+            .team_factory
+            .lock()
+            .expect("owned script team factory")
+            .find_team_by_id(id)
     }
 }
 
@@ -222,8 +202,8 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     fn team_guard(
         &mut self,
         team: &str,
-        calling_team: Option<&str>,
-        condition_team: Option<&str>,
+        calling_team: Option<u32>,
+        condition_team: Option<u32>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
         // CPP5936 returns the exact default Team pointer in Challenge mode.
         // That identity is not yet admitted by Main (hq-dryhs/hq-9bqdm);
@@ -238,6 +218,46 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             self.world
                 .apply_owned_team_guard(team, calling_team, condition_team),
         )
+    }
+
+    fn team_attitude(
+        &mut self,
+        team: &str,
+        calling_team: Option<u32>,
+        condition_team: Option<u32>,
+        mood: i32,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        if team == gamelogic::scripting::core::TEAM_THE_PLAYER
+            && gamelogic::scripting::core::is_generals_challenge_campaign()
+        {
+            return None;
+        }
+        Some(
+            self.world
+                .apply_owned_team_attitude(team, calling_team, condition_team, mood),
+        )
+    }
+
+    fn team_sequential(
+        &mut self,
+        team: &str,
+        calling_team: Option<u32>,
+        condition_team: Option<u32>,
+        script: Option<(gamelogic::scripting::core::Script, i32)>,
+        engine: &gamelogic::scripting::engine::ScriptEngine,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        if team == gamelogic::scripting::core::TEAM_THE_PLAYER
+            && gamelogic::scripting::core::is_generals_challenge_campaign()
+        {
+            return None;
+        }
+        Some(self.world.apply_owned_team_sequential(
+            team,
+            calling_team,
+            condition_team,
+            script,
+            engine,
+        ))
     }
 
     fn named_command(
@@ -450,31 +470,77 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             .unwrap_or(ScriptOwnerQuery::Missing)
     }
 
-    fn team_status(&self, name: &str) -> ScriptOwnerQuery<ScriptTeamStatus> {
-        let mut exists = self.team_owner(name).is_some();
+    fn team_instances(&self, name: &str) -> ScriptOwnerQuery<Vec<u32>> {
+        let factory = self
+            .world
+            .team_factory
+            .lock()
+            .expect("owned script team instances");
+        if factory.find_team_prototype(name).is_none() {
+            return ScriptOwnerQuery::Missing;
+        }
+        ScriptOwnerQuery::Present(
+            factory
+                .find_team_instances(name)
+                .iter()
+                .map(|team| team.read().expect("owned script team instance").get_id())
+                .collect(),
+        )
+    }
+
+    fn team_name(&self, id: u32) -> ScriptOwnerQuery<String> {
+        let Some(team) = self.owned_team(id) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let name = team
+            .read()
+            .expect("owned script team name")
+            .get_name()
+            .to_string();
+        ScriptOwnerQuery::Present(name)
+    }
+
+    fn team_current_player(&self, id: u32) -> ScriptOwnerQuery<Option<String>> {
+        let Some(team) = self.owned_team(id) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let owner = team
+            .read()
+            .expect("owned script team controller")
+            .get_controlling_player_id();
+        ScriptOwnerQuery::Present(
+            owner
+                .and_then(|id| self.world.players.get(&id))
+                .map(|player| Self::player_script_name(player).to_string()),
+        )
+    }
+
+    fn team_status(&self, id: u32) -> ScriptOwnerQuery<ScriptTeamStatus> {
+        let Some(team) = self.owned_team(id) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let members = team
+            .read()
+            .expect("owned script team roster")
+            .get_members()
+            .to_vec();
         let mut idle = true;
         let mut dead = true;
-        for object in self.world.host_objects().values() {
-            if !self.matches_team(object, name) {
+        for id in members {
+            let Some(object) = self.world.host_object(ObjectId(id)) else {
                 continue;
-            }
-            exists = true;
+            };
             let status = Self::status(object);
-            // CPP AIGroup.cpp:3086–3111 ignores non-AI members for idle;
-            // 3151–3167 includes every member for all-dead, including an
-            // empty existing team (both predicates start true).
+            // CPP AIGroup.cpp3086/3151: non-AI members do not affect idle;
+            // every admitted live member affects all-dead. Empty groups are both.
             idle &= !status.has_ai || status.idle || status.effectively_dead;
             dead &= status.effectively_dead;
         }
-        if exists {
-            ScriptOwnerQuery::Present(ScriptTeamStatus {
-                has_group: true,
-                idle,
-                dead,
-            })
-        } else {
-            ScriptOwnerQuery::Missing
-        }
+        ScriptOwnerQuery::Present(ScriptTeamStatus {
+            has_group: true,
+            idle,
+            dead,
+        })
     }
 
     fn bridge_status(&self, name: &str) -> ScriptOwnerQuery<ScriptBridgeStatus> {
@@ -504,30 +570,29 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     fn sequential_current_player(
         &self,
         object_id: u32,
-        team_name: Option<&str>,
+        team_id: Option<u32>,
     ) -> ScriptOwnerQuery<Option<String>> {
         let player = if let Some(object) = self.world.host_object(ObjectId(object_id)) {
             object.owner_player_id
-        } else if let Some(name) = team_name {
-            if let Some(owner) = self.team_owner(name) {
-                owner
-            } else {
-                self.world
-                    .host_objects()
-                    .values()
-                    .find(|object| self.matches_team(object, name))
-                    .and_then(|object| object.owner_player_id)
-            }
+        } else if let Some(id) = team_id {
+            let Some(team) = self.owned_team(id) else {
+                return ScriptOwnerQuery::Missing;
+            };
+            let owner = team
+                .read()
+                .expect("owned sequential team controller")
+                .get_controlling_player_id();
+            owner
         } else {
             None
         };
-        // This Main AI manager holds the actual skirmish opponents; is_local
-        // alone cannot distinguish a remote human from an AI owner.
+        // CPP7888: object controller precedes team controller; only SkirmishAI
+        // becomes the sequential current player. Human/absent owners are final.
         ScriptOwnerQuery::Present(
             player
                 .filter(|id| self.world.ai_manager.ai_players.contains_key(id))
                 .and_then(|id| self.world.players.get(&id))
-                .map(|player| player.name.clone()),
+                .map(|player| Self::player_script_name(player).to_string()),
         )
     }
 }

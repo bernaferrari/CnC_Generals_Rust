@@ -950,12 +950,14 @@ impl AIPlayer {
             });
             if any_idle {
                 let team_name = self.team_queue[i].name.clone();
+                let script_team_id = self.team_queue[i].team_id;
                 let execute = self.team_queue[i].execute_actions
                     || self.prototype_execute_actions_on_create(&team_name);
                 if execute {
                     self.execute_production_condition_actions(
                         game_logic,
                         &team_name,
+                        script_team_id,
                         &member_ids,
                         current_time,
                     );
@@ -1010,6 +1012,7 @@ impl AIPlayer {
         &mut self,
         game_logic: &mut GameLogic,
         team_name: &str,
+        team_id: Option<u32>,
         members: &[ObjectId],
         current_time: f32,
     ) {
@@ -1026,7 +1029,7 @@ impl AIPlayer {
                             gamelogic::scripting::engine::get_script_engine().write()
                         {
                             if let Some(engine) = writer.as_mut() {
-                                engine.friend_execute_action(&action, Some(team_name));
+                                game_logic.execute_script_team_actions(engine, &action, team_id);
                             }
                         }
                     }
@@ -2261,7 +2264,8 @@ impl AIPlayer {
                                 gamelogic::scripting::engine::get_script_engine().write()
                             {
                                 if let Some(engine) = writer.as_mut() {
-                                    engine.friend_execute_action(&action, Some(team_name));
+                                    game_logic
+                                        .execute_script_team_actions(engine, &action, team_id);
                                 }
                             }
                         }

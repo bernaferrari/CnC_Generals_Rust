@@ -57,7 +57,7 @@ impl GameLogic {
         // The engine is resolved once by the caller. Its process lifetime is
         // still a documented application seam; deletion cannot choose one.
         if let Some(engine) = scripts.write().unwrap_or_else(|e| e.into_inner()).as_mut() {
-            engine.notify_of_team_destruction(deletion.name());
+            engine.notify_of_team_destruction(id);
         }
         // C++ numeric PlayerList order, before Object::setTeam(NULL).
         notify(actor, self, id, deletion.name());

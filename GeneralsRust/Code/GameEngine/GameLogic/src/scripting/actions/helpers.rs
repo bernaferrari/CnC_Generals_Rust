@@ -318,8 +318,8 @@ pub(super) fn resolve_team_name_token(raw: &str) -> String {
             .ok()
             .and_then(|g| {
                 g.as_ref().and_then(|e| {
-                    e.get_condition_team_name()
-                        .or_else(|| e.get_calling_team_name())
+                    e.get_calling_team_name()
+                        .or_else(|| e.get_condition_team_name())
                         .map(|s| s.to_string())
                 })
             })
@@ -357,7 +357,8 @@ pub(super) fn create_ai_group_from_team(team_name: &str) -> GameLogicResult<Arc<
         .get_members()
         .to_vec();
 
-    let ai_store = the_ai();let mut ai_guard = ai_store
+    let ai_store = the_ai();
+    let mut ai_guard = ai_store
         .write()
         .map_err(|_| GameLogicError::Threading("Failed to lock AI system".to_string()))?;
     let group = ai_guard.create_group();

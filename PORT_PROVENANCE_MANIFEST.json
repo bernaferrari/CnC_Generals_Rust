@@ -157557,7 +157557,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "ef42b80e207cd617e02e1a27221b472be4bdb61f59dc8246fcb4ed6799d81b93",
+  "input_digest": "5a95d29e7b8c3c22c7dfc7bb4741f2d25420039ae4c1389256d71d7de7bf1688",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -173509,11 +173509,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 752,
+        "end_line": 761,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/impl_runtime.rs",
-      "sha256": "637d5c8e495414bfb37bff6b8d315306fa20b5b96fbf470410c0a8b0f6ba0724",
+      "sha256": "f3cc95abd3c933c7d3471425103f968016e5535c467093dae09a9e17d01dd9a1",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -173558,17 +173558,17 @@
         },
         {
           "kind": "fn",
-          "line": 406,
+          "line": 413,
           "name": "do_team_building"
         },
         {
           "kind": "fn",
-          "line": 451,
+          "line": 458,
           "name": "do_upgrades_and_skills"
         },
         {
           "kind": "fn",
-          "line": 579,
+          "line": 587,
           "name": "update_bridge_repair"
         }
       ]
@@ -173695,11 +173695,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 679,
+        "end_line": 680,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/impl_teams.rs",
-      "sha256": "55dcf9be00f554ec32e09e77d0f156476977393e78dc6064bd0f614d6fd2d1ab",
+      "sha256": "e25e7dae6586ee7bc6f3d7f46b4ff0fe04ba45c84eb72c170fa441bb85d18894",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -173764,22 +173764,22 @@
         },
         {
           "kind": "fn",
-          "line": 526,
+          "line": 527,
           "name": "build_ai_base_defense"
         },
         {
           "kind": "fn",
-          "line": 532,
+          "line": 533,
           "name": "build_ai_base_defense_structure"
         },
         {
           "kind": "fn",
-          "line": 544,
+          "line": 545,
           "name": "build_specific_ai_building"
         },
         {
           "kind": "fn",
-          "line": 556,
+          "line": 557,
           "name": "recruit_specific_ai_team"
         }
       ]
@@ -204268,11 +204268,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1132,
+        "end_line": 1133,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/factory.rs",
-      "sha256": "feb18e240527751fcdff5b172f697e71927a075c9f122cde5bf956bed2f0311f",
+      "sha256": "50232c4ade43a527c55af6da68e5b51fb9173d9ec196dca76a1c471102168520",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204296,7 +204296,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/ids.rs",
-      "sha256": "cddad9b3023b01f4135da69090308eae084673a0d7351882a4e61622843d8934",
+      "sha256": "cedc20d7b5bde69986346d001cfd7dbb6accce1e3c14b8644e9bf16fead3b1c7",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204412,11 +204412,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 493,
+        "end_line": 489,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/team_state.rs",
-      "sha256": "65d0ab008f677bddcc2e2c7a876f1e69d6d52423871479cc62022eb7a1636f6b",
+      "sha256": "100c5e38191deb71beb1e96b1d9ed1e75ffbcc9a0a4a58d4248c1ff35d07584f",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204440,7 +204440,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/tests.rs",
-      "sha256": "10d2a9915e74ab9a33ad770d6eb3a517a3205f883362db3138f2ef640717ddd7",
+      "sha256": "6baf3ed3e009fe10471042ee833b459d26fe25acd49590d65c901b7a9e50ca46",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

@@ -104,7 +104,6 @@ fn host_hook_enemy_sighted(team_name: &str) -> (bool, bool) {
 }
 
 impl Team {
-
     fn compute_enemy_sighted_state(&self) -> (Bool, Bool) {
         let Some(partition) = ThePartitionManager::get() else {
             return (false, false);
@@ -189,7 +188,7 @@ impl Team {
             self.created = false;
 
             if !self.script_on_create.is_empty() {
-                queue_team_script_event(self.name.as_str(), self.script_on_create.as_str());
+                queue_team_script_event(self.id, self.script_on_create.as_str());
             }
 
             if !self.script_on_destroyed.is_empty() {
@@ -221,12 +220,9 @@ impl Team {
 
             if any_alive_in_team && self.prev_see_enemy != self.see_enemy {
                 if self.see_enemy {
-                    queue_team_script_event(
-                        self.name.as_str(),
-                        self.script_on_enemy_sighted.as_str(),
-                    );
+                    queue_team_script_event(self.id, self.script_on_enemy_sighted.as_str());
                 } else {
-                    queue_team_script_event(self.name.as_str(), self.script_on_all_clear.as_str());
+                    queue_team_script_event(self.id, self.script_on_all_clear.as_str());
                 }
             }
         }
@@ -255,7 +251,7 @@ impl Team {
             };
 
             if self.cur_units != prev_units && self.cur_units <= self.destroy_threshold {
-                queue_team_script_event(self.name.as_str(), self.script_on_destroyed.as_str());
+                queue_team_script_event(self.id, self.script_on_destroyed.as_str());
                 self.destroy_threshold = -1;
             }
         }
@@ -292,7 +288,7 @@ impl Team {
             };
 
             if any_alive_in_team && is_idle && self.was_idle {
-                queue_team_script_event(self.name.as_str(), self.script_on_idle.as_str());
+                queue_team_script_event(self.id, self.script_on_idle.as_str());
             }
             self.was_idle = is_idle;
         }
@@ -304,7 +300,7 @@ impl Team {
             return;
         }
 
-        queue_team_script_event(self.name.as_str(), self.script_on_unit_destroyed.as_str());
+        queue_team_script_event(self.id, self.script_on_unit_destroyed.as_str());
     }
 
     /// Get relationship with another team

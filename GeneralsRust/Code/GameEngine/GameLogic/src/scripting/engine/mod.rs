@@ -48,6 +48,10 @@ include!("named_trackers.rs");
 include!("leftover.rs");
 
 #[cfg(test)]
+mod sequence_control_tests;
+#[cfg(test)]
+mod team_identity_tests;
+#[cfg(test)]
 mod tests;
 
 /// Concatenated live sources for residual `include_str!` scans.

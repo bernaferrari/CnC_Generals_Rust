@@ -344,10 +344,6 @@
       "constructs": 21,
       "undocumented": 0
     },
-    "Code/GameEngine/GameLogic/src/scripting/engine/types.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameLogic/src/stealth_update.rs": {
       "constructs": 1,
       "undocumented": 0

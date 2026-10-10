@@ -1236,9 +1236,14 @@ impl ScriptActionDispatcher<'_> {
             script_name
         );
 
-        let Ok(_team_arc) = self.get_team_by_name(&team_name) else {
+        let Ok(team_arc) = self.get_team_by_name(&team_name) else {
             return Ok(ScriptActionResult::Success);
         };
+
+        let team_id = team_arc
+            .read()
+            .map_err(|_| ScriptError::ExecutionFailed("Failed to read team identity".into()))?
+            .get_id();
 
         // C++ resolves the script before it idles the team.  Take an owned
         // clone through the lexically active engine, then leave engine state
@@ -1262,7 +1267,7 @@ impl ScriptActionDispatcher<'_> {
 
         let _ = self.context.with_engine_mut(|engine| {
             let mut seq_script = crate::scripting::engine::SequentialScript::new();
-            seq_script.team_to_exec_on = Some(team_name.clone());
+            seq_script.team_to_exec_on = Some(team_id);
             seq_script.object_id = INVALID_ID;
             seq_script.script_to_execute_sequentially = Some(Box::new(script));
             seq_script.times_to_loop = 0;
@@ -1286,9 +1291,14 @@ impl ScriptActionDispatcher<'_> {
             loop_val
         );
 
-        let Ok(_team_arc) = self.get_team_by_name(&team_name) else {
+        let Ok(team_arc) = self.get_team_by_name(&team_name) else {
             return Ok(ScriptActionResult::Success);
         };
+
+        let team_id = team_arc
+            .read()
+            .map_err(|_| ScriptError::ExecutionFailed("Failed to read team identity".into()))?
+            .get_id();
 
         // Preserve C++ lookup-before-idle order without holding an engine
         // lock across the AI command.
@@ -1311,7 +1321,7 @@ impl ScriptActionDispatcher<'_> {
 
         let _ = self.context.with_engine_mut(|engine| {
             let mut seq_script = crate::scripting::engine::SequentialScript::new();
-            seq_script.team_to_exec_on = Some(team_name.clone());
+            seq_script.team_to_exec_on = Some(team_id);
             seq_script.object_id = INVALID_ID;
             seq_script.script_to_execute_sequentially = Some(Box::new(script));
             seq_script.times_to_loop = loop_val;
@@ -1328,12 +1338,17 @@ impl ScriptActionDispatcher<'_> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Team '{}' stopping sequential script", team_name);
 
-        let Ok(_team_arc) = self.get_team_by_name(&team_name) else {
+        let Ok(team_arc) = self.get_team_by_name(&team_name) else {
             return Ok(ScriptActionResult::Success);
         };
 
+        let team_id = team_arc
+            .read()
+            .map_err(|_| ScriptError::ExecutionFailed("Failed to read team identity".into()))?
+            .get_id();
+
         let _ = self.context.with_engine_mut(|engine| {
-            engine.remove_all_sequential_scripts_for_team(&team_name);
+            engine.remove_all_sequential_scripts_for_team(team_id);
         });
 
         Ok(ScriptActionResult::Success)
