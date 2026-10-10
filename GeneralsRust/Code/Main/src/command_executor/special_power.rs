@@ -1047,6 +1047,14 @@ impl<'a> CommandExecutor<'a> {
             return CommandResult::InvalidCommand;
         };
 
+        let (target_id, at_location) = match target {
+            WeaponTarget::Object(id) => (Some(*id), false),
+            WeaponTarget::Location(_) => (None, true),
+        };
+        let voice =
+            self.game_logic
+                .attack_voice_slot(units, target_id, true, at_location, Some(slot));
+
         // C++ GUI_COMMAND_FIRE_WEAPON locks the requested weapon slot temporarily
         // before it issues the attack. Do this through GameLogic so a requested
         // secondary/tertiary action cannot accidentally fire the unit's primary.
@@ -1090,12 +1098,7 @@ impl<'a> CommandExecutor<'a> {
         if any {
             // C++ MSG_DO_WEAPON_AT_OBJECT / MSG_DO_WEAPON_AT_LOCATION
             // (`CommandXlat.cpp:511-627`) — VoiceAttack then specialty upgrade.
-            let (target_id, at_location) = match target {
-                WeaponTarget::Object(id) => (Some(*id), false),
-                WeaponTarget::Location(_) => (None, true),
-            };
-            self.game_logic
-                .queue_attack_voice(units, target_id, true, at_location, Some(slot));
+            self.game_logic.queue_picked_unit_voice(units, voice);
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand

@@ -1390,6 +1390,7 @@ impl GameLogic {
                         .is_some_and(|obj| obj.owner_player_id == Some(player_id))
                 })
                 .collect();
+            let voice = self.attack_voice_slot(&selected, Some(target_id), false, false, None);
             let mut accepted_attackers = Vec::new();
             for &object_id in &selected {
                 if self.flight_deck_ai_do_command(
@@ -1495,7 +1496,7 @@ impl GameLogic {
                 .map(|p| p.is_local)
                 .unwrap_or(false);
             if local {
-                self.queue_attack_voice(&accepted_attackers, Some(target_id), false, false, None);
+                self.queue_picked_unit_voice(&accepted_attackers, voice);
             }
             log::trace!(
                 "{} commanded {} units to attack object {}",
@@ -1507,14 +1508,17 @@ impl GameLogic {
     }
 
     /// C++ pickAndPlay attack branch: VoiceAttack/Air, then specialty weapon upgrade.
-    pub fn queue_attack_voice(
-        &mut self,
+    /// CommandXlat observes the current weapon while translating the input,
+    /// before the logic command may choose a new weapon. This pure semantic
+    /// observation consumes no voice-picking RNG and publishes no event.
+    pub(crate) fn attack_voice_slot(
+        &self,
         unit_ids: &[ObjectId],
         target_id: Option<ObjectId>,
         specialty_weapon: bool,
         at_location: bool,
         forced_slot: Option<u8>,
-    ) {
+    ) -> crate::game_logic::audio_dispatch_impl::UnitVoiceSlot {
         use crate::game_logic::audio_dispatch_impl::{
             AttackVoiceWeapon, UnitVoiceSlot, pick_specialty_attack_voice,
         };
@@ -1547,9 +1551,7 @@ impl GameLogic {
                 Some(AttackVoiceWeapon { name, slot })
             })
             .collect();
-        let slot =
-            pick_specialty_attack_voice(default, weapons, structure, specialty_weapon, at_location);
-        self.queue_picked_unit_voice(unit_ids, slot);
+        pick_specialty_attack_voice(default, weapons, structure, specialty_weapon, at_location)
     }
 
     /// C++ MSG_DO_MOVETO / ATTACKMOVETO / GET_REPAIRED / GET_HEALED (`CommandXlat.cpp:384-443`).

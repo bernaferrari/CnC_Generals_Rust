@@ -171,6 +171,12 @@ impl<'a> CommandExecutor<'a> {
         // C++ `if (!victim) return` — a dead-but-present object still receives
         // `aiAttackObject` (AIGroup.cpp:2102-2105). Do not TargetDestroyed.
 
+        // CommandXlat.cpp:978-1010 appends the message, then observes the
+        // current weapon before that message is processed by the logic AI.
+        let voice = self
+            .game_logic
+            .attack_voice_slot(units, Some(target_id), false, false, None);
+
         let target_pos = self
             .game_logic
             .host_object(target_id)
@@ -273,8 +279,7 @@ impl<'a> CommandExecutor<'a> {
         if any_attacker {
             // C++ MSG_DO_ATTACK_OBJECT VoiceAttack / VoiceAttackAir, then specialty
             // upgrade (`CommandXlat.cpp:496-567`).
-            self.game_logic
-                .queue_attack_voice(units, Some(target_id), false, false, None);
+            self.game_logic.queue_picked_unit_voice(units, voice);
             CommandResult::Success
         } else {
             CommandResult::CannotAttackTarget

@@ -1142,6 +1142,26 @@ fn specialty_attack_voices_replace_voice_attack() {
     set_test_template_voice("SA_BUR", UnitVoiceSlot::Melee, "TestVoiceMelee");
 
     let mut logic = GameLogic::new();
+    logic.add_player(crate::game_logic::Player::new(
+        0,
+        Team::USA,
+        "VoiceHuman",
+        true,
+    ));
+    logic.add_player(crate::game_logic::Player::new(
+        1,
+        Team::China,
+        "VoiceEnemy",
+        false,
+    ));
+    logic
+        .get_player_mut(0)
+        .unwrap()
+        .set_map_relationship(1, gamelogic::common::Relationship::Enemies);
+    logic
+        .get_player_mut(1)
+        .unwrap()
+        .set_map_relationship(0, gamelogic::common::Relationship::Enemies);
     let mut ranger = ThingTemplate::new("SA_RNG");
     ranger
         .add_kind_of(KindOf::Infantry)
@@ -1203,12 +1223,9 @@ fn specialty_attack_voices_replace_voice_attack() {
             range: 175.0,
             ..Weapon::default()
         });
-        // A selected command-button weapon is locked, not just the last AI
-        // slot: WeaponSet.cpp:782-783 preserves explicit locks during choice.
-        assert!(u.set_weapon_lock(
-            1,
-            crate::game_logic::object::WeaponLockType::LockedPermanently
-        ));
+        // This unlocked current weapon must be observed before the new
+        // command's AI is allowed to choose a different weapon.
+        u.set_active_weapon_slot(1);
     }
 
     logic.queued_audio_events.clear();
@@ -1236,6 +1253,33 @@ fn specialty_attack_voices_replace_voice_attack() {
         logic.queued_audio_events
     );
 
+    // The real right-click/input path uses the same pre-command observation.
+    logic
+        .host_object_mut(ranger_id)
+        .unwrap()
+        .set_active_weapon_slot(1);
+    logic.get_player_mut(0).unwrap().selected_objects = vec![ranger_id];
+    logic.queued_audio_events.clear();
+    logic.command_attack(0, bldg_id);
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TestVoiceClearBuilding")
+    );
+    assert!(
+        !logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TestVoiceAttack")
+    );
+
+    // Original command-button mode persists an explicit lock (WeaponSet782).
+    // Keep this separate from the unlocked pre-command observation above.
+    assert!(logic.host_object_mut(ranger_id).unwrap().set_weapon_lock(
+        1,
+        crate::game_logic::object::WeaponLockType::LockedPermanently
+    ));
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
@@ -1251,6 +1295,38 @@ fn specialty_attack_voices_replace_voice_attack() {
             .any(|e| e.event_type == "TestVoiceSubdue"),
         "flashbang vs infantry must play VoiceSubdue: {:?}",
         logic.queued_audio_events
+    );
+
+    assert_eq!(
+        logic.host_object(ranger_id).unwrap().selected_weapon_slot(),
+        Some(1)
+    );
+    {
+        let unit = logic.host_object_mut(ranger_id).unwrap();
+        unit.release_weapon_lock(crate::game_logic::object::WeaponLockType::LockedPermanently);
+        unit.set_active_weapon_slot(0);
+    }
+    logic.queued_audio_events.clear();
+    assert_eq!(
+        CommandExecutor::new(&mut logic, 0).execute_attack(&[ranger_id], inf_id),
+        CommandResult::Success
+    );
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TestVoiceAttack"),
+        "the primary current weapon retains its ordinary attack voice"
+    );
+    logic.queued_audio_events.clear();
+    assert_eq!(
+        CommandExecutor::new(&mut logic, 0)
+            .execute_attack(&[ranger_id], crate::game_logic::ObjectId(u32::MAX)),
+        CommandResult::InvalidTarget
+    );
+    assert!(
+        logic.queued_audio_events.is_empty(),
+        "failed target emits no translated voice"
     );
 
     let com_id = logic
