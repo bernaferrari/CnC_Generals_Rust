@@ -1,13 +1,7 @@
 // Physical asset load evidence. This is a parse trace, not full gameplay parity.
 mod retail_script_key_tests {
     use super::*;
-    use gamelogic::scripting::engine::{ScriptEngine, get_script_engine};
-    struct RestoreEngine(Option<ScriptEngine>);
-    impl Drop for RestoreEngine {
-        fn drop(&mut self) {
-            *get_script_engine().write().unwrap() = self.0.take();
-        }
-    }
+    use gamelogic::scripting::engine::ScriptEngine;
     fn trace_scripts(
         script: Option<&Script>,
         rows: &mut Vec<(
@@ -51,16 +45,11 @@ mod retail_script_key_tests {
     fn physical_map_script_key_trace() {
         let path = std::env::var("GENERALS_SCRIPT_KEY_RETAIL_MAP").expect("retail path required");
         let engine = ScriptEngine::new().unwrap();
-        let previous = {
-            let handle = get_script_engine();
-            let mut slot = handle.write().unwrap();
-            std::mem::replace(&mut *slot, Some(engine))
-        };
-        let _restore = RestoreEngine(previous);
+        let catalog = ScriptTemplateLookup::from_engine(&engine);
         let document = load_chunky_map(&path)
             .unwrap()
             .expect("physical map exists");
-        let result = load_map_scripts_from_chunky(&document)
+        let result = load_map_scripts_from_chunky_with_templates(&document, &catalog)
             .unwrap()
             .expect("script chunks exist");
         assert!(result.total_scripts > 0);

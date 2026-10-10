@@ -2,21 +2,7 @@
 mod map_name_key_tests {
     use super::*;
     use game_engine::common::system::DataChunkOutput;
-    use gamelogic::scripting::engine::{ScriptEngine, get_script_engine};
-
-    struct RestoreEngine(Option<ScriptEngine>);
-    impl RestoreEngine {
-        fn install(engine: ScriptEngine) -> Self {
-            let handle = get_script_engine();
-            let mut slot = handle.write().unwrap();
-            Self(std::mem::replace(&mut *slot, Some(engine)))
-        }
-    }
-    impl Drop for RestoreEngine {
-        fn drop(&mut self) {
-            *get_script_engine().write().unwrap() = self.0.take();
-        }
-    }
+    use gamelogic::scripting::engine::ScriptEngine;
 
     #[derive(Clone, Copy)]
     struct Record {
@@ -106,9 +92,24 @@ mod map_name_key_tests {
             body_offset,
         }
     }
-    fn read(document: &ChunkyMap) -> (ConditionType, ScriptActionType, ScriptActionType) {
-        // Actual public root, including its real engine/catalog adapter.
-        let result = load_map_scripts_from_chunky(document).unwrap().unwrap();
+    struct Templates(ScriptTemplateLookup);
+    impl Templates {
+        fn new(engine: &ScriptEngine) -> Self {
+            Self(ScriptTemplateLookup::from_engine(engine))
+        }
+        fn read(&self, document: &ChunkyMap) -> MapScriptLoadResult {
+            load_map_scripts_from_chunky_with_templates(document, &self.0)
+                .unwrap()
+                .unwrap()
+        }
+    }
+    fn read(
+        engine: &ScriptEngine,
+        document: &ChunkyMap,
+    ) -> (ConditionType, ScriptActionType, ScriptActionType) {
+        decoded(Templates::new(engine).read(document))
+    }
+    fn decoded(result: MapScriptLoadResult) -> (ConditionType, ScriptActionType, ScriptActionType) {
         assert_eq!(result.total_scripts, 1);
         assert_eq!(result.script_lists.len(), 1);
         let group = result.script_lists[0].first_group.as_ref().unwrap();
@@ -136,12 +137,98 @@ mod map_name_key_tests {
         )
     }
     #[test]
+    fn dropping_earlier_templates_cannot_erase_later_decode_definitions() {
+        let engine = ScriptEngine::new().unwrap();
+        let record = Record::valid(&engine);
+        let earlier = Templates::new(&engine);
+        let later = Templates::new(&engine);
+        drop(earlier);
+        for sides in [false, true] {
+            assert_eq!(
+                decoded(later.read(&document(record, sides, 9))),
+                (
+                    ConditionType::ConditionTrue,
+                    ScriptActionType::Victory,
+                    ScriptActionType::Victory
+                )
+            );
+        }
+    }
+    #[test]
+    fn conflicting_catalogs_stay_explicit_across_interleaved_decode_routes() {
+        let engine = ScriptEngine::new().unwrap();
+        let record = Record::valid(&engine);
+        let authored = ScriptTemplateLookup::from_engine(&engine);
+        let empty = ScriptTemplateLookup::default();
+        for sides in [false, true] {
+            let map = document(record, sides, 9);
+            for (catalog, expected) in [
+                (
+                    &authored,
+                    (
+                        ConditionType::ConditionTrue,
+                        ScriptActionType::Victory,
+                        ScriptActionType::Victory,
+                    ),
+                ),
+                (
+                    &empty,
+                    (
+                        ConditionType::ConditionFalse,
+                        ScriptActionType::NoOp,
+                        ScriptActionType::NoOp,
+                    ),
+                ),
+                (
+                    &authored,
+                    (
+                        ConditionType::ConditionTrue,
+                        ScriptActionType::Victory,
+                        ScriptActionType::Victory,
+                    ),
+                ),
+            ] {
+                assert_eq!(
+                    decoded(
+                        load_map_scripts_from_chunky_with_templates(&map, catalog)
+                            .unwrap()
+                            .unwrap()
+                    ),
+                    expected
+                );
+            }
+        }
+    }
+    #[test]
+    fn standalone_public_adapter_preserves_ordinal_only_records() {
+        // Exercise the real adapter without publishing a fixture. These older
+        // records contain no template keys. Named-record owner selection and
+        // cross-thread key namespaces remain separate migration obligations.
+        let engine = ScriptEngine::new().unwrap();
+        let mut ordinal = Record::valid(&engine);
+        ordinal.condition_version = 3;
+        ordinal.action_version = 1;
+        for sides in [false, true] {
+            assert_eq!(
+                decoded(
+                    load_map_scripts_from_chunky(&document(ordinal, sides, 9))
+                        .unwrap()
+                        .unwrap()
+                ),
+                (
+                    ConditionType::ConditionTrue,
+                    ScriptActionType::Victory,
+                    ScriptActionType::Victory
+                )
+            );
+        }
+    }
+    #[test]
     fn direct_condition_matches_ordinal_by_decoded_name() {
         let engine = ScriptEngine::new().unwrap();
         let record = Record::valid(&engine);
-        let _restore = RestoreEngine::install(engine);
         assert_eq!(
-            read(&document(record, false, 0)).0,
+            read(&engine, &document(record, false, 0)).0,
             ConditionType::ConditionTrue
         );
     }
@@ -150,9 +237,8 @@ mod map_name_key_tests {
         let engine = ScriptEngine::new().unwrap();
         let mut record = Record::valid(&engine);
         record.condition = ConditionType::ConditionFalse;
-        let _restore = RestoreEngine::install(engine);
         assert_eq!(
-            read(&document(record, false, 0)).0,
+            read(&engine, &document(record, false, 0)).0,
             ConditionType::ConditionTrue
         );
     }
@@ -160,8 +246,7 @@ mod map_name_key_tests {
     fn direct_action_matches_ordinal_by_decoded_name() {
         let engine = ScriptEngine::new().unwrap();
         let record = Record::valid(&engine);
-        let _restore = RestoreEngine::install(engine);
-        let (_, yes, no) = read(&document(record, false, 0));
+        let (_, yes, no) = read(&engine, &document(record, false, 0));
         assert_eq!(yes, ScriptActionType::Victory);
         assert_eq!(no, ScriptActionType::Victory);
     }
@@ -170,8 +255,7 @@ mod map_name_key_tests {
         let engine = ScriptEngine::new().unwrap();
         let mut record = Record::valid(&engine);
         record.action = ScriptActionType::NoOp;
-        let _restore = RestoreEngine::install(engine);
-        let (_, yes, no) = read(&document(record, false, 0));
+        let (_, yes, no) = read(&engine, &document(record, false, 0));
         assert_eq!(yes, ScriptActionType::Victory);
         assert_eq!(no, ScriptActionType::Victory);
     }
@@ -179,11 +263,10 @@ mod map_name_key_tests {
     fn direct_and_sides_decode_identical_named_records_after_file_id_changes() {
         let engine = ScriptEngine::new().unwrap();
         let record = Record::valid(&engine);
-        let _restore = RestoreEngine::install(engine);
         for padding in [0, 9] {
             assert_eq!(
-                read(&document(record, false, padding)),
-                read(&document(record, true, padding))
+                read(&engine, &document(record, false, padding)),
+                read(&engine, &document(record, true, padding))
             );
         }
     }
@@ -193,10 +276,9 @@ mod map_name_key_tests {
         let mut record = Record::valid(&engine);
         record.condition_key = NameKeyGenerator::name_to_key("UNKNOWN_MAP_CONDITION");
         record.action_key = NameKeyGenerator::name_to_key("UNKNOWN_MAP_ACTION");
-        let _restore = RestoreEngine::install(engine);
         for sides in [false, true] {
             assert_eq!(
-                read(&document(record, sides, 0)),
+                read(&engine, &document(record, sides, 0)),
                 (
                     ConditionType::ConditionFalse,
                     ScriptActionType::NoOp,
@@ -211,10 +293,9 @@ mod map_name_key_tests {
         let mut record = Record::valid(&engine);
         record.condition_version = 3;
         record.action_version = 1;
-        let _restore = RestoreEngine::install(engine);
         for sides in [false, true] {
             assert_eq!(
-                read(&document(record, sides, 0)),
+                read(&engine, &document(record, sides, 0)),
                 (
                     ConditionType::ConditionTrue,
                     ScriptActionType::Victory,
@@ -272,13 +353,12 @@ mod map_name_key_tests {
     fn absent_file_name_ids_rematch_the_cpp_empty_template_slots() {
         let engine = ScriptEngine::new().unwrap();
         let record = Record::valid(&engine);
-        let _restore = RestoreEngine::install(engine);
         for sides in [false, true] {
             let mut document = document(record, sides, 0);
             replace_packed_words(&mut document, 0x7fff_ee03, 0x7fff_ed03);
             // C++ getName misses return ""; unused templates also have that key.
             assert_eq!(
-                read(&document),
+                read(&engine, &document),
                 (
                     ConditionType::ObsoleteScript1,
                     ScriptActionType::NamedReceiveUpgrade,
@@ -291,7 +371,6 @@ mod map_name_key_tests {
     fn signed_packed_ids_do_not_alias_positive_toc_ids() {
         let engine = ScriptEngine::new().unwrap();
         let record = Record::valid(&engine);
-        let _restore = RestoreEngine::install(engine);
         for sides in [false, true] {
             let mut document = document(record, sides, 0);
             // C++ Int >>8 gives a negative id; logical u32 >>8 would match these
@@ -307,7 +386,7 @@ mod map_name_key_tests {
             rebuild_file_toc(&mut document);
             replace_packed_words(&mut document, 0x8000_1003, 0x8000_2003);
             assert_eq!(
-                read(&document),
+                read(&engine, &document),
                 (
                     ConditionType::ObsoleteScript1,
                     ScriptActionType::NamedReceiveUpgrade,
