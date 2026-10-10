@@ -39,3 +39,7 @@ pub(super) use world_load::{
     landmark_bridge_half_sizes, leftover_bridge_info_for_object, leftover_bridge_template_name,
     leftover_template_is_landmark_bridge, load_multiplayer_scripts_scb,
 };
+
+#[cfg(test)]
+#[path = "world_save/lobby_side_identity_tests.rs"]
+mod lobby_side_identity_tests;

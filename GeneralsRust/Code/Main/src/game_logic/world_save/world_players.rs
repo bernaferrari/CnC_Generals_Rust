@@ -2,6 +2,17 @@
 #![allow(unused_imports, non_snake_case)]
 use super::*;
 
+// Normal skirmish admission retains the exact typed GameSlot name. Direct
+// host construction/restored players still use Main's documented slot-ID
+// contract; that compatibility route does not establish prepared side ordinals.
+fn host_slot_script_name(player: &Player) -> String {
+    if player.map_side.map_player_name.is_empty() {
+        format!("player{}", player.id)
+    } else {
+        player.map_side.map_player_name.clone()
+    }
+}
+
 impl GameLogic {
     pub(in super::super) fn sync_legacy_runtime_from_chunky(
         &mut self,
@@ -571,15 +582,14 @@ impl GameLogic {
         // Side names of the slots that become MP sides, with their lobby team.
         let slot_sides: Vec<(String, i32)> = pids
             .iter()
-            .enumerate()
-            .filter_map(|(index, pid)| {
+            .filter_map(|pid| {
                 let player = self.players.get(pid)?;
                 let skipped = player.name == "ReplayObserver"
                     || (player.team == Team::Neutral && player.name.is_empty());
-                (!skipped).then(|| (format!("player{index}"), player.alliance_team))
+                (!skipped).then(|| (host_slot_script_name(player), player.alliance_team))
             })
             .collect();
-        for (index, pid) in pids.iter().enumerate() {
+        for pid in &pids {
             let Some(player) = self.players.get(pid) else {
                 continue;
             };
@@ -604,7 +614,7 @@ impl GameLogic {
             if player.team == Team::Neutral && player.name.is_empty() {
                 continue;
             }
-            let player_name = format!("player{index}");
+            let player_name = host_slot_script_name(player);
             if sides.find_side_info(&player_name).is_some() {
                 continue;
             }
@@ -639,12 +649,9 @@ impl GameLogic {
             }
             dict.set_ascii_string(key_player_allies(), allies.join(" "));
             dict.set_ascii_string(key_player_enemies(), enemies.join(" "));
-            let start_index = if player.start_position >= 0 {
-                player.start_position
-            } else {
-                index as i32
-            };
-            dict.set_int(key_multiplayer_start_index(), start_index);
+            // CPP GameLogic1400 copies GameSlot::getStartPos verbatim, including
+            // an unresolved -1; it never substitutes the occupied-slot rank.
+            dict.set_int(key_multiplayer_start_index(), player.start_position);
             if matches!(self.game_mode, GameMode::Skirmish) {
                 dict.set_bool(key_player_is_skirmish(), !player.is_human);
             }

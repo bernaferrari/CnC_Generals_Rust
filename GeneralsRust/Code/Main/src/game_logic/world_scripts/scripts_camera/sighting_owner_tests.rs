@@ -549,3 +549,44 @@ fn sighting_supplied_this_object_and_current_player_are_owned_identities() {
         // classification retain their own owner debts (hq-fxwkm/hq-9bqdm).
     });
 }
+
+#[test]
+fn typed_sparse_slot_names_resolve_in_live_script_sighting() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "typed_sparse_slot_names_resolve_in_live_script_sighting",
+        || {
+            crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
+            let mut config =
+                crate::skirmish_config::golden_skirmish_config("OwnedSlotAdmission.map");
+            config.slots[1].slot_index = 3;
+            let mut world = GameLogic::new();
+            crate::skirmish_config::apply_skirmish_config(&mut world, &config).unwrap();
+            world.world_min = Vec3::ZERO;
+            world.world_max = Vec3::splat(1000.0);
+            let mut template = ThingTemplate::new(TYPE);
+            template.add_kind_of(KindOf::Infantry).set_health(100.0);
+            world.templates.insert(TYPE.into(), template);
+            let observer = world
+                .create_object_for_player(TYPE, 0, Vec3::new(50.0, 0.0, 50.0))
+                .unwrap();
+            world.host_object_mut(observer).unwrap().name = OBSERVER.into();
+            world.host_object_mut(observer).unwrap().vision_range = 20.0;
+            world
+                .create_object_for_player(TYPE, 3, Vec3::new(60.0, 0.0, 50.0))
+                .unwrap();
+            assert!(
+                observed(&mut world, types(OBSERVER, TYPE, "player3")),
+                "CPP authored slot name must reach the canonical host player"
+            );
+            assert!(
+                !observed(&mut world, types(OBSERVER, TYPE, "player1")),
+                "unoccupied slot cannot alias the second occupied player"
+            );
+            assert!(
+                !observed(&mut world, types(OBSERVER, TYPE, "GLA AI")),
+                "display label is not an admitted authored player identity"
+            );
+        },
+    );
+}

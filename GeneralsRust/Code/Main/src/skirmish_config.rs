@@ -666,6 +666,9 @@ pub fn apply_skirmish_config(
                 .map(|s| s.start_position)
                 .unwrap_or(slot.start_position);
             let mut player = Player::new(player_id, team, &slot.player_name, slot.is_human);
+            // CPP GameLogic1308 authors from the occupied lobby slot, not its
+            // rank among occupied slots. Retain that identity before map load.
+            player.map_side.map_player_name = format!("player{}", slot.slot_index);
             // C++ Player::init starts with GameInfo cash, then an authored
             // non-zero PlayerTemplate Money value may replace it.
             player.resources.supplies = cash;
@@ -987,6 +990,9 @@ fn color_rgb_from_multiplayer_index(color_idx: i32, slot_index: usize) -> (u8, u
     let _ = color_idx;
     FALLBACK[slot_index % FALLBACK.len()]
 }
+
+#[cfg(test)]
+pub(crate) mod lobby_definition_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1714,36 +1720,43 @@ mod tests {
 
     #[test]
     fn apply_skirmish_config_creates_replay_observer_and_flags_scripts() {
-        // C++ GameLogic.cpp:1436-1459 ReplayObserver; 1479-1532 MultiplayerScripts
-        // when numTeams > 1. Permanent reveal is applied at map load.
-        let mut logic = GameLogic::new();
-        logic.add_player(Player::new(0, Team::USA, "Player", true));
-        logic.add_player(Player::new(1, Team::GLA, "GLA AI", false));
-        let _ = logic.ensure_replay_observer_player();
-        logic.install_replay_observer_side();
-        logic.set_install_multiplayer_scripts(true);
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "apply_skirmish_config_creates_replay_observer_and_flags_scripts",
+            || {
+                lobby_definition_tests::admit_slot_definitions();
+                // C++ GameLogic.cpp:1436-1459 ReplayObserver; 1479-1532 MultiplayerScripts
+                // when numTeams > 1. Permanent reveal is applied at map load.
+                let mut logic = GameLogic::new();
+                logic.add_player(Player::new(0, Team::USA, "Player", true));
+                logic.add_player(Player::new(1, Team::GLA, "GLA AI", false));
+                let _ = logic.ensure_replay_observer_player();
+                logic.install_replay_observer_side();
+                logic.set_install_multiplayer_scripts(true);
 
-        let observer = logic
-            .get_players()
-            .values()
-            .find(|p| p.name == "ReplayObserver")
-            .expect("ReplayObserver host player");
-        assert!(!observer.is_alive);
-        assert_eq!(observer.team, Team::Neutral);
-        assert_eq!(logic.replay_observer_player_id(), Some(observer.id));
-        assert!(
-            logic.will_install_multiplayer_scripts(),
-            "human vs AI is two teams"
+                let observer = logic
+                    .get_players()
+                    .values()
+                    .find(|p| p.name == "ReplayObserver")
+                    .expect("ReplayObserver host player");
+                assert!(!observer.is_alive);
+                assert_eq!(observer.team, Team::Neutral);
+                assert_eq!(logic.replay_observer_player_id(), Some(observer.id));
+                assert!(
+                    logic.will_install_multiplayer_scripts(),
+                    "human vs AI is two teams"
+                );
+
+                {
+                    use gamelogic::player::ThePlayerList;
+                    let list = ThePlayerList().read().expect("crate player list");
+                    assert!(
+                        list.find_player_by_name("ReplayObserver").is_some(),
+                        "crate PlayerList must name ReplayObserver"
+                    );
+                }
+            },
         );
-
-        {
-            use gamelogic::player::ThePlayerList;
-            let list = ThePlayerList().read().expect("crate player list");
-            assert!(
-                list.find_player_by_name("ReplayObserver").is_some(),
-                "crate PlayerList must name ReplayObserver"
-            );
-        }
     }
 
     #[test]
