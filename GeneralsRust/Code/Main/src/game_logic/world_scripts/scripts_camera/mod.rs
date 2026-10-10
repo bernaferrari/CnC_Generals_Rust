@@ -226,6 +226,7 @@ mod script_runtime_camera;
 mod script_state;
 mod script_team_actions;
 mod script_unit_actions;
+mod team_guard;
 
 #[cfg(test)]
 mod sequential_actor_tests;
@@ -284,3 +285,6 @@ mod guard_return_rate_control_tests;
 
 #[cfg(test)]
 mod guard_quick_exit_owner_tests;
+
+#[cfg(test)]
+mod team_guard_owner_tests;

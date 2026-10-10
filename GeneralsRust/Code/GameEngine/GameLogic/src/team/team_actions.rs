@@ -186,7 +186,9 @@ impl Team {
     // Member management
     pub fn add_member(&mut self, object_id: ObjectID) {
         if !self.members.contains(&object_id) {
-            self.members.push(object_id);
+            // CPP Object.cpp:853 prepends a newly admitted team member.
+            // An existing member stays in place, as isInList prevents relinking.
+            self.members.insert(0, object_id);
             // C++ DLINK insert does not touch m_curUnits; Team::updateState recounts.
         }
     }

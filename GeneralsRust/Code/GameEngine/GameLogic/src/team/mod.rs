@@ -64,6 +64,9 @@ include!("factory.rs");
 include!("factory_access.rs");
 include!("tests.rs");
 
+#[cfg(test)]
+mod script_guard_roster_tests;
+
 /// Concatenated live sources for residual `include_str!` scans.
 pub const TEAM_SRC: &str = concat!(
     include_str!("mod.rs"),

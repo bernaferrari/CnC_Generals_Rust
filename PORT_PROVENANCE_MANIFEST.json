@@ -5458,6 +5458,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/script_guard_roster_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -37662,6 +37669,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/prototype.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/script_guard_roster_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -157529,7 +157543,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "1281893b11a98b71bd2827328e67d4a54487b46dea7196e3ac192bad5adf709b",
+  "input_digest": "3703ab8f518e3cdc26a9805bd527e47fadcbbadc8627c4379660d9d0a9d0ef55",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -204240,11 +204254,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1059,
+        "end_line": 1128,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/factory.rs",
-      "sha256": "b4dc8cd6731a8787861229df8043e1b0138e1d5ef64f8bf0dbff31d9d79a9b04",
+      "sha256": "f116fc133727862694def4222e4f4fb4ee094c7190589f0dd3627dc063f518f8",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204276,11 +204290,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 82,
+        "end_line": 85,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/mod.rs",
-      "sha256": "55ef4ac3b3e48f4f96c15907d250e67083a07669c0adf08ac48989eb0e2ed114",
+      "sha256": "c45b60fc4483489f6e54ea18703240530b0a1bb30adbf829c9a886eca70a969a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204293,6 +204307,18 @@
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/prototype.rs",
       "sha256": "d12febc51efe2c1c22692a4d40756c516cd6961352c30bd897f95f97a73a50db",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 235,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/script_guard_roster_tests.rs",
+      "sha256": "b35c650dd95a8e0f5f735df002bd87873d5b9a71209ab71c1d2ed11d2b58edf1",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204312,11 +204338,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 286,
+        "end_line": 288,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/team_actions.rs",
-      "sha256": "68b750c57105c48fbba7cd6f34da088950731d002f3d3d76b4907595cf1cd7d0",
+      "sha256": "6f934d9ba64a671473a2bdc660956ad88f3112aa852d049455e147143dc7611d",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

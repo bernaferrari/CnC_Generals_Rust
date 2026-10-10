@@ -124,11 +124,23 @@ impl GameLogic {
         }
         unit.set_formation(0, glam::Vec2::ZERO);
         let position = unit.get_position();
-        let clear_team_target = matches!(unit.guard_chase_phase, 1 | 3);
         self.apply_unit_locomotor_set(id, "normal");
-        if !self.owned_named_ai_command_admitted(id) {
+        self.apply_owned_script_guard_position(id, position);
+    }
+
+    /// Shared private Guard entry, after each action's distinct preparation.
+    /// TeamGuard does not leave its group or select a new locomotor set.
+    pub(super) fn apply_owned_script_guard_position(&mut self, id: ObjectId, position: Vec3) {
+        if !self
+            .host_object(id)
+            .is_some_and(|unit| unit.has_ai_update_interface())
+            || !self.owned_named_ai_command_admitted(id)
+        {
             return;
         }
+        let clear_team_target = self
+            .host_object(id)
+            .is_some_and(|unit| matches!(unit.guard_chase_phase, 1 | 3));
         self.drop_jet_targeters_on_attack_exit(id);
         if clear_team_target {
             self.set_host_team_common_target(id, None);

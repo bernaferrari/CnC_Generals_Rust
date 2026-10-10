@@ -189,6 +189,19 @@ pub trait ScriptExecutionDriver {
         None
     }
 
+    /// CPP ScriptActions1882: the driving owner resolves the raw team against
+    /// its own roster. Both context names are supplied before token resolution;
+    /// THIS_TEAM prefers calling_team. Some is authoritative even for absence
+    /// or an error; None retains the standalone Core adapter.
+    fn team_guard(
+        &mut self,
+        _team: &str,
+        _calling_team: Option<&str>,
+        _condition_team: Option<&str>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     /// Some selects this owner exclusively, including a failed effect.
     fn water(&mut self, _request: ScriptWaterRequest<'_>) -> Option<GameLogicResult<()>> {
         None

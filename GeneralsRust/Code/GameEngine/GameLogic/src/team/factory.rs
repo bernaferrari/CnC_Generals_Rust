@@ -8,6 +8,8 @@
 pub struct TeamFactory {
     prototypes: HashMap<String, Arc<TeamPrototype>>,
     teams: HashMap<TeamID, Arc<RwLock<Team>>>,
+    /// CPP TeamInstanceList admission order; IDs do not encode list position.
+    instance_order: Vec<TeamID>,
     unique_team_prototype_id: TeamPrototypeID,
     unique_team_id: TeamID,
     pending_create_action_scripts: Vec<String>,
@@ -45,6 +47,7 @@ impl TeamFactory {
         Self {
             prototypes: HashMap::new(),
             teams: HashMap::new(),
+            instance_order: Vec::new(),
             unique_team_prototype_id: 1,
             unique_team_id: 1,
             pending_create_action_scripts: Vec::new(),
@@ -58,6 +61,7 @@ impl TeamFactory {
         self.unlink_prototypes_from_owning_players();
         self.prototypes.clear();
         self.teams.clear();
+        self.instance_order.clear();
         self.unique_team_prototype_id = 1;
         self.unique_team_id = 1;
         self.pending_create_action_scripts.clear();
@@ -70,6 +74,7 @@ impl TeamFactory {
         self.unlink_prototypes_from_owning_players();
         self.prototypes.clear();
         self.teams.clear();
+        self.instance_order.clear();
         self.unique_team_prototype_id = 1;
         self.unique_team_id = 1;
         self.pending_create_action_scripts.clear();
@@ -419,6 +424,70 @@ impl TeamFactory {
         self.prototypes.get(name).cloned()
     }
 
+    /// CPP Team.cpp:1315 prepends newly constructed instances. Restoring an
+    /// existing saved ID does not relink it (Team.cpp:1249-1258).
+    fn admit_team_instance(&mut self, id: TeamID, team: Arc<RwLock<Team>>) {
+        if !self.teams.contains_key(&id) {
+            self.instance_order.insert(0, id);
+        }
+        self.teams.insert(id, team);
+    }
+
+    fn remove_team_instance(&mut self, id: TeamID) {
+        self.teams.remove(&id);
+        self.instance_order.retain(|admitted| *admitted != id);
+    }
+
+    /// CPP ScriptEngine.cpp:5933 resolves an existing team without creating it.
+    /// Ordinary lookup uses the head of the prototype's admitted instance list,
+    /// independently of numeric IDs. A uniquely named calling/condition team
+    /// bypasses prototype and singleton activity checks; ambiguous context
+    /// requires an instance ID.
+    pub fn script_team_member_ids(
+        &self,
+        name: &str,
+        contextual: bool,
+    ) -> crate::GameLogicResult<Option<Vec<ObjectID>>> {
+        let prototype = self.prototypes.get(name);
+        if !contextual && prototype.is_none() {
+            return Ok(None);
+        }
+        let mut selected: Option<(bool, Vec<ObjectID>)> = None;
+        for id in &self.instance_order {
+            let team = self.teams.get(id).ok_or_else(|| {
+                crate::GameLogicError::Configuration(format!(
+                    "Script team instance order references missing instance {id}"
+                ))
+            })?;
+            let team = team.read().map_err(|error| {
+                crate::GameLogicError::Threading(format!(
+                    "Cannot read script team instance {id}: {error}"
+                ))
+            })?;
+            if team.get_name().as_str() != name {
+                continue;
+            }
+            if contextual && selected.is_some() {
+                return Err(crate::GameLogicError::Configuration(format!(
+                    "Script team context '{name}' matches multiple instances; a contextual team ID is required"
+                )));
+            }
+            if selected.is_none() {
+                selected = Some((team.is_active(), team.get_members().to_vec()));
+            }
+            if !contextual {
+                break;
+            }
+        }
+        let Some((active, members)) = selected else {
+            return Ok(None);
+        };
+        if !contextual && prototype.is_some_and(|prototype| prototype.is_singleton()) && !active {
+            return Ok(None);
+        }
+        Ok(Some(members))
+    }
+
     /// Script team prototype names declared on the map (C++ TeamFactory prototypes).
     pub fn prototype_names(&self) -> Vec<String> {
         self.prototypes.keys().cloned().collect()
@@ -493,7 +562,7 @@ impl TeamFactory {
                 team_guard.set_controlling_player_id(Some(owner_guard.get_player_index() as u32));
             }
         }
-        self.teams.insert(team_id, team.clone());
+        self.admit_team_instance(team_id, team.clone());
         if team_id >= self.unique_team_id {
             self.unique_team_id = team_id.saturating_add(1);
         }
@@ -598,7 +667,7 @@ impl TeamFactory {
             }
         }
 
-        self.teams.insert(team_id, team.clone());
+        self.admit_team_instance(team_id, team.clone());
         if let Some(prototype) = prototype.as_deref() {
             self.queue_create_actions_for_prototype(prototype);
         }
@@ -769,7 +838,7 @@ impl TeamFactory {
             }
         }
 
-        self.teams.remove(&team_id);
+        self.remove_team_instance(team_id);
     }
 
     /// C++ TeamFactory::teamAboutToBeDeleted, restricted to this factory's metadata.
@@ -804,7 +873,7 @@ impl TeamFactory {
         {
             return false;
         }
-        self.teams.remove(&deletion.id);
+        self.remove_team_instance(deletion.id);
         true
     }
 

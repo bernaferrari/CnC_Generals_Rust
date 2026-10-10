@@ -515,3 +515,5 @@ mod conditions_and_live_queries;
 mod borrowed_engine_tests;
 
 mod public_dispatch_callback_tests;
+
+mod team_guard_driver_tests;

@@ -235,7 +235,26 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::MoveTeamTo => self.do_move_team_to(action),
             ScriptActionType::TeamAttackTeam => self.do_team_attack_team(action),
             ScriptActionType::TeamHunt => self.do_team_hunt(action),
-            ScriptActionType::TeamGuard => self.do_team_guard(action),
+            ScriptActionType::TeamGuard => {
+                let team = self.get_string_param(action, 0)?;
+                let (calling, condition) = self
+                    .context
+                    .with_engine_ref(|engine| {
+                        (
+                            engine.get_calling_team_name(),
+                            engine.get_condition_team_name(),
+                        )
+                    })
+                    .unwrap_or_default();
+                if let Some(result) =
+                    driver.team_guard(&team, calling.as_deref(), condition.as_deref())
+                {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_team_guard(action)
+                }
+            }
             ScriptActionType::TeamDelete => self.do_team_delete(action),
             ScriptActionType::TeamKill => self.do_team_kill(action),
             ScriptActionType::DamageMembersOfTeam => self.do_damage_team_members(action),

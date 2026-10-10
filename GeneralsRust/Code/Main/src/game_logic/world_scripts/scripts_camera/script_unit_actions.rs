@@ -144,16 +144,8 @@ impl GameLogic {
                     self.apply_owned_named_hunt(&unit, None);
                 }
                 HostScriptHuntGuardRequest::TeamGuard { team } => {
-                    // C++ doTeamGuard: leftover getTeamNamed instance, every member with AI.
-                    let members = self.host_script_hunt_guard_team_member_ids(&team);
-                    for id in members {
-                        if !self.host_script_unit_can_guard(id) {
-                            continue;
-                        }
-                        let Some(pos) = self.host_object(id).map(|u| u.get_position()) else {
-                            continue;
-                        };
-                        let _ = self.unit_command_guard_position(id, pos);
+                    if let Err(error) = self.apply_owned_team_guard(&team, None, None) {
+                        log::warn!("TeamGuard: {error}");
                     }
                 }
                 HostScriptHuntGuardRequest::NamedGuard { unit } => {

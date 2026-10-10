@@ -677,9 +677,7 @@ fn script_team_guard_includes_turret_and_stunned() {
     use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
     use glam::Vec3;
 
-    let _ = gamelogic::scripting::take_host_script_hunt_guard_requests();
     let mut logic = GameLogic::new();
-    logic.scripts_loaded = true;
     for (name, kinds) in [
         ("SG_V", &[KindOf::Vehicle, KindOf::Selectable][..]),
         ("SG_S", &[KindOf::Structure, KindOf::Selectable][..]),
@@ -690,6 +688,8 @@ fn script_team_guard_includes_turret_and_stunned() {
             tpl.add_kind_of(*k);
         }
         tpl.set_health(400.0);
+        // CPP dispatch selects the admitted AI module, not a weapon heuristic.
+        tpl.set_authored_ai_update_interface(Some(name != "SG_S"));
         logic.templates.insert(name.to_string(), tpl);
     }
     let v = logic
@@ -710,6 +710,19 @@ fn script_team_guard_includes_turret_and_stunned() {
         }
     }
     {
+        // The driving session's real roster is canonical. A name on an object
+        // alone does not create a team or define ordered team membership.
+        let mut factory = logic.team_factory.lock().unwrap();
+        factory
+            .init_team("W29GuardTeam".into(), "".into(), false, None)
+            .unwrap();
+        let roster = factory.create_team("W29GuardTeam").unwrap();
+        let mut roster = roster.write().unwrap();
+        for id in [v, stun, inert, turret] {
+            roster.add_member(id.0);
+        }
+    }
+    {
         let u = logic.host_object_mut(stun).unwrap();
         u.shock_stun_frames = 40;
         assert!(!u.can_move());
@@ -722,12 +735,7 @@ fn script_team_guard_includes_turret_and_stunned() {
             ..crate::game_logic::Weapon::default()
         });
     }
-    gamelogic::scripting::request_host_script_hunt_guard(
-        gamelogic::scripting::HostScriptHuntGuardRequest::TeamGuard {
-            team: "W29GuardTeam".into(),
-        },
-    );
-    crate::game_logic::evaluate_and_execute_scripts_for_test(&mut logic, 0.0);
+    logic.execute_team_guard_script_for_test("W29GuardTeam");
     assert_eq!(
         logic.host_object(v).unwrap().ai_state,
         AIState::GuardingArea

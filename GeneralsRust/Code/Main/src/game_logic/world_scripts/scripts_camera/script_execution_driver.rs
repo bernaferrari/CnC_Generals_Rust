@@ -219,6 +219,27 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         })
     }
 
+    fn team_guard(
+        &mut self,
+        team: &str,
+        calling_team: Option<&str>,
+        condition_team: Option<&str>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        // CPP5936 returns the exact default Team pointer in Challenge mode.
+        // That identity is not yet admitted by Main (hq-dryhs/hq-9bqdm);
+        // retain the existing adapter for this capability rather than invent
+        // a team from a display name or choose an unrelated same-name instance.
+        if team == gamelogic::scripting::core::TEAM_THE_PLAYER
+            && gamelogic::scripting::core::is_generals_challenge_campaign()
+        {
+            return None;
+        }
+        Some(
+            self.world
+                .apply_owned_team_guard(team, calling_team, condition_team),
+        )
+    }
+
     fn named_command(
         &mut self,
         request: ScriptNamedCommand<'_>,
