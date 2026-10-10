@@ -436,12 +436,22 @@ fn group_special_power_fires_every_capable_caster() {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use glam::Vec3;
 
-    // SpySatellite residual inits the process-global shroud grid; drop it so
-    // later tests see the fail-open uninitialized-grid path.
-    let _shroud_isolation = crate::fow_rendering::shroud_test_isolation_lock()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
     let mut logic = GameLogic::new();
+    // C++ ActionManager.cpp:1523-1534 informational powers require an
+    // admitted map extent. A freshly constructed owner has no loaded map.
+    let mut map = gamelogic::system::map_loader::MapData::new();
+    map.width = 32;
+    map.height = 32;
+    map.border_size = 1;
+    map.heightmap = vec![0; 34 * 34];
+    map.boundaries = vec![gamelogic::common::ICoord2D::new(32, 32)];
+    {
+        let terrain = logic.world_services.terrain();
+        let mut terrain = terrain.write().unwrap();
+        terrain.load_map_geometry(map);
+        assert_eq!(terrain.get_extent().hi.x, 320.0);
+        assert_eq!(terrain.get_extent().hi.y, 320.0);
+    }
     let mut tpl = ThingTemplate::new("SP_ALL");
     tpl.add_kind_of(KindOf::Infantry);
     tpl.add_kind_of(KindOf::Selectable);
