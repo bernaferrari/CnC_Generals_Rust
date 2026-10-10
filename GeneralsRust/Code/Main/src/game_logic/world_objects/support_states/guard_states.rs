@@ -1,15 +1,12 @@
 //! C++ AIGuard state machine and guard-area scan behavior.
 use super::super::super::*;
+use crate::game_logic::object::unit_ai_runtime::GuardPhase;
 /// C++ AIGuardInnerState residual.
 pub(super) const GUARD_CHASE_PHASE_INNER: u8 = 1;
 /// C++ AIGuardOuterState residual.
 const GUARD_CHASE_PHASE_OUTER: u8 = 2;
 /// C++ AIGuardAttackAggressorState residual.
 const GUARD_CHASE_PHASE_AGGRESSOR: u8 = 3;
-/// C++ AIGuardReturnState InternalMoveTo close-enough residual.
-const GUARD_RETURN_CLOSE: f32 = 25.0;
-pub(super) const GUARD_RETURN_CLOSE_SQ: f32 = GUARD_RETURN_CLOSE * GUARD_RETURN_CLOSE;
-
 pub(crate) fn host_guard_xy_dist_sq(a: glam::Vec3, b: glam::Vec3) -> f32 {
     let dx = a.x - b.x;
     let dz = a.z - b.z;
@@ -384,7 +381,12 @@ impl GameLogic {
         } else {
             return;
         };
+        let deadline = self.guard_initial_scan_deadline(true);
         if !self.objects.get(&object_id).is_some_and(|o| o.can_move()) {
+            if let Some(runtime) = self.unit_ai_runtime_mut(object_id) {
+                runtime.set_guard_phase(Some(GuardPhase::Return { goal }));
+                runtime.set_guard_scan_deadline(Some(deadline));
+            }
             if let Some(o) = self.objects.get_mut(&object_id) {
                 o.set_ai_state(state);
             }
@@ -403,7 +405,14 @@ impl GameLogic {
             // it for an ultra-accurate locomotor.
             o.adjust_destinations = !o.ultra_accurate;
         }
-        if self.path_approach_with_state(object_id, goal, state) {
+        let installed = self.path_approach_with_state(object_id, goal, state.clone());
+        if let Some(o) = self.objects.get_mut(&object_id) {
+            o.set_ai_state(state);
+            o.unit_ai_runtime
+                .set_guard_phase(Some(GuardPhase::Return { goal }));
+            o.unit_ai_runtime.set_guard_scan_deadline(Some(deadline));
+        }
+        if installed {
             if let Some(o) = self.objects.get_mut(&object_id) {
                 o.ignored_obstacle_id = None;
             }
@@ -553,14 +562,95 @@ impl GameLogic {
             self.host_guard_enemy_return_scan_rate()
         } else {
             self.host_guard_enemy_scan_rate()
+        };
+        if self.unit_ai_runtime(object_id).is_none() {
+            return false;
         }
-        .max(1);
+        // Draw entry jitter only when the owning machine has no deadline.
         let now = self.frame;
-        self.unit_ai_runtime_mut(object_id).is_some_and(|runtime| {
-            runtime.guard_scan_due(now, rate, |rate| {
-                gamelogic::helpers::game_logic_random_value(0, rate)
+        let delay = if self
+            .unit_ai_runtime(object_id)
+            .and_then(|r| r.guard_scan_deadline())
+            .is_none()
+        {
+            self.guard_initial_scan_deadline(returning)
+                .wrapping_sub(now)
+        } else {
+            0
+        };
+        self.unit_ai_runtime_mut(object_id)
+            .unwrap()
+            .guard_scan_due(now, rate, |_| delay)
+    }
+
+    fn guard_initial_scan_deadline(&mut self, returning: bool) -> u32 {
+        let rate = if returning {
+            self.host_guard_enemy_return_scan_rate()
+        } else {
+            self.host_guard_enemy_scan_rate()
+        };
+        let draw = self.logic_random.next_u32();
+        let delay = if rate == u32::MAX {
+            draw
+        } else {
+            draw % (rate + 1)
+        };
+        self.frame.wrapping_add(delay)
+    }
+
+    pub(super) fn guard_quick_exit_active(&self, id: ObjectId) -> bool {
+        self.unit_ai_runtime(id)
+            .and_then(|r| r.quick_exit_deadline())
+            .is_some_and(|until| {
+                self.frame <= until
+                    && self.objects.get(&id).is_some_and(|u| {
+                        u.can_path_through_units
+                            && !u.adjust_destinations
+                            && u.ignored_obstacle_id.is_none()
+                            && u.movement.path.len() >= 2
+                    })
             })
-        })
+    }
+
+    /// Return scans before its InternalMove succeeds, then exits movement and
+    /// enters Idle exactly once. An absent/cancelled path is never arrival.
+    pub(super) fn finish_guard_return_if_arrived(&mut self, id: ObjectId) {
+        let Some(unit) = self.objects.get(&id) else {
+            return;
+        };
+        if !matches!(
+            unit.ai_state,
+            AIState::GuardingArea | AIState::GuardingObject
+        ) {
+            return;
+        }
+        let Some(GuardPhase::Return { goal }) = unit.unit_ai_runtime.guard_phase() else {
+            return;
+        };
+        if !Self::host_internal_move_reached_goal(unit) {
+            return;
+        }
+        let ultra_snap = unit.ultra_accurate
+            && PathfindingGrid::is_doing_ground_movement_full(unit)
+            && host_guard_xy_dist_sq(unit.get_position(), goal)
+                < PATHFIND_CELL_SIZE_F_RESIDUAL * PATHFIND_CELL_SIZE_F_RESIDUAL;
+        let anchor = unit
+            .guard_target
+            .and_then(|gid| self.objects.get(&gid).map(|g| g.get_position()));
+        if ultra_snap {
+            self.objects.get_mut(&id).unwrap().set_position(goal);
+        }
+        self.apply_arrival_goal_snap(id, Some(goal));
+        let deadline = self.guard_initial_scan_deadline(false);
+        let unit = self.objects.get_mut(&id).unwrap();
+        unit.stop_moving();
+        unit.set_locomotor_goal_none();
+        unit.ignored_obstacle_id = None;
+        unit.unit_ai_runtime.set_guard_phase(Some(GuardPhase::Idle));
+        unit.unit_ai_runtime.set_guard_scan_deadline(Some(deadline));
+        // The original idle anchor has no initialized constructor value.
+        // Use an explicit entry observation and persist it for safe continuation.
+        unit.unit_ai_runtime.set_guard_anchor(anchor);
     }
 
     /// C++ EnterGuard / HijackGuard: board instead of shooting.

@@ -1091,7 +1091,7 @@ impl GameLogic {
                                 advanced_index_this_frame = true;
                                 let do_evac = obj.pending_evacuate_on_stop;
                                 let and_exit = obj.pending_exit_after_evacuate;
-                                if matches!(obj.ai_state, AIState::Panic) {
+                                if obj.needs_internal_move_arrival_observation() {
                                     plant_goal = obj.movement.path.last().copied();
                                     obj.finish_locomotor_path_leg();
                                     if obj.holds_air_position_when_idle() {
@@ -1454,7 +1454,7 @@ impl GameLogic {
                                         || obj.movement.current_path_index + 1
                                             >= obj.movement.path.len()
                                     {
-                                        if matches!(obj.ai_state, AIState::Panic) {
+                                        if obj.needs_internal_move_arrival_observation() {
                                             obj.finish_locomotor_path_leg();
                                             if obj.holds_air_position_when_idle() {
                                                 let _ = obj.loco_maintain_appearance(dt);
@@ -1921,7 +1921,7 @@ impl GameLogic {
                                     || obj.movement.current_path_index + 1
                                         >= obj.movement.path.len()
                                 {
-                                    if matches!(obj.ai_state, AIState::Panic) {
+                                    if obj.needs_internal_move_arrival_observation() {
                                         plant_goal = obj.movement.path.last().copied();
                                         obj.finish_locomotor_path_leg();
                                         if obj.holds_air_position_when_idle() {

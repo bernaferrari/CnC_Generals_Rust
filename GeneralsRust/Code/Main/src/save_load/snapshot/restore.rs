@@ -269,7 +269,16 @@ impl SnapshotBuilder {
             }
         }
 
+        // Admission allocates a fresh identity and deliberately retires clone
+        // runtime. Restore only the continuation parsed from this save after
+        // that boundary, without reentering states or computing paths.
+        let id = object.id;
+        let saved_runtime = std::mem::take(&mut object.unit_ai_runtime);
         game_logic.admit_host_object(object);
+        game_logic
+            .host_object_mut(id)
+            .expect("admitted saved object")
+            .unit_ai_runtime = saved_runtime;
         Ok(())
     }
 
@@ -402,6 +411,9 @@ impl SnapshotBuilder {
                         continue;
                     }
                     if super::face_state_persist::restore(snapshot, object)? {
+                        continue;
+                    }
+                    if super::guard_state_persist::restore(snapshot, object)? {
                         continue;
                     }
 

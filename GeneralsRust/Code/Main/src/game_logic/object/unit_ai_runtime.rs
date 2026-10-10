@@ -1,17 +1,28 @@
 //! Object-owned residuals of C++ AIHuntState, AIGuard and temporary quick exit.
 //!
 //! State lives as long as the owning Object. The existing OXOB adapter retains
-//! its three optional deadline fields; the guard anchor remains runtime-only.
+//! its three optional deadline fields; AIGuardState saves the active phase and anchor.
 
 use glam::Vec3;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct UnitAiRuntime {
     guard_scan: Option<u32>,
+    guard_phase: Option<GuardPhase>,
+    guard_updated_frame: Option<u32>,
     hunt_scan: Option<u32>,
     guard_anchor: Option<Vec3>,
     quick_exit: Option<u32>,
     wander: Option<WanderState>,
+}
+
+/// Active non-combat states of the object's C++ AIGuardMachine.
+/// Return captures its movement goal at entry; Idle observes the guardee only
+/// at its scan deadline. Distance from the post does not select either state.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum GuardPhase {
+    Return { goal: Vec3 },
+    Idle,
 }
 
 /// C++ AIWander state data belongs to the admitted object's machine.
@@ -36,6 +47,34 @@ pub(crate) enum WanderState {
 }
 
 impl UnitAiRuntime {
+    pub(crate) fn guard_phase(&self) -> Option<GuardPhase> {
+        self.guard_phase
+    }
+
+    pub(crate) fn set_guard_phase(&mut self, phase: Option<GuardPhase>) {
+        self.guard_phase = phase;
+    }
+
+    pub(crate) fn guard_updated_frame(&self) -> Option<u32> {
+        self.guard_updated_frame
+    }
+
+    pub(crate) fn set_guard_updated_frame(&mut self, frame: Option<u32>) {
+        self.guard_updated_frame = frame;
+    }
+
+    pub(crate) fn begin_guard_update(&mut self, frame: u32) -> bool {
+        if self.guard_updated_frame == Some(frame) {
+            return false;
+        }
+        self.guard_updated_frame = Some(frame);
+        true
+    }
+
+    pub(crate) fn set_guard_anchor(&mut self, anchor: Option<Vec3>) {
+        self.guard_anchor = anchor;
+    }
+
     pub(crate) fn wander_in_place(&self) -> Option<WanderInPlace> {
         match self.wander {
             Some(WanderState::InPlace(state)) => Some(state),
@@ -93,6 +132,8 @@ impl UnitAiRuntime {
     pub(crate) fn clear_guard(&mut self) {
         self.guard_scan = None;
         self.guard_anchor = None;
+        self.guard_phase = None;
+        self.guard_updated_frame = None;
     }
 
     pub(crate) fn clear_hunt(&mut self) {
@@ -111,7 +152,19 @@ impl UnitAiRuntime {
         rate: u32,
         first_jitter: impl FnOnce(u32) -> u32,
     ) -> bool {
-        scan_due(&mut self.guard_scan, now, rate, first_jitter)
+        match self.guard_scan {
+            Some(next) if now < next => return false,
+            None => {
+                let next = now.wrapping_add(first_jitter(rate));
+                if now < next {
+                    self.guard_scan = Some(next);
+                    return false;
+                }
+            }
+            Some(_) => {}
+        }
+        self.guard_scan = Some(now.wrapping_add(rate));
+        true
     }
 
     pub(crate) fn hunt_scan_due(

@@ -275,3 +275,9 @@ mod named_command_test_support;
 mod named_guard_owner_tests;
 #[cfg(test)]
 mod named_hunt_owner_tests;
+
+#[cfg(test)]
+mod guard_phase_owner_tests;
+
+#[cfg(test)]
+mod guard_return_rate_control_tests;

@@ -435,6 +435,10 @@ impl GameLogic {
                     unit.ignore_collisions_with = None;
                     unit.ignore_collisions_until_frame = self.frame.saturating_add(30);
                     unit.ignored_obstacle_id = None;
+                    // Install the temporary overlay before changing its host
+                    // locomotion state so the nested Guard remains suspended.
+                    unit.unit_ai_runtime
+                        .set_quick_exit_deadline(Some(self.frame.wrapping_add(300)));
                     unit.set_ai_state(AIState::Moving);
                     unit.set_status_moving(true);
                     if crate::gameworld_shadow::gameworld_movement_authority_live() {
@@ -443,10 +447,6 @@ impl GameLogic {
                             Some([door_end.x, door_end.y, door_end.z]),
                         );
                         unit.record_host_movement();
-                    }
-                    let deadline = self.frame.saturating_add(300);
-                    if let Some(runtime) = self.unit_ai_runtime_mut(uid) {
-                        runtime.set_quick_exit_deadline(Some(deadline));
                     }
                 }
                 self.register_ground_path_goal(uid, door_end);

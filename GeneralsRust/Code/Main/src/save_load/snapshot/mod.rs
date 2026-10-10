@@ -101,6 +101,7 @@ mod face_state_persist;
 mod firewall_persist;
 mod garrison_firepoint_persist;
 mod gps_scrambler_persist;
+mod guard_state_persist;
 mod hacker_income_persist;
 mod helix_napalm_persist;
 mod inferno_fire_persist;

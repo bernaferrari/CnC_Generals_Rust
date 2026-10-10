@@ -1,6 +1,6 @@
 //! C++ support-state dispatcher and per-object update loop.
 use super::super::super::*;
-use super::guard_states::{GUARD_CHASE_PHASE_INNER, GUARD_RETURN_CLOSE_SQ, host_guard_xy_dist_sq};
+use super::guard_states::GUARD_CHASE_PHASE_INNER;
 use super::special_abilities::{LeftoverSaTick, clear_raising_flag_model};
 
 impl GameLogic {
@@ -70,7 +70,6 @@ impl GameLogic {
         self.clear_open_contain_player_who_entered();
         self.update_open_contain_exit_doors();
 
-        const GUARD_MIN_RADIUS: f32 = 80.0;
         const INTERACT_RANGE: f32 = crate::game_logic::host_repair::HOST_REPAIR_INTERACT_RANGE;
         const SPECIAL_ABILITY_RANGE_PADDING: f32 = 4.0;
         // Authored capture durations are integral milliseconds, but the host
@@ -91,10 +90,7 @@ impl GameLogic {
                     obj.owner_player_id,
                     obj.get_position(),
                     obj.target,
-                    obj.guard_position,
                     obj.guard_target,
-                    obj.guard_radius,
-                    obj.guard_mode,
                     obj.can_move(),
                     obj.can_attack(),
                     obj.health.current,
@@ -111,10 +107,7 @@ impl GameLogic {
                 owner_player_id,
                 position,
                 target_id,
-                guard_position,
                 guard_target,
-                guard_radius,
-                guard_mode,
                 can_move,
                 can_attack,
                 health_current,
@@ -137,293 +130,8 @@ impl GameLogic {
                 ai_state
             };
             match ai_state {
-                AIState::GuardingArea => {
-                    let anchor = guard_position.unwrap_or(position);
-                    let (std_inner, std_outer) = self.host_std_guard_ranges(object_id);
-                    let mood = self
-                        .objects
-                        .get(&object_id)
-                        .map(|o| o.ai_attitude)
-                        .unwrap_or(0);
-                    // C++ Sleep mood → getStdGuardRange 0. Do not fall back to 80.
-                    let inner = if mood <= -2 {
-                        0.0
-                    } else if std_inner > 0.0 {
-                        std_inner
-                    } else if guard_radius > 0.0 {
-                        guard_radius
-                    } else {
-                        GUARD_MIN_RADIUS
-                    };
-                    let _outer = if std_outer > 0.0 {
-                        std_outer
-                    } else {
-                        inner * 1.5
-                    };
-                    let flying_only =
-                        matches!(guard_mode, crate::game_logic::GuardMode::FlyingUnitsOnly);
-                    let polygon_name = self
-                        .objects
-                        .get(&object_id)
-                        .and_then(|o| o.guard_area_trigger.clone());
-                    let polygon = polygon_name
-                        .as_deref()
-                        .filter(|n| !n.is_empty())
-                        .and_then(Self::host_named_guard_area_polygon);
-                    // C++ lookForInnerTarget: inner ring, or polygon bounding radius + point-in-trigger.
-                    let (scan_anchor, acquire_radius) = if let Some((c, r, _)) = polygon.as_ref() {
-                        (*c, if *r > 0.0 { *r } else { inner })
-                    } else {
-                        (anchor, inner)
-                    };
-                    let enter_guard = self
-                        .objects
-                        .get(&object_id)
-                        .map(|o| o.thing().template.enter_guard)
-                        .unwrap_or(false);
-                    let hijack_guard = self
-                        .objects
-                        .get(&object_id)
-                        .map(|o| o.thing().template.hijack_guard)
-                        .unwrap_or(false);
-                    let picking_crate = self
-                        .objects
-                        .get(&object_id)
-                        .and_then(|o| o.requested_victim_id)
-                        .is_some();
-
-                    if can_attack && self.try_guard_last_attacker(object_id, team) {
-                        continue;
-                    }
-
-                    let returning =
-                        inner > 0.0 && host_guard_xy_dist_sq(position, anchor) > inner * inner;
-                    if self.guard_acquire_scan_due(object_id, returning) && can_attack {
-                        if let Some(team_id) = self.host_team_common_target(object_id) {
-                            if self.engage_guard_target(object_id, team_id, false) {
-                                continue;
-                            }
-                        }
-                        if let Some(enemy_id) = self.scan_guard_inner_target(
-                            object_id,
-                            team,
-                            scan_anchor,
-                            acquire_radius,
-                            flying_only,
-                            enter_guard,
-                            hijack_guard,
-                            polygon.as_ref().map(|(_, _, t)| t),
-                        ) {
-                            self.set_host_team_common_target(object_id, Some(enemy_id));
-                            if enter_guard {
-                                if self.try_guard_enter_or_hijack(
-                                    object_id,
-                                    enemy_id,
-                                    hijack_guard,
-                                    team,
-                                ) {
-                                    continue;
-                                }
-                            } else if self.engage_guard_target(object_id, enemy_id, false) {
-                                continue;
-                            }
-                        }
-                    }
-
-                    let return_goal = polygon.as_ref().map(|(c, _, _)| *c).unwrap_or(anchor);
-                    if can_move
-                        && !picking_crate
-                        && host_guard_xy_dist_sq(position, return_goal) > GUARD_RETURN_CLOSE_SQ
-                    {
-                        if self.path_approach_with_state(
-                            object_id,
-                            return_goal,
-                            AIState::GuardingArea,
-                        ) {
-                            if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.ignored_obstacle_id = None;
-                            }
-                        }
-                    }
-                }
-                AIState::GuardingObject => {
-                    let guard_target_id = match guard_target {
-                        Some(id) => id,
-                        None => {
-                            if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.set_target(None);
-                            }
-                            continue;
-                        }
-                    };
-
-                    let Some(guard_anchor) = self
-                        .objects
-                        .get(&guard_target_id)
-                        .filter(|o| o.is_alive())
-                        .map(|o| o.get_position())
-                    else {
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_guard_target(None);
-                        }
-                        self.clear_target_decision_aware(object_id);
-                        continue;
-                    };
-
-                    let (std_inner, _) = self.host_std_guard_ranges(object_id);
-                    let mood = self
-                        .objects
-                        .get(&object_id)
-                        .map(|o| o.ai_attitude)
-                        .unwrap_or(0);
-                    let inner = if mood <= -2 {
-                        0.0
-                    } else if std_inner > 0.0 {
-                        std_inner
-                    } else if guard_radius > 0.0 {
-                        guard_radius
-                    } else {
-                        GUARD_MIN_RADIUS
-                    };
-                    let flying_only =
-                        matches!(guard_mode, crate::game_logic::GuardMode::FlyingUnitsOnly);
-                    // C++ lookForInnerTarget always uses getStdGuardRange (inner).
-                    let acquire_radius = inner;
-                    let picking_crate = self
-                        .objects
-                        .get(&object_id)
-                        .and_then(|o| o.requested_victim_id)
-                        .is_some();
-                    let enter_guard = self
-                        .objects
-                        .get(&object_id)
-                        .map(|o| o.thing().template.enter_guard)
-                        .unwrap_or(false);
-                    let hijack_guard = self
-                        .objects
-                        .get(&object_id)
-                        .map(|o| o.thing().template.hijack_guard)
-                        .unwrap_or(false);
-                    let on_quick_exit = self
-                        .unit_ai_runtime(object_id)
-                        .and_then(|runtime| runtime.quick_exit_deadline())
-                        .is_some_and(|until| {
-                            self.frame <= until
-                                && self.objects.get(&object_id).is_some_and(|u| {
-                                    u.can_path_through_units
-                                        && !u.adjust_destinations
-                                        && u.ignored_obstacle_id.is_none()
-                                        && u.movement.path.len() >= 2
-                                })
-                        });
-                    if can_attack && !on_quick_exit && self.try_guard_last_attacker(object_id, team)
-                    {
-                        continue;
-                    }
-                    let returning = inner > 0.0
-                        && host_guard_xy_dist_sq(position, guard_anchor) > inner * inner;
-                    if self.guard_acquire_scan_due(object_id, returning)
-                        && can_attack
-                        && !on_quick_exit
-                    {
-                        if let Some(team_id) = self.host_team_common_target(object_id) {
-                            if self.engage_guard_target(object_id, team_id, false) {
-                                continue;
-                            }
-                        }
-                        if enter_guard {
-                            if let Some(enemy_id) = self.scan_guard_inner_target(
-                                object_id,
-                                team,
-                                guard_anchor,
-                                acquire_radius,
-                                flying_only,
-                                true,
-                                hijack_guard,
-                                None,
-                            ) {
-                                if self.try_guard_enter_or_hijack(
-                                    object_id,
-                                    enemy_id,
-                                    hijack_guard,
-                                    team,
-                                ) {
-                                    continue;
-                                }
-                            }
-                        } else {
-                            let tunnel_nemesis = {
-                                let guard_is_tunnel = self.objects.get(&guard_target_id).is_some_and(
-                                    |g| {
-                                        g.is_tunnel_network_style_container()
-                                            || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                                                &g.template_name,
-                                            )
-                                    },
-                                );
-                                if guard_is_tunnel {
-                                    let key = self
-                                        .objects
-                                        .get(&guard_target_id)
-                                        .map(|g| g.tunnel_system_key());
-                                    key.and_then(|k| self.resolved_tunnel_nemesis(k))
-                                } else {
-                                    None
-                                }
-                            };
-                            if let Some(enemy_id) = tunnel_nemesis {
-                                if self.engage_guard_target(object_id, enemy_id, false) {
-                                    continue;
-                                }
-                            }
-                            if let Some(enemy_id) = self.scan_guard_inner_target(
-                                object_id,
-                                team,
-                                guard_anchor,
-                                acquire_radius,
-                                flying_only,
-                                false,
-                                false,
-                                None,
-                            ) {
-                                if self.engage_guard_target(object_id, enemy_id, false) {
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-
-                    let drifted = self
-                        .unit_ai_runtime_mut(object_id)
-                        .is_some_and(|runtime| runtime.observe_guard_anchor(guard_anchor));
-                    if drifted {
-                        if can_move && !picking_crate && !on_quick_exit && !quick_exit_finished {
-                            if self.path_approach_with_state(
-                                object_id,
-                                guard_anchor,
-                                AIState::GuardingObject,
-                            ) {
-                                if let Some(obj) = self.objects.get_mut(&object_id) {
-                                    obj.ignored_obstacle_id = None;
-                                }
-                            }
-                        }
-                    } else if can_move
-                        && !picking_crate
-                        && !on_quick_exit
-                        && !quick_exit_finished
-                        && host_guard_xy_dist_sq(position, guard_anchor) > GUARD_RETURN_CLOSE_SQ
-                    {
-                        if self.path_approach_with_state(
-                            object_id,
-                            guard_anchor,
-                            AIState::GuardingObject,
-                        ) {
-                            if let Some(obj) = self.objects.get_mut(&object_id) {
-                                obj.ignored_obstacle_id = None;
-                            }
-                        }
-                    }
+                AIState::GuardingArea | AIState::GuardingObject => {
+                    self.tick_host_guard_states(&[object_id]);
                 }
                 AIState::Repairing => {
                     let Some(repair_target_id) = target_id else {

@@ -1,12 +1,23 @@
 use super::*;
 
 impl Object {
-    /// Finish the locomotor's current path leg. Native AI_PANIC runs its
-    /// state update before this pass; preserve its completed path until the
+    /// Native Panic and Guard Return update before the locomotor pass.
+    /// Preserve their completed paths until the
     /// next state update can observe the same last-node success that C++
     /// `AIInternalMoveToState::update` returns before `doLocomotor`.
+    pub(crate) fn needs_internal_move_arrival_observation(&self) -> bool {
+        self.ai_state == AIState::Panic
+            || matches!(
+                self.unit_ai_runtime.guard_phase(),
+                Some(crate::game_logic::object::unit_ai_runtime::GuardPhase::Return { .. })
+            ) && matches!(
+                self.ai_state,
+                AIState::GuardingArea | AIState::GuardingObject
+            )
+    }
+
     pub(crate) fn finish_locomotor_path_leg(&mut self) {
-        if self.ai_state == AIState::Panic {
+        if self.needs_internal_move_arrival_observation() {
             self.movement.target_position = None;
             self.movement.velocity = glam::Vec3::ZERO;
             self.set_status_moving(false);

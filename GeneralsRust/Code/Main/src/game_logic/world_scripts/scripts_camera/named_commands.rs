@@ -134,16 +134,6 @@ impl GameLogic {
             self.set_host_team_common_target(id, None);
         }
         self.clear_unit_movement_path(id);
-        // A new AIGuardReturnState owns a new scan deadline at onEnter.
-        // Use the existing session stream; no global RNG publication is needed.
-        let rate = self.host_guard_enemy_return_scan_rate();
-        let draw = self.logic_random.next_u32();
-        let delay = if rate == u32::MAX {
-            draw
-        } else {
-            draw % (rate + 1)
-        };
-        let deadline = self.frame.wrapping_add(delay);
         let unit = self.host_object_mut(id).expect("admitted Guard unit");
         Self::clear_owned_named_ai_goal(unit);
         unit.clear_guard_chase();
@@ -155,7 +145,6 @@ impl GameLogic {
         unit.last_command_source =
             crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
         unit.mark_jet_command_for_reload_interrupt(true);
-        unit.unit_ai_runtime.set_guard_scan_deadline(Some(deadline));
         self.return_guard_to_post(id);
     }
 

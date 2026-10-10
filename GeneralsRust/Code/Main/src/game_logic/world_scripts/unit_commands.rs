@@ -543,23 +543,17 @@ impl GameLogic {
         ) {
             return true;
         }
-        let can_move = {
+        {
             let Some(unit) = self.objects.get_mut(&id) else {
                 return false;
             };
             release_hunt_temp_lock_when_entering_guard(unit);
+            unit.unit_ai_runtime.clear_guard();
             unit.set_guard_position(Some(pos));
             unit.hunting = false;
-            unit.set_ai_state(AIState::GuardingArea);
             unit.mark_jet_command_for_reload_interrupt(true);
-            unit.can_move()
-        };
-        // C++ AIGuardState::onEnter → AI_GUARD_RETURN InternalMoveTo the post.
-        if can_move && self.path_approach_with_state(id, pos, AIState::GuardingArea) {
-            if let Some(unit) = self.objects.get_mut(&id) {
-                unit.ignored_obstacle_id = None;
-            }
         }
+        self.return_guard_to_post(id);
         true
     }
 
@@ -605,32 +599,17 @@ impl GameLogic {
         ) {
             return true;
         }
-        let goal = self
-            .objects
-            .get(&target_id)
-            .filter(|o| o.is_alive())
-            .map(|o| o.get_position());
-        let can_move = {
+        {
             let Some(unit) = self.objects.get_mut(&id) else {
                 return false;
             };
             release_hunt_temp_lock_when_entering_guard(unit);
+            unit.unit_ai_runtime.clear_guard();
             unit.set_guard_target(Some(target_id));
             unit.hunting = false;
-            unit.set_ai_state(AIState::GuardingObject);
             unit.mark_jet_command_for_reload_interrupt(true);
-            unit.can_move()
-        };
-        if can_move {
-            if let Some(mut pos) = goal {
-                self.adjust_guard_goal(id, &mut pos);
-                if self.path_approach_with_state(id, pos, AIState::GuardingObject) {
-                    if let Some(unit) = self.objects.get_mut(&id) {
-                        unit.ignored_obstacle_id = None;
-                    }
-                }
-            }
         }
+        self.return_guard_to_post(id);
         true
     }
 

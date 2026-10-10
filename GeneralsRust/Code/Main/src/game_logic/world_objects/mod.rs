@@ -11,6 +11,7 @@ mod damage_application;
 mod destroy_list_bounty;
 mod direct_destroy;
 mod host_ops_writeback;
+mod internal_move;
 mod object_ai_combat;
 mod object_queries;
 mod overlord_addon_damage;

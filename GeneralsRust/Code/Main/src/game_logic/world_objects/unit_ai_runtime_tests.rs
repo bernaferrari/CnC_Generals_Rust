@@ -92,6 +92,12 @@ fn quick_exit_completion_restores_guard_before_same_tick_dispatch() {
             .unit_ai_runtime_mut(unit_id)
             .unwrap()
             .set_quick_exit_deadline(Some(10));
+        // The temporary exit suspends an existing nested Idle state.
+        let runtime = world.unit_ai_runtime_mut(unit_id).unwrap();
+        runtime.set_guard_phase(Some(
+            crate::game_logic::object::unit_ai_runtime::GuardPhase::Idle,
+        ));
+        runtime.set_guard_scan_deadline(Some(frame));
 
         world.update_support_states(&[unit_id], 1.0 / 30.0);
 
@@ -160,6 +166,11 @@ fn quick_exit_deadline_preserves_path_at_end_frame_and_expires_next_frame() {
         .unit_ai_runtime_mut(unit_id)
         .unwrap()
         .set_quick_exit_deadline(Some(10));
+    let runtime = world.unit_ai_runtime_mut(unit_id).unwrap();
+    runtime.set_guard_phase(Some(
+        crate::game_logic::object::unit_ai_runtime::GuardPhase::Idle,
+    ));
+    runtime.set_guard_scan_deadline(Some(10));
 
     world.frame = 10;
     world.update_support_states(&[unit_id], 1.0 / 30.0);

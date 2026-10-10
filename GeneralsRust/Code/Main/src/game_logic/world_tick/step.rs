@@ -552,6 +552,7 @@ impl GameLogic {
                     // inspect the path completed by the preceding locomotor
                     // pass, then install the next waypoint before this pass.
                     self.tick_host_panic_states(&object_ids);
+                    self.tick_host_guard_states(&object_ids);
                     self.update_movement(&object_ids, dt);
                 }
                 super::HostSleepyKind::SpecialPowers => {

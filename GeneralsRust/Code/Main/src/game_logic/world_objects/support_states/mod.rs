@@ -6,6 +6,7 @@
 
 mod contain_states;
 mod guard_states;
+mod guard_update;
 mod heal_contain_tunnel;
 mod quick_exit;
 mod special_abilities;

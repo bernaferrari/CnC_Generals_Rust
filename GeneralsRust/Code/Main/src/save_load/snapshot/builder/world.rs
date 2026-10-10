@@ -529,6 +529,9 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
+        // OXOB's active Guard deadline must agree with the immutable nested
+        // continuation; neither record may silently repair a conflicting save.
+        super::super::guard_state_persist::validate_after_lifecycle_tail(snapshot, game_logic)?;
         super::super::ai_player_queue_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,

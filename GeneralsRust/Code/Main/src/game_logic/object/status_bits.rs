@@ -1004,6 +1004,20 @@ impl Object {
     }
 
     pub fn set_ai_state(&mut self, state: AIState) {
+        if matches!(
+            self.ai_state,
+            AIState::GuardingArea | AIState::GuardingObject
+        ) && !matches!(state, AIState::GuardingArea | AIState::GuardingObject)
+            // AIStateMachine::setTemporaryState suspends the base Guard
+            // machine. Only the explicitly admitted exit-path overlay retains
+            // it; an ordinary move order still exits Guard.
+            && !(state == AIState::Moving
+                && self.unit_ai_runtime.quick_exit_deadline().is_some()
+                && self.can_path_through_units
+                && !self.adjust_destinations)
+        {
+            self.unit_ai_runtime.clear_guard();
+        }
         // C++ `StateMachine::internalSetState` fires `onExit(EXIT_RESET)` then
         // `AIDockMachine::halt` → `cancelDock`. Leaving a live dock session
         // must free the approach slot so a re-tasked truck cannot ghost-jam.

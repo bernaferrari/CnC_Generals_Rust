@@ -606,6 +606,7 @@ fn guard_area_polygon_rejects_outside_and_covers_far_corner() {
     inside.set_position(glam::Vec3::new(180.0, 0.0, 20.0));
     logic.objects.insert(iid, inside);
 
+    logic.frame += 1; // A second ordinary state update is a new logic frame.
     mark_guard_scan_due(&mut logic, gid);
     logic.update_support_states(&[gid, oid, iid], 1.0 / 30.0);
     assert_eq!(
@@ -815,6 +816,12 @@ fn host_guardee_follow_is_per_axis_two_cells_not_inner_radius() {
     logic.objects.insert(cid, crusader);
     logic.objects.get_mut(&gid).unwrap().guard_target = Some(cid);
 
+    let now = logic.frame;
+    let runtime = logic.unit_ai_runtime_mut(gid).unwrap();
+    runtime.set_guard_phase(Some(
+        crate::game_logic::object::unit_ai_runtime::GuardPhase::Idle,
+    ));
+    runtime.set_guard_scan_deadline(Some(now));
     logic.update_support_states(&[gid, cid], 1.0 / 30.0);
     assert!(
         logic.objects[&gid].movement.target_position.is_none(),
@@ -826,10 +833,16 @@ fn host_guardee_follow_is_per_axis_two_cells_not_inner_radius() {
         .get_mut(&cid)
         .unwrap()
         .set_position(glam::Vec3::new(PATHFIND_CELL_SIZE_F * 2.5, 0.0, 0.0));
+    logic.frame = logic.host_guard_enemy_scan_rate();
+    mark_guard_scan_due(&mut logic, gid);
+    let mut adjusted_goal = logic.objects[&cid].get_position();
+    if crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(&logic.objects[&gid]) {
+        logic.adjust_guard_goal(gid, &mut adjusted_goal);
+    }
     logic.update_support_states(&[gid, cid], 1.0 / 30.0);
     let dest = logic.objects[&gid].movement.target_position;
     assert!(
-        dest.is_some_and(|p| (p.x - PATHFIND_CELL_SIZE_F * 2.5).abs() < 1.0),
+        dest.is_some_and(|p| (p.x - adjusted_goal.x).abs() < 1.0),
         "2.5-cell guardee walk must path even while still inside inner vision; dest={dest:?}"
     );
 }
