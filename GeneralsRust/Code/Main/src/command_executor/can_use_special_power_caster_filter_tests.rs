@@ -701,17 +701,6 @@ fn object_target_click_rejects_fogged_ghost() {
     use crate::command_system::PowerTarget;
     use crate::game_logic::KindOf;
     use gamelogic::common::ObjectShroudStatus;
-    use gamelogic::system::shroud_manager::get_shroud_manager;
-
-    let _lock = crate::fow_rendering::shroud_test_isolation_lock()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    {
-        let shroud_manager = get_shroud_manager();
-        let mut shroud = shroud_manager.lock().expect("shroud");
-        shroud.clear_all();
-    }
-
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::China, "HqA76exHuman", true));
     logic.add_player(Player::new(1, Team::USA, "HqA76exEnemy", false));
@@ -796,7 +785,7 @@ fn object_target_click_rejects_fogged_ghost() {
     }
 
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = logic.engine_stores.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.set_host_object_shroud_status(0, depot_id.0, ObjectShroudStatus::Fogged);
         shroud.set_host_object_shroud_status(0, tank_id.0, ObjectShroudStatus::Fogged);
@@ -846,7 +835,7 @@ fn object_target_click_rejects_fogged_ghost() {
     );
 
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = logic.engine_stores.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.set_host_object_shroud_status(0, depot_id.0, ObjectShroudStatus::Clear);
         shroud.set_host_object_shroud_status(0, tank_id.0, ObjectShroudStatus::Clear);

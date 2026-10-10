@@ -939,7 +939,7 @@ fn tighten_paths_all_units_to_same_point() {
             CommandResult::Success
         );
     }
-    // Both should target same destination (path last or target_position).
+    // The command goal is exact; the route is quantized to its cell.
     for id in [a, b] {
         let u = logic.host_object(id).unwrap();
         let goal = u
@@ -949,9 +949,15 @@ fn tighten_paths_all_units_to_same_point() {
             .copied()
             .or(u.movement.target_position);
         let g = goal.expect("should have path goal");
-        assert!(
-            (g.x - dest.x).abs() < 1.0 && (g.z - dest.z).abs() < 1.0,
-            "unit {id:?} goal {g:?} != {dest:?}"
+        assert_eq!(
+            u.requested_destination,
+            Some(dest),
+            "unit {id:?} command goal"
+        );
+        assert_eq!(
+            logic.pathfinding_system.grid.world_to_grid(g),
+            logic.pathfinding_system.grid.world_to_grid(dest),
+            "unit {id:?} route cell"
         );
     }
 }
@@ -1713,7 +1719,8 @@ fn group_geometry_and_formation_move() {
             exec.execute_create_formation(&[a, b]),
             CommandResult::Success
         );
-        let dest = Vec3::new(300.0, 0.0, 0.0);
+        // Keep both +/-20 formation offsets inside the map extent.
+        let dest = Vec3::new(150.0, 0.0, 0.0);
         assert!(exec.compute_ground_path_should_group(&[a, b], dest));
         assert_eq!(
             exec.execute_move_formation_to_position(&[a, b], dest),
@@ -1921,7 +1928,7 @@ fn group_idle_busy_dead_queries() {
 }
 
 #[test]
-fn attack_follow_waypoint_sets_attack_path() {
+fn attack_follow_waypoint_uses_move_path_until_combat_acquisition() {
     use super::CommandExecutor;
     use crate::command_system::CommandResult;
     use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate, Weapon};
@@ -1952,10 +1959,18 @@ fn attack_follow_waypoint_sets_attack_path() {
         );
     }
     let u = logic.host_object(id).unwrap();
-    assert!(u.is_attack_path, "attack-follow should mark attack path");
+    // AIStates.cpp:4402-4407 enters ordinary FollowWaypointPath; its
+    // AIUpdate::requestPath clears m_isAttackPath (AIUpdate.cpp:472).
+    // Combat acquisition later requests a victim-specific attack path.
     assert!(
-        matches!(u.ai_state, AIState::AttackMoving | AIState::Moving),
-        "state={:?}",
-        u.ai_state
+        !u.is_attack_path,
+        "following is not a victim-specific attack path"
     );
+    assert_eq!(u.ai_state, AIState::AttackMoving);
+    assert!(
+        !u.movement.path.is_empty(),
+        "attack-follow installs a route"
+    );
+    assert_eq!(u.attack_move_retry_count, 5);
+    assert_eq!(u.attack_move_sleep_until, 0);
 }

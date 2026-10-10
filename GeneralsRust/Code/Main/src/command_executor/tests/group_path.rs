@@ -109,13 +109,14 @@ fn scatter_uses_bounding_circle_not_selection_radius() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(exec.execute_scatter(&[a, b]), CommandResult::Success);
     }
-    let dest = logic
-        .host_object(a)
-        .unwrap()
-        .movement
-        .target_position
-        .or_else(|| logic.host_object(a).unwrap().movement.path.last().copied())
-        .expect("scatter dest");
+    let unit = logic.host_object(a).unwrap();
+    let dest = unit
+        .requested_destination
+        .expect("scatter command destination");
+    assert!(
+        !unit.movement.path.is_empty(),
+        "scatter installs a real path"
+    );
     let push = before_a.distance(Vec3::new(dest.x, before_a.y, dest.z));
     // 4 * bounding circle 5 = 20, not 4 * selection 50 = 200.
     assert!(
@@ -205,13 +206,16 @@ fn group_move_clamps_waypoint_to_map_extent() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(exec.execute_move(&[id], outside), CommandResult::Success);
     }
-    let dest = logic
-        .host_object(id)
-        .unwrap()
-        .movement
-        .target_position
-        .or_else(|| logic.host_object(id).unwrap().movement.path.last().copied())
-        .expect("clamped dest");
+    let unit = logic.host_object(id).unwrap();
+    let dest = unit
+        .requested_destination
+        .expect("clamped command destination");
+    let path_goal = unit.movement.path.last().copied().expect("clamped path");
+    // AIPathfind::adjustCoordToCell quantizes the route, not the command.
+    assert_eq!(
+        logic.pathfinding_system.grid.world_to_grid(path_goal),
+        logic.pathfinding_system.grid.world_to_grid(dest)
+    );
     let margin = 4.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
     assert!(
         dest.x <= max.x - margin + 1.0 && dest.z <= max.z - margin + 1.0,
@@ -221,17 +225,61 @@ fn group_move_clamps_waypoint_to_map_extent() {
 
 #[test]
 fn compute_ground_path_infantry_line_passable_fallback() {
-    // C++ friend_computeGroundPath infantry isLinePassable (AIGroup.cpp:590-611).
-    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
-    let prod = src.split("#[cfg(test)]").next().unwrap_or(src);
-    let i = prod
-        .find("fn compute_ground_path_should_group")
-        .expect("compute_ground_path_should_group");
-    let w = &prod[i..prod.len().min(i + 4500)];
+    // AIGroup.cpp:590-611: below the distance/count threshold, every
+    // infantry must have a passable line to the closest member at the center.
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut logic = GameLogic::new();
+    logic.set_ai_definition_base(game_engine::common::ini::AIData {
+        min_distance_for_group: 100.0,
+        distance_requires_group: 500.0,
+        ..Default::default()
+    });
+    for (name, kind) in [
+        ("LineVehicle", KindOf::Vehicle),
+        ("LineInfantry", KindOf::Infantry),
+    ] {
+        let mut template = ThingTemplate::new(name);
+        template.add_kind_of(kind).set_health(100.0);
+        logic.templates.insert(name.into(), template);
+    }
+    let vehicle = logic
+        .create_object("LineVehicle", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let left = logic
+        .create_object("LineInfantry", Team::USA, Vec3::new(-40.0, 0.0, 0.0))
+        .unwrap();
+    let right = logic
+        .create_object("LineInfantry", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+    let members = [vehicle, left, right];
+    let goal = Vec3::new(200.0, 0.0, 0.0);
     assert!(
-        w.contains("infantry_line_passable_to_center") && w.contains("is_passable"),
-        "group-path gate must keep the infantry line-passable fallback"
+        super::CommandExecutor::new(&mut logic, 0).compute_ground_path_should_group(&members, goal)
     );
+    let obstacle = logic
+        .pathfinding_system
+        .grid
+        .world_to_grid(Vec3::new(20.0, 0.0, 0.0));
+    logic.pathfinding_system.grid.set_blocked(obstacle, true);
+    assert!(
+        !super::CommandExecutor::new(&mut logic, 0)
+            .compute_ground_path_should_group(&members, goal),
+        "one blocked infantry-to-center line rejects the shared path"
+    );
+    logic.pathfinding_system.grid.set_blocked(obstacle, false);
+    let mut executor = super::CommandExecutor::new(&mut logic, 0);
+    assert!(executor.compute_ground_path_should_group(&members, goal));
+    assert_eq!(
+        executor.execute_move(&members, goal),
+        crate::command_system::CommandResult::Success
+    );
+    for id in members {
+        assert!(
+            !logic.host_object(id).unwrap().movement.path.is_empty(),
+            "accepted clear route {id:?}"
+        );
+    }
 }
 
 #[test]
@@ -495,70 +543,181 @@ fn combat_drop_sets_pending_evacuate() {
     );
 }
 
+fn evacuation_world(
+    raw: f32,
+    deck: Option<f32>,
+) -> (
+    crate::game_logic::GameLogic,
+    crate::game_logic::ObjectId,
+    crate::game_logic::ObjectId,
+) {
+    use crate::game_logic::{GameLogic, Team};
+    use glam::Vec3;
+    game_engine::common::ini::ini_locomotor::load_locomotors_from_str(
+        r#"
+Locomotor HqEvacChinookLocomotor
+  Surfaces = AIR
+  Speed = 100
+  Acceleration = 100
+  Appearance = HOVER
+  ZAxisBehavior = RELATIVE_TO_HIGHEST_LAYER
+  PreferredHeight = 10
+End
+"#,
+    )
+    .unwrap();
+    let mut parser = crate::assets::IniParser::new();
+    parser
+        .parse_ini_content(
+            r#"
+Object AmericaVehicleChinook
+  KindOf = VEHICLE AIRCRAFT PRODUCED_AT_HELIPAD
+  Geometry = CYLINDER
+  GeometryMajorRadius = 8
+  GeometryHeight = 12
+  Body = ActiveBody ModuleTag_Body
+    MaxHealth = 200
+  End
+  Behavior = ChinookAIUpdate ModuleTag_AI
+  End
+  Behavior = TransportContain ModuleTag_Contain
+    Slots = 8
+    AllowInsideKindOf = INFANTRY VEHICLE
+  End
+  Locomotor = SET_NORMAL HqEvacChinookLocomotor
+End
+Object EvacPassenger
+  KindOf = INFANTRY SELECTABLE
+  Body = ActiveBody ModuleTag_Body
+    MaxHealth = 100
+  End
+  Behavior = AIUpdateInterface ModuleTag_AI
+  End
+End
+"#,
+            "hq_evacuation.ini",
+        )
+        .unwrap();
+    let mut world = GameLogic::new();
+    for name in ["AmericaVehicleChinook", "EvacPassenger"] {
+        world.templates.insert(
+            name.into(),
+            GameLogic::build_template_from_object_definition(
+                name,
+                parser.get_definition(name).unwrap(),
+                None,
+            ),
+        );
+    }
+    let width = world.pathfinding_system.grid.width() as u32;
+    let height = world.pathfinding_system.grid.height() as u32;
+    assert!(world.restore_terrain_heights_from_grid(
+        width,
+        height,
+        &vec![raw; (width * height) as usize]
+    ));
+    if let Some(deck) = deck {
+        world.pathfinding_system.grid.stamp_bridge_deck(
+            Vec3::new(-40.0, deck, -40.0),
+            Vec3::new(40.0, deck, -40.0),
+            Vec3::new(-40.0, deck, 40.0),
+            Vec3::new(40.0, deck, 40.0),
+            false,
+        );
+    }
+    let transport = world
+        .create_object(
+            "AmericaVehicleChinook",
+            Team::USA,
+            Vec3::new(10.0, 80.0, 10.0),
+        )
+        .unwrap();
+    let passenger = world
+        .create_object("EvacPassenger", Team::USA, Vec3::new(10.0, 80.0, 10.0))
+        .unwrap();
+    {
+        let unit = world.host_object_mut(transport).unwrap();
+        assert!(
+            unit.chinook_ai.is_some(),
+            "real Chinook spawn binds its controller"
+        );
+        unit.status.airborne_target = true;
+        unit.ground_height = raw;
+        unit.ground_height_from_terrain = true;
+        assert!(unit.add_occupant(passenger));
+    }
+    world
+        .host_object_mut(passenger)
+        .unwrap()
+        .set_contained_by(Some(transport));
+    (world, transport, passenger)
+}
+
+fn assert_airborne_evacuation(
+    world: &mut crate::game_logic::GameLogic,
+    id: crate::game_logic::ObjectId,
+    passenger: crate::game_logic::ObjectId,
+    expected_height: f32,
+) {
+    assert_eq!(
+        super::CommandExecutor::new(world, 0).execute_evacuate(&[id]),
+        crate::command_system::CommandResult::Success
+    );
+    let unit = world.host_object(id).unwrap();
+    assert!(unit.pending_evacuate_on_stop, "unload waits for arrival");
+    let ai = unit.chinook_ai.as_ref().unwrap();
+    assert_eq!(
+        ai.dest,
+        [10.0, 10.0, expected_height],
+        "CPP layer-height evacuation command"
+    );
+    assert_eq!(
+        unit.requested_destination,
+        Some(glam::Vec3::new(10.0, expected_height, 10.0))
+    );
+    assert!(
+        !unit.movement.path.is_empty(),
+        "aircraft receives a real descent route"
+    );
+    assert_eq!(world.host_object(passenger).unwrap().contained_by, Some(id));
+}
+
 #[test]
 fn evacuate_airborne_uses_terrain_height_not_sea_level() {
-    // C++ AIGroup::groupEvacuate (AIGroup.cpp:2416-2422): dest Z = terrain height,
-    // then aiMoveToAndEvacuate — do not unload in the air.
-    use super::CommandExecutor;
-    use crate::command_system::CommandResult;
-    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use glam::Vec3;
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "evacuate_airborne_uses_terrain_height_not_sea_level",
+        || {
+            let (mut world, transport, passenger) = evacuation_world(15.0, None);
+            assert_airborne_evacuation(&mut world, transport, passenger, 15.0);
+        },
+    );
+}
 
-    let mut logic = GameLogic::new();
-    let mut t = ThingTemplate::new("EV_CH");
-    t.add_kind_of(KindOf::Vehicle);
-    t.add_kind_of(KindOf::Aircraft);
-    t.add_kind_of(KindOf::Selectable);
-    t.set_health(200.0);
-    logic.templates.insert("EV_CH".to_string(), t);
-    let mut p = ThingTemplate::new("EV_PX");
-    p.add_kind_of(KindOf::Infantry);
-    p.add_kind_of(KindOf::Selectable);
-    p.set_health(100.0);
-    logic.templates.insert("EV_PX".to_string(), p);
-    let transport = logic
-        .create_object("EV_CH", Team::USA, Vec3::new(10.0, 40.0, 10.0))
-        .unwrap();
-    let pax = logic
-        .create_object("EV_PX", Team::USA, Vec3::new(10.0, 40.0, 10.0))
-        .unwrap();
-    {
-        let t = logic.host_object_mut(transport).unwrap();
-        t.is_combat_chinook_transport = true;
-        t.max_transport = 8;
-        t.status.airborne_target = true;
-        t.ground_height = 15.0;
-        t.ground_height_from_terrain = true;
-        let _ = t.add_occupant(pax);
-    }
-    {
-        let p = logic.host_object_mut(pax).unwrap();
-        p.set_contained_by(Some(transport));
-        p.set_ai_state(crate::game_logic::AIState::Docked);
-    }
-    {
-        let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_evacuate(&[transport]), CommandResult::Success);
-    }
-    let t = logic.host_object(transport).unwrap();
-    assert!(
-        t.pending_evacuate_on_stop,
-        "airborne evacuate must path-then-unload, not execute_exit in air"
-    );
-    let goal = t
-        .movement
-        .path
-        .last()
-        .copied()
-        .or(t.movement.target_position)
-        .expect("airborne evacuate must path to ground");
-    assert!(
-        (goal.y - 15.0).abs() < 0.1,
-        "dest Y must be terrain/ground_height not sea-level 0; goal={goal:?}"
-    );
-    assert!(
-        logic.host_object(pax).unwrap().contained_by.is_some(),
-        "passengers must not dump at air position"
+#[test]
+fn airborne_evacuation_uses_driving_highest_layer_and_valid_zero_ground() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "airborne_evacuation_uses_driving_highest_layer_and_valid_zero_ground",
+        || {
+            let (mut first, id, passenger) = evacuation_world(3.0, Some(21.0));
+            let (mut other, other_id, other_passenger) = evacuation_world(7.0, Some(55.0));
+            let (mut zero, zero_id, zero_passenger) = evacuation_world(0.0, None);
+            zero.host_object_mut(zero_id).unwrap().ground_height = 99.0;
+            assert_eq!(id, other_id);
+            let foreign = gamelogic::system::engine_stores::new_for_world();
+            let held = foreign.ai().write().unwrap();
+            gamelogic::system::engine_stores::with_active_stores(&foreign, || {
+                assert_airborne_evacuation(&mut first, id, passenger, 21.0);
+                assert_airborne_evacuation(&mut other, other_id, other_passenger, 55.0);
+                other.reset();
+                assert_airborne_evacuation(&mut first, id, passenger, 21.0);
+                // Zero is authored terrain, not a missing query. The poisoned
+                // object observation must not substitute for the owned cache.
+                assert_airborne_evacuation(&mut zero, zero_id, zero_passenger, 0.0);
+            });
+            drop(held);
+        },
     );
 }
 
@@ -831,4 +990,112 @@ fn stealth_mood_delay_skips_while_stealthed_auto_acquire() {
         "units that auto-acquire while stealthed must not get a stop mood delay"
     );
     assert_eq!(logic.host_object(id).unwrap().next_mood_check_time, 0);
+}
+
+#[test]
+fn movement_extent_uses_controlling_human_not_local_presentation() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "movement_extent_uses_controlling_human_not_local_presentation",
+        || {
+            use crate::game_logic::{GameLogic, GridPos, KindOf, Player, Team, ThingTemplate};
+            use glam::Vec3;
+            let mut world = GameLogic::new();
+            world.override_world_size(200.0, 200.0);
+            let mut human = Player::new(0, Team::USA, "RemoteHuman", true);
+            human.is_local = false;
+            let mut computer = Player::new(1, Team::China, "ViewedComputer", false);
+            computer.is_local = true;
+            world.add_player(human);
+            world.add_player(computer);
+            let mut template = ThingTemplate::new("ControllerExtentVehicle");
+            template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+            world
+                .templates
+                .insert("ControllerExtentVehicle".into(), template);
+            let from = world
+                .pathfinding_system
+                .grid
+                .grid_to_world(GridPos::new(6, 6));
+            let goal = world
+                .pathfinding_system
+                .grid
+                .grid_to_world(GridPos::new(15, 6));
+            let human_id = world
+                .create_object_for_player("ControllerExtentVehicle", 0, from)
+                .unwrap();
+            let computer_id = world
+                .create_object_for_player(
+                    "ControllerExtentVehicle",
+                    1,
+                    world
+                        .pathfinding_system
+                        .grid
+                        .grid_to_world(GridPos::new(6, 9)),
+                )
+                .unwrap();
+            for id in [human_id, computer_id] {
+                world.host_object_mut(id).unwrap().selection_radius = 1.0;
+            }
+            world.refresh_pathfind_ally_masks();
+            world
+                .pathfinding_system
+                .grid
+                .set_logical_extent(GridPos::new(5, 5), GridPos::new(10, 10));
+            let human_path = world
+                .pathfinding_system
+                .find_path_ex(from, goal, &world.objects, false, Some(human_id))
+                .expect("human request adjusts to reachable logical extent");
+            let human_end = world
+                .pathfinding_system
+                .grid
+                .world_to_grid(*human_path.last().unwrap());
+            assert!(
+                world.pathfinding_system.grid.in_logical_extent(human_end),
+                "remote human must obey logical extent: {human_end:?}"
+            );
+            let computer_start = world.host_object(computer_id).unwrap().get_position();
+            let computer_path = world
+                .pathfinding_system
+                .find_path_ex(
+                    computer_start,
+                    goal,
+                    &world.objects,
+                    false,
+                    Some(computer_id),
+                )
+                .expect("computer request may use the border");
+            let computer_end = world
+                .pathfinding_system
+                .grid
+                .world_to_grid(*computer_path.last().unwrap());
+            assert!(
+                !world
+                    .pathfinding_system
+                    .grid
+                    .in_logical_extent(computer_end),
+                "locally viewed computer retains CPP border access: {computer_end:?}"
+            );
+            assert_eq!(computer_end, GridPos::new(15, 6));
+            world.get_player_mut(0).unwrap().is_human = false;
+            world.refresh_pathfind_ally_masks();
+            let no_humans = world
+                .pathfinding_system
+                .find_path_ex(from, goal, &world.objects, false, Some(human_id))
+                .expect("an explicitly admitted zero-human mask permits computer border access");
+            let no_human_end = world
+                .pathfinding_system
+                .grid
+                .world_to_grid(*no_humans.last().unwrap());
+            assert_eq!(no_human_end, GridPos::new(15, 6));
+            assert!(
+                !world
+                    .pathfinding_system
+                    .grid
+                    .in_logical_extent(no_human_end)
+            );
+            assert!(!world.get_player(0).unwrap().is_local);
+            assert!(world.get_player(1).unwrap().is_local);
+        },
+    );
 }

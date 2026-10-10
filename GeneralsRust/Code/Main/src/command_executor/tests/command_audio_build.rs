@@ -1203,7 +1203,12 @@ fn specialty_attack_voices_replace_voice_attack() {
             range: 175.0,
             ..Weapon::default()
         });
-        u.set_active_weapon_slot(1);
+        // A selected command-button weapon is locked, not just the last AI
+        // slot: WeaponSet.cpp:782-783 preserves explicit locks during choice.
+        assert!(u.set_weapon_lock(
+            1,
+            crate::game_logic::object::WeaponLockType::LockedPermanently
+        ));
     }
 
     logic.queued_audio_events.clear();
@@ -1622,8 +1627,10 @@ fn free_move_dissolves_mixed_formation_stamps() {
         );
     }
     assert_ne!(logic.host_object(stamped[0]).unwrap().formation_id, 0);
-    let mut all = stamped.clone();
-    all.extend(extra);
+    // AIGroup.cpp:320-373 takes the first counted member's formation ID.
+    // An unstamped leading member selects the free-move branch.
+    let mut all = extra;
+    all.extend(stamped.iter().copied());
     // Outside gather bbox, closer than MinDistanceForGroup so no column pack.
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);

@@ -52,6 +52,22 @@ impl FlightTerrainView<'_> {
     }
 }
 
+impl crate::game_logic::GameLogic {
+    /// AIGroup::groupEvacuate chooses the highest surface below the current
+    /// aircraft, independently of its current layer. The selected wall/bridge
+    /// necessarily contains this point, so clip=true equals this height read.
+    pub(crate) fn evacuation_surface_height(&self, pos: Vec3, fallback: f32) -> f32 {
+        let view = FlightTerrainView {
+            grid: &self.pathfinding_system.grid,
+            terrain: self.terrain.as_ref(),
+            samples: self.pathfinding_height_samples.as_ref(),
+        };
+        let ground = view.raw_ground(pos, fallback);
+        let layer = view.grid.highest_layer_at_or_below(pos, ground, false);
+        view.grid.layer_height_unclipped(pos, layer, ground)
+    }
+}
+
 #[cfg(test)]
 #[path = "flight_terrain_tests.rs"]
 mod tests;

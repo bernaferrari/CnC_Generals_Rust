@@ -792,7 +792,7 @@ pub struct PathfindingSystem {
     /// One-shot copied onto the next `PendingHostPath` by tighten.
     pub tighten_restore_adjust: bool,
     /// C++ `getPlayerType() == PLAYER_HUMAN` bits (bit i = player i).
-    human_player_mask: u16,
+    human_player_mask: Option<u16>,
     /// Seeker is a human player (m_logicalExtent clamp).
     seeker_is_human: bool,
     /// C++ `KINDOF_DOZER` for dozerHack.

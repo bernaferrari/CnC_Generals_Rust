@@ -27,7 +27,7 @@ impl PathfindingSystem {
             ignore_obstacle_id: None,
             adjust_goal: true,
             tighten_restore_adjust: false,
-            human_player_mask: 0,
+            human_player_mask: None,
             seeker_is_human: false,
             seeker_is_dozer: false,
             seeker_downhill_only: false,
@@ -40,16 +40,16 @@ impl PathfindingSystem {
 
     /// C++ `Player::getPlayerType() == PLAYER_HUMAN` bits for logical-extent clamp.
     pub fn set_human_player_mask(&mut self, mask: u16) {
-        self.human_player_mask = mask;
+        self.human_player_mask = Some(mask);
     }
 
     pub(super) fn apply_seeker_human_flag(&mut self) {
-        self.seeker_is_human = match self.seeker_player {
-            Some(p) if self.human_player_mask != 0 => {
-                (self.human_player_mask & (1u16 << p.min(15))) != 0
-            }
-            // No mask yet: player-path default is human (full-grid extent is a no-op).
-            _ => self.human_player_mask == 0,
+        self.seeker_is_human = match (self.seeker_player, self.human_player_mask) {
+            (Some(p), Some(mask)) => (mask & (1u16 << p.min(15))) != 0,
+            // An unadmitted standalone finder or a query with no controlling
+            // object retains CPP's human default. An admitted zero mask means
+            // there are no human controllers, not that admission is missing.
+            _ => true,
         };
         self.grid.set_query_is_human(self.seeker_is_human);
     }

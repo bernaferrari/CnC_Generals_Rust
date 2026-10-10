@@ -768,18 +768,12 @@ impl<'a> CommandExecutor<'a> {
                 obj.is_kind_of(crate::game_logic::KindOf::Aircraft) && obj.status.airborne_target;
             if airborne {
                 let pos = obj.get_position();
-                // C++ AIGroup::groupEvacuate (AIGroup.cpp:2418-2421): dest Z is
-                // the terrain/layer height under the aircraft — never sea
-                // level. `ground_height_from_terrain` marks a live terrain
-                // sample; trust it over an empty-map probe that returns 0.
-                let dest_y = if obj.ground_height_from_terrain && obj.ground_height > 0.0 {
-                    obj.ground_height
-                } else {
-                    self.game_logic
-                        .terrain_height_at(pos)
-                        .filter(|h| *h > 0.0)
-                        .unwrap_or(obj.ground_height)
-                };
+                // AIGroup.cpp:2418-2421 first chooses the highest wall or
+                // bridge at/below the aircraft, then asks for that layer's
+                // height. Raw ground belongs to this world, including zero.
+                let dest_y = self
+                    .game_logic
+                    .evacuation_surface_height(pos, obj.ground_height);
                 airborne_jobs.push((unit_id, Vec3::new(pos.x, dest_y, pos.z)));
             } else {
                 ground_containers.push(unit_id);
