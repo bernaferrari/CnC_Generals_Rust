@@ -1028,7 +1028,7 @@ impl GameLogic {
         // Main's admitted grid owns these layers and the raw ground sampler;
         // Core TerrainLogic's adapter would select a different AI pathfinder.
         if self.pathfinding_system.grid.layer_for_destination(position)
-            != gamelogic::path::PathfindLayerEnum::Ground
+            != gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground
         {
             return true;
         }
