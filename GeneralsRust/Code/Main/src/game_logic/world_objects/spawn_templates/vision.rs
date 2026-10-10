@@ -197,7 +197,7 @@ impl GameLogic {
         // Reveal/cover counters, delayed expiry and object COI mixing all read
         // this session's grid. No competing global partition stamp/writeback.
         use crate::game_logic::partition_coi::{
-            cells_touched_for_footprint, mix_object_shroud_from_cells,
+            cells_touched_for_footprint_at_origin, mix_object_shroud_from_cells,
         };
         use gamelogic::common::{Relationship, types::ObjectShroudStatus};
 
@@ -222,8 +222,9 @@ impl GameLogic {
             })
             .collect();
 
+        let origin = shroud_mgr.grid_world_origin().unwrap_or([0.0, 0.0]);
         for (id, owner, contained, immobile, mine, always_visible, x, z, fp) in object_snaps {
-            let cells = cells_touched_for_footprint(x, z, fp);
+            let cells = cells_touched_for_footprint_at_origin(origin, x, z, fp);
             for &pid in &player_ids {
                 if always_visible || contained {
                     shroud_mgr.set_host_object_shroud_status(pid, id.0, ObjectShroudStatus::Clear);

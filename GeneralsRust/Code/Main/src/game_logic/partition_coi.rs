@@ -29,8 +29,16 @@ impl HostPartitionFootprint {
 /// C++ `worldToCell` on the host XZ plane.
 #[inline]
 pub fn world_to_cell(x: f32, z: f32) -> (i32, i32) {
+    world_to_cell_at_origin([0.0, 0.0], x, z)
+}
+
+#[inline]
+fn world_to_cell_at_origin(origin: [f32; 2], x: f32, z: f32) -> (i32, i32) {
     let s = PARTITION_CELL_SIZE_RESIDUAL;
-    ((x / s).floor() as i32, (z / s).floor() as i32)
+    (
+        ((x - origin[0]) / s).floor() as i32,
+        ((z - origin[1]) / s).floor() as i32,
+    )
 }
 
 #[inline]
@@ -40,12 +48,23 @@ pub fn world_to_cell_dist(world: f32) -> i32 {
 
 /// C++ `PartitionData::updateCellsTouched` for a host object.
 pub fn cells_touched_for_footprint(x: f32, z: f32, fp: HostPartitionFootprint) -> Vec<(i32, i32)> {
+    cells_touched_for_footprint_at_origin([0.0, 0.0], x, z, fp)
+}
+
+/// C++ worldToCell subtracts the driving map origin at each conversion, after
+/// the footprint's world-space corner/rotation arithmetic has completed.
+pub fn cells_touched_for_footprint_at_origin(
+    origin: [f32; 2],
+    x: f32,
+    z: f32,
+    fp: HostPartitionFootprint,
+) -> Vec<(i32, i32)> {
     if fp.is_small {
-        do_small_fill(x, z, fp.major_radius)
+        do_small_fill_at_origin(origin, x, z, fp.major_radius)
     } else if fp.is_box {
-        do_rect_fill(x, z, fp.major_radius, fp.minor_radius, fp.angle)
+        do_rect_fill_at_origin(origin, x, z, fp.major_radius, fp.minor_radius, fp.angle)
     } else {
-        do_circle_fill(x, z, fp.major_radius)
+        do_circle_fill_at_origin(origin, x, z, fp.major_radius)
     }
 }
 
@@ -54,13 +73,22 @@ pub fn cells_touched_default(x: f32, z: f32) -> Vec<(i32, i32)> {
     do_small_fill(x, z, PARTITION_CELL_SIZE_RESIDUAL * 0.5)
 }
 
-pub fn do_small_fill(center_x: f32, center_z: f32, mut radius: f32) -> Vec<(i32, i32)> {
+pub fn do_small_fill(center_x: f32, center_z: f32, radius: f32) -> Vec<(i32, i32)> {
+    do_small_fill_at_origin([0.0, 0.0], center_x, center_z, radius)
+}
+
+fn do_small_fill_at_origin(
+    origin: [f32; 2],
+    center_x: f32,
+    center_z: f32,
+    mut radius: f32,
+) -> Vec<(i32, i32)> {
     let half_cell = PARTITION_CELL_SIZE_RESIDUAL * 0.5;
     if radius > half_cell {
         radius = half_cell;
     }
-    let (x1, z1) = world_to_cell(center_x - radius, center_z - radius);
-    let (x2, z2) = world_to_cell(center_x + radius, center_z + radius);
+    let (x1, z1) = world_to_cell_at_origin(origin, center_x - radius, center_z - radius);
+    let (x2, z2) = world_to_cell_at_origin(origin, center_x + radius, center_z + radius);
     let mut cells = Vec::new();
     for x in x1.min(x2)..=x1.max(x2) {
         for z in z1.min(z2)..=z1.max(z2) {
@@ -68,13 +96,22 @@ pub fn do_small_fill(center_x: f32, center_z: f32, mut radius: f32) -> Vec<(i32,
         }
     }
     if cells.is_empty() {
-        cells.push(world_to_cell(center_x, center_z));
+        cells.push(world_to_cell_at_origin(origin, center_x, center_z));
     }
     cells
 }
 
 pub fn do_circle_fill(center_x: f32, center_z: f32, radius: f32) -> Vec<(i32, i32)> {
-    let (cx, cz) = world_to_cell(center_x, center_z);
+    do_circle_fill_at_origin([0.0, 0.0], center_x, center_z, radius)
+}
+
+fn do_circle_fill_at_origin(
+    origin: [f32; 2],
+    center_x: f32,
+    center_z: f32,
+    radius: f32,
+) -> Vec<(i32, i32)> {
+    let (cx, cz) = world_to_cell_at_origin(origin, center_x, center_z);
     let mut cell_radius = world_to_cell_dist(radius);
     if cell_radius < 1 {
         cell_radius = 1;
@@ -106,6 +143,24 @@ pub fn do_rect_fill(
     halfsize_z: f32,
     angle: f32,
 ) -> Vec<(i32, i32)> {
+    do_rect_fill_at_origin(
+        [0.0, 0.0],
+        center_x,
+        center_z,
+        halfsize_x,
+        halfsize_z,
+        angle,
+    )
+}
+
+fn do_rect_fill_at_origin(
+    origin: [f32; 2],
+    center_x: f32,
+    center_z: f32,
+    halfsize_x: f32,
+    halfsize_z: f32,
+    angle: f32,
+) -> Vec<(i32, i32)> {
     let c = angle.cos();
     let s = angle.sin();
     let step_size = PARTITION_CELL_SIZE_RESIDUAL * 0.5;
@@ -123,7 +178,7 @@ pub fn do_rect_fill(
         let mut x = tl_x;
         let mut z = tl_z;
         for _ix in 0..num_steps_x.max(1) {
-            push_unique(&mut cells, world_to_cell(x, z));
+            push_unique(&mut cells, world_to_cell_at_origin(origin, x, z));
             x += xdx;
             z += xdy;
         }
@@ -131,7 +186,7 @@ pub fn do_rect_fill(
         tl_z += ydy;
     }
     if cells.is_empty() {
-        cells.push(world_to_cell(center_x, center_z));
+        cells.push(world_to_cell_at_origin(origin, center_x, center_z));
     }
     cells
 }
@@ -186,6 +241,25 @@ pub fn mix_object_shroud_from_cells(
 mod mix_tests {
     use super::mix_object_shroud_from_cells;
     use gamelogic::common::types::ObjectShroudStatus;
+
+    #[test]
+    fn map_origin_is_applied_at_small_circle_and_rotated_box_conversions() {
+        use super::*;
+        let origin = [160.0, -320.0];
+        for (small, boxed) in [(true, false), (false, false), (false, true)] {
+            let footprint = HostPartitionFootprint {
+                major_radius: 25.0,
+                minor_radius: 12.0,
+                angle: 0.25,
+                is_small: small,
+                is_box: boxed,
+            };
+            assert_eq!(
+                cells_touched_for_footprint_at_origin(origin, 180.0, -300.0, footprint),
+                cells_touched_for_footprint(20.0, 20.0, footprint)
+            );
+        }
+    }
 
     #[test]
     fn coi_mix_matches_partition_manager_cpp() {

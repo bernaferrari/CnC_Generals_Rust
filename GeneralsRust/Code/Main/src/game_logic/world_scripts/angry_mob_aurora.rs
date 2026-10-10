@@ -147,7 +147,11 @@ impl GameLogic {
             let shroud = std::sync::Arc::clone(self.world_services.shroud());
             if let Ok(mut shroud_mgr) = shroud.lock() {
                 if !shroud_mgr.has_shroud_grid() {
-                    shroud_mgr.init_shroud_grid(world_w, world_h);
+                    shroud_mgr.init_shroud_grid_at_origin(
+                        [self.world_min.x, self.world_min.z],
+                        world_w,
+                        world_h,
+                    );
                 }
             }
         }
@@ -382,7 +386,11 @@ impl GameLogic {
             let shroud = std::sync::Arc::clone(self.world_services.shroud());
             if let Ok(mut shroud_mgr) = shroud.lock() {
                 if !shroud_mgr.has_shroud_grid() {
-                    shroud_mgr.init_shroud_grid(world_w, world_h);
+                    shroud_mgr.init_shroud_grid_at_origin(
+                        [self.world_min.x, self.world_min.z],
+                        world_w,
+                        world_h,
+                    );
                 }
             }
         }

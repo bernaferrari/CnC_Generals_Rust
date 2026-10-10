@@ -96,9 +96,8 @@ pub struct PresentationFowGrid {
     pub width: u32,
     pub height: u32,
     /// World-space origin of logical cell `(0, 0)` on the C++ shroud X/Y
-    /// ground plane.  The current `ShroudGrid` starts at zero, but carrying
-    /// this explicitly prevents a future map/sub-grid origin from being lost
-    /// before the renderer projects the frozen texture onto Rust X/Z ground.
+    /// ground plane. This is the driving map's admitted lower corner, frozen
+    /// with its cells before projection onto Rust X/Z ground.
     #[serde(default)]
     pub world_origin_xy: [f32; 2],
     /// World units per cell (matches shroud partition cell size, typically 50).
@@ -169,7 +168,7 @@ impl PresentationFowGrid {
     }
 
     /// Build from shroud manager snapshot bytes with an explicit C++ shroud
-    /// ground-plane origin.  The live Main shroud grid currently uses `(0, 0)`,
+    /// ground-plane origin.  The driving map supplies its admitted lower corner,
     /// while this preserves the projection contract for map-relative grids.
     pub fn from_snapshot_at_origin(
         width: u32,
@@ -903,17 +902,28 @@ impl FOWRenderingBridge {
         let Some((width, height, cell_size)) = shroud_mgr.grid_dimensions() else {
             return PresentationFowGrid::inactive();
         };
+        let world_origin = shroud_mgr.grid_world_origin().unwrap_or([0.0, 0.0]);
         let width_u = width as u32;
         let height_u = height as u32;
 
         if shell_bypass {
-            return PresentationFowGrid::fully_visible(width_u, height_u, cell_size);
+            return PresentationFowGrid::fully_visible_at_origin(
+                width_u,
+                height_u,
+                world_origin,
+                cell_size,
+            );
         }
 
         // When shroud has never updated, fail-open (match unit FOW startup safeguard)
         // so terrain is not painted fully black during boot.
         if !shroud_runtime_active(&shroud_mgr, player_id) {
-            return PresentationFowGrid::fully_visible(width_u, height_u, cell_size);
+            return PresentationFowGrid::fully_visible_at_origin(
+                width_u,
+                height_u,
+                world_origin,
+                cell_size,
+            );
         }
 
         match shroud_mgr.snapshot_grid_for_player(player_id) {
@@ -925,7 +935,13 @@ impl FOWRenderingBridge {
                     height_u,
                     cells.len()
                 );
-                PresentationFowGrid::from_snapshot(width_u, height_u, cell_size, cells)
+                PresentationFowGrid::from_snapshot_at_origin(
+                    width_u,
+                    height_u,
+                    world_origin,
+                    cell_size,
+                    cells,
+                )
             }
             None => PresentationFowGrid::inactive(),
         }

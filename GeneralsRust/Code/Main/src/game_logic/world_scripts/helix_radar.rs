@@ -1140,7 +1140,11 @@ impl GameLogic {
 
             // Init grid if not yet (unit tests without load_map).
             if !shroud_mgr.has_shroud_grid() {
-                shroud_mgr.init_shroud_grid(world_w, world_h);
+                shroud_mgr.init_shroud_grid_at_origin(
+                    [self.world_min.x, self.world_min.z],
+                    world_w,
+                    world_h,
+                );
             }
 
             // C++ RadarVanPing: instant full VisionRange, then shrink after delay.
@@ -1523,7 +1527,11 @@ impl GameLogic {
 
             // Init grid if not yet (unit tests without load_map).
             if !shroud_mgr.has_shroud_grid() {
-                shroud_mgr.init_shroud_grid(world_w, world_h);
+                shroud_mgr.init_shroud_grid_at_origin(
+                    [self.world_min.x, self.world_min.z],
+                    world_w,
+                    world_h,
+                );
             }
         }
 

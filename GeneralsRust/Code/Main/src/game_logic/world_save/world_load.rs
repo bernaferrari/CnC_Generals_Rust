@@ -627,7 +627,11 @@ impl GameLogic {
                 }
 
                 if let Ok(mut shroud_mgr) = self.world_services.shroud().lock() {
-                    shroud_mgr.init_shroud_grid(self.world_width, self.world_height);
+                    shroud_mgr.init_shroud_grid_at_origin(
+                        [self.world_min.x, self.world_min.z],
+                        self.world_width,
+                        self.world_height,
+                    );
                 }
                 report_progress(0.88, "Initializing shroud and pathfinding");
                 log::info!(

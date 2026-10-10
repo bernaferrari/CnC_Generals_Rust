@@ -7,6 +7,10 @@
 use super::*;
 
 #[cfg(test)]
+#[path = "world_save/shroud_map_owner_tests.rs"]
+mod shroud_map_owner_tests;
+
+#[cfg(test)]
 #[path = "world_save/bridge_owner_tests.rs"]
 mod bridge_owner_tests;
 #[path = "world_save/world_bridges.rs"]

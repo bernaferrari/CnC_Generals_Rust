@@ -368,6 +368,9 @@ impl PartitionCell {
 /// Matches C++ PartitionManager grid structure
 #[derive(Debug, Clone)]
 struct ShroudGrid {
+    /// Admitted map lower corner on the C++ XY ground plane; runtime metadata,
+    /// reconstructed from the map before restoring the serialized cell array.
+    world_origin_xy: [f32; 2],
     /// Grid dimensions (cells)
     width: usize,
     height: usize,
@@ -378,7 +381,7 @@ struct ShroudGrid {
 }
 
 impl ShroudGrid {
-    fn new(map_width: f32, map_height: f32, cell_size: f32) -> Self {
+    fn new(world_origin_xy: [f32; 2], map_width: f32, map_height: f32, cell_size: f32) -> Self {
         let width = ((map_width / cell_size).ceil() as usize).max(1);
         let height = ((map_height / cell_size).ceil() as usize).max(1);
         let total_cells = width * height;
@@ -386,6 +389,7 @@ impl ShroudGrid {
         let cells = vec![PartitionCell::default(); total_cells];
 
         Self {
+            world_origin_xy,
             width,
             height,
             cell_size,
@@ -395,14 +399,22 @@ impl ShroudGrid {
 
     /// Convert world position to grid coordinates
     fn world_to_grid(&self, pos: &Coord3D) -> Option<(usize, usize)> {
-        let x = (pos.x / self.cell_size).floor() as isize;
-        let y = (pos.y / self.cell_size).floor() as isize;
+        let (x, y) = self.world_to_signed_cell(pos);
 
         if x >= 0 && y >= 0 && (x as usize) < self.width && (y as usize) < self.height {
             Some((x as usize, y as usize))
         } else {
             None
         }
+    }
+
+    /// C++ PartitionManager.h:1506 subtracts the map extent before flooring.
+    /// Keep signed off-map centers so circle spans can clip at the boundary.
+    fn world_to_signed_cell(&self, pos: &Coord3D) -> (i32, i32) {
+        (
+            ((pos.x - self.world_origin_xy[0]) / self.cell_size).floor() as i32,
+            ((pos.y - self.world_origin_xy[1]) / self.cell_size).floor() as i32,
+        )
     }
 
     /// Convert world distance to cell distance
@@ -462,8 +474,7 @@ impl ShroudGrid {
 
         // C++ draws around a signed center even outside the map; each
         // horizontal span clips against the grid bounds below.
-        let center_x = (center.x / self.cell_size).floor() as i32;
-        let center_y = (center.y / self.cell_size).floor() as i32;
+        let (center_x, center_y) = self.world_to_signed_cell(center);
 
         let cell_radius = self.world_to_cell_dist(radius);
 
@@ -488,8 +499,7 @@ impl ShroudGrid {
 
         // C++ draws around a signed center even outside the map; each
         // horizontal span clips against the grid bounds below.
-        let center_x = (center.x / self.cell_size).floor() as i32;
-        let center_y = (center.y / self.cell_size).floor() as i32;
+        let (center_x, center_y) = self.world_to_signed_cell(center);
 
         let cell_radius = self.world_to_cell_dist(radius);
 
@@ -562,8 +572,7 @@ impl ShroudGrid {
 
         // C++ draws around a signed center even outside the map; each
         // horizontal span clips against the grid bounds below.
-        let center_x = (center.x / self.cell_size).floor() as i32;
-        let center_y = (center.y / self.cell_size).floor() as i32;
+        let (center_x, center_y) = self.world_to_signed_cell(center);
 
         let cell_radius = self.world_to_cell_dist(radius);
 
@@ -588,8 +597,7 @@ impl ShroudGrid {
 
         // C++ draws around a signed center even outside the map; each
         // horizontal span clips against the grid bounds below.
-        let center_x = (center.x / self.cell_size).floor() as i32;
-        let center_y = (center.y / self.cell_size).floor() as i32;
+        let (center_x, center_y) = self.world_to_signed_cell(center);
 
         let cell_radius = self.world_to_cell_dist(radius);
 
@@ -1217,6 +1225,11 @@ impl ShroudManager {
             .map(|g| (g.width, g.height, g.cell_size))
     }
 
+    /// Ground-plane origin owned by the admitted map, not serialized counters.
+    pub fn grid_world_origin(&self) -> Option<[f32; 2]> {
+        self.shroud_grid.as_ref().map(|grid| grid.world_origin_xy)
+    }
+
     /// Count the driving map's footprint cells for C++ object-shroud mixing.
     /// Off-map cells have no COIs (PartitionManager.cpp:1619-1622). An
     /// uninitialized map likewise contributes no cells; never consult another
@@ -1359,6 +1372,9 @@ impl ShroudManager {
                 })
                 .collect();
             Some(ShroudGrid {
+                // C++ xfers into a grid initialized from the staged map. The
+                // original wire format carries counters, not another extent.
+                world_origin_xy: self.grid_world_origin().unwrap_or([0.0, 0.0]),
                 width,
                 height,
                 cell_size: grid.cell_size,
@@ -1455,7 +1471,18 @@ impl ShroudManager {
     ///
     /// Should be called after map is loaded with actual map dimensions
     pub fn init_shroud_grid(&mut self, map_width: f32, map_height: f32) {
+        self.init_shroud_grid_at_origin([0.0, 0.0], map_width, map_height);
+    }
+
+    /// Initialize from this map's admitted C++ XY extent (Rust XZ).
+    pub fn init_shroud_grid_at_origin(
+        &mut self,
+        world_origin_xy: [f32; 2],
+        map_width: f32,
+        map_height: f32,
+    ) {
         self.shroud_grid = Some(ShroudGrid::new(
+            world_origin_xy,
             map_width,
             map_height,
             SHROUD_GRID_CELL_SIZE,
@@ -2111,6 +2138,7 @@ impl ShroudManager {
                                     status,
                                     SHROUD_GRID_CELL_SIZE,
                                     SHROUD_GRID_CELL_SIZE,
+                                    grid.world_origin_xy,
                                 );
                             }
                         }
@@ -2146,6 +2174,7 @@ impl ShroudManager {
                             status,
                             SHROUD_GRID_CELL_SIZE,
                             SHROUD_GRID_CELL_SIZE,
+                            grid.world_origin_xy,
                         );
                     }
                 }
@@ -2648,6 +2677,10 @@ impl Default for ShroudManager {
 pub fn get_shroud_manager() -> Arc<Mutex<ShroudManager>> {
     crate::system::engine_stores::shroud_manager()
 }
+
+#[cfg(test)]
+#[path = "shroud_map_origin_tests.rs"]
+mod map_origin_tests;
 
 #[cfg(test)]
 #[path = "shroud_manager_tests.rs"]

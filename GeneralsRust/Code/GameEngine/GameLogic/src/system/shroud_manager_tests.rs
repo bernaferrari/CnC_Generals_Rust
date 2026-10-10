@@ -920,7 +920,7 @@ fn test_partition_cell_cash_values() {
 
 #[test]
 fn test_shroud_grid_initialization() {
-    let grid = ShroudGrid::new(1000.0, 1000.0, 50.0);
+    let grid = ShroudGrid::new([0.0, 0.0], 1000.0, 1000.0, 50.0);
     assert_eq!(grid.width, 20); // 1000 / 50 = 20
     assert_eq!(grid.height, 20);
     assert_eq!(grid.cells.len(), 400); // 20 * 20
@@ -928,7 +928,7 @@ fn test_shroud_grid_initialization() {
 
 #[test]
 fn test_shroud_grid_world_to_grid() {
-    let grid = ShroudGrid::new(1000.0, 1000.0, 50.0);
+    let grid = ShroudGrid::new([0.0, 0.0], 1000.0, 1000.0, 50.0);
 
     let pos = Coord3D {
         x: 100.0,
@@ -958,7 +958,7 @@ fn test_shroud_grid_world_to_grid() {
 
 #[test]
 fn test_shroud_grid_reveal() {
-    let mut grid = ShroudGrid::new(1000.0, 1000.0, 50.0);
+    let mut grid = ShroudGrid::new([0.0, 0.0], 1000.0, 1000.0, 50.0);
     let center = Coord3D {
         x: 500.0,
         y: 500.0,
@@ -977,7 +977,7 @@ fn test_shroud_grid_reveal() {
 
 #[test]
 fn test_shroud_grid_undo_reveal() {
-    let mut grid = ShroudGrid::new(1000.0, 1000.0, 50.0);
+    let mut grid = ShroudGrid::new([0.0, 0.0], 1000.0, 1000.0, 50.0);
     let center = Coord3D {
         x: 500.0,
         y: 500.0,

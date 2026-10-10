@@ -1793,8 +1793,9 @@ impl RadarSystem {
     }
 
     /// C++ `W3DRadar::setShroudLevel` — partition shroud-cell indices, not
-    /// radar pixels. Converts `cell * shroudCellWidth/Height` to world, then
-    /// `worldToRadar`, and paints the radar-pixel rectangle.
+    /// radar pixels. Converts the cell relative to its admitted grid origin
+    /// to world, then `worldToRadar`, and paints the radar-pixel rectangle.
+    /// The C++ zero-origin calculation is unchanged when the origin is zero.
     pub fn set_shroud_level_from_partition_cell(
         &mut self,
         shroud_x: i32,
@@ -1802,6 +1803,7 @@ impl RadarSystem {
         status: CellShroudStatus,
         cell_width: f32,
         cell_height: f32,
+        world_origin_xy: [f32; 2],
     ) {
         if cell_width <= f32::EPSILON || cell_height <= f32::EPSILON {
             return;
@@ -1810,10 +1812,10 @@ impl RadarSystem {
             self.set_shroud_level(shroud_x, shroud_y, status);
             return;
         }
-        let map_min_x = shroud_x as f32 * cell_width;
-        let map_min_y = shroud_y as f32 * cell_height;
-        let map_max_x = (shroud_x + 1) as f32 * cell_width;
-        let map_max_y = (shroud_y + 1) as f32 * cell_height;
+        let map_min_x = world_origin_xy[0] + shroud_x as f32 * cell_width;
+        let map_min_y = world_origin_xy[1] + shroud_y as f32 * cell_height;
+        let map_max_x = world_origin_xy[0] + (shroud_x + 1) as f32 * cell_width;
+        let map_max_y = world_origin_xy[1] + (shroud_y + 1) as f32 * cell_height;
         let Some(radar_min) = self.world_to_radar(&Coord3D::new(map_min_x, map_min_y, 0.0)) else {
             return;
         };

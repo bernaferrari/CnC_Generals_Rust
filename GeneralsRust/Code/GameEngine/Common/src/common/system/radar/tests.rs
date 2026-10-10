@@ -82,16 +82,66 @@ fn test_set_shroud_level_from_partition_cell_maps_to_radar() {
         &[],
     );
     // 40wu partition cell / (1280/128=10) = 4 radar pixels.
-    radar.set_shroud_level_from_partition_cell(0, 0, CellShroudStatus::Clear, 40.0, 40.0);
+    radar.set_shroud_level_from_partition_cell(
+        0,
+        0,
+        CellShroudStatus::Clear,
+        40.0,
+        40.0,
+        [0.0, 0.0],
+    );
     assert_eq!(radar.get_shroud_level(0, 0), CellShroudStatus::Clear);
     assert_eq!(radar.get_shroud_level(3, 3), CellShroudStatus::Clear);
-    radar.set_shroud_level_from_partition_cell(10, 10, CellShroudStatus::Fogged, 40.0, 40.0);
+    radar.set_shroud_level_from_partition_cell(
+        10,
+        10,
+        CellShroudStatus::Fogged,
+        40.0,
+        40.0,
+        [0.0, 0.0],
+    );
     assert_eq!(radar.get_shroud_level(40, 40), CellShroudStatus::Fogged);
     assert_ne!(
         radar.get_shroud_level(10, 10),
         CellShroudStatus::Fogged,
         "partition cell 10 is not radar cell 10"
     );
+}
+
+#[test]
+fn offset_partition_cells_paint_the_matching_local_radar_pixels() {
+    for origin in [[-140.0, 480.0], [960.0, -400.0]] {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(origin[0], origin[1], 0.0),
+            Coord3D::new(origin[0] + 1280.0, origin[1] + 1280.0, 100.0),
+            &[],
+        );
+        radar.set_shroud_level_from_partition_cell(
+            0,
+            0,
+            CellShroudStatus::Clear,
+            40.0,
+            40.0,
+            origin,
+        );
+        assert_eq!(radar.get_shroud_level(0, 0), CellShroudStatus::Clear);
+        assert_eq!(radar.get_shroud_level(3, 3), CellShroudStatus::Clear);
+        radar.set_shroud_level_from_partition_cell(
+            10,
+            10,
+            CellShroudStatus::Fogged,
+            40.0,
+            40.0,
+            origin,
+        );
+        assert_eq!(radar.get_shroud_level(40, 40), CellShroudStatus::Fogged);
+        assert_eq!(radar.get_shroud_level(80, 80), CellShroudStatus::Shrouded);
+        assert_eq!(
+            radar.get_shroud_level_at_world(&Coord3D::new(origin[0] + 20.0, origin[1] + 20.0, 0.0)),
+            CellShroudStatus::Clear,
+        );
+    }
 }
 
 #[test]

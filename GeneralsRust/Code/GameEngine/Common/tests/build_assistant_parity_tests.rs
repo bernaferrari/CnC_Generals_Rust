@@ -3,21 +3,10 @@ use game_engine::common::system::build_assistant::{
     LocalLegalToBuildOptions, Object, ObjectID, Player, ThingTemplate,
     clear_build_assistant_backend, set_build_assistant_backend,
 };
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
-
-static BUILD_ASSISTANT_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-static FOOTPRINT_SAMPLES: OnceLock<Mutex<Vec<Coord3D>>> = OnceLock::new();
-
-fn build_assistant_test_guard() -> MutexGuard<'static, ()> {
-    BUILD_ASSISTANT_TEST_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("build assistant test lock")
-}
+use std::sync::{Arc, Mutex};
 
 #[test]
 fn build_assistant_fails_closed_without_gamelogic_backend() {
-    let _guard = build_assistant_test_guard();
     clear_build_assistant_backend();
 
     let assistant = BuildAssistant::new();
@@ -96,7 +85,6 @@ impl BuildAssistantBackend for CapturingBackend {
 
 #[test]
 fn tiled_locations_forward_cpp_line_build_flags_and_builder() {
-    let _guard = build_assistant_test_guard();
     clear_build_assistant_backend();
     let backend = Arc::new(CapturingBackend::default());
     set_build_assistant_backend(backend.clone());
@@ -138,25 +126,20 @@ fn tiled_locations_forward_cpp_line_build_flags_and_builder() {
 }
 
 fn capture_footprint_sample(point: &Coord3D, user_data: &mut dyn std::any::Any) {
-    let _ = user_data;
-    FOOTPRINT_SAMPLES
-        .get_or_init(|| Mutex::new(Vec::new()))
-        .lock()
-        .expect("footprint samples lock")
+    user_data
+        .downcast_mut::<Vec<Coord3D>>()
+        .expect("caller-owned footprint samples")
         .push(*point);
 }
 
 #[test]
 fn footprint_iteration_samples_backend_ground_height() {
-    let _guard = build_assistant_test_guard();
     clear_build_assistant_backend();
     set_build_assistant_backend(Arc::new(CapturingBackend::default()));
 
     let assistant = BuildAssistant::new();
     let template = ThingTemplate::new("AmericaPowerPlant");
-    let samples = FOOTPRINT_SAMPLES.get_or_init(|| Mutex::new(Vec::new()));
-    samples.lock().expect("footprint samples lock").clear();
-    let mut unused_user_data = ();
+    let mut samples = Vec::<Coord3D>::new();
 
     assistant.iterate_footprint(
         &template,
@@ -164,13 +147,31 @@ fn footprint_iteration_samples_backend_ground_height() {
         &Coord3D::new(100.0, 20.0, 0.0),
         20.0,
         capture_footprint_sample,
-        &mut unused_user_data,
+        &mut samples,
     );
 
-    let samples = samples.lock().expect("footprint samples lock");
     assert!(!samples.is_empty());
-    for sample in samples.iter() {
-        assert_eq!(sample.z, sample.x + sample.y * 0.5);
+    let first_samples = samples.clone();
+    let mut other_samples = Vec::<Coord3D>::new();
+    assistant.iterate_footprint(
+        &template,
+        0.0,
+        &Coord3D::new(200.0, 20.0, 0.0),
+        20.0,
+        capture_footprint_sample,
+        &mut other_samples,
+    );
+    assert!(!other_samples.is_empty());
+    assert_eq!(
+        samples, first_samples,
+        "another caller cannot change this capture"
+    );
+    assert!(samples.iter().all(|sample| sample.x < 150.0));
+    assert!(other_samples.iter().all(|sample| sample.x > 150.0));
+    for capture in [&samples, &other_samples] {
+        for sample in capture {
+            assert_eq!(sample.z, sample.x + sample.y * 0.5);
+        }
     }
 
     clear_build_assistant_backend();
@@ -178,7 +179,6 @@ fn footprint_iteration_samples_backend_ground_height() {
 
 #[test]
 fn is_possible_to_make_unit_scans_command_set() {
-    let _guard = build_assistant_test_guard();
     clear_build_assistant_backend();
     let assistant = BuildAssistant::new();
     let builder = Object {

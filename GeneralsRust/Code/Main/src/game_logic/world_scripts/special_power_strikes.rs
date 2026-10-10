@@ -497,7 +497,11 @@ impl GameLogic {
                 }
             };
             if !shroud_mgr.has_shroud_grid() {
-                shroud_mgr.init_shroud_grid(world_w, world_h);
+                shroud_mgr.init_shroud_grid_at_origin(
+                    [self.world_min.x, self.world_min.z],
+                    world_w,
+                    world_h,
+                );
             }
             shroud_mgr.do_shroud_reveal(&center, range, player_mask);
             shroud_mgr.queue_undo_shroud_reveal(&center, range, player_mask, duration, frame);
@@ -2105,7 +2109,11 @@ impl GameLogic {
             let world_h = self.world_height.max(1.0);
             if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.world_services.shroud()).lock() {
                 if !shroud_mgr.has_shroud_grid() {
-                    shroud_mgr.init_shroud_grid(world_w, world_h);
+                    shroud_mgr.init_shroud_grid_at_origin(
+                        [self.world_min.x, self.world_min.z],
+                        world_w,
+                        world_h,
+                    );
                 }
                 for event in &scorch_events {
                     let mut player_mask = 0u32;
