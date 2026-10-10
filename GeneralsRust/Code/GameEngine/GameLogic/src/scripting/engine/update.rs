@@ -432,25 +432,20 @@ impl ScriptEngine {
             engine: self,
             team: inner.condition_team,
         });
-        let condition_team_name = script.condition_team_name.trim();
+        let condition_team_name = script.condition_team_name.trim().to_string();
         if !condition_team_name.is_empty() {
-            let instances = match execution.driver.team_instances(condition_team_name) {
-                ScriptOwnerQuery::Present(ids) => ids,
-                ScriptOwnerQuery::Missing => Vec::new(),
+            let next = |after, driver: &dyn ScriptExecutionDriver| match driver
+                .condition_team_after(&condition_team_name, after)
+            {
+                ScriptOwnerQuery::Present(id) => id,
+                ScriptOwnerQuery::Missing => None,
                 ScriptOwnerQuery::Unavailable => get_team_factory()
                     .lock()
                     .ok()
-                    .map(|factory| {
-                        factory
-                            .find_team_instances(condition_team_name)
-                            .into_iter()
-                            .filter_map(|team| team.read().ok().map(|team| team.get_id()))
-                            .collect()
-                    })
-                    .unwrap_or_default(),
+                    .and_then(|factory| factory.condition_team_after(&condition_team_name, after)),
             };
-            if !instances.is_empty() {
-                for id in instances {
+            if let Some(mut id) = next(None, execution.driver) {
+                loop {
                     self.lock_inner_mut().condition_team = Some(id);
                     self.evaluate_and_execute_script(
                         script,
@@ -459,6 +454,12 @@ impl ScriptEngine {
                         execution,
                         false,
                     )?;
+                    // CPP DLINK_ITERATOR::advance observes mutations made by
+                    // this instance's conditions and immediate action chain.
+                    let Some(following) = next(Some(id), execution.driver) else {
+                        break;
+                    };
+                    id = following;
                 }
                 return Ok(());
             }

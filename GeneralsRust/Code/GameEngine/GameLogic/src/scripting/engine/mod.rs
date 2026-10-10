@@ -70,3 +70,6 @@ pub const SCRIPT_ENGINE_SRC: &str = concat!(
     include_str!("camera_requests.rs"),
     include_str!("update.rs"),
 );
+
+#[cfg(test)]
+mod condition_cursor_tests;

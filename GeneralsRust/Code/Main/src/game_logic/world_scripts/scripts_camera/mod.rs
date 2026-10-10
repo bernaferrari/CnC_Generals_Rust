@@ -297,3 +297,8 @@ mod team_context_owner_tests;
 
 #[cfg(test)]
 mod team_condition_loop_control_tests;
+
+#[cfg(test)]
+mod condition_cursor_control_tests;
+#[cfg(test)]
+mod condition_cursor_owner_tests;

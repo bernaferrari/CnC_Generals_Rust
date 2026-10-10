@@ -701,6 +701,37 @@ impl TeamFactory {
             .collect()
     }
 
+    /// C++ DLINK_ITERATOR rereads the current instance's next link after a
+    /// synchronous script callback. Use the live admission order, without
+    /// retaining a roster or team guard across that callback. A removed cursor
+    /// ends the walk; it can never be rebound to another same-name instance.
+    pub fn condition_team_after(
+        &self,
+        prototype_name: &str,
+        after: Option<TeamID>,
+    ) -> Option<TeamID> {
+        let start = match after {
+            Some(id) => {
+                if self
+                    .teams
+                    .get(&id)?
+                    .read()
+                    .expect("condition-team cursor")
+                    .get_name()
+                    != prototype_name
+                {
+                    return None;
+                }
+                self.instance_order.iter().position(|live| *live == id)? + 1
+            }
+            None => 0,
+        };
+        self.instance_order[start..].iter().find_map(|id| {
+            let team = self.teams.get(id)?.read().expect("condition-team identity");
+            (team.get_name() == prototype_name).then_some(*id)
+        })
+    }
+
     /// Return all live team instances.
     pub fn get_all_teams(&self) -> Vec<Arc<RwLock<Team>>> {
         self.instance_order

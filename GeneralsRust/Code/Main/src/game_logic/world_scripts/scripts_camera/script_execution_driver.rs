@@ -500,6 +500,31 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         ScriptOwnerQuery::Present(name)
     }
 
+    fn condition_team_after(
+        &self,
+        name: &str,
+        after: Option<u32>,
+    ) -> ScriptOwnerQuery<Option<u32>> {
+        let factory = self
+            .world
+            .team_factory
+            .lock()
+            .expect("owned condition-team cursor");
+        if factory.find_team_prototype(name).is_none()
+            || after.is_some_and(|id| {
+                factory.find_team_by_id(id).is_none_or(|team| {
+                    team.read()
+                        .expect("owned condition-team identity")
+                        .get_name()
+                        != name
+                })
+            })
+        {
+            return ScriptOwnerQuery::Missing;
+        }
+        ScriptOwnerQuery::Present(factory.condition_team_after(name, after))
+    }
+
     fn team_current_player(&self, id: u32) -> ScriptOwnerQuery<Option<String>> {
         let Some(team) = self.owned_team(id) else {
             return ScriptOwnerQuery::Missing;

@@ -250,6 +250,27 @@ pub trait ScriptExecutionDriver {
         ScriptOwnerQuery::Unavailable
     }
 
+    /// Re-query the live next instance only after synchronous effects have
+    /// finished. None selects the initial head. A missing cursor is final;
+    /// never restart at the head after destruction or owner reset.
+    fn condition_team_after(
+        &self,
+        name: &str,
+        after: Option<TeamID>,
+    ) -> ScriptOwnerQuery<Option<TeamID>> {
+        match self.team_instances(name) {
+            ScriptOwnerQuery::Present(ids) => match after {
+                None => ScriptOwnerQuery::Present(ids.first().copied()),
+                Some(id) => match ids.iter().position(|live| *live == id) {
+                    Some(index) => ScriptOwnerQuery::Present(ids.get(index + 1).copied()),
+                    None => ScriptOwnerQuery::Missing,
+                },
+            },
+            ScriptOwnerQuery::Missing => ScriptOwnerQuery::Missing,
+            ScriptOwnerQuery::Unavailable => ScriptOwnerQuery::Unavailable,
+        }
+    }
+
     fn team_name(&self, _id: TeamID) -> ScriptOwnerQuery<String> {
         ScriptOwnerQuery::Unavailable
     }
