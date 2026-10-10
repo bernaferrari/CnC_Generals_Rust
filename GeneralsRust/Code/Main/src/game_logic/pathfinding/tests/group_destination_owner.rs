@@ -293,8 +293,12 @@ fn logical_extent_queue_admission_uses_driving_active_boundary_and_constructor_i
             with_foreign_held(|| {
                 let inert = GameLogic::new();
                 let grid = &inert.pathfinding_system.grid;
+                // Main declares512 units with10-unit path cells: ceil gives
+                //52 storage cells, but floor-1 excludes the final partial cell.
+                assert_eq!((grid.width(), grid.height()), (52, 52));
                 assert!(grid.in_logical_extent(GridPos::new(0, 0)));
-                assert!(grid.in_logical_extent(GridPos::new(grid.width() - 1, grid.height() - 1)));
+                assert!(grid.in_logical_extent(GridPos::new(50, 50)));
+                assert!(!grid.in_logical_extent(GridPos::new(51, 51)));
                 first.process_pathfind_queue();
                 other.process_pathfind_queue();
                 assert!(
