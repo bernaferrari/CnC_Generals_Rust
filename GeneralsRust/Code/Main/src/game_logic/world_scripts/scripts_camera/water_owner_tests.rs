@@ -514,7 +514,12 @@ fn owned_terrain_queries_ignore_foreign_waypoints_heights_and_bridge_snapshots()
                         bi_directional: false,
                     });
                 map.bridges.push(gamelogic::system::map_loader::BridgeData {
-                    polygon: Vec::new(),
+                    // Map bridge admission needs the original four deck corners
+                    // in from-left/from-right/to-right/to-left order.
+                    polygon: [(10.0, 30.0), (10.0, 10.0), (30.0, 10.0), (30.0, 30.0)]
+                        .into_iter()
+                        .map(|(x, y)| gamelogic::system::map_loader::Coord2D::new(x, y))
+                        .collect(),
                     height: deck,
                     from: gamelogic::common::Coord3D::new(10.0, 20.0, deck),
                     to: gamelogic::common::Coord3D::new(30.0, 20.0, deck),
@@ -524,6 +529,12 @@ fn owned_terrain_queries_ignore_foreign_waypoints_heights_and_bridge_snapshots()
                 let handle = world.world_services.terrain().clone();
                 let mut terrain = handle.write().unwrap();
                 world.admit_map_bridge_geometry(&mut terrain, map);
+                assert!(
+                    terrain
+                        .find_bridge_at(&gamelogic::common::Coord3D::new(20.0, 20.0, deck))
+                        .is_some(),
+                    "authored corners must admit an actual deck before querying ownership"
+                );
             }
             let active = second.world_services.clone();
             gamelogic::system::engine_stores::with_world_services(&active, || {
