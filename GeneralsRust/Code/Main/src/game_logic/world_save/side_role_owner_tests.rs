@@ -29,6 +29,17 @@ fn configured(observer_slot: bool, misleading_display: bool) -> GameLogic {
 
 fn sides(world: &GameLogic) -> SidesList {
     let mut result = SidesList::new();
+    // Authored Civilian rows are map inputs, not occupied lobby slots.
+    for player in world
+        .players
+        .values()
+        .filter(|p| p.map_side.role == PlayerSideRole::Authored)
+    {
+        let mut row = Dict::new();
+        row.set_ascii_string(key_player_name(), player.map_side.map_player_name.clone());
+        row.set_ascii_string(key_player_faction(), "FactionCivilian");
+        result.add_side(&row);
+    }
     world.add_host_players_as_sides(&mut result);
     result
 }

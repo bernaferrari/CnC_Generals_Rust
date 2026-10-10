@@ -118,6 +118,9 @@ mod sides_host_apply_tests {
                 out.close_data_chunk();
                 std::fs::write(&path, out.into_ckmp_bytes()).unwrap();
                 let map = path.to_str().unwrap();
+                // This admission witness supplies its immutable template inputs.
+                // It does not rely on another test having populated retail globals.
+                crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
                 let mut world = GameLogic::new();
                 crate::skirmish_config::apply_skirmish_config(
                     &mut world,
@@ -154,6 +157,19 @@ mod sides_host_apply_tests {
                     slots(&world),
                     before,
                     "authored Civilian side indices are not occupied GameInfo slots"
+                );
+                for name in ["UnrelatedMapSide", "PlyrCivilian"] {
+                    assert!(
+                        world
+                            .players
+                            .values()
+                            .any(|p| p.map_side.map_player_name == name),
+                        "actual map admits retained Civilian {name}"
+                    );
+                }
+                assert!(
+                    world.players.values().any(Player::is_reserved_neutral),
+                    "actual map admits canonical neutral independently of slots"
                 );
             },
         );

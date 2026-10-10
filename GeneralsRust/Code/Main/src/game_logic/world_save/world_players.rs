@@ -492,87 +492,6 @@ impl GameLogic {
         }
     }
 
-    pub(in super::super) fn sync_legacy_sides_list_from_dicts(
-        &self,
-        side_dicts: &[Dict],
-        team_dicts: &[Dict],
-        side_builds: &[super::script_loader::SideBuildEntry],
-        script_lists: &[ScriptList],
-    ) {
-        let sides_list = get_sides_list();
-        let Ok(mut sides) = sides_list.try_write() else {
-            log::warn!("Fast legacy runtime sync skipped SidesList write (THE_SIDES_LIST busy)");
-            return;
-        };
-        sides.reset();
-        for dict in side_dicts {
-            sides.add_side(dict);
-        }
-        for dict in team_dicts {
-            sides.add_team(dict);
-        }
-
-        let mut pos_by_side: HashMap<u32, i32> = HashMap::new();
-        for entry in side_builds {
-            let pos = *pos_by_side.get(&entry.side_index).unwrap_or(&0);
-            let mut build = gamelogic::build_list_info::BuildListInfo::new();
-            build.set_building_name(gamelogic::common::AsciiString::from(
-                entry.building_name.as_str(),
-            ));
-            build.set_template_name(gamelogic::common::AsciiString::from(
-                entry.template.as_str(),
-            ));
-            build.set_location(gamelogic::common::Coord3D::new(
-                entry.position.x,
-                entry.position.y,
-                0.0,
-            ));
-            build.set_angle(entry.angle);
-            build.set_initially_built(entry.initially_built);
-            build.set_num_rebuilds(entry.num_rebuilds.max(0) as u32);
-            if let Some(script) = &entry.script_name {
-                build.set_script(gamelogic::common::AsciiString::from(script.as_str()));
-            }
-            if let Some(health) = entry.health {
-                build.set_health(health);
-            }
-            if let Some(whiner) = entry.whiner {
-                build.set_whiner(whiner);
-            }
-            if let Some(unsellable) = entry.unsellable {
-                build.set_unsellable(unsellable);
-            }
-            if let Some(repairable) = entry.repairable {
-                build.set_repairable(repairable);
-            }
-            if let Some(side) = sides.get_side_info_mut(entry.side_index as usize) {
-                side.add_to_build_list(build, pos);
-                pos_by_side.insert(entry.side_index, pos + 1);
-            }
-        }
-
-        for (index, scripts) in script_lists.iter().enumerate() {
-            if let Some(side) = sides.get_side_info_mut(index) {
-                side.set_script_list(Some(Box::new(scripts.clone())));
-            }
-        }
-
-        sides.validate_sides();
-
-        if matches!(
-            self.game_mode,
-            GameMode::Skirmish
-                | GameMode::Multiplayer
-                | GameMode::Lan
-                | GameMode::Internet
-                | GameMode::Replay
-        ) {
-            sides.prepare_for_mp_or_skirmish();
-            self.add_host_players_as_sides(&mut sides);
-            sides.validate_sides();
-        }
-    }
-
     pub(in super::super) fn add_host_players_as_sides(
         &self,
         sides: &mut gamelogic::sides_list::SidesList,
@@ -592,10 +511,10 @@ impl GameLogic {
             let Some(player) = self.players.get(pid) else {
                 continue;
             };
-            if player.is_replay_observer() {
-                continue;
-            }
-            if player.is_reserved_neutral() {
+            // C++ GameLogic1291–1425 appends occupied GameInfo slots only.
+            // Authored map owners already come from the prepared input rows;
+            // re-emitting them would carry a previous map into a retry.
+            if player.map_side.role != PlayerSideRole::Participant {
                 continue;
             }
             let player_name = host_slot_script_name(player);

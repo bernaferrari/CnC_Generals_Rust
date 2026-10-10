@@ -50,3 +50,10 @@ mod side_role_owner_tests;
 
 #[path = "world_save/side_admission.rs"]
 mod side_admission;
+
+#[path = "world_save/side_preparation.rs"]
+mod side_preparation;
+
+#[cfg(test)]
+#[path = "world_save/prepared_side_owner_tests.rs"]
+mod prepared_side_owner_tests;
