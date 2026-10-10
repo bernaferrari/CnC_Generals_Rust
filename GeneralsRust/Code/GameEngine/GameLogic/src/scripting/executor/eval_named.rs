@@ -505,7 +505,9 @@ impl ScriptConditionEvaluator<'_> {
             return Ok(ScriptConditionResult::False);
         };
 
-        let Ok(terrain) = crate::terrain::get_terrain_logic().read() else {
+        let terrain_owner_handle = crate::terrain::get_terrain_logic();
+
+        let Ok(terrain) = terrain_owner_handle.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(target_waypoint) = terrain.get_waypoint_by_id(completed_waypoint_id) else {
@@ -1217,7 +1219,8 @@ impl ScriptConditionEvaluator<'_> {
         let Ok(Some(bridge_id)) = tracker.get_object_id(&bridge_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(terrain) = get_terrain_logic().read() else {
+        let terrain_owner_handle = get_terrain_logic();
+        let Ok(terrain) = terrain_owner_handle.read() else {
             return Ok(ScriptConditionResult::False);
         };
         Ok(if terrain.is_bridge_repaired(bridge_id) {
@@ -1242,7 +1245,8 @@ impl ScriptConditionEvaluator<'_> {
         let Ok(Some(bridge_id)) = tracker.get_object_id(&bridge_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(terrain) = get_terrain_logic().read() else {
+        let terrain_owner_handle = get_terrain_logic();
+        let Ok(terrain) = terrain_owner_handle.read() else {
             return Ok(ScriptConditionResult::False);
         };
         Ok(if terrain.is_bridge_broken(bridge_id) {

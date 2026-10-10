@@ -137,7 +137,8 @@ pub(crate) fn get_wall_height() -> Real {
 }
 
 pub(crate) fn resolve_waypoint_by_id(id: WaypointId) -> Option<Arc<Waypoint>> {
-    let terrain = get_terrain_logic().read().ok()?;
+    let terrain_owner_handle = get_terrain_logic();
+    let terrain = terrain_owner_handle.read().ok()?;
     let waypoint = terrain.get_waypoint_by_id(id)?;
     Some(Arc::new(Waypoint::from_terrain(waypoint)))
 }

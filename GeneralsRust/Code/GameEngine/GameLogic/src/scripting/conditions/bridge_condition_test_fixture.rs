@@ -91,7 +91,8 @@ impl<'guard> BridgeConditionFixture<'guard> {
             .write()
             .unwrap()
             .add_bridge_to_logic(info, "TestBridgeTemplate".into());
-        let layer = get_terrain_logic()
+        let terrain_owner_handle = get_terrain_logic();
+        let layer = terrain_owner_handle
             .read()
             .unwrap()
             .get_first_bridge()
@@ -130,7 +131,8 @@ impl<'guard> BridgeConditionFixture<'guard> {
     }
 
     fn bridge_is_destroyed(&self) -> bool {
-        let layer = get_terrain_logic()
+        let terrain_owner_handle = get_terrain_logic();
+        let layer = terrain_owner_handle
             .read()
             .unwrap()
             .get_first_bridge()
@@ -332,12 +334,14 @@ async fn bridge_condition_scenario() {
 fn verify_unwind_restores_exact_inputs(isolation: &std::sync::MutexGuard<'static, ()>) {
     let previous_pathfinder = the_ai().read().unwrap().pathfinder().unwrap();
     let previous_bridges = {
-        let terrain = get_terrain_logic().read().unwrap();
+        let terrain_owner_handle = get_terrain_logic();
+        let terrain = terrain_owner_handle.read().unwrap();
         let mut ids = Vec::new();
         terrain.for_each_bridge(|bridge| ids.push(bridge.get_bridge_info().bridge_object_id));
         ids
     };
-    let previous_height = get_terrain_logic()
+    let terrain_owner_handle = get_terrain_logic();
+    let previous_height = terrain_owner_handle
         .read()
         .unwrap()
         .get_ground_height(150.0, 100.0, None);

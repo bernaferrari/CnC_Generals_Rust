@@ -25,7 +25,8 @@ pub const FLOAT_SWAY_AMP: f32 = 0.05;
 /// C++ writes waterZ only when a water handle exists (polygon / grid).
 /// None means no water table — do not snap to lakebed.
 pub fn leftover_water_surface_y(map_x: f32, map_y: f32) -> Option<f32> {
-    let tl = gamelogic::terrain::get_terrain_logic().try_read().ok()?;
+    let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+    let tl = terrain_owner_handle.try_read().ok()?;
     if tl.get_water_handle(map_x, map_y).is_none() {
         return None;
     }

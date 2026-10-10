@@ -2204,7 +2204,7 @@ impl CnCGameEngine {
             fow_rendering::reveal_entire_map_for_player(
                 &mut self
                     .game_logic
-                    .engine_stores
+                    .world_services
                     .shroud()
                     .lock()
                     .unwrap_or_else(|e| e.into_inner()),
@@ -2282,7 +2282,7 @@ impl CnCGameEngine {
                 fow_rendering::reveal_entire_map_for_player(
                     &mut self
                         .game_logic
-                        .engine_stores
+                        .world_services
                         .shroud()
                         .lock()
                         .unwrap_or_else(|e| e.into_inner()),

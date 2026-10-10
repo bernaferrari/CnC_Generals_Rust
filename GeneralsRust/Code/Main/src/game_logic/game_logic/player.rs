@@ -455,7 +455,18 @@ impl Player {
         }
         self.completed_upgrades.insert(name.to_string());
         self.unlocked_sciences.insert(name.to_string());
-        self.sync_leftover_player_upgrade_from_host(name);
+    }
+
+    /// World callers supply their admitted definition; no active-store lookup.
+    pub(crate) fn add_completed_upgrade_with_definition(
+        &mut self,
+        name: &str,
+        definition: Option<&gamelogic::upgrade::UpgradeTemplate>,
+    ) {
+        self.add_completed_upgrade(name);
+        if let Some(definition) = definition {
+            self.sync_leftover_player_upgrade_from_host(definition);
+        }
     }
 
     /// C++ SpecialPowerModule::initiateIntentToDoSpecialPower →
@@ -508,8 +519,11 @@ impl Player {
 
     /// C++ ProductionUpdate.cpp:874-879 / 931 — purchased research complete.
     /// AcademyStats::recordUpgrade(upgrade, FALSE) + ScoreKeeper::addMoneySpent.
-    pub fn record_upgrade_production_complete(&self, upgrade_name: &str) {
-        self.sync_leftover_upgrade_production_complete(upgrade_name);
+    pub(crate) fn record_upgrade_production_complete(
+        &self,
+        definition: &gamelogic::upgrade::UpgradeTemplate,
+    ) {
+        self.sync_leftover_upgrade_production_complete(definition);
     }
 
     fn leftover_player_arc_for_sync(
@@ -544,12 +558,10 @@ impl Player {
             })
     }
 
-    fn sync_leftover_upgrade_production_complete(&self, upgrade_name: &str) {
-        let Some(template) =
-            gamelogic::upgrade::center::with_upgrade_center(|c| c.find_upgrade(upgrade_name))
-        else {
-            return;
-        };
+    fn sync_leftover_upgrade_production_complete(
+        &self,
+        template: &gamelogic::upgrade::UpgradeTemplate,
+    ) {
         let Some(arc) = self.leftover_player_arc_for_sync() else {
             return;
         };
@@ -559,12 +571,15 @@ impl Player {
         let cost = template.calc_cost_to_build(&guard).max(0) as u32;
         guard
             .get_academy_stats_mut()
-            .record_upgrade(template.as_ref(), false);
+            .record_upgrade(template, false);
         guard.get_score_keeper_mut().add_money_spent(cost);
     }
 
     /// Leftover `Player::addUpgrade` already xfers `m_upgradesCompleted`.
-    fn sync_leftover_player_upgrade_from_host(&self, upgrade_name: &str) {
+    fn sync_leftover_player_upgrade_from_host(
+        &self,
+        template: &gamelogic::upgrade::UpgradeTemplate,
+    ) {
         use gamelogic::player::PlayerArcExt;
 
         let names = [self.name.as_str(), self.map_side.map_player_name.as_str()];
@@ -583,16 +598,7 @@ impl Player {
         let Some(arc) = leftover else {
             return;
         };
-        let Some(template) =
-            gamelogic::upgrade::center::with_upgrade_center(|c| c.find_upgrade(upgrade_name))
-        else {
-            return;
-        };
-        arc.add_upgrade(
-            template.as_ref(),
-            gamelogic::upgrade::UpgradeStatus::Complete,
-            None,
-        );
+        arc.add_upgrade(template, gamelogic::upgrade::UpgradeStatus::Complete, None);
     }
 
     /// C++ `ResourceGatheringManager::addSupplyCenter`.
@@ -2192,7 +2198,14 @@ mod map_side_dict_tests {
             .expect("register leftover upgrade");
         });
         let mut player = Player::new(0, Team::USA, "USA", true);
-        player.complete_researched_upgrade(NAME, gamelogic::upgrade::UpgradeType::Player);
+        let definition =
+            gamelogic::upgrade::center::with_upgrade_center(|center| center.find_upgrade(NAME))
+                .expect("authored fixture upgrade");
+        player.complete_researched_upgrade_with_definition(
+            NAME,
+            gamelogic::upgrade::UpgradeType::Player,
+            Some(definition.as_ref()),
+        );
         let leftover_guard = leftover.read().expect("leftover player");
         assert!(
             leftover_guard.get_academy_stats().has_researched_radar(),

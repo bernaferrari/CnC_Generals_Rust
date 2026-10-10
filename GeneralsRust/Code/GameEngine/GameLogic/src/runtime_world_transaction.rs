@@ -197,7 +197,8 @@ impl RuntimeWorldGlobals {
             let ai = take_global_ai_for_world_boundary(bundle);
             let ai_integration = take_ai_integration_for_world_boundary();
             let terrain = {
-                let mut guard = get_terrain_logic()
+                let terrain_owner_handle = get_terrain_logic();
+                let mut guard = terrain_owner_handle
                     .write()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
                 std::mem::replace(&mut *guard, TerrainLogic::new())
@@ -275,7 +276,8 @@ impl RuntimeWorldGlobals {
             let old_ai = replace_global_ai_for_world_boundary(bundle, ai);
             let old_ai_integration = replace_ai_integration_for_world_boundary(ai_integration);
             let old_terrain = {
-                let mut guard = get_terrain_logic()
+                let terrain_owner_handle = get_terrain_logic();
+                let mut guard = terrain_owner_handle
                     .write()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
                 std::mem::replace(&mut *guard, terrain)
@@ -542,3 +544,6 @@ mod tests {
         assert_eq!(scope.finish().len(), 2);
     }
 }
+
+mod host;
+pub use host::{HostRuntimeWorldStage, StagedHostRuntimeWorld};

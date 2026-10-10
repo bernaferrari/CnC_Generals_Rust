@@ -654,7 +654,8 @@ impl RhaiScriptExecutor {
             |unit_type: &str, team: &str, waypoint: &str| {
                 log::debug!("Rhai: create_unit({}, {}, {})", unit_type, team, waypoint);
                 let waypoint_name = crate::common::AsciiString::from(waypoint);
-                let spawn_pos = crate::terrain::get_terrain_logic()
+                let terrain_owner_handle = crate::terrain::get_terrain_logic();
+                let spawn_pos = terrain_owner_handle
                     .read()
                     .ok()
                     .and_then(|terrain| {

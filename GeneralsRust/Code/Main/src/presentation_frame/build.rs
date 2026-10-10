@@ -418,7 +418,7 @@ impl PresentationFrame {
         // gameplay queries. The vectors use the same unchanged object traversal;
         // rendering consumes values without locks or ambient world selection.
         let (fow_grid, frozen_object_shrouds) = {
-            let manager = logic.engine_stores.shroud().lock().ok();
+            let manager = logic.world_services.shroud().lock().ok();
             let shroud = manager.as_deref();
             let grid = FOWRenderingBridge::snapshot_terrain_grid(
                 shroud,

@@ -45,11 +45,8 @@ pub fn stamp_completed_upgrades(players: &mut [PlayerSnapshot], game_logic: &Gam
 /// completed PLAYER host-upgrade records. C++ `addUpgrade(..., COMPLETE)`.
 pub fn apply_completed_upgrades(snapshot: &WorldSnapshot, game_logic: &mut GameLogic) {
     for snap in &snapshot.players {
-        let Some(player) = game_logic.get_player_mut(snap.id) else {
-            continue;
-        };
         for name in &snap.upgrades {
-            player.add_completed_upgrade(name);
+            game_logic.add_completed_player_upgrade(snap.id, name);
         }
     }
     for entry in &snapshot.host_upgrades.entries {
@@ -59,9 +56,7 @@ pub fn apply_completed_upgrades(snapshot: &WorldSnapshot, game_logic: &mut GameL
         if game_logic.is_object_scoped_upgrade(&entry.name) {
             continue;
         }
-        if let Some(player) = game_logic.get_player_mut(entry.player_id) {
-            player.add_completed_upgrade(&entry.name);
-        }
+        game_logic.add_completed_player_upgrade(entry.player_id, &entry.name);
     }
 }
 
@@ -77,9 +72,7 @@ pub fn apply_from_live_registry(game_logic: &mut GameLogic) {
         if game_logic.is_object_scoped_upgrade(&entry.name) {
             continue;
         }
-        if let Some(player) = game_logic.get_player_mut(entry.player_id) {
-            player.add_completed_upgrade(&entry.name);
-        }
+        game_logic.add_completed_player_upgrade(entry.player_id, &entry.name);
     }
 }
 

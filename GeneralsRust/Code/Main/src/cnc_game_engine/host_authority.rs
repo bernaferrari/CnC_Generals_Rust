@@ -7,7 +7,7 @@ use super::*;
 struct StagedRestoreWorld {
     logic: crate::game_logic::GameLogic,
     info: SaveGameInfo,
-    runtime_world: gamelogic::runtime_world_transaction::StagedRuntimeWorld,
+    runtime_world: gamelogic::runtime_world_transaction::StagedHostRuntimeWorld,
     shroud: gamelogic::system::shroud_manager::ShroudSnapshot,
     /// Renderer-owned Drawable state decoded with the logical world.  It is
     /// queued only after the staged world has committed, then validated
@@ -1118,7 +1118,7 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         self.game_client
             .bind_visual_world(gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
-                &self.game_logic.engine_stores,
+                &self.game_logic.world_services,
             )));
         self.render_pipeline.invalidate_world_visual_state();
         self.invalidate_presentation_terrain_cache();
@@ -1191,7 +1191,7 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         self.game_client
             .bind_visual_world(gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
-                &self.game_logic.engine_stores,
+                &self.game_logic.world_services,
             )));
         #[cfg(feature = "game_client")]
         if let Some(bytes) = game_client_xfer_bytes.as_deref() {
@@ -1295,8 +1295,9 @@ impl CnCGameEngine {
                 .map(|(slot, ids)| (*slot, ids.iter().map(|id| id.0).collect()))
                 .collect(),
         );
-        let visual_world =
-            gamelogic::helpers::ClientVisualHandle::new(Arc::clone(&self.game_logic.engine_stores));
+        let visual_world = gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
+            &self.game_logic.world_services,
+        ));
         let client_drawables = self
             .render_pipeline
             .capture_client_drawable_snapshot(&visual_world);
@@ -1408,6 +1409,7 @@ impl CnCGameEngine {
         active_mode: crate::game_logic::GameMode,
         template_catalog: &std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
         ai_definition_base: &game_engine::common::ini::AIData,
+        live_services: &Arc<gamelogic::system::engine_stores::WorldServices>,
     ) -> Result<StagedRestoreWorld, String> {
         // A previous aborted decode cannot lend its client chunk to this save.
         let _ = crate::save_load::snapshot::take_loaded_game_client_xfer();
@@ -1424,6 +1426,7 @@ impl CnCGameEngine {
             active_mode,
             template_catalog,
             ai_definition_base,
+            live_services,
             |snapshot, staged| {
                 save_file_manager
                     .restore_game_snapshot(snapshot, staged)
@@ -1446,6 +1449,7 @@ impl CnCGameEngine {
         active_mode: crate::game_logic::GameMode,
         template_catalog: &std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
         ai_definition_base: &game_engine::common::ini::AIData,
+        live_services: &Arc<gamelogic::system::engine_stores::WorldServices>,
         restore_snapshot: F,
     ) -> Result<StagedRestoreWorld, String>
     where
@@ -1480,14 +1484,16 @@ impl CnCGameEngine {
 
         let mode = Self::offline_restore_mode_for_save(active_mode, &save_info)?;
 
-        // Map loading and snapshot restore write legacy singleton state (AI,
-        // terrain, sides, players, teams, script engine, shroud, named/area
-        // trackers).  Move that state out before constructing the candidate so
+        // Map loading and snapshot restore still write shared metadata (sides,
+        // players, teams, scripts and named/area trackers). Terrain, shroud,
+        // visuals and Main AI belong to their world and are not swapped.
+        // Move shared metadata out before constructing the candidate so
         // failure cannot poison the still-playable host match.  Main's TLS
         // logs/shadow bind path need the matching take/restore scope around
         // the same work.
         let staged_effects = crate::game_logic::staged_world_effects::StagedWorldEffects::enter();
-        let runtime_stage = gamelogic::runtime_world_transaction::RuntimeWorldStage::begin();
+        let runtime_stage =
+            gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(live_services);
         let mut staged = crate::game_logic::GameLogic::new();
         staged.set_ai_definition_base(ai_definition_base.clone());
         staged.start_new_game_for_restore(mode);
@@ -1525,7 +1531,7 @@ impl CnCGameEngine {
         // Restore the active singleton/TLS state before exposing the candidate
         // to the caller.  The returned opaque bundle is installed only by the
         // no-fail combined commit below.
-        let runtime_world = runtime_stage.finish_and_restore_live();
+        let runtime_world = runtime_stage.finish_and_restore_live(&staged.world_services);
         staged_effects.finish_and_restore_live();
         Ok(StagedRestoreWorld {
             logic: staged,
@@ -1575,6 +1581,7 @@ impl CnCGameEngine {
             active_mode,
             &template_catalog,
             self.game_logic.ai_definitions.baseline(),
+            &self.game_logic.world_services,
         ) {
             Ok(staged) => staged,
             Err(err) => {
@@ -2236,6 +2243,7 @@ mod staged_restore_tests {
             GameMode::Shell,
             &catalog,
             source.ai_definitions.baseline(),
+            &source.world_services,
         ) {
             Ok(_) => panic!("missing saved map must reject before a false InGame restore"),
             Err(err) => err,
@@ -2263,6 +2271,7 @@ mod staged_restore_tests {
             GameMode::Skirmish,
             &catalog,
             logic.ai_definitions.baseline(),
+            &logic.world_services,
             |_snapshot, _staged| panic!("invalid client chunk must fail before stage restore"),
         )
         .err()
@@ -2326,7 +2335,7 @@ mod staged_restore_tests {
             let mut client =
                 game_client::core::game_client::GameClient::new().expect("source client");
             client.bind_visual_world(gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
-                &source.engine_stores,
+                &source.world_services,
             )));
             client.set_frame(41);
             saves.save_game_with_client_state(
@@ -2352,6 +2361,7 @@ mod staged_restore_tests {
             GameMode::Shell,
             &catalog,
             source.ai_definitions.baseline(),
+            &source.world_services,
         )
         .expect("saved map should load before restore");
         let extracted_map = std::path::Path::new(&restored.info.map_name);
@@ -2436,8 +2446,9 @@ mod staged_restore_tests {
         source.setup_skirmish_ai(0);
         gamelogic::ai::integration::initialize_ai_integration()
             .expect("initialize independent compatibility AI fixture");
+        let foreign_core = gamelogic::system::engine_stores::new_for_world();
         let (first_live_ai_group_id, second_live_ai_group_id) = {
-            let ai_store = gamelogic::ai::the_ai();
+            let ai_store = foreign_core.ai();
             let mut ai = ai_store.write().expect("lock live legacy AI");
             let first = ai.create_group();
             let first = first.read().expect("read first live AI group").get_id();
@@ -2468,7 +2479,8 @@ mod staged_restore_tests {
         // error; equality below proves the active values were restored, not
         // merely cleared to defaults.
         let global_probe = || {
-            let terrain = gamelogic::terrain::get_terrain_logic()
+            let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+            let terrain = terrain_owner_handle
                 .read()
                 .map(|terrain| terrain.get_source_filename().to_string())
                 .unwrap_or_default();
@@ -2505,7 +2517,7 @@ mod staged_restore_tests {
                 .read()
                 .map(|engine| engine.is_some())
                 .unwrap_or(false);
-            let ai_store = gamelogic::ai::the_ai();
+            let ai_store = foreign_core.ai();
             let legacy_ai_groups = ai_store
                 .read()
                 .map(|ai| {
@@ -2573,6 +2585,7 @@ mod staged_restore_tests {
             GameMode::Skirmish,
             &catalog,
             source.ai_definitions.baseline(),
+            &source.world_services,
             |_snapshot, staged| {
                 assert!(staged.isInGame(), "failure is injected after map load");
                 assert_eq!(staged.ai_definitions.baseline().resources_poor, 7654);
@@ -2606,7 +2619,7 @@ mod staged_restore_tests {
 
         assert_eq!(global_probe(), before, "rollback must restore live globals");
         let resumed_ai_group_id = {
-            let ai_store = gamelogic::ai::the_ai();
+            let ai_store = foreign_core.ai();
             let mut ai = ai_store.write().expect("lock restored legacy AI");
             let resumed = ai.create_group();
             let resumed_id = resumed
@@ -2795,6 +2808,7 @@ mod staged_restore_tests {
                     GameMode::Skirmish,
                     &catalog,
                     source.ai_definitions.baseline(),
+                    &source.world_services,
                     |snapshot, candidate| {
                         saves
                             .restore_game_snapshot(snapshot, candidate)
@@ -2955,6 +2969,7 @@ mod staged_restore_tests {
             GameMode::Shell,
             &catalog,
             source.ai_definitions.baseline(),
+            &source.world_services,
         )
         .expect("stage RNG continuation save");
         assert_eq!(
@@ -3109,6 +3124,167 @@ mod staged_restore_tests {
             .expect("commit-time logic RNG reseed");
         let shadow = body.find("shadow.sync_from_host").expect("shadow rebuild");
         assert!(effects < reseed && reseed < shadow);
+    }
+    /// Main map/save boundaries must not borrow or replace an unrelated Core
+    /// AI runtime. This executes a real CKMP load and native save continuation.
+    #[test]
+    fn main_services_start_and_stage_leave_foreign_core_ai_installed() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "main_services_start_and_stage_leave_foreign_core_ai_installed",
+            || {
+                let _logs = WorldStageLogRestore::take();
+                let temp = tempfile::tempdir().unwrap();
+                let map_path = temp.path().join("OwnedServices.map");
+                let mut map = game_engine::common::system::DataChunkOutput::new();
+                map.open_data_chunk("GlobalLighting", 1);
+                map.write_int(2);
+                for _ in 0..4 {
+                    for _ in 0..2 {
+                        for value in [0.1, 0.2, 0.3, 0.8, 0.8, 0.8, 0.0, 0.0, -1.0] {
+                            map.write_real(value);
+                        }
+                    }
+                }
+                map.close_data_chunk();
+                std::fs::write(&map_path, map.into_ckmp_bytes()).unwrap();
+                let map_name = map_path.to_str().unwrap().to_string();
+                let foreign = gamelogic::system::engine_stores::new_for_world();
+                gamelogic::ai::integration::initialize_ai_integration().unwrap();
+                let integration_count = gamelogic::ai::integration::with_ai_integration_mut(|ai| {
+                    ai.ensure_ai_player(77, false);
+                    ai.get_ai_player_count()
+                })
+                .unwrap();
+                let mut foreign_ai = foreign.ai().write().unwrap();
+                let group = foreign_ai.create_group();
+                let group_id = group.read().unwrap().get_id();
+                let next_id = foreign_ai.create_group().read().unwrap().get_id();
+                gamelogic::system::engine_stores::with_active_stores(&foreign, || {
+                    let foreign_parser = game_engine::common::ini::ini_ai_data::get_ai_data_store();
+                    let mut source = GameLogic::new();
+                    assert!(
+                        Arc::ptr_eq(&gamelogic::system::engine_stores::active(), &foreign),
+                        "constructor is inert"
+                    );
+                    assert!(Arc::ptr_eq(
+                        &game_engine::common::ini::ini_ai_data::get_ai_data_store(),
+                        &foreign_parser
+                    ));
+                    source.start_new_game(GameMode::Skirmish);
+                    assert!(
+                        source.load_map(&map_name),
+                        "actual owned map load under foreign Core scope"
+                    );
+                    source.add_player(Player::new(0, Team::USA, "Human", true));
+                    let live_terrain = Arc::clone(source.world_services.terrain());
+                    let live_light = gamelogic::system::engine_stores::with_world_services(
+                        &source.world_services,
+                        gamelogic::helpers::create_scene_point_light,
+                    );
+                    let mut saves = SaveFileManager::with_save_directory(temp.path().join("saves"));
+                    saves.init().unwrap();
+                    saves
+                        .save_game(
+                            "owned_services",
+                            &source,
+                            &save_info("owned_services", map_name.clone()),
+                        )
+                        .unwrap();
+                    let catalog = source.templates.clone();
+                    let (snapshot, info) = saves.load_game_snapshot("owned_services").unwrap();
+                    let failure = CnCGameEngine::stage_decoded_saved_world_for_restore(
+                        &snapshot,
+                        info,
+                        None,
+                        "owned_services",
+                        GameMode::Skirmish,
+                        &catalog,
+                        source.ai_definitions.baseline(),
+                        &source.world_services,
+                        |_, candidate| {
+                            assert!(candidate.isInGame());
+                            assert!(!Arc::ptr_eq(
+                                candidate.world_services.terrain(),
+                                &live_terrain
+                            ));
+                            Err("owned-service rollback witness".into())
+                        },
+                    );
+                    assert!(
+                        matches!(failure, Err(ref error) if error.contains("rollback witness"))
+                    );
+                    assert!(source.isInGame());
+                    assert_eq!(source.get_current_map_name(), map_name);
+                    assert!(Arc::ptr_eq(source.world_services.terrain(), &live_terrain));
+                    assert_eq!(
+                        gamelogic::ai::integration::with_ai_integration(
+                            |ai| ai.get_ai_player_count()
+                        ),
+                        Some(integration_count)
+                    );
+                    let staged = CnCGameEngine::stage_saved_world_for_restore(
+                        &mut saves,
+                        "owned_services",
+                        GameMode::Skirmish,
+                        &catalog,
+                        source.ai_definitions.baseline(),
+                        &source.world_services,
+                    )
+                    .expect("successful native owned-service staging");
+                    assert!(staged.logic.isInGame());
+                    assert!(!Arc::ptr_eq(
+                        staged.logic.world_services.terrain(),
+                        &live_terrain
+                    ));
+                    assert_eq!(
+                        gamelogic::system::engine_stores::with_world_services(
+                            &source.world_services,
+                            gamelogic::helpers::scene_point_lights,
+                        )
+                        .len(),
+                        1
+                    );
+                    assert_eq!(live_light, 1);
+                    // Match the production boundary: globals, installed host,
+                    // then deferred team effects. No Core AI participates.
+                    let StagedRestoreWorld {
+                        logic,
+                        runtime_world,
+                        ..
+                    } = staged;
+                    let effects = runtime_world.install_globals();
+                    let old = std::mem::replace(&mut source, logic);
+                    drop(old);
+                    effects.execute_after_logic_commit();
+                    assert!(source.isInGame());
+                    assert_eq!(source.get_players().len(), 1);
+                    assert!(source.get_player(0).unwrap().is_human);
+                    assert_eq!(
+                        gamelogic::ai::integration::with_ai_integration(
+                            |ai| ai.get_ai_player_count()
+                        ),
+                        Some(integration_count)
+                    );
+                    assert!(Arc::ptr_eq(
+                        &gamelogic::system::engine_stores::active(),
+                        &foreign
+                    ));
+                    assert!(Arc::ptr_eq(
+                        &game_engine::common::ini::ini_ai_data::get_ai_data_store(),
+                        &foreign_parser
+                    ));
+                });
+                assert!(foreign_ai.get_group_by_id(group_id).is_some());
+                assert!(foreign_ai.get_group_by_id(next_id).is_some());
+                let resumed = foreign_ai.create_group().read().unwrap().get_id();
+                assert_eq!(resumed, next_id.wrapping_add(1));
+                assert_eq!(
+                    gamelogic::ai::integration::with_ai_integration(|ai| ai.get_ai_player_count()),
+                    Some(integration_count)
+                );
+            },
+        );
     }
 }
 

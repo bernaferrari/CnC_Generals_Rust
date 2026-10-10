@@ -1132,7 +1132,7 @@ impl GameLogic {
         let frame = self.frame;
 
         let fow_reveal_ok = {
-            let shroud = std::sync::Arc::clone(self.engine_stores.shroud());
+            let shroud = std::sync::Arc::clone(self.world_services.shroud());
             let mut shroud_mgr = match shroud.lock() {
                 Ok(mgr) => mgr,
                 Err(_) => return false,
@@ -1201,7 +1201,7 @@ impl GameLogic {
         self.apply_radar_scan_dynamic_shroud();
         self.undo_expired_radar_scan_shroud();
         self.radar_scans.prune_expired(self.frame);
-        if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.engine_stores.shroud()).lock() {
+        if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.world_services.shroud()).lock() {
             shroud_mgr.process_pending_undo_shroud_reveals(self.frame);
         }
     }
@@ -1515,7 +1515,7 @@ impl GameLogic {
         let frame = self.frame;
 
         {
-            let shroud = std::sync::Arc::clone(self.engine_stores.shroud());
+            let shroud = std::sync::Arc::clone(self.world_services.shroud());
             let mut shroud_mgr = match shroud.lock() {
                 Ok(mgr) => mgr,
                 Err(_) => return false,
@@ -1927,7 +1927,7 @@ impl GameLogic {
         self.undo_expired_spy_satellite_shroud();
         self.spy_satellites.prune_expired(self.frame);
         self.spy_drones.prune_expired(self.frame);
-        if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.engine_stores.shroud()).lock() {
+        if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.world_services.shroud()).lock() {
             shroud_mgr.process_pending_undo_shroud_reveals(self.frame);
         }
     }
@@ -1954,7 +1954,7 @@ impl GameLogic {
         if work.is_empty() {
             return;
         }
-        let shroud_manager = std::sync::Arc::clone(self.engine_stores.shroud());
+        let shroud_manager = std::sync::Arc::clone(self.world_services.shroud());
         let Ok(mut shroud_mgr) = shroud_manager.lock() else {
             return;
         };
@@ -1973,7 +1973,7 @@ impl GameLogic {
         }
         drop(shroud_mgr);
         let mut newly_visible = 0u32;
-        if let Ok(shroud_mgr) = std::sync::Arc::clone(self.engine_stores.shroud()).lock() {
+        if let Ok(shroud_mgr) = std::sync::Arc::clone(self.world_services.shroud()).lock() {
             for scan in self.spy_satellites.active_scans_mut() {
                 let new_r = scan.dynamic_shroud_radius(frame);
                 scan.last_applied_radius = new_r;
@@ -2018,7 +2018,7 @@ impl GameLogic {
         if expired.is_empty() {
             return;
         }
-        if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.engine_stores.shroud()).lock() {
+        if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.world_services.shroud()).lock() {
             for (location, radius, player_mask) in expired {
                 let center = Coord3D::new(location.x, location.z, location.y);
                 shroud_mgr.undo_shroud_reveal(&center, radius, player_mask);
@@ -2048,7 +2048,7 @@ impl GameLogic {
         if work.is_empty() {
             return;
         }
-        if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.engine_stores.shroud()).lock() {
+        if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.world_services.shroud()).lock() {
             for (location, old_r, new_r, player_mask, _) in &work {
                 let center = Coord3D::new(location.x, location.z, location.y);
                 if (*new_r - *old_r).abs() <= 0.01 {
@@ -2083,7 +2083,7 @@ impl GameLogic {
         if expired.is_empty() {
             return;
         }
-        if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.engine_stores.shroud()).lock() {
+        if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.world_services.shroud()).lock() {
             for (location, radius, player_mask) in expired {
                 let center = Coord3D::new(location.x, location.z, location.y);
                 shroud_mgr.undo_shroud_reveal(&center, radius, player_mask);

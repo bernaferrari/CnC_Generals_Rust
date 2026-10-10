@@ -69,7 +69,8 @@ fn install_panic_waypoint_path_with_terminal_x(terminal_x: f32) -> ResetGlobalTe
         bi_directional: false,
     });
     data.waypoint_links.push((WAYPOINT_START, WAYPOINT_NEXT));
-    let mut terrain = get_terrain_logic().write().expect("global terrain");
+    let terrain_owner_handle = get_terrain_logic();
+    let mut terrain = terrain_owner_handle.write().expect("global terrain");
     terrain.reset();
     terrain.load_map_data(data);
     drop(terrain);
@@ -98,7 +99,8 @@ fn install_panic_fork_path() -> ResetGlobalTerrain {
         (WAYPOINT_START, WAYPOINT_NEXT),
         (WAYPOINT_START, WAYPOINT_BRANCH),
     ]);
-    let mut terrain = get_terrain_logic().write().expect("global terrain");
+    let terrain_owner_handle = get_terrain_logic();
+    let mut terrain = terrain_owner_handle.write().expect("global terrain");
     terrain.reset();
     terrain.load_map_data(data);
     drop(terrain);

@@ -847,7 +847,7 @@ fn direct_host_shroud_facts_use_raw_membership_not_visibility_alpha() {
         .owner_player_id = Some(1);
 
     {
-        let shroud_manager = logic.engine_stores.shroud();
+        let shroud_manager = logic.world_services.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(500.0, 500.0);
@@ -866,7 +866,7 @@ fn direct_host_shroud_facts_use_raw_membership_not_visibility_alpha() {
     );
 
     {
-        let shroud_manager = logic.engine_stores.shroud();
+        let shroud_manager = logic.world_services.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(500.0, 500.0);
@@ -888,7 +888,7 @@ fn direct_host_shroud_facts_use_raw_membership_not_visibility_alpha() {
     );
 
     {
-        let shroud_manager = logic.engine_stores.shroud();
+        let shroud_manager = logic.world_services.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(500.0, 500.0);

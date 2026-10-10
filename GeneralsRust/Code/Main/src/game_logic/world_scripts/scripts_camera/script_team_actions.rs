@@ -1690,14 +1690,12 @@ impl GameLogic {
         waypoint_name: &str,
     ) -> Option<(u32, glam::Vec3)> {
         let name = gamelogic::common::AsciiString::from(waypoint_name);
-        let (wid, loc) = gamelogic::terrain::get_terrain_logic()
-            .read()
-            .ok()
-            .and_then(|terrain| {
-                terrain
-                    .get_waypoint_by_name(&name)
-                    .map(|wp| (wp.get_id(), *wp.get_location()))
-            })?;
+        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let (wid, loc) = terrain_owner_handle.read().ok().and_then(|terrain| {
+            terrain
+                .get_waypoint_by_name(&name)
+                .map(|wp| (wp.get_id(), *wp.get_location()))
+        })?;
         let mut pos = glam::Vec3::new(loc.x, loc.z, loc.y);
         if let Some(h) = self.terrain_height_at(glam::Vec3::new(pos.x, 0.0, pos.z)) {
             pos.y = h;
@@ -1717,7 +1715,8 @@ impl GameLogic {
         from: glam::Vec3,
     ) -> Option<Vec<glam::Vec3>> {
         let leftover_pos = gamelogic::common::Coord3D::new(from.x, from.z, from.y);
-        let terrain = gamelogic::terrain::get_terrain_logic().read().ok()?;
+        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let terrain = terrain_owner_handle.read().ok()?;
         let start = terrain.get_closest_waypoint_on_path(&leftover_pos, path_label)?;
         let chain = terrain.walk_link0_chain(start, gamelogic::terrain::WAYPOINT_PATH_LIMIT);
         if chain.is_empty() {
@@ -1745,7 +1744,8 @@ impl GameLogic {
         from: glam::Vec3,
     ) -> Option<u32> {
         let leftover_pos = gamelogic::common::Coord3D::new(from.x, from.z, from.y);
-        let terrain = gamelogic::terrain::get_terrain_logic().read().ok()?;
+        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let terrain = terrain_owner_handle.read().ok()?;
         let start = terrain.get_closest_waypoint_on_path(&leftover_pos, path_label)?;
         Some(start.get_id())
     }

@@ -737,7 +737,8 @@ impl AIPlayer {
         };
         let is_crusher = unit.crusher_level > 0;
         let hop_targets: Vec<gamelogic::common::Coord3D> = {
-            let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() else {
+            let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+            let Ok(terrain) = terrain_owner_handle.read() else {
                 return false;
             };
             let mut out = Vec::new();

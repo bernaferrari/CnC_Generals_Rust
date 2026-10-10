@@ -1336,7 +1336,7 @@ impl GameLogic {
             return true;
         };
         let status = self
-            .engine_stores
+            .world_services
             .shroud()
             .lock()
             .ok()

@@ -325,7 +325,8 @@ impl ScriptAction for NamedMoveToAction {
         };
 
         let waypoint_ascii = AsciiString::from(waypoint.as_str());
-        let destination = get_terrain_logic().read().ok().and_then(|terrain| {
+        let terrain_owner_handle = get_terrain_logic();
+        let destination = terrain_owner_handle.read().ok().and_then(|terrain| {
             terrain
                 .get_waypoint_by_name(&waypoint_ascii)
                 .map(|w| *w.get_location())
@@ -457,7 +458,8 @@ impl ScriptAction for NamedFollowWaypointsAction {
         };
 
         let waypoint_ascii = AsciiString::from(waypoint_path.as_str());
-        let waypoint_id = get_terrain_logic().read().ok().and_then(|terrain| {
+        let terrain_owner_handle = get_terrain_logic();
+        let waypoint_id = terrain_owner_handle.read().ok().and_then(|terrain| {
             terrain
                 .get_waypoint_by_name(&waypoint_ascii)
                 .map(|w| w.get_id())

@@ -1366,7 +1366,8 @@ impl SnapshotBuilder {
         let height_map = _game_logic
             .snapshot_terrain_heights_for_path_grid()
             .unwrap_or_default();
-        let (logic_width, logic_height, logic_heights) = gamelogic::terrain::get_terrain_logic()
+        let terrain_owner_handle = std::sync::Arc::clone(_game_logic.world_services.terrain());
+        let (logic_width, logic_height, logic_heights) = terrain_owner_handle
             .read()
             .ok()
             .map(|terrain| {

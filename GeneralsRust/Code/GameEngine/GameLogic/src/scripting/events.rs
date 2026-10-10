@@ -1132,7 +1132,9 @@ impl AreaTracker {
             GameLogicError::Threading(format!("Failed to acquire objects in areas lock: {}", e))
         })?;
 
-        let terrain = get_terrain_logic().read().ok();
+        let terrain_owner_handle = get_terrain_logic();
+
+        let terrain = terrain_owner_handle.read().ok();
         let mut events = Vec::new();
 
         for (area_name, area) in areas.iter() {

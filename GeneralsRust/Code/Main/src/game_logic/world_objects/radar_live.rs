@@ -117,7 +117,8 @@ impl RadarMapSource for HostRadarMapSource {
             );
         }
         drop(state);
-        let terrain = gamelogic::terrain::get_terrain_logic().try_read().ok();
+        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let terrain = terrain_owner_handle.try_read().ok();
         game_engine::common::system::radar::sample_radar_map_grid(
             origin,
             x_sample,
@@ -502,7 +503,8 @@ impl GameLogic {
         // terrain_height_at ordinarily obtains this same read borrow for each
         // bridge query. Pass it explicitly so a queued writer cannot cause a
         // recursive read acquisition halfway through the grid.
-        let terrain = gamelogic::terrain::get_terrain_logic().read().ok();
+        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let terrain = terrain_owner_handle.read().ok();
         let mut samples = Vec::with_capacity((W * H) as usize);
         let mut min_z = f32::MAX;
         let mut max_z = f32::MIN;
@@ -597,7 +599,7 @@ impl GameLogic {
             *store = specs.clone();
         }
         if let Some(local) = self.host_local_player() {
-            if let Ok(mut shroud) = self.engine_stores.shroud().lock() {
+            if let Ok(mut shroud) = self.world_services.shroud().lock() {
                 shroud.refresh_radar_shroud_for_player(local.id);
             }
         }

@@ -147,7 +147,8 @@ impl ScriptAction for TeamFollowWaypointsAction {
         // In C++: theTeam->getTeamAsAIGroup() then aiGroup->groupFollowWaypoints(waypoints, asTeam)
 
         let waypoint_ascii = AsciiString::from(waypoint_path.as_str());
-        let waypoint_id = get_terrain_logic().read().ok().and_then(|terrain| {
+        let terrain_owner_handle = get_terrain_logic();
+        let waypoint_id = terrain_owner_handle.read().ok().and_then(|terrain| {
             terrain
                 .get_waypoint_by_name(&waypoint_ascii)
                 .map(|w| w.get_id())
@@ -232,7 +233,8 @@ impl ScriptAction for TeamGuardAction {
 
         let resolved_team = resolve_team_name_token(&team_name);
         let guard_pos = if let (Some(x_pos), Some(y_pos)) = (x, y) {
-            let z = get_terrain_logic()
+            let terrain_owner_handle = get_terrain_logic();
+            let z = terrain_owner_handle
                 .read()
                 .ok()
                 .map(|terrain| terrain.get_ground_height(x_pos as f32, y_pos as f32, None))
@@ -410,7 +412,8 @@ impl ScriptAction for TeamMoveToWaypointAction {
         // Rust: Resolve team -> get waypoint coordinates -> issue group movement command
 
         let waypoint_ascii = AsciiString::from(waypoint.as_str());
-        let position = get_terrain_logic().read().ok().and_then(|terrain| {
+        let terrain_owner_handle = get_terrain_logic();
+        let position = terrain_owner_handle.read().ok().and_then(|terrain| {
             terrain
                 .get_waypoint_by_name(&waypoint_ascii)
                 .map(|w| *w.get_location())

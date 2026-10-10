@@ -164,7 +164,8 @@ impl AIInternalMoveToState {
                 ai.snap_closest_goal_position(&owner_guard, &mut self.goal_position);
                 drop(owner_guard);
             }
-            let goal_layer = get_terrain_logic()
+            let terrain_owner_handle = get_terrain_logic();
+            let goal_layer = terrain_owner_handle
                 .read()
                 .map(|terrain| {
                     PathfindLayerEnum::from_u32(

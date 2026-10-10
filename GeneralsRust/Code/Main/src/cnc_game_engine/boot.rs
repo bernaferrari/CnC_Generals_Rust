@@ -680,7 +680,7 @@ impl CnCGameEngine {
             engine
                 .game_client
                 .bind_visual_world(gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
-                    &engine.game_logic.engine_stores,
+                    &engine.game_logic.world_services,
                 )));
             engine.game_client.mark_initialized();
             info!("GameClient: all subsystems initialized");

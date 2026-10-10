@@ -1286,7 +1286,8 @@ impl UnitAIUpdate {
                 let base = guard.base_arc();
                 let object = base.read().ok()?;
                 let layer = object.get_layer();
-                let bridge_end = crate::terrain::get_terrain_logic()
+                let terrain_owner_handle = crate::terrain::get_terrain_logic();
+                let bridge_end = terrain_owner_handle
                     .read()
                     .ok()
                     .map(|terrain| {

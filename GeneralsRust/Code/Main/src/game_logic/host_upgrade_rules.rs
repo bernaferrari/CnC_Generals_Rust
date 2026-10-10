@@ -7,8 +7,15 @@ use gamelogic::upgrade::{UpgradeTemplate, UpgradeType};
 use std::sync::Arc;
 
 impl GameLogic {
+    pub(crate) fn add_completed_player_upgrade(&mut self, player_id: u32, name: &str) {
+        let definition = self.upgrade_template(name);
+        if let Some(player) = self.get_player_mut(player_id) {
+            player.add_completed_upgrade_with_definition(name, definition.as_deref());
+        }
+    }
+
     pub(crate) fn upgrade_template(&self, name: &str) -> Option<Arc<UpgradeTemplate>> {
-        self.engine_stores
+        self.world_services
             .upgrade_center()
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -51,8 +58,9 @@ pub(crate) fn register_test_upgrade(
     cost: u32,
     seconds: u32,
 ) {
-    let source = format!("Upgrade {name}\nType = {kind}\nBuildCost = {cost}\nBuildTime = {seconds}\nEnd\n");
-    let mut center = logic.engine_stores.upgrade_center().write().unwrap();
+    let source =
+        format!("Upgrade {name}\nType = {kind}\nBuildCost = {cost}\nBuildTime = {seconds}\nEnd\n");
+    let mut center = logic.world_services.upgrade_center().write().unwrap();
     let mut ini = game_engine::common::ini::INI::new();
     ini.with_inline_source(&source, |ini| {
         ini.read_line()?;

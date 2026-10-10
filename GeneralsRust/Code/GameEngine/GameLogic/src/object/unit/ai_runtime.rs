@@ -847,7 +847,9 @@ impl UnitAiRuntime {
             .map_err(|_| "unit owner lock poisoned".to_string())?
             .get_position();
 
-        let terrain = crate::terrain::get_terrain_logic()
+        let terrain_owner_handle = crate::terrain::get_terrain_logic();
+
+        let terrain = terrain_owner_handle
             .read()
             .map_err(|_| "terrain lock poisoned".to_string())?;
 

@@ -1729,7 +1729,7 @@ fn radar_scan_special_power_reveals_fow() {
     let mut game_logic = GameLogic::new();
     // Initialize and inspect the shroud owned by this world.
     {
-        let shroud_manager = game_logic.engine_stores.shroud();
+        let shroud_manager = game_logic.world_services.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(512.0, 512.0);
@@ -1766,7 +1766,7 @@ fn radar_scan_special_power_reveals_fow() {
 
     // Baseline: target shroud not visible.
     {
-        let shroud_manager = game_logic.engine_stores.shroud();
+        let shroud_manager = game_logic.world_services.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             !shroud.is_position_visible(0, &center),
@@ -1806,7 +1806,7 @@ fn radar_scan_special_power_reveals_fow() {
 
     // FOW observable: center cell visible after scan.
     {
-        let shroud_manager = game_logic.engine_stores.shroud();
+        let shroud_manager = game_logic.world_services.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             shroud.is_position_visible(0, &center),
@@ -1833,7 +1833,7 @@ fn radar_scan_special_power_reveals_fow() {
     );
     assert!(game_logic.radar_scans().expirations() >= 1);
     {
-        let shroud_manager = game_logic.engine_stores.shroud();
+        let shroud_manager = game_logic.world_services.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             !shroud.is_position_visible(0, &center),
@@ -1846,7 +1846,7 @@ fn radar_scan_special_power_reveals_fow() {
     }
 
     // Clear only this world's fixture shroud.
-    if let Ok(mut shroud) = game_logic.engine_stores.shroud().lock() {
+    if let Ok(mut shroud) = game_logic.world_services.shroud().lock() {
         shroud.clear_all();
         shroud.init_shroud_grid(1.0, 1.0);
         shroud.clear_all();
@@ -1922,7 +1922,7 @@ fn spy_satellite_special_power_reveals_fow() {
     let mut game_logic = GameLogic::new();
     // Initialize and inspect the shroud owned by this world.
     {
-        let shroud_manager = game_logic.engine_stores.shroud();
+        let shroud_manager = game_logic.world_services.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(1024.0, 1024.0);
@@ -1962,7 +1962,7 @@ fn spy_satellite_special_power_reveals_fow() {
 
     // Baseline: target shroud not visible.
     {
-        let shroud_manager = game_logic.engine_stores.shroud();
+        let shroud_manager = game_logic.world_services.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             !shroud.is_position_visible(0, &center),
@@ -1991,7 +1991,7 @@ fn spy_satellite_special_power_reveals_fow() {
         "scan must start at 0, not instant 300"
     );
     {
-        let shroud_manager = game_logic.engine_stores.shroud();
+        let shroud_manager = game_logic.world_services.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             !shroud.is_position_visible(0, &near_center),
@@ -2020,7 +2020,7 @@ fn spy_satellite_special_power_reveals_fow() {
 
     // FOW observable: center cell visible after grow.
     {
-        let shroud_manager = game_logic.engine_stores.shroud();
+        let shroud_manager = game_logic.world_services.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             shroud.is_position_visible(0, &center),
@@ -2051,7 +2051,7 @@ fn spy_satellite_special_power_reveals_fow() {
     );
     assert!(game_logic.spy_satellites().expirations() >= 1);
     {
-        let shroud_manager = game_logic.engine_stores.shroud();
+        let shroud_manager = game_logic.world_services.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             !shroud.is_position_visible(0, &center),
@@ -2064,7 +2064,7 @@ fn spy_satellite_special_power_reveals_fow() {
     }
 
     // Clear only this world's fixture shroud.
-    if let Ok(mut shroud) = game_logic.engine_stores.shroud().lock() {
+    if let Ok(mut shroud) = game_logic.world_services.shroud().lock() {
         shroud.clear_all();
         shroud.init_shroud_grid(1.0, 1.0);
         shroud.clear_all();
@@ -2201,7 +2201,7 @@ fn cia_intelligence_special_power_reveals_enemy_units() {
     let mut game_logic = GameLogic::new();
     // Initialize and inspect the shroud owned by this world.
     {
-        let shroud_manager = game_logic.engine_stores.shroud();
+        let shroud_manager = game_logic.world_services.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(1024.0, 1024.0);
@@ -2247,7 +2247,7 @@ fn cia_intelligence_special_power_reveals_enemy_units() {
 
     // Baseline: enemy position shrouded, unit effectively stealthed.
     {
-        let shroud_manager = game_logic.engine_stores.shroud();
+        let shroud_manager = game_logic.world_services.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             !shroud.is_position_visible(0, &center),
@@ -2308,7 +2308,7 @@ fn cia_intelligence_special_power_reveals_enemy_units() {
 
     // FOW observable: enemy cell visible after spy vision residual.
     {
-        let shroud_manager = game_logic.engine_stores.shroud();
+        let shroud_manager = game_logic.world_services.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             shroud.is_position_visible(0, &center),
@@ -2358,7 +2358,7 @@ fn cia_intelligence_special_power_reveals_enemy_units() {
         "vision_spied residual mark must clear after expiry"
     );
     {
-        let shroud_manager = game_logic.engine_stores.shroud();
+        let shroud_manager = game_logic.world_services.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             !shroud.is_position_visible(0, &center),
@@ -2371,7 +2371,7 @@ fn cia_intelligence_special_power_reveals_enemy_units() {
     }
 
     // Clear only this world's fixture shroud.
-    if let Ok(mut shroud) = game_logic.engine_stores.shroud().lock() {
+    if let Ok(mut shroud) = game_logic.world_services.shroud().lock() {
         shroud.clear_all();
         shroud.init_shroud_grid(1.0, 1.0);
         shroud.clear_all();
@@ -2387,7 +2387,7 @@ fn cia_intelligence_looker_follows_moving_enemy() {
     // Initialize the owning world's map grid, like C++ newMap.
     // Constructors stay inert and never publish ambient shroud state.
     {
-        let shroud_manager = logic.engine_stores.shroud();
+        let shroud_manager = logic.world_services.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(1024.0, 1024.0);
@@ -2413,7 +2413,7 @@ fn cia_intelligence_looker_follows_moving_enemy() {
     logic.update_cia_intelligence();
     let new_center = Coord3D::new(moved.x, moved.z, moved.y);
     {
-        let shroud_manager = logic.engine_stores.shroud();
+        let shroud_manager = logic.world_services.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             shroud.is_position_visible(0, &new_center),
@@ -2424,7 +2424,7 @@ fn cia_intelligence_looker_follows_moving_enemy() {
         logic.cia_intelligence().is_position_in_active_spy(0, start)
             || CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS > 0.0
     );
-    if let Ok(mut shroud) = logic.engine_stores.shroud().lock() {
+    if let Ok(mut shroud) = logic.world_services.shroud().lock() {
         shroud.clear_all();
         shroud.init_shroud_grid(1.0, 1.0);
         shroud.clear_all();

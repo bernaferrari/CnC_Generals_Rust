@@ -58,7 +58,9 @@ impl GameLogic {
             sync_started.elapsed().as_secs_f32()
         );
 
-        let waypoint_count = gamelogic::terrain::get_terrain_logic()
+        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+
+        let waypoint_count = terrain_owner_handle
             .read()
             .ok()
             .map(|terrain| {

@@ -378,7 +378,8 @@ impl MapLoader {
         };
 
         {
-            let mut terrain_logic = crate::terrain::get_terrain_logic()
+            let terrain_owner_handle = crate::terrain::get_terrain_logic();
+            let mut terrain_logic = terrain_owner_handle
                 .write()
                 .map_err(|_| MapLoadError::TerrainLogicUnavailable)?;
             terrain_logic.load_map_data(terrain_data);

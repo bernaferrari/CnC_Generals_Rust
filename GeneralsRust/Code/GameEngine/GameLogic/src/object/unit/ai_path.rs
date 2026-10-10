@@ -20,7 +20,8 @@ pub fn leftover_should_force_direct_path_for_off_map_start(
     start: &Coord3D,
     destination: &Coord3D,
 ) -> bool {
-    let Ok(terrain) = crate::terrain::get_terrain_logic().read() else {
+    let terrain_owner_handle = crate::terrain::get_terrain_logic();
+    let Ok(terrain) = terrain_owner_handle.read() else {
         return false;
     };
     let extent = terrain.get_maximum_pathfind_extent();

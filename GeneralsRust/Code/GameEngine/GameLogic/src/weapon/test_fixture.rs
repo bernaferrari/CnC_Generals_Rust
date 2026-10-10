@@ -24,7 +24,8 @@ impl<'guard> ScopedWeaponFixture<'guard> {
     pub(super) fn install_flat_terrain(&mut self, raw_height: u8) {
         let plane = loaded_los_terrain(raw_height);
         let previous = {
-            let mut terrain = crate::terrain::get_terrain_logic().write().unwrap();
+            let terrain_owner_handle = crate::terrain::get_terrain_logic();
+            let mut terrain = terrain_owner_handle.write().unwrap();
             std::mem::replace(&mut *terrain, plane)
         };
         // Retain the exact prior world, including bridge/water/waypoint state.
@@ -38,7 +39,8 @@ impl<'guard> ScopedWeaponFixture<'guard> {
 impl Drop for ScopedWeaponFixture<'_> {
     fn drop(&mut self) {
         if let Some(previous) = self.previous_terrain.take() {
-            let mut terrain = crate::terrain::get_terrain_logic()
+            let terrain_owner_handle = crate::terrain::get_terrain_logic();
+            let mut terrain = terrain_owner_handle
                 .write()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             *terrain = previous;
@@ -169,7 +171,8 @@ fn assertion_unwind_retires_exact_bodies_and_restores_rng_and_terrain() {
     // does not poison another test's synchronization boundary.
     let isolation = weapon_range_test_guard();
     let seed = game_engine::common::random_value::get_game_logic_random_seed_state();
-    let terrain_height = crate::terrain::get_terrain_logic()
+    let terrain_owner_handle = crate::terrain::get_terrain_logic();
+    let terrain_height = terrain_owner_handle
         .read()
         .unwrap()
         .get_ground_height(100.0, 100.0, None);
@@ -199,7 +202,8 @@ fn assertion_unwind_retires_exact_bodies_and_restores_rng_and_terrain() {
         game_engine::common::random_value::get_game_logic_random_seed_state(),
         seed
     );
-    let restored_height = crate::terrain::get_terrain_logic()
+    let terrain_owner_handle = crate::terrain::get_terrain_logic();
+    let restored_height = terrain_owner_handle
         .read()
         .unwrap()
         .get_ground_height(100.0, 100.0, None);

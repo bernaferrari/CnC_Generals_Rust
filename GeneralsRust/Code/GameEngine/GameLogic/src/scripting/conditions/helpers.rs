@@ -776,7 +776,8 @@ pub fn host_script_lookup_polygon_trigger(
     }
     let resolved = crate::scripting::engine::qualify_trigger_area_name(area_name, None)
         .unwrap_or_else(|| area_name.to_string());
-    let terrain = crate::terrain::get_terrain_logic().read().ok()?;
+    let terrain_owner_handle = crate::terrain::get_terrain_logic();
+    let terrain = terrain_owner_handle.read().ok()?;
     terrain
         .get_trigger_area_by_name(&resolved)
         .or_else(|| terrain.get_trigger_area_by_name(area_name))

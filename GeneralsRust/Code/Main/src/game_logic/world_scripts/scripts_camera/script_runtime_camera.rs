@@ -28,7 +28,7 @@ impl GameLogic {
                     );
                     self.partition_manager.reveal_map_for_player_permanently(
                         &mut self
-                            .engine_stores
+                            .world_services
                             .shroud()
                             .lock()
                             .unwrap_or_else(|e| e.into_inner()),
@@ -39,7 +39,7 @@ impl GameLogic {
                     log::debug!("📜 Script event: reveal map for player {}", player_id);
                     self.partition_manager.reveal_map_for_player(
                         &mut self
-                            .engine_stores
+                            .world_services
                             .shroud()
                             .lock()
                             .unwrap_or_else(|e| e.into_inner()),

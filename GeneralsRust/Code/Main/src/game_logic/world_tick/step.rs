@@ -452,8 +452,8 @@ impl GameLogic {
         // accessors that still resolve TheAI / TheUpgradeCenter / the shroud
         // ambiently must see the driving world, not whichever world was
         // installed last (a second match, or a staged load candidate).
-        let stores = std::sync::Arc::clone(&self.engine_stores);
-        gamelogic::system::engine_stores::with_active_stores(&stores, || {
+        let stores = std::sync::Arc::clone(&self.world_services);
+        gamelogic::system::engine_stores::with_world_services(&stores, || {
             // Presentation spawn/destruction events are logic-frame scoped.
             // Keep active particle systems themselves, but never replay old
             // spawn events forever on later presentation frames.
@@ -483,8 +483,8 @@ impl GameLogic {
     fn update_simulation_in_step(&mut self, dt: f32) -> SimulationStepOutcome {
         debug_assert!(
             std::sync::Arc::ptr_eq(
-                &gamelogic::system::engine_stores::active(),
-                &self.engine_stores
+                &gamelogic::system::engine_stores::active_services(),
+                &self.world_services
             ),
             "a logic step must resolve its own engine stores"
         );
@@ -1974,7 +1974,7 @@ mod tests {
             .create_object_for_player("VisionProbeC17", 1, glam::Vec3::new(10.0, 0.0, 20.0))
             .expect("spawn looker");
         {
-            let shroud = logic.engine_stores.shroud();
+            let shroud = logic.world_services.shroud();
             let mut mgr = shroud.lock().expect("shroud");
             mgr.clear_all();
             mgr.init_shroud_grid(512.0, 512.0);
@@ -1990,7 +1990,7 @@ mod tests {
         end_shadow_coupled_tick();
 
         {
-            let shroud = logic.engine_stores.shroud();
+            let shroud = logic.world_services.shroud();
             let mut mgr = shroud.lock().expect("shroud");
             assert!(
                 !mgr.get_visible_objects(1).is_empty(),
@@ -2006,7 +2006,7 @@ mod tests {
         }
         // Freeze the same world after releasing its mutable vision borrow.
         let grid = FOWRenderingBridge::snapshot_terrain_grid(
-            logic.engine_stores.shroud().lock().ok().as_deref(),
+            logic.world_services.shroud().lock().ok().as_deref(),
             1,
             false,
         );
@@ -2017,7 +2017,7 @@ mod tests {
         );
         // Reset only this fixture's world.
         {
-            let shroud = logic.engine_stores.shroud();
+            let shroud = logic.world_services.shroud();
             let mut mgr = shroud.lock().expect("shroud");
             mgr.clear_all();
         }

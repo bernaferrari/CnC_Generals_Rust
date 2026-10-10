@@ -142,7 +142,8 @@ impl ScriptEvaluator {
             return Some(trigger);
         }
         let resolved = crate::scripting::engine::qualify_trigger_area_name(area_name, None)?;
-        let Ok(terrain) = get_terrain_logic().read() else {
+        let terrain_owner_handle = get_terrain_logic();
+        let Ok(terrain) = terrain_owner_handle.read() else {
             return None;
         };
         terrain.get_trigger_area_by_name(&resolved).cloned()

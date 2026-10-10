@@ -187,7 +187,8 @@ fn ai_do_command_polygon_updates_machine_goal_polygon() {
         ],
     );
     {
-        let mut terrain = get_terrain_logic()
+        let terrain_owner_handle = get_terrain_logic();
+        let mut terrain = terrain_owner_handle
             .write()
             .expect("terrain logic write lock poisoned");
         terrain.add_trigger_area(trigger);

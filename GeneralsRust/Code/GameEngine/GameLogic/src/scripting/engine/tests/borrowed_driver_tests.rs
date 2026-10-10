@@ -158,7 +158,8 @@ impl Drop for QuerySnapshotRestore {
 struct TerrainTriggersRestore(Vec<crate::polygon_trigger::PolygonTrigger>);
 impl TerrainTriggersRestore {
     fn add(trigger: crate::polygon_trigger::PolygonTrigger) -> Self {
-        let mut terrain = crate::terrain::get_terrain_logic().write().unwrap();
+        let terrain_owner_handle = crate::terrain::get_terrain_logic();
+        let mut terrain = terrain_owner_handle.write().unwrap();
         let prior = terrain.get_trigger_areas().get_triggers().to_vec();
         terrain.get_trigger_areas_mut().add(trigger);
         Self(prior)
@@ -166,7 +167,8 @@ impl TerrainTriggersRestore {
 }
 impl Drop for TerrainTriggersRestore {
     fn drop(&mut self) {
-        let mut terrain = crate::terrain::get_terrain_logic().write().unwrap();
+        let terrain_owner_handle = crate::terrain::get_terrain_logic();
+        let mut terrain = terrain_owner_handle.write().unwrap();
         let triggers = terrain.get_trigger_areas_mut();
         triggers.clear();
         for trigger in self.0.drain(..) {

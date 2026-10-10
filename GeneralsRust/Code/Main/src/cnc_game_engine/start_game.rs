@@ -2248,7 +2248,7 @@ impl CnCGameEngine {
         // bridge belonging to this engine's world, even if a save/load
         // candidate is temporarily the ambient active world.
         gamelogic::helpers::ClientVisualHandle::new(std::sync::Arc::clone(
-            &self.game_logic.engine_stores,
+            &self.game_logic.world_services,
         ))
         .clear_visual_state_for_reset();
 

@@ -468,7 +468,8 @@ impl AIGroup {
         let mut dest = Coord3D::new(group_dest.x + v.x, group_dest.y + v.y, 0.0);
 
         // Get terrain layer for destination
-        let layer = crate::terrain::get_terrain_logic()
+        let terrain_owner_handle = crate::terrain::get_terrain_logic();
+        let layer = terrain_owner_handle
             .read()
             .ok()
             .map(|t| t.get_layer_for_destination(group_dest))

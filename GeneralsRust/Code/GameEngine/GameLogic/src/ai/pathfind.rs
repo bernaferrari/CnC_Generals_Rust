@@ -1556,7 +1556,9 @@ impl Pathfinder {
             return false;
         }
 
-        let Ok(terrain) = get_terrain_logic().read() else {
+        let terrain_owner_handle = get_terrain_logic();
+
+        let Ok(terrain) = terrain_owner_handle.read() else {
             return false;
         };
 
@@ -1913,12 +1915,14 @@ pub fn update_goal_for_object(
             as i32;
         r.clamp(0, 2)
     };
-    let dest_layer = get_terrain_logic()
+    let terrain_owner_handle = get_terrain_logic();
+    let dest_layer = terrain_owner_handle
         .read()
         .ok()
         .map(|t| t.get_layer_for_destination(goal))
         .unwrap_or(crate::path::PathfindLayerEnum::Ground);
-    let interacts_with_bridge_end = get_terrain_logic()
+    let terrain_owner_handle = get_terrain_logic();
+    let interacts_with_bridge_end = terrain_owner_handle
         .read()
         .ok()
         .map(|t| t.object_interacts_with_bridge_end(&*obj_guard, dest_layer))

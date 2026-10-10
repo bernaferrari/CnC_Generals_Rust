@@ -1263,20 +1263,16 @@ mod aidata_owner_tests {
         let process_store = ini_ai_data::process_lifetime_ai_data_store();
         let mut first = crate::game_logic::GameLogic::new();
         let mut second = crate::game_logic::GameLogic::new();
-        let first_store = Arc::clone(first.engine_stores.ai_data());
-        let second_store = Arc::clone(second.engine_stores.ai_data());
 
         fn write_catalog(
-            store: &Arc<RwLock<AIDataStore>>,
+            world: &mut crate::game_logic::GameLogic,
             max_distance: f32,
             resources: f32,
             rotate: bool,
             template: &str,
             location: (f32, f32),
         ) {
-            let mut store = store.write().unwrap();
-            store.ensure_base();
-            let data = store.get_active_mut().unwrap();
+            let mut data = world.ai_definitions.baseline().clone();
             data.max_recruit_distance = max_distance;
             data.team_resources_to_build = resources;
             data.rotate_skirmish_bases = rotate;
@@ -1288,17 +1284,17 @@ mod aidata_owner_tests {
                 ..BuildListEntry::default()
             });
             data.side_build_lists.push(list);
+            world.set_ai_definition_base(data);
         }
         fn assert_catalog(
-            store: &Arc<RwLock<AIDataStore>>,
+            world: &crate::game_logic::GameLogic,
             max_distance: f32,
             resources: f32,
             rotate: bool,
             template: &str,
             location: (f32, f32),
         ) {
-            let store = store.read().unwrap();
-            let data = store.get_active().unwrap();
+            let data = world.ai_definitions.data();
             assert_eq!(data.max_recruit_distance, max_distance);
             assert_eq!(data.team_resources_to_build, resources);
             assert_eq!(data.rotate_skirmish_bases, rotate);
@@ -1313,7 +1309,7 @@ mod aidata_owner_tests {
         }
 
         write_catalog(
-            &first_store,
+            &mut first,
             81.0,
             0.61,
             false,
@@ -1321,7 +1317,7 @@ mod aidata_owner_tests {
             (13.0, 17.0),
         );
         write_catalog(
-            &second_store,
+            &mut second,
             147.0,
             0.83,
             true,
@@ -1330,56 +1326,34 @@ mod aidata_owner_tests {
         );
 
         // Construction is inert; neither newly constructed world becomes the
-        // Common parser target until the explicit reset/start boundary.
+        // Common AI parser target; definitions stay explicitly owned.
         assert!(Arc::ptr_eq(
             &ini_ai_data::get_ai_data_store(),
             &process_store
         ));
-        assert_catalog(
-            &first_store,
-            81.0,
-            0.61,
-            false,
-            "FirstWarFactory",
-            (13.0, 17.0),
-        );
-        assert_catalog(
-            &second_store,
-            147.0,
-            0.83,
-            true,
-            "SecondWarFactory",
-            (23.0, 29.0),
-        );
+        assert_catalog(&first, 81.0, 0.61, false, "FirstWarFactory", (13.0, 17.0));
+        assert_catalog(&second, 147.0, 0.83, true, "SecondWarFactory", (23.0, 29.0));
 
         second.reset();
         assert!(Arc::ptr_eq(
             &ini_ai_data::get_ai_data_store(),
-            &second_store
+            &process_store
         ));
         first.reset();
-        assert!(Arc::ptr_eq(&ini_ai_data::get_ai_data_store(), &first_store));
+        assert!(Arc::ptr_eq(
+            &ini_ai_data::get_ai_data_store(),
+            &process_store
+        ));
         // Reset clears simulation state but retains both worlds' definition data.
-        assert_catalog(
-            &first_store,
-            81.0,
-            0.61,
-            false,
-            "FirstWarFactory",
-            (13.0, 17.0),
-        );
-        assert_catalog(
-            &second_store,
-            147.0,
-            0.83,
-            true,
-            "SecondWarFactory",
-            (23.0, 29.0),
-        );
+        assert_catalog(&first, 81.0, 0.61, false, "FirstWarFactory", (13.0, 17.0));
+        assert_catalog(&second, 147.0, 0.83, true, "SecondWarFactory", (23.0, 29.0));
 
         drop(second); // buried active entry is removed; first remains the head
-        assert!(Arc::ptr_eq(&ini_ai_data::get_ai_data_store(), &first_store));
-        drop(first); // explicit previous foreign parser target is restored
+        assert!(Arc::ptr_eq(
+            &ini_ai_data::get_ai_data_store(),
+            &process_store
+        ));
+        drop(first); // Main never changed the parser target
         assert!(Arc::ptr_eq(
             &ini_ai_data::get_ai_data_store(),
             &process_store

@@ -2517,9 +2517,7 @@ impl AudioSubsystem {
         })
     }
 
-    pub fn manager(
-        &self,
-    ) -> std::sync::MutexGuard<'_, AudioManager<kira::DefaultBackend>> {
+    pub fn manager(&self) -> std::sync::MutexGuard<'_, AudioManager<kira::DefaultBackend>> {
         self.manager.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -2945,9 +2943,9 @@ mod tests {
         }
         let _ = std::fs::remove_file(&path);
 
-        let logic = gamelogic::terrain::get_terrain_logic()
-            .read()
-            .expect("terrain logic");
+        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+
+        let logic = terrain_owner_handle.read().expect("terrain logic");
         assert_eq!(&logic.logic_height_map_bytes()[..4], &[10, 20, 30, 40]);
     }
 

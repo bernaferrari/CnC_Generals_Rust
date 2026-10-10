@@ -1380,7 +1380,8 @@ impl ScriptActionDispatcher<'_> {
                 }
             }
             let waypoint_ascii = AsciiString::from(waypoint_name);
-            let position = get_terrain_logic()
+            let terrain_owner_handle = get_terrain_logic();
+            let position = terrain_owner_handle
                 .read()
                 .ok()
                 .and_then(|terrain| {

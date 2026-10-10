@@ -1663,7 +1663,9 @@ impl ScriptConditionEvaluator<'_> {
             return Ok(ScriptConditionResult::False);
         };
 
-        let Ok(terrain) = crate::terrain::get_terrain_logic().read() else {
+        let terrain_owner_handle = crate::terrain::get_terrain_logic();
+
+        let Ok(terrain) = terrain_owner_handle.read() else {
             return Ok(ScriptConditionResult::False);
         };
 

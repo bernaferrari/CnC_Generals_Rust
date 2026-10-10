@@ -186,7 +186,9 @@ impl ScriptActionDispatcher<'_> {
         let waypoint_ascii = AsciiString::from(waypoint.as_str());
         let look_at_ascii = AsciiString::from(look_at_waypoint.as_str());
 
-        let Some((position, look_at)) = get_terrain_logic().read().ok().and_then(|terrain| {
+        let terrain_owner_handle = get_terrain_logic();
+
+        let Some((position, look_at)) = terrain_owner_handle.read().ok().and_then(|terrain| {
             let position = terrain.get_waypoint_by_name(&waypoint_ascii)?;
             let look_at = terrain.get_waypoint_by_name(&look_at_ascii)?;
             Some((*position.get_location(), *look_at.get_location()))
@@ -537,7 +539,8 @@ impl ScriptActionDispatcher<'_> {
         let waypoint_name = self.get_string_param(action, 0)?;
         let saturate = self.get_bool_param_optional(action, 1).unwrap_or(false);
         let waypoint_ascii = AsciiString::from(waypoint_name.as_str());
-        let target = get_terrain_logic().read().ok().and_then(|terrain| {
+        let terrain_owner_handle = get_terrain_logic();
+        let target = terrain_owner_handle.read().ok().and_then(|terrain| {
             terrain
                 .get_waypoint_by_name(&waypoint_ascii)
                 .map(|waypoint| *waypoint.get_location())
@@ -765,7 +768,8 @@ impl ScriptActionDispatcher<'_> {
         let reverse_rotation = self.get_bool_param_optional(action, 4).unwrap_or(false);
 
         let waypoint_ascii = AsciiString::from(waypoint.as_str());
-        let target = get_terrain_logic().read().ok().and_then(|terrain| {
+        let terrain_owner_handle = get_terrain_logic();
+        let target = terrain_owner_handle.read().ok().and_then(|terrain| {
             terrain
                 .get_waypoint_by_name(&waypoint_ascii)
                 .map(|way| *way.get_location())
@@ -901,7 +905,8 @@ impl ScriptActionDispatcher<'_> {
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint = self.get_string_param(action, 0)?;
         let waypoint_ascii = AsciiString::from(waypoint.as_str());
-        let target = get_terrain_logic().read().ok().and_then(|terrain| {
+        let terrain_owner_handle = get_terrain_logic();
+        let target = terrain_owner_handle.read().ok().and_then(|terrain| {
             terrain
                 .get_waypoint_by_name(&waypoint_ascii)
                 .map(|way| *way.get_location())
@@ -933,7 +938,8 @@ impl ScriptActionDispatcher<'_> {
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint = self.get_string_param(action, 0)?;
         let waypoint_ascii = AsciiString::from(waypoint.as_str());
-        let target = get_terrain_logic().read().ok().and_then(|terrain| {
+        let terrain_owner_handle = get_terrain_logic();
+        let target = terrain_owner_handle.read().ok().and_then(|terrain| {
             terrain
                 .get_waypoint_by_name(&waypoint_ascii)
                 .map(|way| *way.get_location())
@@ -999,7 +1005,8 @@ impl ScriptActionDispatcher<'_> {
         let radius = self.get_real_param(action, 3)?;
 
         let waypoint_ascii = AsciiString::from(waypoint.as_str());
-        let target = get_terrain_logic().read().ok().and_then(|terrain| {
+        let terrain_owner_handle = get_terrain_logic();
+        let target = terrain_owner_handle.read().ok().and_then(|terrain| {
             terrain
                 .get_waypoint_by_name(&waypoint_ascii)
                 .map(|way| *way.get_location())

@@ -91,7 +91,8 @@ fn benchmark_radar_sampling_cpu() {
 #[test]
 fn radar_sampling_empty_cache_fails_open_when_fallback_terrain_is_busy() {
     *HOST_RADAR_MAP.lock().unwrap() = HostRadarMapState::empty();
-    let _writer = gamelogic::terrain::get_terrain_logic().write().unwrap();
+    let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+    let _writer = terrain_owner_handle.write().unwrap();
     let grid = HostRadarMapSource.sample_grid(Coord3D::new(-10.0, 20.0, 0.0), 1.0, 2.0);
     assert_eq!(grid.len(), 128 * 128);
     assert!(
@@ -132,7 +133,8 @@ fn radar_sampling_cached_grid_and_explicit_height_query_do_not_reenter_terrain_l
     logic.host_radar_rescan_terrain();
     let expected = HOST_RADAR_MAP.lock().unwrap().samples.clone();
     let terrain = gamelogic::terrain::TerrainLogic::new();
-    let _writer = gamelogic::terrain::get_terrain_logic().write().unwrap();
+    let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+    let _writer = terrain_owner_handle.write().unwrap();
     let world = glam::Vec3::new(150.0, 0.0, 70.0);
     assert_eq!(
         logic.terrain_height_at_with_terrain_logic(world, Some(&terrain)),

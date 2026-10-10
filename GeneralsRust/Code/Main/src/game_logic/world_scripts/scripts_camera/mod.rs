@@ -86,7 +86,7 @@ fn host_discovered_by_player_names(
         return Vec::new();
     }
     let mut names = Vec::new();
-    let shroud_manager = logic.engine_stores.shroud();
+    let shroud_manager = logic.world_services.shroud();
     let shroud = shroud_manager.lock().ok();
     for player in logic.players.values() {
         let status = shroud
@@ -109,7 +109,8 @@ fn leftover_waypoint_path_labels(path_label: &str, last: glam::Vec3) -> Vec<Stri
     if !path_label.is_empty() {
         labels.push(path_label.to_string());
     }
-    let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() else {
+    let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+    let Ok(terrain) = terrain_owner_handle.read() else {
         return labels;
     };
     let pos = gamelogic::common::Coord3D::new(last.x, last.z, last.y);

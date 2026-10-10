@@ -860,7 +860,8 @@ impl TeamFactory {
 /// C++ TeamTemplateInfo (Team.cpp:669-679): walk `getFirstWaypoint` / `getNext`.
 /// Last matching name wins. Empty names are still searched if the key exists.
 pub(super) fn resolve_team_home_waypoint_location(name: &str) -> Option<Coord3D> {
-    let Ok(terrain) = crate::terrain::get_terrain_logic().read() else {
+    let terrain_owner_handle = crate::terrain::get_terrain_logic();
+    let Ok(terrain) = terrain_owner_handle.read() else {
         return None;
     };
     let mut current = terrain.get_first_waypoint();

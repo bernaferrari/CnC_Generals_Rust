@@ -188,7 +188,8 @@ impl ScriptCondition for BridgeRepairedCondition {
             Some(id) => id,
             None => return Ok(false),
         };
-        let terrain = get_terrain_logic()
+        let terrain_owner_handle = get_terrain_logic();
+        let terrain = terrain_owner_handle
             .read()
             .map_err(|e| GameLogicError::Threading(format!("Failed to read terrain: {}", e)))?;
         if !terrain.bridge_damage_states_changed() {
@@ -231,7 +232,8 @@ impl ScriptCondition for BridgeBrokenCondition {
             Some(id) => id,
             None => return Ok(false),
         };
-        let terrain = get_terrain_logic()
+        let terrain_owner_handle = get_terrain_logic();
+        let terrain = terrain_owner_handle
             .read()
             .map_err(|e| GameLogicError::Threading(format!("Failed to read terrain: {}", e)))?;
         if !terrain.bridge_damage_states_changed() {

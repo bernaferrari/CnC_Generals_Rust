@@ -1345,8 +1345,13 @@ impl GameLogic {
                     .map(|p| p.has_unlocked_upgrade(&upgrade_name))
                     .unwrap_or(false);
                 let upgrade_type = self.upgrade_type(&upgrade_name);
+                let definition = self.upgrade_template(&upgrade_name);
                 if let Some(player) = self.players.get_mut(&pid) {
-                    player.complete_researched_upgrade(&upgrade_name, upgrade_type);
+                    player.complete_researched_upgrade_with_definition(
+                        &upgrade_name,
+                        upgrade_type,
+                        definition.as_deref(),
+                    );
                     // record_upgrade_production_complete: leftover AcademyStats::recordUpgrade
                     // (FALSE) + ScoreKeeper::addMoneySpent (ProductionUpdate.cpp:874-879 / 931).
                 }

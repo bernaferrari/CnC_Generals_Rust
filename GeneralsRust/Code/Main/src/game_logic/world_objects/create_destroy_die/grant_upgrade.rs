@@ -63,9 +63,7 @@ impl GameLogic {
             match host_grant_upgrade_kind(self, &grant.upgrade_name) {
                 Some(GrantUpgradeKind::Player) => {
                     if let Some(pid) = player_id {
-                        if let Some(player) = self.players.get_mut(&pid) {
-                            player.add_completed_upgrade(&grant.upgrade_name);
-                        }
+                        self.add_completed_player_upgrade(pid, &grant.upgrade_name);
                     }
                 }
                 Some(GrantUpgradeKind::Object) => {

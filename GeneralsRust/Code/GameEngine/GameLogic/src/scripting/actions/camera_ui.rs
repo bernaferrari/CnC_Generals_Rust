@@ -168,7 +168,8 @@ impl ScriptAction for CameraMoveToWaypointAction {
         // Camera system handles easing and interpolation
 
         let waypoint_ascii = AsciiString::from(waypoint.as_str());
-        let target = get_terrain_logic()
+        let terrain_owner_handle = get_terrain_logic();
+        let target = terrain_owner_handle
             .read()
             .ok()
             .and_then(|terrain| {
@@ -600,7 +601,8 @@ impl ScriptAction for SnapCameraAction {
         // Rust: camera.snap_to_position(waypoint_position)
 
         let waypoint_ascii = AsciiString::from(waypoint.as_str());
-        let target = get_terrain_logic().read().ok().and_then(|terrain| {
+        let terrain_owner_handle = get_terrain_logic();
+        let target = terrain_owner_handle.read().ok().and_then(|terrain| {
             terrain
                 .get_waypoint_by_name(&waypoint_ascii)
                 .map(|w| *w.get_location())

@@ -785,7 +785,8 @@ pub fn restore_railroad_car(car: HostRailroadCar) {
 
 /// Snapshot TerrainLogic waypoints (C++ `TheTerrainLogic->getFirstWaypoint`).
 pub fn snapshot_terrain_waypoints() -> Vec<HostWaypointSnap> {
-    let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() else {
+    let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+    let Ok(terrain) = terrain_owner_handle.read() else {
         return Vec::new();
     };
     let mut out = Vec::new();

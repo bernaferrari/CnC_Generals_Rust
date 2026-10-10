@@ -194,7 +194,6 @@ impl CellCoord {
         }
         cells
     }
-
 }
 
 /// Partition cell containing objects and per-player threat/cash values.
@@ -813,7 +812,8 @@ impl PartitionManager {
         let mut pos = Coord3D::new(dist * cos_a + center.x, dist * sin_a + center.y, 0.0);
 
         // Query terrain for height.
-        let terrain = get_terrain_logic().read().ok()?;
+        let terrain_owner_handle = get_terrain_logic();
+        let terrain = terrain_owner_handle.read().ok()?;
         let use_highest = options.flags.contains(FindPositionFlags::USE_HIGHEST_LAYER);
         pos.z = terrain.get_ground_height(pos.x, pos.y, None);
 
@@ -839,8 +839,8 @@ impl PartitionManager {
         }
         // Impassable / CLEAR_CELLS_ONLY: C++ floors to PATHFIND_CELL_SIZE.
         {
-            use crate::ai::the_ai;
             use crate::ai::pathfind_astar::PathfindCellType;
+            use crate::ai::the_ai;
             let cell_size = crate::path::PATHFIND_CELL_SIZE_F;
             let snapped = Coord3D::new(
                 (pos.x / cell_size).floor() * cell_size,
@@ -848,7 +848,8 @@ impl PartitionManager {
                 pos.z,
             );
             let snapped_pf = crate::common::Coord3D::new(snapped.x, snapped.y, snapped.z);
-            let ai_store = the_ai();let cell_type = ai_store.read().ok().and_then(|ai| {
+            let ai_store = the_ai();
+            let cell_type = ai_store.read().ok().and_then(|ai| {
                 ai.pathfinder().and_then(|pf| {
                     pf.read()
                         .ok()
@@ -964,7 +965,8 @@ impl PartitionManager {
             if let Some(src) = self.objects.get(&source_id) {
                 use crate::ai::the_ai;
                 let src_pos = src.position;
-                let ai_store = the_ai();let exists = ai_store.read().ok().and_then(|ai| {
+                let ai_store = the_ai();
+                let exists = ai_store.read().ok().and_then(|ai| {
                     ai.pathfinder().and_then(|pf| {
                         pf.read().ok().and_then(|pf| {
                             OBJECT_REGISTRY.with_object(source_id, |obj| {
@@ -1379,7 +1381,8 @@ impl PartitionManager {
         pos: &Coord3D,
         other_pos: &Coord3D,
     ) -> Option<(f32, f32, (f32, f32), (f32, f32))> {
-        let terrain = get_terrain_logic().read().ok()?;
+        let terrain_owner_handle = get_terrain_logic();
+        let terrain = terrain_owner_handle.read().ok()?;
 
         let mut accum = TerrainExtremeAccum {
             min_z: Some(HUGE_DIST),

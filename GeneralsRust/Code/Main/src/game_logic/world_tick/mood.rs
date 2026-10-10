@@ -326,7 +326,7 @@ impl GameLogic {
                 let viewer = me.owner_player_id;
                 let clear = viewer
                     .and_then(|pid| {
-                        self.engine_stores
+                        self.world_services
                             .shroud()
                             .lock()
                             .ok()

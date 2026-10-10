@@ -488,7 +488,7 @@ fn presentation_fow_matches_bridge_at_build_and_stays_frozen() {
 
     // Bridge state at build time is the source of truth for the snapshot.
     let bridge_at_build = FOWRenderingBridge::get_object_visibility(
-        logic.engine_stores.shroud().lock().ok().as_deref(),
+        logic.world_services.shroud().lock().ok().as_deref(),
         0,
         id,
     );
@@ -649,7 +649,7 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
     // Activate FOW runtime (visible membership) without permanent map reveal so
     // baseline is not fail-open fully-visible and reveal can change fingerprint.
     {
-        let shroud_manager = logic.engine_stores.shroud();
+        let shroud_manager = logic.world_services.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(500.0, 500.0); // manager-owned 40-wu cells
@@ -662,7 +662,7 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
 
     // Build with active hidden grid (last_update_frame > 0 after update above).
     let bridge_grid = FOWRenderingBridge::snapshot_terrain_grid(
-        logic.engine_stores.shroud().lock().ok().as_deref(),
+        logic.world_services.shroud().lock().ok().as_deref(),
         0,
         false,
     );
@@ -722,7 +722,7 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
     let frozen_r8 = snap.fow_grid.to_r8_texture();
     let frozen_projected_fp = snap.projected_shroud.content_fingerprint();
     {
-        let shroud_manager = logic.engine_stores.shroud();
+        let shroud_manager = logic.world_services.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         // Permanent reveal → all cells Visible on the live manager.
         shroud.reveal_map_for_player_permanently(0).expect("reveal");

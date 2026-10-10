@@ -218,7 +218,8 @@ impl AIFollowPathState {
                     return Err("follow path failed to adjust destination".to_string());
                 }
                 self.set_goal_position(adjusted_goal);
-                let layer = crate::terrain::get_terrain_logic()
+                let terrain_owner_handle = crate::terrain::get_terrain_logic();
+                let layer = terrain_owner_handle
                     .read()
                     .ok()
                     .map(|terrain| terrain.get_layer_for_destination(&adjusted_goal))

@@ -395,13 +395,12 @@ fn parsed_upgrade_ledger_cancel_refunds_once() {
     let _cleanup = ClearEconomyLog;
     with_gameworld_authority(GameWorldAuthority::DEFAULT_OFF, || {
         let (mut logic, _) = authored_world(250, 1_000);
-        let source =
-            "Upgrade Upgrade_AuthoredRefundLedger\nType = PLAYER\nBuildCost = 321\nBuildTime = 9\nEnd\n";
+        let source = "Upgrade Upgrade_AuthoredRefundLedger\nType = PLAYER\nBuildCost = 321\nBuildTime = 9\nEnd\n";
         let mut ini = game_engine::common::ini::INI::new();
         ini.with_inline_source(source, |ini| {
             ini.read_line()?;
             logic
-                .engine_stores
+                .world_services
                 .upgrade_center()
                 .write()
                 .unwrap()

@@ -443,14 +443,13 @@ impl SnapshotBuilder {
                                 "Invalid AI_PANIC wander width".to_owned(),
                             ));
                         }
-                        let terrain =
-                            gamelogic::terrain::get_terrain_logic()
-                                .read()
-                                .map_err(|_| {
-                                    SaveLoadError::Corrupted(
-                                        "AI_PANIC waypoint catalog is unavailable".to_owned(),
-                                    )
-                                })?;
+                        let terrain_owner_handle =
+                            std::sync::Arc::clone(game_logic.world_services.terrain());
+                        let terrain = terrain_owner_handle.read().map_err(|_| {
+                            SaveLoadError::Corrupted(
+                                "AI_PANIC waypoint catalog is unavailable".to_owned(),
+                            )
+                        })?;
                         if terrain
                             .get_waypoint_by_id(panic.panic.current_waypoint_id)
                             .is_none()
@@ -851,7 +850,8 @@ impl SnapshotBuilder {
             && terrain_snapshot.logic_height > 0
             && !terrain_snapshot.logic_heights.is_empty()
         {
-            if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
+            let terrain_owner_handle = std::sync::Arc::clone(game_logic.world_services.terrain());
+            if let Ok(mut terrain) = terrain_owner_handle.write() {
                 terrain.restore_logic_height_map(
                     terrain_snapshot.logic_width as i32,
                     terrain_snapshot.logic_height as i32,

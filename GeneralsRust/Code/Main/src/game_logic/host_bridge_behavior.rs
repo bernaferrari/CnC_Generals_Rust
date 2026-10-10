@@ -771,7 +771,8 @@ fn leftover_is_condition_worse(old_state: u8, new_state: u8) -> bool {
 }
 
 fn leftover_bridge_template_name(object_id: u32, pos: Vec3) -> Option<String> {
-    let terrain = gamelogic::terrain::get_terrain_logic().read().ok()?;
+    let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+    let terrain = terrain_owner_handle.read().ok()?;
     let mut found = None;
     terrain.for_each_bridge(|bridge| {
         if found.is_none() && bridge.get_bridge_info().bridge_object_id == object_id {

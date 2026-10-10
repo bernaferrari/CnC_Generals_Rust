@@ -98,9 +98,8 @@ fn global_terrain_load_map_data_does_not_deadlock_on_bridge() {
         ));
     let started = std::time::Instant::now();
     {
-        let mut terrain = gamelogic::terrain::get_terrain_logic()
-            .write()
-            .expect("THE_TERRAIN_LOGIC");
+        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let mut terrain = terrain_owner_handle.write().expect("THE_TERRAIN_LOGIC");
         terrain.reset();
         terrain.load_map_data(map_data);
         assert!(

@@ -29,9 +29,9 @@ pub(crate) fn run_owned_host_boundary(
     // Death callbacks still use those adapters, so resolve this owner for the
     // bounded admission operation and restore the previous context afterward.
     // Neither scope publishes or lends a shadow as writable simulation state.
-    let stores = std::sync::Arc::clone(&logic.engine_stores);
+    let stores = std::sync::Arc::clone(&logic.world_services);
     super::with_gameworld_authority(GameWorldAuthority::DEFAULT_OFF, || {
-        gamelogic::system::engine_stores::with_active_stores(&stores, || {
+        gamelogic::system::engine_stores::with_world_services(&stores, || {
             // Ordered owner admission distinguishes already-applied damage/
             // healing observations from required pending effects.
             materialize_host_authority_logs(logic);

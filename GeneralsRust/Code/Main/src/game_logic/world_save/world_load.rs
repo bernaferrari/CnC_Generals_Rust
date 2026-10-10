@@ -50,13 +50,19 @@ impl GameLogic {
     where
         F: FnMut(f32, &str),
     {
-        self.load_map_with_definition_source_and_progress(map_name, None, report_progress)
+        let services = Arc::clone(&self.world_services);
+        gamelogic::system::engine_stores::with_world_services(&services, || {
+            self.load_map_with_definition_source_and_progress(map_name, None, report_progress)
+        })
     }
 
     /// Saved geometry stays on the extracted map; only companion INIs use the
     /// original source, as in C++ GameLogic::loadMapINI saved-directory branch.
     pub(crate) fn load_map_with_definition_source(&mut self, map_name: &str, source: &str) -> bool {
-        self.load_map_with_definition_source_and_progress(map_name, Some(source), |_, _| {})
+        let services = Arc::clone(&self.world_services);
+        gamelogic::system::engine_stores::with_world_services(&services, || {
+            self.load_map_with_definition_source_and_progress(map_name, Some(source), |_, _| {})
+        })
     }
 
     fn load_map_with_definition_source_and_progress<F>(
@@ -607,7 +613,7 @@ impl GameLogic {
                     self.refresh_pathfinding_ai_definitions();
                 }
 
-                if let Ok(mut shroud_mgr) = self.engine_stores.shroud().lock() {
+                if let Ok(mut shroud_mgr) = self.world_services.shroud().lock() {
                     shroud_mgr.init_shroud_grid(self.world_width, self.world_height);
                 }
                 report_progress(0.88, "Initializing shroud and pathfinding");
@@ -838,7 +844,8 @@ pub(in super::super) fn landmark_bridge_half_sizes(
 pub(in super::super) fn leftover_bridge_info_for_object(
     object_id: u32,
 ) -> Option<gamelogic::terrain::BridgeInfo> {
-    let terrain = gamelogic::terrain::get_terrain_logic().read().ok()?;
+    let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+    let terrain = terrain_owner_handle.read().ok()?;
     let mut found = None;
     terrain.for_each_bridge(|bridge| {
         if bridge.get_bridge_info().bridge_object_id == object_id {
@@ -849,7 +856,8 @@ pub(in super::super) fn leftover_bridge_info_for_object(
 }
 
 pub(in super::super) fn leftover_bridge_template_name(object_id: u32) -> Option<String> {
-    let terrain = gamelogic::terrain::get_terrain_logic().read().ok()?;
+    let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+    let terrain = terrain_owner_handle.read().ok()?;
     let mut found = None;
     terrain.for_each_bridge(|bridge| {
         if bridge.get_bridge_info().bridge_object_id == object_id {

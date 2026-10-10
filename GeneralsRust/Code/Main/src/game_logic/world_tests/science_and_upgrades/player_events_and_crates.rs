@@ -1985,7 +1985,7 @@ fn shroud_crate_reveals_map_for_picker_player() {
     // that separation).
     let reveal_queued = |world: &GameLogic, player_id: u32| {
         world
-            .engine_stores
+            .world_services
             .shroud()
             .lock()
             .map(|mgr| {
@@ -2034,7 +2034,7 @@ fn shroud_crate_collide_path() {
     // C++ revealMapForPlayer lands in the FOW shroud manager (GLA slot 2),
     // not in the permanent partition latch.
     let reveal_queued = logic
-        .engine_stores
+        .world_services
         .shroud()
         .lock()
         .map(|mgr| {

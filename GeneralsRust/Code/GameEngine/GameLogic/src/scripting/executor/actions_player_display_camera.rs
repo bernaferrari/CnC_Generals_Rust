@@ -451,7 +451,8 @@ impl ScriptActionDispatcher<'_> {
         );
 
         let waypoint_ascii = AsciiString::from(waypoint_name.as_str());
-        let target = get_terrain_logic().read().ok().and_then(|terrain| {
+        let terrain_owner_handle = get_terrain_logic();
+        let target = terrain_owner_handle.read().ok().and_then(|terrain| {
             terrain
                 .get_waypoint_by_name(&waypoint_ascii)
                 .map(|w| *w.get_location())
@@ -514,7 +515,8 @@ impl ScriptActionDispatcher<'_> {
         );
 
         let waypoint_ascii = AsciiString::from(waypoint_name.as_str());
-        let target = get_terrain_logic().read().ok().and_then(|terrain| {
+        let terrain_owner_handle = get_terrain_logic();
+        let target = terrain_owner_handle.read().ok().and_then(|terrain| {
             terrain
                 .get_waypoint_by_name(&waypoint_ascii)
                 .map(|w| *w.get_location())
@@ -644,7 +646,8 @@ impl ScriptActionDispatcher<'_> {
         );
 
         let waypoint_ascii = AsciiString::from(waypoint_name.as_str());
-        let target = get_terrain_logic().read().ok().and_then(|terrain| {
+        let terrain_owner_handle = get_terrain_logic();
+        let target = terrain_owner_handle.read().ok().and_then(|terrain| {
             terrain
                 .get_waypoint_by_name(&waypoint_ascii)
                 .map(|w| *w.get_location())
@@ -700,7 +703,8 @@ impl ScriptActionDispatcher<'_> {
         );
 
         let waypoint_ascii = AsciiString::from(waypoint_name.as_str());
-        let target = get_terrain_logic().read().ok().and_then(|terrain| {
+        let terrain_owner_handle = get_terrain_logic();
+        let target = terrain_owner_handle.read().ok().and_then(|terrain| {
             terrain
                 .get_waypoint_by_name(&waypoint_ascii)
                 .map(|w| *w.get_location())

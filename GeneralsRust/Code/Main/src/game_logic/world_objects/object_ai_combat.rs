@@ -563,8 +563,13 @@ impl GameLogic {
                 .map(|p| p.has_unlocked_upgrade(&name))
                 .unwrap_or(false);
             let upgrade_type = self.upgrade_type(&name);
+            let definition = self.upgrade_template(&name);
             if let Some(player) = self.players.get_mut(&player_id) {
-                player.complete_researched_upgrade(&name, upgrade_type);
+                player.complete_researched_upgrade_with_definition(
+                    &name,
+                    upgrade_type,
+                    definition.as_deref(),
+                );
             }
             if !already {
                 self.apply_host_upgrade_complete(team, player_id, &name);
@@ -1036,7 +1041,7 @@ mod live_upgrade_mux_tests {
             source.push_str(&format!("UnitSpecificSound = {sound}\n"));
         }
         source.push_str("End\n");
-        let mut center = logic.engine_stores.upgrade_center().write().unwrap();
+        let mut center = logic.world_services.upgrade_center().write().unwrap();
         {
             let mut ini = game_engine::common::ini::INI::new();
             ini.with_inline_source(&source, |ini| {

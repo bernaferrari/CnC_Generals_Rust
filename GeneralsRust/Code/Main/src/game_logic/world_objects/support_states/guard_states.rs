@@ -66,7 +66,8 @@ impl GameLogic {
     pub(crate) fn host_named_guard_area_polygon(
         name: &str,
     ) -> Option<(glam::Vec3, f32, gamelogic::polygon_trigger::PolygonTrigger)> {
-        let trigger = gamelogic::terrain::get_terrain_logic()
+        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let trigger = terrain_owner_handle
             .read()
             .ok()
             .and_then(|terrain| terrain.get_trigger_area_by_name(name).cloned())?;

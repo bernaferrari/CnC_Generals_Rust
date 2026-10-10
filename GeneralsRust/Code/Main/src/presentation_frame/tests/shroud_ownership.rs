@@ -22,13 +22,13 @@ fn shroud_presentation_uses_driving_world_with_reused_object_ids() {
     let (mut right, right_id) = world_with_enemy();
     assert_eq!(left_id, right_id);
     {
-        let mut shroud = left.engine_stores.shroud().lock().unwrap();
+        let mut shroud = left.world_services.shroud().lock().unwrap();
         shroud.mark_host_vision_ready();
         shroud.mark_host_object_explored(0, left_id.0);
         shroud.set_host_object_shroud_status(0, left_id.0, ObjectShroudStatus::Fogged);
     }
     {
-        let mut shroud = right.engine_stores.shroud().lock().unwrap();
+        let mut shroud = right.world_services.shroud().lock().unwrap();
         shroud.mark_host_vision_ready();
         shroud.mark_host_object_seen(0, right_id.0);
         shroud.set_host_object_shroud_status(0, right_id.0, ObjectShroudStatus::Clear);
@@ -59,18 +59,23 @@ fn shroud_presentation_uses_driving_world_with_reused_object_ids() {
 fn shroud_snapshot_captures_driving_world_after_another_world_starts() {
     let (left, _) = world_with_enemy();
     let (right, _) = world_with_enemy();
-    left.engine_stores
+    left.world_services
         .shroud()
         .lock()
         .unwrap()
         .init_shroud_grid(400.0, 400.0);
     right
-        .engine_stores
+        .world_services
         .shroud()
         .lock()
         .unwrap()
         .init_shroud_grid(800.0, 800.0);
-    let expected = left.engine_stores.shroud().lock().unwrap().snapshot_state();
+    let expected = left
+        .world_services
+        .shroud()
+        .lock()
+        .unwrap()
+        .snapshot_state();
     let snapshot = crate::save_load::snapshot::SnapshotBuilder::new()
         .create_world_snapshot(&left)
         .unwrap();
@@ -89,34 +94,41 @@ fn shroud_restore_replaces_only_the_driving_world_counters() {
     let (mut left, _) = world_with_enemy();
     let (right, _) = world_with_enemy();
     {
-        let mut manager = left.engine_stores.shroud().lock().unwrap();
+        let mut manager = left.world_services.shroud().lock().unwrap();
         manager.init_shroud_grid(400.0, 400.0);
         manager.do_shroud_reveal(&gamelogic::common::Coord3D::new(80.0, 80.0, 0.0), 100.0, 1);
     }
     right
-        .engine_stores
+        .world_services
         .shroud()
         .lock()
         .unwrap()
         .init_shroud_grid(800.0, 800.0);
     let right_before = right
-        .engine_stores
+        .world_services
         .shroud()
         .lock()
         .unwrap()
         .snapshot_state();
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&left).unwrap();
-    left.engine_stores
+    left.world_services
         .shroud()
         .lock()
         .unwrap()
         .reset_for_new_game();
     builder.restore_from_snapshot(&snapshot, &mut left).unwrap();
-    assert!(left.engine_stores.shroud().lock().unwrap().snapshot_state() == snapshot.shroud);
+    assert!(
+        left.world_services
+            .shroud()
+            .lock()
+            .unwrap()
+            .snapshot_state()
+            == snapshot.shroud
+    );
     assert!(
         right
-            .engine_stores
+            .world_services
             .shroud()
             .lock()
             .unwrap()

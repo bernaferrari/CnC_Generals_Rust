@@ -136,7 +136,8 @@ impl TargetValidator {
         // Check line of sight if required
         // Matches C++ PartitionManager.cpp line 1436: isClearLineOfSightTerrain
         if targeting.requires_los {
-            let has_los = get_terrain_logic()
+            let terrain_owner_handle = get_terrain_logic();
+            let has_los = terrain_owner_handle
                 .read()
                 .ok()
                 .map(|terrain| terrain.is_clear_line_of_sight(source_pos, &targeting.position))

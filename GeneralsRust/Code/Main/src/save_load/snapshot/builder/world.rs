@@ -255,7 +255,7 @@ impl SnapshotBuilder {
         game_logic: &GameLogic,
     ) -> SaveLoadResult<gamelogic::system::shroud_manager::ShroudSnapshot> {
         game_logic
-            .engine_stores
+            .world_services
             .shroud()
             .lock()
             .map(|manager| manager.snapshot_state())
@@ -342,7 +342,7 @@ impl SnapshotBuilder {
         // its bytes staged until the candidate GameLogic commits; applying
         // them here would mutate the still-playable client's drawables.
         let visual_world = gamelogic::helpers::ClientVisualHandle::new(std::sync::Arc::clone(
-            &game_logic.engine_stores,
+            &game_logic.world_services,
         ));
         restore_objectless_from_client_drawables(&visual_world, &snapshot.client_drawables);
         if let Some(particle_bytes) = take_loaded_particle_system_xfer() {
@@ -362,7 +362,7 @@ impl SnapshotBuilder {
             || !snapshot.shroud.pending_permanent_reveal_players.is_empty()
         {
             game_logic
-                .engine_stores
+                .world_services
                 .shroud()
                 .lock()
                 .map_err(|_| {

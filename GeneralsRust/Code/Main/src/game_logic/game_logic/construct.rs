@@ -56,11 +56,11 @@ impl GameLogic {
             ai_definitions,
             map_definition_source: None,
             health_events: crate::game_logic::HostHealthEvents::default(),
-            // C++ engine-init order (GameEngine.cpp:468-481): the upgrade
-            // center and AI stores exist before the world that owns them.
+            // C++ engine-init order (GameEngine.cpp:468-481): immutable content
+            // is admitted before the world. Main constructs no Core AI.
             // Construction is inert (no active-slot write); Main installs
             // the bundle at the explicit world-start boundaries below.
-            engine_stores: gamelogic::system::engine_stores::new_for_world(),
+            world_services: gamelogic::system::engine_stores::new_world_services(),
             host_trigger_world,
             team_factory: team_factory.clone(),
             #[cfg(feature = "game_client")]
@@ -714,7 +714,7 @@ impl GameLogic {
         // callback while another world is live. Its fresh shroud is still
         // reset through the owned bundle so recycled object IDs cannot leak.
         instance
-            .engine_stores
+            .world_services
             .shroud()
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -737,7 +737,11 @@ impl GameLogic {
         self.world_height = height;
         self.world_min = Vec3::new(-width * 0.5, 0.0, -height * 0.5);
         self.world_max = Vec3::new(width * 0.5, 0.0, height * 0.5);
-        self.pathfinding_system = PathfindingSystem::new_with_origin(self.world_min, width, height);
+        let mut replacement = PathfindingSystem::new_with_origin(self.world_min, width, height);
+        replacement
+            .grid
+            .inherit_bridge_admission(&mut self.pathfinding_system.grid);
+        self.pathfinding_system = replacement;
         self.refresh_pathfinding_ai_definitions();
         // Terrain-provided extent must seed TheRadar samples (C++ newMap).
         self.host_radar_on_map_loaded();
@@ -763,7 +767,7 @@ impl GameLogic {
         // clearGameData route through here (C++ GameLogic.cpp newGame calls
         // clearGameData before rebuilding the player list). Explicitly on
         // this world's own bundle, the twin of the constructor-path reset.
-        self.engine_stores
+        self.world_services
             .shroud()
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -1369,18 +1373,18 @@ mod ownership_tests {
     fn constructing_candidate_does_not_publish_it() {
         let mut live = GameLogic::initialize();
         live.set_damage_authority(true);
-        let live_stores = Arc::clone(&live.engine_stores);
+        let live_stores = Arc::clone(&live.world_services);
 
         let candidate = GameLogic::new();
         assert!(Arc::ptr_eq(
-            &gamelogic::system::engine_stores::active(),
+            &gamelogic::system::engine_stores::active_services(),
             &live_stores
         ));
         assert!(super::gameworld_authority::current_gameworld_authority().damage);
-        assert!(!Arc::ptr_eq(&candidate.engine_stores, &live_stores));
+        assert!(!Arc::ptr_eq(&candidate.world_services, &live_stores));
         drop(candidate);
         assert!(Arc::ptr_eq(
-            &gamelogic::system::engine_stores::active(),
+            &gamelogic::system::engine_stores::active_services(),
             &live_stores
         ));
 
@@ -1388,7 +1392,7 @@ mod ownership_tests {
             let _stage = gamelogic::runtime_world_transaction::WorldRuntimeStageScope::enter();
             let staged = GameLogic::initialize();
             assert!(Arc::ptr_eq(
-                &gamelogic::system::engine_stores::active(),
+                &gamelogic::system::engine_stores::active_services(),
                 &live_stores
             ));
             assert!(super::gameworld_authority::current_gameworld_authority().damage);
@@ -1397,13 +1401,13 @@ mod ownership_tests {
 
         let initialized = GameLogic::initialize();
         assert!(Arc::ptr_eq(
-            &gamelogic::system::engine_stores::active(),
-            &initialized.engine_stores
+            &gamelogic::system::engine_stores::active_services(),
+            &initialized.world_services
         ));
         assert!(!super::gameworld_authority::current_gameworld_authority().damage);
         drop(initialized);
         assert!(Arc::ptr_eq(
-            &gamelogic::system::engine_stores::active(),
+            &gamelogic::system::engine_stores::active_services(),
             &live_stores
         ));
     }

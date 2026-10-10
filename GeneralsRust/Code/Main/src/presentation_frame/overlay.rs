@@ -2036,7 +2036,7 @@ impl PresentationFrame {
     /// fields would otherwise hard-default. Overlay from the matching host Object by id.
     /// Fail-closed: not full GameWorld FX ownership / playable_claim.
     pub fn overlay_host_fx_residual(&mut self, logic: &GameLogic) -> usize {
-        let shroud = logic.engine_stores.shroud().lock().ok();
+        let shroud = logic.world_services.shroud().lock().ok();
         let mut stamped = 0usize;
         for ro in &mut self.objects {
             let Some(obj) = logic.host_object(ro.id) else {

@@ -348,7 +348,8 @@ impl ScriptEvaluator {
                 // terrain lookups with case-insensitive matching, so this script path
                 // must compare the three labels directly.
                 let waypoint_path_name = waypoint_param.get_string();
-                let Ok(terrain) = get_terrain_logic().read() else {
+                let terrain_owner_handle = get_terrain_logic();
+                let Ok(terrain) = terrain_owner_handle.read() else {
                     return Ok(false);
                 };
                 let matches = terrain
@@ -379,7 +380,8 @@ impl ScriptEvaluator {
                 // Resolve through TeamFactory before holding TerrainLogic: releasing the
                 // factory guard may synchronously run queued team-create scripts.
                 let team_instances = self.resolve_team_instances(&team_name);
-                let Ok(terrain) = get_terrain_logic().read() else {
+                let terrain_owner_handle = get_terrain_logic();
+                let Ok(terrain) = terrain_owner_handle.read() else {
                     return Ok(false);
                 };
 
@@ -602,7 +604,8 @@ impl ScriptEvaluator {
                 let Some(object_id) = tracker.get_object_id(bridge_name).ok().flatten() else {
                     return Ok(false);
                 };
-                let Ok(terrain) = get_terrain_logic().read() else {
+                let terrain_owner_handle = get_terrain_logic();
+                let Ok(terrain) = terrain_owner_handle.read() else {
                     return Ok(false);
                 };
                 if !terrain.bridge_damage_states_changed() {
@@ -625,7 +628,8 @@ impl ScriptEvaluator {
                 let Some(object_id) = tracker.get_object_id(bridge_name).ok().flatten() else {
                     return Ok(false);
                 };
-                let Ok(terrain) = get_terrain_logic().read() else {
+                let terrain_owner_handle = get_terrain_logic();
+                let Ok(terrain) = terrain_owner_handle.read() else {
                     return Ok(false);
                 };
                 if !terrain.bridge_damage_states_changed() {

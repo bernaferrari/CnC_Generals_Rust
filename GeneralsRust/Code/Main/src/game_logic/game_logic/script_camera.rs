@@ -240,7 +240,8 @@ pub(super) struct ScriptCameraPathMove {
 impl ScriptCameraPathMove {
     pub(super) fn new(start_focus: Vec3, request: &CameraPathRequest) -> Option<Self> {
         let waypoint_name = gamelogic::common::AsciiString::from(&request.waypoint);
-        let chain: Vec<Vec3> = gamelogic::terrain::get_terrain_logic()
+        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let chain: Vec<Vec3> = terrain_owner_handle
             .read()
             .ok()
             .and_then(|terrain| {

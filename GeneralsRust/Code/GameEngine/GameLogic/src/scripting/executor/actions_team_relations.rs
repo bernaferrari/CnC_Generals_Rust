@@ -642,7 +642,8 @@ impl ScriptActionDispatcher<'_> {
 
         // Get waypoint position
         let waypoint_name_ascii = AsciiString::from(waypoint_name.as_str());
-        let waypoint_pos = get_terrain_logic().read().ok().and_then(|terrain| {
+        let terrain_owner_handle = get_terrain_logic();
+        let waypoint_pos = terrain_owner_handle.read().ok().and_then(|terrain| {
             terrain
                 .get_waypoint_by_name(&waypoint_name_ascii)
                 .map(|w| w.get_location().clone())

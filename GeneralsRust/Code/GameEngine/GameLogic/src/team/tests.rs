@@ -1038,7 +1038,9 @@ mod tests {
             .expect("terrain write")
             .load_map_data(map_data);
 
-        let expected = crate::terrain::get_terrain_logic()
+        let terrain_owner_handle = crate::terrain::get_terrain_logic();
+
+        let expected = terrain_owner_handle
             .read()
             .expect("terrain read")
             .get_first_waypoint()

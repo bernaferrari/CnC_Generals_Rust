@@ -1575,7 +1575,7 @@ impl GameWorldShadow {
                             crate::fow_rendering::ObjectVisibility::FULLY_VISIBLE
                         } else {
                             FOWRenderingBridge::get_object_visibility(
-                                logic.engine_stores.shroud().lock().ok().as_deref(),
+                                logic.world_services.shroud().lock().ok().as_deref(),
                                 local_player_id,
                                 obj.id,
                             )
@@ -2156,7 +2156,7 @@ impl GameWorldShadow {
                         crate::fow_rendering::ObjectVisibility::FULLY_VISIBLE
                     } else {
                         FOWRenderingBridge::get_object_visibility(
-                            logic.engine_stores.shroud().lock().ok().as_deref(),
+                            logic.world_services.shroud().lock().ok().as_deref(),
                             local_player_id,
                             obj.id,
                         )

@@ -331,7 +331,8 @@ impl ParadropPower {
     /// Calculate drop positions based on pattern
     fn calculate_drop_positions(&self, targeting: &TargetingInfo) -> Vec<Coord3D> {
         let mut positions = Vec::new();
-        let terrain = get_terrain_logic().read().ok();
+        let terrain_owner_handle = get_terrain_logic();
+        let terrain = terrain_owner_handle.read().ok();
 
         match self.data.drop_pattern.as_str() {
             "Circle" => {
@@ -453,7 +454,8 @@ impl ParadropPower {
 
     /// Find closest map edge
     fn find_closest_edge(&self, target: &Coord3D) -> Coord3D {
-        let Ok(guard) = get_terrain_logic().read() else {
+        let terrain_owner_handle = get_terrain_logic();
+        let Ok(guard) = terrain_owner_handle.read() else {
             let mut fallback = *target;
             fallback.z = fallback.z.max(self.data.drop_height);
             return fallback;

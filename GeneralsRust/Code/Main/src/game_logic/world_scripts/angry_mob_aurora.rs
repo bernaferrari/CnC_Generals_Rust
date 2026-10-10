@@ -144,7 +144,7 @@ impl GameLogic {
 
         // Ensure shroud grid exists (tests / pre-map residual).
         {
-            let shroud = std::sync::Arc::clone(self.engine_stores.shroud());
+            let shroud = std::sync::Arc::clone(self.world_services.shroud());
             if let Ok(mut shroud_mgr) = shroud.lock() {
                 if !shroud_mgr.has_shroud_grid() {
                     shroud_mgr.init_shroud_grid(world_w, world_h);
@@ -174,7 +174,7 @@ impl GameLogic {
             // ShroudManager grid axes are (x, y); host uses (x, z) ground plane.
             let center = Coord3D::new(location.x, location.z, location.y);
             let fow_reveal_ok = {
-                let shroud = std::sync::Arc::clone(self.engine_stores.shroud());
+                let shroud = std::sync::Arc::clone(self.world_services.shroud());
                 let mut shroud_mgr = match shroud.lock() {
                     Ok(mgr) => mgr,
                     Err(_) => {
@@ -268,7 +268,7 @@ impl GameLogic {
                         .map(move |u| (u.object_id, remain, scan.player_mask))
                 })
                 .collect();
-            if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.engine_stores.shroud()).lock() {
+            if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.world_services.shroud()).lock() {
                 for (obj_id, remain, player_mask) in remaining_by_id {
                     let Some(obj) = self.objects.get(&obj_id) else {
                         continue;
@@ -314,7 +314,7 @@ impl GameLogic {
                 obj.record_host_vision_camo();
             }
         }
-        if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.engine_stores.shroud()).lock() {
+        if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.world_services.shroud()).lock() {
             shroud_mgr.process_pending_undo_shroud_reveals(self.frame);
         }
     }
@@ -379,7 +379,7 @@ impl GameLogic {
             .collect();
 
         {
-            let shroud = std::sync::Arc::clone(self.engine_stores.shroud());
+            let shroud = std::sync::Arc::clone(self.world_services.shroud());
             if let Ok(mut shroud_mgr) = shroud.lock() {
                 if !shroud_mgr.has_shroud_grid() {
                     shroud_mgr.init_shroud_grid(world_w, world_h);
@@ -397,7 +397,7 @@ impl GameLogic {
             }
             let center_pos = Coord3D::new(location.x, location.z, location.y);
             let fow_reveal_ok = {
-                let shroud = std::sync::Arc::clone(self.engine_stores.shroud());
+                let shroud = std::sync::Arc::clone(self.world_services.shroud());
                 let Ok(mut shroud_mgr) = shroud.lock() else {
                     spied_units.push(HostCiaIntelligenceSpiedUnit {
                         object_id: obj_id,

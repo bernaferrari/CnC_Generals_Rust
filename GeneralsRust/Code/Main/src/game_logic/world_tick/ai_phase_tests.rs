@@ -202,12 +202,12 @@ fn older_match_steps_resolve_its_own_engine_stores() {
     }
     let mut first = match_with_player();
     let mut second = match_with_player();
-    let first_stores = std::sync::Arc::clone(&first.engine_stores);
-    let second_stores = std::sync::Arc::clone(&second.engine_stores);
+    let first_stores = std::sync::Arc::clone(&first.world_services);
+    let second_stores = std::sync::Arc::clone(&second.world_services);
     // Activate the newer match: outside a step, ambient resolution follows it.
     second.install_as_active_stores();
     assert!(std::sync::Arc::ptr_eq(
-        &gamelogic::system::engine_stores::active(),
+        &gamelogic::system::engine_stores::active_services(),
         &second_stores
     ));
     // The older match's step resolves its own stores (debug-asserted inside
@@ -215,7 +215,7 @@ fn older_match_steps_resolve_its_own_engine_stores() {
     first.update_with_dt(LOGIC_FRAME_TIMESTEP);
     assert_eq!(first.frame, 1);
     assert!(std::sync::Arc::ptr_eq(
-        &gamelogic::system::engine_stores::active(),
+        &gamelogic::system::engine_stores::active_services(),
         &second_stores
     ));
     second.update_with_dt(LOGIC_FRAME_TIMESTEP);

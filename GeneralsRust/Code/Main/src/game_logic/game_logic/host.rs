@@ -22,14 +22,14 @@ pub struct GameLogic {
     pub(crate) map_definition_source: Option<String>,
     /// Immutable AI definitions admitted by this match, including map overrides.
     pub(crate) ai_definitions: crate::game_logic::ai_definitions::AiDefinitions,
-    /// GameLogic-owned engine stores (C++ TheUpgradeCenter / TheAI context).
+    /// Main-owned upgrade, terrain, shroud and visual services; no Core AI.
     /// Created inertly and installed as the active bundle at the world-start
     /// boundaries (`reset` for
     /// staged candidates, staged-world commit); on world drop the bundle is
     /// popped from the active stack, reinstating the bundle this one
     /// displaced (see `install_as_active_stores` and
     /// `impl Drop for GameLogic`).
-    pub(crate) engine_stores: std::sync::Arc<gamelogic::system::engine_stores::EngineStores>,
+    pub(crate) world_services: std::sync::Arc<gamelogic::system::engine_stores::WorldServices>,
     /// Trigger membership for this host world. Objects keep only a weak
     /// handle so pose changes update this owner's slots without selecting an
     /// ambient game instance.
@@ -1403,11 +1403,11 @@ impl GameLogic {
     /// world). Idempotent per bundle — a live world resetting itself must
     /// not push a duplicate active-stack entry.
     pub(crate) fn install_as_active_stores(&self) {
-        let bundle = Arc::clone(&self.engine_stores);
-        if gamelogic::system::engine_stores::is_active(&bundle) {
+        let bundle = Arc::clone(&self.world_services);
+        if gamelogic::system::engine_stores::is_services_active(&bundle) {
             return;
         }
-        gamelogic::system::engine_stores::install_active(bundle);
+        gamelogic::system::engine_stores::install_services(bundle);
     }
 }
 
@@ -1418,7 +1418,7 @@ impl Drop for GameLogic {
         // stack; the bundle it displaced is reinstated, and a world that
         // died while a newer one was live only drops its buried entry so no
         // later pop can reinstate it.
-        gamelogic::system::engine_stores::uninstall_active_if_current(&self.engine_stores);
+        gamelogic::system::engine_stores::uninstall_services(&self.world_services);
     }
 }
 

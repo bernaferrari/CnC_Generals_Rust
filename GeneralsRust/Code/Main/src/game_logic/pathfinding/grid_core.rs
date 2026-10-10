@@ -84,7 +84,8 @@ impl PathfindingGrid {
     /// (AIPathfind.cpp:5887-5897).
     pub fn refresh_logical_extent(&mut self) {
         let cell = self.grid_size.max(1.0);
-        let Some(ext) = gamelogic::terrain::get_terrain_logic()
+        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let Some(ext) = terrain_owner_handle
             .read()
             .ok()
             .map(|t| t.get_extent())

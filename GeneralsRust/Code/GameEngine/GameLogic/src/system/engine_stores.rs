@@ -1,462 +1,338 @@
-//! EngineStores — GameLogic-owned engine singleton stores.
+//! C++ engine services separated from the standalone Core AI runtime.
 //!
-//! Groups the C++-inherited process-lifetime engine globals that gameplay
-//! reads through global accessors into one struct whose lifetime is owned by
-//! the GameLogic world lifecycle:
-//!
-//! - `upgrade_center` — C++ `TheUpgradeCenter` (the canonical Common
-//!   `game_engine::common::system::upgrade::UpgradeCenter`, Upgrade.h). The
-//!   Common INI `Upgrade` block parser and GameLogic readers share this one
-//!   store; there is no second upgrade catalog.
-//! - `ai` — C++ `TheAI` (AI, AI.h), including its `AiData` (`TheAI->getAiData()`).
-//! - `ai_data` — the Common-crate `AIData.ini` parse-side store
-//!   (`game_engine::common::ini::ini_ai_data`).
-//! - `shroud` — the shroud/fog-of-war manager (C++ PartitionManager shroud).
-//!
-//! The two Common-crate stores stay *types* of the Common crate (the INI
-//! parser there writes them during `AIData`/`Upgrade` block parsing, and
-//! `game_engine` cannot depend on `gamelogic`); only their *instances* moved
-//! here. Common keeps an active-slot with an engine-lifetime fallback
-//! (`install_ai_data_store` / `install_upgrade_center`); the install/pop
-//! boundaries below keep those slots pointing at the head bundle's instances.
-//!
-//! C++ engine init order (GameEngine.cpp `GameEngine::init`): TheUpgradeCenter
-//! subsystem (:468) is created and `Upgrade.ini`-loaded before TheAI (:480),
-//! and both precede TheGameLogic (:481). `EngineStores::engine_defaults`
-//! preserves that order. Per game, C++ `GameLogic::clearGameData` resets
-//! TheAI (GameLogic.cpp:436) while TheUpgradeCenter content persists across
-//! matches (upgrades are INI-level state); the world bundle below mirrors
-//! that split: fresh `AI` per world, upgrade-center content cloned from the
-//! engine-lifetime store so INI-loaded definitions survive world turnover.
-//!
-//! Resolution model: accessors resolve through the innermost
-//! [`with_active_stores`] scope on the calling thread, else the head of the
-//! active-bundle stack, else the engine-lifetime bundle while no world is
-//! active (C++ has exactly one process-lifetime world). World bundles are
-//! created pure ([`new_for_world`], no active-slot write) and installed at
-//! explicit Main boundaries — world start (`GameLogic::new` outside a staged
-//! restore; `reset`/`start_new_game` for staged candidates) and staged-world
-//! commit. `install_active` *pushes* onto the stack and world drop *pops*
-//! (reinstating the bundle the dropping world displaced), so a staged
-//! candidate that fails before commit restores the live world's resolution
-//! instead of unselecting it. Per-world store mutations and lock poisoning
-//! die with the world instead of leaking across tests or matches.
-//!
-//! C++ accessor-name mapping is preserved at the existing call sites:
-//! `ctx.upgrade_center()` ~ `TheUpgradeCenter`, `ctx.ai()` ~ `TheAI`.
-
-use std::cell::RefCell;
-use std::sync::{Arc, LazyLock, Mutex, RwLock};
-
-use game_engine::common::ini::ini_ai_data::{self, AIDataStore};
-use game_engine::common::system::upgrade as common_upgrade;
-
+//! Main owns `WorldServices`: content upgrades, shroud and client visuals.
+//! Constructing it never constructs Core AI or selects a world. Core's
+//! reference runtime owns `EngineStores`, which adds mandatory AI and AIData.
+//! The existing publication stack remains a bounded migration aid for legacy
+//! presentation callbacks. It carries services independently of Core runtime;
+//! asking for Core AI inside a Main service scope is an explicit error.
 use crate::ai::AI;
 use crate::helpers::ClientVisualState;
 use crate::system::shroud_manager::ShroudManager;
 use crate::upgrade::center::UpgradeCenter;
+use game_engine::common::ini::ini_ai_data::{self, AIDataStore};
+use game_engine::common::system::upgrade as common_upgrade;
+use std::cell::RefCell;
+use std::sync::{Arc, LazyLock, Mutex, RwLock};
 
-/// The C++-inherited engine stores owned by a GameLogic world.
-pub struct EngineStores {
-    /// C++ `TheUpgradeCenter`. The engine-lifetime bundle shares Common's
-    /// engine-lifetime center (Upgrade.ini loads land there); world bundles
-    /// hold a snapshot clone of it (INI definitions persist across worlds,
-    /// C++ GameEngine.cpp:468) under a fresh lock so per-world poisoning,
-    /// map.ini upgrades and scripted registrations die with the world.
+/// Service values shared by Main and the standalone Core runtime. No Core AI.
+pub struct WorldServices {
     upgrade_center: Arc<RwLock<UpgradeCenter>>,
-    /// C++ `TheAI` (C++ AI.cpp:280). Fresh per world, mirroring the
-    /// contents swap the whole-world restore transaction already performs at
-    /// map-load boundaries and C++ `TheAI->reset()` at clearGameData.
-    ai: Arc<RwLock<AI>>,
-    /// Common-crate `AIData.ini` parse-side store. Same split as
-    /// `upgrade_center`: shared engine-lifetime store, snapshot per world.
-    ai_data: Arc<RwLock<AIDataStore>>,
-    /// Shroud/fog-of-war manager (C++ PartitionManager shroud state). World
-    /// bundles snapshot-clone the engine-lifetime content under a fresh lock
-    /// so per-world mutations die with the world.
     shroud: Arc<Mutex<ShroudManager>>,
-    /// Per-world GameClient presentation bridge. C++ GameClient::reset owns
-    /// drawable teardown; candidate worlds must not share these records.
     client_visuals: ClientVisualState,
+    terrain: Arc<RwLock<crate::terrain::TerrainLogic>>,
 }
-
-impl EngineStores {
-    /// Engine-lifetime defaults in C++ engine-init order: TheUpgradeCenter
-    /// (with its built-in `init()` veterancy templates) before TheAI.
+impl WorldServices {
     fn engine_defaults() -> Self {
         Self {
-            // Engine-lifetime bundles share the Common stores themselves so
-            // INI loads outside any world land in the store gameplay reads.
-            // The Common center runs C++ UpgradeCenter::init on creation.
             upgrade_center: common_upgrade::process_lifetime_upgrade_center(),
-            ai: Arc::new(RwLock::new(AI::new())),
-            ai_data: ini_ai_data::process_lifetime_ai_data_store(),
             shroud: Arc::new(Mutex::new(ShroudManager::new())),
             client_visuals: ClientVisualState::default(),
+            terrain: Arc::clone(&crate::terrain::THE_TERRAIN_LOGIC),
         }
     }
-
-    /// Create the stores for a new GameLogic world: a fresh `AI` and a
-    /// snapshot of the current engine-lifetime upgrade-center content under
-    /// a fresh lock. Pure — installing the bundle as active is the caller's
-    /// explicit boundary ([`install_active`]).
+    /// Snapshot engine content; fresh mutable per-world services. Inert.
     pub fn new_for_world() -> Self {
-        let upgrade_center = engine_upgrade_center_snapshot();
+        let upgrades = common_upgrade::process_lifetime_upgrade_center()
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let shroud = PROCESS_SERVICES
+            .shroud()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         Self {
-            upgrade_center: Arc::new(RwLock::new(upgrade_center)),
-            ai: Arc::new(RwLock::new(AI::new())),
-            ai_data: ai_data_snapshot(),
-            shroud: Arc::new(Mutex::new(engine_shroud_snapshot())),
+            upgrade_center: Arc::new(RwLock::new(upgrades)),
+            shroud: Arc::new(Mutex::new(shroud)),
             client_visuals: ClientVisualState::default(),
+            terrain: Arc::new(RwLock::new(crate::terrain::TerrainLogic::new())),
         }
     }
-
-    /// C++ `TheUpgradeCenter`.
+    pub fn terrain(&self) -> &Arc<RwLock<crate::terrain::TerrainLogic>> {
+        &self.terrain
+    }
     pub fn upgrade_center(&self) -> &Arc<RwLock<UpgradeCenter>> {
         &self.upgrade_center
     }
-
-    /// C++ `TheAI`.
-    pub fn ai(&self) -> &Arc<RwLock<AI>> {
-        &self.ai
-    }
-
-    /// Common `AIData.ini` store.
-    pub fn ai_data(&self) -> &Arc<RwLock<AIDataStore>> {
-        &self.ai_data
-    }
-
-    /// Shroud/fog-of-war manager.
     pub fn shroud(&self) -> &Arc<Mutex<ShroudManager>> {
         &self.shroud
     }
-
     pub(crate) fn client_visuals(&self) -> &ClientVisualState {
         &self.client_visuals
     }
 }
-
-/// Engine-lifetime bundle. C++ keeps one process-lifetime engine; this is
-/// the fallback store for work outside any GameLogic world (engine boot INI
-/// loads, headless snippets, tests that never construct a world).
+/// Standalone Core runtime; AI is mandatory, never optional or deferred.
+pub struct EngineStores {
+    services: Arc<WorldServices>,
+    ai: Arc<RwLock<AI>>,
+    ai_data: Arc<RwLock<AIDataStore>>,
+}
+impl EngineStores {
+    fn engine_defaults() -> Self {
+        Self {
+            services: Arc::clone(&PROCESS_SERVICES),
+            ai: Arc::new(RwLock::new(AI::new())),
+            ai_data: ini_ai_data::process_lifetime_ai_data_store(),
+        }
+    }
+    pub fn new_for_world() -> Self {
+        let snapshot = ini_ai_data::process_lifetime_ai_data_store()
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        Self {
+            services: new_world_services(),
+            ai: Arc::new(RwLock::new(AI::new())),
+            ai_data: Arc::new(RwLock::new(snapshot)),
+        }
+    }
+    pub fn services(&self) -> &Arc<WorldServices> {
+        &self.services
+    }
+    pub fn upgrade_center(&self) -> &Arc<RwLock<UpgradeCenter>> {
+        self.services.upgrade_center()
+    }
+    pub fn shroud(&self) -> &Arc<Mutex<ShroudManager>> {
+        self.services.shroud()
+    }
+    pub fn ai(&self) -> &Arc<RwLock<AI>> {
+        &self.ai
+    }
+    pub fn ai_data(&self) -> &Arc<RwLock<AIDataStore>> {
+        &self.ai_data
+    }
+    pub(crate) fn client_visuals(&self) -> &ClientVisualState {
+        self.services.client_visuals()
+    }
+}
+static PROCESS_SERVICES: LazyLock<Arc<WorldServices>> =
+    LazyLock::new(|| Arc::new(WorldServices::engine_defaults()));
+// Only standalone Core access constructs this runtime. Main service snapshots
+// must never touch it, including indirectly through content/shroud helpers.
 static PROCESS_LIFETIME: LazyLock<Arc<EngineStores>> =
     LazyLock::new(|| Arc::new(EngineStores::engine_defaults()));
-
-/// The installed world bundles, newest first. `install_active` pushes and
-/// world drop pops, so the stack itself is the restoration record: a dropping
-/// world reinstates the bundle it displaced instead of unselecting the live
-/// world (the single-slot predecessor cleared the slot, which made the
-/// staged-restore rollback resolve the engine-lifetime fallback). C++ has
-/// exactly one live world; the stack only ever holds nested install
-/// boundaries — a candidate staged while a live world plays.
-static ACTIVE: RwLock<Vec<Arc<EngineStores>>> = RwLock::new(Vec::new());
-
-thread_local! {
-    /// Innermost-first scoped publication stack for [`with_active_stores`].
-    /// Thread-local like Main's `with_gameworld_authority`: a scope pins
-    /// resolution for the operation that opened it on this thread without
-    /// re-authoring resolution for unrelated worker threads.
-    static SCOPED_ACTIVE: RefCell<Vec<Arc<EngineStores>>> =
-        const { RefCell::new(Vec::new()) };
+#[derive(Clone)]
+enum PublishedOwner {
+    Core(Arc<EngineStores>),
+    Services(Arc<WorldServices>),
 }
-
-fn active_locked() -> Arc<EngineStores> {
-    let active = ACTIVE
-        .read()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    active
-        .last()
-        .cloned()
-        .unwrap_or_else(|| Arc::clone(&PROCESS_LIFETIME))
-}
-
-/// The active engine-store bundle (C++: the one live world's singletons):
-/// the innermost [`with_active_stores`] scope on this thread, else the head
-/// of the install stack, else the engine-lifetime fallback.
-pub fn active() -> Arc<EngineStores> {
-    if let Some(scoped) = SCOPED_ACTIVE.with(|stack| stack.borrow().last().cloned()) {
-        return scoped;
+impl PublishedOwner {
+    fn services(&self) -> &Arc<WorldServices> {
+        match self {
+            Self::Core(core) => core.services(),
+            Self::Services(services) => services,
+        }
     }
-    active_locked()
+    fn same(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Core(a), Self::Core(b)) => Arc::ptr_eq(a, b),
+            (Self::Services(a), Self::Services(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+    fn install_common(&self) {
+        common_upgrade::install_upgrade_center(Arc::clone(self.services().upgrade_center()));
+        if let Self::Core(core) = self {
+            ini_ai_data::install_ai_data_store(Arc::clone(core.ai_data()));
+        }
+    }
+    fn uninstall_common(&self) {
+        common_upgrade::uninstall_upgrade_center_if_current(self.services().upgrade_center());
+        if let Self::Core(core) = self {
+            ini_ai_data::uninstall_ai_data_store_if_current(core.ai_data());
+        }
+    }
 }
-
-/// True while `bundle` heads the install stack (a [`with_active_stores`]
-/// scope is deliberately ignored). Guard for idempotent installs: a world
-/// starting a game while already the active one must not push a duplicate.
-pub fn is_active(bundle: &Arc<EngineStores>) -> bool {
+static ACTIVE: RwLock<Vec<PublishedOwner>> = RwLock::new(Vec::new());
+thread_local! {
+    // Reuses the existing bounded context stack; no new TLS publication.
+    static SCOPED_ACTIVE: RefCell<Vec<PublishedOwner>> = const { RefCell::new(Vec::new()) };
+}
+fn published_owner() -> Option<PublishedOwner> {
+    SCOPED_ACTIVE
+        .with(|stack| stack.borrow().last().cloned())
+        .or_else(|| {
+            ACTIVE
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .last()
+                .cloned()
+        })
+}
+pub fn active() -> Arc<EngineStores> {
+    match published_owner() {
+        Some(PublishedOwner::Core(core)) => core,
+        Some(PublishedOwner::Services(_)) => {
+            panic!("Core AI runtime requested from a Main world-services boundary")
+        }
+        None => Arc::clone(&PROCESS_LIFETIME),
+    }
+}
+pub fn active_services() -> Arc<WorldServices> {
+    published_owner()
+        .map(|owner| Arc::clone(owner.services()))
+        .unwrap_or_else(|| Arc::clone(&PROCESS_SERVICES))
+}
+fn is_published(owner: &PublishedOwner) -> bool {
     ACTIVE
         .read()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .unwrap_or_else(|e| e.into_inner())
         .last()
-        .is_some_and(|head| Arc::ptr_eq(head, bundle))
+        .is_some_and(|head| head.same(owner))
 }
-
-/// Point the Common INI-side slots at `world`'s stores. Install order:
-/// Common slots first, the ACTIVE stack second.
-fn install_common_slots(world: &Arc<EngineStores>) {
-    ini_ai_data::install_ai_data_store(Arc::clone(&world.ai_data));
-    common_upgrade::install_upgrade_center(Arc::clone(&world.upgrade_center));
+pub fn is_active(core: &Arc<EngineStores>) -> bool {
+    is_published(&PublishedOwner::Core(Arc::clone(core)))
 }
-
-/// Install a world bundle as the new head of the active stack and return the
-/// bundle it displaced (the previous head, if any). The displaced bundle is
-/// reinstated automatically when this one is later removed by
-/// [`uninstall_active_if_current`] or [`restore_active`] — the stack itself
-/// is the restoration record callers used to have to keep (and could drop).
-pub fn install_active(world: Arc<EngineStores>) -> Option<Arc<EngineStores>> {
-    install_common_slots(&world);
-    let mut active = ACTIVE
-        .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let previous = active.last().cloned();
-    active.push(world);
-    previous
+pub fn is_services_active(services: &Arc<WorldServices>) -> bool {
+    is_published(&PublishedOwner::Services(Arc::clone(services)))
 }
-
-/// Remove `world` from the active stack. While it is still the head, the
-/// bundle it displaced on install becomes the head again (and the Common
-/// INI-side slots are re-pointed at it), so a dropping world — including a
-/// staged candidate dropping before commit — restores the live world's
-/// resolution instead of unselecting it. While a newer bundle is the head,
-/// that newer world keeps resolution and only `world`'s buried stack entry is
-/// dropped, so no later pop can reinstate a dead world. Returns `true` when
-/// the head was changed.
-pub fn uninstall_active_if_current(world: &Arc<EngineStores>) -> bool {
-    // Clear the EngineStores slot first and release its lock before touching
-    // the Common-side slots: world install takes them in the opposite order.
-    let (head_was_cleared, restored) = {
-        let mut active = ACTIVE
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let head_is_world = active.last().is_some_and(|head| Arc::ptr_eq(head, world));
-        if head_is_world {
+fn install(owner: PublishedOwner) -> Option<PublishedOwner> {
+    owner.install_common();
+    let mut active = ACTIVE.write().unwrap_or_else(|e| e.into_inner());
+    let prior = active.last().cloned();
+    active.push(owner);
+    prior
+}
+pub fn install_active(core: Arc<EngineStores>) -> Option<Arc<EngineStores>> {
+    install(PublishedOwner::Core(core)).and_then(|owner| match owner {
+        PublishedOwner::Core(core) => Some(core),
+        PublishedOwner::Services(_) => None,
+    })
+}
+pub fn install_services(services: Arc<WorldServices>) {
+    let _ = install(PublishedOwner::Services(services));
+}
+fn uninstall(owner: &PublishedOwner) -> bool {
+    let (was_head, restored) = {
+        let mut active = ACTIVE.write().unwrap_or_else(|e| e.into_inner());
+        if active.last().is_some_and(|head| head.same(owner)) {
             active.pop();
             (true, active.last().cloned())
         } else {
-            // A stale world dropping after a newer world must not deactivate
-            // the newer world; only its buried entry is forgotten. The head
-            // and the Common slots (owned by the head) are unaffected.
-            active.retain(|entry| !Arc::ptr_eq(entry, world));
+            active.retain(|entry| !entry.same(owner));
             (false, None)
         }
     };
-    if head_was_cleared {
-        ini_ai_data::uninstall_ai_data_store_if_current(&world.ai_data);
-        common_upgrade::uninstall_upgrade_center_if_current(&world.upgrade_center);
+    if was_head {
+        owner.uninstall_common();
         if let Some(restored) = restored {
-            // The reinstated head must own the Common INI funnels too.
-            install_common_slots(&restored);
-        }
-    }
-    head_was_cleared
-}
-
-/// Undo one [`install_active`] of `expected_removed` by reinstating
-/// `previous` — the bundle that install returned. The pop happens only while
-/// `expected_removed` is still the head (the same `Arc::ptr_eq` discipline as
-/// [`uninstall_active_if_current`]): a newer bundle installed in between must
-/// not be silently deactivated. Returns `true` when the head was changed.
-///
-/// The stack keeps the pairing itself — the entry beneath `expected_removed`
-/// is `previous` by construction — so a disciplined call reinstates through
-/// the pop alone; a hand-assembled pair that does not match still ends with
-/// `previous` at the head.
-pub(crate) fn restore_active(
-    expected_removed: &Arc<EngineStores>,
-    previous: Option<Arc<EngineStores>>,
-) -> bool {
-    // Same lock ordering as uninstall: ACTIVE first, Common slots after.
-    let (head_was_cleared, reinstated) = {
-        let mut active = ACTIVE
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if !active
-            .last()
-            .is_some_and(|head| Arc::ptr_eq(head, expected_removed))
-        {
-            return false;
-        }
-        active.pop();
-        let beneath_is_previous = match (active.last(), previous.as_ref()) {
-            (Some(beneath), Some(previous)) => Arc::ptr_eq(beneath, previous),
-            (None, None) => true,
-            _ => false,
-        };
-        if !beneath_is_previous {
-            if let Some(previous) = previous {
-                // Head := `previous` exactly; any deeper chain stays beneath.
-                active.push(previous);
+            restored.install_common();
+            // Main services do not own the Common AI parser slot. If a Core
+            // owner was popped above them, restore the still-installed Core
+            // parser below them without selecting/constructing a runtime.
+            if matches!(owner, PublishedOwner::Core(_))
+                && matches!(restored, PublishedOwner::Services(_))
+            {
+                let prior_data = ACTIVE
+                    .read()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .iter()
+                    .rev()
+                    .find_map(|entry| match entry {
+                        PublishedOwner::Core(core) => Some(Arc::clone(core.ai_data())),
+                        PublishedOwner::Services(_) => None,
+                    });
+                if let Some(prior_data) = prior_data {
+                    ini_ai_data::install_ai_data_store(prior_data);
+                }
             }
         }
-        (true, active.last().cloned())
-    };
-    if head_was_cleared {
-        ini_ai_data::uninstall_ai_data_store_if_current(&expected_removed.ai_data);
-        common_upgrade::uninstall_upgrade_center_if_current(&expected_removed.upgrade_center);
-        if let Some(reinstated) = reinstated {
-            install_common_slots(&reinstated);
+    }
+    was_head
+}
+pub fn uninstall_active_if_current(core: &Arc<EngineStores>) -> bool {
+    uninstall(&PublishedOwner::Core(Arc::clone(core)))
+}
+pub fn uninstall_services(services: &Arc<WorldServices>) -> bool {
+    uninstall(&PublishedOwner::Services(Arc::clone(services)))
+}
+pub(crate) fn restore_active(
+    expected: &Arc<EngineStores>,
+    previous: Option<Arc<EngineStores>>,
+) -> bool {
+    let owner = PublishedOwner::Core(Arc::clone(expected));
+    if !is_published(&owner) {
+        return false;
+    }
+    let removed = uninstall(&owner);
+    if let Some(previous) = previous {
+        if !is_active(&previous) {
+            install_active(previous);
         }
     }
-    head_was_cleared
+    removed
 }
-
-/// Publish `bundle` as this thread's active-store resolution for the
-/// duration of `f`, restoring the previous resolution afterwards (normal
-/// return or unwind) — the store-side twin of Main's
-/// `with_gameworld_authority` scope. Inside `f`, every legacy accessor
-/// ([`active`], [`the_ai`], [`shroud_manager`], [`upgrade_center`]) and the
-/// Common INI parse slots resolve `bundle`, so raw boundary swaps and tick
-/// scopes pin their target without last-writer ambiguity against whatever
-/// the global install stack happens to hold.
-///
-/// The EngineStores override is thread-local (worker threads keep resolving
-/// the install-stack head); the Common INI slots are process-global, so a
-/// scope must not outlive the thread that opened it — the single host thread
-/// that owns world turnover does. Whole-world turnover (install/uninstall)
-/// must not happen inside `f`: a bundle installed within the scope that
-/// outlives it legitimately owns the Common slots afterwards.
-pub fn with_active_stores<R>(bundle: &Arc<EngineStores>, f: impl FnOnce() -> R) -> R {
-    /// Pops this scope's publication and restores the Common INI slots it
-    /// displaced; runs exactly once, including on unwind.
+fn with_owner<R>(owner: PublishedOwner, f: impl FnOnce() -> R) -> R {
     struct RestoreScope {
-        bundle: Arc<EngineStores>,
-        prev_ai_data: Option<Arc<RwLock<AIDataStore>>>,
-        prev_upgrade_center: Option<Arc<RwLock<UpgradeCenter>>>,
+        owner: PublishedOwner,
+        prior_upgrade: Option<Arc<RwLock<UpgradeCenter>>>,
+        prior_ai_data: Option<Arc<RwLock<AIDataStore>>>,
     }
-
     impl Drop for RestoreScope {
         fn drop(&mut self) {
             SCOPED_ACTIVE.with(|stack| {
                 let mut stack = stack.borrow_mut();
-                if stack
-                    .last()
-                    .is_some_and(|head| Arc::ptr_eq(head, &self.bundle))
-                {
+                if stack.last().is_some_and(|head| head.same(&self.owner)) {
                     stack.pop();
                 }
             });
-            // Restore the Common slots only while they still resolve this
-            // scope's stores: a bundle installed inside `f` that outlives the
-            // scope owns them now and must not be clobbered.
-            if Arc::ptr_eq(&ini_ai_data::get_ai_data_store(), &self.bundle.ai_data) {
-                match self.prev_ai_data.take() {
-                    Some(previous) => {
-                        ini_ai_data::install_ai_data_store(previous);
-                    }
-                    None => {
-                        ini_ai_data::uninstall_ai_data_store_if_current(&self.bundle.ai_data);
-                    }
+            let upgrade = self.owner.services().upgrade_center();
+            if Arc::ptr_eq(&common_upgrade::get_upgrade_center(), upgrade) {
+                if let Some(previous) = self.prior_upgrade.take() {
+                    common_upgrade::install_upgrade_center(previous);
+                } else {
+                    common_upgrade::uninstall_upgrade_center_if_current(upgrade);
                 }
             }
-            if Arc::ptr_eq(
-                &common_upgrade::get_upgrade_center(),
-                &self.bundle.upgrade_center,
-            ) {
-                match self.prev_upgrade_center.take() {
-                    Some(previous) => {
-                        common_upgrade::install_upgrade_center(previous);
-                    }
-                    None => {
-                        common_upgrade::uninstall_upgrade_center_if_current(
-                            &self.bundle.upgrade_center,
-                        );
+            if let PublishedOwner::Core(core) = &self.owner {
+                if Arc::ptr_eq(&ini_ai_data::get_ai_data_store(), core.ai_data()) {
+                    if let Some(previous) = self.prior_ai_data.take() {
+                        ini_ai_data::install_ai_data_store(previous);
+                    } else {
+                        ini_ai_data::uninstall_ai_data_store_if_current(core.ai_data());
                     }
                 }
             }
         }
     }
-
-    let restore = RestoreScope {
-        prev_ai_data: ini_ai_data::install_ai_data_store(Arc::clone(&bundle.ai_data)),
-        prev_upgrade_center: common_upgrade::install_upgrade_center(Arc::clone(
-            &bundle.upgrade_center,
-        )),
-        bundle: Arc::clone(bundle),
+    let prior_upgrade =
+        common_upgrade::install_upgrade_center(Arc::clone(owner.services().upgrade_center()));
+    let prior_ai_data = match &owner {
+        PublishedOwner::Core(core) => {
+            ini_ai_data::install_ai_data_store(Arc::clone(core.ai_data()))
+        }
+        PublishedOwner::Services(_) => None,
     };
-    SCOPED_ACTIVE.with(|stack| stack.borrow_mut().push(Arc::clone(bundle)));
-    let _restore = restore;
+    SCOPED_ACTIVE.with(|stack| stack.borrow_mut().push(owner.clone()));
+    let _restore = RestoreScope {
+        owner,
+        prior_upgrade,
+        prior_ai_data,
+    };
     f()
 }
-
-/// Create the stores for a new GameLogic world (C++ engine-init order:
-/// stores precede the world that owns them). Pure — no active-slot write:
-/// installing the returned bundle is the caller's explicit boundary
-/// ([`install_active`]); Main installs at world start/commit and uninstalls
-/// on world drop.
+pub fn with_active_stores<R>(core: &Arc<EngineStores>, f: impl FnOnce() -> R) -> R {
+    with_owner(PublishedOwner::Core(Arc::clone(core)), f)
+}
+/// Temporary synchronous service-only publication for legacy presentation.
+/// This never publishes an AI owner or writes the Common AIData parser slot.
+pub fn with_world_services<R>(services: &Arc<WorldServices>, f: impl FnOnce() -> R) -> R {
+    with_owner(PublishedOwner::Services(Arc::clone(services)), f)
+}
 pub fn new_for_world() -> Arc<EngineStores> {
     Arc::new(EngineStores::new_for_world())
 }
-
-/// C++ `TheUpgradeCenter` accessor: the active bundle's center.
+pub fn new_world_services() -> Arc<WorldServices> {
+    Arc::new(WorldServices::new_for_world())
+}
 pub fn upgrade_center() -> Arc<RwLock<UpgradeCenter>> {
-    Arc::clone(active().upgrade_center())
+    Arc::clone(active_services().upgrade_center())
 }
-
-/// Snapshot clone of the engine-lifetime upgrade-center content.
-fn engine_upgrade_center_snapshot() -> UpgradeCenter {
-    let center = PROCESS_LIFETIME
-        .upgrade_center()
-        .read()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    center.clone()
-}
-
-/// Snapshot clone of the engine-lifetime shroud content under a fresh lock,
-/// so a new world inherits seeded/INI-level shroud state while per-world
-/// mutations cannot leak back.
-fn engine_shroud_snapshot() -> ShroudManager {
-    PROCESS_LIFETIME
-        .shroud()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clone()
-}
-
-/// Snapshot clone of the engine-lifetime Common AIData store under a fresh
-/// lock so per-world mutations die with the world.
-fn ai_data_snapshot() -> Arc<RwLock<AIDataStore>> {
-    let store = ini_ai_data::process_lifetime_ai_data_store();
-    let snapshot = store
-        .read()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clone();
-    Arc::new(RwLock::new(snapshot))
-}
-
-/// Shroud/fog-of-war manager accessor: the active bundle's manager.
 pub fn shroud_manager() -> Arc<Mutex<ShroudManager>> {
-    Arc::clone(active().shroud())
+    Arc::clone(active_services().shroud())
 }
 
-/// C++ `TheAI` accessor: the active bundle's AI.
-pub fn the_ai() -> Arc<RwLock<AI>> {
-    Arc::clone(active().ai())
-}
-
-/// Move `bundle`'s AI contents out for a whole-world restore transaction
-/// while preserving the lock identity aliases hold (contents swap, C++
-/// AI.cpp:280 wrapper semantics). The runtime world transaction owns the
-/// only raw use of this boundary API and passes the explicit bundle it
-/// captured at `begin`, so the swap never depends on ambient resolution.
-pub(crate) fn take_ai_for_world_boundary(bundle: &Arc<EngineStores>) -> AI {
-    let mut ai = bundle
-        .ai()
-        .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    std::mem::replace(&mut *ai, AI::new())
-}
-
-/// Install AI contents into `bundle` at a whole-world restore boundary and
-/// return the contents they replaced. See [`take_ai_for_world_boundary`].
-pub(crate) fn replace_ai_for_world_boundary(bundle: &Arc<EngineStores>, next: AI) -> AI {
-    let mut ai = bundle
-        .ai()
-        .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    std::mem::replace(&mut *ai, next)
-}
-
-/// Test-only depth of the install stack (asserting full cleanup).
 #[cfg(test)]
 fn active_stack_depth() -> usize {
     ACTIVE
@@ -485,7 +361,7 @@ mod tests {
         client.seed_drawable_pose_for_test(drawable_id, crate::common::Coord3D::ZERO, 0.25);
         client.begin_object_model_draw_frame(object_id);
         client.set_object_wheel_info(object_id, crate::helpers::DrawWheelInfo::default());
-        crate::helpers::ClientVisualHandle::new(Arc::clone(&live))
+        crate::helpers::ClientVisualHandle::new(Arc::clone(live.services()))
             .note_weapon_recoil(object_id, 2.0, 0.5);
         let live_light = crate::helpers::create_scene_point_light();
         client.add_tree(
@@ -504,7 +380,7 @@ mod tests {
             assert!(client.get_object_wheel_info(object_id).is_none());
             assert!(client.get_registered_tree(drawable_id).is_none());
             assert!(
-                crate::helpers::ClientVisualHandle::new(Arc::clone(&candidate))
+                crate::helpers::ClientVisualHandle::new(Arc::clone(candidate.services()))
                     .take_weapon_recoils()
                     .is_empty()
             );
@@ -515,11 +391,12 @@ mod tests {
                 0.75,
             );
             assert_eq!(crate::helpers::create_scene_point_light(), 1);
-            crate::helpers::ClientVisualHandle::new(Arc::clone(&candidate))
+            crate::helpers::ClientVisualHandle::new(Arc::clone(candidate.services()))
                 .note_weapon_recoil(object_id, 4.0, 0.75);
         });
         assert_eq!(live_light, 1);
-        let candidate_visuals = crate::helpers::ClientVisualHandle::new(Arc::clone(&candidate));
+        let candidate_visuals =
+            crate::helpers::ClientVisualHandle::new(Arc::clone(candidate.services()));
         let captured = candidate_visuals.snapshot_objectless_drawables();
         assert_eq!(captured.len(), 1);
         assert_eq!(captured[0].1.orientation, 0.75);
@@ -532,7 +409,8 @@ mod tests {
             0.25
         );
         assert_eq!(
-            crate::helpers::ClientVisualHandle::new(Arc::clone(&live)).take_weapon_recoils(),
+            crate::helpers::ClientVisualHandle::new(Arc::clone(live.services()))
+                .take_weapon_recoils(),
             vec![(object_id, 2.0, 0.5)]
         );
         assert_eq!(
@@ -589,8 +467,8 @@ mod tests {
         let a = new_for_world();
         let b = new_for_world();
         let a_weak = Arc::downgrade(&a);
-        let a_visuals = crate::helpers::ClientVisualHandle::new(Arc::clone(&a));
-        let b_visuals = crate::helpers::ClientVisualHandle::new(Arc::clone(&b));
+        let a_visuals = crate::helpers::ClientVisualHandle::new(Arc::clone(a.services()));
+        let b_visuals = crate::helpers::ClientVisualHandle::new(Arc::clone(b.services()));
         let mut drawable = crate::object::drawable::Drawable::new(
             71,
             81,
@@ -619,8 +497,8 @@ mod tests {
         let a = new_for_world();
         let b = new_for_world();
         let a_weak = Arc::downgrade(&a);
-        let a_visuals = crate::helpers::ClientVisualHandle::new(Arc::clone(&a));
-        let b_visuals = crate::helpers::ClientVisualHandle::new(Arc::clone(&b));
+        let a_visuals = crate::helpers::ClientVisualHandle::new(Arc::clone(a.services()));
+        let b_visuals = crate::helpers::ClientVisualHandle::new(Arc::clone(b.services()));
         install_active(Arc::clone(&a));
         let template = crate::common::DefaultThingTemplate::new("VisualOwnerTest".to_string());
         let id = crate::helpers::TheGameClient::get()
@@ -723,6 +601,16 @@ mod tests {
             a.upgrade_center()
         ));
 
+        let services = new_world_services();
+        install_services(Arc::clone(&services));
+        assert!(Arc::ptr_eq(&active_services(), &services));
+        assert!(Arc::ptr_eq(&ini_ai_data::get_ai_data_store(), a.ai_data()));
+        install_active(Arc::clone(&b));
+        assert!(uninstall_active_if_current(&b));
+        assert!(Arc::ptr_eq(&active_services(), &services));
+        assert!(Arc::ptr_eq(&ini_ai_data::get_ai_data_store(), a.ai_data()));
+        assert!(uninstall_services(&services));
+        assert!(Arc::ptr_eq(&active(), &a));
         assert!(uninstall_active_if_current(&a));
         assert_eq!(active_stack_depth(), 0);
     }

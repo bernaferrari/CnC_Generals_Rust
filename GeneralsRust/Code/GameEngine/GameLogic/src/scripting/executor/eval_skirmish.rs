@@ -781,7 +781,9 @@ impl ScriptConditionEvaluator<'_> {
         let area_name = self.get_condition_string_param(condition, 1)?;
         log::debug!("Evaluating if skirmish named area '{}' exists", area_name);
 
-        let Ok(terrain) = get_terrain_logic().read() else {
+        let terrain_owner_handle = get_terrain_logic();
+
+        let Ok(terrain) = terrain_owner_handle.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let exists = terrain.get_trigger_area_by_name(&area_name).is_some();
@@ -819,7 +821,9 @@ impl ScriptConditionEvaluator<'_> {
             }
         }
 
-        let Ok(terrain) = get_terrain_logic().read() else {
+        let terrain_owner_handle = get_terrain_logic();
+
+        let Ok(terrain) = terrain_owner_handle.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(trigger) = terrain.get_trigger_area_by_name(&area_name) else {
@@ -974,7 +978,8 @@ impl ScriptConditionEvaluator<'_> {
         if players.find_player_by_name(&player_name).is_none() {
             return Ok(ScriptConditionResult::False);
         }
-        let Ok(terrain) = get_terrain_logic().read() else {
+        let terrain_owner_handle = get_terrain_logic();
+        let Ok(terrain) = terrain_owner_handle.read() else {
             return Ok(ScriptConditionResult::False);
         };
         if terrain.get_trigger_area_by_name(&area_name).is_none() {
@@ -1119,7 +1124,9 @@ impl ScriptConditionEvaluator<'_> {
             });
         }
 
-        let Ok(terrain) = get_terrain_logic().read() else {
+        let terrain_owner_handle = get_terrain_logic();
+
+        let Ok(terrain) = terrain_owner_handle.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(trigger) = terrain.get_trigger_area_by_name(&trigger_name).cloned() else {
@@ -1270,7 +1277,9 @@ impl ScriptConditionEvaluator<'_> {
             });
         }
 
-        let Ok(terrain) = get_terrain_logic().read() else {
+        let terrain_owner_handle = get_terrain_logic();
+
+        let Ok(terrain) = terrain_owner_handle.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(trigger) = terrain.get_trigger_area_by_name(&trigger_name).cloned() else {

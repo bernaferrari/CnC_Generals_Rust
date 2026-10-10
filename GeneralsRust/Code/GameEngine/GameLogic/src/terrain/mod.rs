@@ -771,8 +771,8 @@ lazy_static! {
 
 /// Get reference to global terrain logic instance
 /// Convenience accessor for terrain queries
-pub fn get_terrain_logic() -> &'static Arc<RwLock<TerrainLogic>> {
-    &THE_TERRAIN_LOGIC
+pub fn get_terrain_logic() -> Arc<RwLock<TerrainLogic>> {
+    Arc::clone(crate::system::engine_stores::active_services().terrain())
 }
 
 /// Initialize terrain logic with physics engine
@@ -783,7 +783,7 @@ pub fn init_terrain_physics_integration() {
     // Get physics engine
     if let Ok(mut physics) = get_physics_engine().write() {
         // Create wrapper that implements TerrainQuery
-        let wrapper = TerrainQueryWrapper::new(THE_TERRAIN_LOGIC.clone());
+        let wrapper = TerrainQueryWrapper::new(get_terrain_logic());
         let terrain_query: Arc<dyn TerrainQuery> = Arc::new(wrapper);
         physics.set_terrain_query(terrain_query);
     }

@@ -1037,7 +1037,7 @@ fn host_object_shroud_to_radar(
 impl CnCGameEngine {
     /// C++ `GameEngine::update` (`GameEngine.cpp:732`) `TheRadar->UPDATE()`.
     pub(super) fn host_update_the_radar(&self) {
-        if let Ok(mut shroud) = self.game_logic.engine_stores.shroud().lock() {
+        if let Ok(mut shroud) = self.game_logic.world_services.shroud().lock() {
             shroud.refresh_shroud_for_local_player();
         }
 
@@ -1056,7 +1056,7 @@ impl CnCGameEngine {
             // C++ `getShroudedStatus` is queried at overlay render, after
             // `Radar::update` rebuilds the object lists. Stamp after sync so
             // PARTIAL_CLEAR fog-edge blips survive provider rebuild.
-            if let Ok(shroud) = self.game_logic.engine_stores.shroud().lock() {
+            if let Ok(shroud) = self.game_logic.world_services.shroud().lock() {
                 radar.apply_object_shrouds(|object_id| {
                     shroud
                         .get_host_object_shroud_status(local_id, object_id)

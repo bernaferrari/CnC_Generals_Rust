@@ -449,7 +449,7 @@ impl GameLogic {
         }) else {
             return;
         };
-        if let Ok(mut shroud) = self.engine_stores.shroud().lock() {
+        if let Ok(mut shroud) = self.world_services.shroud().lock() {
             let _ = shroud.reveal_map_for_player_permanently(id);
         }
     }
@@ -526,7 +526,7 @@ impl GameLogic {
         if let Ok(mut radar) = game_engine::common::system::radar::get_radar_system().write() {
             radar.force_on(true);
         }
-        if let Ok(mut shroud) = self.engine_stores.shroud().lock() {
+        if let Ok(mut shroud) = self.world_services.shroud().lock() {
             shroud.refresh_shroud_for_local_player();
         }
         #[cfg(feature = "game_client")]
@@ -617,7 +617,8 @@ impl GameLogic {
     }
 
     pub fn terrain_height_at(&self, world_pos: Vec3) -> Option<f32> {
-        let terrain = gamelogic::terrain::get_terrain_logic().read().ok();
+        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let terrain = terrain_owner_handle.read().ok();
         self.terrain_height_at_with_terrain_logic(world_pos, terrain.as_deref())
     }
 
@@ -780,7 +781,8 @@ impl GameLogic {
     /// plus the four `TowerObjectName*` slots. Freeze that authored identity
     /// here so presentation bake cannot invent granite `RoadType::StoneBridge`.
     pub fn terrain_bridge_segments_snapshot(&self) -> Vec<(Vec3, Vec3, f32, String)> {
-        let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() else {
+        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let Ok(terrain) = terrain_owner_handle.read() else {
             return Vec::new();
         };
         let roads = game_engine::common::ini::try_get_terrain_roads();

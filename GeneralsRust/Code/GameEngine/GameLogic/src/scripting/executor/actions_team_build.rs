@@ -849,7 +849,9 @@ impl ScriptActionDispatcher<'_> {
                 continue;
             };
 
-            let waypoint_id = get_terrain_logic().read().ok().and_then(|terrain| {
+            let terrain_owner_handle = get_terrain_logic();
+
+            let waypoint_id = terrain_owner_handle.read().ok().and_then(|terrain| {
                 terrain
                     .get_closest_waypoint_on_path(&member_pos, &waypoint_path_label)
                     .map(|waypoint| waypoint.get_id())
@@ -960,7 +962,9 @@ impl ScriptActionDispatcher<'_> {
                 continue;
             };
 
-            let waypoint_id = get_terrain_logic().read().ok().and_then(|terrain| {
+            let terrain_owner_handle = get_terrain_logic();
+
+            let waypoint_id = terrain_owner_handle.read().ok().and_then(|terrain| {
                 terrain
                     .get_closest_waypoint_on_path(&member_pos, &waypoint_path_label)
                     .map(|waypoint| waypoint.get_id())

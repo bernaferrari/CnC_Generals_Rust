@@ -1176,9 +1176,8 @@ fn explicit_empty_trigger_owner_does_not_fall_back_to_other_world_terrain() {
         ],
     );
     let original_triggers = {
-        let mut terrain = crate::terrain::get_terrain_logic()
-            .write()
-            .expect("terrain");
+        let terrain_owner_handle = crate::terrain::get_terrain_logic();
+        let mut terrain = terrain_owner_handle.write().expect("terrain");
         let original = terrain.get_trigger_areas().get_triggers().to_vec();
         terrain.get_trigger_areas_mut().add(trigger.clone());
         original
@@ -1200,9 +1199,8 @@ fn explicit_empty_trigger_owner_does_not_fall_back_to_other_world_terrain() {
         owned.get_trigger_area("OwnerIsolationSentinel").is_none(),
         "an explicit empty Main owner is authoritative even when process TerrainLogic holds another world's polygon",
     );
-    let mut terrain = crate::terrain::get_terrain_logic()
-        .write()
-        .expect("terrain");
+    let terrain_owner_handle = crate::terrain::get_terrain_logic();
+    let mut terrain = terrain_owner_handle.write().expect("terrain");
     let areas = terrain.get_trigger_areas_mut();
     areas.clear();
     for trigger in original_triggers {

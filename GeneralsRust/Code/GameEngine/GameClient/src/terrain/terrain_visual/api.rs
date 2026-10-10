@@ -32,17 +32,15 @@ pub fn init_terrain_visual_hooks() {
     register_overlay_rebuild_hooks();
     register_unit_moved_hook();
     ensure_radar_terrain_paint_source_registered();
- }
+}
 fn register_logic_height_hooks() {
-    gamelogic::helpers::register_terrain_visual_raw_height_hook(Some(
-        |x, y, height| {
-            if let Ok(mut visual) = get_terrain_visual() {
-                if let Some(visual) = visual.as_mut() {
-                    visual.set_raw_map_height(x, y, height);
-                }
+    gamelogic::helpers::register_terrain_visual_raw_height_hook(Some(|x, y, height| {
+        if let Ok(mut visual) = get_terrain_visual() {
+            if let Some(visual) = visual.as_mut() {
+                visual.set_raw_map_height(x, y, height);
             }
-        },
-    ));
+        }
+    }));
     gamelogic::helpers::register_terrain_visual_lighting_changed_hook(Some(|| {
         if let Ok(mut visual) = get_terrain_visual() {
             if let Some(visual) = visual.as_mut() {
@@ -135,7 +133,6 @@ fn register_logic_height_hooks() {
             }),
         },
     );
-
 }
 
 fn rebuild_shoreline_hook() {
@@ -180,10 +177,9 @@ pub fn rebuild_tank_tracks() {
     rebuild_tank_tracks_hook();
 }
 
-
 /// Get reference to global terrain visual instance
-pub fn get_terrain_visual(
-) -> Result<std::sync::MutexGuard<'static, Option<TerrainVisualImpl>>, TerrainError> {
+pub fn get_terrain_visual()
+-> Result<std::sync::MutexGuard<'static, Option<TerrainVisualImpl>>, TerrainError> {
     THE_TERRAIN_VISUAL.lock().map_err(|_| {
         TerrainError::InitializationError("Failed to lock terrain visual mutex".to_string())
     })
@@ -233,7 +229,8 @@ pub fn leftover_radar_terrain_color_at(world_x: f32, world_y: f32) -> Option<[f3
 pub fn leftover_radar_bridge_at(
     world: &game_engine::common::system::radar::Coord3D,
 ) -> Option<game_engine::common::system::radar::RadarBridgeSample> {
-    let terrain = gamelogic::terrain::get_terrain_logic().try_read().ok()?;
+    let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+    let terrain = terrain_owner_handle.try_read().ok()?;
     let loc = gamelogic::common::Coord3D::new(world.x, world.y, world.z);
     let bridge = terrain.find_bridge_at(&loc)?;
     let info = bridge.get_bridge_info();

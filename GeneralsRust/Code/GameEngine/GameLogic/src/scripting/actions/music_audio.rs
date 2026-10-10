@@ -409,7 +409,8 @@ impl ScriptAction for PlaySoundAtAction {
         // Rust: audio_manager.play_sound_at(sound, waypoint_position)
 
         let waypoint_ascii = AsciiString::from(waypoint.as_str());
-        let target = get_terrain_logic()
+        let terrain_owner_handle = get_terrain_logic();
+        let target = terrain_owner_handle
             .read()
             .ok()
             .and_then(|terrain| {

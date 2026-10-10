@@ -16,7 +16,8 @@ const ASSUMED_HELI_DIAMETER: f32 = 70.0;
 
 /// C++ `clampWaypointPosition` (`AIGroup.cpp:1497-1521`).
 pub fn clamp_waypoint_position(position: &mut Coord3D, margin: f32) {
-    let Ok(terrain) = get_terrain_logic().read() else {
+    let terrain_owner_handle = get_terrain_logic();
+    let Ok(terrain) = terrain_owner_handle.read() else {
         return;
     };
     let mut extent = terrain.get_extent();

@@ -572,7 +572,8 @@ impl Object {
         now: UnsignedInt,
         changed: &mut dyn FnMut(ObjectID),
     ) {
-        let Ok(terrain) = crate::terrain::get_terrain_logic().read() else {
+        let terrain_owner_handle = crate::terrain::get_terrain_logic();
+        let Ok(terrain) = terrain_owner_handle.read() else {
             return;
         };
         let triggers: Vec<Arc<PolygonTrigger>> = terrain
@@ -888,7 +889,8 @@ impl Object {
         if remove_only {
             pf.remove_pos_cells(self.get_id(), 0, true, astar_layer);
         } else {
-            let interacts = crate::terrain::get_terrain_logic()
+            let terrain_owner_handle = crate::terrain::get_terrain_logic();
+            let interacts = terrain_owner_handle
                 .read()
                 .ok()
                 .map(|t| {

@@ -450,7 +450,8 @@ pub fn install_runtime_polygon_triggers(triggers: &[PolygonTrigger]) {
     // startup worker still holds THE_TERRAIN_LOGIC, skip installation instead
     // of blocking the sync (which would self-deadlock the sync's own held
     // locks and stall every other pathfinding user).
-    let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().try_write() else {
+    let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+    let Ok(mut terrain) = terrain_owner_handle.try_write() else {
         log::warn!(
             "install_runtime_polygon_triggers: THE_TERRAIN_LOGIC contended; skipping {} polygon trigger(s)",
             triggers.len()

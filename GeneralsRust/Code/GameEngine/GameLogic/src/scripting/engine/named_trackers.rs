@@ -1145,14 +1145,12 @@ impl ScriptEngine {
         };
 
         let waypoint_ascii = AsciiString::from(reveal.waypoint_name.as_str());
-        let target = crate::terrain::get_terrain_logic()
-            .read()
-            .ok()
-            .and_then(|terrain| {
-                terrain
-                    .get_waypoint_by_name(&waypoint_ascii)
-                    .map(|w| *w.get_location())
-            });
+        let terrain_owner_handle = crate::terrain::get_terrain_logic();
+        let target = terrain_owner_handle.read().ok().and_then(|terrain| {
+            terrain
+                .get_waypoint_by_name(&waypoint_ascii)
+                .map(|w| *w.get_location())
+        });
         let Some(target) = target else {
             return;
         };
@@ -1188,14 +1186,12 @@ impl ScriptEngine {
         };
 
         let waypoint_ascii = AsciiString::from(reveal.waypoint_name.as_str());
-        let target = crate::terrain::get_terrain_logic()
-            .read()
-            .ok()
-            .and_then(|terrain| {
-                terrain
-                    .get_waypoint_by_name(&waypoint_ascii)
-                    .map(|w| *w.get_location())
-            });
+        let terrain_owner_handle = crate::terrain::get_terrain_logic();
+        let target = terrain_owner_handle.read().ok().and_then(|terrain| {
+            terrain
+                .get_waypoint_by_name(&waypoint_ascii)
+                .map(|w| *w.get_location())
+        });
         let Some(target) = target else {
             return;
         };

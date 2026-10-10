@@ -243,9 +243,8 @@ mod landmark_bridge_and_new_map_tests {
     #[test]
     fn landmark_bridge_object_registers_leftover_deck() {
         {
-            let mut terrain = gamelogic::terrain::get_terrain_logic()
-                .write()
-                .expect("terrain");
+            let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+            let mut terrain = terrain_owner_handle.write().expect("terrain");
             terrain.reset();
         }
         let mut logic = GameLogic::new();
@@ -271,7 +270,8 @@ mod landmark_bridge_and_new_map_tests {
         assert_eq!(info.bridge_object_id, id.0);
         assert!((info.bridge_width - 4.0).abs() < 0.01);
         assert!(logic.bridge_behavior.span(id).is_some());
-        let deck = gamelogic::terrain::get_terrain_logic()
+        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let deck = terrain_owner_handle
             .read()
             .ok()
             .and_then(|tl| tl.host_deck_height_at(10.0, 20.0));

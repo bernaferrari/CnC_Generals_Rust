@@ -521,7 +521,8 @@ impl AISkirmishPlayer {
         // C++: for (curWay = way; curWay; curWay = curWay->getNext())
         // Snapshot hop targets from terrain list (getNext), then pathfind.
         let hop_targets: Vec<Coord3D> = {
-            let Ok(terrain) = get_terrain_logic().read() else {
+            let terrain_owner_handle = get_terrain_logic();
+            let Ok(terrain) = terrain_owner_handle.read() else {
                 return false;
             };
             let mut out = Vec::new();

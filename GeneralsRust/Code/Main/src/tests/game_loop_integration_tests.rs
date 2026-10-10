@@ -77,7 +77,7 @@ impl GameLoopTestFixture {
 
         self.record_phase(GamePhase::FOWUpdate);
         if let Ok(logic) = self.game_logic.read() {
-            if let Ok(mut shroud) = logic.engine_stores.shroud().lock() {
+            if let Ok(mut shroud) = logic.world_services.shroud().lock() {
                 FOWRenderingBridge::force_visibility_update(&mut shroud);
             }
         }
@@ -191,7 +191,7 @@ fn command_fow_ui_threads_can_progress_together() {
                     ui.current_game_time += 0.016;
                 }
                 if let Ok(logic) = fixture.game_logic.read() {
-                    if let Ok(mut shroud) = logic.engine_stores.shroud().lock() {
+                    if let Ok(mut shroud) = logic.world_services.shroud().lock() {
                         FOWRenderingBridge::force_visibility_update(&mut shroud);
                     }
                 }

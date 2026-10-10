@@ -109,7 +109,8 @@ impl GameLogic {
         from: glam::Vec3,
     ) -> Option<(u32, glam::Vec3, bool, f32)> {
         let from_terrain = gamelogic::common::Coord3D::new(from.x, from.z, from.y);
-        let terrain = gamelogic::terrain::get_terrain_logic().read().ok()?;
+        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let terrain = terrain_owner_handle.read().ok()?;
         let start = terrain.get_closest_waypoint_on_path(&from_terrain, path_label)?;
         let waypoint_id = start.get_id();
         let mut current_id = waypoint_id;
@@ -225,7 +226,8 @@ impl GameLogic {
             // C++ computes ground height after applying the group offset.
             goal.y = height;
         }
-        let Some(extent) = gamelogic::terrain::get_terrain_logic()
+        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let Some(extent) = terrain_owner_handle
             .read()
             .ok()
             .map(|terrain| terrain.get_maximum_pathfind_extent())
@@ -377,7 +379,8 @@ impl GameLogic {
             }
 
             let next = (|| -> Option<Option<(u32, glam::Vec3, f32, bool)>> {
-                let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() else {
+                let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+                let Ok(terrain) = terrain_owner_handle.read() else {
                     return None;
                 };
                 let Some(current) = terrain.get_waypoint_by_id(panic.current_waypoint_id) else {
@@ -410,7 +413,8 @@ impl GameLogic {
                 // C++ getNextWaypoint assigns prior=current before returning
                 // null for the terminal waypoint.
                 panic.prior_waypoint_id = Some(panic.current_waypoint_id);
-                let labels = gamelogic::terrain::get_terrain_logic()
+                let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+                let labels = terrain_owner_handle
                     .read()
                     .ok()
                     .and_then(|terrain| {

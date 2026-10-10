@@ -1148,7 +1148,8 @@ impl ScriptActionDispatcher<'_> {
 
         let (source_pos, waypoint) = if let Ok(source_guard) = source_obj.read() {
             let source_pos = *source_guard.get_position();
-            let waypoint = get_terrain_logic().read().ok().and_then(|terrain| {
+            let terrain_owner_handle = get_terrain_logic();
+            let waypoint = terrain_owner_handle.read().ok().and_then(|terrain| {
                 terrain
                     .get_closest_waypoint_on_path(&source_pos, &waypoint_path)
                     .map(crate::waypoint::Waypoint::from_terrain)

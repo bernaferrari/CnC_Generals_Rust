@@ -110,7 +110,9 @@ impl SpectreGunshipPower {
             {
                 let ctx = crate::object_creation_list::live_creation_context();
 
-                let edge = get_terrain_logic()
+                let terrain_owner_handle = get_terrain_logic();
+
+                let edge = terrain_owner_handle
                     .read()
                     .ok()
                     .map(|terrain| terrain.find_closest_edge_point(&targeting.position))

@@ -65,15 +65,26 @@ impl Player {
         upgrade_name: &str,
         upgrade_type: gamelogic::upgrade::UpgradeType,
     ) {
+        self.complete_researched_upgrade_with_definition(upgrade_name, upgrade_type, None);
+    }
+
+    pub(crate) fn complete_researched_upgrade_with_definition(
+        &mut self,
+        upgrade_name: &str,
+        upgrade_type: gamelogic::upgrade::UpgradeType,
+        definition: Option<&gamelogic::upgrade::UpgradeTemplate>,
+    ) {
         if let Some(queued) = self.find_queued_upgrade_name(upgrade_name) {
             self.queued_upgrades.remove(&queued);
         }
         // C++ ProductionUpdate.cpp:874-879 / 931 — purchased, not granted.
-        self.record_upgrade_production_complete(upgrade_name);
+        if let Some(definition) = definition {
+            self.record_upgrade_production_complete(definition);
+        }
         if upgrade_type == gamelogic::upgrade::UpgradeType::Object {
             return;
         }
-        self.add_completed_upgrade(upgrade_name);
+        self.add_completed_upgrade_with_definition(upgrade_name, definition);
     }
 
     pub fn has_unlocked_upgrade(&self, upgrade_name: &str) -> bool {

@@ -1654,7 +1654,7 @@ impl GameLogic {
         };
         self.partition_manager.reveal_map_for_player(
             &mut self
-                .engine_stores
+                .world_services
                 .shroud()
                 .lock()
                 .unwrap_or_else(|e| e.into_inner()),

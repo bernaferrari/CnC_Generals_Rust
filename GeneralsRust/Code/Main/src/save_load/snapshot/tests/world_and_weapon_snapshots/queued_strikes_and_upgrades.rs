@@ -469,7 +469,7 @@ fn host_upgrade_capture_mid_flight_save_load_completes_unlock() {
             0.0,
         );
     {
-        let shroud_manager = restored.engine_stores.shroud();
+        let shroud_manager = restored.world_services.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.set_host_object_shroud_status(
             0,

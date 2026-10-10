@@ -124,14 +124,12 @@ impl GameLogic {
     /// C++ `findNamedWaypoint` (`GameLogic.cpp:160`) + `getGroundHeight`.
     pub(crate) fn leftover_named_waypoint_host_pos(name: &str) -> Option<Vec3> {
         let wp_name = gamelogic::common::AsciiString::from(name);
-        let loc = gamelogic::terrain::get_terrain_logic()
-            .read()
-            .ok()
-            .and_then(|terrain| {
-                terrain
-                    .get_waypoint_by_name(&wp_name)
-                    .map(|wp| *wp.get_location())
-            })?;
+        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let loc = terrain_owner_handle.read().ok().and_then(|terrain| {
+            terrain
+                .get_waypoint_by_name(&wp_name)
+                .map(|wp| *wp.get_location())
+        })?;
         let mut pos = Vec3::new(loc.x, loc.z, loc.y);
         if let Ok(tl) = gamelogic::terrain::get_terrain_logic().read() {
             pos.y = tl.get_ground_height(pos.x, pos.z, None);
