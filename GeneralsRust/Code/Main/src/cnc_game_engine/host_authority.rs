@@ -3177,6 +3177,7 @@ mod staged_restore_tests {
                         "actual owned map load under foreign Core scope"
                     );
                     source.add_player(Player::new(0, Team::USA, "Human", true));
+                    let saved_player_count = source.get_players().len();
                     let live_terrain = Arc::clone(source.world_services.terrain());
                     let live_light = gamelogic::system::engine_stores::with_world_services(
                         &source.world_services,
@@ -3258,7 +3259,7 @@ mod staged_restore_tests {
                     drop(old);
                     effects.execute_after_logic_commit();
                     assert!(source.isInGame());
-                    assert_eq!(source.get_players().len(), 1);
+                    assert_eq!(source.get_players().len(), saved_player_count);
                     assert!(source.get_player(0).unwrap().is_human);
                     assert_eq!(
                         gamelogic::ai::integration::with_ai_integration(
