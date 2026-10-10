@@ -28,11 +28,13 @@ pub trait Options: Sized {
 }
 
 #[derive(Default, Clone, Copy)]
-pub struct DefaultOptions;
+pub struct DefaultOptions {
+    allow_trailing_bytes: bool,
+}
 
 impl DefaultOptions {
     pub fn new() -> Self {
-        Self
+        Self::default()
     }
 
     pub fn with_fixint_encoding(self) -> Self {
@@ -40,17 +42,28 @@ impl DefaultOptions {
     }
 
     pub fn allow_trailing_bytes(self) -> Self {
-        self
+        Self {
+            allow_trailing_bytes: true,
+        }
     }
 
     pub fn reject_trailing_bytes(self) -> Self {
-        self
+        Self {
+            allow_trailing_bytes: false,
+        }
     }
 }
 
 impl Options for DefaultOptions {
     fn deserialize<T: DeserializeOwned>(self, bytes: &[u8]) -> Result<T> {
-        deserialize(bytes)
+        let (value, consumed): (T, usize) = bincode::serde::decode_from_slice(bytes, config())
+            .map_err(|e| Error::from(e.to_string()))?;
+        if !self.allow_trailing_bytes && consumed != bytes.len() {
+            return Err(Error::from(
+                "Slice had bytes remaining after deserialization".to_owned(),
+            ));
+        }
+        Ok(value)
     }
 
     fn serialize<T: Serialize + ?Sized>(self, value: &T) -> Result<Vec<u8>> {
