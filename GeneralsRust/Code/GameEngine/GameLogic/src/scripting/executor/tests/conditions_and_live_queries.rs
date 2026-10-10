@@ -48,7 +48,7 @@ fn named_flash_sets_drawable_flash_count_for_presentation() {
         .add_parameter(Parameter::with_int(ParameterType::Int, 2))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_named_flash(&action).unwrap();
 
@@ -102,7 +102,7 @@ fn named_custom_color_unpacks_argb_without_swapping_red_blue() {
         .add_parameter(Parameter::with_int(ParameterType::Color, -65536))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_named_custom_color(&action).unwrap();
 
@@ -144,7 +144,7 @@ fn named_set_attitude_reads_int_mood() {
         .add_parameter(Parameter::with_int(ParameterType::AiMood, 2))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_named_set_attitude(&action).unwrap();
 
@@ -208,7 +208,7 @@ fn named_attack_area_qualifies_my_inner_perimeter() {
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
     dispatcher.do_named_attack_area(&action).unwrap();
 
@@ -290,7 +290,7 @@ fn team_follow_waypoints_honors_as_team_int() {
         .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_team_follow_waypoints(&action).unwrap();
 
@@ -345,7 +345,7 @@ fn named_face_named_clears_waypoint_queue() {
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_named_face_named(&action).unwrap();
     assert_eq!(*cleared.lock().unwrap(), 1);
@@ -357,7 +357,7 @@ fn named_face_named_clears_waypoint_queue() {
 #[test]
 fn video_completion_requires_notification_and_is_consumed() {
     let engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
-    let state = std::cell::RefCell::new(ScriptContext::new());
+    let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&engine, &state);
     let mut condition = Condition::new(ConditionType::HasFinishedVideo);
     condition
@@ -391,7 +391,7 @@ fn speech_and_audio_completion_use_owned_deadlines_without_handler() {
     tail.testing_speech = vec![("Briefing".into(), 13)];
     tail.testing_audio = vec![("Explosion".into(), 13)];
     engine.restore_xfer_tail(&tail);
-    let state = std::cell::RefCell::new(ScriptContext::new());
+    let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&engine, &state);
     for (kind, parameter, name) in [
         (
@@ -444,7 +444,7 @@ fn multiplayer_player_defeat_has_no_player_param() {
 
     // C++ ScriptConditions.cpp:1748-1750 — no params; missing local player is false, not error.
     let mut condition = Condition::new(ConditionType::MultiplayerPlayerDefeat);
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     assert_eq!(
         evaluator.evaluate_condition(&mut condition).unwrap(),
@@ -476,7 +476,7 @@ fn named_totally_dead_false_while_object_exists() {
             "DeadHero".into(),
         ))
         .unwrap();
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     assert_eq!(
         evaluator.evaluate_condition(&mut condition).unwrap(),
@@ -509,7 +509,7 @@ fn named_totally_dead_false_if_name_never_existed() {
             "NeverExisted".into(),
         ))
         .unwrap();
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     assert_eq!(
         evaluator.evaluate_condition(&mut condition).unwrap(),
@@ -548,7 +548,7 @@ fn unit_health_uses_initial_health_rounding() {
     condition
         .add_parameter(Parameter::with_int(ParameterType::Int, 100))
         .unwrap();
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     assert_eq!(
         evaluator.evaluate_condition(&mut condition).unwrap(),
@@ -584,7 +584,7 @@ fn built_by_player_rejects_object_type_lists() {
             "PlyrAmerica".into(),
         ))
         .unwrap();
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
     assert_eq!(
         evaluator.evaluate_condition(&mut condition).unwrap(),
@@ -598,7 +598,7 @@ fn team_the_player_not_remapped_outside_challenge() {
     let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
 
     // C++ ScriptEngine.cpp:5935-5939 remaps TEAM_THE_PLAYER only in Challenge.
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     assert_eq!(
         evaluator.resolve_string_token(crate::scripting::core::TEAM_THE_PLAYER),
@@ -611,7 +611,7 @@ fn the_player_not_remapped_outside_challenge() {
     let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
 
     // C++ ScriptEngine.cpp:5809-5814 remaps THE_PLAYER only in Challenge.
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     assert_eq!(
         evaluator.resolve_string_token(crate::scripting::core::THE_PLAYER),
@@ -714,7 +714,7 @@ fn skirmish_value_in_area_excludes_inert() {
         ))
         .unwrap();
 
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     assert_eq!(
         evaluator.evaluate_condition(&mut condition).unwrap(),
@@ -739,7 +739,7 @@ fn set_cave_index_queues_host_when_dual_world_empty() {
     action
         .add_parameter(Parameter::with_int(ParameterType::Int, 3))
         .unwrap();
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     assert_eq!(
         dispatcher.execute_action(&action).unwrap(),
@@ -770,7 +770,7 @@ fn team_panic_queues_host_when_dual_world_empty() {
             "PanicPath".into(),
         ))
         .unwrap();
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     assert_eq!(
         dispatcher.execute_action(&action).unwrap(),
@@ -814,7 +814,7 @@ fn create_object_queues_host_when_dual_world_empty() {
     action
         .add_parameter(Parameter::with_real(ParameterType::Angle, 1.5))
         .unwrap();
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     assert_eq!(
         dispatcher.execute_action(&action).unwrap(),
@@ -842,7 +842,7 @@ fn named_team_kill_delete_damage_queue_host_when_dual_world_empty() {
     crate::object::registry::OBJECT_REGISTRY.clear();
 
     let _ = take_host_script_kill_delete_damage_requests();
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
 
     let mut named_delete = ScriptAction::new(ScriptActionType::NamedDelete);
@@ -971,7 +971,7 @@ fn player_kill_queues_host_even_when_leftover_player_missing() {
     let _test_lock = crate::test_sync::lock();
     crate::object::registry::OBJECT_REGISTRY.clear();
     let _ = take_host_script_player_misc_requests();
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let mut action = ScriptAction::new(ScriptActionType::PlayerKill);
     action
@@ -999,7 +999,7 @@ fn named_object_sound_queues_host_when_dual_world_empty() {
     let _test_lock = crate::test_sync::lock();
     crate::object::registry::OBJECT_REGISTRY.clear();
     let _ = take_host_script_object_sound_requests();
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
 
     let mut play = ScriptAction::new(ScriptActionType::SoundPlayNamed);
@@ -1073,7 +1073,7 @@ fn team_set_attitude_queues_host_when_dual_world_empty() {
     action
         .add_parameter(Parameter::with_int(ParameterType::AiMood, 2))
         .unwrap();
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     assert_eq!(
         dispatcher.execute_action(&action).unwrap(),
@@ -1106,7 +1106,7 @@ fn build_team_queues_host_when_dual_world_empty() {
             "SquadHost".into(),
         ))
         .unwrap();
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     assert_eq!(
         dispatcher.execute_action(&action).unwrap(),
@@ -1128,7 +1128,7 @@ fn ai_player_build_actions_queue_host_when_dual_world_empty() {
     let _ = take_host_ai_player_build_upgrade_requests();
     let _ = take_host_ai_player_build_type_nearest_team_requests();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
 
     let mut supply = ScriptAction::new(ScriptActionType::AiPlayerBuildSupplyCenter);
@@ -1235,7 +1235,7 @@ fn live_named_created_true_from_host_snapshot() {
     condition
         .add_parameter(Parameter::with_string(ParameterType::Unit, "Hero".into()))
         .unwrap();
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     assert_eq!(
         evaluator.evaluate_condition(&mut condition).unwrap(),
@@ -1273,7 +1273,7 @@ fn live_enemy_and_type_sighted_use_host_snapshot() {
         ..Default::default()
     });
 
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
 
     let mut enemy_sighted = Condition::new(ConditionType::EnemySighted);
@@ -1370,7 +1370,7 @@ fn live_named_totally_dead_false_at_load_when_host_unit_lives() {
             "MapHero".into(),
         ))
         .unwrap();
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     assert_eq!(
         evaluator.evaluate_condition(&mut condition).unwrap(),
@@ -1405,7 +1405,7 @@ fn live_named_destroyed_true_after_host_destroy_list() {
             "MapHero".into(),
         ))
         .unwrap();
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     assert_eq!(
         evaluator.evaluate_condition(&mut condition).unwrap(),
@@ -1437,7 +1437,7 @@ fn live_named_selected_true_from_host_snapshot() {
             "TutorialRanger".into(),
         ))
         .unwrap();
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     assert_eq!(
         evaluator.evaluate_condition(&mut condition).unwrap(),
@@ -1489,7 +1489,7 @@ fn live_team_destroyed_false_when_host_members_live() {
             "USA_RangerSquad".into(),
         ))
         .unwrap();
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     assert_eq!(
         evaluator.evaluate_condition(&mut destroyed).unwrap(),
@@ -1526,11 +1526,7 @@ fn live_named_entered_uses_host_trigger_flags() {
         .write()
         .expect("terrain")
         .add_trigger_area(trigger.clone());
-    crate::system::game_logic::get_game_logic()
-        .lock()
-        .expect("logic")
-        .set_current_frame(20);
-    let context = std::cell::RefCell::new(ScriptContext::new());
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(20));
     {
         let context_guard = context.borrow();
         let mut world = context_guard
@@ -1577,7 +1573,7 @@ fn live_named_body_state_reads_host_snapshot() {
         objects: vec![live_host_named_object("Hero", 7, true)],
         ..Default::default()
     });
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
 
     let mut health = Condition::new(ConditionType::UnitHealth);
@@ -1656,7 +1652,7 @@ fn eval_player_has_comparison_unit_type_in_trigger_area_zero_matching() {
         5.0,
         &["Vehicle"],
     )]);
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     let mut eq_zero = eval_player_unit_type_in_area(2, 0, "AmericaInfantryRanger", "HoldZone");
     let mut ge_one = eval_player_unit_type_in_area(3, 1, "AmericaInfantryRanger", "HoldZone");
@@ -1715,7 +1711,7 @@ fn eval_player_has_comparison_unit_type_in_trigger_area_n_units_ge_n() {
             &["Infantry"],
         ),
     ]);
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     let mut ge_two = eval_player_unit_type_in_area(3, 2, "AmericaInfantryRanger", "HoldZone");
     assert_eq!(
@@ -1742,7 +1738,7 @@ fn eval_player_has_comparison_unit_type_in_trigger_area_map_load_eq_zero_false()
         5.0,
         &["Infantry"],
     )]);
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     let mut eq_zero = eval_player_unit_type_in_area(2, 0, "AmericaInfantryRanger", "HoldZone");
     assert_eq!(
@@ -1780,7 +1776,7 @@ fn eval_player_has_comparison_unit_kind_in_trigger_area_n_units_ge_n() {
             &["Infantry"],
         ),
     ]);
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     let mut ge_two = eval_player_unit_kind_in_area(3, 2, KINDOF_INFANTRY, "HoldZone");
     let mut eq_zero = eval_player_unit_kind_in_area(2, 0, KINDOF_INFANTRY, "HoldZone");
@@ -1832,7 +1828,7 @@ fn live_skirmish_leftover_conditions_read_host_snapshot() {
         ..Default::default()
     });
 
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
 
     let mut power = Condition::new(ConditionType::SkirmishSpecialPowerReady);
@@ -1966,7 +1962,7 @@ fn bridge_broken_reads_host_named_state_only_on_damage_edge() {
     crate::object::registry::OBJECT_REGISTRY.clear();
     crate::scripting::clear_host_script_query_snapshot();
 
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     let mut broken = Condition::new(ConditionType::BridgeBroken);
     broken
@@ -2034,7 +2030,7 @@ fn player_set_give_money_queue_host_drain() {
 
     let _test_lock = crate::test_sync::lock();
     let _ = take_host_money_requests();
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
 
     let mut set = ScriptAction::new(ScriptActionType::PlayerSetMoney);
@@ -2087,7 +2083,7 @@ fn named_team_unmanned_stealth_radar_queue_host_when_dual_world_empty() {
     let _ = take_host_script_unmanned_requests();
     let _ = take_host_script_radar_event_requests();
     let _ = take_host_script_stealth_enabled_requests();
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
 
     let mut named_unmanned = ScriptAction::new(ScriptActionType::NamedSetUnmannedStatus);
@@ -2245,7 +2241,7 @@ fn live_host_team_reached_waypoints_end_uses_snapshot_labels() {
             "HeroPath".into(),
         ))
         .unwrap();
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     assert_eq!(
         evaluator.evaluate_condition(&mut condition).unwrap(),
@@ -2283,7 +2279,7 @@ fn live_host_skirmish_discovered_uses_snapshot() {
             "PlyrAmerica".into(),
         ))
         .unwrap();
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     assert_eq!(
         evaluator.evaluate_condition(&mut condition).unwrap(),
@@ -2339,7 +2335,7 @@ fn live_host_from_named_special_power_uses_host_id() {
                 "ParticleCannon".into(),
             ))
             .unwrap();
-        let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+        let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
         assert_eq!(
             evaluator.evaluate_condition(&mut condition).unwrap(),
@@ -2398,7 +2394,7 @@ fn set_base_construction_speed_queues_host() {
     action
         .add_parameter(Parameter::with_int(ParameterType::Int, 3))
         .unwrap();
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     assert_eq!(
         dispatcher.execute_action(&action).unwrap(),
@@ -2426,7 +2422,7 @@ fn set_train_held_queues_host() {
     action
         .add_parameter(Parameter::with_int(ParameterType::Int, 1))
         .unwrap();
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     assert_eq!(
         dispatcher.execute_action(&action).unwrap(),
@@ -2445,7 +2441,7 @@ fn team_nearest_and_partial_command_button_queue_host_when_dual_world_empty() {
     crate::object::registry::OBJECT_REGISTRY.clear();
     let _ = take_host_script_use_command_button_requests();
     let _ = take_host_team_partial_command_button_requests();
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
 
     let mut nearest =
@@ -2540,7 +2536,7 @@ fn idle_and_guard_for_framecount_queue_host_when_dual_world_empty() {
     crate::object::registry::OBJECT_REGISTRY.clear();
     let _ = take_host_script_idle_requests();
     let _ = take_host_script_hunt_guard_requests();
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
 
     let mut named_idle = ScriptAction::new(ScriptActionType::UnitIdleForFramecount);
@@ -2633,7 +2629,7 @@ fn move_towards_nearest_queues_host_when_dual_world_empty() {
 
     crate::object::registry::OBJECT_REGISTRY.clear();
     let _ = take_host_script_move_attack_requests();
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
 
     let mut named = ScriptAction::new(ScriptActionType::UnitMoveTowardsNearestObjectType);
@@ -2728,7 +2724,7 @@ fn team_wait_for_not_contained_uses_host_census_when_leftover_objects_missing() 
         ..Default::default()
     });
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let mut all = ScriptAction::new(ScriptActionType::TeamWaitForNotContainedAll);
     all.add_parameter(Parameter::with_string(

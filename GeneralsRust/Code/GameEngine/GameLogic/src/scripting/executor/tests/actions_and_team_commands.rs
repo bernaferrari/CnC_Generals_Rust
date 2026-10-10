@@ -70,7 +70,7 @@ fn executor_named_attack_named_leaves_group_and_dispatches_force_attack() {
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_named_attack_named(&action).unwrap();
 
@@ -182,7 +182,7 @@ fn executor_team_attack_team_dispatches_attack_team() {
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_team_attack_team(&action).unwrap();
 
@@ -266,7 +266,7 @@ fn executor_named_attack_area_leaves_group_and_selects_normal_locomotor() {
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_named_attack_area(&action).unwrap();
 
@@ -362,7 +362,7 @@ fn executor_named_attack_team_validates_team_and_sets_max_shots() {
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_named_attack_team(&action).unwrap();
 
@@ -466,7 +466,7 @@ fn executor_team_attack_named_ignores_stale_target_tracker_id() {
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_team_attack_named(&action).unwrap();
 
@@ -521,7 +521,7 @@ fn executor_named_hunt_selects_normal_locomotor_before_hunt() {
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_named_hunt(&action).unwrap();
 
@@ -597,7 +597,7 @@ fn executor_named_stop_dispatches_direct_ai_without_player_owner() {
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_named_stop(&action).unwrap();
 
@@ -661,7 +661,7 @@ fn executor_named_guard_leaves_group_selects_locomotor_and_sets_guard_mode() {
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_named_guard(&action).unwrap();
 
@@ -755,7 +755,7 @@ fn executor_team_guard_dispatches_direct_ai_without_player_owner() {
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_team_guard(&action).unwrap();
 
@@ -840,7 +840,7 @@ fn executor_team_guard_for_framecount_dispatches_idle_like_cxx_switch() {
         .add_parameter(Parameter::with_int(ParameterType::Int, 7))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let result = dispatcher.execute_action(&action).unwrap();
 
@@ -933,7 +933,7 @@ fn executor_team_guard_object_ignores_stale_target_tracker_id() {
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_team_guard_object(&action).unwrap();
 
@@ -1030,7 +1030,7 @@ fn executor_team_stop_and_disband_marks_members_recruitable_and_merges_default_t
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_team_stop_and_disband(&action).unwrap();
 
@@ -1133,7 +1133,7 @@ fn executor_team_execute_sequential_script_requires_script_before_idle() {
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
     dispatcher
         .do_team_execute_sequential_script(&action)
@@ -1165,7 +1165,7 @@ fn executor_team_stop_sequential_script_requires_live_team() {
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
     dispatcher.do_team_stop_sequential_script(&action).unwrap();
 
@@ -1213,7 +1213,7 @@ fn condition_player_destroyed_n_buildings_player_matches_cxx_todo_false() {
         ))
         .unwrap();
 
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
 
     assert_eq!(
@@ -1228,7 +1228,7 @@ fn condition_mission_attempts_ignores_parameters_like_cxx_stub() {
     let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
 
     let mut condition = Condition::new(ConditionType::MissionAttempts);
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
 
     assert_eq!(
@@ -1267,7 +1267,7 @@ fn condition_player_has_credits_compares_threshold_to_player_money_like_cxx() {
         ))
         .unwrap();
 
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
 
     assert_eq!(
@@ -1345,7 +1345,7 @@ fn assert_live_player_census_conditions() {
     );
     crate::scripting::set_host_script_query_snapshot(snap);
 
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
 
     let mut credits = Condition::new(ConditionType::PlayerHasCredits);
@@ -1575,7 +1575,7 @@ fn named_destroyed_false_if_name_never_existed_like_cxx() {
             "NeverSpawnedHero".into(),
         ))
         .unwrap();
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     assert_eq!(
         evaluator.evaluate_condition(&mut condition).unwrap(),
@@ -1617,7 +1617,7 @@ fn named_destroyed_and_dying_use_effectively_dead_while_object_exists_like_cxx()
         ))
         .unwrap();
 
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+    let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     assert_eq!(
         evaluator.evaluate_condition(&mut destroyed).unwrap(),
@@ -1677,7 +1677,7 @@ fn active_script_counter_and_victory_reenter_without_relocking_the_global_engine
             .add_parameter(Parameter::with_int(ParameterType::Int, 3))
             .expect("value parameter");
 
-        let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+        let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
         assert_eq!(
             evaluator.evaluate_condition(&mut counter).unwrap(),
@@ -1685,7 +1685,7 @@ fn active_script_counter_and_victory_reenter_without_relocking_the_global_engine
         );
 
         let victory = ScriptAction::new(ScriptActionType::Victory);
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
         assert_eq!(
             dispatcher.execute_action(&victory).unwrap(),
@@ -1725,7 +1725,7 @@ fn do_defeat_clears_campaign_victorious_flag() {
     let completed = with_script_engine_mut(|engine| {
         engine.set_campaign_victorious(true);
         let defeat = ScriptAction::new(ScriptActionType::Defeat);
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
         assert_eq!(
             dispatcher.execute_action(&defeat).unwrap(),
@@ -1750,7 +1750,7 @@ fn do_victory_creates_victorious_window_layout() {
         engine.set_shown_mp_local_defeat_window(false);
         engine.close_windows(false);
         let victory = ScriptAction::new(ScriptActionType::Victory);
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
         assert_eq!(
             dispatcher.execute_action(&victory).unwrap(),
@@ -1778,7 +1778,7 @@ fn do_defeat_creates_defeat_window_layout() {
         engine.set_shown_mp_local_defeat_window(false);
         engine.close_windows(false);
         let defeat = ScriptAction::new(ScriptActionType::Defeat);
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
         assert_eq!(
             dispatcher.execute_action(&defeat).unwrap(),
@@ -1803,7 +1803,7 @@ fn do_local_defeat_creates_local_defeat_window_layout() {
         engine.set_shown_mp_local_defeat_window(false);
         engine.close_windows(false);
         let local_defeat = ScriptAction::new(ScriptActionType::Localdefeat);
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
         assert_eq!(
             dispatcher.execute_action(&local_defeat).unwrap(),
@@ -1839,7 +1839,7 @@ fn active_world_actions_clone_the_handler_before_host_callback_reentry() {
         engine
             .set_counter("WorldHandlerImmediateReentry", 0)
             .expect("reentry counter");
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
 
         let mut fullscreen_movie = ScriptAction::new(ScriptActionType::MoviePlayFullscreen);
@@ -1969,7 +1969,7 @@ fn active_player_display_actions_clone_handler_before_reentry() {
         engine
             .set_counter("WorldHandlerImmediateReentry", 0)
             .expect("reentry counter");
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
 
         let mut display = ScriptAction::new(ScriptActionType::DisplayText);
@@ -2034,6 +2034,21 @@ fn active_player_display_actions_clone_handler_before_reentry() {
 
 #[test]
 fn active_camera_actions_snapshot_handler_and_mutate_fade_without_relocking() {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let module = module_path!();
+        let prefix = concat!(env!("CARGO_CRATE_NAME"), "::");
+        let test = format!(
+            "{}::active_camera_actions_snapshot_handler_and_mutate_fade_without_relocking",
+            module.strip_prefix(prefix).unwrap_or(module)
+        );
+        if matches!(
+            crate::test_process::run_bounded(&test, "GENERALS_EXECUTOR_CAMERA_FRAME_CHILD"),
+            crate::test_process::TestProcess::ParentVerified
+        ) {
+            return;
+        }
+    }
     let _test_lock = crate::test_sync::lock();
     initialize_script_engine().expect("script engine should initialize");
 
@@ -2050,10 +2065,16 @@ fn active_camera_actions_snapshot_handler_and_mutate_fade_without_relocking() {
     };
 
     let completed = with_script_engine_mut(|engine| {
+        // An explicit fixture frame must not acquire an unrelated GameLogic
+        // clock while the global ScriptEngine is held. Object teardown takes
+        // these locks in the opposite order when publishing its count change.
+        let _foreign_clock = crate::system::game_logic::get_game_logic()
+            .lock()
+            .expect("foreign logic clock witness");
         engine
             .set_counter("WorldHandlerImmediateReentry", 0)
             .expect("reentry counter");
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
 
         let mut zoom = ScriptAction::new(ScriptActionType::ZoomCamera);
@@ -2113,7 +2134,7 @@ fn active_attack_priority_and_object_list_actions_mutate_the_live_engine() {
     initialize_script_engine().expect("script engine should initialize");
 
     let completed = with_script_engine_mut(|engine| {
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
 
         let priority_set_name = "ActiveCampaignPrioritySet";
@@ -2259,7 +2280,7 @@ fn active_skirmish_prerequisite_condition_reads_the_live_object_type_list() {
             ))
             .expect("object type list parameter");
 
-        let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+        let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
         assert_eq!(
             evaluator.evaluate_condition(&mut condition).unwrap(),
@@ -2310,7 +2331,7 @@ fn active_named_actions_do_not_relock_the_engine_or_hold_host_callbacks() {
             .set_script_list_for_player(0, Some(Box::new(list)))
             .expect("sequential target script list");
 
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
 
         for action_type in [
@@ -2451,7 +2472,7 @@ fn active_team_sequential_actions_keep_cxx_lookup_idle_append_order() {
             .set_script_list_for_player(0, Some(Box::new(list)))
             .expect("sequential target script list");
 
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
         let mut start = ScriptAction::new(ScriptActionType::TeamExecuteSequentialScript);
         start
@@ -2523,7 +2544,7 @@ fn active_script_special_power_and_upgrade_events_are_immediate_and_one_shot_lik
             ))
             .expect("special-power parameter");
 
-        let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
+        let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
         assert_eq!(
             evaluator.evaluate_condition(&mut special_power).unwrap(),
@@ -2660,7 +2681,7 @@ fn team_hunt_with_command_button_invokes_hunt_update() {
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let result = dispatcher
         .execute_action(&action)
@@ -2691,7 +2712,7 @@ fn active_team_build_actions_fail_closed_without_a_prototype_controller() {
     );
 
     let completed = with_script_engine_mut(|engine| {
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
 
         let mut build = ScriptAction::new(ScriptActionType::BuildTeam);
@@ -2746,7 +2767,7 @@ fn build_and_recruit_team_queue_host_when_dual_world_empty() {
         None,
     );
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let mut build = ScriptAction::new(ScriptActionType::BuildTeam);
     build
@@ -2853,7 +2874,7 @@ fn team_transfer_to_player_reassigns_team_controller_without_capture() {
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let result = dispatcher
         .execute_action(&action)
@@ -2927,7 +2948,7 @@ fn player_sell_everything_sells_faction_structures_like_cxx() {
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let result = dispatcher
         .execute_action(&action)
@@ -2998,7 +3019,7 @@ fn damage_members_of_team_applies_unresistable_damage() {
         .add_parameter(Parameter::with_real(ParameterType::Real, 25.0))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let result = dispatcher
         .execute_action(&action)
@@ -3095,7 +3116,7 @@ fn move_named_unit_to_leaves_group_and_dispatches_ai_move() {
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let result = dispatcher
         .execute_action(&action)
@@ -3174,7 +3195,7 @@ fn named_follow_waypoints_leaves_group_and_selects_normal_loco() {
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     dispatcher.do_named_follow_waypoints(&action).unwrap();
 

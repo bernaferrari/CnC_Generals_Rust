@@ -256,3 +256,6 @@ mod script_ai_player_owner_tests;
 
 #[cfg(test)]
 mod bridge_condition_owner_tests;
+
+#[cfg(test)]
+mod tech_building_owner_tests;

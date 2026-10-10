@@ -106,6 +106,29 @@ pub enum ScriptWaterRequest<'a> {
 pub trait ScriptExecutionDriver {
     fn after_action(&mut self) -> GameLogicResult<()>;
 
+    /// Select the tech-query owner before reading its persistent condition latch.
+    /// Player tokens are raw; current_player belongs to this script walk.
+    fn skirmish_player_exists(
+        &self,
+        _player: &str,
+        _current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<()> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    /// Present(false) is a completed empty search and must latch. Missing is
+    /// an absent trigger/query and must not latch. After player selection,
+    /// neither Missing nor Unavailable permits a foreign-owner fallback.
+    fn tech_building_within_distance(
+        &self,
+        _player: &str,
+        _distance: f32,
+        _area: &str,
+        _current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Unavailable
+    }
+
     /// CPP ScriptActions::doNamedDamage: Some selects this execution owner,
     /// including an absent named object; None uses the standalone adapter.
     fn named_damage(&mut self, _name: &str, _amount: i32) -> Option<GameLogicResult<()>> {

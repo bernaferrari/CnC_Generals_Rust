@@ -1389,6 +1389,12 @@ impl ScriptContext {
     }
 
     pub fn new() -> Self {
+        Self::at_frame(TheGameLogic::get_frame())
+    }
+
+    /// Construct operation state at the driving world's observed logic frame.
+    /// The caller supplies the clock; construction never acquires GameLogic.
+    pub fn at_frame(current_frame: u32) -> Self {
         Self {
             game_logic_id: 0,
             object_manager_id: 0,
@@ -1398,7 +1404,7 @@ impl ScriptContext {
             audio_system_id: 0,
             partition_manager_id: 0,
             special_powers_id: 0,
-            current_frame: TheGameLogic::get_frame(),
+            current_frame,
             suppress_new_windows: false,
             host_trigger_world: Arc::new(Mutex::new(Default::default())),
         }

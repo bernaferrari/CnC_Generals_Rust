@@ -316,7 +316,54 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_skirmish_tech_building_within_distance(
         &self,
         condition: &mut Condition,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptConditionResult, ScriptError> {
+        use crate::scripting::engine::ScriptOwnerQuery;
+        let raw_player = condition
+            .get_parameter(0)
+            .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 0 not found".into()))?
+            .get_string();
+        let current_player = self
+            .context
+            .with_engine_ref(|engine| engine.get_current_player_name())
+            .flatten();
+        match driver.skirmish_player_exists(raw_player, current_player.as_deref()) {
+            ScriptOwnerQuery::Missing => return Ok(ScriptConditionResult::False),
+            ScriptOwnerQuery::Present(()) => {
+                // CPP2233: player first, cached result next, then trigger/search.
+                if condition.custom_data == 1 {
+                    return Ok(ScriptConditionResult::True);
+                }
+                if condition.custom_data == -1 {
+                    return Ok(ScriptConditionResult::False);
+                }
+                let distance = self.get_condition_real_param(condition, 1)?;
+                // CPP passes the location string literally. Player/team token
+                // resolution would rewrite authored trigger names and consult
+                // ambient players before reaching the selected owner.
+                let area = condition
+                    .get_parameter(2)
+                    .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 2 not found".into()))?
+                    .get_string();
+                return Ok(
+                    match driver.tech_building_within_distance(
+                        raw_player,
+                        distance,
+                        area,
+                        current_player.as_deref(),
+                    ) {
+                        ScriptOwnerQuery::Present(found) => {
+                            condition.custom_data = if found { 1 } else { -1 };
+                            Self::bool_result(found)
+                        }
+                        ScriptOwnerQuery::Missing | ScriptOwnerQuery::Unavailable => {
+                            ScriptConditionResult::False
+                        }
+                    },
+                );
+            }
+            ScriptOwnerQuery::Unavailable => {}
+        }
         let player_name = self.get_condition_string_param(condition, 0)?;
         let leftover_player = player_list()
             .read()
@@ -1424,12 +1471,45 @@ pub(crate) fn leftover_command_button_ready_for_object(
 #[cfg(test)]
 mod tech_building_latch_tests {
     use super::*;
-    use crate::scripting::{
-        Condition, ConditionType, HostScriptQuerySnapshot, HostTechBuildingCensus, Parameter,
-        ParameterType, ScriptConditionResult, clear_host_script_query_snapshot,
-        set_host_script_query_snapshot,
-    };
-    use std::sync::{Arc, RwLock};
+    use crate::scripting::engine::ScriptOwnerQuery;
+    use crate::scripting::{Condition, ConditionType, Parameter, ParameterType};
+
+    struct TechOwner {
+        player_exists: bool,
+        result: ScriptOwnerQuery<bool>,
+        forbid_search: bool,
+    }
+
+    impl ScriptExecutionDriver for TechOwner {
+        fn after_action(&mut self) -> crate::GameLogicResult<()> {
+            Ok(())
+        }
+
+        fn skirmish_player_exists(&self, player: &str, _: Option<&str>) -> ScriptOwnerQuery<()> {
+            assert_eq!(player, "PlyrAmerica");
+            if self.player_exists {
+                ScriptOwnerQuery::Present(())
+            } else {
+                ScriptOwnerQuery::Missing
+            }
+        }
+
+        fn tech_building_within_distance(
+            &self,
+            player: &str,
+            distance: f32,
+            area: &str,
+            _: Option<&str>,
+        ) -> ScriptOwnerQuery<bool> {
+            assert!(
+                !self.forbid_search,
+                "cached or missing player must not perform search"
+            );
+            assert_eq!((player, distance, area), ("PlyrAmerica", 200.0, "HomeBase"));
+            self.result
+        }
+    }
+
     fn tech_condition() -> Condition {
         let mut condition = Condition::new(ConditionType::SkirmishTechBuildingWithinDistance);
         condition
@@ -1450,50 +1530,133 @@ mod tech_building_latch_tests {
         condition
     }
 
-    #[test]
-    fn empty_leftover_without_snapshot_does_not_latch() {
-        let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    fn evaluate(condition: &mut Condition, owner: &mut TechOwner) -> ScriptConditionResult {
+        let engine = crate::scripting::engine::ScriptEngine::new().unwrap();
+        let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
+        ScriptConditionEvaluator::new(&engine, &state)
+            .evaluate_condition_with_driver(condition, owner)
+            .unwrap()
+    }
 
-        crate::object::registry::OBJECT_REGISTRY.clear();
-        clear_host_script_query_snapshot();
-        let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
-        let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
+    #[test]
+    fn missing_trigger_does_not_latch_and_can_be_admitted_later() {
         let mut condition = tech_condition();
+        let mut owner = TechOwner {
+            player_exists: true,
+            result: ScriptOwnerQuery::Missing,
+            forbid_search: false,
+        };
         assert_eq!(
-            evaluator.evaluate_condition(&mut condition).unwrap(),
+            evaluate(&mut condition, &mut owner),
+            ScriptConditionResult::False
+        );
+        assert_eq!(condition.custom_data, 0);
+        owner.result = ScriptOwnerQuery::Present(true);
+        assert_eq!(
+            evaluate(&mut condition, &mut owner),
+            ScriptConditionResult::True
+        );
+        assert_eq!(condition.custom_data, 1);
+    }
+
+    #[test]
+    fn completed_search_latches_true_and_false_without_requery() {
+        for found in [false, true] {
+            let mut condition = tech_condition();
+            let mut owner = TechOwner {
+                player_exists: true,
+                result: ScriptOwnerQuery::Present(found),
+                forbid_search: false,
+            };
+            let expected = if found {
+                ScriptConditionResult::True
+            } else {
+                ScriptConditionResult::False
+            };
+            assert_eq!(evaluate(&mut condition, &mut owner), expected);
+            assert_eq!(condition.custom_data, if found { 1 } else { -1 });
+            owner.result = ScriptOwnerQuery::Present(!found);
+            owner.forbid_search = true;
+            assert_eq!(evaluate(&mut condition, &mut owner), expected);
+        }
+    }
+
+    #[test]
+    fn missing_player_precedes_latch_and_never_changes_it() {
+        for latch in [0, -1, 1] {
+            let mut condition = tech_condition();
+            condition.custom_data = latch;
+            let mut owner = TechOwner {
+                player_exists: false,
+                result: ScriptOwnerQuery::Present(true),
+                forbid_search: true,
+            };
+            assert_eq!(
+                evaluate(&mut condition, &mut owner),
+                ScriptConditionResult::False
+            );
+            assert_eq!(condition.custom_data, latch);
+        }
+    }
+
+    #[test]
+    fn selected_owner_cannot_fall_back_when_search_is_unavailable() {
+        let mut condition = tech_condition();
+        let mut owner = TechOwner {
+            player_exists: true,
+            result: ScriptOwnerQuery::Unavailable,
+            forbid_search: false,
+        };
+        assert_eq!(
+            evaluate(&mut condition, &mut owner),
             ScriptConditionResult::False
         );
         assert_eq!(condition.custom_data, 0);
     }
 
     #[test]
-    fn empty_leftover_host_census_latches_true() {
-        let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
-
-        crate::object::registry::OBJECT_REGISTRY.clear();
-        clear_host_script_query_snapshot();
-        let mut snap = HostScriptQuerySnapshot::default();
-        snap.areas.insert("HomeBase".into(), (0.0, 0.0, 20.0, 20.0));
-        snap.tech_buildings.push(HostTechBuildingCensus {
-            x: 10.0,
-            z: 10.0,
-            owner_player: String::new(),
-            team: 3,
-            off_map: false,
-        });
-        set_host_script_query_snapshot(snap);
-        let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
-        let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
+    fn location_parameter_is_literal_even_when_named_like_a_player_token() {
+        struct LiteralArea;
+        impl ScriptExecutionDriver for LiteralArea {
+            fn after_action(&mut self) -> crate::GameLogicResult<()> {
+                Ok(())
+            }
+            fn skirmish_player_exists(
+                &self,
+                _: &str,
+                current: Option<&str>,
+            ) -> ScriptOwnerQuery<()> {
+                assert_eq!(current, Some("Viewer"));
+                ScriptOwnerQuery::Present(())
+            }
+            fn tech_building_within_distance(
+                &self,
+                _: &str,
+                _: f32,
+                area: &str,
+                _: Option<&str>,
+            ) -> ScriptOwnerQuery<bool> {
+                assert_eq!(
+                    area, THIS_PLAYER,
+                    "CPP passes location text without player resolution"
+                );
+                ScriptOwnerQuery::Present(true)
+            }
+        }
+        let mut engine = crate::scripting::engine::ScriptEngine::new().unwrap();
+        engine.set_external_eval_context(Some("Viewer".into()), None);
+        let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
         let mut condition = tech_condition();
+        condition.parameters[2] = Some(Parameter::with_string(
+            ParameterType::TriggerArea,
+            THIS_PLAYER.into(),
+        ));
         assert_eq!(
-            evaluator.evaluate_condition(&mut condition).unwrap(),
+            ScriptConditionEvaluator::new(&engine, &state)
+                .evaluate_condition_with_driver(&mut condition, &mut LiteralArea)
+                .unwrap(),
             ScriptConditionResult::True
         );
         assert_eq!(condition.custom_data, 1);
-        clear_host_script_query_snapshot();
-        assert_eq!(
-            evaluator.evaluate_condition(&mut condition).unwrap(),
-            ScriptConditionResult::True
-        );
     }
 }

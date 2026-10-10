@@ -415,7 +415,7 @@ impl ScriptConditionEvaluator<'_> {
                 self.eval_skirmish_supplies_value_within_distance(condition)
             }
             ConditionType::SkirmishTechBuildingWithinDistance => {
-                self.eval_skirmish_tech_building_within_distance(condition)
+                self.eval_skirmish_tech_building_within_distance(condition, driver)
             }
             ConditionType::SkirmishCommandButtonReadyAll => {
                 self.eval_skirmish_command_button_ready_all(condition)

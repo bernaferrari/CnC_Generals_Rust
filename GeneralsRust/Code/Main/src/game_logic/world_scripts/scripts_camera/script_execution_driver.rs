@@ -15,6 +15,105 @@ impl<'a> HostScriptExecutionDriver<'a> {
         Self { world }
     }
 
+    fn player_script_name(player: &Player) -> &str {
+        if player.map_side.map_player_name.is_empty() {
+            &player.name
+        } else {
+            &player.map_side.map_player_name
+        }
+    }
+
+    fn named_player_id(&self, name: &str) -> Option<u32> {
+        // CPP initFromDict/ScriptEngine5810 use the authored name key,
+        // not a display name or an invented faction alias.
+        self.world
+            .players
+            .values()
+            .find(|player| Self::player_script_name(player) == name)
+            .map(|player| player.id)
+    }
+
+    fn requires_prepared_player_bindings(&self) -> bool {
+        // Match the map loader's prepared-side modes. Their side indices and
+        // authored player names are not Main host IDs/display labels. Until
+        // admission owns that mapping, retain the existing condition adapter.
+        matches!(
+            self.world.game_mode,
+            GameMode::Skirmish
+                | GameMode::Multiplayer
+                | GameMode::Lan
+                | GameMode::Internet
+                | GameMode::Replay
+        )
+    }
+
+    fn script_player_id(&self, token: &str, current_player: Option<&str>) -> Option<u32> {
+        use gamelogic::scripting::core::{
+            LOCAL_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_PLAYER_ENEMY,
+        };
+        match token {
+            THIS_PLAYER => self.named_player_id(current_player?),
+            LOCAL_PLAYER => self
+                .world
+                .players
+                .values()
+                .find(|p| p.is_local)
+                .map(|p| p.id),
+            THIS_PLAYER_ENEMY => {
+                let current = self.named_player_id(current_player?)?;
+                self.world
+                    .ai_manager
+                    .ai_players
+                    .get(&current)
+                    .and_then(|ai| ai.enemy_player_id)
+                    .filter(|id| self.world.players.contains_key(id))
+                    .or_else(|| {
+                        self.world
+                            .players
+                            .values()
+                            .filter(|p| {
+                                p.is_human
+                                    && !(gamelogic::scripting::core::is_generals_challenge_campaign(
+                                    ) && Self::player_script_name(p) == THE_PLAYER)
+                            })
+                            .min_by_key(|p| p.id)
+                            .map(|p| p.id)
+                    })
+            }
+            // Retain the existing Challenge classification. Campaign metadata
+            // ownership is separate from this query's player/geometry owner.
+            THE_PLAYER if gamelogic::scripting::core::is_generals_challenge_campaign() => self
+                .world
+                .players
+                .values()
+                .find(|p| p.is_local)
+                .map(|p| p.id),
+            _ => self.named_player_id(token),
+        }
+    }
+
+    fn qualified_area(&self, area: &str, current_player: Option<&str>) -> Option<String> {
+        let (enemy, perimeter) = match area {
+            "[Skirmish]MyInnerPerimeter" => (false, "InnerPerimeter"),
+            "[Skirmish]MyOuterPerimeter" => (false, "OuterPerimeter"),
+            "[Skirmish]EnemyInnerPerimeter" => (true, "InnerPerimeter"),
+            "[Skirmish]EnemyOuterPerimeter" => (true, "OuterPerimeter"),
+            _ => return Some(area.into()),
+        };
+        let current = current_player.and_then(|name| self.named_player_id(name));
+        let player = if enemy {
+            current
+                .and_then(|id| self.world.ai_manager.ai_players.get(&id))
+                .and_then(|ai| ai.enemy_player_id)
+        } else {
+            Some(current?)
+        };
+        let index = player
+            .and_then(|id| self.world.players.get(&id))
+            .map(|p| p.start_position + 1);
+        Some(format!("{perimeter}{}", index.unwrap_or(-1)))
+    }
+
     fn status(object: &crate::game_logic::object::Object) -> ScriptObjectStatus {
         ScriptObjectStatus {
             has_ai: object.has_ai_update_interface(),
@@ -58,6 +157,102 @@ impl<'a> HostScriptExecutionDriver<'a> {
 }
 
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+    fn skirmish_player_exists(
+        &self,
+        player: &str,
+        current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<()> {
+        if self.requires_prepared_player_bindings() {
+            return ScriptOwnerQuery::Unavailable;
+        }
+        if self.script_player_id(player, current_player).is_some() {
+            ScriptOwnerQuery::Present(())
+        } else {
+            ScriptOwnerQuery::Missing
+        }
+    }
+
+    fn tech_building_within_distance(
+        &self,
+        player: &str,
+        distance: f32,
+        area: &str,
+        current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<bool> {
+        use gamelogic::common::Relationship;
+        if self.requires_prepared_player_bindings() {
+            return ScriptOwnerQuery::Unavailable;
+        }
+        let Some(player) = self
+            .script_player_id(player, current_player)
+            .and_then(|id| self.world.players.get(&id))
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let Some(area) = self.qualified_area(area, current_player) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let Some(trigger) = self
+            .world
+            .host_trigger_world
+            .lock()
+            .expect("owned script trigger query")
+            .trigger_area_by_name(&area)
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        // Avoid get_center_point's ambient terrain-height lookup. FROM_CENTER_2D
+        // uses only the polygon bounds; get_radius preserves CPP's formula.
+        let bounds = trigger.get_bounds();
+        let center_x = (bounds.lo.x + bounds.hi.x) as f32 / 2.0;
+        let center_z = (bounds.lo.y + bounds.hi.y) as f32 / 2.0;
+        let radius = trigger.get_radius() + distance;
+        let radius_sq = radius * radius;
+        let found = self.world.host_objects().values().any(|object| {
+            let position = object.get_position();
+            if !object.is_kind_of(KindOf::TechBuilding)
+                || object.owner_player_id == Some(player.id)
+                || position.x < self.world.world_min.x
+                || position.x > self.world.world_max.x
+                || position.z < self.world.world_min.z
+                || position.z > self.world.world_max.z
+            {
+                return false;
+            }
+            let team = if object.team_instance_name.is_empty() {
+                self.world
+                    .default_host_team_instance_name(object.owner_player_id, object.team)
+            } else {
+                object.team_instance_name.clone()
+            };
+            let relationship = player.team_relationship_override(&team).unwrap_or_else(|| {
+                let Some(target) = object
+                    .owner_player_id
+                    .and_then(|id| self.world.players.get(&id))
+                else {
+                    return Relationship::Neutral;
+                };
+                // CPP Player542 reads relationships even for defeated players.
+                player.map_relationship(target.id).unwrap_or_else(|| {
+                    if player.alliance_team >= 0 && player.alliance_team == target.alliance_team {
+                        Relationship::Allies
+                    } else if player.alliance_team >= 0 && target.alliance_team >= 0 {
+                        Relationship::Enemies
+                    } else {
+                        Relationship::Neutral
+                    }
+                })
+            });
+            if relationship == Relationship::Allies {
+                return false;
+            }
+            let dx = position.x - center_x;
+            let dz = position.z - center_z;
+            dx * dx + dz * dz < radius_sq
+        });
+        ScriptOwnerQuery::Present(found)
+    }
+
     fn named_damage(&mut self, name: &str, amount: i32) -> Option<gamelogic::GameLogicResult<()>> {
         // A foreign Core registry/tracker entry must never select the receiver.
         let id = self

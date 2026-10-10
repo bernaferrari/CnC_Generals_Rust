@@ -57,14 +57,13 @@ fn foreign_counter() -> Option<i32> {
 
 #[test]
 fn public_action_callback_reenters_bound_engine_and_restores_foreign_scope() {
-    let _serial = crate::test_sync::lock();
     let mut own = ScriptEngine::new().unwrap();
     own.set_action_handler(Some(Arc::new(ReenterBoundEngine {
         panic_after_action: false,
     })));
     let foreign = ScriptEngine::new().unwrap();
     foreign.set_counter("ForeignOwner", 19).unwrap();
-    let state = RefCell::new(ScriptContext::new());
+    let state = RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&own, &state);
     foreign.with_active(|| {
         dispatcher.execute_action(&display_action()).unwrap();
@@ -76,14 +75,13 @@ fn public_action_callback_reenters_bound_engine_and_restores_foreign_scope() {
 
 #[test]
 fn public_condition_and_or_callbacks_reenter_bound_engine() {
-    let _serial = crate::test_sync::lock();
     let mut own = ScriptEngine::new().unwrap();
     own.set_action_handler(Some(Arc::new(ReenterBoundEngine {
         panic_after_action: false,
     })));
     let foreign = ScriptEngine::new().unwrap();
     foreign.set_counter("ForeignOwner", 19).unwrap();
-    let state = RefCell::new(ScriptContext::new());
+    let state = RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&own, &state);
     let mut or = OrCondition::new();
     or.set_first_and_condition(Some(Box::new(video_condition())));
@@ -103,14 +101,13 @@ fn public_condition_and_or_callbacks_reenter_bound_engine() {
 
 #[test]
 fn public_callback_unwind_restores_foreign_engine() {
-    let _serial = crate::test_sync::lock();
     let mut own = ScriptEngine::new().unwrap();
     own.set_action_handler(Some(Arc::new(ReenterBoundEngine {
         panic_after_action: true,
     })));
     let foreign = ScriptEngine::new().unwrap();
     foreign.set_counter("ForeignOwner", 19).unwrap();
-    let state = RefCell::new(ScriptContext::new());
+    let state = RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&own, &state);
     foreign.with_active(|| {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
