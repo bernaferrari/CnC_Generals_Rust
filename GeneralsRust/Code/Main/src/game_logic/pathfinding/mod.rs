@@ -282,6 +282,8 @@ pub struct PathfindingGrid {
     ground_connect: Vec<u8>,
     /// C++ `Pathfinder::m_layers[2..=14]`.
     bridge_layers: Vec<HostBridgeLayer>,
+    /// Immutable raw owner samples admitted with the map, never globally refreshed.
+    admitted_raw_terrain: Option<std::sync::Arc<super::terrain::TerrainData>>,
     /// Terrain bridge visitation order, separate from pathfinder layer IDs.
     flight_bridge_order: Vec<u8>,
     /// C++ PathfindLayer pos/goal occupancy (updatePos/updateGoal).
@@ -328,6 +330,7 @@ pub struct PathfindingGrid {
     permanent_blast_crater_cells: HashSet<(i32, i32)>,
 }
 
+mod grid_bridge_owner;
 mod grid_core;
 mod grid_flight;
 mod grid_layers;

@@ -5,13 +5,7 @@ use super::*;
 impl GameLogic {
     /// Update method - matching C++ GameLogic interface
     pub fn update(&mut self) {
-        if gamelogic::terrain::get_terrain_logic()
-            .read()
-            .ok()
-            .is_some_and(|t| t.bridge_damage_states_changed())
-        {
-            self.stamp_live_bridge_decks_and_zones();
-        }
+        self.refresh_owned_bridge_pathfinder_states();
         // C++ AI::update → Pathfinder::processPathfindQueue drains inside
         // update_simulation (every logic frame, live and test paths).
         self.step_simulation(LOGIC_FRAME_TIMESTEP, None);

@@ -41,7 +41,7 @@ impl TerrainLogic {
         )
     }
 
-    pub(super) fn bridge_info_from_parts(
+    pub fn bridge_info_from_parts(
         position: Coord3D,
         angle: Real,
         halfsize_x: Real,
@@ -138,7 +138,8 @@ impl TerrainLogic {
         );
         let start_cell = GridCoord::from_world(&start_world);
         let end_cell = GridCoord::from_world(&end_world);
-        let ai_store = the_ai();let ai_guard = ai_store.read().ok()?;
+        let ai_store = the_ai();
+        let ai_guard = ai_store.read().ok()?;
         let pathfinder = ai_guard.pathfinder()?;
         let mut pathfinder_guard = pathfinder.write().ok()?;
         Some(pathfinder_guard.add_bridge_ex(

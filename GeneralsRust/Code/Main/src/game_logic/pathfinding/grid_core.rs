@@ -67,6 +67,7 @@ impl PathfindingGrid {
             occ_obstacle_team: vec![0xFFu8; cells],
             permanent_blast_crater_cells: HashSet::new(),
             bridge_layers: Vec::new(),
+            admitted_raw_terrain: None,
             flight_bridge_order: Vec::new(),
             layer_occ: HashMap::new(),
             wall_pieces: Vec::new(),
@@ -1102,7 +1103,7 @@ impl PathfindingGrid {
             return false;
         }
 
-        self.clear_static_blocks();
+        self.reclassify_ground();
         for y in 0..self.height {
             for x in 0..self.width {
                 let idx = (y * self.width + x) as usize;

@@ -574,6 +574,7 @@ impl SnapshotBuilder {
         // Rebuild only after all object/status tails (including disabled_held)
         // are transferred, before the first script/construction observer.
         game_logic.restore_player_power();
+        game_logic.restore_owned_bridge_bindings();
 
         // Recreating objects may consume random values; install the saved
         // continuation only after every restore operation succeeds. This is

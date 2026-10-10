@@ -32,9 +32,10 @@ impl GameLogic {
             .unwrap_or_else(|e| e.into_inner())
             .set_trigger_areas(&map_data.polygon_triggers);
 
-        if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
-            terrain.reset();
-            terrain.load_map_data(map_data);
+        let terrain_owner = self.world_services.terrain().clone();
+        {
+            let mut terrain = terrain_owner.write().unwrap_or_else(|e| e.into_inner());
+            self.admit_map_bridge_geometry(&mut terrain, map_data);
             // C++ GameLogic.cpp:1629 TheTerrainLogic->newMap after load.
             terrain.new_map(false);
         }
@@ -287,24 +288,12 @@ impl GameLogic {
                     .collect();
             }
 
-            match gamelogic::terrain::get_terrain_logic().try_write() {
-                Ok(mut terrain) => {
-                    terrain.reset();
-                    terrain.load_map_data(map_data);
-                    // C++ GameLogic.cpp:1629 TheTerrainLogic->newMap after load.
-                    terrain.new_map(false);
-                    log::info!(
-                        "Fast legacy runtime sync terrain write finished for '{}' in {:.2}s",
-                        map_path.display(),
-                        sync_started.elapsed().as_secs_f32()
-                    );
-                }
-                Err(_) => {
-                    log::warn!(
-                        "Fast legacy runtime sync skipped terrain write for '{}' (THE_TERRAIN_LOGIC busy)",
-                        map_path.display()
-                    );
-                }
+            let terrain_owner = self.world_services.terrain().clone();
+            {
+                let mut terrain = terrain_owner.write().unwrap_or_else(|e| e.into_inner());
+                self.admit_map_bridge_geometry(&mut terrain, map_data);
+                // C++ GameLogic.cpp:1629 TheTerrainLogic->newMap after load.
+                terrain.new_map(false);
             }
             self.copy_crate_water_into_host_terrain();
         } else {

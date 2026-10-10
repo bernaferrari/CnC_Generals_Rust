@@ -958,24 +958,24 @@ impl GameLogic {
     /// C++ `TerrainLogic::isUnderwater` / `getWaterHandle` (TerrainLogic.cpp:2119-2160).
     pub(in super::super) fn copy_crate_water_into_host_terrain(&mut self) {
         if let Some(terrain) = self.terrain.as_mut() {
-            terrain.copy_water_from_global_crate_terrain_logic();
+            let owner = self.world_services.terrain().clone();
+            let logic = owner.read().unwrap_or_else(|e| e.into_inner());
+            terrain.copy_water_from_terrain_logic(&logic);
         }
     }
 
     /// Re-apply structure footprints onto the static path/LOS grid.
     /// Call after map object spawn bulk and when a structure dies.
     pub fn sync_structure_path_blocks(&mut self) {
-        #[cfg(feature = "game_client")]
         let had_terrain = self.terrain.is_some();
-        #[cfg(not(feature = "game_client"))]
-        let had_terrain = false;
         if had_terrain {
             self.seed_pathfinding_from_terrain();
             let wall_height = self.pathfind_ai_rules().wall_height;
             self.pathfinding_system
                 .apply_structure_static_blocks(&self.objects, wall_height);
         } else {
-            self.pathfinding_system.clear_static_blocks();
+            self.pathfinding_system.grid.reclassify_ground();
+            self.refresh_owned_bridge_pathfinder_states();
         }
         let wall_height = self.pathfind_ai_rules().wall_height;
         self.pathfinding_system
@@ -1006,99 +1006,66 @@ impl GameLogic {
             .is_static_blocked(super::pathfinding::GridPos::new(x, y))
     }
     pub(in super::super) fn seed_pathfinding_from_terrain(&mut self) {
-        #[cfg(feature = "game_client")]
-        {
-            let Some(terrain) = self.terrain.as_ref() else {
-                return;
-            };
-
-            self.pathfinding_system.clear_static_blocks();
-
-            // C++ Pathfinder::classifyMapCell (AIPathfind.cpp:4491-4521):
-            // cliff at top-left, water if any of 4 corners (water wins).
-            // No terrain-slope Impassable gate.
-            let grid_size = self.pathfinding_system.grid.grid_size();
-            let grid_origin = self.pathfinding_system.grid.origin();
-
-            let (min, max) = terrain.world_bounds();
-            let min_x = min.x;
-            let min_z = min.z;
-            let max_x = max.x;
-            let max_z = max.z;
-
-            let width = self.pathfinding_system.grid.width();
-            let height = self.pathfinding_system.grid.height();
-            for y in 0..height {
-                for x in 0..width {
-                    let tl = Vec3::new(
-                        grid_origin.x + x as f32 * grid_size,
-                        0.0,
-                        grid_origin.z + y as f32 * grid_size,
-                    );
-                    let pos = super::pathfinding::GridPos::new(x, y);
-                    let center = Vec3::new(tl.x + 0.5 * grid_size, 0.0, tl.z + 0.5 * grid_size);
-
-                    if center.x < min_x || center.x > max_x || center.z < min_z || center.z > max_z
-                    {
-                        self.pathfinding_system.grid.set_cell_type(
-                            pos,
-                            gamelogic::ai::pathfind_astar::PathfindCellType::Impassable,
-                        );
-                        continue;
-                    }
-
-                    let brx = tl.x + grid_size;
-                    let brz = tl.z + grid_size;
-                    let cliff = terrain.is_cliff_at_world(tl);
-                    let water = terrain.is_underwater_at_world(tl)
-                        || terrain.is_underwater_at_world(Vec3::new(tl.x, 0.0, brz))
-                        || terrain.is_underwater_at_world(Vec3::new(brx, 0.0, brz))
-                        || terrain.is_underwater_at_world(Vec3::new(brx, 0.0, tl.z));
-                    let ty = super::pathfinding::PathfindingGrid::classify_map_cell(cliff, water);
-                    self.pathfinding_system.grid.set_cell_type(pos, ty);
-                }
-            }
-            self.stamp_live_bridge_decks_and_zones();
-        }
+        self.register_landmark_bridges_from_spawned_objects();
+        self.ensure_generic_bridge_objects();
+        let owner = self.world_services.terrain().clone();
+        let terrain = owner.read().unwrap_or_else(|e| e.into_inner());
+        self.reclassify_pathfinding_from_terrain(&terrain);
     }
 
-    /// C++ addBridge classifyCells + classifyMap pinch + zone rebuild on the live host grid.
+    /// Rebuild classified cells without changing original bridge slot identity.
+    pub(crate) fn reclassify_pathfinding_from_terrain(
+        &mut self,
+        logical: &gamelogic::terrain::TerrainLogic,
+    ) {
+        let Some(terrain) = self.terrain.as_ref() else {
+            return;
+        };
+        self.pathfinding_system
+            .grid
+            .admit_raw_terrain(Some(terrain));
+        self.pathfinding_system.grid.reclassify_ground();
+        let grid = &mut self.pathfinding_system.grid;
+        let size = grid.grid_size();
+        let origin = grid.origin();
+        let (min, max) = terrain.world_bounds();
+        for y in 0..grid.height() {
+            for x in 0..grid.width() {
+                let tl = Vec3::new(origin.x + x as f32 * size, 0.0, origin.z + y as f32 * size);
+                let center = tl + Vec3::new(size * 0.5, 0.0, size * 0.5);
+                let pos = super::pathfinding::GridPos::new(x, y);
+                let ty =
+                    if center.x < min.x || center.x > max.x || center.z < min.z || center.z > max.z
+                    {
+                        gamelogic::ai::pathfind_astar::PathfindCellType::Impassable
+                    } else {
+                        let water = [
+                            (tl.x, tl.z),
+                            (tl.x, tl.z + size),
+                            (tl.x + size, tl.z + size),
+                            (tl.x + size, tl.z),
+                        ]
+                        .into_iter()
+                        .any(|(x, z)| logical.is_underwater(x, z, None, None));
+                        super::pathfinding::PathfindingGrid::classify_map_cell(
+                            terrain.is_cliff_at_world(tl),
+                            water,
+                        )
+                    };
+                grid.set_cell_type(pos, ty);
+            }
+        }
+        grid.pinch_tighten_cliffs();
+        self.refresh_owned_bridge_pathfinder_states();
+        self.pathfinding_system.grid.rebuild_terrain_zones();
+        self.pathfinding_system.grid.rebuild_path_zones();
+    }
+
     pub(in super::super) fn stamp_live_bridge_decks_and_zones(&mut self) {
         self.register_landmark_bridges_from_spawned_objects();
         self.ensure_generic_bridge_objects();
         self.pathfinding_system.grid.pinch_tighten_cliffs();
-        if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() {
-            let mut flight_order = Vec::new();
-            terrain.for_each_bridge(|bridge| {
-                let info = bridge.get_bridge_info();
-                flight_order.push([
-                    Vec3::new(info.from_left.x, info.from_left.z, info.from_left.y),
-                    Vec3::new(info.from_right.x, info.from_right.z, info.from_right.y),
-                    Vec3::new(info.to_right.x, info.to_right.z, info.to_right.y),
-                    Vec3::new(info.to_left.x, info.to_left.z, info.to_left.y),
-                ]);
-                let destroyed = info.cur_damage_state == gamelogic::common::BodyDamageType::Rubble;
-                // C++ Coord3D ground is XY / height Z; host path grid is XZ / height Y.
-                self.pathfinding_system.grid.stamp_bridge_deck(
-                    Vec3::new(info.from_left.x, info.from_left.z, info.from_left.y),
-                    Vec3::new(info.from_right.x, info.from_right.z, info.from_right.y),
-                    Vec3::new(info.to_left.x, info.to_left.z, info.to_left.y),
-                    Vec3::new(info.to_right.x, info.to_right.z, info.to_right.y),
-                    destroyed,
-                );
-                self.pathfinding_system.grid.bind_bridge_layer_object_id(
-                    Vec3::new(info.from_left.x, info.from_left.z, info.from_left.y),
-                    Vec3::new(info.from_right.x, info.from_right.z, info.from_right.y),
-                    Vec3::new(info.to_left.x, info.to_left.z, info.to_left.y),
-                    Vec3::new(info.to_right.x, info.to_right.z, info.to_right.y),
-                    info.bridge_object_id,
-                );
-            });
-            self.pathfinding_system
-                .grid
-                .admit_flight_bridge_order(&flight_order);
-        }
-        self.sync_host_bridge_rubble_and_scaffolds();
+        self.refresh_owned_bridge_pathfinder_states();
         self.pathfinding_system.grid.rebuild_terrain_zones();
         self.pathfinding_system.grid.rebuild_path_zones();
     }
@@ -1106,17 +1073,18 @@ impl GameLogic {
     pub(crate) fn ensure_generic_bridge_objects(&mut self) {
         self.ensure_named_bridge_template("GenericBridge", 300.0);
         let mut jobs = Vec::new();
-        if let Ok(tl) = gamelogic::terrain::get_terrain_logic().read() {
+        let owner = self.world_services.terrain().clone();
+        if let Ok(tl) = owner.read() {
             tl.for_each_bridge(|bridge| {
                 let info = bridge.get_bridge_info();
                 if info.bridge_object_id == 0
                     || !self.objects.contains_key(&ObjectId(info.bridge_object_id))
                 {
-                    jobs.push(info.clone());
+                    jobs.push((bridge.get_layer() as u8, info.clone()));
                 }
             });
         }
-        for info in jobs {
+        for (layer, info) in jobs {
             let cx = (info.from_left.x + info.to_right.x) * 0.5;
             let cy = (info.from_left.y + info.to_right.y) * 0.5;
             let cz = (info.from_left.z + info.to_right.z) * 0.5;
@@ -1129,6 +1097,9 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&id) {
                 obj.set_orientation(angle);
             }
+            self.pathfinding_system
+                .grid
+                .bind_reserved_bridge_object(layer, id.0);
             self.bridge_behavior.register_span(
                 id,
                 Vec3::new(info.from_left.x, info.from_left.z, info.from_left.y),
@@ -1136,8 +1107,14 @@ impl GameLogic {
                 Vec3::new(info.to_left.x, info.to_left.z, info.to_left.y),
                 Vec3::new(info.to_right.x, info.to_right.z, info.to_right.y),
             );
-            if let Ok(mut tl) = gamelogic::terrain::get_terrain_logic().write() {
-                tl.bind_bridge_object_id_at(info.from_left, id.0);
+            if let Ok(mut tl) = owner.write() {
+                tl.for_each_bridge_mut(|bridge| {
+                    if bridge.get_layer() as u8 == layer
+                        && bridge.get_bridge_info().bridge_index == info.bridge_index
+                    {
+                        bridge.set_bridge_object_id(id.0);
+                    }
+                });
             }
         }
     }
@@ -1235,30 +1212,38 @@ impl GameLogic {
         id: ObjectId,
         template_name: &str,
     ) {
-        if leftover_bridge_info_for_object(id.0).is_some() {
+        if self
+            .pathfinding_system
+            .grid
+            .bridge_layer_for_object(id.0)
+            .is_some()
+        {
             return;
         }
         let Some(obj) = self.objects.get(&id) else {
             return;
         };
         let pos = obj.get_position();
-        let leftover_pos = gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y);
         let angle = obj.get_orientation();
         let (half_x, half_y) = landmark_bridge_half_sizes(template_name, obj);
         let team = obj.team;
-        if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
-            terrain.add_landmark_bridge_from_geometry(
-                leftover_pos,
-                angle,
-                half_x,
-                half_y,
-                id.0,
+        let info = gamelogic::terrain::TerrainLogic::bridge_info_from_parts(
+            gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y),
+            angle,
+            half_x,
+            half_y,
+            id.0,
+        );
+        let layer = self.reserve_owned_bridge(&info);
+        let owner = self.world_services.terrain().clone();
+        owner
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .prepend_bridge_on_layer(
+                info.clone(),
                 gamelogic::common::AsciiString::from(template_name),
+                gamelogic::path::PathfindLayerEnum::from_u32(layer as u32),
             );
-        }
-        let Some(info) = leftover_bridge_info_for_object(id.0) else {
-            return;
-        };
         self.bridge_behavior.register_span(
             id,
             Vec3::new(info.from_left.x, info.from_left.z, info.from_left.y),
@@ -1280,13 +1265,10 @@ impl GameLogic {
         let Some(roads) = game_engine::common::ini::try_get_terrain_roads() else {
             return;
         };
-        let Some(bridge_tmpl) = leftover_bridge_template_name(bridge_id.0)
-            .and_then(|name| roads.find_bridge(&name).cloned())
-            .or_else(|| {
-                self.objects
-                    .get(&bridge_id)
-                    .and_then(|obj| roads.find_bridge(&obj.template_name).cloned())
-            })
+        let Some(bridge_tmpl) = self
+            .objects
+            .get(&bridge_id)
+            .and_then(|obj| roads.find_bridge(&obj.template_name).cloned())
         else {
             return;
         };
@@ -1351,7 +1333,10 @@ impl GameLogic {
 
             tower_ids[index] = tower_id.0;
         }
-        if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
+        self.bridge_behavior
+            .bind_towers(bridge_id, tower_ids.map(ObjectId));
+        let owner = self.world_services.terrain().clone();
+        if let Ok(mut terrain) = owner.write() {
             terrain.for_each_bridge_mut(|bridge| {
                 if bridge.get_bridge_info().bridge_object_id != bridge_id.0 {
                     return;
@@ -1365,6 +1350,6 @@ impl GameLogic {
                     }
                 }
             });
-        }
+        };
     }
 }

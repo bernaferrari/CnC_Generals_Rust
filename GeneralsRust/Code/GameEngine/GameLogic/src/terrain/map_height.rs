@@ -40,6 +40,17 @@ impl TerrainLogic {
     /// # Arguments
     /// * `map_data` - Parsed map data from MapLoader
     pub fn load_map_data(&mut self, map_data: crate::system::map_loader::MapData) {
+        for (info, template) in self.load_map_geometry(map_data) {
+            self.add_bridge_to_logic(info, template);
+        }
+    }
+
+    /// Parse terrain content without discovering an AI/pathfinder owner. The
+    /// caller admits returned bridges in source order and supplies their layers.
+    pub fn load_map_geometry(
+        &mut self,
+        map_data: crate::system::map_loader::MapData,
+    ) -> Vec<(BridgeInfo, AsciiString)> {
         self.query_load_pending = false;
 
         // Store heightmap. MapData.width/height are playable (minus 2*border);
@@ -105,18 +116,17 @@ impl TerrainLogic {
             self.add_waypoint_link(*id1, *id2);
         }
 
-        // C++ W3DBridgeBuffer::addBridge → TerrainLogic::addBridgeToLogic
-        // (TerrainLogic.cpp:1514, W3DBridgeBuffer.cpp:1059). Map bridges used
-        // to sit in authored geometry only, so live pathfinding/height never saw them.
+        // CPP reserves layers in authored order; the terrain list prepends.
+        // Return geometry in that original order without a CoreAI callback.
         self.bridge_list_head = None;
-        for index in 0..self.authored_bridges.len() {
-            let bridge = &self.authored_bridges[index];
-            let Some(info) = Self::bridge_info_from_map_data(bridge, index as i32) else {
-                continue;
-            };
-            let template_name = AsciiString::from(bridge.template_name.as_str());
-            self.add_bridge_to_logic(info, template_name);
-        }
+        self.authored_bridges
+            .iter()
+            .enumerate()
+            .filter_map(|(index, bridge)| {
+                Self::bridge_info_from_map_data(bridge, index as i32)
+                    .map(|info| (info, AsciiString::from(bridge.template_name.as_str())))
+            })
+            .collect()
     }
 
     /// Snapshot parsed map bridge geometry.

@@ -538,6 +538,21 @@ impl PathfindingGrid {
         to_right: Vec3,
         destroyed: bool,
     ) {
+        let layer = self.alloc_or_find_bridge_layer(from_left, from_right, to_left, to_right);
+        self.stamp_reserved_bridge_layer(layer, destroyed);
+    }
+
+    /// Classify an already admitted canonical slot; never allocate by geometry.
+    pub(crate) fn stamp_reserved_bridge_layer(&mut self, layer_id: u8, destroyed: bool) {
+        let Some(layer) = self.bridge_layers.iter().find(|b| b.id == layer_id) else {
+            return;
+        };
+        let (from_left, from_right, to_left, to_right) = (
+            layer.from_left,
+            layer.from_right,
+            layer.to_left,
+            layer.to_right,
+        );
         let corners = [from_left, from_right, to_right, to_left];
         let mut min_x = f32::MAX;
         let mut max_x = f32::MIN;
@@ -553,7 +568,6 @@ impl PathfindingGrid {
         let pad = self.grid_size;
         let lo = self.world_to_grid(Vec3::new(min_x - pad, 0.0, min_z - pad));
         let hi = self.world_to_grid(Vec3::new(max_x + pad, 0.0, max_z + pad));
-        let layer_id = self.alloc_or_find_bridge_layer(from_left, from_right, to_left, to_right);
         self.disconnect_ground_from_layer(layer_id);
 
         let mut cells: HashMap<(i32, i32), (PathfindCellType, u8)> = HashMap::new();
@@ -579,7 +593,7 @@ impl PathfindingGrid {
                 if connect != PathfindLayerEnum::Ground as u8 {
                     let center = self.cell_center_xz(pos);
                     let deck_h = bridge_deck_height(&corners, center.0, center.1);
-                    let ground_h = sample_host_ground_height(center.0, center.1);
+                    let ground_h = self.admitted_ground_height(Vec3::new(center.0, 0.0, center.1));
                     if ground_h + LAYER_Z_CLOSE_ENOUGH_F > deck_h
                         && self.cell_type(pos) != PathfindCellType::Obstacle
                     {
@@ -890,7 +904,7 @@ impl PathfindingGrid {
     /// C++ `TerrainLogic::getLayerForDestination` (host Y-up).
     /// Nearest deck/ground height among bridges whose quad covers XZ.
     pub fn layer_for_destination(&self, pos: Vec3) -> PathfindLayerEnum {
-        let ground_y = sample_host_ground_height(pos.x, pos.z);
+        let ground_y = self.admitted_ground_height(pos);
         let mut best_layer = PathfindLayerEnum::Ground;
         let mut best_distance = (pos.y - ground_y).abs();
         // C++ TerrainLogic::getLayerForDestination checks the wall first
@@ -902,15 +916,19 @@ impl PathfindingGrid {
                 best_distance = delta;
             }
         }
-        let cell = self.world_to_grid(pos);
-        for layer in &self.bridge_layers {
+        for id in &self.flight_bridge_order {
+            let layer = self
+                .bridge_layers
+                .iter()
+                .find(|b| b.id == *id)
+                .expect("bridge visitation references an admitted slot");
             let corners = [
                 layer.from_left,
                 layer.from_right,
                 layer.to_right,
                 layer.to_left,
             ];
-            if point_in_bridge_quad(pos.x, pos.z, &corners) {
+            if super::grid_flight::flight_point_on_bridge(pos, &corners) {
                 let deck_y = bridge_deck_height(&corners, pos.x, pos.z);
                 let delta = (pos.y - deck_y).abs();
                 if delta < best_distance {
@@ -921,26 +939,6 @@ impl PathfindingGrid {
         }
         if best_layer != PathfindLayerEnum::Ground {
             return best_layer;
-        }
-        if let Ok(tl) = gamelogic::terrain::get_terrain_logic().read() {
-            let dest = gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y);
-            let leftover = tl.get_layer_for_destination(&dest);
-            if leftover != gamelogic::path::PathfindLayerEnum::Ground {
-                let id = leftover as u8;
-                if self.layer_cell_type(id, cell).is_some() {
-                    return PathfindLayerEnum::from_u32(id as u32);
-                }
-                if let Some(host) = self.host_deck_layer_at(cell) {
-                    return PathfindLayerEnum::from_u32(host as u32);
-                }
-            }
-        }
-        // Click/unit on a river cell whose deck is Clear: prefer the deck
-        // when ground is not a valid ground locomotor cell (Y may be 0).
-        if !self.cell_passable_for(cell, SURFACE_GROUND, false) {
-            if let Some(host) = self.host_deck_layer_at(cell) {
-                return PathfindLayerEnum::from_u32(host as u32);
-            }
         }
         PathfindLayerEnum::Ground
     }
@@ -1043,23 +1041,21 @@ impl PathfindingGrid {
         }) {
             return existing.id;
         }
-        let used: Vec<u8> = self.bridge_layers.iter().map(|l| l.id).collect();
-        let id = (2u8..=14).find(|id| !used.contains(id)).unwrap_or(2);
-        if used.contains(&id) {
-            self.disconnect_ground_from_layer(id);
-            if let Some(slot) = self.bridge_layers.iter_mut().find(|l| l.id == id) {
-                slot.from_left = from_left;
-                slot.from_right = from_right;
-                slot.to_left = to_left;
-                slot.to_right = to_right;
-                slot.cells.clear();
-                slot.destroyed = false;
-                slot.ground_connect_cells.clear();
-                self.flight_bridge_order.retain(|existing| *existing != id);
-                self.flight_bridge_order.insert(0, id);
-                return id;
-            }
-        }
+        self.reserve_bridge_layer(from_left, from_right, to_left, to_right)
+    }
+
+    /// C++ addBridge reserves the first unused slot, before map cells exist.
+    /// Exhaustion must leave every previously admitted layer unchanged.
+    pub(crate) fn reserve_bridge_layer(
+        &mut self,
+        from_left: Vec3,
+        from_right: Vec3,
+        to_left: Vec3,
+        to_right: Vec3,
+    ) -> u8 {
+        let Some(id) = (2u8..=14).find(|id| !self.bridge_layers.iter().any(|b| b.id == *id)) else {
+            return PathfindLayerEnum::Ground as u8;
+        };
         self.flight_bridge_order.insert(0, id);
         self.bridge_layers.push(HostBridgeLayer {
             id,

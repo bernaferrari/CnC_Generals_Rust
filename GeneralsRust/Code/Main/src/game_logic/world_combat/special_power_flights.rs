@@ -1958,33 +1958,6 @@ impl GameLogic {
         }
     }
 
-    fn bind_bridge_towers_from_terrain(&mut self) {
-        let mut binds: Vec<(ObjectId, [ObjectId; 4])> = Vec::new();
-        if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() {
-            terrain.for_each_bridge(|bridge| {
-                let info = bridge.get_bridge_info();
-                if info.bridge_object_id == 0 {
-                    return;
-                }
-                let span = ObjectId(info.bridge_object_id);
-                let towers = [
-                    ObjectId(info.tower_object_id[0]),
-                    ObjectId(info.tower_object_id[1]),
-                    ObjectId(info.tower_object_id[2]),
-                    ObjectId(info.tower_object_id[3]),
-                ];
-                if towers.iter().any(|t| t.0 != 0) {
-                    binds.push((span, towers));
-                }
-            });
-        }
-        for (span, towers) in binds {
-            if self.bridge_behavior.span(span).is_some() {
-                self.bridge_behavior.bind_towers(span, towers);
-            }
-        }
-    }
-
     fn play_bridge_die_fx_at(&mut self, span_id: ObjectId) {
         let pos = self
             .bridge_behavior
@@ -2066,7 +2039,6 @@ impl GameLogic {
                 obj.set_position(pos);
             }
         }
-        self.bind_bridge_towers_from_terrain();
         self.apply_pending_bridge_mirrors();
         self.apply_pending_bridge_death_links();
         let span_ids: Vec<ObjectId> = self
@@ -2108,11 +2080,7 @@ impl GameLogic {
                 .bridge_behavior
                 .note_body_state(id, body_state.ordinal())
             {
-                crate::game_logic::host_bridge_behavior::sync_leftover_bridge_body_state(
-                    id.0,
-                    pos,
-                    Self::leftover_bridge_body_state(body_state),
-                );
+                self.sync_owned_bridge_body_state(id, Self::leftover_bridge_body_state(body_state));
                 self.play_bridge_body_transition(id, old_state, body_state.ordinal());
                 if matches!(
                     body_state,
@@ -2143,22 +2111,15 @@ impl GameLogic {
                     .map(|(oid, o)| (*oid, o.get_position()))
                     .collect();
                 let occupants = self.bridge_behavior.occupants_on_deck(id, &positions);
-                crate::game_logic::host_bridge_behavior::sync_leftover_bridge_body_state(
-                    id.0,
-                    pos,
-                    gamelogic::common::BodyDamageType::Rubble,
-                );
+                self.sync_owned_bridge_body_state(id, gamelogic::common::BodyDamageType::Rubble);
 
                 if self.bridge_behavior.on_enter_rubble(id, &occupants) {
                     self.bridge_behavior.mark_death(id, self.frame);
-                    if let Some(span) = self.bridge_behavior.span(id) {
-                        self.pathfinding_system.grid.stamp_bridge_deck(
-                            span.from_left,
-                            span.from_right,
-                            span.to_left,
-                            span.to_right,
-                            true,
-                        );
+                    if let Some(layer) = self.pathfinding_system.grid.bridge_layer_for_object(id.0)
+                    {
+                        self.pathfinding_system
+                            .grid
+                            .stamp_reserved_bridge_layer(layer, true);
                     }
                     for uid in occupants {
                         if let Some(unit) = self.objects.get_mut(&uid) {
@@ -2185,14 +2146,11 @@ impl GameLogic {
             } else {
                 self.bridge_behavior.on_leave_rubble(id);
                 if !self.bridge_behavior.is_scaffold_present(id) {
-                    if let Some(span) = self.bridge_behavior.span(id) {
-                        self.pathfinding_system.grid.stamp_bridge_deck(
-                            span.from_left,
-                            span.from_right,
-                            span.to_left,
-                            span.to_right,
-                            false,
-                        );
+                    if let Some(layer) = self.pathfinding_system.grid.bridge_layer_for_object(id.0)
+                    {
+                        self.pathfinding_system
+                            .grid
+                            .stamp_reserved_bridge_layer(layer, false);
                     }
                 }
             }

@@ -497,11 +497,15 @@ impl GameLogic {
                     self.world_max = max;
                     self.world_width = (self.world_max.x - self.world_min.x).max(1.0);
                     self.world_height = (self.world_max.z - self.world_min.z).max(1.0);
-                    self.pathfinding_system = PathfindingSystem::new_with_origin(
+                    let mut replacement_pathfinding = PathfindingSystem::new_with_origin(
                         self.world_min,
                         self.world_width,
                         self.world_height,
                     );
+                    replacement_pathfinding
+                        .grid
+                        .inherit_bridge_admission(&mut self.pathfinding_system.grid);
+                    self.pathfinding_system = replacement_pathfinding;
                     self.refresh_pathfinding_ai_definitions();
                     log::info!(
                         "Map '{}' bounds set to min({:.1},{:.1},{:.1}) max({:.1},{:.1},{:.1})",
@@ -605,11 +609,15 @@ impl GameLogic {
                         Vec3::new(-self.world_width * 0.5, 0.0, -self.world_height * 0.5);
                     self.world_max =
                         Vec3::new(self.world_width * 0.5, 0.0, self.world_height * 0.5);
-                    self.pathfinding_system = PathfindingSystem::new_with_origin(
+                    let mut replacement_pathfinding = PathfindingSystem::new_with_origin(
                         self.world_min,
                         self.world_width,
                         self.world_height,
                     );
+                    replacement_pathfinding
+                        .grid
+                        .inherit_bridge_admission(&mut self.pathfinding_system.grid);
+                    self.pathfinding_system = replacement_pathfinding;
                     self.refresh_pathfinding_ai_definitions();
                 }
 

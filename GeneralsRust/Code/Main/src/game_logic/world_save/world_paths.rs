@@ -25,14 +25,11 @@ impl GameLogic {
         bridge_id: ObjectId,
         indestructible: bool,
     ) {
-        let mut tower_ids = [0u32; 4];
-        if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() {
-            terrain.for_each_bridge(|bridge| {
-                if bridge.get_bridge_info().bridge_object_id == bridge_id.0 {
-                    tower_ids = bridge.get_bridge_info().tower_object_id;
-                }
-            });
-        }
+        let tower_ids = self
+            .bridge_behavior
+            .span(bridge_id)
+            .map(|span| span.tower_ids.map(|id| id.0))
+            .unwrap_or([0; 4]);
         for tid in tower_ids {
             if tid == 0 {
                 continue;

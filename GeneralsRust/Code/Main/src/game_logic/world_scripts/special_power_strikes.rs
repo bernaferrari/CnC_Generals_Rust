@@ -1241,10 +1241,7 @@ impl GameLogic {
                     if is_bridge {
                         self.ensure_named_bridge_template("WaterWaveBridge", 1.0);
                         let _ = self.create_object("WaterWaveBridge", Team::Neutral, p);
-                        if let Ok(mut tl) = gamelogic::terrain::get_terrain_logic().write() {
-                            let loc = gamelogic::common::Coord3D::new(p.x, p.z, p.y);
-                            let _ = tl.delete_bridge(&loc);
-                        }
+                        self.delete_owned_bridge_at(p);
                     }
                 }
             }

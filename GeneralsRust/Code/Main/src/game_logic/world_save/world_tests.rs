@@ -237,16 +237,11 @@ mod landmark_bridge_and_new_map_tests {
         let subsystems = include_str!("world_subsystems.rs");
         assert!(load.contains("register_spawned_landmark_bridges"));
         assert!(subsystems.contains("register_spawned_landmark_bridges"));
-        assert!(subsystems.contains("add_landmark_bridge_from_geometry"));
+        assert!(subsystems.contains("bridge_info_from_parts"));
     }
 
     #[test]
     fn landmark_bridge_object_registers_leftover_deck() {
-        {
-            let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
-            let mut terrain = terrain_owner_handle.write().expect("terrain");
-            terrain.reset();
-        }
         let mut logic = GameLogic::new();
         let mut tmpl = ThingTemplate::new("TsingMaLandmarkBridge");
         tmpl.add_kind_of(KindOf::Structure)
@@ -266,12 +261,18 @@ mod landmark_bridge_and_new_map_tests {
             .expect("spawn landmark");
         logic.register_landmark_bridges_from_spawned_objects();
 
-        let info = leftover_bridge_info_for_object(id.0).expect("leftover span");
+        let owner = logic.world_services.terrain().clone();
+        let info = owner
+            .read()
+            .expect("owner terrain")
+            .get_first_bridge()
+            .expect("owned span")
+            .get_bridge_info()
+            .clone();
         assert_eq!(info.bridge_object_id, id.0);
         assert!((info.bridge_width - 4.0).abs() < 0.01);
         assert!(logic.bridge_behavior.span(id).is_some());
-        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
-        let deck = terrain_owner_handle
+        let deck = owner
             .read()
             .ok()
             .and_then(|tl| tl.host_deck_height_at(10.0, 20.0));

@@ -6,6 +6,11 @@
 
 use super::*;
 
+#[cfg(test)]
+#[path = "world_save/bridge_owner_tests.rs"]
+mod bridge_owner_tests;
+#[path = "world_save/world_bridges.rs"]
+mod world_bridges;
 #[path = "world_save/world_load.rs"]
 mod world_load;
 #[path = "world_save/world_paths.rs"]

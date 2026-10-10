@@ -133,26 +133,52 @@ impl TerrainLogic {
 
     /// Delete the first bridge that contains the given location.
     pub fn delete_bridge_at(&mut self, location: &Coord3D) -> bool {
-        let Some(bridge) = self.find_bridge_at(location) else {
+        let Some(bridge) = self.detach_bridge_at(location) else {
             return false;
         };
-
-        let bridge_object_id = bridge.get_bridge_info().bridge_object_id;
-        let bridge_layer = bridge.get_layer();
-
-        let ai_store = the_ai(); if let Some(ai_guard) = ai_store.read().ok() {
-            if let Some(pathfinder) = ai_guard.pathfinder() {
-                if let Ok(mut pathfinder_guard) = pathfinder.write() {
-                    pathfinder_guard.change_bridge_state(bridge_layer, false);
+        let id = bridge.get_bridge_info().bridge_object_id;
+        let layer = bridge.get_layer();
+        let ai_store = the_ai();
+        if let Ok(ai) = ai_store.read() {
+            if let Some(pathfinder) = ai.pathfinder() {
+                if let Ok(mut pathfinder) = pathfinder.write() {
+                    pathfinder.change_bridge_state(layer, false);
                 }
             }
         }
-
-        if bridge_object_id != crate::common::INVALID_ID {
-            let _ = crate::helpers::TheGameLogic::destroy_object_by_id(bridge_object_id);
+        if id != crate::common::INVALID_ID {
+            let _ = crate::helpers::TheGameLogic::destroy_object_by_id(id);
         }
+        true
+    }
 
-        self.remove_bridge_at(location)
+    /// Unlink first, before the caller disables its layer and destroys its
+    /// object (CPP TerrainLogic.cpp:1981-2031). No registry or AI selection.
+    pub fn detach_bridge_at(&mut self, location: &Coord3D) -> Option<Box<Bridge>> {
+        let mut link = &mut self.bridge_list_head;
+        loop {
+            if link.as_ref()?.is_point_on_bridge(location) {
+                let mut removed = link.take()?;
+                *link = removed.next.take();
+                self.bridge_damage_states_changed = true;
+                return Some(removed);
+            }
+            link = &mut link.as_mut()?.next;
+        }
+    }
+
+    /// Same exact identity unlink for post-load orphan cleanup.
+    pub fn detach_bridge_by_object_id(&mut self, id: ObjectID) -> Option<Box<Bridge>> {
+        let mut link = &mut self.bridge_list_head;
+        loop {
+            if link.as_ref()?.get_bridge_info().bridge_object_id == id {
+                let mut removed = link.take()?;
+                *link = removed.next.take();
+                self.bridge_damage_states_changed = true;
+                return Some(removed);
+            }
+            link = &mut link.as_mut()?.next;
+        }
     }
 
     /// Find bridge at layer
@@ -267,12 +293,22 @@ impl TerrainLogic {
 
     /// Add bridge to logic
     pub fn add_bridge_to_logic(&mut self, bridge_info: BridgeInfo, template_name: AsciiString) {
-        let mut new_bridge = Box::new(Bridge::new(bridge_info, template_name));
-        let layer = Self::register_bridge_with_pathfinder(new_bridge.get_bridge_info())
-            .unwrap_or(PathfindLayerEnum::Bridge1);
-        new_bridge.set_layer(layer);
-        new_bridge.next = self.bridge_list_head.take();
-        self.bridge_list_head = Some(new_bridge);
+        let layer = Self::register_bridge_with_pathfinder(&bridge_info)
+            .unwrap_or(PathfindLayerEnum::Ground);
+        self.prepend_bridge_on_layer(bridge_info, template_name, layer);
+    }
+
+    /// The admission owner assigns the one canonical layer; no Core pathfinder.
+    pub fn prepend_bridge_on_layer(
+        &mut self,
+        info: BridgeInfo,
+        template: AsciiString,
+        layer: PathfindLayerEnum,
+    ) {
+        let mut bridge = Box::new(Bridge::new(info, template));
+        bridge.set_layer(layer);
+        bridge.next = self.bridge_list_head.take();
+        self.bridge_list_head = Some(bridge);
     }
 
     /// Add a landmark bridge from object geometry (live host + leftover Object).
@@ -349,45 +385,22 @@ impl TerrainLogic {
     }
 
     fn delete_bridge_by_object_id(&mut self, bridge_object_id: ObjectID) -> bool {
-        let mut current = self.bridge_list_head.as_deref();
-        let mut found_layer = None;
-        while let Some(bridge) = current {
-            if bridge.get_bridge_info().bridge_object_id == bridge_object_id {
-                found_layer = Some(bridge.get_layer());
-                break;
-            }
-            current = bridge.next.as_deref();
-        }
-        let Some(bridge_layer) = found_layer else {
+        let Some(bridge) = self.detach_bridge_by_object_id(bridge_object_id) else {
             return false;
         };
-
-        let ai_store = the_ai(); if let Some(ai_guard) = ai_store.read().ok() {
-            if let Some(pathfinder) = ai_guard.pathfinder() {
-                if let Ok(mut pathfinder_guard) = pathfinder.write() {
-                    pathfinder_guard.change_bridge_state(bridge_layer, false);
+        let layer = bridge.get_layer();
+        let ai_store = the_ai();
+        if let Ok(ai) = ai_store.read() {
+            if let Some(pathfinder) = ai.pathfinder() {
+                if let Ok(mut pathfinder) = pathfinder.write() {
+                    pathfinder.change_bridge_state(layer, false);
                 }
             }
         }
-
         if bridge_object_id != crate::common::INVALID_ID {
             let _ = crate::helpers::TheGameLogic::destroy_object_by_id(bridge_object_id);
         }
-
-        let mut link = &mut self.bridge_list_head;
-        loop {
-            let should_remove = match link.as_ref() {
-                Some(bridge) => bridge.get_bridge_info().bridge_object_id == bridge_object_id,
-                None => return false,
-            };
-            if should_remove {
-                let next = link.as_mut().and_then(|bridge| bridge.next.take());
-                *link = next;
-                self.bridge_damage_states_changed = true;
-                return true;
-            }
-            link = &mut link.as_mut().expect("bridge node exists").next;
-        }
+        true
     }
 
     /// Update bridge damage states

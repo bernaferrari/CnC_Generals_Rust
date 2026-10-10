@@ -98,7 +98,7 @@ impl PathfindingGrid {
     }
 }
 
-fn flight_point_on_bridge(pos: Vec3, c: &[Vec3; 4]) -> bool {
+pub(super) fn flight_point_on_bridge(pos: Vec3, c: &[Vec3; 4]) -> bool {
     let lo_x = c.iter().map(|p| p.x).fold(f32::INFINITY, f32::min);
     let hi_x = c.iter().map(|p| p.x).fold(f32::NEG_INFINITY, f32::max);
     let lo_z = c.iter().map(|p| p.z).fold(f32::INFINITY, f32::min);

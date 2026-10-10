@@ -373,6 +373,11 @@ impl HostBridgeBehaviorRegistry {
         self.spans.is_empty()
     }
 
+    pub(crate) fn unregister_span(&mut self, id: ObjectId) {
+        self.spans.remove(&id.0);
+        self.tower_to_span.retain(|_, span| *span != id);
+    }
+
     pub fn span(&self, id: ObjectId) -> Option<&HostBridgeSpan> {
         self.spans.get(&id.0)
     }
