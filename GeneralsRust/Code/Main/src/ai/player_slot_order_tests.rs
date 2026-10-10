@@ -106,7 +106,14 @@ fn fixed_tick_scaffold_admission_follows_numeric_ai_slots() {
         ai.add_building("SlotPlan", Vec3::new(x + 16.0, 0.0, x), 1);
         world.ai_manager.ai_players.insert(id, ai);
     }
-    world.update_with_dt_budget(1.0 / 30.0, 1);
+    // The real construction admission must never ask a foreign Core runtime
+    // for wall/layer data while Main is stepping its own service context.
+    let foreign = gamelogic::system::engine_stores::new_for_world();
+    let held = foreign.ai().write().unwrap();
+    gamelogic::system::engine_stores::with_active_stores(&foreign, || {
+        world.update_with_dt_budget(1.0 / 30.0, 1);
+    });
+    drop(held);
     assert_eq!(world.frame, 1);
     let low = world.ai_manager.ai_players[&1].building_queue[0]
         .object_id

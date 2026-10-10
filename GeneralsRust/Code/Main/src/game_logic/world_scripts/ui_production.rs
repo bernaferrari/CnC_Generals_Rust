@@ -1016,13 +1016,17 @@ impl GameLogic {
                 _ => {}
             }
         }
-        if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() {
-            let dest = gamelogic::common::Coord3D::new(position.x, position.z, position.y);
-            if terrain.get_layer_for_destination(&dest)
-                != gamelogic::path::PathfindLayerEnum::Ground
-            {
-                return true;
-            }
+        // BuildAssistant asks for the closest destination layer, including
+        // walls and the source-ordered bridge list (TerrainLogic.cpp:1668-1700).
+        // Main's admitted grid owns these layers and the raw ground sampler;
+        // Core TerrainLogic's adapter would select a different AI pathfinder.
+        if self.pathfinding_system.grid.layer_for_destination(position)
+            != gamelogic::path::PathfindLayerEnum::Ground
+        {
+            return true;
+        }
+        let owner = self.world_services.terrain();
+        if let Ok(terrain) = owner.read() {
             if terrain.is_underwater(position.x, position.z, None, None)
                 || terrain.is_cliff_cell(position.x, position.z)
             {
