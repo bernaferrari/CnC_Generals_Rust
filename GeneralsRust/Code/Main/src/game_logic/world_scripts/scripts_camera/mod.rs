@@ -281,3 +281,6 @@ mod guard_phase_owner_tests;
 
 #[cfg(test)]
 mod guard_return_rate_control_tests;
+
+#[cfg(test)]
+mod guard_quick_exit_owner_tests;

@@ -81,6 +81,8 @@ fn quick_exit_completion_restores_guard_before_same_tick_dispatch() {
         let guard_id = ObjectId(934205);
         let mut unit = object(unit_id);
         unit.guard_target = Some(guard_id);
+        unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
+        unit.close_enough_dist = Some(1.0);
         unit.set_ai_state(crate::game_logic::AIState::Moving);
         unit.movement.path = vec![endpoint; points];
         unit.movement.target_position = Some(endpoint);
@@ -262,4 +264,36 @@ fn unit_ai_runtime_query_clone_and_live_crush_reinsert_preserve_existing_state()
         world.host_object(id).unwrap().visual_object_generation,
         generation
     );
+}
+
+#[test]
+fn suspended_quick_exit_does_not_bypass_invalid_sally_cleanup() {
+    for invalid in ["dead", "effectively dead", "contained"] {
+        let mut world = GameLogic::new();
+        let id = ObjectId(934207);
+        let mut unit = object(id);
+        unit.set_ai_state(crate::game_logic::AIState::Moving);
+        unit.can_path_through_units = true;
+        unit.adjust_destinations = false;
+        world.add_object(unit);
+        let unit = world.host_object_mut(id).unwrap();
+        unit.unit_ai_runtime.set_guard_phase(Some(
+            crate::game_logic::object::unit_ai_runtime::GuardPhase::Idle,
+        ));
+        unit.unit_ai_runtime.set_quick_exit_deadline(Some(300));
+        assert!(unit.has_guard_quick_exit_overlay());
+        match invalid {
+            "dead" => unit.health.current = 0.0,
+            "effectively dead" => unit.status.effectively_dead = true,
+            "contained" => unit.set_contained_by(Some(ObjectId(934208))),
+            _ => unreachable!(),
+        }
+        world.tunnel_network.mark_sally(id);
+        assert!(world.tunnel_network.sally_unit_ids().contains(&id));
+        world.update_support_states(&[id], 1.0 / 30.0);
+        assert!(
+            !world.tunnel_network.sally_unit_ids().contains(&id),
+            "{invalid} sally must be cleaned even with retained overlay fields"
+        );
+    }
 }

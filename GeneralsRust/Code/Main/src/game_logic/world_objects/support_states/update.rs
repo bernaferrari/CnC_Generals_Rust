@@ -120,6 +120,18 @@ impl GameLogic {
             }
             self.expire_temporary_stealth_grant(object_id);
             self.cancel_replaced_ability_channels(object_id, &ai_state);
+            // The pre-locomotor invocation owns both temporary exit movement
+            // and its suspended Guard. Do not observe this frame's movement
+            // a second time from the later support pass.
+            if matches!(ai_state, AIState::GuardingArea | AIState::GuardingObject)
+                || self
+                    .objects
+                    .get(&object_id)
+                    .is_some_and(Object::has_guard_quick_exit_overlay)
+            {
+                self.tick_host_guard_states(&[object_id]);
+                continue;
+            }
             let quick_exit_finished = self.finish_quick_exit_if_due(object_id, guard_target);
             let ai_state = if quick_exit_finished {
                 self.objects

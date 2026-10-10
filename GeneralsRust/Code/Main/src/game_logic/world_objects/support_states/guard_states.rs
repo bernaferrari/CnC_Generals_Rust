@@ -615,6 +615,31 @@ impl GameLogic {
     /// Return scans before its InternalMove succeeds, then exits movement and
     /// enters Idle exactly once. An absent/cancelled path is never arrival.
     pub(super) fn finish_guard_return_if_arrived(&mut self, id: ObjectId) {
+        // AIInternalMoveToState::update forces computePath when no shared
+        // route remains. This is an update of the retained state, not entry:
+        // its captured goal and enemy-scan deadline must survive quick exit.
+        let repath = self.objects.get(&id).and_then(|unit| {
+            if unit.can_move()
+                && unit.movement.path.is_empty()
+                && !unit.waiting_for_path
+                && matches!(
+                    unit.ai_state,
+                    AIState::GuardingArea | AIState::GuardingObject
+                )
+            {
+                match unit.unit_ai_runtime.guard_phase() {
+                    Some(GuardPhase::Return { goal }) => Some((goal, unit.ai_state.clone())),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        });
+        if let Some((goal, state)) = repath {
+            if !self.path_approach_with_state(id, goal, state) {
+                return;
+            }
+        }
         let Some(unit) = self.objects.get(&id) else {
             return;
         };

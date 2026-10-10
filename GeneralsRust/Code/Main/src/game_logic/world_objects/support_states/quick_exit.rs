@@ -12,7 +12,14 @@ impl GameLogic {
             .unit_ai_runtime(object_id)
             .and_then(|runtime| runtime.quick_exit_deadline());
         if let Some(until) = quick_until {
+            let owned_guard = self
+                .objects
+                .get(&object_id)
+                .is_some_and(|u| u.unit_ai_runtime.guard_phase().is_some());
             let arrived = self.objects.get(&object_id).is_some_and(|u| {
+                if owned_guard {
+                    return Self::host_internal_move_reached_goal(u);
+                }
                 u.movement.path.last().is_some_and(|end| {
                     let p = u.get_position();
                     let dx = p.x - end.x;
@@ -30,11 +37,24 @@ impl GameLogic {
                     runtime.set_quick_exit_deadline(None);
                 }
                 if let Some(u) = self.objects.get_mut(&object_id) {
-                    u.movement.path.clear();
-                    u.movement.target_position = None;
+                    let state =
+                        if u.unit_ai_runtime.guard_phase().is_some() && guard_target.is_none() {
+                            AIState::GuardingArea
+                        } else {
+                            AIState::GuardingObject
+                        };
+                    // The selected Guard observes the retained shared route
+                    // before AIUpdate consumes movementComplete. Preserve the
+                    // previous adapter behavior for unmigrated base states.
+                    if !owned_guard {
+                        u.movement.path.clear();
+                        u.movement.current_path_index = 0;
+                        u.movement.target_position = None;
+                    }
                     u.can_path_through_units = false;
                     u.adjust_destinations = true;
-                    u.set_ai_state(AIState::GuardingObject);
+                    u.set_precise_z_pos(false);
+                    u.set_ai_state(state);
                 }
                 if let Some(gid) = guard_target {
                     let nemesis = self.objects.get(&gid).and_then(|g| {
@@ -54,5 +74,31 @@ impl GameLogic {
             }
         }
         false
+    }
+
+    /// AIUpdate.cpp:1018 consumes movementComplete after the resumed state.
+    /// A fresh path starts movement and cancels that completion, as C++
+    /// friend_startingMove does. The route remains observable until this point.
+    pub(super) fn consume_guard_exit_movement(&mut self, object_id: ObjectId) {
+        if self
+            .objects
+            .get(&object_id)
+            .is_none_or(|unit| unit.status.moving)
+        {
+            return;
+        }
+        self.apply_arrival_goal_snap(object_id, None);
+        if let Some(unit) = self.objects.get_mut(&object_id) {
+            unit.movement.path.clear();
+            unit.movement.current_path_index = 0;
+            unit.movement.target_position = None;
+            unit.waiting_for_path = false;
+            unit.queue_for_path_frames = 0;
+            unit.ignored_obstacle_id = None;
+            unit.set_locomotor_goal_none();
+            unit.model_condition_bits &=
+                !(1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_MOVING);
+            unit.record_host_model_condition();
+        }
     }
 }

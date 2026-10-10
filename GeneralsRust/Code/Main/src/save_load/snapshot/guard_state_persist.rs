@@ -3,7 +3,7 @@
 //! AIGuard.cpp:298 transfers the nested machine; Return/Idle xfer methods
 //! at 584/660 preserve their scan deadlines. The host's captured return goal,
 //! observed guardee anchor and update stamp preserve its split execution.
-//! Path goal and wander width project existing host movement fields at save
+//! Path goal, wander width and destination adjustment project host fields at save
 //! time; they are not extra live state or original Guard Xfer fields. C++
 //! restores width through the current LocomotorTemplate; the host's generic
 //! binding restore does not yet cover it (hq-vif25).
@@ -33,9 +33,15 @@ struct GuardSaveState {
     return_goal: Option<Vec3>,
     path_goal: Option<Vec3>,
     wander_width_factor: f32,
+    #[serde(default = "adjust_destinations_default")]
+    adjust_destinations: bool,
     scan_deadline: u32,
     updated_frame: Option<u32>,
     anchor: Option<Vec3>,
+}
+
+fn adjust_destinations_default() -> bool {
+    true
 }
 
 impl GuardSaveState {
@@ -97,6 +103,7 @@ pub(super) fn capture(object: &Object) -> SaveLoadResult<Option<AIUpdateModuleSn
         return_goal,
         path_goal: object.path_goal_position,
         wander_width_factor: object.wander_width_factor,
+        adjust_destinations: object.adjust_destinations,
         scan_deadline: runtime
             .guard_scan_deadline()
             .ok_or_else(|| corrupted("Active Guard phase is missing its scan deadline"))?,
@@ -134,6 +141,7 @@ pub(super) fn restore(
     runtime.set_guard_anchor(state.anchor);
     object.path_goal_position = state.path_goal;
     object.wander_width_factor = state.wander_width_factor;
+    object.adjust_destinations = state.adjust_destinations;
     Ok(true)
 }
 
@@ -242,6 +250,25 @@ mod tests {
             assert_eq!(target.movement.path, vec![Vec3::splat(20.0)]);
             assert!(target.waiting_for_path);
         }
+    }
+
+    #[test]
+    fn destination_adjustment_projection_roundtrips_and_accepts_older_capsules() {
+        let mut source = object(GuardPhase::Idle);
+        source.ai_state = AIState::Moving;
+        source.adjust_destinations = false;
+        let mut saved = capture(&source).unwrap().unwrap();
+        let mut target = source.clone();
+        target.adjust_destinations = true;
+        assert!(restore(&saved, &mut target).unwrap());
+        assert!(!target.adjust_destinations);
+        let encoded = saved.state_machine_data.get_mut(GUARD_KEY).unwrap();
+        let mut older: serde_json::Value = serde_json::from_str(encoded).unwrap();
+        older.as_object_mut().unwrap().remove("adjust_destinations");
+        *encoded = serde_json::to_string(&older).unwrap();
+        assert!(restore(&saved, &mut target).unwrap());
+        assert!(target.adjust_destinations);
+        assert_runtime(&source, &target);
     }
 
     #[test]

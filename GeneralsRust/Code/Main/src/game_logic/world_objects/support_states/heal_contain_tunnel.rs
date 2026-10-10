@@ -473,6 +473,16 @@ impl GameLogic {
                 self.tunnel_network.clear_sally(uid);
                 continue;
             };
+            // AIStateMachine::updateStateMachine suspends the base Guard
+            // while its temporary exit state continues, even if the tunnel
+            // forgets its nemesis. Do not replace that route with Enter.
+            if self
+                .objects
+                .get(&uid)
+                .is_some_and(Object::has_guard_quick_exit_overlay)
+            {
+                continue;
+            }
             if self.resolved_tunnel_nemesis(player_id).is_some() {
                 continue;
             }

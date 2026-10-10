@@ -1,12 +1,22 @@
 use super::*;
 
 impl Object {
+    /// Explicit temporary exit movement suspending this object's Guard machine.
+    pub(crate) fn has_guard_quick_exit_overlay(&self) -> bool {
+        self.ai_state == AIState::Moving
+            && self.unit_ai_runtime.guard_phase().is_some()
+            && self.unit_ai_runtime.quick_exit_deadline().is_some()
+            && self.can_path_through_units
+            && !self.adjust_destinations
+    }
+
     /// Native Panic and Guard Return update before the locomotor pass.
     /// Preserve their completed paths until the
     /// next state update can observe the same last-node success that C++
     /// `AIInternalMoveToState::update` returns before `doLocomotor`.
     pub(crate) fn needs_internal_move_arrival_observation(&self) -> bool {
-        self.ai_state == AIState::Panic
+        self.has_guard_quick_exit_overlay()
+            || self.ai_state == AIState::Panic
             || matches!(
                 self.unit_ai_runtime.guard_phase(),
                 Some(crate::game_logic::object::unit_ai_runtime::GuardPhase::Return { .. })
