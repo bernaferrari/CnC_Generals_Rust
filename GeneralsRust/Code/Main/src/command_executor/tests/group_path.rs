@@ -722,6 +722,44 @@ fn airborne_evacuation_uses_driving_highest_layer_and_valid_zero_ground() {
 }
 
 #[test]
+fn flying_quick_path_retargets_and_reuses_requested_destination() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "flying_quick_path_retargets_and_reuses_requested_destination",
+        || {
+            let (mut world, transport, _) = evacuation_world(15.0, None);
+            for destination in [
+                glam::Vec3::new(100.0, 25.0, 100.0),
+                glam::Vec3::new(40.0, 30.0, 40.0),
+                // Within the existing last-node reuse tolerance, but still
+                // a different exact request (AIUpdate.cpp:469 before quick).
+                glam::Vec3::new(40.1, 30.0, 40.1),
+            ] {
+                assert!(world.assign_unit_path(transport, destination, &[]));
+                let aircraft = world.host_object(transport).unwrap();
+                assert_eq!(aircraft.requested_destination, Some(destination));
+                assert_eq!(aircraft.path_goal_position, Some(destination));
+                assert!(!aircraft.movement.path.is_empty());
+            }
+            // Non-aircraft AIR objects also take the final quick-path arm.
+            let (mut world, _, passenger) = evacuation_world(15.0, None);
+            world
+                .host_object_mut(passenger)
+                .unwrap()
+                .set_contained_by(None);
+            world.host_object_mut(passenger).unwrap().locomotor_surfaces =
+                crate::game_logic::object::LOCO_SURFACE_AIR;
+            let destination = glam::Vec3::new(20.0, 40.0, 25.0);
+            assert!(world.assign_unit_path(passenger, destination, &[]));
+            let unit = world.host_object(passenger).unwrap();
+            assert_eq!(unit.requested_destination, Some(destination));
+            assert_eq!(unit.path_goal_position, Some(destination));
+            assert_eq!(unit.movement.path.last(), Some(&destination));
+        },
+    );
+}
+
+#[test]
 fn object_attack_orders_passenger_fire() {
     // C++ groupAttackObjectPrivate (AIGroup.cpp:2131-2151) orders fire-capable passengers.
     use super::CommandExecutor;

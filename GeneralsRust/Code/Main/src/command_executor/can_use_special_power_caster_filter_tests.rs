@@ -929,20 +929,8 @@ fn location_power_unit_click_leftover_gates_underwater_paradrop() {
     use gamelogic::polygon_trigger::PolygonTrigger;
     use gamelogic::system::map_loader::MapData;
 
-    // C++ ActionManager.cpp:1459-1468: paradrop / crate-drop / tank-paradrop
-    // refuse underwater. Unit-under-cursor is AT_LOCATION at the object's pos.
-    struct ResetLeftoverTerrain;
-    impl Drop for ResetLeftoverTerrain {
-        fn drop(&mut self) {
-            if let Ok(mut tl) = gamelogic::terrain::get_terrain_logic().write() {
-                tl.reset();
-            }
-        }
-    }
-    let _reset_terrain = ResetLeftoverTerrain;
-    if let Ok(mut tl) = gamelogic::terrain::get_terrain_logic().write() {
-        tl.reset();
-    }
+    // C++ ActionManager.cpp:1459-1468: map-owned underwater query.
+    let mut logic = GameLogic::new();
     {
         let mut trigger = PolygonTrigger::new(3, AsciiString::from("HqHr2aeLake"), Vec::new());
         trigger.set_water_area(true);
@@ -952,12 +940,12 @@ fn location_power_unit_click_leftover_gates_underwater_paradrop() {
         trigger.add_point(ICoord3D::new(0, 200, 12));
         let mut map_data = MapData::new();
         map_data.polygon_triggers.push(trigger);
-        if let Ok(mut tl) = gamelogic::terrain::get_terrain_logic().write() {
-            tl.load_map_data(map_data);
-        }
+        let terrain = logic.world_services.terrain();
+        terrain
+            .write()
+            .expect("driving map terrain")
+            .load_map_geometry(map_data);
     }
-
-    let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
 
     let mut para_mod = test_module(SpecialPowerType::Paradrop, "SuperweaponParadropAmerica");
@@ -1001,10 +989,6 @@ fn location_power_unit_click_leftover_gates_underwater_paradrop() {
         logic.is_special_power_ready_for(cc_id, &SpecialPowerType::Paradrop),
         "underwater location-power unit click must not consume charge"
     );
-
-    if let Ok(mut tl) = gamelogic::terrain::get_terrain_logic().write() {
-        tl.reset();
-    }
 }
 
 #[test]

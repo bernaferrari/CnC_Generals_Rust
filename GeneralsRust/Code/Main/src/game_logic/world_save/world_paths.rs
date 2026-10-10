@@ -453,6 +453,8 @@ impl GameLogic {
             if d.length_squared() < 0.25 {
                 drop(unit);
                 if let Some(unit) = self.objects.get_mut(&unit_id) {
+                    // C++ AIUpdate::requestPath stores this before computeQuickPath.
+                    unit.requested_destination = Some(destination);
                     unit.path_goal_position = Some(destination);
                     unit.waiting_for_path = false;
                     unit.queue_for_path_frames = 0;
@@ -502,6 +504,8 @@ impl GameLogic {
                 unit.movement.target_position = Some(destination);
             }
             unit.refresh_follow_path_extra_distance();
+            // C++ AIUpdate::requestPath stores this before computeQuickPath.
+            unit.requested_destination = Some(destination);
             unit.path_goal_position = Some(destination);
             unit.path_timestamp = self.frame;
             unit.waiting_for_path = false;
@@ -524,6 +528,8 @@ impl GameLogic {
         unit.movement.current_path_index = 1;
         unit.movement.target_position = Some(destination);
         unit.refresh_follow_path_extra_distance();
+        // C++ AIUpdate::requestPath stores this before computeQuickPath.
+        unit.requested_destination = Some(destination);
         unit.path_goal_position = Some(destination);
         unit.path_timestamp = self.frame;
         unit.waiting_for_path = false;

@@ -105,14 +105,42 @@ fn special_power_at_location_ok(
     player_index: crate::common::Int,
     shroud_unknown_is_clear: bool,
 ) -> bool {
+    special_power_at_location_with_queries(
+        power_type,
+        || {
+            TheTerrainLogic::get()
+                .is_some_and(|terrain| terrain.is_underwater(loc.x, loc.y, None, None))
+        },
+        || {
+            if shroud_unknown_is_clear {
+                let grid_ready = crate::system::shroud_manager::get_shroud_manager()
+                    .lock()
+                    .ok()
+                    .is_some_and(|shroud| shroud.has_shroud_grid());
+                if !grid_ready {
+                    return false;
+                }
+            }
+            is_location_cell_shrouded_for_player(player_index, loc)
+        },
+        || is_point_on_map(loc),
+    )
+}
+
+/// One C++ type switch for both the standalone graph and explicit match owners.
+/// Queries run only in the original branch and order: water, then shroud/map.
+fn special_power_at_location_with_queries(
+    power_type: SpecialPowerType,
+    underwater: impl FnOnce() -> bool,
+    shrouded: impl FnOnce() -> bool,
+    on_map: impl FnOnce() -> bool,
+) -> bool {
     match power_type {
         SpecialPowerType::ParadropAmerica
         | SpecialPowerType::InfaParadropAmerica
         | SpecialPowerType::CrateDrop
         | SpecialPowerType::TankParadrop => {
-            if TheTerrainLogic::get()
-                .is_some_and(|terrain| terrain.is_underwater(loc.x, loc.y, None, None))
-            {
+            if underwater() {
                 return false;
             }
         }
@@ -162,22 +190,11 @@ fn special_power_at_location_ok(
         | SpecialPowerType::LazrParticleUplinkCannon
         | SpecialPowerType::CleanupArea
         | SpecialPowerType::SneakAttack
-        | SpecialPowerType::BattleshipBombardment => {
-            if shroud_unknown_is_clear {
-                let grid_ready = crate::system::shroud_manager::get_shroud_manager()
-                    .lock()
-                    .ok()
-                    .is_some_and(|shroud| shroud.has_shroud_grid());
-                if !grid_ready {
-                    return true;
-                }
-            }
-            !is_location_cell_shrouded_for_player(player_index, loc)
-        }
+        | SpecialPowerType::BattleshipBombardment => !shrouded(),
         SpecialPowerType::SpySatellite
         | SpecialPowerType::RadarVanScan
         | SpecialPowerType::SpyDrone
-        | SpecialPowerType::HelixNapalmBomb => is_point_on_map(loc),
+        | SpecialPowerType::HelixNapalmBomb => on_map(),
         SpecialPowerType::LaunchBaikonurRocket => true,
         SpecialPowerType::MissileDefenderLaserGuidedMissiles
         | SpecialPowerType::HackerDisableBuilding
@@ -593,6 +610,37 @@ impl TheActionManager {
         shroud_unknown_is_clear: bool,
     ) -> bool {
         special_power_at_location_ok(power_type, loc, player_index, shroud_unknown_is_clear)
+    }
+
+    /// Match-owned location gate with the same C++ switch as standalone Objects.
+    /// No active terrain, partition or shroud selection occurs in this path.
+    pub fn can_do_special_power_at_location_with_owners(
+        power_type: SpecialPowerType,
+        loc: &crate::common::Coord3D,
+        player_index: crate::common::Int,
+        terrain: &crate::terrain::TerrainLogic,
+        shroud: &crate::system::shroud_manager::ShroudManager,
+        shroud_unknown_is_clear: bool,
+    ) -> bool {
+        special_power_at_location_with_queries(
+            power_type,
+            || terrain.is_underwater(loc.x, loc.y, None, None),
+            || {
+                if shroud_unknown_is_clear && !shroud.has_shroud_grid() {
+                    return false;
+                }
+                player_index < 0
+                    || shroud.get_shroud_state(player_index as u32, loc)
+                        == crate::system::shroud_manager::ShroudState::Hidden
+            },
+            || {
+                let extent = terrain.get_extent();
+                loc.x >= extent.lo.x
+                    && loc.x <= extent.hi.x
+                    && loc.y >= extent.lo.y
+                    && loc.y <= extent.hi.y
+            },
+        )
     }
 
     /// C++ `CommandXlat::issueSpecialPowerCommand` NEED_TARGET_POS-only specials.

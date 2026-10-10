@@ -225,3 +225,7 @@ mod tests;
 #[cfg(test)]
 #[path = "transport_tests.rs"]
 mod transport_tests;
+
+#[cfg(test)]
+#[path = "location_power_owner_tests.rs"]
+mod location_power_owner_tests;

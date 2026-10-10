@@ -82,6 +82,33 @@ pub(super) fn leftover_can_do_special_power_at_location(
     )
 }
 
+/// Live Main requests borrow their driving services; the standalone helper
+/// above remains a reference path for Core callers and its isolated tests.
+pub(super) fn owned_can_do_special_power_at_location(
+    logic: &GameLogic,
+    power_type: &SpecialPowerType,
+    loc: Vec3,
+    player_index: i32,
+) -> bool {
+    let Some(power_type) = leftover_special_power_type(power_type) else {
+        return true;
+    };
+    let terrain_handle = logic.world_services.terrain();
+    let shroud_handle = logic.world_services.shroud();
+    let terrain = terrain_handle
+        .read()
+        .expect("driving location-power terrain");
+    let shroud = shroud_handle.lock().expect("driving location-power shroud");
+    gamelogic::action_manager::TheActionManager::can_do_special_power_at_location_with_owners(
+        power_type,
+        &LogicCoord3D::new(loc.x, loc.z, loc.y),
+        player_index,
+        &terrain,
+        &shroud,
+        true,
+    )
+}
+
 /// C++ ActionManager::canDoSpecialPower leftover type switch (no-option fire).
 pub(super) fn leftover_can_do_special_power(power_type: &SpecialPowerType) -> bool {
     crate::command_system::leftover_special_power_is_no_target(power_type)
@@ -328,7 +355,12 @@ impl<'a> CommandExecutor<'a> {
                     .map(|id| id as i32)
                     .unwrap_or(-1)
                 };
-                if !leftover_can_do_special_power_at_location(power_type, loc, player_index) {
+                if !owned_can_do_special_power_at_location(
+                    self.game_logic,
+                    power_type,
+                    loc,
+                    player_index,
+                ) {
                     return CommandResult::InvalidLocation;
                 }
             }
