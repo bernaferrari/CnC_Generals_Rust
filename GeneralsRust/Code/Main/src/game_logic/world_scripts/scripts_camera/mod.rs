@@ -263,3 +263,6 @@ mod tech_building_owner_tests;
 
 #[cfg(test)]
 mod named_command_owner_tests;
+
+#[cfg(test)]
+mod player_event_owner_tests;

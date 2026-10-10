@@ -2484,74 +2484,74 @@ fn active_team_sequential_actions_keep_cxx_lookup_idle_append_order() {
 
 #[test]
 fn active_script_special_power_and_upgrade_events_are_immediate_and_one_shot_like_cpp() {
-    let _test_lock = crate::test_sync::lock();
-    initialize_script_engine().expect("script engine should initialize");
+    use crate::scripting::engine::{ScriptOwnerQuery, ScriptPlayerEventSource};
 
-    player_list().write().unwrap().clear();
-    let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
-    player
-        .write()
-        .unwrap()
-        .set_display_name("ActiveExecutorEventPlayer");
-    player_list().write().unwrap().add_player(player);
+    struct EventOwner;
+    impl ScriptExecutionDriver for EventOwner {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            Ok(())
+        }
+        fn player_event_source(
+            &self,
+            player: &str,
+            source: Option<&str>,
+            _: Option<&str>,
+            _: Option<ObjectID>,
+        ) -> ScriptOwnerQuery<ScriptPlayerEventSource> {
+            assert_eq!(player, "ActiveExecutorEventPlayer");
+            assert_eq!(source, None);
+            ScriptOwnerQuery::Present(ScriptPlayerEventSource {
+                player_index: 0,
+                source_object: INVALID_ID,
+            })
+        }
+    }
 
-    let completed = with_script_engine_mut(|engine| {
-        engine.notify_of_triggered_special_power(0, "ActiveExecutorSpecialPower", INVALID_ID);
-
-        let mut special_power = Condition::new(ConditionType::PlayerTriggeredSpecialPower);
-        special_power
-            .add_parameter(Parameter::with_string(
-                ParameterType::Side,
-                "ActiveExecutorEventPlayer".to_string(),
-            ))
-            .expect("player parameter");
-        special_power
-            .add_parameter(Parameter::with_string(
-                ParameterType::SpecialPower,
-                "ActiveExecutorSpecialPower".to_string(),
-            ))
-            .expect("special-power parameter");
-
-        let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-        let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
+    let engine = ScriptEngine::new().expect("owned script engine");
+    let evaluator_state = RefCell::new(ScriptContext::at_frame(0));
+    let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
+    let mut driver = EventOwner;
+    for (kind, parameter_type, event) in [
+        (
+            ConditionType::PlayerTriggeredSpecialPower,
+            ParameterType::SpecialPower,
+            "ActiveExecutorSpecialPower",
+        ),
+        (
+            ConditionType::PlayerBuiltUpgrade,
+            ParameterType::Upgrade,
+            "ActiveExecutorUpgrade",
+        ),
+    ] {
+        if kind == ConditionType::PlayerBuiltUpgrade {
+            engine.notify_of_completed_upgrade(0, event, INVALID_ID);
+        } else {
+            engine.notify_of_triggered_special_power(0, event, INVALID_ID);
+        }
+        let mut condition = Condition::new(kind);
+        for (parameter_type, value) in [
+            (ParameterType::Side, "ActiveExecutorEventPlayer"),
+            (parameter_type, event),
+        ] {
+            condition
+                .add_parameter(Parameter::with_string(parameter_type, value.into()))
+                .unwrap();
+        }
         assert_eq!(
-            evaluator.evaluate_condition(&mut special_power).unwrap(),
-            ScriptConditionResult::True
+            evaluator
+                .evaluate_condition_with_driver(&mut condition, &mut driver)
+                .unwrap(),
+            ScriptConditionResult::True,
+            "notification is immediately visible on its borrowed engine"
         );
         assert_eq!(
-            evaluator.evaluate_condition(&mut special_power).unwrap(),
+            evaluator
+                .evaluate_condition_with_driver(&mut condition, &mut driver)
+                .unwrap(),
             ScriptConditionResult::False,
-            "C++ removes the matched special-power event"
+            "C++ consumes exactly the matched event, rather than testing permanent upgrade state"
         );
-
-        engine.notify_of_completed_upgrade(0, "ActiveExecutorUpgrade", INVALID_ID);
-        let mut upgrade = Condition::new(ConditionType::PlayerBuiltUpgrade);
-        upgrade
-            .add_parameter(Parameter::with_string(
-                ParameterType::Side,
-                "ActiveExecutorEventPlayer".to_string(),
-            ))
-            .expect("player parameter");
-        upgrade
-            .add_parameter(Parameter::with_string(
-                ParameterType::Upgrade,
-                "ActiveExecutorUpgrade".to_string(),
-            ))
-            .expect("upgrade parameter");
-
-        assert_eq!(
-            evaluator.evaluate_condition(&mut upgrade).unwrap(),
-            ScriptConditionResult::True
-        );
-        assert_eq!(
-            evaluator.evaluate_condition(&mut upgrade).unwrap(),
-            ScriptConditionResult::False,
-            "C++ PLAYER_BUILT_UPGRADE is an edge-triggered ScriptEngine event"
-        );
-    });
-
-    assert_eq!(completed, Some(()));
-    player_list().write().unwrap().clear();
+    }
 }
 
 #[test]

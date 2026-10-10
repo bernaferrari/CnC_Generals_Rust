@@ -2306,63 +2306,62 @@ fn live_host_skirmish_discovered_uses_snapshot() {
 
 #[test]
 fn live_host_from_named_special_power_uses_host_id() {
-    let _test_lock = crate::test_sync::lock();
-    crate::object::registry::OBJECT_REGISTRY.clear();
-    crate::scripting::clear_host_script_query_snapshot();
-    initialize_script_engine().expect("script engine");
-    player_list().write().unwrap().clear();
-    let player = Arc::new(RwLock::new(crate::player::Player::new(1)));
-    player.write().unwrap().set_display_name("PlyrAmerica");
-    player_list().write().unwrap().add_player(player);
+    use crate::scripting::engine::{ScriptOwnerQuery, ScriptPlayerEventSource};
 
-    get_named_object_tracker()
-        .register_named_object("ParticleCannon".to_string(), 42)
-        .expect("named");
-    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
-        named: [("ParticleCannon".into(), 42)].into_iter().collect(),
-        objects: vec![crate::scripting::HostScriptQueryObject {
-            id: 42,
-            name: "ParticleCannon".into(),
-            owner_player: "PlyrAmerica".into(),
-            alive: true,
-            ..Default::default()
-        }],
-        ..Default::default()
-    });
+    struct EventOwner;
+    impl ScriptExecutionDriver for EventOwner {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            Ok(())
+        }
+        fn player_event_source(
+            &self,
+            player: &str,
+            source: Option<&str>,
+            _: Option<&str>,
+            _: Option<ObjectID>,
+        ) -> ScriptOwnerQuery<ScriptPlayerEventSource> {
+            assert_eq!(player, "PlyrAmerica");
+            assert_eq!(source, Some("ParticleCannon"));
+            ScriptOwnerQuery::Present(ScriptPlayerEventSource {
+                player_index: 1,
+                source_object: 42,
+            })
+        }
+    }
 
-    let completed = with_script_engine_mut(|engine| {
-        engine.notify_of_triggered_special_power(1, "SuperweaponParticleUplinkCannon", 42);
-        let mut condition = Condition::new(ConditionType::PlayerTriggeredSpecialPowerFromNamed);
+    let engine = ScriptEngine::new().expect("owned script engine");
+    engine.notify_of_triggered_special_power(1, "SuperweaponParticleUplinkCannon", 42);
+    engine.notify_of_triggered_special_power(1, "SuperweaponParticleUplinkCannon", 43);
+    let mut condition = Condition::new(ConditionType::PlayerTriggeredSpecialPowerFromNamed);
+    for (parameter_type, value) in [
+        (ParameterType::Side, "PlyrAmerica"),
+        (
+            ParameterType::SpecialPower,
+            "SuperweaponParticleUplinkCannon",
+        ),
+        (ParameterType::Unit, "ParticleCannon"),
+    ] {
         condition
-            .add_parameter(Parameter::with_string(
-                ParameterType::Side,
-                "PlyrAmerica".into(),
-            ))
+            .add_parameter(Parameter::with_string(parameter_type, value.into()))
             .unwrap();
-        condition
-            .add_parameter(Parameter::with_string(
-                ParameterType::SpecialPower,
-                "SuperweaponParticleUplinkCannon".into(),
-            ))
-            .unwrap();
-        condition
-            .add_parameter(Parameter::with_string(
-                ParameterType::Unit,
-                "ParticleCannon".into(),
-            ))
-            .unwrap();
-        let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-        let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
-        assert_eq!(
-            evaluator.evaluate_condition(&mut condition).unwrap(),
-            ScriptConditionResult::True,
-            "FROM_NAMED must accept host IDs when OBJECT_REGISTRY is empty"
-        );
-    });
-    player_list().write().unwrap().clear();
-    crate::scripting::clear_host_script_query_snapshot();
-    get_named_object_tracker().clear().ok();
-    assert_eq!(completed, Some(()));
+    }
+    let evaluator_state = RefCell::new(ScriptContext::at_frame(0));
+    let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
+    let mut driver = EventOwner;
+    assert_eq!(
+        evaluator
+            .evaluate_condition_with_driver(&mut condition, &mut driver)
+            .unwrap(),
+        ScriptConditionResult::True,
+        "FROM_NAMED uses the owning driver's host ID without a Core registry or tracker"
+    );
+    assert_eq!(
+        evaluator
+            .evaluate_condition_with_driver(&mut condition, &mut driver)
+            .unwrap(),
+        ScriptConditionResult::False
+    );
+    assert!(engine.is_special_power_triggered(1, "SuperweaponParticleUplinkCannon", false, 43));
 }
 
 #[test]

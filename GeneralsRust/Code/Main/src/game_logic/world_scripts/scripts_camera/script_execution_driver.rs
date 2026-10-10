@@ -3,7 +3,7 @@ use super::*;
 use gamelogic::scripting::engine::{
     ScriptAiPlayerRequest, ScriptBridgeStatus, ScriptCameraRequest, ScriptDisplayRequest,
     ScriptExecutionDriver, ScriptNamedCommand, ScriptObjectStatus, ScriptOwnerQuery,
-    ScriptTeamStatus, ScriptWaterRequest,
+    ScriptPlayerEventSource, ScriptTeamStatus, ScriptWaterRequest,
 };
 
 pub(super) struct HostScriptExecutionDriver<'a> {
@@ -157,6 +157,46 @@ impl<'a> HostScriptExecutionDriver<'a> {
 }
 
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+    fn player_event_source(
+        &self,
+        player: &str,
+        source: Option<&str>,
+        current_player: Option<&str>,
+        this_object: Option<gamelogic::common::ObjectID>,
+    ) -> ScriptOwnerQuery<ScriptPlayerEventSource> {
+        // Prepared map-side indices still require explicit admission (hq-fxwkm).
+        // Ordinary Main notifications use the controlling host player ID.
+        if self.requires_prepared_player_bindings() {
+            return ScriptOwnerQuery::Unavailable;
+        }
+        let Some(player_index) = self.script_player_id(player, current_player) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let source_object = match source {
+            None => gamelogic::common::INVALID_ID,
+            Some(gamelogic::scripting::core::THIS_OBJECT) => {
+                let Some(id) =
+                    this_object.filter(|id| self.world.host_object(ObjectId(*id)).is_some())
+                else {
+                    return ScriptOwnerQuery::Missing;
+                };
+                id
+            }
+            Some(name) => {
+                let Some(id) = self.world.host_objects().values().find_map(|object| {
+                    (!name.is_empty() && object.name == name).then_some(object.id.0)
+                }) else {
+                    return ScriptOwnerQuery::Missing;
+                };
+                id
+            }
+        };
+        ScriptOwnerQuery::Present(ScriptPlayerEventSource {
+            player_index: player_index as usize,
+            source_object,
+        })
+    }
+
     fn named_command(
         &mut self,
         request: ScriptNamedCommand<'_>,

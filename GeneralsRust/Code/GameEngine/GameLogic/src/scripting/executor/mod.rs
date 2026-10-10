@@ -1502,6 +1502,7 @@ mod actions_world;
 mod dispatch;
 mod eval_basic;
 mod eval_named;
+mod eval_player_events;
 mod eval_skirmish;
 
 #[cfg(test)]
@@ -1527,5 +1528,6 @@ pub const EXECUTOR_SRC: &str = concat!(
     include_str!("dispatch.rs"),
     include_str!("eval_basic.rs"),
     include_str!("eval_named.rs"),
+    include_str!("eval_player_events.rs"),
     include_str!("eval_skirmish.rs"),
 );

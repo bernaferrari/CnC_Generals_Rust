@@ -25,6 +25,15 @@ pub enum ScriptOwnerQuery<T> {
     Present(T),
 }
 
+/// CPP ScriptConditions1443–1540: the selected player's event-list slot and
+/// optional named source, resolved by the world driving this condition.
+/// INVALID_ID is the wildcard for a condition without a source parameter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScriptPlayerEventSource {
+    pub player_index: usize,
+    pub source_object: ObjectID,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScriptObjectStatus {
     pub has_ai: bool,
@@ -113,6 +122,19 @@ pub enum ScriptWaterRequest<'a> {
 /// engine, dispatcher context, or a process-wide active slot.
 pub trait ScriptExecutionDriver {
     fn after_action(&mut self) -> GameLogicResult<()>;
+
+    /// Resolve raw player/source literals before any standalone token or
+    /// registry lookup. Present consumes only this execution's engine event;
+    /// Missing must not consume, and Unavailable retains the standalone path.
+    fn player_event_source(
+        &self,
+        _player: &str,
+        _source: Option<&str>,
+        _current_player: Option<&str>,
+        _this_object: Option<ObjectID>,
+    ) -> ScriptOwnerQuery<ScriptPlayerEventSource> {
+        ScriptOwnerQuery::Unavailable
+    }
 
     /// Select the tech-query owner before reading its persistent condition latch.
     /// Player tokens are raw; current_player belongs to this script walk.

@@ -20,6 +20,13 @@ impl<'engine> ExecutionContext<'engine> {
         Self { engine, state }
     }
 
+    /// Direct, callback-free operations use the driving engine without
+    /// publishing an active slot or treating a borrow conflict as an absent
+    /// gameplay event.
+    pub(super) fn borrowed_engine(&self) -> &'engine ScriptEngine {
+        self.engine
+    }
+
     pub(super) fn with_state<R>(&self, f: impl FnOnce(&ScriptContext) -> R) -> R {
         f(&self.state.borrow())
     }
@@ -66,12 +73,11 @@ mod tests {
 
     #[test]
     fn borrowed_dispatch_uses_its_engine_inside_a_foreign_lexical_scope() {
-        let _serial = crate::test_sync::lock();
         let own = ScriptEngine::new().unwrap();
         let foreign = ScriptEngine::new().unwrap();
         own.set_priority_default("Shared", 4);
         foreign.set_priority_default("Shared", 19);
-        let state = RefCell::new(ScriptContext::new());
+        let state = RefCell::new(ScriptContext::at_frame(0));
         let mut dispatch = ScriptActionDispatcher::new(&own, &state);
         foreign.with_active(|| {
             dispatch
@@ -94,12 +100,11 @@ mod tests {
 
     #[test]
     fn borrowed_condition_uses_its_engine_inside_a_foreign_lexical_scope() {
-        let _serial = crate::test_sync::lock();
         let own = ScriptEngine::new().unwrap();
         let foreign = ScriptEngine::new().unwrap();
         own.set_flag("Shared", true);
         foreign.set_flag("Shared", false);
-        let state = RefCell::new(ScriptContext::new());
+        let state = RefCell::new(ScriptContext::at_frame(0));
         let mut evaluator = ScriptConditionEvaluator::new(&own, &state);
         let mut condition = Condition::new(ConditionType::Flag);
         condition
@@ -119,10 +124,8 @@ mod tests {
 
     #[test]
     fn borrowed_operation_context_shares_state_and_construction_is_inert() {
-        let _serial = crate::test_sync::lock();
         let engine = ScriptEngine::new().unwrap();
-        let state = RefCell::new(ScriptContext::new());
-        state.borrow_mut().current_frame = 47;
+        let state = RefCell::new(ScriptContext::at_frame(47));
         state.borrow_mut().suppress_new_windows = true;
         assert!(!crate::scripting::engine::is_script_engine_active());
         let dispatcher = ScriptActionDispatcher::new(&engine, &state);

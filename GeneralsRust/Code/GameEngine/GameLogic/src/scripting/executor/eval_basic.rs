@@ -196,6 +196,12 @@ impl ScriptConditionEvaluator<'_> {
     ) -> Result<ScriptConditionResult, ScriptError> {
         let condition_type = condition.get_condition_type();
 
+        // These edge-triggered events select their player/source owner before
+        // standalone token resolution or ambient player/object discovery.
+        if let Some(result) = self.eval_player_event(condition, driver)? {
+            return Ok(result);
+        }
+
         // Dispatch to the appropriate handler based on condition type
         match condition_type {
             // ============================================================================
@@ -342,34 +348,16 @@ impl ScriptConditionEvaluator<'_> {
             ConditionType::BridgeRepaired => self.eval_bridge_repaired(condition, driver),
             ConditionType::BridgeBroken => self.eval_bridge_broken(condition, driver),
 
-            // ============================================================================
-            // SPECIAL POWER CONDITIONS
-            // ============================================================================
-            ConditionType::PlayerTriggeredSpecialPower => {
-                self.eval_player_triggered_special_power(condition)
-            }
-            ConditionType::PlayerCompletedSpecialPower => {
-                self.eval_player_completed_special_power(condition)
-            }
-            ConditionType::PlayerMidwaySpecialPower => {
-                self.eval_player_midway_special_power(condition)
-            }
-            ConditionType::PlayerTriggeredSpecialPowerFromNamed => {
-                self.eval_player_triggered_special_power_from_named(condition)
-            }
-            ConditionType::PlayerCompletedSpecialPowerFromNamed => {
-                self.eval_player_completed_special_power_from_named(condition)
-            }
-            ConditionType::PlayerMidwaySpecialPowerFromNamed => {
-                self.eval_player_midway_special_power_from_named(condition)
-            }
-
-            // ============================================================================
-            // UPGRADE CONDITIONS
-            // ============================================================================
-            ConditionType::PlayerBuiltUpgrade => self.eval_player_built_upgrade(condition),
-            ConditionType::PlayerBuiltUpgradeFromNamed => {
-                self.eval_player_built_upgrade_from_named(condition)
+            // Handled before dispatch; retain exhaustive enum coverage here.
+            ConditionType::PlayerTriggeredSpecialPower
+            | ConditionType::PlayerCompletedSpecialPower
+            | ConditionType::PlayerMidwaySpecialPower
+            | ConditionType::PlayerTriggeredSpecialPowerFromNamed
+            | ConditionType::PlayerCompletedSpecialPowerFromNamed
+            | ConditionType::PlayerMidwaySpecialPowerFromNamed
+            | ConditionType::PlayerBuiltUpgrade
+            | ConditionType::PlayerBuiltUpgradeFromNamed => {
+                unreachable!("player event family is handled before condition dispatch")
             }
 
             // ============================================================================
