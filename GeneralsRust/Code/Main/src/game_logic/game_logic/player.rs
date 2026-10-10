@@ -12,10 +12,22 @@ use super::script_camera::*;
 use super::*;
 use gamelogic::upgrade::UpgradeTemplatePlayerExt;
 
+/// Admission identity is independent of faction, display name and observer state.
+/// C++ gives occupied GameSlots, the reserved neutral and ReplayObserver distinct owners.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum PlayerSideRole {
+    #[default]
+    Participant,
+    Neutral,
+    ReplayObserver,
+    Authored,
+}
+
 /// Map-authored SidesList leftovers applied onto a live host player.
 /// C++ `Player::initFromDict` + `PlayerList` relationship pass.
 #[derive(Debug, Clone)]
 pub struct PlayerMapSideState {
+    pub(crate) role: PlayerSideRole,
     /// Dict `playerName` used to resolve playerAllies / playerEnemies tokens.
     pub map_player_name: String,
     /// Explicit overrides. Missing entries default Neutral (C++ PlayerRelationMap).
@@ -44,6 +56,7 @@ pub struct HostAuthoredBuild {
 impl Default for PlayerMapSideState {
     fn default() -> Self {
         Self {
+            role: PlayerSideRole::Participant,
             map_player_name: String::new(),
             relations: HashMap::new(),
             handicap_build_cost_generic: 1.0,
@@ -363,7 +376,7 @@ impl PlayerTemplateIdentity {
             "usa" | "us" | "america" | "factionamerica" => Some(Team::USA),
             "china" | "factionchina" => Some(Team::China),
             "gla" | "factiongla" => Some(Team::GLA),
-            "observer" | "factionobserver" => Some(Team::Neutral),
+            "observer" | "factionobserver" | "civilian" | "factioncivilian" => Some(Team::Neutral),
             _ => None,
         }
     }
@@ -1454,6 +1467,14 @@ impl Player {
 
     /// C++ `Player::initFromDict` money/color/handicap.
     ///
+    pub(crate) fn is_replay_observer(&self) -> bool {
+        self.map_side.role == PlayerSideRole::ReplayObserver
+    }
+
+    pub(crate) fn is_reserved_neutral(&self) -> bool {
+        self.map_side.role == PlayerSideRole::Neutral
+    }
+
     /// `replace_default_money` is the campaign/map-create path: dict
     /// `playerStartMoney` replaces `Player::new`'s $10k fallback.
     /// Skirmish lobby cash is applied separately (`replace_default_money=false`).
@@ -1464,7 +1485,17 @@ impl Player {
             self.is_human = dict.get_bool(key_player_is_human());
         }
         let map_name = dict.get_ascii_string(key_player_name());
-        if !map_name.is_empty() {
+        if dict.get_type(key_player_name()).is_some() {
+            self.map_side.role = match map_name.as_str() {
+                "" => PlayerSideRole::Neutral,
+                "ReplayObserver" => PlayerSideRole::ReplayObserver,
+                _ if self.map_side.role == PlayerSideRole::Participant
+                    && self.map_side.map_player_name == map_name =>
+                {
+                    PlayerSideRole::Participant
+                }
+                _ => PlayerSideRole::Authored,
+            };
             self.map_side.map_player_name = map_name;
         }
 

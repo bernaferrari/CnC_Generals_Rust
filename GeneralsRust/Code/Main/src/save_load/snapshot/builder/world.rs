@@ -320,7 +320,7 @@ impl SnapshotBuilder {
         self.restore_weather(&snapshot.weather, game_logic)?;
         self.restore_resource_manager(&snapshot.resource_manager, game_logic)?;
         self.restore_combat_tracker(&snapshot.combat_tracker, game_logic)?;
-        // Both accepted world versions (23/24) explicitly serialize the AI
+        // Accepted world versions (23/24/25) explicitly serialize the AI
         // roster. An empty roster must not run skirmish constructors, which
         // would invent controllers and overwrite saved player build flags.
         if !snapshot.ai_players.is_empty() {

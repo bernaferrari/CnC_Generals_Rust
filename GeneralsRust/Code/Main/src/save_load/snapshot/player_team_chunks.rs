@@ -2,7 +2,7 @@
 //! The footer is Rust snapshot metadata, not the original C++ wire format.
 use super::WorldSnapshot;
 use super::player_team_persist::*;
-use crate::game_logic::{GameLogic, ObjectId};
+use crate::game_logic::{GameLogic, ObjectId, PlayerSideRole};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use game_engine::common::system::xfer_save::XferSave;
 use std::collections::HashSet;
@@ -45,20 +45,58 @@ pub(crate) fn validate_host_alliances(
     world: &WorldSnapshot,
     chunks: &PlayerTeamChunks,
 ) -> SaveLoadResult<()> {
-    if world.version != 24 {
+    if world.version < 24 {
         return Ok(());
     }
+    let mut special_roles = HashSet::new();
+    let mut authored_names = HashSet::new();
     for host in &world.players {
         let mut matches = chunks
             .players
             .iter()
             .flat_map(|p| &p.players)
             .filter(|p| p.player_id == host.id);
-        if matches.next().and_then(|p| p.host_alliance_team).is_none() || matches.next().is_some() {
+        let Some(saved) = matches.next() else {
+            return Err(SaveLoadError::Corrupted("Missing saved host player".into()));
+        };
+        if saved.host_alliance_team.is_none() || matches.next().is_some() {
             return Err(SaveLoadError::Corrupted(format!(
-                "WorldSnapshot 24 requires one CHUNK_Players host alliance for player {}",
-                host.id
+                "WorldSnapshot {} requires one CHUNK_Players host alliance for player {}",
+                world.version, host.id
             )));
+        }
+        if world.version >= 25 {
+            let Some(identity) = &saved.host_side_identity else {
+                return Err(SaveLoadError::Corrupted(
+                    "Missing player side identity".into(),
+                ));
+            };
+            let valid = match identity.role {
+                PlayerSideRole::Neutral => {
+                    identity.authored_name.is_empty()
+                        && host.team == crate::game_logic::Team::Neutral
+                        && !host.is_human
+                        && special_roles.insert(1)
+                }
+                PlayerSideRole::ReplayObserver => {
+                    identity.authored_name == "ReplayObserver"
+                        && host.team == crate::game_logic::Team::Neutral
+                        && host.is_human
+                        && special_roles.insert(2)
+                }
+                PlayerSideRole::Authored => {
+                    !identity.authored_name.is_empty() && identity.authored_name != "ReplayObserver"
+                }
+                PlayerSideRole::Participant => identity.authored_name != "ReplayObserver",
+            };
+            if !valid
+                || (!identity.authored_name.is_empty()
+                    && !authored_names.insert(identity.authored_name.as_str()))
+            {
+                return Err(SaveLoadError::Corrupted(
+                    "Invalid or duplicate player side identity".into(),
+                ));
+            }
         }
     }
     Ok(())
@@ -200,6 +238,7 @@ pub(super) fn validate_roster(
     world: &WorldSnapshot,
     chunks: &PlayerTeamChunks,
 ) -> SaveLoadResult<()> {
+    validate_host_alliances(world, chunks)?;
     let mut players = HashSet::new();
     for player in chunks.players.iter().flat_map(|p| &p.players) {
         if !players.insert(player.player_id) {

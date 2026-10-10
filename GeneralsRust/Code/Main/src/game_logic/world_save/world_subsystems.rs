@@ -395,31 +395,13 @@ impl GameLogic {
 
     /// C++ GameLogic.cpp:1436-1459 always adds a ReplayObserver side/team.
     pub fn ensure_replay_observer_player(&mut self) -> u32 {
-        if let Some(existing) = self.replay_observer_player_id {
-            if self
-                .players
-                .get(&existing)
-                .is_some_and(|p| p.name == "ReplayObserver")
-            {
-                return existing;
-            }
-        }
-        if let Some((&id, _)) = self
-            .players
-            .iter()
-            .find(|(_, p)| p.name == "ReplayObserver")
-        {
-            self.replay_observer_player_id = Some(id);
+        if let Some(id) = self.replay_observer_player_id() {
             return id;
         }
-        let id = self
-            .players
-            .keys()
-            .copied()
-            .max()
-            .map(|max| max.saturating_add(1))
-            .unwrap_or(0);
-        let mut observer = Player::new(id, Team::Neutral, "ReplayObserver", false);
+        let id = self.next_side_player_id();
+        let mut observer = Player::new(id, Team::Neutral, "ReplayObserver", true);
+        observer.map_side.role = PlayerSideRole::ReplayObserver;
+        observer.map_side.map_player_name = "ReplayObserver".into();
         observer.is_alive = false;
         observer.start_position = 0;
         observer.alliance_team = -1;
@@ -435,18 +417,12 @@ impl GameLogic {
                 player.team = Team::Neutral;
             }
         }
-        self.replay_observer_player_id = Some(id);
         id
     }
 
     /// C++ GameLogic.cpp:1703-1705 permanent reveal for ReplayObserver.
     pub fn reveal_replay_observer_map(&mut self) {
-        let Some(id) = self.replay_observer_player_id.or_else(|| {
-            self.players
-                .iter()
-                .find(|(_, p)| p.name == "ReplayObserver")
-                .map(|(&id, _)| id)
-        }) else {
+        let Some(id) = self.replay_observer_player_id() else {
             return;
         };
         if let Ok(mut shroud) = self.world_services.shroud().lock() {
@@ -587,7 +563,10 @@ impl GameLogic {
     }
 
     pub fn replay_observer_player_id(&self) -> Option<u32> {
-        self.replay_observer_player_id
+        self.players
+            .iter()
+            .filter_map(|(&id, player)| player.is_replay_observer().then_some(id))
+            .min()
     }
 
     pub fn will_install_multiplayer_scripts(&self) -> bool {

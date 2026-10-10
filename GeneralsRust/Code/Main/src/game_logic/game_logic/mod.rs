@@ -36,6 +36,7 @@ pub use crate_tick::{
 pub use gameworld_authority::{GameWorldAuthority, current_gameworld_authority};
 pub(crate) use host::PathfindingHeightSamples;
 pub use host::{GameLogic, RuntimeWeatherState};
+pub(crate) use player::PlayerSideRole;
 pub(self) use player::{
     AirfieldHealingInfo, AirfieldParkingSpace, FRAMES_TO_ALLOW_SCAFFOLD_RESIDUAL,
     HostHeliTakeoffOrLanding, ObjectSellInfo, REBUILD_HOLE_HEALTH_REGEN_PERCENT_PER_SEC,

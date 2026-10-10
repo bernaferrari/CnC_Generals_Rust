@@ -184,3 +184,85 @@ fn historical_named_relationship_resolves_before_destination_write_borrow() {
     assert!(relations.contains(&(self_id, gamelogic::common::Relationship::Allies)));
     assert!(relations.contains(&(other_id, gamelogic::common::Relationship::Enemies)));
 }
+
+#[test]
+fn side_identity_capsule_retains_roles_names_and_unresolved_start() {
+    use super::super::player_team_persist::HostSideIdentityPersist;
+    let mut world = snapshot();
+    let roles = [
+        (PlayerSideRole::Participant, "player3"),
+        (PlayerSideRole::Neutral, ""),
+        (PlayerSideRole::ReplayObserver, "ReplayObserver"),
+        (PlayerSideRole::Authored, "PlyrCivilian"),
+    ];
+    let chunks = PlayerTeamChunks {
+        players: Some(PlayersChunkPersist {
+            players: roles
+                .into_iter()
+                .enumerate()
+                .map(|(id, (role, name))| PlayerRuntimePersist {
+                    player_id: id as u32,
+                    host_alliance_team: Some(-1),
+                    host_side_identity: Some(HostSideIdentityPersist {
+                        role,
+                        authored_name: name.into(),
+                        start_position: -1,
+                    }),
+                    ..Default::default()
+                })
+                .collect(),
+        }),
+        teams: None,
+    };
+    bind_chunks_to_world(&mut world, &chunks).unwrap();
+    assert_eq!(chunks_from_world(&world).unwrap(), chunks);
+}
+
+#[test]
+fn admission_capability_rejects_missing_malformed_and_duplicate_identities() {
+    let mut source = GameLogic::new();
+    source.add_player(crate::game_logic::Player::new(
+        0,
+        crate::game_logic::Team::USA,
+        "Human",
+        true,
+    ));
+    source.add_player(crate::game_logic::Player::new(
+        3,
+        crate::game_logic::Team::GLA,
+        "AI",
+        false,
+    ));
+    let world = SnapshotBuilder::new()
+        .create_world_snapshot(&source)
+        .unwrap();
+    let original = chunks_from_world(&world).unwrap();
+    assert!(validate_host_alliances(&world, &original).is_ok());
+    for broken in 0..4 {
+        let mut chunks = original.clone();
+        let rows = &mut chunks.players.as_mut().unwrap().players;
+        match broken {
+            0 => rows[0].host_side_identity = None,
+            1 => {
+                let identity = rows[0].host_side_identity.as_mut().unwrap();
+                identity.role = PlayerSideRole::ReplayObserver;
+                identity.authored_name = "player0".into();
+            }
+            2 => {
+                for row in rows {
+                    row.host_side_identity.as_mut().unwrap().authored_name = "same-key".into();
+                }
+            }
+            3 => {
+                let identity = rows[0].host_side_identity.as_mut().unwrap();
+                identity.role = PlayerSideRole::Neutral;
+                identity.authored_name.clear();
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            validate_host_alliances(&world, &chunks).is_err(),
+            "broken identity case {broken}"
+        );
+    }
+}

@@ -1,4 +1,4 @@
-//! Typed Rust world codec for the identical version-23/24 positional body.
+//! Typed Rust world codec for the identical version-23/24/25 positional body.
 use super::*;
 use crate::save_load::{SaveLoadError, SaveLoadResult, Xfer, XferMode};
 // Decode through the actual bincode 2 adapter wire configuration. The local

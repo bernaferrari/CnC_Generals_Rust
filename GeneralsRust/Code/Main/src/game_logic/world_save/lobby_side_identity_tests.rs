@@ -171,7 +171,11 @@ fn side_authoring_preserves_unresolved_start_position_and_observer_name() {
         || {
             let mut world = configured(3);
             world.players.get_mut(&0).unwrap().start_position = -1;
-            world.add_player(Player::new(77, Team::Neutral, "", false));
+            let mut neutral = Player::new(77, Team::Neutral, "", false);
+            let mut neutral_dict = Dict::new();
+            neutral_dict.set_ascii_string(key_player_name(), "");
+            neutral.apply_map_side_dict(&neutral_dict, false);
+            world.add_player(neutral);
             world.add_player(Player::new(90, Team::Neutral, "ReplayObserver", true));
             let sides = prepared(&world);
             assert_eq!(
@@ -179,7 +183,7 @@ fn side_authoring_preserves_unresolved_start_position_and_observer_name() {
                 -1
             );
             assert!(sides.find_side_info("player77").is_none());
-            assert!(sides.find_side_info("player90").is_none());
+            assert!(sides.find_side_info("player90").is_some());
             assert_eq!(
                 side(&sides, "ReplayObserver").get_ascii_string(key_player_faction()),
                 "FactionObserver"

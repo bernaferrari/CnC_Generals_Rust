@@ -1272,11 +1272,7 @@ impl GameLogic {
                 continue;
             }
             let team = self.players.get(&player_id).and_then(|p| {
-                if p.is_human
-                    || !p.is_alive
-                    || p.name == "ReplayObserver"
-                    || p.team == Team::Neutral
-                {
+                if p.is_human || !p.is_alive || p.is_replay_observer() || p.team == Team::Neutral {
                     None
                 } else {
                     Some(p.team)

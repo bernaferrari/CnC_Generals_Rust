@@ -7,11 +7,11 @@
 //! `attack_priority_name`, and leftover TeamTemplateInfo::xfer
 //! `production_priority` reset after load.
 //!
-//! Players v4 carries canonical host alliance inputs in this sibling chunk.
-//! WorldSnapshot 24 is the save-bundle capability gate; its body is unchanged.
+//! Players v5 carries canonical host alliances and side admission identities.
+//! WorldSnapshot 25 gates this capability; its positional body is unchanged.
 
 use super::player_team_chunks::PlayerTeamChunks;
-use crate::game_logic::{GameLogic, ObjectId};
+use crate::game_logic::{GameLogic, ObjectId, PlayerSideRole};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use game_engine::common::system::xfer::Xfer as CommonXfer;
 use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
@@ -21,7 +21,7 @@ use std::io::{Cursor, Read, Seek, Write};
 pub const CHUNK_PLAYERS: &str = "CHUNK_Players";
 pub const CHUNK_TEAM_FACTORY: &str = "CHUNK_TeamFactory";
 
-const PLAYERS_CHUNK_VERSION: u8 = 4;
+const PLAYERS_CHUNK_VERSION: u8 = 5;
 const TEAM_FACTORY_CHUNK_VERSION: u8 = 5;
 const MAX_ATTACKED_BY: usize = 16;
 const MAX_GENERIC_SCRIPTS: usize = 16;
@@ -45,6 +45,14 @@ pub struct KindOfChangePersist {
     pub kind_of_bits: u128,
     pub percent: f32,
     pub refs: u32,
+}
+
+/// Rust owner metadata; separate from the original Player::xfer field layout.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct HostSideIdentityPersist {
+    pub role: PlayerSideRole,
+    pub authored_name: String,
+    pub start_position: i32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -72,6 +80,7 @@ pub struct PlayerRuntimePersist {
     pub did_preorder: bool,
     /// None for legacy/native-only rows; Some(-1) is explicit host authoring.
     pub host_alliance_team: Option<i32>,
+    pub(crate) host_side_identity: Option<HostSideIdentityPersist>,
 }
 
 impl Default for PlayerRuntimePersist {
@@ -99,6 +108,7 @@ impl Default for PlayerRuntimePersist {
             current_selection: Vec::new(),
             did_preorder: false,
             host_alliance_team: None,
+            host_side_identity: None,
         }
     }
 }
@@ -327,6 +337,21 @@ fn write_player_entry<W: Write + Seek>(
     if let Some(mut alliance) = player.host_alliance_team {
         map_xfer(xfer.xfer_int(&mut alliance))?;
     }
+    let mut has_identity = u8::from(player.host_side_identity.is_some());
+    map_xfer(xfer.xfer_unsigned_byte(&mut has_identity))?;
+    if let Some(identity) = &player.host_side_identity {
+        let mut role = match identity.role {
+            PlayerSideRole::Participant => 0,
+            PlayerSideRole::Neutral => 1,
+            PlayerSideRole::ReplayObserver => 2,
+            PlayerSideRole::Authored => 3,
+        };
+        let mut name = identity.authored_name.clone();
+        let mut start = identity.start_position;
+        map_xfer(xfer.xfer_unsigned_byte(&mut role))?;
+        map_xfer(xfer.xfer_ascii_string(&mut name))?;
+        map_xfer(xfer.xfer_int(&mut start))?;
+    }
     Ok(())
 }
 
@@ -427,6 +452,38 @@ fn parse_player_entry<R: Read>(
                 return Err(SaveLoadError::Corrupted(format!(
                     "CHUNK_Players invalid host alliance tag {present}"
                 )));
+            }
+        };
+    }
+    if version >= 5 {
+        let mut present = 0u8;
+        map_xfer(xfer.xfer_unsigned_byte(&mut present))?;
+        player.host_side_identity = match present {
+            0 => None,
+            1 => {
+                let mut tag = 0u8;
+                map_xfer(xfer.xfer_unsigned_byte(&mut tag))?;
+                let role = match tag {
+                    0 => PlayerSideRole::Participant,
+                    1 => PlayerSideRole::Neutral,
+                    2 => PlayerSideRole::ReplayObserver,
+                    3 => PlayerSideRole::Authored,
+                    _ => return Err(SaveLoadError::Corrupted("Invalid player side role".into())),
+                };
+                let mut authored_name = String::new();
+                let mut start_position = 0;
+                map_xfer(xfer.xfer_ascii_string(&mut authored_name))?;
+                map_xfer(xfer.xfer_int(&mut start_position))?;
+                Some(HostSideIdentityPersist {
+                    role,
+                    authored_name,
+                    start_position,
+                })
+            }
+            _ => {
+                return Err(SaveLoadError::Corrupted(
+                    "Invalid player side identity tag".into(),
+                ));
             }
         };
     }
@@ -758,6 +815,11 @@ pub(super) fn capture_players_chunk(game_logic: &GameLogic) -> PlayersChunkPersi
             persist.players.last_mut().expect("just pushed")
         };
         slot.host_alliance_team = Some(player.alliance_team);
+        slot.host_side_identity = Some(HostSideIdentityPersist {
+            role: player.map_side.role,
+            authored_name: player.map_side.map_player_name.clone(),
+            start_position: player.start_position,
+        });
         slot.sciences = player.unlocked_sciences.iter().cloned().collect();
         slot.sciences_disabled = player.sciences_disabled.iter().cloned().collect();
         slot.sciences_hidden = player.sciences_hidden.iter().cloned().collect();
@@ -887,6 +949,11 @@ pub(super) fn apply_player_to_live(game_logic: &mut GameLogic, persist: &PlayerR
     };
     if let Some(alliance) = persist.host_alliance_team {
         player.alliance_team = alliance;
+    }
+    if let Some(identity) = &persist.host_side_identity {
+        player.map_side.role = identity.role;
+        player.map_side.map_player_name = identity.authored_name.clone();
+        player.start_position = identity.start_position;
     }
     player.sciences_disabled = persist.sciences_disabled.iter().cloned().collect();
     player.sciences_hidden = persist.sciences_hidden.iter().cloned().collect();

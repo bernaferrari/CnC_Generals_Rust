@@ -584,8 +584,7 @@ impl GameLogic {
             .iter()
             .filter_map(|pid| {
                 let player = self.players.get(pid)?;
-                let skipped = player.name == "ReplayObserver"
-                    || (player.team == Team::Neutral && player.name.is_empty());
+                let skipped = player.map_side.role != PlayerSideRole::Participant;
                 (!skipped).then(|| (host_slot_script_name(player), player.alliance_team))
             })
             .collect();
@@ -593,46 +592,29 @@ impl GameLogic {
             let Some(player) = self.players.get(pid) else {
                 continue;
             };
-            if player.name == "ReplayObserver" {
-                if sides.find_side_info("ReplayObserver").is_none() {
-                    let mut dict = Dict::new();
-                    dict.set_ascii_string(key_player_name(), "ReplayObserver");
-                    dict.set_bool(key_player_is_human(), true);
-                    dict.set_unicode_string(key_player_display_name(), "Observer");
-                    dict.set_ascii_string(key_player_faction(), "FactionObserver");
-                    dict.set_ascii_string(key_player_allies(), String::new());
-                    dict.set_ascii_string(key_player_enemies(), String::new());
-                    sides.add_side(&dict);
-                    let mut team = Dict::new();
-                    team.set_ascii_string(key_team_name(), "teamReplayObserver");
-                    team.set_ascii_string(key_team_owner(), "ReplayObserver");
-                    team.set_bool(key_team_is_singleton(), true);
-                    sides.add_team(&team);
-                }
+            if player.is_replay_observer() {
                 continue;
             }
-            if player.team == Team::Neutral && player.name.is_empty() {
+            if player.is_reserved_neutral() {
                 continue;
             }
             let player_name = host_slot_script_name(player);
             if sides.find_side_info(&player_name).is_some() {
                 continue;
             }
-            let faction = match player.team {
+            let faction = self
+                .player_template_identity(*pid)
+                .map(|identity| identity.template_name.as_str());
+            let faction = faction.unwrap_or(match player.team {
                 Team::USA => "FactionAmerica",
                 Team::China => "FactionChina",
                 Team::GLA => "FactionGLA",
                 Team::Neutral => "FactionCivilian",
-            };
+            });
             let mut dict = Dict::new();
             dict.set_ascii_string(key_player_name(), player_name.clone());
             dict.set_bool(key_player_is_human(), player.is_human);
-            let display = if player.name.is_empty() {
-                player_name.clone()
-            } else {
-                player.name.clone()
-            };
-            dict.set_unicode_string(key_player_display_name(), display);
+            dict.set_unicode_string(key_player_display_name(), player.name.clone());
             dict.set_ascii_string(key_player_faction(), faction);
             // C++ GameLogic.cpp:1332-1368: another occupied slot is an enemy
             // when our team is None (-1) or differs from theirs, else an ally.
@@ -664,6 +646,25 @@ impl GameLogic {
             team.set_ascii_string(key_team_owner(), player_name);
             team.set_bool(key_team_is_singleton(), true);
             sides.add_team(&team);
+        }
+        // C++ adds ReplayObserver after every occupied slot, independently of host IDs.
+        if self.replay_observer_player_id().is_some() {
+            if sides.find_side_info("ReplayObserver").is_none() {
+                let mut dict = Dict::new();
+                dict.set_ascii_string(key_player_name(), "ReplayObserver");
+                dict.set_bool(key_player_is_human(), true);
+                dict.set_unicode_string(key_player_display_name(), "Observer");
+                dict.set_ascii_string(key_player_faction(), "FactionObserver");
+                dict.set_ascii_string(key_player_allies(), String::new());
+                dict.set_ascii_string(key_player_enemies(), String::new());
+                dict.set_int(key_multiplayer_start_index(), 0);
+                sides.add_side(&dict);
+                let mut team = Dict::new();
+                team.set_ascii_string(key_team_name(), "teamReplayObserver");
+                team.set_ascii_string(key_team_owner(), "ReplayObserver");
+                team.set_bool(key_team_is_singleton(), true);
+                sides.add_team(&team);
+            }
         }
     }
 
@@ -725,20 +726,33 @@ impl GameLogic {
         side_dicts: &[Dict],
         replace_default_money: bool,
     ) {
-        if self.players.is_empty() || side_dicts.is_empty() {
+        if side_dicts.is_empty() {
             return;
         }
+        self.admit_retained_map_civilians(side_dicts);
         for (index, dict) in side_dicts.iter().enumerate() {
             let name = dict.get_ascii_string(key_player_name());
-            let pid = self
-                .players
-                .iter()
-                .find(|(_, player)| {
-                    !name.is_empty()
-                        && (player.map_side.map_player_name == name || player.name == name)
-                })
-                .map(|(id, _)| *id)
-                .or_else(|| self.host_player_id_for_side_index(index as u32));
+            if name.is_empty() {
+                continue;
+            }
+            let pid = {
+                self.players
+                    .iter()
+                    .find(|(_, player)| !name.is_empty() && player.map_side.map_player_name == name)
+                    .map(|(id, _)| *id)
+                    .or_else(|| {
+                        // A direct, as-yet-unadmitted map player may retain its existing
+                        // host index until the full prepared ordinal migration. A typed
+                        // lobby owner must never be reassigned to a different side.
+                        self.host_player_id_for_side_index(index as u32)
+                            .filter(|id| {
+                                self.players.get(id).is_some_and(|player| {
+                                    player.map_side.map_player_name.is_empty()
+                                        && !player.is_reserved_neutral()
+                                })
+                            })
+                    })
+            };
             let Some(pid) = pid else {
                 continue;
             };

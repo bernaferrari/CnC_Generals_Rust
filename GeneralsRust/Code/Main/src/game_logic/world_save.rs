@@ -43,3 +43,10 @@ pub(super) use world_load::{
 #[cfg(test)]
 #[path = "world_save/lobby_side_identity_tests.rs"]
 mod lobby_side_identity_tests;
+
+#[cfg(test)]
+#[path = "world_save/side_role_owner_tests.rs"]
+mod side_role_owner_tests;
+
+#[path = "world_save/side_admission.rs"]
+mod side_admission;

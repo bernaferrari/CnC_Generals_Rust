@@ -9,9 +9,14 @@ pub(crate) fn admit_slot_definitions() {
     // A second world uses the same definitions; it must not republish them.
     let present = {
         let definitions = get_player_template_store();
-        ["FactionAmerica", "FactionGLA", "FactionObserver"]
-            .iter()
-            .all(|name| definitions.find_template(name).is_some())
+        [
+            "FactionAmerica",
+            "FactionGLA",
+            "FactionObserver",
+            "FactionCivilian",
+        ]
+        .iter()
+        .all(|name| definitions.find_template(name).is_some())
     };
     if present {
         return;
@@ -23,7 +28,8 @@ pub(crate) fn admit_slot_definitions() {
     ini.with_inline_source(
         "PlayerTemplate FactionAmerica\n Side = America\n BaseSide = America\n StartingBuilding = AmericaCommandCenter\nEnd\n\
          PlayerTemplate FactionGLA\n Side = GLA\n BaseSide = GLA\n StartingBuilding = GLACommandCenter\nEnd\n\
-         PlayerTemplate FactionObserver\n Side = Observer\n BaseSide = Observer\nEnd\n",
+         PlayerTemplate FactionObserver\n IsObserver = Yes\n Side = Observer\n BaseSide = Observer\nEnd\n\
+         PlayerTemplate FactionCivilian\n Side = Civilian\n BaseSide = Civilian\nEnd\n",
         |ini| ini.parse_current_file(),
     )
     .expect("admit slot identity definition inputs");
