@@ -473,25 +473,30 @@ pub fn apply_garrison_hit_kill(
 
 /// C++ getHighestLayerForDestination + GROUND transition while still over the
 /// previous layer's XY. Armed missiles and all dumb projectiles detonate.
-pub fn bridge_deck_detonate_pose(pos: Vec3, old_layer: u8, armed: bool) -> Option<(Vec3, u8)> {
-    let Some(terrain) = gamelogic::helpers::TheTerrainLogic::get() else {
-        return None;
-    };
-    let new_layer = terrain.get_highest_layer_for_destination(&host_to_cpp(pos)) as u8;
+pub(crate) fn bridge_deck_detonate_pose(
+    terrain: &crate::game_logic::game_logic::FlightTerrainView<'_>,
+    pos: Vec3,
+    old_layer: u8,
+    armed: bool,
+) -> (Vec3, u8) {
+    let ground = terrain.raw_ground(pos, 0.0);
+    let new_layer = terrain.grid.highest_layer_at_or_below(pos, ground, false);
     if !armed || old_layer == LAYER_GROUND || new_layer != LAYER_GROUND {
-        return Some((pos, new_layer));
+        return (pos, new_layer);
     }
-    let mut test = host_to_cpp(pos);
-    test.z = 9999.0;
-    let test_layer = terrain.get_highest_layer_for_destination(&test) as u8;
+    let mut test = pos;
+    test.y = 9999.0;
+    let test_layer = terrain.grid.highest_layer_at_or_below(test, ground, false);
     if test_layer != old_layer {
-        return Some((pos, new_layer));
+        return (pos, new_layer);
     }
-    let layer = gamelogic::common::PathfindLayerEnum::from_u32(old_layer as u32);
-    let height = terrain.get_layer_height(test.x, test.y, layer) + BRIDGE_DECK_FUDGE;
+    let height = terrain
+        .grid
+        .layer_height_unclipped(test, test_layer, ground)
+        + BRIDGE_DECK_FUDGE;
     let mut snapped = pos;
     snapped.y = height;
-    Some((snapped, new_layer))
+    (snapped, new_layer)
 }
 
 #[cfg(test)]

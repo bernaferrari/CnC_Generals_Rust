@@ -424,8 +424,33 @@ impl CombatSystem {
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
         health_events: &mut crate::game_logic::HostHealthEvents,
     ) -> Vec<ObjectId> {
+        self.update_projectiles_with_relationships_and_terrain(
+            dt,
+            objects,
+            countermeasures,
+            frame,
+            players,
+            team_factory,
+            health_events,
+            None,
+        )
+    }
+
+    pub(crate) fn update_projectiles_with_relationships_and_terrain(
+        &mut self,
+        dt: f32,
+        objects: &mut HashMap<ObjectId, Object>,
+        countermeasures: Option<
+            &mut crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
+        >,
+        frame: u32,
+        players: Option<&HashMap<u32, crate::game_logic::Player>>,
+        team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
+        health_events: &mut crate::game_logic::HostHealthEvents,
+        terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
+    ) -> Vec<ObjectId> {
         let (damage_events, projectiles_to_remove) =
-            self.prepare_projectile_impacts(dt, objects, countermeasures, frame);
+            self.prepare_projectile_impacts(dt, objects, countermeasures, frame, terrain);
         self.apply_damage_events(
             &damage_events,
             objects,
@@ -448,6 +473,7 @@ impl CombatSystem {
             &mut crate::game_logic::host_countermeasures::HostCountermeasuresRegistry,
         >,
         frame: u32,
+        terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
     ) -> (Vec<DamageEvent>, Vec<ObjectId>) {
         let projectile_ids: Vec<ObjectId> = self.projectiles.keys().copied().collect();
         let historic_damage_limit = game_engine::common::global_data::read().historic_damage_limit;
@@ -494,7 +520,7 @@ impl CombatSystem {
                         }
                     }
                 }
-                match projectile.update(dt, target_is_live) {
+                match projectile.update_with_terrain(dt, target_is_live, terrain) {
                     ProjectileStep::Alive => {
                         if !projectile.is_warhead_armed() {
                             continue;

@@ -188,11 +188,17 @@ impl GameLogic {
         &mut self,
         dt: f32,
     ) -> Vec<ObjectId> {
+        let terrain = crate::game_logic::game_logic::FlightTerrainView {
+            grid: &self.pathfinding_system.grid,
+            terrain: self.terrain.as_ref(),
+            samples: self.pathfinding_height_samples.as_ref(),
+        };
         let (events, retired) = self.combat_system.prepare_projectile_impacts(
             dt,
             &mut self.objects,
             Some(&mut self.countermeasures),
             self.frame,
+            Some(&terrain),
         );
         for event in events {
             self.apply_owned_combat_damage(&event, ImpactRelationships::MovingProjectile);

@@ -2487,15 +2487,23 @@ impl GameLogic {
     /// Hit-only projectile pass after GameWorld flight integrate writeback.
     pub(crate) fn resolve_projectiles_hits_only(&mut self) -> Vec<ObjectId> {
         self.combat_system.refresh_homing_aims(&self.objects);
-        let hits = self.combat_system.update_projectiles_with_relationships(
-            0.0,
-            &mut self.objects,
-            Some(&mut self.countermeasures),
-            self.frame,
-            Some(&self.players),
-            Some(&self.team_factory),
-            &mut self.health_events,
-        );
+        let terrain = super::flight_terrain::FlightTerrainView {
+            grid: &self.pathfinding_system.grid,
+            terrain: self.terrain.as_ref(),
+            samples: self.pathfinding_height_samples.as_ref(),
+        };
+        let hits = self
+            .combat_system
+            .update_projectiles_with_relationships_and_terrain(
+                0.0,
+                &mut self.objects,
+                Some(&mut self.countermeasures),
+                self.frame,
+                Some(&self.players),
+                Some(&self.team_factory),
+                &mut self.health_events,
+                Some(&terrain),
+            );
         self.flush_projectile_impact_fx();
         hits
     }

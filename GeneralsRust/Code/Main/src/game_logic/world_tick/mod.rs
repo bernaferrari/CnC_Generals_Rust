@@ -19,6 +19,9 @@ mod crates;
 mod disabled_expiry;
 mod flight_terrain;
 mod logic_crc;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod projectile_terrain_owner_tests;
+pub(crate) use flight_terrain::FlightTerrainView;
 mod mood;
 mod movement;
 mod movement_support;

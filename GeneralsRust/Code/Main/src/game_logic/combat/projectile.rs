@@ -389,7 +389,18 @@ impl Projectile {
         }
     }
 
+    /// Standalone mapless flight has only the ground layer; it never selects
+    /// an ambient terrain/AI runtime. Main supplies its borrowed terrain below.
     pub fn update(&mut self, dt: f32, target_is_live: bool) -> ProjectileStep {
+        self.update_with_terrain(dt, target_is_live, None)
+    }
+
+    pub(crate) fn update_with_terrain(
+        &mut self,
+        dt: f32,
+        target_is_live: bool,
+        terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
+    ) -> ProjectileStep {
         if dt.is_finite() && dt > 0.0 {
             self.lifetime += dt;
         }
@@ -407,7 +418,7 @@ impl Projectile {
 
         if self.speed <= 0.0 {
             self.position = self.target_position;
-            return self.finish_flight_step();
+            return self.finish_flight_step(terrain);
         }
 
         if matches!(
@@ -425,7 +436,7 @@ impl Projectile {
             }
             self.position = next;
             self.flight_runtime.step += 1;
-            return self.finish_flight_step();
+            return self.finish_flight_step(terrain);
         }
 
         if let Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(missile)) =
@@ -456,7 +467,7 @@ impl Projectile {
                 let dir = (goal - self.position).normalize_or_zero();
                 self.velocity = dir * self.speed;
                 self.position += self.velocity * dt;
-                return self.finish_flight_step();
+                return self.finish_flight_step(terrain);
             }
         }
 
@@ -465,24 +476,27 @@ impl Projectile {
             self.velocity = dir * self.speed;
         }
         self.position += self.velocity * dt;
-        self.finish_flight_step()
+        self.finish_flight_step(terrain)
     }
 
-    fn finish_flight_step(&mut self) -> ProjectileStep {
+    fn finish_flight_step(
+        &mut self,
+        terrain: Option<&crate::game_logic::game_logic::FlightTerrainView<'_>>,
+    ) -> ProjectileStep {
         let armed = self.is_warhead_armed();
-        if let Some((snapped, new_layer)) =
+        let (snapped, new_layer) = terrain.map_or((self.position, 1), |terrain| {
             crate::game_logic::weapon_bootstrap::bridge_deck_detonate_pose(
+                terrain,
                 self.position,
                 self.flight_runtime.layer,
                 armed,
             )
-        {
-            let old_layer = self.flight_runtime.layer;
-            self.flight_runtime.layer = new_layer;
-            if armed && old_layer != 1 && new_layer == 1 && snapped != self.position {
-                self.position = snapped;
-                return ProjectileStep::Detonate;
-            }
+        });
+        let old_layer = self.flight_runtime.layer;
+        self.flight_runtime.layer = new_layer;
+        if armed && old_layer != 1 && new_layer == 1 && snapped != self.position {
+            self.position = snapped;
+            return ProjectileStep::Detonate;
         }
         ProjectileStep::Alive
     }

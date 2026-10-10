@@ -3,14 +3,14 @@ use crate::game_logic::game_logic::PathfindingHeightSamples;
 use crate::game_logic::{Object, PathfindingGrid, terrain::TerrainData};
 use glam::Vec3;
 
-pub(super) struct FlightTerrainView<'a> {
-    pub(super) grid: &'a PathfindingGrid,
-    pub(super) terrain: Option<&'a TerrainData>,
-    pub(super) samples: Option<&'a PathfindingHeightSamples>,
+pub(crate) struct FlightTerrainView<'a> {
+    pub(crate) grid: &'a PathfindingGrid,
+    pub(crate) terrain: Option<&'a TerrainData>,
+    pub(crate) samples: Option<&'a PathfindingHeightSamples>,
 }
 
 impl FlightTerrainView<'_> {
-    pub(super) fn raw_ground(&self, pos: Vec3, fallback: f32) -> f32 {
+    pub(crate) fn raw_ground(&self, pos: Vec3, fallback: f32) -> f32 {
         if let Some(terrain) = self.terrain {
             return terrain.logic_height_at_world(pos);
         }
