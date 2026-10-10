@@ -49,9 +49,16 @@ fn live_numeric_stack_is_glam_not_wwmath_crate() {
     );
 
     let main_cargo = include_str!("../../Cargo.toml");
+    let main_manifest: toml::Value = main_cargo.parse().expect("Main Cargo manifest");
+    let workspace_manifest: toml::Value = include_str!("../../../../Cargo.toml")
+        .parse()
+        .expect("workspace Cargo manifest");
     assert!(
-        main_cargo.contains("glam = { version = \"0.28\""),
-        "live Main host must depend on glam"
+        main_manifest["dependencies"]["glam"]["workspace"].as_bool() == Some(true)
+            && workspace_manifest["workspace"]["dependencies"]["glam"]["version"]
+                .as_str()
+                .is_some_and(|version| !version.is_empty()),
+        "live Main host must use the workspace-owned glam dependency"
     );
     assert!(
         !main_cargo.contains("wwmath") && !main_cargo.contains("math_utilities"),

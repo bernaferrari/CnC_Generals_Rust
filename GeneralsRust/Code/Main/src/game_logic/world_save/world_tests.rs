@@ -68,6 +68,90 @@ mod sides_host_apply_tests {
     }
 
     #[test]
+    fn authored_map_sides_cannot_replace_occupied_skirmish_slots() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "authored_map_sides_cannot_replace_occupied_skirmish_slots",
+            || {
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("SlotAdmission.map");
+                let mut out = game_engine::common::system::DataChunkOutput::new();
+                out.open_data_chunk("HeightMapData", 3);
+                for value in [21, 21, 1, 441] {
+                    out.write_int(value);
+                }
+                for _ in 0..441 {
+                    out.write_byte(0);
+                }
+                out.close_data_chunk();
+                out.open_data_chunk("ObjectsList", 3);
+                out.open_data_chunk("Object", 3);
+                for value in [10.0, 10.0, 0.0, 0.0] {
+                    out.write_real(value);
+                }
+                out.write_int(0);
+                out.write_ascii_string("SlotAdmissionMarker");
+                out.close_data_chunk();
+                out.close_data_chunk();
+                out.open_data_chunk("SidesList", 2);
+                out.write_int(2);
+                for name in ["UnrelatedMapSide", "PlyrCivilian"] {
+                    let mut dict = Dict::new();
+                    dict.set_ascii_string(key_player_name(), name);
+                    dict.set_ascii_string(key_player_faction(), "FactionCivilian");
+                    dict.set_bool(key_player_is_human(), false);
+                    dict.set_int(key_player_color(), 0);
+                    dict.set_int(key_player_night_color(), 0);
+                    dict.set_int(key_player_start_money(), 17);
+                    out.write_dict(&dict);
+                    out.write_int(0); // authored build entries
+                }
+                out.write_int(0); // authored teams
+                out.close_data_chunk();
+                std::fs::write(&path, out.into_ckmp_bytes()).unwrap();
+                let map = path.to_str().unwrap();
+                let mut world = GameLogic::new();
+                crate::skirmish_config::apply_skirmish_config(
+                    &mut world,
+                    &crate::skirmish_config::golden_skirmish_config(map),
+                )
+                .unwrap();
+                let mut marker = crate::game_logic::ThingTemplate::new("SlotAdmissionMarker");
+                marker.set_health(10.0);
+                world.templates.insert("SlotAdmissionMarker".into(), marker);
+                let slots = |world: &GameLogic| {
+                    [0, 1].map(|id| {
+                        let player = world.get_player(id).unwrap();
+                        (
+                            player.is_human,
+                            player.color_rgb,
+                            player.color_night_rgb,
+                            player.resources.supplies,
+                            player.team,
+                            player.name.clone(),
+                        )
+                    })
+                };
+                let before = slots(&world);
+                assert!(world.load_map(map), "actual CKMP admission must execute");
+                assert!(world.terrain.is_some(), "raw terrain must be admitted");
+                assert!(
+                    world
+                        .objects
+                        .values()
+                        .any(|object| object.thing().template.name == "SlotAdmissionMarker"),
+                    "object-placement admission must also execute"
+                );
+                assert_eq!(
+                    slots(&world),
+                    before,
+                    "authored Civilian side indices are not occupied GameInfo slots"
+                );
+            },
+        );
+    }
+
+    #[test]
     fn authored_build_list_replaces_hardcoded_ai_layout() {
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", false));
