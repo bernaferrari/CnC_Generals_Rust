@@ -70,7 +70,7 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
 
     // C++ ActionManager::canCaptureBuilding runs isObjectShroudedForAction
     // (ActionManager.cpp:76-102) — the local player must see the target. The
-    // host consults the shared shroud manager, so this fixture registers the
+    // host consults its map shroud, so this fixture registers the
     // captor's look and refreshes vision before issuing CaptureBuilding (a
     // live game would have run Object::look every frame since spawn).
     game_logic
@@ -83,10 +83,11 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
         .host_object_mut(captor_id)
         .expect("captor")
         .shroud_range = 200.0;
-    game_logic.update_main_crate_vision();
     // A C++ match initializes the shroud grid at map load; without it every
     // look computes Hidden and the FOW gate would refuse the capture.
-    gamelogic::system::shroud_manager::get_shroud_manager()
+    game_logic
+        .world_services
+        .shroud()
         .lock()
         .expect("shroud")
         .init_shroud_grid(512.0, 512.0);
@@ -418,7 +419,7 @@ fn capture_building_walk_into_range_transfers_ownership_after_upgrade() {
         );
 
     // C++ canCaptureBuilding FOW gate (ActionManager.cpp:76-102): register
-    // the captor's look + refresh the shared shroud before issuing capture.
+    // the captor's look + refresh its map shroud before issuing capture.
     game_logic
         .host_object_mut(captor_id)
         .expect("captor")
@@ -427,7 +428,9 @@ fn capture_building_walk_into_range_transfers_ownership_after_upgrade() {
         .host_object_mut(captor_id)
         .expect("captor")
         .shroud_range = 200.0;
-    gamelogic::system::shroud_manager::get_shroud_manager()
+    game_logic
+        .world_services
+        .shroud()
         .lock()
         .expect("shroud")
         .init_shroud_grid(512.0, 512.0);
@@ -1584,6 +1587,8 @@ fn supply_truck_force_wanting_reenters_gathering() {
 
     let mut truck = ThingTemplate::new("ChinaVehicleSupplyTruck");
     truck.add_kind_of(KindOf::Harvester).set_health(100.0);
+    truck.sight_range = 200.0;
+    truck.shroud_clearing_range = 200.0;
     truck.supply_truck_metadata = Some(SupplyTruckMetadata {
         max_boxes: 4,
         warehouse_scan_distance: 700.0,
@@ -1620,10 +1625,14 @@ fn supply_truck_force_wanting_reenters_gathering() {
         collector.stop_moving();
     }
 
-    // Sync the process-global state earlier tests in this binary leak: stale
-    // (player, ObjectId) shroud rows and dock-approach queue reservations
-    // keyed by reused ObjectIds. A live C++ game tears these down per match;
-    // the host keeps them process-global, so each fixture re-syncs them.
+    // Admit this fixture's map before its first look, as load_map does.
+    // Gathering samples this owner's visibility; no process-state cleanup.
+    logic
+        .world_services
+        .shroud()
+        .lock()
+        .unwrap()
+        .init_shroud_grid(512.0, 512.0);
     logic.update_main_crate_vision();
     logic.update_support_states(&[collector_id, source], 1.0 / 30.0);
 
@@ -2202,7 +2211,9 @@ fn transport_residual_enter_sets_docked_state_and_capacity() {
     // (player, ObjectId) rows behind. A C++ match rebuilds shroud state
     // (ShroudManager::clear_all "multiplayer match initialization"), so this
     // fixture resets it to the fresh-process state before gating paths run.
-    gamelogic::system::shroud_manager::get_shroud_manager()
+    game_logic
+        .world_services
+        .shroud()
         .lock()
         .expect("shroud")
         .clear_all();
@@ -2282,7 +2293,9 @@ fn transport_residual_load_two_unload_both_free() {
     // (player, ObjectId) rows behind. A C++ match rebuilds shroud state
     // (ShroudManager::clear_all "multiplayer match initialization"), so this
     // fixture resets it to the fresh-process state before gating paths run.
-    gamelogic::system::shroud_manager::get_shroud_manager()
+    game_logic
+        .world_services
+        .shroud()
         .lock()
         .expect("shroud")
         .clear_all();
@@ -2381,7 +2394,9 @@ fn transport_residual_exit_command_unloads_all() {
     // (player, ObjectId) rows behind. A C++ match rebuilds shroud state
     // (ShroudManager::clear_all "multiplayer match initialization"), so this
     // fixture resets it to the fresh-process state before gating paths run.
-    gamelogic::system::shroud_manager::get_shroud_manager()
+    game_logic
+        .world_services
+        .shroud()
         .lock()
         .expect("shroud")
         .clear_all();
@@ -2436,7 +2451,9 @@ fn transport_residual_capacity_full_rejects_enter() {
     // (player, ObjectId) rows behind. A C++ match rebuilds shroud state
     // (ShroudManager::clear_all "multiplayer match initialization"), so this
     // fixture resets it to the fresh-process state before gating paths run.
-    gamelogic::system::shroud_manager::get_shroud_manager()
+    game_logic
+        .world_services
+        .shroud()
         .lock()
         .expect("shroud")
         .clear_all();
@@ -2680,7 +2697,9 @@ fn overlord_bunker_residual_load_two_unload_both_free() {
     // (player, ObjectId) rows behind. A C++ match rebuilds shroud state
     // (ShroudManager::clear_all "multiplayer match initialization"), so this
     // fixture resets it to the fresh-process state before gating paths run.
-    gamelogic::system::shroud_manager::get_shroud_manager()
+    game_logic
+        .world_services
+        .shroud()
         .lock()
         .expect("shroud")
         .clear_all();

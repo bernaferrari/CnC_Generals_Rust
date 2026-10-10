@@ -219,7 +219,6 @@ fn restamp_host_partition_look(
     last: &mut std::collections::HashMap<ObjectId, (f32, f32, f32, f32, u32)>,
     live: &mut std::collections::HashSet<ObjectId>,
     shroud_mgr: &mut gamelogic::system::shroud_manager::ShroudManager,
-    cell_ops: &mut Vec<(gamelogic::common::Coord3D, f32, u32, bool)>,
     id: ObjectId,
     center: gamelogic::common::Coord3D,
     range: f32,
@@ -240,10 +239,8 @@ fn restamp_host_partition_look(
         }
         let old = gamelogic::common::Coord3D::new(prev.0, prev.1, prev.2);
         shroud_mgr.queue_undo_shroud_reveal(&old, prev.3, prev.4, persist, frame);
-        cell_ops.push((old, prev.3, prev.4, false));
     }
     shroud_mgr.do_shroud_reveal(&center, range, mask);
-    cell_ops.push((center, range, mask, true));
     last.insert(id, next);
 }
 
@@ -251,7 +248,6 @@ fn unlook_stale_host_partition_looks(
     last: &mut std::collections::HashMap<ObjectId, (f32, f32, f32, f32, u32)>,
     live: &std::collections::HashSet<ObjectId>,
     shroud_mgr: &mut gamelogic::system::shroud_manager::ShroudManager,
-    cell_ops: &mut Vec<(gamelogic::common::Coord3D, f32, u32, bool)>,
     persist: u32,
     frame: u32,
 ) {
@@ -264,7 +260,6 @@ fn unlook_stale_host_partition_looks(
         if let Some(prev) = last.remove(&id) {
             let old = gamelogic::common::Coord3D::new(prev.0, prev.1, prev.2);
             shroud_mgr.queue_undo_shroud_reveal(&old, prev.3, prev.4, persist, frame);
-            cell_ops.push((old, prev.3, prev.4, false));
         }
     }
 }
@@ -274,7 +269,6 @@ fn restamp_host_partition_shroud(
     last: &mut std::collections::HashMap<ObjectId, (f32, f32, f32, f32, u32)>,
     live: &mut std::collections::HashSet<ObjectId>,
     shroud_mgr: &mut gamelogic::system::shroud_manager::ShroudManager,
-    cell_ops: &mut Vec<(gamelogic::common::Coord3D, f32, u32, bool)>,
     id: ObjectId,
     center: gamelogic::common::Coord3D,
     range: f32,
@@ -293,10 +287,8 @@ fn restamp_host_partition_shroud(
         }
         let old = gamelogic::common::Coord3D::new(prev.0, prev.1, prev.2);
         shroud_mgr.undo_shroud_cover(&old, prev.3, prev.4);
-        cell_ops.push((old, prev.3, prev.4, false));
     }
     shroud_mgr.do_shroud_cover(&center, range, mask);
-    cell_ops.push((center, range, mask, true));
     last.insert(id, next);
 }
 
@@ -304,7 +296,6 @@ fn unshroud_stale_host_partition_covers(
     last: &mut std::collections::HashMap<ObjectId, (f32, f32, f32, f32, u32)>,
     live: &std::collections::HashSet<ObjectId>,
     shroud_mgr: &mut gamelogic::system::shroud_manager::ShroudManager,
-    cell_ops: &mut Vec<(gamelogic::common::Coord3D, f32, u32, bool)>,
 ) {
     let stale: Vec<ObjectId> = last
         .keys()
@@ -315,7 +306,6 @@ fn unshroud_stale_host_partition_covers(
         if let Some(prev) = last.remove(&id) {
             let old = gamelogic::common::Coord3D::new(prev.0, prev.1, prev.2);
             shroud_mgr.undo_shroud_cover(&old, prev.3, prev.4);
-            cell_ops.push((old, prev.3, prev.4, false));
         }
     }
 }

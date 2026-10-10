@@ -20523,6 +20523,11 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_list/borrowed_owner_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_list/host_visibility_owner_tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/FXList.cpp",
@@ -38613,6 +38618,7 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/impl_select.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/impl_teams.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/impl_update.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/interface.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/mod.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/snapshot.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/strategy.rs",
@@ -38661,6 +38667,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/impl_update.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/interface.rs"
             },
             {
               "cargo_reachable": true,
@@ -188962,7 +188973,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "210116fb15c96122f393ed73d970bae495a829f42967ffa1e88630a575632ac4",
+  "provenance_input_digest": "823ffc70fd2435f504907e1367998b6b92dca8de3c78afc0751356a677b6e22e",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

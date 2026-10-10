@@ -36,6 +36,12 @@ impl GameLogic {
 
     pub(in crate::game_logic) fn update_owned_water(&mut self) {
         let handle = self.world_services.terrain().clone();
+        // CPP TerrainLogic.cpp:1007: scripts observe last frame's bridge
+        // transitions before this terrain phase clears the aggregate gate.
+        handle
+            .write()
+            .expect("owned terrain bridge phase")
+            .begin_host_bridge_frame();
         let count = handle
             .read()
             .expect("owned terrain read")

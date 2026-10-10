@@ -3096,10 +3096,6 @@ pub(crate) fn replace_global_ai_for_world_boundary(
     crate::system::engine_stores::replace_ai_for_world_boundary(bundle, next)
 }
 
-// Core AI systems
-pub mod ai_core; // Complete AI system integration
-pub mod ai_update; // AI update interfaces and coordination
-
 // AI behavior modules
 pub mod ai_group;
 pub mod dock;

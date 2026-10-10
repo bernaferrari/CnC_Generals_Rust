@@ -8642,6 +8642,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_list/borrowed_owner_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_list/host_visibility_owner_tests.rs"
           }
         ],
         "mode": "split_inferred",
@@ -12773,13 +12780,6 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_core.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_group/mod.rs"
           },
           {
@@ -12843,6 +12843,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/interface.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/mod.rs"
           },
           {
@@ -12900,13 +12907,6 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/work_order.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_update.rs"
           },
           {
             "cargo_reachable": true,
@@ -13124,20 +13124,6 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/modules/supply_truck_ai.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/modules/target_prioritization.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/modules/tech_progression.rs"
           },
           {
             "cargo_reachable": true,
@@ -13856,6 +13842,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/impl_update.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/interface.rs"
           },
           {
             "cargo_reachable": true,
@@ -42594,6 +42587,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_list/borrowed_owner_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_list/host_visibility_owner_tests.rs"
           }
         ],
         "mode": "split_inferred",
@@ -49988,6 +49988,7 @@
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/impl_select.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/impl_teams.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/impl_update.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/interface.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/mod.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/snapshot.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/strategy.rs",
@@ -50005,13 +50006,6 @@
       "mapping": {
         "candidate_status": "reachable_implementation_candidate",
         "destinations": [
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_core.rs"
-          },
           {
             "cargo_reachable": true,
             "classification": "implementation",
@@ -50080,6 +50074,13 @@
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/interface.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/mod.rs"
           },
           {
@@ -50137,13 +50138,6 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/work_order.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_update.rs"
           },
           {
             "cargo_reachable": true,
@@ -50361,20 +50355,6 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/modules/supply_truck_ai.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/modules/target_prioritization.rs"
-          },
-          {
-            "cargo_reachable": true,
-            "classification": "implementation",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/modules/tech_progression.rs"
           },
           {
             "cargo_reachable": true,
@@ -51646,6 +51626,7 @@
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/impl_select.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/impl_teams.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/impl_update.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/interface.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/mod.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/snapshot.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/strategy.rs",
@@ -51714,6 +51695,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/impl_update.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "implementation",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/interface.rs"
           },
           {
             "cargo_reachable": true,
@@ -157541,7 +157529,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "210116fb15c96122f393ed73d970bae495a829f42967ffa1e88630a575632ac4",
+  "input_digest": "823ffc70fd2435f504907e1367998b6b92dca8de3c78afc0751356a677b6e22e",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -166860,11 +166848,23 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 160,
+        "end_line": 159,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_list/borrowed_owner_tests.rs",
-      "sha256": "37f4ea55518d3771090624a3c8e50db69695bdc399a426d5914a83a629f84bbc",
+      "sha256": "5dfacfbaf9946066dfa4544bdfd8bd212bd2a1c2e09d26ca5b18eeec36a25fd9",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 100,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_list/host_visibility_owner_tests.rs",
+      "sha256": "d197fdae2ac5922f7583a48e11c2ef674a40d95005ca2bec402651b2eda2f3f1",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -166872,11 +166872,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2215,
+        "end_line": 2242,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_list.rs",
-      "sha256": "eaecfd88a5fabb6340946d471a13cb7496f27fb2b86a17720a722e9f88ae937c",
+      "sha256": "647b422fceaa6f53c2390d0832eb806f145d027c6eb6098e49f8f506792fbeff",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -173076,204 +173076,6 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 264,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_core.rs",
-      "sha256": "8b09fe5644603bdd98a2f79d689e56b307722e47ee950da1489757b448e3fee1",
-      "symbol_index_status": "indexed",
-      "symbols": [
-        {
-          "kind": "struct",
-          "line": 27,
-          "name": "AIManager"
-        },
-        {
-          "kind": "fn",
-          "line": 39,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 51,
-          "name": "register_ai_player"
-        },
-        {
-          "kind": "fn",
-          "line": 57,
-          "name": "unregister_ai_player"
-        },
-        {
-          "kind": "fn",
-          "line": 63,
-          "name": "update"
-        },
-        {
-          "kind": "fn",
-          "line": 82,
-          "name": "reset"
-        },
-        {
-          "kind": "fn",
-          "line": 89,
-          "name": "get_core"
-        },
-        {
-          "kind": "fn",
-          "line": 94,
-          "name": "get_core_mut"
-        },
-        {
-          "kind": "fn",
-          "line": 100,
-          "name": "find_closest_enemy"
-        },
-        {
-          "kind": "fn",
-          "line": 114,
-          "name": "find_closest_ally"
-        },
-        {
-          "kind": "fn",
-          "line": 124,
-          "name": "get_ai_data"
-        },
-        {
-          "kind": "fn",
-          "line": 129,
-          "name": "create_group"
-        },
-        {
-          "kind": "fn",
-          "line": 134,
-          "name": "destroy_group"
-        },
-        {
-          "kind": "fn",
-          "line": 139,
-          "name": "find_group"
-        },
-        {
-          "kind": "fn",
-          "line": 145,
-          "name": "default"
-        },
-        {
-          "kind": "trait",
-          "line": 152,
-          "name": "AIPlayerTrait"
-        },
-        {
-          "kind": "fn",
-          "line": 154,
-          "name": "update"
-        },
-        {
-          "kind": "fn",
-          "line": 157,
-          "name": "update_economy"
-        },
-        {
-          "kind": "fn",
-          "line": 160,
-          "name": "update_construction"
-        },
-        {
-          "kind": "fn",
-          "line": 163,
-          "name": "update_military"
-        },
-        {
-          "kind": "fn",
-          "line": 168,
-          "name": "update_diplomacy"
-        },
-        {
-          "kind": "fn",
-          "line": 173,
-          "name": "build_specific_building"
-        },
-        {
-          "kind": "fn",
-          "line": 176,
-          "name": "build_specific_team"
-        },
-        {
-          "kind": "fn",
-          "line": 181,
-          "name": "get_player_id"
-        },
-        {
-          "kind": "fn",
-          "line": 184,
-          "name": "get_difficulty"
-        },
-        {
-          "kind": "fn",
-          "line": 187,
-          "name": "set_difficulty"
-        },
-        {
-          "kind": "fn",
-          "line": 190,
-          "name": "on_unit_produced"
-        },
-        {
-          "kind": "fn",
-          "line": 199,
-          "name": "on_structure_produced"
-        },
-        {
-          "kind": "trait",
-          "line": 210,
-          "name": "AIUpdateInterface"
-        },
-        {
-          "kind": "fn",
-          "line": 212,
-          "name": "update"
-        },
-        {
-          "kind": "fn",
-          "line": 215,
-          "name": "get_object_id"
-        },
-        {
-          "kind": "fn",
-          "line": 218,
-          "name": "is_idle"
-        },
-        {
-          "kind": "fn",
-          "line": 221,
-          "name": "is_busy"
-        },
-        {
-          "kind": "fn",
-          "line": 224,
-          "name": "get_current_command"
-        },
-        {
-          "kind": "fn",
-          "line": 232,
-          "name": "test_ai_manager_creation"
-        },
-        {
-          "kind": "fn",
-          "line": 239,
-          "name": "test_ai_manager_update"
-        },
-        {
-          "kind": "fn",
-          "line": 250,
-          "name": "test_ai_manager_reset"
-        }
-      ]
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
         "end_line": 71,
         "start_line": 1
       },
@@ -174136,26 +173938,109 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 119,
+        "end_line": 30,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/interface.rs",
+      "sha256": "6939aff0c6095611d8c8bce4273caced598d2c934b564912a1bc0b37d529b845",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "trait",
+          "line": 6,
+          "name": "AiPlayerTrait"
+        },
+        {
+          "kind": "fn",
+          "line": 8,
+          "name": "update"
+        },
+        {
+          "kind": "fn",
+          "line": 9,
+          "name": "update_economy"
+        },
+        {
+          "kind": "fn",
+          "line": 10,
+          "name": "update_construction"
+        },
+        {
+          "kind": "fn",
+          "line": 11,
+          "name": "update_diplomacy"
+        },
+        {
+          "kind": "fn",
+          "line": 12,
+          "name": "build_specific_building"
+        },
+        {
+          "kind": "fn",
+          "line": 13,
+          "name": "build_by_supplies"
+        },
+        {
+          "kind": "fn",
+          "line": 14,
+          "name": "build_upgrade"
+        },
+        {
+          "kind": "fn",
+          "line": 15,
+          "name": "build_specific_building_near_location"
+        },
+        {
+          "kind": "fn",
+          "line": 20,
+          "name": "repair_structure"
+        },
+        {
+          "kind": "fn",
+          "line": 21,
+          "name": "build_base_defense"
+        },
+        {
+          "kind": "fn",
+          "line": 22,
+          "name": "build_base_defense_structure"
+        },
+        {
+          "kind": "fn",
+          "line": 27,
+          "name": "get_player_id"
+        },
+        {
+          "kind": "fn",
+          "line": 28,
+          "name": "get_difficulty"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "implementation",
+      "file_range": {
+        "end_line": 122,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_player/mod.rs",
-      "sha256": "2cf55990e9a3b13ecfd0f71c84e02c5164be2e2ea242772804b4278067382bcc",
+      "sha256": "c150aad0ce9ef8894c17cb029c4fd55d54187fb560472d247f1fcdfe6f365196",
       "symbol_index_status": "indexed",
       "symbols": [
         {
           "kind": "fn",
-          "line": 62,
+          "line": 61,
           "name": "dual_world_registry_unavailable"
         },
         {
           "kind": "fn",
-          "line": 67,
+          "line": 66,
           "name": "to_ai_difficulty"
         },
         {
           "kind": "const",
-          "line": 102,
+          "line": 104,
           "name": "AI_PLAYER_SRC"
         }
       ]
@@ -175201,239 +175086,6 @@
           "kind": "fn",
           "line": 115,
           "name": "crc"
-        }
-      ]
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 595,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/ai_update.rs",
-      "sha256": "0463ec780ef8c663bee12c44881f538310756155d682cd142d0e7f626187689c",
-      "symbol_index_status": "indexed",
-      "symbols": [
-        {
-          "kind": "fn",
-          "line": 20,
-          "name": "dual_world_registry_unavailable"
-        },
-        {
-          "kind": "trait",
-          "line": 25,
-          "name": "AIUpdateInterface"
-        },
-        {
-          "kind": "fn",
-          "line": 26,
-          "name": "ai_update"
-        },
-        {
-          "kind": "const",
-          "line": 30,
-          "name": "AI_UPDATE_RATE"
-        },
-        {
-          "kind": "const",
-          "line": 31,
-          "name": "AI_PLAYER_UPDATE_RATE"
-        },
-        {
-          "kind": "const",
-          "line": 32,
-          "name": "AI_TARGETING_UPDATE_RATE"
-        },
-        {
-          "kind": "enum",
-          "line": 36,
-          "name": "AiUpdatePriority"
-        },
-        {
-          "kind": "enum",
-          "line": 46,
-          "name": "AiUpdateTaskType"
-        },
-        {
-          "kind": "struct",
-          "line": 60,
-          "name": "AiUpdateTask"
-        },
-        {
-          "kind": "enum",
-          "line": 72,
-          "name": "AiTaskData"
-        },
-        {
-          "kind": "struct",
-          "line": 109,
-          "name": "AiPerformanceMetrics"
-        },
-        {
-          "kind": "struct",
-          "line": 125,
-          "name": "AIUpdate"
-        },
-        {
-          "kind": "struct",
-          "line": 160,
-          "name": "DifficultyFactors"
-        },
-        {
-          "kind": "fn",
-          "line": 179,
-          "name": "default"
-        },
-        {
-          "kind": "struct",
-          "line": 202,
-          "name": "GlobalAiState"
-        },
-        {
-          "kind": "fn",
-          "line": 214,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 231,
-          "name": "set_pathfinding_system"
-        },
-        {
-          "kind": "fn",
-          "line": 239,
-          "name": "init"
-        },
-        {
-          "kind": "fn",
-          "line": 251,
-          "name": "update"
-        },
-        {
-          "kind": "fn",
-          "line": 279,
-          "name": "schedule_task"
-        },
-        {
-          "kind": "fn",
-          "line": 292,
-          "name": "get_performance_metrics"
-        },
-        {
-          "kind": "fn",
-          "line": 295,
-          "name": "has_ai_player"
-        },
-        {
-          "kind": "fn",
-          "line": 299,
-          "name": "register_ai_player"
-        },
-        {
-          "kind": "fn",
-          "line": 308,
-          "name": "with_ai_player_mut"
-        },
-        {
-          "kind": "fn",
-          "line": 321,
-          "name": "schedule_periodic_updates"
-        },
-        {
-          "kind": "fn",
-          "line": 352,
-          "name": "process_task_queue"
-        },
-        {
-          "kind": "fn",
-          "line": 408,
-          "name": "process_ai_task"
-        },
-        {
-          "kind": "fn",
-          "line": 532,
-          "name": "update_global_ai_state"
-        },
-        {
-          "kind": "fn",
-          "line": 540,
-          "name": "update_performance_metrics"
-        },
-        {
-          "kind": "trait",
-          "line": 559,
-          "name": "AiPlayerTrait"
-        },
-        {
-          "kind": "fn",
-          "line": 560,
-          "name": "update"
-        },
-        {
-          "kind": "fn",
-          "line": 561,
-          "name": "update_economy"
-        },
-        {
-          "kind": "fn",
-          "line": 562,
-          "name": "update_construction"
-        },
-        {
-          "kind": "fn",
-          "line": 563,
-          "name": "update_diplomacy"
-        },
-        {
-          "kind": "fn",
-          "line": 564,
-          "name": "build_specific_building"
-        },
-        {
-          "kind": "fn",
-          "line": 565,
-          "name": "build_by_supplies"
-        },
-        {
-          "kind": "fn",
-          "line": 566,
-          "name": "build_upgrade"
-        },
-        {
-          "kind": "fn",
-          "line": 567,
-          "name": "build_specific_building_near_location"
-        },
-        {
-          "kind": "fn",
-          "line": 572,
-          "name": "repair_structure"
-        },
-        {
-          "kind": "fn",
-          "line": 573,
-          "name": "build_base_defense"
-        },
-        {
-          "kind": "fn",
-          "line": 574,
-          "name": "build_base_defense_structure"
-        },
-        {
-          "kind": "fn",
-          "line": 579,
-          "name": "get_player_id"
-        },
-        {
-          "kind": "fn",
-          "line": 580,
-          "name": "get_difficulty"
-        },
-        {
-          "kind": "fn",
-          "line": 588,
-          "name": "test_ai_update_creation"
         }
       ]
     },
@@ -180308,401 +179960,401 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 925,
+        "end_line": 922,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/integration.rs",
-      "sha256": "f0cac67434ee9037146e2b18c84c79eea5e6fc41e94d0e4e5554f784701e4400",
+      "sha256": "9f496f7dd7e2adb14b7f07a406255adfd020c4c3b11ff824992f9fead4ff05a0",
       "symbol_index_status": "indexed",
       "symbols": [
         {
           "kind": "fn",
-          "line": 29,
+          "line": 28,
           "name": "dual_world_registry_unavailable"
         },
         {
           "kind": "enum",
-          "line": 32,
+          "line": 31,
           "name": "IntegratedAiPlayer"
         },
         {
           "kind": "fn",
-          "line": 39,
+          "line": 38,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 48,
+          "line": 47,
           "name": "set_difficulty"
         },
         {
           "kind": "fn",
-          "line": 55,
+          "line": 54,
           "name": "select_skillset"
         },
         {
           "kind": "fn",
-          "line": 62,
+          "line": 61,
           "name": "set_team_delay_seconds"
         },
         {
           "kind": "fn",
-          "line": 69,
+          "line": 68,
           "name": "build_base_defense"
         },
         {
           "kind": "fn",
-          "line": 76,
+          "line": 75,
           "name": "build_base_defense_structure"
         },
         {
           "kind": "fn",
-          "line": 91,
+          "line": 90,
           "name": "build_specific_building"
         },
         {
           "kind": "fn",
-          "line": 100,
+          "line": 99,
           "name": "build_specific_ai_team"
         },
         {
           "kind": "fn",
-          "line": 116,
+          "line": 115,
           "name": "recruit_specific_ai_team"
         },
         {
           "kind": "fn",
-          "line": 132,
+          "line": 131,
           "name": "build_by_supplies"
         },
         {
           "kind": "fn",
-          "line": 147,
+          "line": 146,
           "name": "build_upgrade"
         },
         {
           "kind": "fn",
-          "line": 154,
+          "line": 153,
           "name": "build_specific_building_near_location"
         },
         {
           "kind": "fn",
-          "line": 169,
+          "line": 168,
           "name": "repair_structure"
         },
         {
           "kind": "fn",
-          "line": 178,
+          "line": 177,
           "name": "check_bridges"
         },
         {
           "kind": "fn",
-          "line": 188,
+          "line": 187,
           "name": "on_structure_produced"
         },
         {
           "kind": "fn",
-          "line": 203,
+          "line": 202,
           "name": "is_supply_source_safe"
         },
         {
           "kind": "fn",
-          "line": 210,
+          "line": 209,
           "name": "is_supply_source_attacked"
         },
         {
           "kind": "fn",
-          "line": 219,
+          "line": 218,
           "name": "guard_supply_center"
         },
         {
           "kind": "fn",
-          "line": 233,
+          "line": 232,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 240,
+          "line": 239,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 247,
+          "line": 246,
           "name": "new_map"
         },
         {
           "kind": "fn",
-          "line": 254,
+          "line": 253,
           "name": "is_skirmish_ai"
         },
         {
           "kind": "fn",
-          "line": 258,
+          "line": 257,
           "name": "get_ai_difficulty"
         },
         {
           "kind": "fn",
-          "line": 265,
+          "line": 264,
           "name": "get_ai_enemy_index"
         },
         {
           "kind": "fn",
-          "line": 274,
+          "line": 273,
           "name": "build_specific_building_nearest_team"
         },
         {
           "kind": "fn",
-          "line": 292,
+          "line": 291,
           "name": "build_specific_building_nearest_team_by_name"
         },
         {
           "kind": "fn",
-          "line": 306,
+          "line": 305,
           "name": "calc_closest_construction_zone"
         },
         {
           "kind": "fn",
-          "line": 321,
+          "line": 320,
           "name": "calc_closest_construction_zone_at"
         },
         {
           "kind": "struct",
-          "line": 341,
+          "line": 340,
           "name": "AiIntegrationManager"
         },
         {
           "kind": "fn",
-          "line": 349,
+          "line": 348,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 357,
+          "line": 356,
           "name": "initialize"
         },
         {
           "kind": "fn",
-          "line": 365,
+          "line": 364,
           "name": "create_ai_player"
         },
         {
           "kind": "fn",
-          "line": 391,
+          "line": 390,
           "name": "insert_ai_player"
         },
         {
           "kind": "fn",
-          "line": 401,
+          "line": 400,
           "name": "ensure_ai_player"
         },
         {
           "kind": "fn",
-          "line": 407,
+          "line": 406,
           "name": "has_ai_player"
         },
         {
           "kind": "fn",
-          "line": 411,
+          "line": 410,
           "name": "attach_player_interface"
         },
         {
           "kind": "fn",
-          "line": 416,
+          "line": 415,
           "name": "player_interface"
         },
         {
           "kind": "fn",
-          "line": 420,
+          "line": 419,
           "name": "with_player_mut"
         },
         {
           "kind": "fn",
-          "line": 428,
+          "line": 427,
           "name": "with_player"
         },
         {
           "kind": "fn",
-          "line": 436,
+          "line": 435,
           "name": "xfer_ai_player"
         },
         {
           "kind": "fn",
-          "line": 451,
+          "line": 450,
           "name": "load_post_process_ai_player"
         },
         {
           "kind": "fn",
-          "line": 459,
+          "line": 458,
           "name": "remove_ai_player"
         },
         {
           "kind": "fn",
-          "line": 470,
+          "line": 469,
           "name": "set_ai_player_difficulty"
         },
         {
           "kind": "fn",
-          "line": 482,
+          "line": 481,
           "name": "with_ai_player_mut"
         },
         {
           "kind": "fn",
-          "line": 490,
+          "line": 489,
           "name": "with_ai_player"
         },
         {
           "kind": "fn",
-          "line": 500,
+          "line": 499,
           "name": "new_map"
         },
         {
           "kind": "fn",
-          "line": 543,
+          "line": 542,
           "name": "add_pathfinding_obstacle"
         },
         {
           "kind": "fn",
-          "line": 566,
+          "line": 565,
           "name": "remove_pathfinding_obstacle"
         },
         {
           "kind": "fn",
-          "line": 593,
+          "line": 592,
           "name": "notify_object_created"
         },
         {
           "kind": "fn",
-          "line": 631,
+          "line": 630,
           "name": "notify_object_destroyed"
         },
         {
           "kind": "fn",
-          "line": 658,
+          "line": 657,
           "name": "update_ai_players"
         },
         {
           "kind": "fn",
-          "line": 668,
+          "line": 667,
           "name": "update_ai_players_only"
         },
         {
           "kind": "fn",
-          "line": 675,
+          "line": 674,
           "name": "get_ai_player_count"
         },
         {
           "kind": "static",
-          "line": 683,
+          "line": 681,
           "name": "ref"
         },
         {
           "kind": "fn",
-          "line": 694,
+          "line": 692,
           "name": "take_ai_integration_for_world_boundary"
         },
         {
           "kind": "fn",
-          "line": 704,
+          "line": 702,
           "name": "replace_ai_integration_for_world_boundary"
         },
         {
           "kind": "fn",
-          "line": 714,
+          "line": 712,
           "name": "initialize_ai_integration"
         },
         {
           "kind": "fn",
-          "line": 725,
+          "line": 723,
           "name": "with_ai_integration"
         },
         {
           "kind": "fn",
-          "line": 733,
+          "line": 731,
           "name": "with_ai_integration_mut"
         },
         {
           "kind": "struct",
-          "line": 743,
+          "line": 741,
           "name": "AiPlayerBridge"
         },
         {
           "kind": "fn",
-          "line": 746,
+          "line": 744,
           "name": "to_common_difficulty"
         },
         {
           "kind": "fn",
-          "line": 760,
+          "line": 758,
           "name": "new_map"
         },
         {
           "kind": "fn",
-          "line": 765,
+          "line": 763,
           "name": "is_skirmish_ai"
         },
         {
           "kind": "fn",
-          "line": 773,
+          "line": 771,
           "name": "get_ai_enemy"
         },
         {
           "kind": "fn",
-          "line": 781,
+          "line": 779,
           "name": "get_ai_difficulty"
         },
         {
           "kind": "fn",
-          "line": 791,
+          "line": 789,
           "name": "build_specific_ai_team"
         },
         {
           "kind": "fn",
-          "line": 799,
+          "line": 797,
           "name": "build_ai_base_defense"
         },
         {
           "kind": "fn",
-          "line": 807,
+          "line": 805,
           "name": "build_ai_base_defense_structure"
         },
         {
           "kind": "fn",
-          "line": 815,
+          "line": 813,
           "name": "build_specific_ai_building"
         },
         {
           "kind": "fn",
-          "line": 823,
+          "line": 821,
           "name": "build_by_supplies"
         },
         {
           "kind": "fn",
-          "line": 831,
+          "line": 829,
           "name": "build_specific_building_nearest_team"
         },
         {
           "kind": "fn",
-          "line": 839,
+          "line": 837,
           "name": "build_upgrade"
         },
         {
           "kind": "fn",
-          "line": 847,
+          "line": 845,
           "name": "recruit_specific_ai_team"
         },
         {
           "kind": "fn",
-          "line": 855,
+          "line": 853,
           "name": "calc_closest_construction_zone"
         },
         {
           "kind": "fn",
-          "line": 877,
+          "line": 875,
           "name": "ai_player_interface"
         },
         {
           "kind": "fn",
-          "line": 898,
+          "line": 896,
           "name": "integration_manager_xfers_ai_player_snapshot_on_load"
         }
       ]
@@ -180711,11 +180363,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3330,
+        "end_line": 3326,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/mod.rs",
-      "sha256": "6fffcff7ab3462806a66c1982d49a2114cf18ed72a1cf8c8ce7d9131ed58c278",
+      "sha256": "20b47ab7ad8e33bb6390cd8b8e8b4d862ca825b70f41a621ac1b7c1a9497022c",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -181830,52 +181482,52 @@
         },
         {
           "kind": "fn",
-          "line": 3153,
+          "line": 3149,
           "name": "test_ai_group_creation"
         },
         {
           "kind": "fn",
-          "line": 3162,
+          "line": 3158,
           "name": "test_ai_group_membership"
         },
         {
           "kind": "fn",
-          "line": 3184,
+          "line": 3180,
           "name": "test_ai_command_params"
         },
         {
           "kind": "fn",
-          "line": 3194,
+          "line": 3190,
           "name": "test_skill_set_default"
         },
         {
           "kind": "fn",
-          "line": 3201,
+          "line": 3197,
           "name": "test_ai_data_side_info"
         },
         {
           "kind": "fn",
-          "line": 3217,
+          "line": 3213,
           "name": "find_broken_bridge_prefers_destroyed_layers_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 3254,
+          "line": 3250,
           "name": "is_attack_view_blocked_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 3277,
+          "line": 3273,
           "name": "attack_los_ignores_victim_cell_obstacle"
         },
         {
           "kind": "fn",
-          "line": 3295,
+          "line": 3291,
           "name": "slow_does_path_exist_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 3313,
+          "line": 3309,
           "name": "test_bridge_state_mapping_matches_cpp_boolean_semantics"
         }
       ]
@@ -182658,51 +182310,51 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 159,
+        "end_line": 155,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/modules/mod.rs",
-      "sha256": "07e066f8b3313b3f8ebb13de78fc232a2b8a9b2e684c1f3bed51efaef0fc20a8",
+      "sha256": "4d950185c0f3644d409f9e1bf6cdf6e4ed0885c9dc5c454fb6905e689a74ed5b",
       "symbol_index_status": "indexed",
       "symbols": [
         {
           "kind": "enum",
-          "line": 67,
+          "line": 63,
           "name": "AIModuleType"
         },
         {
           "kind": "enum",
-          "line": 82,
+          "line": 78,
           "name": "AIModulePriority"
         },
         {
           "kind": "enum",
-          "line": 91,
+          "line": 87,
           "name": "AIModuleState"
         },
         {
           "kind": "struct",
-          "line": 102,
+          "line": 98,
           "name": "AIUpdateContext"
         },
         {
           "kind": "fn",
-          "line": 114,
+          "line": 110,
           "name": "new"
         },
         {
           "kind": "fn",
-          "line": 133,
+          "line": 129,
           "name": "test_ai_module_types"
         },
         {
           "kind": "fn",
-          "line": 139,
+          "line": 135,
           "name": "test_ai_module_priority"
         },
         {
           "kind": "fn",
-          "line": 146,
+          "line": 142,
           "name": "test_ai_update_context"
         }
       ]
@@ -182906,252 +182558,6 @@
       "sha256": "9472958d9527824fbe9d2867aa74aaca9bd3b7e3ec9b41fce455787c30b040fd",
       "symbol_index_status": "indexed",
       "symbols": []
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 267,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/modules/target_prioritization.rs",
-      "sha256": "e71511e871bc76b13e0988b150e1f156b9a452b72c33868b63447e7f4b90738a",
-      "symbol_index_status": "indexed",
-      "symbols": [
-        {
-          "kind": "struct",
-          "line": 18,
-          "name": "TargetScore"
-        },
-        {
-          "kind": "fn",
-          "line": 27,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 36,
-          "name": "calculate_total"
-        },
-        {
-          "kind": "struct",
-          "line": 47,
-          "name": "PrioritizationWeights"
-        },
-        {
-          "kind": "fn",
-          "line": 55,
-          "name": "default"
-        },
-        {
-          "kind": "struct",
-          "line": 67,
-          "name": "PrioritizationTarget"
-        },
-        {
-          "kind": "struct",
-          "line": 78,
-          "name": "TargetPrioritization"
-        },
-        {
-          "kind": "fn",
-          "line": 85,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 107,
-          "name": "set_weights"
-        },
-        {
-          "kind": "fn",
-          "line": 111,
-          "name": "add_priority_modifier"
-        },
-        {
-          "kind": "fn",
-          "line": 115,
-          "name": "evaluate_target"
-        },
-        {
-          "kind": "fn",
-          "line": 161,
-          "name": "select_best_target"
-        },
-        {
-          "kind": "fn",
-          "line": 181,
-          "name": "get_target_score"
-        },
-        {
-          "kind": "fn",
-          "line": 185,
-          "name": "clear_scores"
-        },
-        {
-          "kind": "fn",
-          "line": 189,
-          "name": "get_top_n_targets"
-        },
-        {
-          "kind": "fn",
-          "line": 214,
-          "name": "default"
-        },
-        {
-          "kind": "fn",
-          "line": 224,
-          "name": "test_target_score_calculation"
-        },
-        {
-          "kind": "fn",
-          "line": 239,
-          "name": "test_target_prioritization"
-        }
-      ]
-    },
-    {
-      "cargo_reachable": true,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 313,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/modules/tech_progression.rs",
-      "sha256": "67714bfb6bde7757a3621bbbbb9c404d9f2a9414f7b6fd1ff79acaf13041bbce",
-      "symbol_index_status": "indexed",
-      "symbols": [
-        {
-          "kind": "enum",
-          "line": 14,
-          "name": "TechTier"
-        },
-        {
-          "kind": "enum",
-          "line": 21,
-          "name": "ResearchPriority"
-        },
-        {
-          "kind": "struct",
-          "line": 29,
-          "name": "TechNode"
-        },
-        {
-          "kind": "fn",
-          "line": 40,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 51,
-          "name": "can_research"
-        },
-        {
-          "kind": "struct",
-          "line": 60,
-          "name": "TechProgressionManager"
-        },
-        {
-          "kind": "enum",
-          "line": 74,
-          "name": "TechStrategy"
-        },
-        {
-          "kind": "fn",
-          "line": 82,
-          "name": "new"
-        },
-        {
-          "kind": "fn",
-          "line": 94,
-          "name": "add_tech_node"
-        },
-        {
-          "kind": "fn",
-          "line": 98,
-          "name": "set_strategy"
-        },
-        {
-          "kind": "fn",
-          "line": 103,
-          "name": "can_research"
-        },
-        {
-          "kind": "fn",
-          "line": 111,
-          "name": "start_research"
-        },
-        {
-          "kind": "fn",
-          "line": 121,
-          "name": "update"
-        },
-        {
-          "kind": "fn",
-          "line": 144,
-          "name": "queue_research"
-        },
-        {
-          "kind": "fn",
-          "line": 150,
-          "name": "get_available_research"
-        },
-        {
-          "kind": "fn",
-          "line": 161,
-          "name": "get_recommended_research"
-        },
-        {
-          "kind": "fn",
-          "line": 176,
-          "name": "has_completed"
-        },
-        {
-          "kind": "fn",
-          "line": 180,
-          "name": "get_current_tier"
-        },
-        {
-          "kind": "fn",
-          "line": 184,
-          "name": "update_resources"
-        },
-        {
-          "kind": "fn",
-          "line": 188,
-          "name": "update_current_tier"
-        },
-        {
-          "kind": "fn",
-          "line": 221,
-          "name": "auto_queue_next_research"
-        },
-        {
-          "kind": "fn",
-          "line": 229,
-          "name": "recalculate_priorities"
-        },
-        {
-          "kind": "fn",
-          "line": 259,
-          "name": "initialize_standard_tech_tree"
-        },
-        {
-          "kind": "fn",
-          "line": 282,
-          "name": "default"
-        },
-        {
-          "kind": "fn",
-          "line": 294,
-          "name": "test_tech_progression"
-        },
-        {
-          "kind": "fn",
-          "line": 305,
-          "name": "test_tech_prerequisites"
-        }
-      ]
     },
     {
       "cargo_reachable": true,
@@ -203694,11 +203100,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 585,
+        "end_line": 602,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/armor_upgrade/tests.rs",
-      "sha256": "65d6cca9297fe141b3a8e89501fc8b84e32a61c9a8bcaa189e57fe93f06e6bf4",
+      "sha256": "1c5c47181bc01f9220a6ea526e23cc08332d5499df1032ff138b4c35002271c2",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -203742,11 +203148,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 572,
+        "end_line": 580,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/experience_scalar_upgrade/tests.rs",
-      "sha256": "35d92a5019c26c07217fe762596471f2bcd2b8e06f73683cfe549b40c0142065",
+      "sha256": "97862d3e8cfc58bf85192cbece306a330153915cf28b337b7be3d92a2f1530e3",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -203790,11 +203196,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 485,
+        "end_line": 493,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade/installed_tests.rs",
-      "sha256": "31e037f51d18e4e9a0678ed61c1758844ced61a77139bcc736c50f8500001612",
+      "sha256": "b79146ab8ccc35b24c3a16ffa48da97f266112c7c12015d835b289560539d2ca",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -203818,7 +203224,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/max_health_upgrade/particle_callback_tests.rs",
-      "sha256": "33b203fdd980d87ff955d7ce1745966f0dc56a09f3b5a8f04ebdd29b672f3372",
+      "sha256": "5442e7519070b06e4f109e07c596d86a6f55836f7e053660eb1795ac2b9e8302",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -203886,11 +203292,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 351,
+        "end_line": 359,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/passengers_fire_upgrade/tests.rs",
-      "sha256": "3e97323966022c195d89baf05249bf5719667f98354522f2a6c8404e388667f4",
+      "sha256": "cba95576c37becb72ed1f24e873b516bb8c0f5114d763ff4cef74bb452ad2e98",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -203946,11 +203352,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 582,
+        "end_line": 590,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/status_bits_upgrade/tests.rs",
-      "sha256": "c578d11d731b4dd4046e1f70879fd6aa1316fc9607504371311d1fd3e962ecc7",
+      "sha256": "d7ab01b1765b86c91cd26cf14ae0ba5043bcf99d8b390efd85e7555ad047a6e3",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -203994,11 +203400,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 465,
+        "end_line": 473,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/subobjects_upgrade/tests.rs",
-      "sha256": "3512301b9cf145a6071aa0af8384a9cd5d0354dedeb1639cbbec2e84aa9654ed",
+      "sha256": "d50371d39e83a89c695f77352c803c0825d01461034feed790df1a1b34a14186",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -204054,11 +203460,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 616,
+        "end_line": 624,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/weapon_bonus_upgrade/tests.rs",
-      "sha256": "ca380a7047c01183264ca14979dc41b6656063f99fbbbc3bbc06aef4737e5edd",
+      "sha256": "b5805799a8d84aa0699d14b862e3dfb9a4483fa09f90ac942b756ae8611ddee3",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -218611,7 +218017,7 @@
     },
     "behavior_verified": 1,
     "blockers_by_kind": {
-      "duplicate_implementation_destination": 654,
+      "duplicate_implementation_destination": 656,
       "missing_mapping": 23,
       "no_reachable_implementation": 686,
       "ownership_symbol": 6,
@@ -218677,13 +218083,13 @@
       }
     },
     "deferred_network_translation_units": 47,
-    "duplicate_implementation_destinations": 307,
+    "duplicate_implementation_destinations": 308,
     "orphan_ownership_records": 0,
     "reachable_implementation_candidates": 703,
     "required_translation_units": 1389,
     "reviewed_path_implementations": 8,
     "source_range_ownership_reviewed": 3,
-    "strict_blockers": 4182,
+    "strict_blockers": 4184,
     "symbol_ownership_reviewed": 1,
     "translation_units": 1436
   }

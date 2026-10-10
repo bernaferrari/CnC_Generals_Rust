@@ -167,6 +167,14 @@ struct Effects {
 }
 
 impl FXListManagerInterface for Effects {
+    fn do_fx_for_host_objects(
+        &self,
+        _: FXListId,
+        _: &crate::helpers::HostFxObjectPose,
+        _: Option<&crate::helpers::HostFxObjectPose>,
+    ) {
+        panic!("this upgrade fixture must observe its borrowed Core Object");
+    }
     fn do_fx_pos(&self, _: FXListId, _: &Coord3D, _: Option<&glam::Mat4>) {
         panic!("SubObjectsUpgrade must use the actual object FX boundary");
     }

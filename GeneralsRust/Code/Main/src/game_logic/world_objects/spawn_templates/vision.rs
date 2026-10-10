@@ -28,8 +28,6 @@ impl GameLogic {
         let mut live_lookers = std::collections::HashSet::new();
         let mut live_reveal_all = std::collections::HashSet::new();
         let mut live_covers = std::collections::HashSet::new();
-        let mut cell_ops: Vec<(Coord3D, f32, u32, bool)> = Vec::new();
-        let mut cover_ops: Vec<(Coord3D, f32, u32, bool)> = Vec::new();
 
         let snaps: Vec<_> = self
             .objects
@@ -109,7 +107,6 @@ impl GameLogic {
                             &mut self.vision_last_looks,
                             &mut live_lookers,
                             &mut shroud_mgr,
-                            &mut cell_ops,
                             id,
                             center,
                             shroud_range,
@@ -138,7 +135,6 @@ impl GameLogic {
                                 &mut self.vision_last_reveal_all,
                                 &mut live_reveal_all,
                                 &mut shroud_mgr,
-                                &mut cell_ops,
                                 id,
                                 center,
                                 reveal_all_range,
@@ -168,7 +164,6 @@ impl GameLogic {
                             &mut self.vision_last_shroud,
                             &mut live_covers,
                             &mut shroud_mgr,
-                            &mut cover_ops,
                             id,
                             center,
                             cover_range,
@@ -183,7 +178,6 @@ impl GameLogic {
             &mut self.vision_last_looks,
             &live_lookers,
             &mut shroud_mgr,
-            &mut cell_ops,
             persist,
             frame,
         );
@@ -191,7 +185,6 @@ impl GameLogic {
             &mut self.vision_last_reveal_all,
             &live_reveal_all,
             &mut shroud_mgr,
-            &mut cell_ops,
             persist,
             frame,
         );
@@ -199,22 +192,10 @@ impl GameLogic {
             &mut self.vision_last_shroud,
             &live_covers,
             &mut shroud_mgr,
-            &mut cover_ops,
         );
 
-        drop(shroud_mgr);
-        for (center, radius, mask, add) in cover_ops {
-            gamelogic::object::stamp_partition_cell_covers(&center, radius, mask, add);
-        }
-        for (center, radius, mask, add) in cell_ops {
-            gamelogic::object::stamp_partition_cell_lookers(&center, radius, mask, add);
-        }
-
-        // C++ PartitionData::getShroudedStatus — object FOW is the footprint
-        // COI mix, not a VisionRange circle (hq-mvlin).
-        let Ok(mut shroud_mgr) = shroud.lock() else {
-            return;
-        };
+        // Reveal/cover counters, delayed expiry and object COI mixing all read
+        // this session's grid. No competing global partition stamp/writeback.
         use crate::game_logic::partition_coi::{
             cells_touched_for_footprint, mix_object_shroud_from_cells,
         };
@@ -263,10 +244,10 @@ impl GameLogic {
                     shroud_mgr.set_host_object_ever_seen(pid, id.0, true);
                     continue;
                 }
-                // C++ PartitionData mixes the live 40wu COIs. Sample the whole
-                // footprint under one partition guard, preserving the sparse
-                // compatibility-grid fallback and immediate coverage changes.
-                let counts = gamelogic::object::partition_cell_shroud_counts(pid as i32, &cells);
+                // C++ PartitionData mixes live 40wu COIs within the map. Read
+                // the same owned counters updated above, including queued
+                // unlooks and immediate shroud-cover changes.
+                let counts = shroud_mgr.count_footprint_cells(pid, &cells);
                 let ever = shroud_mgr.host_object_ever_seen(pid, id.0);
                 let relationship_neutral = match owner {
                     Some(oid) => self.player_relationship(pid, oid) == Relationship::Neutral,

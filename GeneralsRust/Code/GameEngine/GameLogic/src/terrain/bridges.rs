@@ -46,12 +46,24 @@ impl TerrainLogic {
             return;
         }
         let mut changed = false;
+        self.for_each_bridge(|bridge| {
+            let info = bridge.get_bridge_info();
+            changed |= info.bridge_object_id == object_id && info.cur_damage_state != state;
+        });
+        if !changed {
+            return;
+        }
+        // CPP Bridge::updateDamageState marks only entering/leaving rubble
+        // as broken or repaired. This target write must not erase another
+        // bridge's transition in the host's completed bridge phase.
         self.for_each_bridge_mut(|bridge| {
             if bridge.get_bridge_info().bridge_object_id == object_id {
                 let info = bridge.bridge_info_mut();
                 if info.cur_damage_state != state {
+                    let old_state = info.cur_damage_state;
                     info.cur_damage_state = state;
-                    info.damage_state_changed = true;
+                    info.damage_state_changed =
+                        old_state == BodyDamageType::Rubble || state == BodyDamageType::Rubble;
                     changed = true;
                 }
             }
@@ -62,6 +74,15 @@ impl TerrainLogic {
                 radar.queue_terrain_refresh();
             }
         }
+    }
+
+    /// CPP TerrainLogic::update clears this gate after the early script pass.
+    /// Querying a named bridge does not consume the previous frame's event.
+    pub fn begin_host_bridge_frame(&mut self) {
+        self.bridge_damage_states_changed = false;
+        self.for_each_bridge_mut(|bridge| {
+            bridge.bridge_info_mut().damage_state_changed = false;
+        });
     }
 
     /// Deck Z for a live host XZ sample (C++ XY). None when not on a live span.

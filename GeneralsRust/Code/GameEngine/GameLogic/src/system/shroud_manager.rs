@@ -460,15 +460,15 @@ impl ShroudGrid {
             return;
         }
 
-        let (center_x, center_y) = match self.world_to_grid(center) {
-            Some(coords) => coords,
-            None => return,
-        };
+        // C++ draws around a signed center even outside the map; each
+        // horizontal span clips against the grid bounds below.
+        let center_x = (center.x / self.cell_size).floor() as i32;
+        let center_y = (center.y / self.cell_size).floor() as i32;
 
         let cell_radius = self.world_to_cell_dist(radius);
 
         // Use DiscreteCircle algorithm to add lookers to all cells in the circle
-        let circle = DiscreteCircle::new(center_x as i32, center_y as i32, cell_radius);
+        let circle = DiscreteCircle::new(center_x, center_y, cell_radius);
         for line in circle.edges() {
             self.add_looker_horizontal_line(line.x_start, line.x_end, line.y_pos, player_id);
             // Draw bottom half if not at center
@@ -486,14 +486,14 @@ impl ShroudGrid {
             return;
         }
 
-        let (center_x, center_y) = match self.world_to_grid(center) {
-            Some(coords) => coords,
-            None => return,
-        };
+        // C++ draws around a signed center even outside the map; each
+        // horizontal span clips against the grid bounds below.
+        let center_x = (center.x / self.cell_size).floor() as i32;
+        let center_y = (center.y / self.cell_size).floor() as i32;
 
         let cell_radius = self.world_to_cell_dist(radius);
 
-        let circle = DiscreteCircle::new(center_x as i32, center_y as i32, cell_radius);
+        let circle = DiscreteCircle::new(center_x, center_y, cell_radius);
         for line in circle.edges() {
             self.add_shrouder_horizontal_line(line.x_start, line.x_end, line.y_pos, player_id);
             if line.y_pos != circle.y_center() {
@@ -560,15 +560,15 @@ impl ShroudGrid {
             return;
         }
 
-        let (center_x, center_y) = match self.world_to_grid(center) {
-            Some(coords) => coords,
-            None => return,
-        };
+        // C++ draws around a signed center even outside the map; each
+        // horizontal span clips against the grid bounds below.
+        let center_x = (center.x / self.cell_size).floor() as i32;
+        let center_y = (center.y / self.cell_size).floor() as i32;
 
         let cell_radius = self.world_to_cell_dist(radius);
 
         // Use DiscreteCircle algorithm to remove lookers from all cells in the circle
-        let circle = DiscreteCircle::new(center_x as i32, center_y as i32, cell_radius);
+        let circle = DiscreteCircle::new(center_x, center_y, cell_radius);
         for line in circle.edges() {
             self.remove_looker_horizontal_line(line.x_start, line.x_end, line.y_pos, player_id);
             // Draw bottom half if not at center
@@ -586,14 +586,14 @@ impl ShroudGrid {
             return;
         }
 
-        let (center_x, center_y) = match self.world_to_grid(center) {
-            Some(coords) => coords,
-            None => return,
-        };
+        // C++ draws around a signed center even outside the map; each
+        // horizontal span clips against the grid bounds below.
+        let center_x = (center.x / self.cell_size).floor() as i32;
+        let center_y = (center.y / self.cell_size).floor() as i32;
 
         let cell_radius = self.world_to_cell_dist(radius);
 
-        let circle = DiscreteCircle::new(center_x as i32, center_y as i32, cell_radius);
+        let circle = DiscreteCircle::new(center_x, center_y, cell_radius);
         for line in circle.edges() {
             self.remove_shrouder_horizontal_line(line.x_start, line.x_end, line.y_pos, player_id);
             if line.y_pos != circle.y_center() {
@@ -823,7 +823,7 @@ impl ShroudGrid {
         y_pos: i32,
         player_id: usize,
     ) {
-        if y_pos < 0 || y_pos >= self.height as i32 {
+        if y_pos < 0 || y_pos >= self.height as i32 || x_start >= self.width as i32 || x_end < 0 {
             return;
         }
 
@@ -845,7 +845,7 @@ impl ShroudGrid {
         y_pos: i32,
         player_id: usize,
     ) {
-        if y_pos < 0 || y_pos >= self.height as i32 {
+        if y_pos < 0 || y_pos >= self.height as i32 || x_start >= self.width as i32 || x_end < 0 {
             return;
         }
 
@@ -867,7 +867,7 @@ impl ShroudGrid {
         y_pos: i32,
         player_id: usize,
     ) {
-        if y_pos < 0 || y_pos >= self.height as i32 {
+        if y_pos < 0 || y_pos >= self.height as i32 || x_start >= self.width as i32 || x_end < 0 {
             return;
         }
 
@@ -889,7 +889,7 @@ impl ShroudGrid {
         y_pos: i32,
         player_id: usize,
     ) {
-        if y_pos < 0 || y_pos >= self.height as i32 {
+        if y_pos < 0 || y_pos >= self.height as i32 || x_start >= self.width as i32 || x_end < 0 {
             return;
         }
 
@@ -1215,6 +1215,34 @@ impl ShroudManager {
         self.shroud_grid
             .as_ref()
             .map(|g| (g.width, g.height, g.cell_size))
+    }
+
+    /// Count the driving map's footprint cells for C++ object-shroud mixing.
+    /// Off-map cells have no COIs (PartitionManager.cpp:1619-1622). An
+    /// uninitialized map likewise contributes no cells; never consult another
+    /// world's partition or clone mutable grid state to answer this query.
+    pub fn count_footprint_cells(
+        &self,
+        player_id: u32,
+        cells: &[(i32, i32)],
+    ) -> crate::object::collide::partition_shroud::PartitionCellShroudCounts {
+        use crate::object::collide::partition_shroud::PartitionCellShroudCounts;
+        let Some(grid) = self.shroud_grid.as_ref() else {
+            return PartitionCellShroudCounts::default();
+        };
+        if player_id as usize >= MAX_PLAYER_COUNT {
+            return PartitionCellShroudCounts::default();
+        }
+        let on_map = cells.iter().copied().filter(|&(x, y)| {
+            x >= 0 && y >= 0 && (x as usize) < grid.width && (y as usize) < grid.height
+        });
+        PartitionCellShroudCounts::sample(on_map, |x, y| {
+            match grid.get_cell_state(player_id as usize, x as usize, y as usize) {
+                ShroudState::Hidden => CellShroudStatus::Shrouded,
+                ShroudState::Explored => CellShroudStatus::Fogged,
+                ShroudState::Visible => CellShroudStatus::Clear,
+            }
+        })
     }
 
     /// Compact per-cell shroud state for one player (row-major `y * width + x`).
@@ -2615,8 +2643,8 @@ impl Default for ShroudManager {
 
 /// The active ShroudManager (C++ `ThePartitionManager` shroud state): the
 /// installed world bundle's manager, or the engine-lifetime manager when no
-/// GameLogic world is active. World bundles snapshot-clone the engine
-/// content under a fresh lock, so per-world mutations die with the world.
+/// GameLogic world is active. World bundles start with a fresh manager;
+/// mutable map counters and reveal queues are never inherited from the engine.
 pub fn get_shroud_manager() -> Arc<Mutex<ShroudManager>> {
     crate::system::engine_stores::shroud_manager()
 }

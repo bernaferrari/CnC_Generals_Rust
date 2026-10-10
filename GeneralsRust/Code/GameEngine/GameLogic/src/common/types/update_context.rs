@@ -892,6 +892,16 @@ pub trait FXListManagerInterface: std::fmt::Debug + Send + Sync {
     /// Implementations must retain this identity and avoid reacquiring its lock.
     fn do_fx_for_object(&self, fx_list: FXListId, object: &crate::object::Object);
 
+    /// Execute using the driving host's event-time object observations.
+    /// Never resolve these IDs through another object registry or pose table.
+    /// Preserve object attachment, bone dispatch, and primary visibility.
+    fn do_fx_for_host_objects(
+        &self,
+        fx_list: FXListId,
+        primary: &crate::helpers::HostFxObjectPose,
+        secondary: Option<&crate::helpers::HostFxObjectPose>,
+    );
+
     /// Execute FX on an object with an optional source object for orientation.
     fn do_fx_obj_with_source(
         &self,

@@ -246,6 +246,22 @@ fn host_object_fx_radius(obj: &crate::game_logic::Object) -> f32 {
 }
 
 impl crate::game_logic::GameLogic {
+    fn host_object_fx_is_shrouded(&self, id: crate::game_logic::ObjectId) -> bool {
+        use gamelogic::common::types::ObjectShroudStatus;
+        let Some(player) = self.local_player_id() else {
+            return true;
+        };
+        let Ok(shroud) = self.world_services.shroud().lock() else {
+            return true;
+        };
+        // Keep the host adapter's existing unknown-status policy. The status
+        // must be sampled from this owner at the synchronous FX observation,
+        // not from the most recently activated world or presentation frame.
+        shroud
+            .get_host_object_shroud_status(player, id.0)
+            .is_some_and(|status| (status as u8) >= (ObjectShroudStatus::Fogged as u8))
+    }
+
     /// C++ `FXList::doFXObj` using the live host object, not leftover registry.
     pub fn dispatch_fx_list_at_host_object(
         &self,
@@ -253,29 +269,54 @@ impl crate::game_logic::GameLogic {
         primary_id: crate::game_logic::ObjectId,
         secondary_id: Option<crate::game_logic::ObjectId>,
     ) -> bool {
-        if let Some(obj) = self.host_object(primary_id) {
-            publish_host_fx_object_ex(
+        let primary = self.host_object(primary_id).map(|obj| {
+            host_fx_object_pose(
                 obj.id.0,
                 obj.get_position(),
                 obj.get_orientation(),
                 obj.owner_player_id.map(|p| p as i32).unwrap_or(-1),
                 host_object_fx_radius(obj),
-            );
-        }
-        if let Some(sid) = secondary_id {
-            if let Some(obj) = self.host_object(sid) {
-                publish_host_fx_object_ex(
+                self.host_object_fx_is_shrouded(primary_id),
+            )
+        });
+        let secondary = secondary_id.and_then(|sid| {
+            self.host_object(sid).map(|obj| {
+                host_fx_object_pose(
                     obj.id.0,
                     obj.get_position(),
                     obj.get_orientation(),
                     obj.owner_player_id.map(|p| p as i32).unwrap_or(-1),
                     host_object_fx_radius(obj),
-                );
-            }
+                    self.host_object_fx_is_shrouded(sid),
+                )
+            })
+        });
+        // Attached systems still use the published scene poses between logic
+        // callbacks. Immediate FX receives these owned values directly.
+        if let Some(primary) = primary {
+            gamelogic::helpers::set_host_fx_object_pose(primary);
         }
-        dispatch_fx_list_at_object(name, primary_id.0, secondary_id.map(|id| id.0))
+        if let Some(secondary) = secondary {
+            gamelogic::helpers::set_host_fx_object_pose(secondary);
+        }
+        let Some(primary) = primary else {
+            return false;
+        };
+        let name = strip_fx_list_prefix(name);
+        if is_none_fx_list(name) {
+            return false;
+        }
+        let Some(fx) = gamelogic::helpers::TheFXList::get() else {
+            return false;
+        };
+        fx.do_fx_for_host_objects(name, &primary, secondary.as_ref());
+        gamelogic::helpers::get_fx_list_manager().is_some()
     }
 }
+
+#[cfg(all(test, feature = "game_client"))]
+#[path = "host_fx_owner_tests.rs"]
+mod owner_tests;
 
 /// Sound nugget names (`m_soundName`) authored inside `name`.
 ///

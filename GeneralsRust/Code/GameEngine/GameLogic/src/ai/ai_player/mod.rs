@@ -18,7 +18,6 @@
 )]
 
 use super::SkillSet;
-use super::ai_update::AiPlayerTrait;
 use crate::ai::modules::GameDifficulty as AiGameDifficulty;
 use crate::ai::modules::{
     BuildOrderOptimizer, DifficultyHandler, StrategicDecision, StrategicDecisionMaker,
@@ -73,6 +72,9 @@ pub(crate) fn to_ai_difficulty(diff: GameDifficulty) -> AiGameDifficulty {
     }
 }
 
+mod interface;
+pub use interface::AiPlayerTrait;
+
 mod impl_build;
 mod impl_dozer;
 mod impl_economy;
@@ -101,6 +103,7 @@ pub use work_order::*;
 /// Concatenated live sources for residual `include_str!` scans.
 pub const AI_PLAYER_SRC: &str = concat!(
     include_str!("mod.rs"),
+    include_str!("interface.rs"),
     include_str!("impl_build.rs"),
     include_str!("impl_dozer.rs"),
     include_str!("impl_economy.rs"),

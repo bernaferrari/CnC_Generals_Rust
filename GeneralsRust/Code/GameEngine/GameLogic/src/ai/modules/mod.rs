@@ -31,8 +31,6 @@ pub mod worker_ai;
 pub mod build_order;
 pub mod difficulty_handling;
 pub mod strategic_decision;
-pub mod target_prioritization;
-pub mod tech_progression;
 pub mod threat_assessment;
 
 // Re-export commonly used types
@@ -55,8 +53,6 @@ pub use strategic_decision::{
     AttackTiming, ExpansionStrategy, GamePhase, ResourceManagementStrategy, StrategicDecision,
     StrategicDecisionMaker, StrategicStance,
 };
-pub use target_prioritization::TargetPrioritization;
-pub use tech_progression::TechProgressionManager;
 pub use threat_assessment::ThreatAssessmentSystem;
 
 use crate::ai::AiError;

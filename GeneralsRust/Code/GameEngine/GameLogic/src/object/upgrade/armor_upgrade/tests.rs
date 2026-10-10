@@ -294,6 +294,14 @@ struct Effects {
     calls: AtomicUsize,
 }
 impl FXListManagerInterface for Effects {
+    fn do_fx_for_host_objects(
+        &self,
+        _: FXListId,
+        _: &crate::helpers::HostFxObjectPose,
+        _: Option<&crate::helpers::HostFxObjectPose>,
+    ) {
+        panic!("this upgrade fixture must observe its borrowed Core Object");
+    }
     fn do_fx_pos(&self, _: FXListId, _: &Coord3D, _: Option<&glam::Mat4>) {
         panic!("must use actual driving owner");
     }
@@ -467,7 +475,7 @@ fn chem_suit_decal_uses_module_triggered_by() {
 struct ReentrantDecals {
     drawable: Arc<RwLock<Drawable>>,
     first: crate::object::drawable::DrawableModuleHandle,
-    events: std::sync::Mutex<Vec<(bool, Option<crate::object::draw::TerrainDecalDesc>)>>,
+    events: std::sync::mpsc::Sender<(bool, Option<crate::object::draw::TerrainDecalDesc>)>,
 }
 impl crate::object::draw::TerrainDecalClient for ReentrantDecals {
     fn release(&self, id: ObjectID) {
@@ -480,14 +488,14 @@ impl crate::object::draw::TerrainDecalClient for ReentrantDecals {
                 .unwrap();
             crate::object::draw::draw_module::DrawModule::set_shadows_enabled(model, false);
         });
-        self.events.lock().unwrap().push((false, None));
+        self.events.send((false, None)).unwrap();
     }
     fn set_decal(&self, desc: &crate::object::draw::TerrainDecalDesc) {
         assert_eq!(self.drawable.read().unwrap().get_instance_scale(), 2.0);
         self.first.with_module(|module| {
             assert!(module.as_any().is::<crate::object::draw::W3DModelDraw>())
         });
-        self.events.lock().unwrap().push((true, Some(desc.clone())));
+        self.events.send((true, Some(desc.clone()))).unwrap();
     }
     fn set_size(&self, _: ObjectID, _: f32, _: f32) {}
     fn set_opacity(&self, _: ObjectID, _: f32) {}
@@ -535,17 +543,18 @@ fn chemical_suits_real_w3d_callback_releases_guards_and_precedes_description() {
         Arc::new(data),
         Box::new(second),
     );
+    let (events_tx, events_rx) = std::sync::mpsc::channel();
     let client = Arc::new(ReentrantDecals {
         drawable: owner.drawable.clone(),
         first,
-        events: std::sync::Mutex::new(Vec::new()),
+        events: events_tx,
     });
     crate::object::draw::register_terrain_decal_client(client.clone());
     crate::object::registry::OBJECT_REGISTRY.register_object(ID, &owner.object);
     let registration = RegisteredOwner(owner.object.clone());
     owner.apply(CHEM);
     assert!(owner.applied() && owner.armored());
-    let events = client.events.lock().unwrap();
+    let mut events: Vec<_> = events_rx.try_iter().collect();
     assert_eq!(
         events.len(),
         2,
@@ -570,15 +579,23 @@ fn chemical_suits_real_w3d_callback_releases_guards_and_precedes_description() {
         "Rust description observes the release hook's live model change"
     );
     assert!(!desc.is_unit_blob);
-    drop(events);
     second.with_module(|module| assert!(module.as_any().is::<crate::object::draw::W3DModelDraw>()));
     owner.apply(CHEM);
+    events.extend(events_rx.try_iter());
     assert_eq!(
-        client.events.lock().unwrap().len(),
+        events.len(),
         2,
         "executed repeated grant has no visual effects"
     );
     drop(registration);
+    // Destruction releases the decal too. Keep the receiver alive through
+    // that real callback instead of closing it during automatic stack drop.
+    drop(owner);
+    let teardown: Vec<_> = events_rx.try_iter().collect();
+    // The existing Rust ID adapter releases once per installed W3D model,
+    // including the second model with no decal resource (idempotent hook).
+    assert_eq!(teardown.len(), 2, "both model deletion hooks release");
+    assert!(teardown.iter().all(|event| !event.0 && event.1.is_none()));
     // The recorder owns exactly the fixture Drawable; process lifetime ends
     // before any unrelated test can reuse this one-shot hook.
 }

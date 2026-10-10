@@ -3,38 +3,29 @@
 //! script eval / EVA process / camera path / script camera
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
-use std::cell::RefCell;
 use std::collections::HashMap;
-
-thread_local! {
-    static HOST_PREV_BRIDGE_BROKEN: RefCell<HashMap<String, bool>> =
-        RefCell::new(HashMap::new());
-}
 
 fn merge_host_bridge_states(
     world: &GameLogic,
     snap: &mut gamelogic::scripting::HostScriptQuerySnapshot,
 ) {
-    use crate::game_logic::host_bridge_behavior::is_bridge_span_template;
-    let mut current = HashMap::new();
+    // CPP ScriptConditions.cpp:244-272 reads the terrain phase's latch and
+    // the named bridge's transition. A query never advances or consumes it.
+    let terrain = world
+        .world_services
+        .terrain()
+        .read()
+        .expect("owned terrain bridge query");
+    snap.any_bridges_damage_states_changed = terrain.bridge_damage_states_changed();
     for obj in world.host_objects().values() {
-        if obj.name.is_empty() || !is_bridge_span_template(&obj.template_name) {
+        if obj.name.is_empty() {
             continue;
         }
-        let broken = !obj.is_alive() || obj.status.destroyed || obj.health.current <= 0.0;
-        current.insert(obj.name.clone(), broken);
-        snap.named_bridge_broken.insert(obj.name.clone(), broken);
-        snap.named_bridge_repaired.insert(obj.name.clone(), !broken);
+        snap.named_bridge_broken
+            .insert(obj.name.clone(), terrain.is_bridge_broken(obj.id.0));
+        snap.named_bridge_repaired
+            .insert(obj.name.clone(), terrain.is_bridge_repaired(obj.id.0));
     }
-    snap.any_bridges_damage_states_changed = HOST_PREV_BRIDGE_BROKEN.with(|prev| {
-        let mut prev = prev.borrow_mut();
-        let changed = !prev.is_empty()
-            && current
-                .iter()
-                .any(|(name, broken)| prev.get(name) != Some(broken));
-        *prev = current;
-        changed
-    });
 }
 
 /// C++ KINDOF_INERT from leftover ThingTemplate when the factory is already loaded.
@@ -262,3 +253,6 @@ mod camera_view_drain_tests;
 
 #[cfg(test)]
 mod script_ai_player_owner_tests;
+
+#[cfg(test)]
+mod bridge_condition_owner_tests;

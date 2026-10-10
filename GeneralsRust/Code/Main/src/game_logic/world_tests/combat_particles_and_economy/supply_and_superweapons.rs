@@ -1667,6 +1667,7 @@ fn radar_scan_does_not_queue_superweapon_strike() {
     use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
 
     let mut game_logic = GameLogic::new();
+    install_sensor_power_test_map(&mut game_logic);
     // Activation needs a registered controller: C++ RadarVanPing reveals via
     // the caster's Player relationship mask (Object::look allies by Player).
     game_logic.add_player(Player::new(0, Team::USA, "USA", true));
@@ -1678,18 +1679,18 @@ fn radar_scan_does_not_queue_superweapon_strike() {
         30_000,
     );
     let caster_id = game_logic
-        .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .create_object_for_player("TestTank", 0, Vec3::new(0.0, 0.0, 0.0))
         .expect("caster");
     {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
-        caster.set_special_power_ready(true);
-        caster.special_power_cooldown_remaining = 0.0;
-        // create_object pre-arms the module ReloadTime on the per-power
-        // map; simulate a fully recharged caster like C++ isReady.
-        caster
-            .special_power_cooldowns
-            .remove(&SpecialPowerType::RadarScan);
+        // C++ SpecialPowerModule::setReadyFrame: recharge this authored power.
+        caster.set_special_power_ready_seconds(&SpecialPowerType::RadarScan, 0.0);
     }
+    assert_eq!(
+        game_logic.host_object(caster_id).unwrap().owner_player_id,
+        Some(0)
+    );
+    assert!(game_logic.is_special_power_ready_for(caster_id, &SpecialPowerType::RadarScan));
 
     game_logic.queue_command(GameCommand {
         command_type: CommandType::DoSpecialPower {
@@ -1727,6 +1728,7 @@ fn radar_scan_special_power_reveals_fow() {
     use gamelogic::common::Coord3D;
 
     let mut game_logic = GameLogic::new();
+    install_sensor_power_test_map(&mut game_logic);
     // Initialize and inspect the shroud owned by this world.
     {
         let shroud_manager = game_logic.world_services.shroud();
@@ -1747,18 +1749,18 @@ fn radar_scan_special_power_reveals_fow() {
     );
 
     let caster_id = game_logic
-        .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+        .create_object_for_player("TestTank", 0, Vec3::new(10.0, 0.0, 10.0))
         .expect("caster");
     {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
-        caster.set_special_power_ready(true);
-        caster.special_power_cooldown_remaining = 0.0;
-        // create_object pre-arms the module ReloadTime on the per-power
-        // map; simulate a fully recharged caster like C++ isReady.
-        caster
-            .special_power_cooldowns
-            .remove(&SpecialPowerType::RadarScan);
+        // C++ SpecialPowerModule::setReadyFrame: recharge this authored power.
+        caster.set_special_power_ready_seconds(&SpecialPowerType::RadarScan, 0.0);
     }
+    assert_eq!(
+        game_logic.host_object(caster_id).unwrap().owner_player_id,
+        Some(0)
+    );
+    assert!(game_logic.is_special_power_ready_for(caster_id, &SpecialPowerType::RadarScan));
 
     // Far from caster so unit vision does not already clear the cell.
     let target = Vec3::new(250.0, 0.0, 250.0);
@@ -1858,6 +1860,7 @@ fn spy_satellite_does_not_queue_superweapon_strike() {
     use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
 
     let mut game_logic = GameLogic::new();
+    install_sensor_power_test_map(&mut game_logic);
     // Activation needs a registered controller: C++ RadarVanPing reveals via
     // the caster's Player relationship mask (Object::look allies by Player).
     game_logic.add_player(Player::new(0, Team::USA, "USA", true));
@@ -1869,18 +1872,18 @@ fn spy_satellite_does_not_queue_superweapon_strike() {
         60_000,
     );
     let caster_id = game_logic
-        .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .create_object_for_player("TestTank", 0, Vec3::new(0.0, 0.0, 0.0))
         .expect("caster");
     {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
-        caster.set_special_power_ready(true);
-        caster.special_power_cooldown_remaining = 0.0;
-        // create_object pre-arms the module ReloadTime on the per-power
-        // map; simulate a fully recharged caster like C++ isReady.
-        caster
-            .special_power_cooldowns
-            .remove(&SpecialPowerType::SpySatellite);
+        // C++ SpecialPowerModule::setReadyFrame: recharge this authored power.
+        caster.set_special_power_ready_seconds(&SpecialPowerType::SpySatellite, 0.0);
     }
+    assert_eq!(
+        game_logic.host_object(caster_id).unwrap().owner_player_id,
+        Some(0)
+    );
+    assert!(game_logic.is_special_power_ready_for(caster_id, &SpecialPowerType::SpySatellite));
 
     game_logic.queue_command(GameCommand {
         command_type: CommandType::DoSpecialPower {
@@ -1920,6 +1923,7 @@ fn spy_satellite_special_power_reveals_fow() {
     use gamelogic::common::Coord3D;
 
     let mut game_logic = GameLogic::new();
+    install_sensor_power_test_map(&mut game_logic);
     // Initialize and inspect the shroud owned by this world.
     {
         let shroud_manager = game_logic.world_services.shroud();
@@ -1940,18 +1944,18 @@ fn spy_satellite_special_power_reveals_fow() {
     );
 
     let caster_id = game_logic
-        .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+        .create_object_for_player("TestTank", 0, Vec3::new(10.0, 0.0, 10.0))
         .expect("caster");
     {
         let caster = game_logic.host_object_mut(caster_id).expect("caster");
-        caster.set_special_power_ready(true);
-        caster.special_power_cooldown_remaining = 0.0;
-        // create_object pre-arms the module ReloadTime on the per-power
-        // map; simulate a fully recharged caster like C++ isReady.
-        caster
-            .special_power_cooldowns
-            .remove(&SpecialPowerType::SpySatellite);
+        // C++ SpecialPowerModule::setReadyFrame: recharge this authored power.
+        caster.set_special_power_ready_seconds(&SpecialPowerType::SpySatellite, 0.0);
     }
+    assert_eq!(
+        game_logic.host_object(caster_id).unwrap().owner_player_id,
+        Some(0)
+    );
+    assert!(game_logic.is_special_power_ready_for(caster_id, &SpecialPowerType::SpySatellite));
 
     // Far from caster so unit vision does not already clear the cell.
     // SpySatellite radius is 300 (larger than RadarScan 150).
@@ -3747,6 +3751,27 @@ fn production_upgrade_researches_on_building_queue_residual() {
             .honesty_complete_ok(HostUpgradeKind::FlashBangGrenade),
         "host honesty complete"
     );
+}
+
+/// C++ ActionManager.cpp:1425-1430 / 1521-1529 admits sensor-power clicks
+/// only inside TerrainLogic's playable extent, even when the cell is shrouded.
+/// Install that geometry on the driving fixture world before issuing commands.
+fn install_sensor_power_test_map(game_logic: &mut GameLogic) {
+    use gamelogic::common::ICoord2D;
+    use gamelogic::system::map_loader::MapData;
+
+    let mut map = MapData::new();
+    map.width = 128;
+    map.height = 128;
+    map.border_size = 1;
+    map.heightmap = vec![0; 130 * 130];
+    map.boundaries = vec![ICoord2D::new(128, 128)];
+    game_logic
+        .world_services
+        .terrain()
+        .write()
+        .expect("sensor power fixture terrain")
+        .load_map_geometry(map);
 }
 
 /// Author the retail Object INI `SpecialPowerModule` on the shared TestTank

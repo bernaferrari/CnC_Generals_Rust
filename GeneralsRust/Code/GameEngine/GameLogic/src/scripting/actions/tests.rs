@@ -1417,6 +1417,14 @@ async fn create_explosion_dispatches_fx_at_position() {
     }
 
     impl FXListManagerInterface for RecordingFxManager {
+        fn do_fx_for_host_objects(
+            &self,
+            _: u32,
+            _: &crate::helpers::HostFxObjectPose,
+            _: Option<&crate::helpers::HostFxObjectPose>,
+        ) {
+            panic!("this explosion fixture must observe positional FX");
+        }
         fn do_fx_pos(&self, fx_list: u32, position: &Coord3D, _matrix: Option<&Mat4>) {
             self.calls.lock().unwrap().push((fx_list, *position));
         }

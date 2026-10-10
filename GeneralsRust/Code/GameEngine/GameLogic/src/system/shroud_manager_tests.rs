@@ -1476,3 +1476,99 @@ fn test_spy_vision_shares_enemy_vision() {
     shroud.update(7).unwrap();
     assert!(!shroud.can_see_object(0, 200));
 }
+
+#[test]
+fn footprint_counts_use_owned_map_cells_and_pending_reveal_counters() {
+    use crate::object::collide::partition_shroud::PartitionCellShroudCounts;
+    let cells = [(2, 2), (-1, 2), (2, 5)];
+    let mut a = ShroudManager::new();
+    assert_eq!(
+        a.count_footprint_cells(1, &cells),
+        PartitionCellShroudCounts::default()
+    );
+    a.init_shroud_grid(200.0, 200.0);
+    assert_eq!(
+        a.count_footprint_cells(1, &cells),
+        PartitionCellShroudCounts {
+            total: 1,
+            shrouded: 1,
+            fogged: 0
+        }
+    );
+    assert_eq!(
+        a.count_footprint_cells(MAX_PLAYER_COUNT as u32, &cells),
+        PartitionCellShroudCounts::default()
+    );
+    let center = Coord3D::new(100.0, 100.0, 0.0);
+    a.do_shroud_reveal(&center, 40.0, 1 << 1);
+    a.do_shroud_reveal(&center, 40.0, 1 << 1);
+    a.queue_undo_shroud_reveal(&center, 40.0, 1 << 1, 150, 10);
+    let saved = a.snapshot_state();
+    let mut restored = ShroudManager::new();
+    restored.replace_state(&saved, 10).unwrap();
+    for manager in [&mut a, &mut restored] {
+        manager.process_pending_undo_shroud_reveals(160);
+        assert_eq!(
+            manager.count_footprint_cells(1, &cells),
+            PartitionCellShroudCounts {
+                total: 1,
+                shrouded: 0,
+                fogged: 0
+            }
+        );
+        manager.process_pending_undo_shroud_reveals(161);
+        assert_eq!(
+            manager.count_footprint_cells(1, &cells).fogged,
+            0,
+            "overlapping live looker remains"
+        );
+        manager.undo_shroud_reveal(&center, 40.0, 1 << 1);
+        assert_eq!(manager.count_footprint_cells(1, &cells).fogged, 1);
+        manager.do_shroud_cover(&center, 40.0, 1 << 1);
+        assert_eq!(manager.count_footprint_cells(1, &cells).shrouded, 1);
+        manager.undo_shroud_cover(&center, 40.0, 1 << 1);
+        assert_eq!(
+            manager.count_footprint_cells(1, &cells).shrouded,
+            1,
+            "cover removal does not manufacture explored state"
+        );
+    }
+    a.reset_for_new_game();
+    assert_eq!(restored.count_footprint_cells(1, &cells).shrouded, 1);
+}
+
+#[test]
+fn off_map_shroud_circles_clip_spans_and_keep_delayed_expiry() {
+    let mut manager = ShroudManager::new();
+    manager.init_shroud_grid(200.0, 200.0);
+    let edge = Coord3D::new(20.0, 100.0, 0.0);
+    let outside = Coord3D::new(-20.0, 100.0, 0.0);
+    manager.do_shroud_reveal(&outside, 80.0, 1 << 1);
+    assert_eq!(manager.get_shroud_state(1, &edge), ShroudState::Visible);
+    manager.queue_undo_shroud_reveal(&outside, 80.0, 1 << 1, 150, 10);
+    manager.process_pending_undo_shroud_reveals(160);
+    assert_eq!(manager.get_shroud_state(1, &edge), ShroudState::Visible);
+    manager.process_pending_undo_shroud_reveals(161);
+    assert_eq!(manager.get_shroud_state(1, &edge), ShroudState::Explored);
+    manager.do_shroud_cover(&outside, 80.0, 1 << 1);
+    assert_eq!(manager.get_shroud_state(1, &edge), ShroudState::Hidden);
+    manager.undo_shroud_cover(&outside, 80.0, 1 << 1);
+    manager.do_shroud_reveal(&outside, 80.0, 1 << 1);
+    manager.undo_shroud_reveal(&outside, 80.0, 1 << 1);
+    assert_eq!(manager.get_shroud_state(1, &edge), ShroudState::Explored);
+    let before = manager.snapshot_state();
+    for far in [
+        Coord3D::new(-400.0, 100.0, 0.0),
+        Coord3D::new(600.0, 100.0, 0.0),
+    ] {
+        manager.do_shroud_reveal(&far, 80.0, 1 << 1);
+        manager.undo_shroud_reveal(&far, 80.0, 1 << 1);
+        manager.do_shroud_cover(&far, 80.0, 1 << 1);
+        manager.undo_shroud_cover(&far, 80.0, 1 << 1);
+    }
+    assert_eq!(
+        manager.snapshot_state(),
+        before,
+        "wholly outside spans cannot touch map cells"
+    );
+}

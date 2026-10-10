@@ -8,7 +8,7 @@
 #[cfg(test)]
 mod ai_module_tests {
     use super::super::*;
-    use crate::common::{ObjectID, Coord3D};
+    use crate::common::{Coord3D, ObjectID};
 
     // Test AIUpdateContext creation and basic functionality
     #[test]
@@ -26,10 +26,8 @@ mod ai_module_tests {
     // Test base AI module functionality
     #[test]
     fn test_base_ai_module() {
-        let mut module = ai_update_base::AIUpdateModule::new(
-            AIModuleType::Base,
-            AIModulePriority::Normal
-        );
+        let mut module =
+            ai_update_base::AIUpdateModule::new(AIModuleType::Base, AIModulePriority::Normal);
 
         assert_eq!(module.get_module_type(), AIModuleType::Base);
         assert_eq!(module.get_priority(), AIModulePriority::Normal);
@@ -47,12 +45,12 @@ mod ai_module_tests {
 
         let module1 = Box::new(ai_update_base::AIUpdateModule::new(
             AIModuleType::Dozer,
-            AIModulePriority::High
+            AIModulePriority::High,
         ));
 
         let module2 = Box::new(ai_update_base::AIUpdateModule::new(
             AIModuleType::Wander,
-            AIModulePriority::Low
+            AIModulePriority::Low,
         ));
 
         manager.add_module(module1);
@@ -211,75 +209,6 @@ mod ai_module_tests {
         assert!(deploy.update(&mut context).is_ok());
     }
 
-    // Test Target Prioritization System
-    #[test]
-    fn test_target_prioritization_scoring() {
-        let mut system = TargetPrioritization::new();
-
-        let target = target_prioritization::PrioritizationTarget {
-            object_id: 1,
-            position: [100.0, 100.0, 0.0],
-            unit_type: "CommandCenter".to_string(),
-            health_percentage: 0.8,
-            is_attacking: false,
-            distance_to_attacker: 50.0,
-        };
-
-        let score = system.evaluate_target(&target);
-
-        assert!(score.total_score > 0.0);
-        assert!(score.value_score > 0.0);
-        assert!(score.distance_score > 0.0);
-    }
-
-    #[test]
-    fn test_target_prioritization_selection() {
-        let mut system = TargetPrioritization::new();
-
-        let target1 = target_prioritization::PrioritizationTarget {
-            object_id: 1,
-            position: [100.0, 100.0, 0.0],
-            unit_type: "Infantry".to_string(),
-            health_percentage: 1.0,
-            is_attacking: false,
-            distance_to_attacker: 50.0,
-        };
-
-        let target2 = target_prioritization::PrioritizationTarget {
-            object_id: 2,
-            position: [150.0, 150.0, 0.0],
-            unit_type: "CommandCenter".to_string(),
-            health_percentage: 0.8,
-            is_attacking: false,
-            distance_to_attacker: 100.0,
-        };
-
-        let targets = vec![target1, target2];
-        let best = system.select_best_target(&targets);
-
-        // Command center should be prioritized over infantry
-        assert_eq!(best, Some(2));
-    }
-
-    #[test]
-    fn test_target_prioritization_top_n() {
-        let mut system = TargetPrioritization::new();
-
-        let targets: Vec<_> = (0..10).map(|i| {
-            target_prioritization::PrioritizationTarget {
-                object_id: i,
-                position: [100.0, 100.0, 0.0],
-                unit_type: "Infantry".to_string(),
-                health_percentage: (i as f32) / 10.0,
-                is_attacking: i % 2 == 0,
-                distance_to_attacker: i as f32 * 10.0,
-            }
-        }).collect();
-
-        let top_3 = system.get_top_n_targets(&targets, 3);
-        assert_eq!(top_3.len(), 3);
-    }
-
     // Test Threat Assessment System
     #[test]
     fn test_threat_assessment_basic() {
@@ -355,10 +284,8 @@ mod ai_module_tests {
     // Test Build Order Optimizer
     #[test]
     fn test_build_order_creation() {
-        let mut order = build_order::BuildOrder::new(
-            "Barracks".to_string(),
-            build_order::BuildPriority::High
-        );
+        let mut order =
+            build_order::BuildOrder::new("Barracks".to_string(), build_order::BuildPriority::High);
 
         order.max_count = Some(2);
 
@@ -372,7 +299,7 @@ mod ai_module_tests {
     fn test_build_order_prerequisites() {
         let mut order = build_order::BuildOrder::new(
             "WarFactory".to_string(),
-            build_order::BuildPriority::Normal
+            build_order::BuildPriority::Normal,
         );
 
         order.prerequisites.push("Barracks".to_string());
@@ -405,7 +332,7 @@ mod ai_module_tests {
 
         let mut order = build_order::BuildOrder::new(
             "PowerPlant".to_string(),
-            build_order::BuildPriority::High
+            build_order::BuildPriority::High,
         );
         order.cost = 800;
 
@@ -413,75 +340,6 @@ mod ai_module_tests {
 
         let next = optimizer.get_next_build();
         assert!(next.is_some());
-    }
-
-    // Test Tech Progression Manager
-    #[test]
-    fn test_tech_progression_basic() {
-        let mut manager = TechProgressionManager::new();
-
-        let node = tech_progression::TechNode::new(
-            "BasicTech".to_string(),
-            tech_progression::TechTier::Tier1
-        );
-
-        manager.add_tech_node(node);
-        manager.update_resources(5000);
-
-        assert!(manager.can_research("BasicTech"));
-    }
-
-    #[test]
-    fn test_tech_progression_prerequisites() {
-        let mut manager = TechProgressionManager::new();
-
-        let mut node1 = tech_progression::TechNode::new(
-            "BasicTech".to_string(),
-            tech_progression::TechTier::Tier1
-        );
-        node1.cost = 1000;
-
-        let mut node2 = tech_progression::TechNode::new(
-            "AdvancedTech".to_string(),
-            tech_progression::TechTier::Tier2
-        );
-        node2.prerequisites.push("BasicTech".to_string());
-        node2.cost = 2000;
-
-        manager.add_tech_node(node1);
-        manager.add_tech_node(node2);
-        manager.update_resources(5000);
-
-        assert!(manager.can_research("BasicTech"));
-        assert!(!manager.can_research("AdvancedTech"));
-
-        manager.completed_research.insert("BasicTech".to_string());
-        assert!(manager.can_research("AdvancedTech"));
-    }
-
-    #[test]
-    fn test_tech_progression_research() {
-        let mut manager = TechProgressionManager::default();
-
-        manager.update_resources(5000);
-
-        let available = manager.get_available_research();
-        assert!(!available.is_empty());
-
-        if let Some(tech) = available.first() {
-            assert!(manager.start_research(tech.clone()).is_ok());
-        }
-    }
-
-    #[test]
-    fn test_tech_progression_strategy() {
-        let mut manager = TechProgressionManager::default();
-
-        manager.set_strategy(tech_progression::TechStrategy::Rush);
-        assert_eq!(manager.strategy, tech_progression::TechStrategy::Rush);
-
-        manager.set_strategy(tech_progression::TechStrategy::Economic);
-        assert_eq!(manager.strategy, tech_progression::TechStrategy::Economic);
     }
 
     // Integration tests
@@ -499,29 +357,6 @@ mod ai_module_tests {
 
         let mut context = AIUpdateContext::new(1, 0);
         assert!(dozer.update(&mut context).is_ok());
-    }
-
-    #[test]
-    fn test_turret_with_target_prioritization() {
-        let mut turret = TurretAIUpdate::new();
-        let mut prioritization = TargetPrioritization::new();
-
-        let targets: Vec<_> = (0..5).map(|i| {
-            target_prioritization::PrioritizationTarget {
-                object_id: i,
-                position: [100.0 + i as f32 * 10.0, 100.0, 0.0],
-                unit_type: "Infantry".to_string(),
-                health_percentage: 1.0,
-                is_attacking: true,
-                distance_to_attacker: 50.0 + i as f32 * 10.0,
-            }
-        }).collect();
-
-        let best_target = prioritization.select_best_target(&targets);
-        assert!(best_target.is_some());
-
-        let context = AIUpdateContext::new(1, 0);
-        assert!(turret.init(&context).is_ok());
     }
 
     #[test]

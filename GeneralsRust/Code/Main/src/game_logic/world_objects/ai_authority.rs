@@ -1451,11 +1451,35 @@ mod hq_m6gcj_tests {
         }
     }
 
+    // C++ AI.cpp:783–810 requires an AIUpdate interface and authored AIData;
+    // its constructor leaves guard factors at zero. These scenarios exercise
+    // an active computer controller's attack-move, not an unadmitted template.
+    fn attack_move_world() -> GameLogic {
+        let mut logic = GameLogic::new();
+        logic.set_ai_definition_base(game_engine::common::ini::AIData {
+            guard_outer_modifier_ai: 2.2,
+            ..Default::default()
+        });
+        let mut attacker = Player::new(1, Team::USA, "AttackMoveAI", false);
+        attacker.set_map_relationship(2, gamelogic::common::Relationship::Enemies);
+        let mut enemy = Player::new(2, Team::GLA, "AttackMoveEnemy", false);
+        enemy.set_map_relationship(1, gamelogic::common::Relationship::Enemies);
+        logic.add_player(attacker);
+        logic.add_player(enemy);
+        logic
+            .ai_manager
+            .add_ai_player(1, Team::USA, crate::ai::AIDifficulty::Medium);
+        logic.set_ai_active(1, true);
+        logic
+    }
+
     fn attack_move_unit(id: u32, dest: Vec3) -> Object {
         let mut tmpl = ThingTemplate::new("AtkMv");
         tmpl.add_kind_of(KindOf::Infantry);
         tmpl.add_kind_of(KindOf::Attackable);
+        tmpl.set_authored_ai_update_interface(Some(true));
         let mut unit = Object::new(tmpl, ObjectId(id), Team::USA);
+        unit.owner_player_id = Some(1);
         unit.set_position(Vec3::ZERO);
         unit.set_ai_state(AIState::AttackMoving);
         unit.is_attack_path = true;
@@ -1479,6 +1503,7 @@ mod hq_m6gcj_tests {
         tmpl.add_kind_of(KindOf::Infantry);
         tmpl.add_kind_of(KindOf::Attackable);
         let mut enemy = Object::new(tmpl, ObjectId(id), Team::GLA);
+        enemy.owner_player_id = Some(2);
         enemy.set_position(pos);
         enemy
     }
@@ -1487,7 +1512,7 @@ mod hq_m6gcj_tests {
     /// (distance > weapon.range * 1.5).
     #[test]
     fn attack_move_mood_target_skips_should_attack_hold() {
-        let mut logic = GameLogic::new();
+        let mut logic = attack_move_world();
         logic
             .objects
             .insert(ObjectId(1), attack_move_unit(1, Vec3::new(400.0, 0.0, 0.0)));
@@ -1520,7 +1545,7 @@ mod hq_m6gcj_tests {
     #[test]
     fn attack_move_blocked_path_sleeps_three_seconds() {
         let dest = Vec3::new(200.0, 0.0, 0.0);
-        let mut logic = GameLogic::new();
+        let mut logic = attack_move_world();
         logic.objects.insert(ObjectId(1), attack_move_unit(1, dest));
         let command = logic.process_ai_behavior(
             ObjectId(1),
@@ -1547,7 +1572,7 @@ mod hq_m6gcj_tests {
     /// hq-65aus: after ATTACK_RETRY_COUNT sleeps, still-far dest gives up.
     #[test]
     fn attack_move_blocked_path_gives_up_after_five_retries() {
-        let mut logic = GameLogic::new();
+        let mut logic = attack_move_world();
         let mut unit = attack_move_unit(1, Vec3::new(200.0, 0.0, 0.0));
         unit.attack_move_retry_count = 0;
         logic.objects.insert(ObjectId(1), unit);
@@ -1576,7 +1601,7 @@ mod hq_m6gcj_tests {
     /// hq-65aus: within 8 pathfind cells, accept the move result.
     #[test]
     fn attack_move_close_enough_does_not_retry() {
-        let mut logic = GameLogic::new();
+        let mut logic = attack_move_world();
         logic
             .objects
             .insert(ObjectId(1), attack_move_unit(1, Vec3::new(50.0, 0.0, 0.0)));
@@ -1605,7 +1630,7 @@ mod hq_m6gcj_tests {
     /// hq-65aus: during the 3s sleep the unit can still mood-attack.
     #[test]
     fn attack_move_sleep_still_mood_attacks() {
-        let mut logic = GameLogic::new();
+        let mut logic = attack_move_world();
         let mut unit = attack_move_unit(1, Vec3::new(400.0, 0.0, 0.0));
         unit.attack_move_sleep_until = 200;
         unit.attack_move_retry_count = 3;

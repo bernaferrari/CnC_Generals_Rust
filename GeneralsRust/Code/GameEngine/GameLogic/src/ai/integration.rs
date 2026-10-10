@@ -19,8 +19,7 @@ use crate::player::{GameDifficulty, player_list};
 use crate::system::game_logic::get_game_logic;
 use crate::terrain::get_terrain_logic;
 
-use super::ai_player::AIPlayer;
-use super::ai_update::AiPlayerTrait;
+use super::ai_player::{AIPlayer, AiPlayerTrait};
 use super::skirmish_player::AISkirmishPlayer;
 use super::{AiError, the_ai};
 
@@ -675,7 +674,6 @@ impl AiIntegrationManager {
     pub fn get_ai_player_count(&self) -> usize {
         self.ai_players.len()
     }
-
 }
 
 // Global AI integration manager instance
@@ -920,5 +918,4 @@ mod tests {
 
         assert!(loaded.has_ai_player(player_id));
     }
-
 }

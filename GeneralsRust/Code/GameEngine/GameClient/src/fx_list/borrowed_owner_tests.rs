@@ -5,7 +5,7 @@ use gamelogic::common::{DefaultThingTemplate, ObjectStatusMaskType};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 
 struct ObjectNugget {
-    calls: Arc<Mutex<Vec<String>>>,
+    calls: std::sync::mpsc::Sender<String>,
 }
 
 impl FXNugget for ObjectNugget {
@@ -32,7 +32,7 @@ impl FXNugget for ObjectNugget {
             .unwrap()
             .try_write()
             .expect("FX definition lookup guard must end before callback");
-        self.calls.lock().unwrap().push(name);
+        self.calls.send(name).unwrap();
     }
 }
 
@@ -56,11 +56,10 @@ fn actual_bridge_uses_borrowed_owner_and_never_relocks_admitted_owner() {
         .write()
         .unwrap()
         .set_local_player_index(0);
-    let calls = Arc::new(Mutex::new(Vec::new()));
+    let (recorded, calls) = std::sync::mpsc::channel();
+    let mut observed = Vec::new();
     let mut fx = FXList::new();
-    fx.add_fx_nugget(Box::new(ObjectNugget {
-        calls: Arc::clone(&calls),
-    }));
+    fx.add_fx_nugget(Box::new(ObjectNugget { calls: recorded }));
     get_fx_list_store_mut().add_fx_list(FX_NAME.into(), fx);
     let fx_id = NameKeyGenerator::name_to_key(FX_NAME) as FXListId;
 
@@ -82,16 +81,15 @@ fn actual_bridge_uses_borrowed_owner_and_never_relocks_admitted_owner() {
         let borrowed_guard = borrowed.write().unwrap();
         FXListManagerBridge.do_fx_for_object(fx_id, &borrowed_guard);
     }
-    assert_eq!(*calls.lock().unwrap(), vec!["FX_BorrowedOwner"]);
+    observed.extend(calls.try_iter());
+    assert_eq!(observed, vec!["FX_BorrowedOwner"]);
     {
         // Old ID rediscovery would deadlock on this exact owner write guard.
         let foreign_guard = foreign.write().unwrap();
         FXListManagerBridge.do_fx_for_object(fx_id, &foreign_guard);
     }
-    assert_eq!(
-        *calls.lock().unwrap(),
-        vec!["FX_BorrowedOwner", "FX_ForeignOwner"]
-    );
+    observed.extend(calls.try_iter());
+    assert_eq!(observed, vec!["FX_BorrowedOwner", "FX_ForeignOwner"]);
     owner.destroy_object(OBJECT_ID);
     owner.process_destroy_list().unwrap();
     assert!(owner.find_object_by_id(OBJECT_ID).is_none());
@@ -103,14 +101,15 @@ fn actual_bridge_uses_borrowed_owner_and_never_relocks_admitted_owner() {
         let borrowed_guard = borrowed.write().unwrap();
         FXListManagerBridge.do_fx_for_object(fx_id, &borrowed_guard);
     }
+    observed.extend(calls.try_iter());
     assert_eq!(
-        *calls.lock().unwrap(),
+        observed,
         vec!["FX_BorrowedOwner", "FX_ForeignOwner", "FX_BorrowedOwner"]
     );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn run_child(test_name: &str, marker: &str) {
+pub(super) fn run_child(test_name: &str, marker: &str) {
     use std::io::Read;
     use std::process::{Command, Stdio};
     use std::time::{Duration, Instant};

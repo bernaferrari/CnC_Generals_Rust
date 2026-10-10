@@ -691,6 +691,17 @@ mod tests {
 
     #[test]
     fn host_radar_authored_not_on_radar_is_dropped() {
+        // The native radar adapter is still process-owned. A fresh process
+        // gives this new match an empty radar without changing addObject's
+        // original invisible-priority early return.
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "host_radar_authored_not_on_radar_is_dropped",
+            host_radar_authored_not_on_radar_is_dropped_case,
+        );
+    }
+
+    fn host_radar_authored_not_on_radar_is_dropped_case() {
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(1, Team::USA, "USA", true));
         let mut tpl = ThingTemplate::new("Decoy");
@@ -1002,8 +1013,15 @@ mod tests {
         logic.templates.insert("JarmenKell".into(), ninja_tpl);
 
         let bunker = logic
-            .create_object_for_player("CivBunker", 9, Vec3::ZERO)
+            .create_object("CivBunker", Team::Neutral, Vec3::ZERO)
             .expect("bunker");
+        // C++ Object.cpp:297 gives map civilians the neutral player's default
+        // team. Neutral faction admission alone does not select a host owner.
+        logic
+            .host_object_mut(bunker)
+            .expect("civilian bunker")
+            .set_team_and_owner(Team::Neutral, Some(9));
+        assert_eq!(logic.host_object(bunker).unwrap().owner_player_id, Some(9));
         let ninja = logic
             .create_object_for_player("JarmenKell", 1, Vec3::new(2.0, 0.0, 0.0))
             .expect("ninja");
@@ -1060,8 +1078,15 @@ mod tests {
         logic.templates.insert("JarmenKell".into(), ninja_tpl);
 
         let bunker = logic
-            .create_object_for_player("CivBunker", 9, Vec3::ZERO)
+            .create_object("CivBunker", Team::Neutral, Vec3::ZERO)
             .expect("bunker");
+        // C++ Object.cpp:297 gives map civilians the neutral player's default
+        // team. Neutral faction admission alone does not select a host owner.
+        logic
+            .host_object_mut(bunker)
+            .expect("civilian bunker")
+            .set_team_and_owner(Team::Neutral, Some(9));
+        assert_eq!(logic.host_object(bunker).unwrap().owner_player_id, Some(9));
         let ninja = logic
             .create_object_for_player("JarmenKell", 1, Vec3::new(2.0, 0.0, 0.0))
             .expect("ninja");

@@ -1489,7 +1489,10 @@ End
 
     #[test]
     fn burton_charge_unpacks_then_plants_then_flees() {
-        // SpecialAbilityUpdate.cpp:397-441 unpack, trigger, finishAbility flee.
+        use crate::game_logic::host_hero_abilities::LeftoverSaPhase;
+
+        // SpecialAbilityUpdate.cpp:391-400 faces before entering unpack;
+        // :614-640 counts unpack frames only after that phase begins.
         let mut parser = crate::assets::IniParser::new();
         parser
             .parse_ini_content(
@@ -1497,6 +1500,10 @@ End
 Object BurtonChargeUnpackProbe
   Type = Infantry
   KindOf = INFANTRY SELECTABLE CAN_ATTACK
+  Locomotor = SET_NORMAL ColonelBurtonGroundLocomotor
+  Behavior = AIUpdateInterface ModuleTag_AI
+    AutoAcquireEnemiesWhenIdle = No
+  End
   Behavior = SpecialAbilityUpdate ModuleTag_Timed
     SpecialPowerTemplate = SpecialAbilityColonelBurtonTimedCharges
     UnpackTime = 200
@@ -1528,6 +1535,11 @@ End
                 .map(|m| m.unpack_time_ms),
             Some(200)
         );
+        assert_eq!(burton_tpl.authored_ai_update_interface(), Some(true));
+        assert_eq!(
+            burton_tpl.locomotor_name.as_deref(),
+            Some("ColonelBurtonGroundLocomotor")
+        );
         logic
             .templates
             .insert("BurtonChargeUnpackProbe".into(), burton_tpl);
@@ -1557,30 +1569,107 @@ End
                 Vec3::new(0.0, 0.0, 0.0),
             )
             .expect("target");
-        {
-            let burton = logic.host_object_mut(burton_id).expect("burton mut");
-            burton.set_ai_state(AIState::SpecialAbility);
-            burton.set_target(Some(target_id));
-        }
         logic.queue_pending_special_ability(
             burton_id,
             PendingSpecialAbility::PlantTimedDemoCharge { target_id },
         );
+        {
+            let burton = logic.host_object_mut(burton_id).expect("burton mut");
+            // The probe must turn through PI before its 200ms unpack begins.
+            // Keep a bounded turn capability, rather than snapping its yaw.
+            assert_eq!(
+                burton.cur_locomotor_name.as_deref(),
+                Some("ColonelBurtonGroundLocomotor")
+            );
+            assert!(burton.movement.max_speed > 0.0);
+            burton.movement.turn_rate = std::f32::consts::PI;
+            burton.set_ai_state(AIState::SpecialAbility);
+            // set_target admits an ordinary attack and replaces the ability
+            // state. The ability order owns its state and target separately.
+            burton.set_order_target(Some(target_id));
+            assert_eq!(burton.ai_state, AIState::SpecialAbility);
+        }
 
-        logic.update_ai(&[burton_id, target_id], 1.0 / 60.0);
+        const FRAME_DT: f32 = 1.0 / 30.0;
+        logic.frame += 1;
+        logic.update_ai(&[burton_id, target_id], FRAME_DT);
+        assert_eq!(
+            logic
+                .hero_abilities()
+                .leftover_channel(burton_id)
+                .map(|channel| channel.phase),
+            Some(LeftoverSaPhase::Facing)
+        );
         assert_eq!(
             logic.mine_residual_places(),
             0,
             "UnpackTime 200ms must delay plant"
         );
 
-        for _ in 0..20 {
-            logic.update_ai(&[burton_id, target_id], 1.0 / 60.0);
+        // Observe the real facing boundary, so turn time cannot consume the
+        // unpack allowance. A PI/sec turn needs about 30 logic frames.
+        for _ in 0..60 {
+            logic.frame += 1;
+            logic.update_ai(&[burton_id, target_id], FRAME_DT);
+            assert_eq!(logic.mine_residual_places(), 0, "no plant while facing");
+            if logic
+                .hero_abilities()
+                .leftover_channel(burton_id)
+                .is_some_and(|channel| channel.phase == LeftoverSaPhase::Unpacking)
+            {
+                break;
+            }
         }
+        let unpack = logic
+            .hero_abilities()
+            .leftover_channel(burton_id)
+            .expect("facing must reach the authored unpack phase");
+        assert_eq!(unpack.phase, LeftoverSaPhase::Unpacking);
+        assert!((unpack.remaining_seconds - 0.2).abs() < 0.000_1);
+
+        // Five frames are still short of 200ms. The sixth ends unpack and
+        // permits the effect; C++ finishAbility then orders the flee path.
+        for _ in 0..5 {
+            logic.frame += 1;
+            logic.update_ai(&[burton_id, target_id], FRAME_DT);
+            assert_eq!(
+                logic.mine_residual_places(),
+                0,
+                "charge must not plant before the full 200ms unpack"
+            );
+            assert_eq!(
+                logic
+                    .hero_abilities()
+                    .leftover_channel(burton_id)
+                    .map(|channel| channel.phase),
+                Some(LeftoverSaPhase::Unpacking)
+            );
+        }
+        logic.frame += 1;
+        logic.update_ai(&[burton_id, target_id], FRAME_DT);
         assert!(
             logic.mine_residual_places() >= 1,
             "charge plants after UnpackTime"
         );
+        let fleeing = logic.host_object(burton_id).expect("flee order");
+        assert_eq!(fleeing.ai_state, AIState::Moving);
+        assert!(fleeing.requested_destination.is_some());
+        assert_eq!(fleeing.ignored_obstacle_id, Some(target_id));
+        for _ in 0..120 {
+            let pos = logic
+                .host_object(burton_id)
+                .expect("burton fleeing")
+                .get_position();
+            if pos.distance(Vec3::new(2.0, 0.0, 0.0)) > 1.0 {
+                break;
+            }
+            logic.frame += 1;
+            // finishAbility orders movement; AI state updates do not
+            // integrate its locomotor. Main's movement phase runs before
+            // the support-state phase on the next frame (step.rs:555,1371).
+            logic.update_movement_for_test(&[burton_id, target_id], FRAME_DT);
+            logic.update_ai(&[burton_id, target_id], FRAME_DT);
+        }
         let pos = logic
             .host_object(burton_id)
             .expect("burton after plant")
@@ -2850,7 +2939,6 @@ End
 
     #[test]
     fn crate_vision_uses_shroud_clearing_range_and_unlooks_on_move() {
-        use gamelogic::system::shroud_manager::get_shroud_manager;
         use glam::Vec3;
 
         let mut logic = GameLogic::new();
@@ -2864,7 +2952,7 @@ End
             .expect("spawn");
 
         {
-            let shroud = get_shroud_manager();
+            let shroud = logic.world_services.shroud();
             let mut mgr = shroud.lock().expect("shroud");
             mgr.init_shroud_grid(512.0, 512.0);
         }
@@ -2898,7 +2986,6 @@ End
     #[test]
     fn object_fow_uses_coi_mix_not_vision_range_circle() {
         use gamelogic::common::types::ObjectShroudStatus;
-        use gamelogic::system::shroud_manager::get_shroud_manager;
         use glam::Vec3;
 
         let mut logic = GameLogic::new();
@@ -2930,27 +3017,27 @@ End
         logic.templates.insert("EnemyBunker".into(), bunker);
 
         {
-            let shroud = get_shroud_manager();
+            let shroud = logic.world_services.shroud();
             let mut mgr = shroud.lock().expect("shroud");
             mgr.init_shroud_grid(512.0, 512.0);
         }
 
         let _looker_id = logic
-            .create_object_for_player("Looker", 1, Vec3::new(0.0, 0.0, 0.0))
+            .create_object_for_player("Looker", 1, Vec3::new(100.0, 0.0, 100.0))
             .expect("looker");
         let near_id = logic
-            .create_object_for_player("EnemyScout", 2, Vec3::new(10.0, 0.0, 0.0))
+            .create_object_for_player("EnemyScout", 2, Vec3::new(110.0, 0.0, 100.0))
             .expect("near");
         let far_id = logic
-            .create_object_for_player("EnemyScout", 2, Vec3::new(300.0, 0.0, 0.0))
+            .create_object_for_player("EnemyScout", 2, Vec3::new(400.0, 0.0, 100.0))
             .expect("far");
         let bunker_id = logic
-            .create_object_for_player("EnemyBunker", 2, Vec3::new(10.0, 0.0, 10.0))
+            .create_object_for_player("EnemyBunker", 2, Vec3::new(110.0, 0.0, 110.0))
             .expect("bunker");
 
         logic.update_main_crate_vision();
         {
-            let shroud = get_shroud_manager();
+            let shroud = logic.world_services.shroud();
             let mgr = shroud.lock().expect("shroud");
             assert_eq!(
                 mgr.get_host_object_shroud_status(1, near_id.0),
@@ -2970,11 +3057,33 @@ End
         }
 
         if let Some(obj) = logic.host_object_mut(_looker_id) {
-            obj.set_position(Vec3::new(300.0, 0.0, 300.0));
+            obj.set_position(Vec3::new(400.0, 0.0, 400.0));
         }
+        let moved_frame = logic.frame;
+        logic.update_main_crate_vision();
+        // C++ PartitionManager.cpp:3971,4026-4037 queues the old reveal for
+        // frame + UnlookPersistDuration and expires it strictly afterward.
+        let persist = super::host_unlook_persist_frames();
+        assert_eq!(persist, 150);
+        for frame in [moved_frame, moved_frame.wrapping_add(persist)] {
+            logic.frame = frame;
+            logic.update_main_crate_vision();
+            let shroud = logic.world_services.shroud();
+            let mgr = shroud.lock().expect("shroud");
+            assert_eq!(
+                mgr.get_host_object_shroud_status(1, near_id.0),
+                Some(ObjectShroudStatus::Clear),
+                "old reveal persists through its inclusive deadline"
+            );
+            assert_eq!(
+                mgr.get_host_object_shroud_status(1, bunker_id.0),
+                Some(ObjectShroudStatus::Clear)
+            );
+        }
+        logic.frame = moved_frame.wrapping_add(persist).wrapping_add(1);
         logic.update_main_crate_vision();
         {
-            let shroud = get_shroud_manager();
+            let shroud = logic.world_services.shroud();
             let mgr = shroud.lock().expect("shroud");
             assert_eq!(
                 mgr.get_host_object_shroud_status(1, near_id.0),
@@ -2989,12 +3098,113 @@ End
         }
     }
 
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn host_coi_visibility_and_unlook_expiry_are_instance_owned() {
+        use gamelogic::common::ObjectShroudStatus;
+
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "host_coi_visibility_and_unlook_expiry_are_instance_owned",
+            || {
+                let world = |range| {
+                    let mut logic = GameLogic::new();
+                    logic.add_player(Player::new(1, Team::USA, "Viewer", true));
+                    logic.add_player(Player::new(2, Team::China, "Enemy", false));
+                    let mut looker = ThingTemplate::new("OwnedCoiLooker");
+                    looker.shroud_clearing_range = range;
+                    logic.templates.insert(looker.name.clone(), looker);
+                    let mut enemy = ThingTemplate::new("OwnedCoiEnemy");
+                    enemy.add_kind_of(KindOf::Infantry);
+                    enemy.shroud_clearing_range = 0.0;
+                    logic.templates.insert(enemy.name.clone(), enemy);
+                    logic
+                        .world_services
+                        .shroud()
+                        .lock()
+                        .unwrap()
+                        .init_shroud_grid(512.0, 512.0);
+                    let looker_id = logic
+                        .create_object_for_player("OwnedCoiLooker", 1, Vec3::new(120.0, 0.0, 120.0))
+                        .unwrap();
+                    let enemy_id = logic
+                        .create_object_for_player("OwnedCoiEnemy", 2, Vec3::new(130.0, 0.0, 120.0))
+                        .unwrap();
+                    (logic, looker_id, enemy_id)
+                };
+                let status = |logic: &GameLogic, id: ObjectId| {
+                    logic
+                        .world_services
+                        .shroud()
+                        .lock()
+                        .unwrap()
+                        .get_host_object_shroud_status(1, id.0)
+                };
+                let (mut a, a_looker, a_enemy) = world(80.0);
+                let (mut b, b_looker, b_enemy) = world(0.0);
+                assert_eq!((a_looker, a_enemy), (b_looker, b_enemy));
+
+                // Neither stamping nor footprint sampling may touch the
+                // reference runtime's process partition. The exact child
+                // watchdog bounds the OLD route's recursive-lock failure.
+                let _foreign_partition =
+                    gamelogic::object::collide::partition_manager::PARTITION_MANAGER
+                        .write()
+                        .unwrap();
+                a.update_main_crate_vision();
+                b.update_main_crate_vision();
+                assert_eq!(status(&a, a_enemy), Some(ObjectShroudStatus::Clear));
+                assert_eq!(status(&b, b_enemy), Some(ObjectShroudStatus::Shrouded));
+
+                a.host_object_mut(a_looker)
+                    .unwrap()
+                    .set_position(Vec3::new(400.0, 0.0, 400.0));
+                a.update_main_crate_vision();
+                let pending = a.world_services.shroud().lock().unwrap().snapshot_state();
+                assert_eq!(pending.pending_undo_shroud_reveals.len(), 1);
+                assert_eq!(pending.pending_undo_shroud_reveals[0].expiration_frame, 150);
+                b.frame = 200;
+                b.update_main_crate_vision();
+                assert_eq!(status(&b, b_enemy), Some(ObjectShroudStatus::Shrouded));
+                assert_eq!(
+                    a.world_services.shroud().lock().unwrap().snapshot_state(),
+                    pending,
+                    "B's frame cannot expire A's reveal"
+                );
+
+                // C++ PartitionManager.cpp:3971 expires only after deadline.
+                a.frame = 150;
+                a.update_main_crate_vision();
+                assert_eq!(status(&a, a_enemy), Some(ObjectShroudStatus::Clear));
+                drop(_foreign_partition);
+                b.reset();
+                drop(b);
+                assert_eq!(
+                    a.world_services.shroud().lock().unwrap().snapshot_state(),
+                    pending,
+                    "foreign reset/destruction cannot alter A's counters or queue"
+                );
+                a.frame = 151;
+                a.update_main_crate_vision();
+                assert_eq!(status(&a, a_enemy), Some(ObjectShroudStatus::Shrouded));
+                assert!(
+                    a.world_services
+                        .shroud()
+                        .lock()
+                        .unwrap()
+                        .snapshot_state()
+                        .pending_undo_shroud_reveals
+                        .is_empty()
+                );
+            },
+        );
+    }
+
     /// hq-rxwoc: object FOW mix reads leftover DiscreteCircle looker cells,
     /// not PARTITION_MANAGER's square `±ceil(r/40)` + world `r²` reject.
     #[test]
     fn object_fow_mix_reads_leftover_discrete_circle_not_square() {
         use gamelogic::common::types::ObjectShroudStatus;
-        use gamelogic::system::shroud_manager::get_shroud_manager;
         use glam::Vec3;
 
         let mut logic = GameLogic::new();
@@ -3019,7 +3229,7 @@ End
         logic.templates.insert("RimScout".into(), scout);
 
         {
-            let shroud = get_shroud_manager();
+            let shroud = logic.world_services.shroud();
             let mut mgr = shroud.lock().expect("shroud");
             mgr.init_shroud_grid(512.0, 512.0);
         }
@@ -3035,7 +3245,7 @@ End
 
         logic.update_main_crate_vision();
         {
-            let shroud = get_shroud_manager();
+            let shroud = logic.world_services.shroud();
             let mgr = shroud.lock().expect("shroud");
             assert_eq!(
                 mgr.get_host_object_shroud_status(1, rim_id.0),
@@ -3047,7 +3257,6 @@ End
 
     #[test]
     fn looker_mask_uses_player_relationship_and_unlook_persist_150() {
-        use gamelogic::system::shroud_manager::get_shroud_manager;
         use glam::Vec3;
 
         assert_eq!(super::host_unlook_persist_frames(), 150);
@@ -3066,7 +3275,7 @@ End
         logic.templates.insert("AllyLooker".into(), tpl);
 
         {
-            let shroud = get_shroud_manager();
+            let shroud = logic.world_services.shroud();
             let mut mgr = shroud.lock().expect("shroud");
             mgr.init_shroud_grid(512.0, 512.0);
         }
@@ -3087,7 +3296,6 @@ End
     #[test]
     fn transport_passengers_stop_looking() {
         use crate::game_logic::{ContainModuleKind, ContainModuleMetadata};
-        use gamelogic::system::shroud_manager::get_shroud_manager;
         use glam::Vec3;
 
         let mut logic = GameLogic::new();
@@ -3107,7 +3315,7 @@ End
         logic.templates.insert("RangerLook".into(), ranger);
 
         {
-            let shroud = get_shroud_manager();
+            let shroud = logic.world_services.shroud();
             let mut mgr = shroud.lock().expect("shroud");
             mgr.init_shroud_grid(512.0, 512.0);
         }
@@ -3134,7 +3342,6 @@ End
 
     #[test]
     fn shroud_reveal_to_all_range_looks_for_enemies() {
-        use gamelogic::system::shroud_manager::get_shroud_manager;
         use glam::Vec3;
 
         let mut logic = GameLogic::new();
@@ -3147,7 +3354,7 @@ End
         logic.templates.insert("StratCenter".into(), tpl);
 
         {
-            let shroud = get_shroud_manager();
+            let shroud = logic.world_services.shroud();
             let mut mgr = shroud.lock().expect("shroud");
             mgr.init_shroud_grid(512.0, 512.0);
         }
@@ -3176,7 +3383,6 @@ End
     /// C++ Object.cpp:4961-4962 — vision-spied units look for the spy.
     #[test]
     fn crate_vision_spied_mask_makes_moving_looker() {
-        use gamelogic::system::shroud_manager::get_shroud_manager;
         use glam::Vec3;
 
         let mut logic = GameLogic::new();
@@ -3189,7 +3395,7 @@ End
         logic.templates.insert("SpiedScout".into(), tpl);
 
         {
-            let shroud = get_shroud_manager();
+            let shroud = logic.world_services.shroud();
             let mut mgr = shroud.lock().expect("shroud");
             mgr.init_shroud_grid(512.0, 512.0);
         }
@@ -3224,7 +3430,6 @@ End
     #[test]
     fn crate_vision_under_construction_uses_bounding_circle() {
         use crate::game_logic::{HostGeometryInfo, HostGeometryType};
-        use gamelogic::system::shroud_manager::get_shroud_manager;
         use glam::Vec3;
 
         let mut logic = GameLogic::new();
@@ -3244,7 +3449,7 @@ End
         logic.templates.insert("WarFactoryPad".into(), tpl);
 
         {
-            let shroud = get_shroud_manager();
+            let shroud = logic.world_services.shroud();
             let mut mgr = shroud.lock().expect("shroud");
             mgr.init_shroud_grid(512.0, 512.0);
         }
@@ -3281,7 +3486,6 @@ End
     /// C++ Object.cpp:5045-5080 — live look applies Object::shroud cover.
     #[test]
     fn crate_vision_applies_object_shroud_cover_to_non_allies() {
-        use gamelogic::system::shroud_manager::get_shroud_manager;
         use glam::Vec3;
 
         let mut logic = GameLogic::new();
@@ -3300,7 +3504,7 @@ End
         logic.templates.insert("CoverVan".into(), tpl);
 
         {
-            let shroud = get_shroud_manager();
+            let shroud = logic.world_services.shroud();
             let mut mgr = shroud.lock().expect("shroud");
             mgr.init_shroud_grid(512.0, 512.0);
         }

@@ -711,14 +711,8 @@ impl GameLogic {
         instance.rebuild_objective_lookup();
         // C++ GameLogic::GameLogic only initializes fields. Constructing a
         // candidate must not publish its authority, store bundle, or override
-        // callback while another world is live. Its fresh shroud is still
-        // reset through the owned bundle so recycled object IDs cannot leak.
-        instance
-            .world_services
-            .shroud()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .reset_for_new_game();
+        // callback while another world is live. WorldServices constructs a
+        // fresh shroud; it never copies a previous match's mutable state.
         instance
     }
 
@@ -763,15 +757,20 @@ impl GameLogic {
         // constructor used to install them, still before any map/snapshot
         // work reads the legacy funnels.
         self.install_as_active_stores();
-        // Same per-world shroud teardown as GameLogic::new — start_new_game /
+        // Per-world shroud teardown — start_new_game /
         // clearGameData route through here (C++ GameLogic.cpp newGame calls
         // clearGameData before rebuilding the player list). Explicitly on
-        // this world's own bundle, the twin of the constructor-path reset.
+        // this world's own bundle. Constructors already create fresh state.
         self.world_services
             .shroud()
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .reset_for_new_game();
+        self.world_services
+            .terrain()
+            .write()
+            .expect("owned terrain reset")
+            .begin_host_bridge_frame();
         self.team_factory
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())

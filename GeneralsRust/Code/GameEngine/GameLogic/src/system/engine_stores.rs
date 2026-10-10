@@ -37,14 +37,11 @@ impl WorldServices {
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
-        let shroud = PROCESS_SERVICES
-            .shroud()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
         Self {
             upgrade_center: Arc::new(RwLock::new(upgrades)),
-            shroud: Arc::new(Mutex::new(shroud)),
+            // Only definitions are inherited. Visibility, cells and queued
+            // reveals belong to this match (CPP PartitionManager.cpp:2515).
+            shroud: Arc::new(Mutex::new(ShroudManager::new())),
             client_visuals: ClientVisualState::default(),
             terrain: Arc::new(RwLock::new(crate::terrain::TerrainLogic::new())),
         }

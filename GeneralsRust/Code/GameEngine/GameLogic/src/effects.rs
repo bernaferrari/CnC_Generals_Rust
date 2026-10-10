@@ -223,6 +223,20 @@ mod tests {
     }
 
     impl FXListManagerInterface for RecordingFxManager {
+        fn do_fx_for_host_objects(
+            &self,
+            fx_list: FXListId,
+            primary: &crate::helpers::HostFxObjectPose,
+            secondary: Option<&crate::helpers::HostFxObjectPose>,
+        ) {
+            if !primary.is_shrouded {
+                self.object_calls.lock().unwrap().push((
+                    fx_list,
+                    primary.id,
+                    secondary.map(|object| object.id),
+                ));
+            }
+        }
         fn do_fx_pos(&self, _fx_list: FXListId, _position: &Coord3D, _matrix: Option<&Mat4>) {}
 
         fn do_fx_obj(&self, fx_list: FXListId, object_id: ObjectID) {

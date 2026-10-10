@@ -44,16 +44,42 @@ impl TheFXList {
             return;
         };
         let fx_id = NameKeyGenerator::name_to_key(fx_template) as FXListId;
-        manager.do_fx_pos_ex(fx_id, pos, matrix, primary_speed, secondary, override_radius);
+        manager.do_fx_pos_ex(
+            fx_id,
+            pos,
+            matrix,
+            primary_speed,
+            secondary,
+            override_radius,
+        );
     }
 
     /// C++ `FXList::doFXObj` — object form (orient + AttachToObject + FXListAtBonePos).
-    pub fn do_fx_obj(&self, fx_template: &str, primary_id: ObjectID, secondary_id: Option<ObjectID>) {
+    pub fn do_fx_obj(
+        &self,
+        fx_template: &str,
+        primary_id: ObjectID,
+        secondary_id: Option<ObjectID>,
+    ) {
         let Some(manager) = FX_LIST_MANAGER.get() else {
             return;
         };
         let fx_id = NameKeyGenerator::name_to_key(fx_template) as FXListId;
         manager.do_fx_obj_with_source(fx_id, primary_id, secondary_id);
+    }
+
+    /// Object-form FX from the driving host's synchronous observations.
+    pub fn do_fx_for_host_objects(
+        &self,
+        fx_template: &str,
+        primary: &HostFxObjectPose,
+        secondary: Option<&HostFxObjectPose>,
+    ) {
+        let Some(manager) = FX_LIST_MANAGER.get() else {
+            return;
+        };
+        let fx_id = NameKeyGenerator::name_to_key(fx_template) as FXListId;
+        manager.do_fx_for_host_objects(fx_id, primary, secondary);
     }
 }
 
@@ -71,7 +97,6 @@ pub struct HostFxObjectPose {
     /// C++ object-attach `getShroudedStatus(local) >= OBJECTSHROUD_FOGGED`.
     pub is_shrouded: bool,
 }
-
 
 static HOST_FX_OBJECT_POSES: std::sync::LazyLock<RwLock<HashMap<ObjectID, HostFxObjectPose>>> =
     std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
@@ -114,9 +139,7 @@ pub fn retain_host_fx_object_poses(keep: impl Fn(ObjectID) -> bool) {
 
 #[cfg(test)]
 mod host_fx_pose_publication_tests {
-    use super::{
-        HostFxObjectPose, apply_host_fx_pose_frame, insert_host_fx_object_pose,
-    };
+    use super::{HostFxObjectPose, apply_host_fx_pose_frame, insert_host_fx_object_pose};
     use crate::common::{Matrix3D, ObjectID};
     use std::collections::HashMap;
 
@@ -163,9 +186,7 @@ mod host_fx_pose_publication_tests {
 /// transaction. Event-time `set_host_fx_object_pose` inserts remain available
 /// between frame publications; the next frame retains exactly its live IDs,
 /// matching the former upsert-then-retain sequence.
-pub fn replace_host_fx_object_poses_for_frame(
-    poses: impl IntoIterator<Item = HostFxObjectPose>,
-) {
+pub fn replace_host_fx_object_poses_for_frame(poses: impl IntoIterator<Item = HostFxObjectPose>) {
     if let Ok(mut current) = HOST_FX_OBJECT_POSES.write() {
         apply_host_fx_pose_frame(&mut current, poses);
     }
@@ -181,9 +202,6 @@ fn apply_host_fx_pose_frame(
     current.clear();
     current.extend(poses.into_iter().map(|pose| (pose.id, pose)));
 }
-
-
-
 
 /// Particle system manager bridge to the client-side implementation.
 pub struct TheParticleSystemManager;
@@ -482,7 +500,13 @@ pub fn attach_particle_system_to_object_local(
     local_pos: Option<&Coord3D>,
     lifetime_frames: Option<u32>,
 ) -> Option<u32> {
-    attach_particle_system_to_object_local_oriented(name, object_id, local_pos, lifetime_frames, 0.0)
+    attach_particle_system_to_object_local_oriented(
+        name,
+        object_id,
+        local_pos,
+        lifetime_frames,
+        0.0,
+    )
 }
 
 /// C++ `W3DModelDraw.cpp:2604-2611`: setPosition, rotateLocalTransformZ, attach.
@@ -514,9 +538,7 @@ pub fn attach_particle_system_to_object_local_oriented(
 
 #[cfg(test)]
 mod particle_attach_support {
-    use crate::common::types::{
-        EmissionVolumeType, ParticleSystemManagerInterface,
-    };
+    use crate::common::types::{EmissionVolumeType, ParticleSystemManagerInterface};
     use crate::common::{Coord3D, Matrix3D, ObjectID, Real};
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -565,11 +587,7 @@ mod particle_attach_support {
 
         pub fn last_attached_object(&self) -> Option<ObjectID> {
             let id = self.last_attached_object.load(Ordering::Relaxed);
-            if id == 0 {
-                None
-            } else {
-                Some(id)
-            }
+            if id == 0 { None } else { Some(id) }
         }
     }
 
@@ -615,7 +633,8 @@ mod particle_attach_support {
             if let Ok(mut map) = self.attached.lock() {
                 map.insert(system_id, object_id);
                 self.attach_count.fetch_add(1, Ordering::Relaxed);
-                self.last_attached_object.store(object_id, Ordering::Relaxed);
+                self.last_attached_object
+                    .store(object_id, Ordering::Relaxed);
             }
         }
 
@@ -729,7 +748,8 @@ mod particle_tests {
             super::test_particle_attached_object_id(system_id),
             Some(object_id)
         );
-        assert!(super::attach_particle_system_to_object("StillMissingOclParticle", object_id)
-            .is_none());
+        assert!(
+            super::attach_particle_system_to_object("StillMissingOclParticle", object_id).is_none()
+        );
     }
 }

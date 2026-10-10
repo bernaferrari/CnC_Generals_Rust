@@ -97,6 +97,29 @@ impl FXListManagerInterface for FXListManagerBridge {
         fx.do_fx_obj(Some(object), None);
     }
 
+    fn do_fx_for_host_objects(
+        &self,
+        fx_list: FXListId,
+        primary: &gamelogic::helpers::HostFxObjectPose,
+        secondary: Option<&gamelogic::helpers::HostFxObjectPose>,
+    ) {
+        let Some(name) = NameKeyGenerator::key_to_name(fx_list as NameKeyType) else {
+            log::debug!("FXListManager: unknown FXList id {}", fx_list);
+            return;
+        };
+        let Some(fx) = get_fx_list_store().find_fx_list(&name) else {
+            log::debug!("FXListManager: FXList '{}' not found", name);
+            return;
+        };
+        // C++ FXList.cpp794 checks the primary before authored nuggets.
+        // Consume the driving owner's supplied observation without looking up
+        // an unrelated Core object, published pose, or ambient viewer.
+        if primary.is_shrouded {
+            return;
+        }
+        fx.do_fx_obj_host(primary, secondary);
+    }
+
     fn do_fx_obj_with_source(
         &self,
         fx_list: FXListId,
@@ -2212,3 +2235,7 @@ mod tests {
 #[cfg(test)]
 #[path = "fx_list/borrowed_owner_tests.rs"]
 mod borrowed_owner_tests;
+
+#[cfg(test)]
+#[path = "fx_list/host_visibility_owner_tests.rs"]
+mod host_visibility_owner_tests;

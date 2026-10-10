@@ -493,10 +493,17 @@ impl GameLogic {
         logic_player.set_observer(true);
         logic_player.set_player_type(LogicPlayerType::Observer, false);
         game_engine::common::ini::ensure_player_templates_loaded();
-        if let Some(common) = get_player_template_store().find_template("FactionObserver") {
-            logic_player.init(std::sync::Arc::new(LogicPlayerTemplate::from_common(
-                common,
-            )));
+        let observer_template = {
+            let templates = get_player_template_store();
+            templates
+                .find_template("FactionObserver")
+                .map(|common| std::sync::Arc::new(LogicPlayerTemplate::from_common(common)))
+        };
+        // Player::init hydrates its template through this catalog again.
+        // Release the read before that callback: a queued loader writer would
+        // otherwise block the recursive read while waiting on our first one.
+        if let Some(template) = observer_template {
+            logic_player.init(template);
             logic_player.set_observer(true);
             logic_player.set_player_type(LogicPlayerType::Observer, false);
         }

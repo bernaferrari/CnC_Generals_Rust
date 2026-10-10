@@ -1,7 +1,7 @@
 //! Historical Wave 290 async-player gate, retained for shell command/result compatibility.
 //! The async-player implementation was an undeclared archive and is retired.
-//! This source gate checks that classic AI and the live factory installer are
-//! declared while the retired modules remain undeclared. It proves no async
+//! This source gate checks canonical AI declarations, the owned match AI phase,
+//! and the live factory installer while retired modules remain undeclared. It proves no async
 //! runtime behavior or gameplay parity. Shell `playable_claim` stays false.
 //!
 //! Orthogonal to Wave 289 weapon.rs dual-world empty-gate residual.
@@ -94,9 +94,13 @@ fn module_declared(src: &str, name: &str) -> bool {
 pub fn honesty_async_player_dual_world_empty_gate_source() -> bool {
     let ai = include_str!("../../../../GameEngine/GameLogic/src/ai/mod.rs");
     let root = include_str!("../../../../GameEngine/GameLogic/src/lib.rs");
+    let phase = include_str!("../world_tick/ai_phase.rs");
     module_declared(root, "ai")
-        && module_declared(ai, "ai_core")
+        && !module_declared(ai, "ai_core")
+        && !module_declared(ai, "ai_update")
         && module_declared(ai, "ai_player")
+        && phase.contains("self.process_pathfind_queue();")
+        && phase.contains("crate::ai::AIManager::update_owned(self, current_time);")
         && !module_declared(ai, "async_player")
         && module_declared(root, "contain_module_overrides")
         && !module_declared(root, "module_overrides")

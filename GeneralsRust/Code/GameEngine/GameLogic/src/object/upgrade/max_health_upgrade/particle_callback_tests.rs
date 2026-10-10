@@ -22,7 +22,7 @@ struct Manager {
     drawable: Arc<RwLock<Drawable>>,
     object_id: ObjectID,
     created: AtomicU32,
-    attached: Mutex<Vec<(u32, ObjectID)>>,
+    attached: std::sync::mpsc::Sender<(u32, ObjectID)>,
     events: Mutex<Vec<Event>>,
     expected_rubble: AtomicBool,
     observe_callbacks: AtomicBool,
@@ -104,7 +104,7 @@ impl ParticleSystemManagerInterface for Manager {
             if id % 2 == 0 { Some(id - 1) } else { None },
             "CPP attach callback precedes this system's immediate list push"
         );
-        self.attached.lock().unwrap().push((id, owner));
+        self.attached.send((id, owner)).unwrap();
         self.events.lock().unwrap().push(Event::Attach(id));
     }
     fn attach_particle_system_to_drawable(&self, _: u32, _: ObjectID) {
@@ -248,12 +248,13 @@ fn authored_aflame_body_uses_actual_bones_and_unlocked_manager_callbacks_after_r
         .write()
         .unwrap()
         .set_model_condition_state(ModelConditionFlags::DAMAGED);
+    let (attached_tx, attached_rx) = std::sync::mpsc::channel();
     let manager = Arc::new(Manager {
         body,
         drawable,
         object_id: id,
         created: AtomicU32::new(0),
-        attached: Mutex::new(Vec::new()),
+        attached: attached_tx,
         events: Mutex::new(Vec::new()),
         expected_rubble: AtomicBool::new(false),
         observe_callbacks: AtomicBool::new(true),
@@ -286,7 +287,8 @@ fn authored_aflame_body_uses_actual_bones_and_unlocked_manager_callbacks_after_r
         2,
         "CPP aflame doubles actual small-fire count"
     );
-    assert_eq!(*manager.attached.lock().unwrap(), [(1, id), (2, id)]);
+    let mut attached: Vec<_> = attached_rx.try_iter().collect();
+    assert_eq!(attached, [(1, id), (2, id)]);
     assert_eq!(manager.body.lock().unwrap().owner_particle_head(), Some(2));
     // Invoke the second actual authored upgrade to clip max/current to zero.
     // This goes through the same canonical cap transition, not a synthetic
@@ -312,10 +314,8 @@ fn authored_aflame_body_uses_actual_bones_and_unlocked_manager_callbacks_after_r
         assert!(owner.is_effectively_dead());
         assert_eq!(body.owner_particle_head(), Some(4));
     }
-    assert_eq!(
-        *manager.attached.lock().unwrap(),
-        [(1, id), (2, id), (3, id), (4, id)]
-    );
+    attached.extend(attached_rx.try_iter());
+    assert_eq!(attached, [(1, id), (2, id), (3, id), (4, id)]);
     assert_eq!(
         *manager.events.lock().unwrap(),
         [

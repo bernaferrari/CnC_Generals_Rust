@@ -1,7 +1,9 @@
 //! Wave 452 residual peels: die/command dual-world empty short-circuits.
 //! When `OBJECT_REGISTRY` is empty (host-only presentation path), remaining
-//! die transfer, dam waveguides, crate team, RTS move estimate, AI task, and
+//! die transfer, dam waveguides, crate team, RTS move estimate, and
 //! object-creation upgrade helpers fail-closed without dual-world walks.
+//! The former AI task scheduler is retired; the AI check observes declaration
+//! absence and the owned production phase. It establishes no gameplay parity.
 //! Never flips shell `playable_claim`. Network deferred.
 //!
 //! Orthogonal to Wave 451 golden mop-up default-off residual.
@@ -11,7 +13,7 @@
 //! - `object/die/dam_die.rs`
 //! - `object/die/create_crate_die.rs`
 //! - `commands/rts_command.rs`
-//! - `ai/ai_update.rs`
+//! - `ai/mod.rs` and Main `world_tick/ai_phase.rs`
 //! - `upgrade/modules/object_creation.rs`
 //!
 //! Fail-closed:
@@ -23,7 +25,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
     table.iter().position(|n| *n == name)
 }
 
-/// Die/command dual-world empty-gate residual method names.
+/// Historical die/command labels; `process_ai_task` is a compatibility name only.
 pub const LIVE_DIE_COMMAND_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE452: &[&str] = &[
     "dual_world_registry_unavailable",
     "transfer_attackers",
@@ -130,7 +132,23 @@ fn honesty_one(src: &str, fn_name: &str, expected_return_snip: &str) -> bool {
     false
 }
 
-/// Source residual: die/command empty dual-world short-circuits.
+fn retired_ai_scheduler_uses_owned_phase() -> bool {
+    let ai = include_str!("../../../../GameEngine/GameLogic/src/ai/mod.rs");
+    let scheduler_declared = ai.lines().any(|line| {
+        matches!(
+            line.split("//").next().unwrap_or("").trim(),
+            "mod ai_update;" | "pub mod ai_update;" | "mod ai_core;" | "pub mod ai_core;"
+        )
+    });
+    let phase = include_str!("../world_tick/ai_phase.rs");
+    let queue = phase.find("self.process_pathfind_queue();");
+    let players = phase.find("crate::ai::AIManager::update_owned(self, current_time);");
+    !scheduler_declared
+        && matches!((queue, players), (Some(queue), Some(players)) if queue < players)
+}
+
+/// Source residual: remaining die/command gates and AI scheduler retirement.
+/// This is declaration/phase evidence; it does not execute gameplay.
 pub fn honesty_die_command_dual_world_empty_gate_source() -> bool {
     let create_die =
         include_str!("../../../../GameEngine/GameLogic/src/object/die/create_object_die.rs");
@@ -138,7 +156,6 @@ pub fn honesty_die_command_dual_world_empty_gate_source() -> bool {
     let crate_die =
         include_str!("../../../../GameEngine/GameLogic/src/object/die/create_crate_die.rs");
     let rts = include_str!("../../../../GameEngine/GameLogic/src/commands/rts_command.rs");
-    let ai = include_str!("../../../../GameEngine/GameLogic/src/ai/ai_update.rs");
     let ocl =
         include_str!("../../../../GameEngine/GameLogic/src/upgrade/modules/object_creation.rs");
 
@@ -146,7 +163,7 @@ pub fn honesty_die_command_dual_world_empty_gate_source() -> bool {
         && honesty_one(dam, "enable_waveguides", "return;")
         && honesty_one(crate_die, "set_crate_team", "return;")
         && honesty_one(rts, "estimate_move_time", "return 0;")
-        && honesty_one(ai, "process_ai_task", "return Ok(())")
+        && retired_ai_scheduler_uses_owned_phase()
         && honesty_one(ocl, "apply_upgrade", "return false;")
 }
 

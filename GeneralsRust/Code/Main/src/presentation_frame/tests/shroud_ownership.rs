@@ -1,6 +1,116 @@
 use super::*;
 use gamelogic::common::ObjectShroudStatus;
 
+#[test]
+fn new_world_shroud_does_not_inherit_process_match_state() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "new_world_shroud_does_not_inherit_process_match_state",
+        || {
+            // C++ PartitionManager.cpp:2515 starts with no cells/modules.
+            // Pending reveals and previously seen objects belong to a match,
+            // rather than the content definitions copied by world creation.
+            let process = gamelogic::system::shroud_manager::get_shroud_manager();
+            {
+                let mut shroud = process.lock().unwrap();
+                shroud.init_shroud_grid(240.0, 240.0);
+                shroud.mark_host_object_seen(0, 1);
+                shroud.set_host_object_shroud_status(0, 1, ObjectShroudStatus::Fogged);
+            }
+            let process_before = process.lock().unwrap().snapshot_state();
+            let services = gamelogic::system::engine_stores::new_world_services();
+            assert_eq!(
+                services.shroud().lock().unwrap().snapshot_state(),
+                Default::default(),
+                "service construction must not copy a process match's grid"
+            );
+            let mut a = {
+                // Construction needs no access to another match's visibility,
+                // even when that match's shroud is already exclusively held.
+                let _foreign_shroud = process.lock().unwrap();
+                GameLogic::new()
+            };
+            {
+                let shroud = a.world_services.shroud().lock().unwrap();
+                assert_eq!(shroud.snapshot_state(), Default::default());
+                assert_eq!(shroud.get_host_object_shroud_status(0, 1), None);
+                assert!(!shroud.host_object_ever_seen(0, 1));
+            }
+            a.world_services
+                .shroud()
+                .lock()
+                .unwrap()
+                .reveal_map_for_player_permanently(0)
+                .unwrap();
+            let a_before = a.world_services.shroud().lock().unwrap().snapshot_state();
+            let mut candidate = GameLogic::new();
+            assert_eq!(
+                candidate
+                    .world_services
+                    .shroud()
+                    .lock()
+                    .unwrap()
+                    .snapshot_state(),
+                Default::default(),
+                "a detached load candidate cannot inherit process or A reveals"
+            );
+            let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+            let saved = builder.create_world_snapshot(&a).unwrap();
+            let mut invalid: crate::save_load::snapshot::WorldSnapshot =
+                serde_json::from_slice(&serde_json::to_vec(&saved).unwrap()).unwrap();
+            invalid
+                .shroud
+                .pending_permanent_reveal_players
+                .push(u32::MAX);
+            assert!(
+                builder
+                    .restore_from_snapshot(&invalid, &mut candidate)
+                    .is_err()
+            );
+            assert_eq!(
+                candidate
+                    .world_services
+                    .shroud()
+                    .lock()
+                    .unwrap()
+                    .snapshot_state(),
+                Default::default(),
+                "failed admission preserves the candidate's owned shroud"
+            );
+            candidate.reset();
+            drop(candidate);
+            assert_eq!(
+                a.world_services.shroud().lock().unwrap().snapshot_state(),
+                a_before
+            );
+            let mut restored = GameLogic::new();
+            builder
+                .restore_from_snapshot(&saved, &mut restored)
+                .unwrap();
+            assert_eq!(
+                restored
+                    .world_services
+                    .shroud()
+                    .lock()
+                    .unwrap()
+                    .snapshot_state(),
+                a_before
+            );
+            a.reset();
+            assert_eq!(
+                restored
+                    .world_services
+                    .shroud()
+                    .lock()
+                    .unwrap()
+                    .snapshot_state(),
+                a_before
+            );
+            assert_eq!(process.lock().unwrap().snapshot_state(), process_before);
+        },
+    );
+}
+
 fn world_with_enemy() -> (GameLogic, ObjectId) {
     let mut logic = GameLogic::new();
     logic.start_new_game(GameMode::Skirmish);
