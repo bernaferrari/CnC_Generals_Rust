@@ -535,10 +535,10 @@ impl GameLogic {
         if is_bridge_member {
             if let Some(obj) = self.objects.get_mut(&id) {
                 if !obj.status.keep_as_rubble {
-                    crate::game_logic::host_bridge_behavior::record_death_link(id);
                     obj.convert_bridge_to_rubble_husk();
                 }
             }
+            self.apply_owned_bridge_death_links(id);
             return;
         }
 

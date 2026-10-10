@@ -125,24 +125,32 @@ impl GameLogic {
             {
                 continue;
             }
-            let Some(object) = self.objects.get_mut(&id) else {
+            let Some(object) = self.objects.get(&id) else {
                 continue;
             };
             if !object.is_alive() || object.status.destroyed {
                 continue;
             }
-            // TerrainLogic.cpp has no projectile/aircraft/boat exclusion;
-            // the canonical body's damage policy decides susceptibility.
-            let killed = object.take_damage_from_typed_death_with_repulsor_policy(
-                damage,
-                None,
-                crate::game_logic::combat::DamageType::Water,
-                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
-                &mut self.health_events,
-                &self.enable_repulsors,
-            );
+            // TerrainLogic has no projectile/aircraft/boat exclusion. Complete
+            // the canonical body callbacks before the next water candidate.
+            let result = self
+                .apply_owned_damage(
+                    id,
+                    damage,
+                    None,
+                    crate::game_logic::combat::DamageType::Water,
+                    crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                    None,
+                    &crate::game_logic::object::DamageHitContext::default(),
+                )
+                .expect("admitted water victim remains installed");
             hit += 1;
-            if killed || object.status.destroyed || object.health.current <= 0.0 {
+            if result.destroyed
+                || self
+                    .objects
+                    .get(&id)
+                    .is_some_and(|object| object.status.destroyed || object.health.current <= 0.0)
+            {
                 self.mark_object_for_destruction(id, None);
             }
         }

@@ -80,9 +80,43 @@ impl TerrainLogic {
     /// Querying a named bridge does not consume the previous frame's event.
     pub fn begin_host_bridge_frame(&mut self) {
         self.bridge_damage_states_changed = false;
+    }
+
+    /// One original Bridge::updateDamageState observation. Effects run after
+    /// this borrow ends, before the driving owner observes the next record.
+    pub fn observe_host_bridge_body(
+        &mut self,
+        object_id: ObjectID,
+        state: Option<BodyDamageType>,
+    ) -> Option<(ObjectID, BodyDamageType, BodyDamageType)> {
+        let mut transition = None;
         self.for_each_bridge_mut(|bridge| {
-            bridge.bridge_info_mut().damage_state_changed = false;
+            if bridge.get_bridge_info().bridge_object_id != object_id {
+                return;
+            }
+            let info = bridge.bridge_info_mut();
+            info.damage_state_changed = false;
+            if info.bridge_object_id == crate::common::INVALID_ID {
+                return;
+            }
+            let Some(state) = state else {
+                info.bridge_object_id = crate::common::INVALID_ID;
+                return;
+            };
+            let old = info.cur_damage_state;
+            if old != state {
+                info.cur_damage_state = state;
+                info.damage_state_changed =
+                    old == BodyDamageType::Rubble || state == BodyDamageType::Rubble;
+                transition = Some((info.bridge_object_id, old, state));
+            }
         });
+        transition
+    }
+
+    /// CPP updateBridgeDamageStates sets the gate even on an unchanged scan.
+    pub fn finish_host_bridge_damage_scan(&mut self) {
+        self.bridge_damage_states_changed = true;
     }
 
     /// Deck Z for a live host XZ sample (C++ XY). None when not on a live span.

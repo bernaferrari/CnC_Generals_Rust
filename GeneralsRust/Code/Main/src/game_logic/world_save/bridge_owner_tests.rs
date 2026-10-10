@@ -314,3 +314,111 @@ fn native_saved_map_reconstructs_layers_and_keeps_scaffold_continuation() {
         },
     );
 }
+
+#[test]
+fn native_bridge_body_callbacks_continue_through_damage_and_scaffold_repair() {
+    isolated(
+        "native_bridge_body_callbacks_continue_through_damage_and_scaffold_repair",
+        || {
+            use crate::game_logic::combat::DamageType;
+            use crate::game_logic::host_usa_pilot::HostDeathType;
+            use crate::game_logic::object::DamageHitContext;
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("Continuation.map");
+            std::fs::write(&path, map_bytes(50.0, &[21.0])).unwrap();
+            let mut source = load(&path);
+            let (layer, raw_id, _) = bridges(&source)[0];
+            let id = ObjectId(raw_id);
+            source.frame = 23;
+            source.spawn_bridge_scaffolding(id);
+            let maximum = source.objects[&id].health.maximum;
+            source
+                .apply_owned_damage(
+                    id,
+                    maximum * 0.4,
+                    None,
+                    DamageType::Unresistable,
+                    HostDeathType::Normal,
+                    None,
+                    &DamageHitContext::default(),
+                )
+                .unwrap();
+            let mut saves = SaveFileManager::with_save_directory(temp.path().join("saves"));
+            saves.init().unwrap();
+            saves
+                .save_game(
+                    "bridge_body",
+                    &source,
+                    &SaveGameInfo {
+                        filename: "bridge_body".into(),
+                        display_name: "BridgeBody".into(),
+                        pristine_map_name: source.map_definition_source.clone(),
+                        campaign_side: None,
+                        mission_number: None,
+                        description: "synchronous callback continuation".into(),
+                        map_name: path.to_string_lossy().into_owned(),
+                        save_date: std::time::SystemTime::now(),
+                        game_version: env!("CARGO_PKG_VERSION").into(),
+                        play_time: std::time::Duration::ZERO,
+                        difficulty: GameDifficulty::Medium,
+                        save_type: SaveFileType::Normal,
+                    },
+                )
+                .unwrap();
+            let (snapshot, info) = saves.load_game_snapshot("bridge_body").unwrap();
+            let mut restored = load(Path::new(&info.map_name));
+            restored.templates = source.templates.clone();
+            SnapshotBuilder::new()
+                .restore_from_snapshot(&snapshot, &mut restored)
+                .unwrap();
+            for (kind, amount) in [
+                (DamageType::Unresistable, maximum),
+                (DamageType::Healing, maximum * 0.25),
+            ] {
+                for owner in [&mut source, &mut restored] {
+                    owner.frame = owner.frame.wrapping_add(1);
+                    owner
+                        .apply_owned_damage(
+                            id,
+                            amount,
+                            None,
+                            kind,
+                            HostDeathType::Normal,
+                            None,
+                            &DamageHitContext::default(),
+                        )
+                        .unwrap();
+                    let terrain = owner.world_services.terrain().read().unwrap();
+                    assert!(terrain.bridge_damage_states_changed());
+                    if kind == DamageType::Healing {
+                        assert!(terrain.is_bridge_repaired(id.0));
+                    } else {
+                        assert!(terrain.is_bridge_broken(id.0));
+                    }
+                    let cell = owner
+                        .pathfinding_system
+                        .grid
+                        .world_to_grid(Vec3::new(50.0, 21.0, 50.0));
+                    assert_eq!(
+                        owner.pathfinding_system.grid.layer_cell_type(layer, cell),
+                        Some(gamelogic::ai::pathfind_astar::PathfindCellType::BridgeImpassable)
+                    );
+                }
+                assert_eq!(
+                    source.objects[&id].health.current,
+                    restored.objects[&id].health.current
+                );
+                assert_eq!(
+                    source.objects[&id].body_damage_state,
+                    restored.objects[&id].body_damage_state
+                );
+                let a = source.bridge_behavior.span(id).unwrap();
+                let b = restored.bridge_behavior.span(id).unwrap();
+                assert_eq!(
+                    (a.last_body_state, a.death_frame, a.scaffold_motion_frames),
+                    (b.last_body_state, b.death_frame, b.scaffold_motion_frames)
+                );
+            }
+        },
+    );
+}

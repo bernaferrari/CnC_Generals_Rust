@@ -355,28 +355,86 @@ fn named_face_named_clears_waypoint_queue() {
 }
 
 #[test]
-fn has_finished_media_fails_closed_without_handler() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+fn video_completion_requires_notification_and_is_consumed() {
+    let engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    let state = std::cell::RefCell::new(ScriptContext::new());
+    let mut evaluator = ScriptConditionEvaluator::new(&engine, &state);
+    let mut condition = Condition::new(ConditionType::HasFinishedVideo);
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::Movie,
+            "IntroMovie".into(),
+        ))
+        .unwrap();
+    // ScriptEngine.cpp:7241-7264 consumes a notified video, not an audio timer.
+    assert_eq!(
+        evaluator.evaluate_condition(&mut condition).unwrap(),
+        ScriptConditionResult::False
+    );
+    engine.notify_of_completed_video("IntroMovie");
+    assert_eq!(
+        evaluator.evaluate_condition(&mut condition).unwrap(),
+        ScriptConditionResult::True
+    );
+    assert_eq!(
+        evaluator.evaluate_condition(&mut condition).unwrap(),
+        ScriptConditionResult::False
+    );
+}
 
-    // C++ ScriptConditions.cpp:1419-1437 queries TheScriptEngine; missing handler is not complete.
-    // HAS_FINISHED_AUDIO without a live handler still uses leftover ScriptEngine
-    // TheAudio length (C++ isAudioComplete), so it is not in this fail-closed set.
-    let _test_lock = crate::test_sync::lock();
-    let evaluator_state = std::cell::RefCell::new(ScriptContext::new());
-    let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
-    for (kind, name) in [
-        (ConditionType::HasFinishedVideo, "IntroMovie"),
-        (ConditionType::HasFinishedSpeech, "Briefing"),
+#[test]
+fn speech_and_audio_completion_use_owned_deadlines_without_handler() {
+    let engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+    // ScriptEngine.cpp:7268-7330: retained timers belong to this engine.
+    // Seed the serialized continuation, avoiding global audio catalog access.
+    let mut tail = engine.snapshot_xfer_tail();
+    tail.testing_speech = vec![("Briefing".into(), 13)];
+    tail.testing_audio = vec![("Explosion".into(), 13)];
+    engine.restore_xfer_tail(&tail);
+    let state = std::cell::RefCell::new(ScriptContext::new());
+    let mut evaluator = ScriptConditionEvaluator::new(&engine, &state);
+    for (kind, parameter, name) in [
+        (
+            ConditionType::HasFinishedSpeech,
+            ParameterType::Dialog,
+            "Briefing",
+        ),
+        (
+            ConditionType::HasFinishedAudio,
+            ParameterType::Sound,
+            "Explosion",
+        ),
     ] {
         let mut condition = Condition::new(kind);
         condition
-            .add_parameter(Parameter::with_string(ParameterType::Movie, name.into()))
+            .add_parameter(Parameter::with_string(parameter, name.into()))
             .unwrap();
+        for frame in [10, 12] {
+            state.borrow_mut().current_frame = frame;
+            assert_eq!(
+                evaluator.evaluate_condition(&mut condition).unwrap(),
+                ScriptConditionResult::False
+            );
+            let retained = engine.snapshot_xfer_tail();
+            let timers = if kind == ConditionType::HasFinishedSpeech {
+                retained.testing_speech
+            } else {
+                retained.testing_audio
+            };
+            assert_eq!(timers, [(name.into(), 13)]);
+        }
+        state.borrow_mut().current_frame = 13;
         assert_eq!(
             evaluator.evaluate_condition(&mut condition).unwrap(),
-            ScriptConditionResult::False,
-            "{kind:?} must fail closed without an action handler"
+            ScriptConditionResult::True
         );
+        let after = engine.snapshot_xfer_tail();
+        let timers = if kind == ConditionType::HasFinishedSpeech {
+            after.testing_speech
+        } else {
+            after.testing_audio
+        };
+        assert!(timers.is_empty(), "completed timer is consumed");
     }
 }
 

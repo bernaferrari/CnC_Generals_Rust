@@ -460,10 +460,22 @@ impl HostBridgeBehaviorRegistry {
 
     /// C++ tower/span onDamage/onHealing: siblings excluding `victim`.
     pub fn mirror_targets(&self, victim: ObjectId) -> Vec<ObjectId> {
-        self.linked_members(victim)
-            .into_iter()
-            .filter(|id| *id != victim)
-            .collect()
+        let Some(span_id) = self.span_id_for(victim) else {
+            return Vec::new();
+        };
+        let Some(span) = self.spans.get(&span_id.0) else {
+            return Vec::new();
+        };
+        let mut targets: Vec<_> = span
+            .tower_ids
+            .iter()
+            .copied()
+            .filter(|id| id.0 != 0 && *id != victim)
+            .collect();
+        if span_id != victim {
+            targets.push(span_id);
+        }
+        targets
     }
 
     /// C++ `BridgeBehavior::createScaffolding` — start rise, close deck.

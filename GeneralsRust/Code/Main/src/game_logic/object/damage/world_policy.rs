@@ -234,9 +234,7 @@ impl Object {
             context,
             health_events,
         );
-        application
-            .dispatch_damage_fx(self, context.source())
-            .finish(self, context.source(), *repulsor_policy)
+        application.finish_standalone(self, context.source(), repulsor_policy)
     }
 
     fn take_damage_from_typed_death_with_host_hp_with_repulsor_policy(
@@ -288,9 +286,7 @@ impl Object {
             context,
             health_events,
         );
-        application
-            .dispatch_damage_fx(self, context.source())
-            .finish(self, context.source(), *repulsor_policy)
+        application.finish_standalone(self, context.source(), repulsor_policy)
     }
     /// Preserve Weapon.cpp:1351 airborne exclusion before ordinary radiation damage.
     pub(in crate::game_logic) fn take_radiation_field_tick_with_repulsor_policy(

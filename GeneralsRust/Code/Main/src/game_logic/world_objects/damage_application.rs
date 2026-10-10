@@ -112,7 +112,7 @@ impl GameLogic {
     ) -> Option<OwnedDamageResult> {
         let victim = self.objects.get_mut(&victim_id)?;
         let before_hp = victim.health.current;
-        let application: DamageApplication = victim.begin_damage_with_context(
+        let mut application: DamageApplication = victim.begin_damage_with_context(
             damage,
             source_id,
             damage_type,
@@ -125,7 +125,26 @@ impl GameLogic {
         let hp_lost = (before_hp - victim.health.current).max(0.0);
         let victim_position = victim.get_position();
         let victim_team = victim.team;
-        if application.killed() {
+        let bridge_callbacks = application.bridge_callbacks();
+        if let Some(callbacks) = bridge_callbacks {
+            self.complete_owned_bridge_body_callbacks(callbacks);
+        }
+        // Original ActiveBody rereads live health after synchronous callbacks.
+        let killed = if bridge_callbacks.is_some()
+            && damage_type != crate::game_logic::combat::DamageType::Healing
+        {
+            before_hp > 0.0
+                && self
+                    .objects
+                    .get(&victim_id)
+                    .is_some_and(|o| o.health.current <= 0.0)
+        } else {
+            application.killed()
+        };
+        if bridge_callbacks.is_some() {
+            application.set_killed_after_callbacks(killed);
+        }
+        if killed {
             // Keep the existing once-only gates and XP-sink routing. Do not
             // predict a promotion or cache XP before the callbacks.
             if let Some(source) = source_id {

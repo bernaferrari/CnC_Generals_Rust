@@ -576,32 +576,20 @@ impl GameLogic {
                     let heal_amount = heal_per_sec * dt;
                     // C++ attemptHealingFromSoleBenefactor(health, dozer, 2) residual.
                     let now = self.frame;
-                    let sole = if let Some(target) = self.objects.get_mut(&repair_target_id) {
-                        let max_before = target.health.maximum.max(1.0);
-                        let healed = target.attempt_healing_from_sole_benefactor(
-                            heal_amount,
-                            object_id,
-                            2,
-                            now,
-                            &mut self.health_events,
-                        );
-                        if healed && heal_amount > 0.0 {
-                            crate::game_logic::host_bridge_behavior::record_mirror(
-                                repair_target_id,
-                                heal_amount,
-                                max_before,
-                                Some(object_id),
-                                crate::game_logic::combat::DamageType::Healing.to_store() as u32,
-                                0,
-                                crate::game_logic::host_bridge_behavior::HostBridgeMirrorKind::Heal,
-                            );
-                        }
-                        let full = target.health.current >= target.health.maximum;
-                        let pos = target.get_position();
-                        Some((full, healed, pos))
-                    } else {
-                        None
-                    };
+                    let healed = self.attempt_owned_healing_from_sole_benefactor(
+                        repair_target_id,
+                        heal_amount,
+                        object_id,
+                        2,
+                        now,
+                    );
+                    let sole = self.objects.get(&repair_target_id).map(|target| {
+                        (
+                            target.health.current >= target.health.maximum,
+                            healed,
+                            target.get_position(),
+                        )
+                    });
                     let (target_full, healed, repair_pos) = match sole {
                         Some(v) => v,
                         None => {

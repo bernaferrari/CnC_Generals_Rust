@@ -1,8 +1,9 @@
 //! Live synchronous Main owner for one ScriptEngine action walk.
 use super::*;
 use gamelogic::scripting::engine::{
-    ScriptAiPlayerRequest, ScriptCameraRequest, ScriptDisplayRequest, ScriptExecutionDriver,
-    ScriptObjectStatus, ScriptOwnerQuery, ScriptTeamStatus, ScriptWaterRequest,
+    ScriptAiPlayerRequest, ScriptBridgeStatus, ScriptCameraRequest, ScriptDisplayRequest,
+    ScriptExecutionDriver, ScriptObjectStatus, ScriptOwnerQuery, ScriptTeamStatus,
+    ScriptWaterRequest,
 };
 
 pub(super) struct HostScriptExecutionDriver<'a> {
@@ -57,6 +58,20 @@ impl<'a> HostScriptExecutionDriver<'a> {
 }
 
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+    fn named_damage(&mut self, name: &str, amount: i32) -> Option<gamelogic::GameLogicResult<()>> {
+        // A foreign Core registry/tracker entry must never select the receiver.
+        let id = self
+            .world
+            .host_objects()
+            .values()
+            .find(|object| !object.name.is_empty() && object.name.eq_ignore_ascii_case(name))
+            .map(|object| object.id);
+        if let Some(id) = id {
+            self.world.host_script_apply_unresistable(id, amount as f32);
+        }
+        Some(Ok(()))
+    }
+
     fn water(&mut self, request: ScriptWaterRequest<'_>) -> Option<gamelogic::GameLogicResult<()>> {
         Some(self.world.apply_owned_script_water(request))
     }
@@ -170,6 +185,30 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         } else {
             ScriptOwnerQuery::Missing
         }
+    }
+
+    fn bridge_status(&self, name: &str) -> ScriptOwnerQuery<ScriptBridgeStatus> {
+        // Resolve only this world's name/ID pair. The shared named tracker may
+        // contain the same ID from a foreign world and is not an owner.
+        let Some(object) = self
+            .world
+            .host_objects()
+            .values()
+            .find(|object| !object.name.is_empty() && object.name.eq_ignore_ascii_case(name))
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let terrain = self
+            .world
+            .world_services
+            .terrain()
+            .read()
+            .expect("owned script bridge query");
+        let changed = terrain.bridge_damage_states_changed();
+        ScriptOwnerQuery::Present(ScriptBridgeStatus {
+            broken: changed && terrain.is_bridge_broken(object.id.0),
+            repaired: changed && terrain.is_bridge_repaired(object.id.0),
+        })
     }
 
     fn sequential_current_player(

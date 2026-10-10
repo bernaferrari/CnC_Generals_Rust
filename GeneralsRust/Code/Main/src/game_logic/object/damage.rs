@@ -2,8 +2,8 @@ use super::*;
 
 mod application;
 mod world_policy;
-use application::ActiveDamageContinuation;
-pub(in crate::game_logic) use application::DamageApplication;
+use application::{ActiveDamageContinuation, BridgeHealingContinuation};
+pub(in crate::game_logic) use application::{BridgeBodyCallbacks, DamageApplication};
 
 impl Object {
     pub fn take_damage_from(
@@ -320,15 +320,21 @@ impl Object {
             if !is_bridge && (self.status.keep_as_rubble || slow_dying) {
                 return DamageApplication::Complete(false);
             }
-            if is_bridge {
-                self.revive_from_bridge_rubble();
-            }
+            let old_state = self.body_damage_state;
+            let before_hp = self.health.current;
             let amount = crate::game_logic::host_armor_residual::apply_residual_armor(
                 self,
                 damage_type,
                 damage,
             );
+            if is_bridge && amount > 0.0 && amount.is_finite() {
+                self.revive_from_bridge_rubble();
+            }
             self.heal_with_source(amount.max(0.0), context.source(), health_events);
+            if is_bridge && self.health.current > before_hp {
+                // A repairable body can die again after leaving rubble.
+                self.status.on_die_started = false;
+            }
             if amount > 0.0 {
                 let now = frame;
                 self.last_healing_timestamp = Some(now);
@@ -336,24 +342,25 @@ impl Object {
                 self.last_damage_source = source;
                 self.last_damage_source_preferred = false;
                 self.last_damage_info_type = Some(crate::game_logic::combat::DamageType::Healing);
-                if is_bridge {
-                    let max_health = if self.health.maximum > 0.0 {
-                        self.health.maximum
-                    } else {
-                        self.max_health.max(1.0)
-                    };
-                    crate::game_logic::host_bridge_behavior::record_mirror(
-                        self.id,
-                        amount.max(0.0),
-                        max_health,
-                        source,
-                        damage_type.to_store() as u32,
-                        death_type.ordinal() as u32,
-                        crate::game_logic::host_bridge_behavior::HostBridgeMirrorKind::Heal,
-                    );
-                }
             }
             let fx_type = fx_override.unwrap_or(damage_type);
+            if is_bridge {
+                return DamageApplication::Healing(BridgeHealingContinuation {
+                    callbacks: BridgeBodyCallbacks {
+                        victim: self.id,
+                        source,
+                        input_amount: damage,
+                        max_health: self.health.maximum,
+                        old_state,
+                        health_changed: self.health.current > before_hp,
+                        damage_type,
+                        death_type,
+                    },
+                    fx_type,
+                    actual_amount: amount.max(0.0),
+                    frame,
+                });
+            }
             let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
                 self,
                 fx_type,
@@ -789,11 +796,18 @@ impl Object {
         DamageApplication::Active(ActiveDamageContinuation {
             victim_id: self.id,
             source,
-            damage_type,
-            death_type,
             fx_type: fx_override.unwrap_or(damage_type),
             actual_damage,
-            max_health,
+            bridge_callbacks: self.is_host_bridge_member().then_some(BridgeBodyCallbacks {
+                victim: self.id,
+                source,
+                input_amount: incoming,
+                max_health,
+                old_state: old_body_state,
+                health_changed: self.health.current < prev_health,
+                damage_type,
+                death_type,
+            }),
             frame,
             lethal: destroyed,
             start_second_life: battle_bus_start_second,

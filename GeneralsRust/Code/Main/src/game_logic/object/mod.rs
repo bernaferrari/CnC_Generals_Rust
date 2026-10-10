@@ -3214,8 +3214,8 @@ mod bonuses;
 mod construct;
 pub(crate) use construct::template_has_worker_ai_update;
 mod damage;
-pub(in crate::game_logic) use damage::DamageApplication;
 pub(crate) use damage::record_neutral_vehicle_sniped;
+pub(in crate::game_logic) use damage::{BridgeBodyCallbacks, DamageApplication};
 mod death;
 #[cfg(test)]
 mod entity_inventory_audit;

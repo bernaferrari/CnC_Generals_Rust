@@ -680,6 +680,21 @@ impl Object {
         if amount <= 0.0 {
             return false;
         }
+        if !self.claim_healing_benefactor(source_id, duration_frames, now) {
+            return false;
+        }
+        let before = self.health.current;
+        self.heal(amount, health_events);
+        self.health.current > before + 0.0001 || self.health.current >= self.health.maximum - 0.01
+    }
+
+    /// Claim admission is independent of clipped HP gain (Object.cpp1883).
+    pub(in crate::game_logic) fn claim_healing_benefactor(
+        &mut self,
+        source_id: ObjectId,
+        duration_frames: u32,
+        now: u32,
+    ) -> bool {
         let claim_open = now > self.sole_healing_benefactor_expiration_frame
             || self.sole_healing_benefactor == Some(source_id);
         self.record_host_sole_healing();
@@ -688,11 +703,9 @@ impl Object {
         }
         self.sole_healing_benefactor = Some(source_id);
         self.record_host_sole_healing();
-        self.sole_healing_benefactor_expiration_frame = now.saturating_add(duration_frames);
+        self.sole_healing_benefactor_expiration_frame = now.wrapping_add(duration_frames);
         self.record_host_sole_healing();
-        let before = self.health.current;
-        self.heal(amount, health_events);
-        self.health.current > before + 0.0001 || self.health.current >= self.health.maximum - 0.01
+        true
     }
 
     pub fn set_actively_constructing(&mut self, active: bool) {

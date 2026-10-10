@@ -39,6 +39,14 @@ pub struct ScriptTeamStatus {
     pub dead: bool,
 }
 
+/// CPP ScriptConditions244–272: the aggregate terrain gate is already
+/// applied by the driving owner; a named query never consumes its transition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScriptBridgeStatus {
+    pub broken: bool,
+    pub repaired: bool,
+}
+
 /// Parsed display effect for the game driving this action. Borrowed text is
 /// valid only during the synchronous callback; the owner queues its own copy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,6 +106,12 @@ pub enum ScriptWaterRequest<'a> {
 pub trait ScriptExecutionDriver {
     fn after_action(&mut self) -> GameLogicResult<()>;
 
+    /// CPP ScriptActions::doNamedDamage: Some selects this execution owner,
+    /// including an absent named object; None uses the standalone adapter.
+    fn named_damage(&mut self, _name: &str, _amount: i32) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     /// Some selects this owner exclusively, including a failed effect.
     fn water(&mut self, _request: ScriptWaterRequest<'_>) -> Option<GameLogicResult<()>> {
         None
@@ -131,6 +145,12 @@ pub trait ScriptExecutionDriver {
     }
 
     fn team_status(&self, _name: &str) -> ScriptOwnerQuery<ScriptTeamStatus> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    /// Missing is authoritative absence. Unavailable selects only the
+    /// standalone adapter, never another world during a live Main execution.
+    fn bridge_status(&self, _name: &str) -> ScriptOwnerQuery<ScriptBridgeStatus> {
         ScriptOwnerQuery::Unavailable
     }
 

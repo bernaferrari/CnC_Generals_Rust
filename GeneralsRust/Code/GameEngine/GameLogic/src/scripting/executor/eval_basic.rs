@@ -339,8 +339,8 @@ impl ScriptConditionEvaluator<'_> {
             ConditionType::BuildingEnteredByPlayer => {
                 self.eval_building_entered_by_player(condition)
             }
-            ConditionType::BridgeRepaired => self.eval_bridge_repaired(condition),
-            ConditionType::BridgeBroken => self.eval_bridge_broken(condition),
+            ConditionType::BridgeRepaired => self.eval_bridge_repaired(condition, driver),
+            ConditionType::BridgeBroken => self.eval_bridge_broken(condition, driver),
 
             // ============================================================================
             // SPECIAL POWER CONDITIONS

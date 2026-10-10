@@ -1398,19 +1398,19 @@ impl GameLogic {
                 if amount <= 0.0 {
                     continue;
                 }
-                if let Some(target) = self.objects.get_mut(target_id) {
-                    if !target.is_alive() {
-                        continue;
-                    }
-                    if target.attempt_healing_from_sole_benefactor(
+                if self
+                    .objects
+                    .get(target_id)
+                    .is_some_and(|target| target.is_alive())
+                    && self.attempt_owned_healing_from_sole_benefactor(
+                        *target_id,
                         amount,
                         *healer_id,
                         AMBULANCE_HEAL_DELAY_FRAMES,
                         now,
-                        &mut self.health_events,
-                    ) {
-                        heal_ticks = heal_ticks.saturating_add(1);
-                    }
+                    )
+                {
+                    heal_ticks = heal_ticks.saturating_add(1);
                 }
             }
         }

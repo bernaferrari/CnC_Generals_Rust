@@ -1834,7 +1834,7 @@ impl GameLogic {
         }
     }
 
-    fn leftover_bridge_body_state(
+    pub(in crate::game_logic) fn leftover_bridge_body_state(
         state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
     ) -> gamelogic::common::BodyDamageType {
         use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
@@ -1992,7 +1992,12 @@ impl GameLogic {
         );
     }
 
-    fn play_bridge_body_transition(&mut self, span_id: ObjectId, old_state: u8, new_state: u8) {
+    pub(in crate::game_logic) fn play_bridge_body_transition(
+        &mut self,
+        span_id: ObjectId,
+        old_state: u8,
+        new_state: u8,
+    ) {
         let cue = self
             .bridge_behavior
             .body_transition_cues(old_state, new_state);

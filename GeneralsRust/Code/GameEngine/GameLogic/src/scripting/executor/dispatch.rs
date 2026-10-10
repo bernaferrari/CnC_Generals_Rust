@@ -249,7 +249,16 @@ impl ScriptActionDispatcher<'_> {
             }
             ScriptActionType::NamedDelete => self.do_named_delete(action),
             ScriptActionType::NamedKill => self.do_named_kill(action),
-            ScriptActionType::NamedDamage => self.do_named_damage(action),
+            ScriptActionType::NamedDamage => {
+                let name = self.get_string_param(action, 0)?;
+                let amount = self.get_int_param(action, 1)?;
+                if let Some(result) = driver.named_damage(&name, amount) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_named_damage(action)
+                }
+            }
 
             // Named unit actions
             ScriptActionType::MoveNamedUnitTo => self.do_named_move_to_waypoint(action),

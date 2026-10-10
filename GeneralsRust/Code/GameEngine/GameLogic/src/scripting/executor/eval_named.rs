@@ -4,6 +4,7 @@
 //! Observable script behavior is unchanged.
 
 use super::*;
+use crate::scripting::engine::ScriptOwnerQuery;
 
 impl ScriptConditionEvaluator<'_> {
     // ============================================================================
@@ -1207,9 +1208,15 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_bridge_repaired(
         &self,
         condition: &Condition,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptConditionResult, ScriptError> {
         let bridge_name = self.get_condition_string_param(condition, 0)?;
         log::debug!("Evaluating if bridge '{}' repaired", bridge_name);
+        match driver.bridge_status(&bridge_name) {
+            ScriptOwnerQuery::Present(status) => return Ok(Self::bool_result(status.repaired)),
+            ScriptOwnerQuery::Missing => return Ok(ScriptConditionResult::False),
+            ScriptOwnerQuery::Unavailable => {}
+        }
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             return Ok(Self::bool_result(crate::scripting::host_bridge_repaired(
                 &bridge_name,
@@ -1233,9 +1240,15 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_bridge_broken(
         &self,
         condition: &Condition,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptConditionResult, ScriptError> {
         let bridge_name = self.get_condition_string_param(condition, 0)?;
         log::debug!("Evaluating if bridge '{}' broken", bridge_name);
+        match driver.bridge_status(&bridge_name) {
+            ScriptOwnerQuery::Present(status) => return Ok(Self::bool_result(status.broken)),
+            ScriptOwnerQuery::Missing => return Ok(ScriptConditionResult::False),
+            ScriptOwnerQuery::Unavailable => {}
+        }
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             return Ok(Self::bool_result(crate::scripting::host_bridge_broken(
                 &bridge_name,
