@@ -499,7 +499,7 @@ fn capture_persist_v18_impl(
         })
         .collect();
 
-    if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() {
+    if let Ok(terrain) = game_logic.world_services.terrain().read() {
         persist.terrain_active_boundary = terrain.get_active_boundary();
         persist.water_updates = terrain
             .snapshot_dynamic_water_entries()
@@ -677,7 +677,10 @@ fn capture_persist_v18_impl(
     persist
 }
 
-pub fn restore_persist_v18(persist: &WorldPersistV18, game_logic: &mut GameLogic) {
+pub fn restore_persist_v18(
+    persist: &WorldPersistV18,
+    game_logic: &mut GameLogic,
+) -> SaveLoadResult<()> {
     game_logic.set_rank_level_limit(persist.rank_level_limit);
     TheGameLogic::set_show_behind_building_markers(persist.show_behind_building_markers);
     TheGameLogic::set_draw_icon_ui(persist.draw_icon_ui);
@@ -776,8 +779,11 @@ pub fn restore_persist_v18(persist: &WorldPersistV18, game_logic: &mut GameLogic
             .collect::<Vec<_>>(),
     );
 
-    if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
-        terrain.set_active_boundary(persist.terrain_active_boundary);
+    {
+        let handle = game_logic.world_services.terrain().clone();
+        let mut terrain = handle
+            .write()
+            .map_err(|_| SaveLoadError::Corrupted("candidate terrain lock poisoned".into()))?;
         let entries = persist
             .water_updates
             .iter()
@@ -792,7 +798,10 @@ pub fn restore_persist_v18(persist: &WorldPersistV18, game_logic: &mut GameLogic
                 },
             )
             .collect();
-        let _ = terrain.restore_dynamic_water_entries(entries);
+        terrain
+            .restore_dynamic_water_entries(entries)
+            .map_err(SaveLoadError::Corrupted)?;
+        terrain.set_active_boundary(persist.terrain_active_boundary);
     }
 
     game_logic.restore_radar_script_state(!persist.radar_hidden, persist.radar_forced);
@@ -875,6 +884,7 @@ pub fn restore_persist_v18(persist: &WorldPersistV18, game_logic: &mut GameLogic
                 .restore(entry.object_id, entry.tint_envelope);
         }
     }
+    Ok(())
 }
 
 /// Apply the client half of `Drawable::xfer` only after a staged world commits.
@@ -1865,7 +1875,7 @@ mod tests {
         let before = capture_persist_v18(&playing);
         let (mut candidate, candidate_id) = world();
         assert_eq!(id, candidate_id);
-        restore_persist_v18(&decoded, &mut candidate);
+        restore_persist_v18(&decoded, &mut candidate).unwrap();
         let after = capture_persist_v18(&playing);
         assert_eq!(
             before.drawable_xfer[0].tint_envelope, after.drawable_xfer[0].tint_envelope,

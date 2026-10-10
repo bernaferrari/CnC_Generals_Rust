@@ -289,7 +289,7 @@ fn actual_main_completion_continues_through_script_engine_chunk_restore() {
             let mut restored = GameLogic::new();
             restored.frame = 19;
             *get_script_engine().write().unwrap() = Some(authored(None));
-            persist_v18::restore_persist_v18(&restored_persist, &mut restored);
+            persist_v18::restore_persist_v18(&restored_persist, &mut restored).unwrap();
             let engine = get_script_engine().write().unwrap().take().unwrap();
             let engine = walk(&mut restored, engine);
             assert_eq!(

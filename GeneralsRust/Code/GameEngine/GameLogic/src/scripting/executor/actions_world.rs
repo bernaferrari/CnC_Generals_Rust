@@ -4,7 +4,7 @@
 //! Observable script behavior is unchanged.
 
 use super::*;
-use crate::scripting::engine::{ScriptCameraRequest, ScriptExecutionDriver};
+use crate::scripting::engine::{ScriptCameraRequest, ScriptExecutionDriver, ScriptWaterRequest};
 
 fn resolve_script_named_object_id(unit_name: &str) -> Option<u32> {
     get_named_object_tracker()
@@ -1078,11 +1078,19 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_water_change_height(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let water_name = self.get_string_param(action, 0)?;
         let height = self.get_real_param(action, 1)?;
         log::debug!("Changing water '{}' height to {}", water_name, height);
 
+        if let Some(result) = driver.water(ScriptWaterRequest::SetHeight {
+            name: &water_name,
+            height,
+        }) {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+            return Ok(ScriptActionResult::Success);
+        }
         let water_name_ascii = AsciiString::from(water_name.as_str());
         if let Ok(mut terrain) = get_terrain_logic().write() {
             if terrain
@@ -1099,6 +1107,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_water_change_height_over_time(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let water_name = self.get_string_param(action, 0)?;
         let height = self.get_real_param(action, 1)?;
@@ -1112,6 +1121,15 @@ impl ScriptActionDispatcher<'_> {
             damage
         );
 
+        if let Some(result) = driver.water(ScriptWaterRequest::OverTime {
+            name: &water_name,
+            height,
+            seconds: time,
+            damage,
+        }) {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+            return Ok(ScriptActionResult::Success);
+        }
         let water_name_ascii = AsciiString::from(water_name.as_str());
         if let Ok(mut terrain) = get_terrain_logic().write() {
             terrain.change_water_height_over_time(&water_name_ascii, height, time, damage);

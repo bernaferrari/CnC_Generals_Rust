@@ -2,8 +2,9 @@
 //!
 //! C++ `TerrainLogic::enableWaterGrid` pushes GameData.INI vertex-water settings
 //! onto `TheTerrainVisual`, then `enableWaterGrid` even on disable.
-//! `isUnderwater` / `getWaterHandle` sample `TheTerrainVisual->getWaterGridHeight`
-//! (world-to-grid + vertex height), not an AABB.
+//! `isUnderwater` / `getWaterHandle` preserve the original world-to-grid and
+//! vertex-height queries on the owning logical grid. Visual hooks only receive
+//! completed values; they cannot select or overwrite simulation water.
 
 use glam::{Mat4, Vec3};
 use std::collections::HashMap;
@@ -21,10 +22,12 @@ pub struct VisualWaterHooks {
     pub get_water_grid_height: Option<fn(f32, f32) -> Option<f32>>,
     pub get_transform_z: Option<fn() -> f32>,
     pub set_transform_z: Option<fn(f32)>,
+    /// Immutable logical grid output; the receiver never feeds simulation queries.
+    pub publish_grid: Option<fn(&WaterGridState)>,
 }
 
-/// Logic-side replica of the C++ water-grid mesh (transform / resolution / deltas).
-#[derive(Clone, Debug)]
+/// Canonical logical water-grid state, owned by one TerrainLogic instance.
+#[derive(Clone, Debug, PartialEq)]
 pub struct WaterGridState {
     pub enabled: bool,
     pub transform: Mat4,
@@ -32,6 +35,15 @@ pub struct WaterGridState {
     pub height_clamps: (f32, f32),
     pub attenuation: (f32, f32, f32, f32),
     pub height_deltas: HashMap<(i32, i32), f32>,
+    pub mesh_motion: HashMap<(i32, i32), WaterGridMeshMotion>,
+}
+
+/// Original WaterMeshData fields accompanying each logical height delta.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct WaterGridMeshMotion {
+    pub velocity: f32,
+    pub status: u8,
+    pub preferred_height: u8,
 }
 
 impl Default for WaterGridState {
@@ -43,14 +55,13 @@ impl Default for WaterGridState {
             height_clamps: (0.0, 0.0),
             attenuation: (0.0, 0.0, 0.0, 0.0),
             height_deltas: HashMap::new(),
+            mesh_motion: HashMap::new(),
         }
     }
 }
 
 static WATER_HOOKS: LazyLock<Mutex<VisualWaterHooks>> =
     LazyLock::new(|| Mutex::new(VisualWaterHooks::default()));
-static WATER_STATE: LazyLock<Mutex<WaterGridState>> =
-    LazyLock::new(|| Mutex::new(WaterGridState::default()));
 
 pub fn register_visual_water_hooks(new_hooks: VisualWaterHooks) {
     if let Ok(mut slot) = WATER_HOOKS.lock() {
@@ -62,15 +73,89 @@ fn with_hooks<R>(f: impl FnOnce(&VisualWaterHooks) -> R) -> Option<R> {
     WATER_HOOKS.lock().ok().map(|h| f(&h))
 }
 
+// Retained engine adapters resolve the driving service; constructors never publish it.
 fn with_state_mut<R>(f: impl FnOnce(&mut WaterGridState) -> R) -> Option<R> {
-    WATER_STATE.lock().ok().map(|mut s| f(&mut s))
+    let terrain = crate::terrain::get_terrain_logic();
+    let mut terrain = terrain.write().ok()?;
+    Some(f(terrain.water_grid_state_mut()))
 }
-
 fn with_state<R>(f: impl FnOnce(&WaterGridState) -> R) -> Option<R> {
-    WATER_STATE.lock().ok().map(|s| f(&s))
+    let terrain = crate::terrain::get_terrain_logic();
+    let terrain = terrain.read().ok()?;
+    Some(f(terrain.water_grid_state()))
 }
 pub fn reset_water_grid_state() {
-    let _ = with_state_mut(|s| *s = WaterGridState::default());
+    let _ = with_state_mut(|state| *state = WaterGridState::default());
+}
+
+impl WaterGridState {
+    pub fn height_at(&self, x: f32, y: f32) -> Option<f32> {
+        sample_grid_height(self, x, y)
+    }
+    pub fn set_resolution(&mut self, x: f32, y: f32, size: f32) {
+        self.resolution.2 = size.max(f32::EPSILON);
+        // W3DWater.cpp only reallocates when X changes.
+        if self.resolution.0 != x {
+            self.resolution.0 = x;
+            self.resolution.1 = y;
+            self.height_deltas.clear();
+            self.mesh_motion.clear();
+        }
+    }
+    pub fn set_height(&mut self, height: f32) {
+        self.transform.w_axis.z = height;
+    }
+    pub fn bounds(&self) -> crate::common::Region3D {
+        let (x, y, size) = self.resolution;
+        // TerrainLogic.cpp builds integer corners before transforming them.
+        let width = (x * size) as i32 as f32;
+        let height = (y * size) as i32 as f32;
+        let corners = [
+            Vec3::ZERO,
+            Vec3::new(width, 0.0, 0.0),
+            Vec3::new(0.0, height, 0.0),
+            Vec3::new(width, height, 0.0),
+        ];
+        let mut lo = Vec3::splat(f32::INFINITY);
+        let mut hi = Vec3::splat(f32::NEG_INFINITY);
+        for corner in corners {
+            let point = self.transform.transform_point3(corner);
+            lo = lo.min(point);
+            hi = hi.max(point);
+        }
+        crate::common::Region3D::new(
+            crate::common::Coord3D::new(lo.x, lo.y, lo.z),
+            crate::common::Coord3D::new(hi.x, hi.y, hi.z),
+        )
+    }
+    /// Publish an immutable completed logical value to the native visual adapter.
+    /// Visual queries never write or choose authoritative simulation water.
+    pub fn publish_visual(&self) {
+        let hooks = with_hooks(|hooks| *hooks).unwrap_or_default();
+        if let Some(hook) = hooks.set_height_clamps {
+            hook(self.height_clamps.0, self.height_clamps.1);
+        }
+        if let Some(hook) = hooks.set_transform_matrix {
+            hook(self.transform.to_cols_array());
+        }
+        if let Some(hook) = hooks.set_resolution {
+            hook(self.resolution.0, self.resolution.1, self.resolution.2);
+        }
+        if let Some(hook) = hooks.set_attenuation {
+            hook(
+                self.attenuation.0,
+                self.attenuation.1,
+                self.attenuation.2,
+                self.attenuation.3,
+            );
+        }
+        if let Some(hook) = hooks.enable_water_grid {
+            hook(self.enabled);
+        }
+        if let Some(hook) = hooks.publish_grid {
+            hook(self);
+        }
+    }
 }
 
 /// C++ `TheTerrainVisual->enableWaterGrid`.
@@ -119,6 +204,7 @@ pub fn visual_set_resolution(cells_x: f32, cells_y: f32, cell_size: f32) {
             s.resolution.0 = cells_x;
             s.resolution.1 = cells_y;
             s.height_deltas.clear();
+            s.mesh_motion.clear();
         }
     });
     if let Some(hook) = with_hooks(|h| h.set_resolution).flatten() {
@@ -138,31 +224,20 @@ pub fn visual_set_attenuation(a: f32, b: f32, c: f32, range: f32) {
 ///
 /// Returns `Some(z)` only when the point is inside the mesh (world-to-grid).
 pub fn get_water_grid_height(world_x: f32, world_y: f32) -> Option<f32> {
-    if let Some(z) =
-        with_hooks(|h| h.get_water_grid_height.and_then(|f| f(world_x, world_y))).flatten()
-    {
-        return Some(z);
-    }
-    with_state(|s| sample_grid_height(s, world_x, world_y)).flatten()
+    with_state(|state| state.height_at(world_x, world_y)).flatten()
 }
 
-/// C++ `transform.Get_Z_Translation()`.
 pub fn get_transform_z() -> f32 {
-    if let Some(Some(z)) = with_hooks(|h| h.get_transform_z.map(|f| f())) {
-        return z;
-    }
-    with_state(|s| s.transform.w_axis.z).unwrap_or(0.0)
+    with_state(|state| state.transform.w_axis.z).unwrap_or(0.0)
 }
 
-/// C++ `transform.Set_Z_Translation(height); setWaterTransform(&transform)`.
 pub fn set_transform_z(height: f32) {
-    let _ = with_state_mut(|s| s.transform.w_axis.z = height);
-    if let Some(hook) = with_hooks(|h| h.set_transform_z).flatten() {
-        hook(height);
-        return;
-    }
-    if let Some(hook) = with_hooks(|h| h.set_transform_matrix).flatten() {
-        if let Some(matrix) = with_state(|s| s.transform) {
+    let matrix = with_state_mut(|state| {
+        state.set_height(height);
+        state.transform
+    });
+    if let Some(matrix) = matrix {
+        if let Some(hook) = with_hooks(|hooks| hooks.set_transform_matrix).flatten() {
             hook(matrix.to_cols_array());
         }
     }
@@ -201,69 +276,76 @@ fn world_to_grid(grid: &WaterGridState, world_x: f32, world_y: f32) -> Option<(f
 /// Returns `false` when enable was requested but no matching map entry exists
 /// (C++ returns before `TheTerrainVisual->enableWaterGrid`).
 pub fn enable_water_grid(enable: bool) -> bool {
-    if !enable {
-        visual_enable_water_grid(false);
-        return true;
-    }
+    with_state_mut(|state| state.configure_for_map(enable)).unwrap_or(false)
+}
 
-    let Some(global) = game_engine::common::ini::get_global_data() else {
-        return false;
-    };
-    let global = global.read();
-    let map_name = global.map_name.trim();
-    if map_name.is_empty() {
-        return false;
-    }
+impl WaterGridState {
+    pub fn configure_for_map(&mut self, enable: bool) -> bool {
+        if !enable {
+            self.enabled = false;
+            self.publish_visual();
+            return true;
+        }
 
-    let map_leaf = map_name.rsplit(['\\', '/']).next().unwrap_or(map_name);
-    let mut water_setting_index: Option<usize> = None;
-    for (i, configured) in global.vertex_water_available_maps.iter().enumerate() {
-        let configured = configured.trim();
-        if configured.is_empty() {
-            continue;
+        let Some(global) = game_engine::common::ini::get_global_data() else {
+            return false;
+        };
+        let global = global.read();
+        let map_name = global.map_name.trim();
+        if map_name.is_empty() {
+            return false;
         }
-        if configured.eq_ignore_ascii_case(map_name) {
-            water_setting_index = Some(i);
-            break;
-        }
-        let configured_leaf = configured.rsplit(['\\', '/']).next().unwrap_or(configured);
-        if configured_leaf.eq_ignore_ascii_case(map_leaf) {
-            water_setting_index = Some(i);
-            break;
-        }
-    }
 
-    let Some(i) = water_setting_index else {
-        log::error!(
-            "!!!!!! Deformable water won't work because there was no group of vertex water data defined in GameData.INI for this map name '{}' !!!!!! (C. Day)",
-            map_name
+        let map_leaf = map_name.rsplit(['\\', '/']).next().unwrap_or(map_name);
+        let mut water_setting_index: Option<usize> = None;
+        for (i, configured) in global.vertex_water_available_maps.iter().enumerate() {
+            let configured = configured.trim();
+            if configured.is_empty() {
+                continue;
+            }
+            if configured.eq_ignore_ascii_case(map_name) {
+                water_setting_index = Some(i);
+                break;
+            }
+            let configured_leaf = configured.rsplit(['\\', '/']).next().unwrap_or(configured);
+            if configured_leaf.eq_ignore_ascii_case(map_leaf) {
+                water_setting_index = Some(i);
+                break;
+            }
+        }
+
+        let Some(i) = water_setting_index else {
+            log::error!(
+                "!!!!!! Deformable water won't work because there was no group of vertex water data defined in GameData.INI for this map name '{}' !!!!!! (C. Day)",
+                map_name
+            );
+            return false;
+        };
+
+        self.height_clamps = (
+            global.vertex_water_height_clamp_low[i],
+            global.vertex_water_height_clamp_hi[i],
         );
-        return false;
-    };
-
-    visual_set_height_clamps(
-        global.vertex_water_height_clamp_low[i],
-        global.vertex_water_height_clamp_hi[i],
-    );
-    visual_set_transform(
-        global.vertex_water_angle[i],
-        global.vertex_water_x_position[i],
-        global.vertex_water_y_position[i],
-        global.vertex_water_z_position[i],
-    );
-    visual_set_resolution(
-        global.vertex_water_x_grid_cells[i] as f32,
-        global.vertex_water_y_grid_cells[i] as f32,
-        global.vertex_water_grid_size[i],
-    );
-    visual_set_attenuation(
-        global.vertex_water_attenuation_a[i],
-        global.vertex_water_attenuation_b[i],
-        global.vertex_water_attenuation_c[i],
-        global.vertex_water_attenuation_range[i],
-    );
-    visual_enable_water_grid(true);
-    true
+        self.transform = Mat4::from_translation(Vec3::new(
+            global.vertex_water_x_position[i],
+            global.vertex_water_y_position[i],
+            global.vertex_water_z_position[i],
+        )) * Mat4::from_rotation_z(global.vertex_water_angle[i]);
+        self.set_resolution(
+            global.vertex_water_x_grid_cells[i] as f32,
+            global.vertex_water_y_grid_cells[i] as f32,
+            global.vertex_water_grid_size[i],
+        );
+        self.attenuation = (
+            global.vertex_water_attenuation_a[i],
+            global.vertex_water_attenuation_b[i],
+            global.vertex_water_attenuation_c[i],
+            global.vertex_water_attenuation_range[i],
+        );
+        self.enabled = true;
+        self.publish_visual();
+        true
+    }
 }
 
 #[cfg(test)]
@@ -272,17 +354,12 @@ mod tests {
 
     #[test]
     fn mesh_query_rejects_aabb_and_requires_enable() {
-        let _ = with_state_mut(|s| {
-            *s = WaterGridState::default();
-            s.enabled = false;
-            s.transform = Mat4::from_translation(Vec3::new(100.0, 200.0, 12.0));
-            s.resolution = (8.0, 8.0, 10.0);
-        });
-        assert!(get_water_grid_height(100.0, 200.0).is_none());
-
-        let _ = with_state_mut(|s| s.enabled = true);
-        assert!((get_water_grid_height(100.0, 200.0).unwrap() - 12.0).abs() < 1e-4);
-        // Outside the mesh (not an AABB of the whole map).
-        assert!(get_water_grid_height(0.0, 0.0).is_none());
+        let mut grid = WaterGridState::default();
+        grid.transform = Mat4::from_translation(Vec3::new(100.0, 200.0, 12.0));
+        grid.resolution = (8.0, 8.0, 10.0);
+        assert!(grid.height_at(100.0, 200.0).is_none());
+        grid.enabled = true;
+        assert!((grid.height_at(100.0, 200.0).unwrap() - 12.0).abs() < 1e-4);
+        assert!(grid.height_at(0.0, 0.0).is_none());
     }
 }

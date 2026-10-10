@@ -21,6 +21,7 @@ impl TerrainLogic {
             filename_string: String::new().into(),
             query_load_pending: false,
             water_grid_enabled: false,
+            water_grid: crate::terrain_water::WaterGridState::default(),
             grid_water_handle: WaterHandle::new(
                 WATER_GRID_NAME_CPP.to_string().into(),
                 0.0,
@@ -208,7 +209,7 @@ impl TerrainLogic {
         self.bridge_damage_states_changed = false;
         self.trigger_areas.clear();
         self.water_grid_enabled = false;
-        crate::terrain_water::reset_water_grid_state();
+        self.water_grid = crate::terrain_water::WaterGridState::default();
 
         self.query_load_pending = false;
     }

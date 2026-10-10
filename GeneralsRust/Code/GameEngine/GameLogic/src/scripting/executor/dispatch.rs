@@ -776,9 +776,9 @@ impl ScriptActionDispatcher<'_> {
             // ENVIRONMENT/WORLD ACTIONS
             // ============================================================================
             ScriptActionType::SetTreeSway => self.do_set_tree_sway(action),
-            ScriptActionType::WaterChangeHeight => self.do_water_change_height(action),
+            ScriptActionType::WaterChangeHeight => self.do_water_change_height(action, driver),
             ScriptActionType::WaterChangeHeightOverTime => {
-                self.do_water_change_height_over_time(action)
+                self.do_water_change_height_over_time(action, driver)
             }
             ScriptActionType::SetCaveIndex => self.do_set_cave_index(action),
             ScriptActionType::ShowWeather => self.do_show_weather(action),

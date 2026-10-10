@@ -27,52 +27,13 @@ use game_engine::system::geometry::GeometryType as EngineGeometryType;
 use lazy_static::lazy_static;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
-/// Wave 341: host-only path has no dual-world factory objects.
+// Retained standalone Core bridge/wall adapters; Main terrain phases never
+// choose their owner from registry emptiness.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
-
-/// Host-only path: leftover scripts still raise water; Main applies DAMAGE_WATER.
-static PENDING_HOST_WATER_RISE_DAMAGE: Mutex<Vec<f32>> = Mutex::new(Vec::new());
-
-fn queue_host_water_rise_damage(amount: f32) {
-    if amount > 0.0 {
-        if let Ok(mut pending) = PENDING_HOST_WATER_RISE_DAMAGE.lock() {
-            pending.push(amount);
-        }
-    }
-}
-
-/// Drain leftover WATER_CHANGE_HEIGHT damage for the live host.
-pub fn take_pending_host_water_rise_damage() -> Vec<f32> {
-    PENDING_HOST_WATER_RISE_DAMAGE
-        .lock()
-        .map(|mut pending| pending.drain(..).collect())
-        .unwrap_or_default()
-}
-
-/// Host-only path: leftover water-height changes restamp live Water cells.
-static PENDING_HOST_PATHFIND_RECALC: Mutex<bool> = Mutex::new(false);
-
-fn queue_host_pathfind_recalculation() {
-    if let Ok(mut pending) = PENDING_HOST_PATHFIND_RECALC.lock() {
-        *pending = true;
-    }
-}
-
-/// Drain leftover `forceMapRecalculation` so the live host restamps Water cells.
-pub fn take_pending_host_pathfind_recalculation() -> bool {
-    PENDING_HOST_PATHFIND_RECALC
-        .lock()
-        .map(|mut pending| {
-            let was = *pending;
-            *pending = false;
-            was
-        })
-        .unwrap_or(false)
+    OBJECT_REGISTRY.is_empty()
 }
 
 /// C++ WaveGuideUpdate::startMoving WaveGuide1 bind result.
@@ -726,6 +687,7 @@ pub struct TerrainLogic {
     query_load_pending: bool,
     /// Water grid enabled flag
     water_grid_enabled: bool,
+    water_grid: crate::terrain_water::WaterGridState,
     /// Grid water handle
     grid_water_handle: WaterHandle,
     /// Dynamic water tables to update
@@ -752,6 +714,7 @@ mod terrain_ops;
 #[cfg(test)]
 mod tests;
 mod water;
+pub use water::WaterHeightChange;
 mod waypoint;
 
 // Keep the wrapper's original public path (`crate::terrain::TerrainQueryWrapper`).

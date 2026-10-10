@@ -23,79 +23,110 @@ const PROP_BUFFER_VERSION: u8 = 1;
 const WATER_RENDER_OBJ_VERSION: u8 = 1;
 
 pub fn capture_live_terrain_visual_xfer_bytes() -> Result<Vec<u8>, String> {
+    let handle = gamelogic::terrain::get_terrain_logic();
+    let terrain = handle.read().map_err(|_| "terrain lock poisoned")?;
+    capture_live_terrain_visual_for_terrain(&terrain)
+}
+
+pub fn capture_live_terrain_visual_for_terrain(
+    terrain: &gamelogic::terrain::TerrainLogic,
+) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
-    {
-        let cursor = Cursor::new(&mut bytes);
-        let mut xfer = CommonXferSave::new(cursor, 3);
-        xfer_live_terrain_visual(&mut xfer)?;
-    }
+    let mut grid = terrain.water_grid_state().clone();
+    let mut heights = terrain.logic_height_map_bytes().to_vec();
+    let mut xfer = CommonXferSave::new(Cursor::new(&mut bytes), 3);
+    xfer_live_terrain_visual(&mut xfer, &mut grid, &mut heights)?;
+    drop(xfer);
     Ok(bytes)
 }
 
 pub fn restore_live_terrain_visual_from_xfer_bytes(bytes: &[u8]) -> Result<(), String> {
+    let handle = gamelogic::terrain::get_terrain_logic();
+    let mut terrain = handle.write().map_err(|_| "terrain lock poisoned")?;
+    restore_live_terrain_visual_for_terrain(&mut terrain, bytes)
+}
+
+pub fn restore_live_terrain_visual_for_terrain(
+    terrain: &mut gamelogic::terrain::TerrainLogic,
+    bytes: &[u8],
+) -> Result<(), String> {
     if bytes.is_empty() || (bytes.len() == 1 && bytes[0] == 1) {
         return Ok(());
     }
+    // Validate the entire payload on detached logical values. A failed load
+    // cannot replace this world's grid, height bytes, or water enable state.
+    let mut grid = terrain.water_grid_state().clone();
+    let mut heights = terrain.logic_height_map_bytes().to_vec();
     let mut xfer = CommonXferLoad::new(Cursor::new(bytes.to_vec()), 3);
-    xfer_live_terrain_visual(&mut xfer)
+    xfer_live_terrain_visual(&mut xfer, &mut grid, &mut heights)?;
+    terrain.apply_logic_height_map_bytes(&heights);
+    terrain.restore_water_grid_state(grid);
+    terrain.water_grid_state().publish_visual();
+    Ok(())
 }
 
-fn logic_height_map_bytes_for_save() -> Vec<u8> {
-    gamelogic::terrain::get_terrain_logic()
-        .read()
-        .ok()
-        .map(|terrain| terrain.logic_height_map_bytes().to_vec())
-        .unwrap_or_default()
-}
-
-fn apply_logic_height_map_bytes(data: &[u8]) {
-    if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
-        terrain.apply_logic_height_map_bytes(data);
-    }
-    if let Ok(mut visual) = get_terrain_visual() {
-        if let Some(visual) = visual.as_mut() {
-            visual.apply_logic_height_map_bytes(data);
-        }
-    }
-}
-
-fn water_grid_enabled() -> bool {
-    get_terrain_visual()
-        .ok()
-        .and_then(|visual| visual.as_ref().map(|v| v.water_grid_enabled()))
-        .unwrap_or(false)
-}
-
-fn xfer_water_grid_snapshot(xfer: &mut dyn CommonXfer) -> Result<(), String> {
+fn xfer_water_grid_snapshot(
+    xfer: &mut dyn CommonXfer,
+    grid: &mut gamelogic::terrain_water::WaterGridState,
+) -> Result<(), String> {
     let mut version = WATER_RENDER_OBJ_VERSION;
     xfer.xfer_version(&mut version, WATER_RENDER_OBJ_VERSION)
         .map_err(|e| e.to_string())?;
-    let mut cells_x = 0i32;
-    let mut cells_y = 0i32;
+    let expected_x = grid.resolution.0 as i32;
+    let expected_y = grid.resolution.1 as i32;
+    let mut cells_x = expected_x;
+    let mut cells_y = expected_y;
     xfer.xfer_int(&mut cells_x).map_err(|e| e.to_string())?;
     xfer.xfer_int(&mut cells_y).map_err(|e| e.to_string())?;
-    if cells_x < 0 || cells_y < 0 {
-        return Err("invalid water-grid size".into());
+    if cells_x < 0 || cells_y < 0 || cells_x != expected_x || cells_y != expected_y {
+        return Err("water-grid dimensions differ from loaded map".into());
     }
     let mesh_size = (cells_x as i64 + 1 + 2)
         .saturating_mul(cells_y as i64 + 1 + 2)
         .max(0) as usize;
-    for _ in 0..mesh_size {
-        let mut height = 0.0f32;
-        let mut velocity = 0.0f32;
-        let mut status = 0u8;
-        let mut preferred = 0u8;
+    if !xfer.is_writing() {
+        grid.height_deltas.clear();
+        grid.mesh_motion.clear();
+    }
+    let stride = cells_x as usize + 3;
+    for index in 0..mesh_size {
+        // Original invisible border: mesh[(y+1)*(cellsX+3)+x+1].
+        let key = ((index % stride) as i32 - 1, (index / stride) as i32 - 1);
+        let motion = grid.mesh_motion.get(&key).copied().unwrap_or_default();
+        let mut height = grid.height_deltas.get(&key).copied().unwrap_or(0.0);
+        let mut velocity = motion.velocity;
+        let mut status = motion.status;
+        let mut preferred = motion.preferred_height;
         xfer.xfer_real(&mut height).map_err(|e| e.to_string())?;
         xfer.xfer_real(&mut velocity).map_err(|e| e.to_string())?;
         xfer.xfer_unsigned_byte(&mut status)
             .map_err(|e| e.to_string())?;
         xfer.xfer_unsigned_byte(&mut preferred)
             .map_err(|e| e.to_string())?;
+        if !xfer.is_writing() {
+            if height.to_bits() != 0 {
+                grid.height_deltas.insert(key, height);
+            }
+            if velocity.to_bits() != 0 || status != 0 || preferred != 0 {
+                grid.mesh_motion.insert(
+                    key,
+                    gamelogic::terrain_water::WaterGridMeshMotion {
+                        velocity,
+                        status,
+                        preferred_height: preferred,
+                    },
+                );
+            }
+        }
     }
     Ok(())
 }
 
-fn xfer_live_terrain_visual(xfer: &mut dyn CommonXfer) -> Result<(), String> {
+fn xfer_live_terrain_visual(
+    xfer: &mut dyn CommonXfer,
+    grid: &mut gamelogic::terrain_water::WaterGridState,
+    height_data: &mut Vec<u8>,
+) -> Result<(), String> {
     let mut version = W3D_TERRAIN_VISUAL_VERSION;
     xfer.xfer_version(&mut version, W3D_TERRAIN_VISUAL_VERSION)
         .map_err(|e| e.to_string())?;
@@ -103,23 +134,15 @@ fn xfer_live_terrain_visual(xfer: &mut dyn CommonXfer) -> Result<(), String> {
     xfer.xfer_version(&mut base_version, TERRAIN_VISUAL_BASE_VERSION)
         .map_err(|e| e.to_string())?;
 
-    let mut water_enabled = if xfer.is_writing() {
-        water_grid_enabled()
-    } else {
-        false
-    };
+    let mut water_enabled = grid.enabled;
     xfer.xfer_bool(&mut water_enabled)
         .map_err(|e| e.to_string())?;
     if water_enabled {
-        xfer_water_grid_snapshot(xfer)?;
+        xfer_water_grid_snapshot(xfer, grid)?;
     }
+    grid.enabled = water_enabled;
 
     if version >= 2 {
-        let mut height_data = if xfer.is_writing() {
-            logic_height_map_bytes_for_save()
-        } else {
-            Vec::new()
-        };
         let mut height_map_len = height_data.len() as i32;
         xfer.xfer_int(&mut height_map_len)
             .map_err(|e| e.to_string())?;
@@ -127,16 +150,13 @@ fn xfer_live_terrain_visual(xfer: &mut dyn CommonXfer) -> Result<(), String> {
             return Err("negative height-map length".into());
         }
         if xfer.get_xfer_mode() == game_engine::common::system::xfer::XferMode::Load {
-            height_data = vec![0u8; height_map_len as usize];
+            *height_data = vec![0u8; height_map_len as usize];
         } else if height_data.len() != height_map_len as usize {
             height_data.resize(height_map_len.max(0) as usize, 0);
         }
         if height_map_len > 0 {
-            xfer.xfer_user_bytes(&mut height_data)
+            xfer.xfer_user_bytes(height_data)
                 .map_err(|e| e.to_string())?;
-        }
-        if xfer.get_xfer_mode() == game_engine::common::system::xfer::XferMode::Load {
-            apply_logic_height_map_bytes(&height_data);
         }
     }
 

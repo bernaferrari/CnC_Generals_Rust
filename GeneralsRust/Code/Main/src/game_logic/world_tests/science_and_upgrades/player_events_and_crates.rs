@@ -43,7 +43,7 @@ fn script_rank_caps_stay_with_the_driving_match() {
         crate::save_load::snapshot::persist_v18::capture_persist_v18(&second).rank_level_limit,
         4
     );
-    crate::save_load::snapshot::persist_v18::restore_persist_v18(&saved, &mut candidate);
+    crate::save_load::snapshot::persist_v18::restore_persist_v18(&saved, &mut candidate).unwrap();
     candidate.add_player(Player::new(0, Team::USA, "Local", true));
     assert!(candidate.add_player_skill_points(0, 999_999));
     assert_eq!(candidate.get_player(0).unwrap().rank_level, 2);

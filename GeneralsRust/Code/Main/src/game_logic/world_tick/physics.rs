@@ -118,44 +118,11 @@ impl GameLogic {
     /// as DAMAGE_WATER (DEATH_NORMAL). C++ has no aircraft/boat skip.
     /// Returns number of objects damaged.
     pub fn apply_water_rise_damage(&mut self, damage_amount: f32) -> u32 {
-        if !(damage_amount > 0.0) {
+        if damage_amount <= 0.0 {
             return 0;
         }
-        let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
-        let mut hit = 0u32;
-        let mut destroy: Vec<ObjectId> = Vec::new();
-        for id in ids {
-            let pos = match self.objects.get(&id) {
-                Some(o) => o.get_position(),
-                None => continue,
-            };
-            let (_cliff, water) = self.sample_stun_surface_at(pos);
-            let Some(obj) = self.objects.get_mut(&id) else {
-                continue;
-            };
-            obj.cell_is_underwater = water;
-            if !water || !obj.is_alive() || obj.status.destroyed {
-                continue;
-            }
-            if obj.is_kind_of(KindOf::Projectile) {
-                continue;
-            }
-            let killed = obj.take_damage_from_typed_with_repulsor_policy(
-                damage_amount,
-                None,
-                crate::game_logic::combat::DamageType::Water,
-                &mut self.health_events,
-                &self.enable_repulsors,
-            );
-            hit = hit.saturating_add(1);
-            if killed || obj.status.destroyed || obj.health.current <= 0.0 {
-                destroy.push(id);
-            }
-        }
-        for id in destroy {
-            self.mark_object_for_destruction(id, None);
-        }
-        hit
+        let ids = self.objects.keys().copied().collect();
+        self.damage_owned_water_candidates(ids, damage_amount)
     }
 
     /// Refresh underwater/cliff cells. C++ never damages on dry→wet walk-in;
@@ -178,15 +145,13 @@ impl GameLogic {
     }
 
     pub(crate) fn sample_stun_surface_at(&self, pos: glam::Vec3) -> (bool, bool) {
-        if let Some(t) = self.terrain.as_ref() {
-            return (t.is_cliff_at_world(pos), t.is_underwater_at_world(pos));
-        }
-        // Fall back to gamelogic TerrainLogic singleton when Main terrain is unset.
-        if let Ok(tl) = gamelogic::terrain::get_terrain_logic().read() {
-            // Host XZ ground plane == C++ XY for terrain queries.
-            let cliff = tl.is_cliff_cell(pos.x, pos.z);
-            let water = tl.is_underwater(pos.x, pos.z, None, None);
-            return (cliff, water);
+        // Logical water belongs to this session, even when a presentation
+        // TerrainData copy or another world's Core registry is available.
+        if let Ok(terrain) = self.world_services.terrain().read() {
+            return (
+                terrain.is_cliff_cell(pos.x, pos.z),
+                terrain.is_underwater(pos.x, pos.z, None, None),
+            );
         }
         (false, false)
     }

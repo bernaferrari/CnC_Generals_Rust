@@ -530,17 +530,8 @@ impl GameLogic {
         // C++: TheTerrainLogic->UPDATE();
         // Terrain (bridges, dynamic water, trigger areas) updates BEFORE objects
         // so bridge state changes from scripts are reflected during the object pass.
-        if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
-            terrain.update();
-        }
-        // C++ setWaterHeight: leftover scripts queue DAMAGE_WATER amounts.
-        // Instant WATER_CHANGE_HEIGHT uses 999999.9; over-time uses scripted amount.
-        for amount in gamelogic::terrain::take_pending_host_water_rise_damage() {
-            let _ = self.apply_water_rise_damage(amount);
-        }
-        if gamelogic::terrain::take_pending_host_pathfind_recalculation() {
-            self.seed_pathfinding_from_terrain();
-        }
+        self.update_owned_water();
+        self.refresh_owned_bridge_pathfinder_states();
 
         // Refresh underwater/cliff flags only. Do not invent a 25 HP dry→wet chip.
         let _ = self.refresh_surface_cells_and_water_edge_damage(0.0);

@@ -349,7 +349,15 @@ impl SnapshotBuilder {
             restore_particle_system_from_xfer_bytes(&particle_bytes)?;
         }
         if let Some(terrain_visual_bytes) = take_loaded_terrain_visual_xfer() {
-            restore_terrain_visual_from_xfer_bytes(&terrain_visual_bytes)?;
+            let terrain_handle = game_logic.world_services.terrain().clone();
+            let mut terrain = terrain_handle
+                .write()
+                .map_err(|_| SaveLoadError::Corrupted("candidate terrain lock poisoned".into()))?;
+            game_client::terrain::terrain_visual_xfer::restore_live_terrain_visual_for_terrain(
+                &mut terrain,
+                &terrain_visual_bytes,
+            )
+            .map_err(SaveLoadError::Serialization)?;
         }
 
         // Map loading initializes a fresh shroud grid and may reveal
@@ -552,7 +560,7 @@ impl SnapshotBuilder {
 
         self.sync_all_garrisoned_units_from_occupants(game_logic);
         self.restore_game_logic_persist_tail(snapshot, game_logic);
-        super::super::persist_v18::restore_persist_v18(&snapshot.persist_v18, game_logic);
+        super::super::persist_v18::restore_persist_v18(&snapshot.persist_v18, game_logic)?;
         super::super::hotkey_squad_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,

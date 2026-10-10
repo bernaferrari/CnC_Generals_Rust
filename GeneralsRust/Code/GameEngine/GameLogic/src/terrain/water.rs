@@ -2,6 +2,14 @@
 
 use super::*;
 
+/// Effects of one completed in-place water-height mutation.
+#[derive(Debug, Clone, Copy)]
+pub struct WaterHeightChange {
+    pub affected_region: Region3D,
+    pub reclassify: bool,
+    pub damage_amount: f32,
+}
+
 impl TerrainLogic {
     /// Check if point is underwater
     pub fn is_underwater(
@@ -23,7 +31,7 @@ impl TerrainLogic {
 
         let is_grid = std::ptr::eq(water_handle, &self.grid_water_handle);
         let w_z = if is_grid {
-            crate::terrain_water::get_water_grid_height(x, y).unwrap_or(0.0)
+            self.water_grid.height_at(x, y).unwrap_or(0.0)
         } else {
             self.get_water_height(water_handle)
         };
@@ -70,7 +78,7 @@ impl TerrainLogic {
         }
 
         // C++ `TheTerrainVisual->getWaterGridHeight`: on-mesh only, not AABB.
-        if let Some(mesh_z) = crate::terrain_water::get_water_grid_height(x, y) {
+        if let Some(mesh_z) = self.water_grid.height_at(x, y) {
             if mesh_z >= best_water_z {
                 return Some(&self.grid_water_handle);
             }
@@ -218,32 +226,7 @@ impl TerrainLogic {
         }
     }
 
-    fn sync_named_water_handle(
-        &mut self,
-        water_name: &AsciiString,
-        height: f32,
-        bounds: Option<Region3D>,
-    ) {
-        if let Some(handle) = self.water_handles.get_mut(water_name) {
-            handle.set_height(height);
-            if let Some(region) = bounds {
-                handle.bounds = region;
-            }
-        } else if let Some(region) = bounds {
-            self.water_handles.insert(
-                water_name.clone(),
-                WaterHandle::new(water_name.clone(), height, region),
-            );
-        }
-    }
-
     fn apply_water_rise_damage(&self, affected_region: &Region3D, damage_amount: f32) {
-        // Wave 341: empty dual-world → host GameLogic applies DAMAGE_WATER.
-        if dual_world_registry_unavailable() {
-            queue_host_water_rise_damage(damage_amount);
-            return;
-        }
-
         if damage_amount <= 0.0 {
             return;
         }
@@ -282,10 +265,8 @@ impl TerrainLogic {
     }
 
     fn request_pathfind_recalculation(&self) {
-        // C++ TerrainLogic.cpp:2331-2338 forceMapRecalculation — live host
-        // restamps Water cells even when the crate pathfinder is empty.
-        queue_host_pathfind_recalculation();
-        let ai_store = the_ai(); let pathfinder = if let Ok(ai_guard) = ai_store.read() {
+        let ai_store = the_ai();
+        let pathfinder = if let Ok(ai_guard) = ai_store.read() {
             ai_guard.pathfinder()
         } else {
             None
@@ -300,81 +281,88 @@ impl TerrainLogic {
         pathfinder_guard.rebuild_from_terrain(self);
     }
 
-    fn set_water_height_internal(
+    /// Mutate only this terrain. The driving world classifies its own pathfinder
+    /// before admitting damage (TerrainLogic.cpp:2331-2381).
+    fn mutate_water_height(
         &mut self,
         trigger_id: Int,
         water_name: &AsciiString,
         height: f32,
         damage_amount: f32,
         force_pathfind_update: bool,
-    ) {
-        if Self::is_grid_water_name(water_name) {
-            let previous_height = crate::terrain_water::get_transform_z();
-            crate::terrain_water::set_transform_z(height);
+    ) -> Option<WaterHeightChange> {
+        let previous = self.resolve_water_height_for_entry(trigger_id, water_name)?;
+        let (height, affected_region) = if Self::is_grid_water_name(water_name) {
+            let previous = self.water_grid.transform.w_axis.z;
+            self.water_grid.set_height(height);
             self.grid_water_handle.set_height(height);
-
-            if damage_amount > 0.0 && height > previous_height {
-                let affected = self.grid_water_handle.get_bounds();
-                self.apply_water_rise_damage(affected, damage_amount);
-            }
-            if force_pathfind_update || (previous_height - height).abs() > f32::EPSILON {
-                self.request_pathfind_recalculation();
-            }
-            return;
-        }
-
-        let previous_height = self
-            .resolve_water_height_for_entry(trigger_id, water_name)
-            .unwrap_or(height);
-
-        let mut resolved_name = water_name.clone();
-        let mut resolved_trigger_id = trigger_id;
-        let mut affected_region = None;
-        if trigger_id >= 0 {
-            if let Some((name, bounds)) = self.update_polygon_water_height_by_id(trigger_id, height)
-            {
-                resolved_name = name;
-                resolved_trigger_id = trigger_id;
-                affected_region = Some(bounds);
-            }
-        } else if let Some((id, name, bounds)) =
-            self.update_polygon_water_height_by_name(water_name, height)
-        {
-            resolved_trigger_id = id;
-            resolved_name = name;
-            affected_region = Some(bounds);
-        }
-
-        if let Some(bounds) = affected_region {
-            if resolved_trigger_id >= 0 {
-                self.sync_water_handle_for_trigger(
-                    resolved_trigger_id,
-                    &resolved_name,
-                    height,
-                    bounds,
-                );
-            } else {
-                self.sync_named_water_handle(&resolved_name, height, Some(bounds));
-            }
+            return Some(WaterHeightChange {
+                affected_region: self.water_grid.bounds(),
+                reclassify: force_pathfind_update || previous != height,
+                damage_amount: if damage_amount > 0.0 && height > previous {
+                    damage_amount
+                } else {
+                    0.0
+                },
+            });
         } else {
-            if trigger_id >= 0 {
-                log::warn!(
-                    "TerrainLogic::set_water_height_internal missing water trigger id {}",
-                    trigger_id
-                );
-            }
-            self.sync_named_water_handle(&resolved_name, height, None);
-        }
+            // PolygonTrigger stores integer Z; compare and cache the actual
+            // height, not the requested fractional accumulator.
+            let actual = (height as Int) as f32;
+            let (id, name, bounds) = if trigger_id >= 0 {
+                let (name, bounds) = self.update_polygon_water_height_by_id(trigger_id, actual)?;
+                (trigger_id, name, bounds)
+            } else {
+                self.update_polygon_water_height_by_name(water_name, actual)?
+            };
+            self.sync_water_handle_for_trigger(id, &name, actual, bounds);
+            (actual, bounds)
+        };
+        Some(WaterHeightChange {
+            affected_region,
+            reclassify: force_pathfind_update || previous != height,
+            damage_amount: if damage_amount > 0.0 && height > previous {
+                damage_amount
+            } else {
+                0.0
+            },
+        })
+    }
 
-        if damage_amount > 0.0 && height > previous_height {
-            if let Some(region) = affected_region {
-                self.apply_water_rise_damage(&region, damage_amount);
-            }
-        }
+    pub fn mutate_named_water_height(
+        &mut self,
+        name: &AsciiString,
+        height: f32,
+        damage: f32,
+        force: bool,
+    ) -> Option<WaterHeightChange> {
+        self.mutate_water_height(
+            self.resolve_water_trigger_id(name),
+            name,
+            height,
+            damage,
+            force,
+        )
+    }
 
-        if force_pathfind_update || (previous_height - height).abs() > f32::EPSILON {
+    fn apply_standalone_water_change(&self, change: WaterHeightChange) {
+        if change.reclassify {
             self.request_pathfind_recalculation();
         }
+        self.apply_water_rise_damage(&change.affected_region, change.damage_amount);
+        self.water_grid.publish_visual();
+    }
+
+    pub fn water_grid_state(&self) -> &crate::terrain_water::WaterGridState {
+        &self.water_grid
+    }
+    pub fn water_grid_state_mut(&mut self) -> &mut crate::terrain_water::WaterGridState {
+        &mut self.water_grid
+    }
+    pub fn restore_water_grid_state(&mut self, state: crate::terrain_water::WaterGridState) {
+        self.water_grid_enabled = state.enabled;
+        self.grid_water_handle.set_height(state.transform.w_axis.z);
+        self.water_grid = state;
     }
 
     fn resolve_named_water_handle_identity(
@@ -402,16 +390,15 @@ impl TerrainLogic {
         damage_amount: f32,
         force_pathfind_update: bool,
     ) {
-        self.set_water_height_internal(
-            self.resolve_water_trigger_id(water_name),
-            water_name,
-            height,
-            damage_amount,
-            force_pathfind_update,
-        );
+        if let Some(change) =
+            self.mutate_named_water_height(water_name, height, damage_amount, force_pathfind_update)
+        {
+            self.apply_standalone_water_change(change);
+        }
     }
 
-    /// Change water height over time
+    /// Schedule the original float accumulator; even a zero duration completes
+    /// on the next terrain phase, never inside the requesting script action.
     pub fn change_water_height_over_time(
         &mut self,
         water_name: &AsciiString,
@@ -419,55 +406,39 @@ impl TerrainLogic {
         transition_time_seconds: f32,
         damage_amount: f32,
     ) {
-        let Some((trigger_id, water_handle)) = self.resolve_named_water_handle_identity(water_name)
+        // C++ checks the fixed capacity before null/duplicate removal.
+        if self.water_to_update.len() >= MAX_DYNAMIC_WATER_ENTRIES {
+            return;
+        }
+        let Some((trigger_id, handle)) = self.resolve_named_water_handle_identity(water_name)
         else {
             return;
         };
-        let resolved_name = water_handle.get_name().clone();
-        let current_height = water_handle.get_current_height();
-
-        // C++ parity: remove existing transition for this water handle before adding a new one.
-        self.water_to_update.retain(|entry| {
-            if trigger_id >= 0 && entry.trigger_id >= 0 {
-                entry.trigger_id != trigger_id
+        let name = handle.get_name().clone();
+        let current_height = if Self::is_grid_water_name(&name) {
+            self.water_grid.transform.w_axis.z
+        } else {
+            handle.get_current_height()
+        };
+        let mut i = 0;
+        while i < self.water_to_update.len() {
+            let entry = &self.water_to_update[i];
+            let same = if trigger_id >= 0 {
+                entry.trigger_id == trigger_id
             } else {
-                !entry
-                    .water_name
-                    .as_str()
-                    .eq_ignore_ascii_case(resolved_name.as_str())
+                Self::is_grid_water_name(&entry.water_name)
+            };
+            if same {
+                self.water_to_update.swap_remove(i);
+            } else {
+                i += 1;
             }
-        });
-
-        // C++ parity: fixed-size dynamic water transition list.
-        if self.water_to_update.len() >= MAX_DYNAMIC_WATER_ENTRIES {
-            log::warn!(
-                "TerrainLogic dynamic water transition limit ({}) reached",
-                MAX_DYNAMIC_WATER_ENTRIES
-            );
-            return;
         }
-
-        let frames_to_complete = (transition_time_seconds * LOGICFRAMES_PER_SECOND as f32) as i32;
-        if frames_to_complete <= 0 {
-            // C++ TerrainLogic::changeWaterHeightOverTime (TerrainLogic.cpp:2439-2448)
-            // divides by (LOGICFRAMES_PER_SECOND * seconds). A 0/sub-frame time
-            // yields an infinite changePerFrame; the next update snaps via
-            // setWaterHeight with damage + pathfind recalc (TerrainLogic.cpp:1057).
-            self.set_water_height_internal(
-                trigger_id,
-                &resolved_name,
-                final_height,
-                damage_amount,
-                true,
-            );
-            return;
-        }
-
-        let change_per_frame = (final_height - current_height) / frames_to_complete as f32;
         self.water_to_update.push(DynamicWaterEntry {
             trigger_id,
-            water_name: resolved_name,
-            change_per_frame,
+            water_name: name,
+            change_per_frame: (final_height - current_height)
+                / (LOGICFRAMES_PER_SECOND as f32 * transition_time_seconds),
             target_height: final_height,
             damage_amount,
             current_height,
@@ -506,9 +477,9 @@ impl TerrainLogic {
         &mut self,
         entries: Vec<TerrainDynamicWaterSnapshotEntry>,
     ) -> Result<(), String> {
-        self.water_to_update.clear();
+        let mut candidate = Vec::with_capacity(entries.len().min(MAX_DYNAMIC_WATER_ENTRIES));
         for mut entry in entries {
-            if self.water_to_update.len() >= MAX_DYNAMIC_WATER_ENTRIES {
+            if candidate.len() >= MAX_DYNAMIC_WATER_ENTRIES {
                 return Err(format!(
                     "TerrainLogic::restore_dynamic_water_entries exceeds max dynamic entries ({})",
                     MAX_DYNAMIC_WATER_ENTRIES
@@ -569,7 +540,7 @@ impl TerrainLogic {
                 ));
             }
 
-            self.water_to_update.push(DynamicWaterEntry {
+            candidate.push(DynamicWaterEntry {
                 trigger_id: entry.trigger_id,
                 water_name: entry.water_name,
                 change_per_frame: entry.change_per_frame,
@@ -578,55 +549,62 @@ impl TerrainLogic {
                 current_height: entry.current_height,
             });
         }
+        self.water_to_update = candidate;
         Ok(())
     }
 
-    /// Enable/disable water grid
+    /// Enable/disable the grid belonging to this logical terrain.
     pub fn enable_water_grid(&mut self, enable: bool) {
         self.water_grid_enabled = enable;
-        let _ = crate::terrain_water::enable_water_grid(enable);
+        let _ = self.water_grid.configure_for_map(enable);
     }
 
-    /// Update dynamic water tables
+    pub fn dynamic_water_count(&self) -> usize {
+        self.water_to_update.len()
+    }
+
+    /// One bounded original update phase. Terminal removal happens only after
+    /// the driving world has classified and delivered this change's damage.
+    pub fn advance_dynamic_water(
+        &mut self,
+        index: usize,
+        frame: u32,
+    ) -> Option<(WaterHeightChange, bool)> {
+        let entry = self.water_to_update.get_mut(index)?;
+        let next = entry.current_height + entry.change_per_frame;
+        let terminal = if entry.change_per_frame > 0.0 {
+            next >= entry.target_height
+        } else {
+            next <= entry.target_height
+        };
+        let height = if terminal { entry.target_height } else { next };
+        let damage = if terminal || frame % LOGICFRAMES_PER_SECOND == 0 {
+            entry.damage_amount
+        } else {
+            0.0
+        };
+        if !terminal {
+            entry.current_height = next;
+        }
+        let id = entry.trigger_id;
+        let name = entry.water_name.clone();
+        self.mutate_water_height(id, &name, height, damage, terminal)
+            .map(|change| (change, terminal))
+    }
+
+    pub fn finish_dynamic_water(&mut self, index: usize, terminal: bool) {
+        if terminal && index < self.water_to_update.len() {
+            self.water_to_update.swap_remove(index);
+        }
+    }
+
     pub(super) fn update_dynamic_water(&mut self) {
-        let do_damage_this_frame =
-            crate::helpers::TheGameLogic::get_frame() % LOGICFRAMES_PER_SECOND == 0;
-        let mut retained = Vec::with_capacity(self.water_to_update.len());
-        let mut entries = std::mem::take(&mut self.water_to_update);
-        for mut entry in entries.drain(..) {
-            entry.current_height += entry.change_per_frame;
-
-            let reached_target = if entry.change_per_frame > 0.0 {
-                entry.current_height >= entry.target_height
-            } else {
-                entry.current_height <= entry.target_height
-            };
-
-            if reached_target {
-                entry.current_height = entry.target_height;
-                self.set_water_height_internal(
-                    entry.trigger_id,
-                    &entry.water_name,
-                    entry.current_height,
-                    entry.damage_amount,
-                    true,
-                );
-            } else {
-                let per_frame_damage = if do_damage_this_frame {
-                    entry.damage_amount
-                } else {
-                    0.0
-                };
-                self.set_water_height_internal(
-                    entry.trigger_id,
-                    &entry.water_name,
-                    entry.current_height,
-                    per_frame_damage,
-                    false,
-                );
-                retained.push(entry);
+        let frame = crate::helpers::TheGameLogic::get_frame();
+        for index in (0..self.dynamic_water_count()).rev() {
+            if let Some((change, terminal)) = self.advance_dynamic_water(index, frame) {
+                self.apply_standalone_water_change(change);
+                self.finish_dynamic_water(index, terminal);
             }
         }
-        self.water_to_update = retained;
     }
 }

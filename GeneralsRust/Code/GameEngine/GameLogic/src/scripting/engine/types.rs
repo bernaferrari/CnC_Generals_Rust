@@ -77,11 +77,31 @@ pub enum ScriptAiPlayerRequest<'a> {
     },
 }
 
+/// CPP ScriptActions water changes are synchronous with the next action.
+#[derive(Debug, Clone, Copy)]
+pub enum ScriptWaterRequest<'a> {
+    SetHeight {
+        name: &'a str,
+        height: f32,
+    },
+    OverTime {
+        name: &'a str,
+        height: f32,
+        seconds: f32,
+        damage: f32,
+    },
+}
+
 /// Synchronous effects and live queries of the actual execution owner.
 /// The driver is borrowed for execution only; it is never installed in the
 /// engine, dispatcher context, or a process-wide active slot.
 pub trait ScriptExecutionDriver {
     fn after_action(&mut self) -> GameLogicResult<()>;
+
+    /// Some selects this owner exclusively, including a failed effect.
+    fn water(&mut self, _request: ScriptWaterRequest<'_>) -> Option<GameLogicResult<()>> {
+        None
+    }
 
     /// Some is authoritative even when the owner is missing or returns an
     /// error. None selects only the standalone Core player adapter.

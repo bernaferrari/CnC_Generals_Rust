@@ -2,7 +2,7 @@
 use super::*;
 use gamelogic::scripting::engine::{
     ScriptAiPlayerRequest, ScriptCameraRequest, ScriptDisplayRequest, ScriptExecutionDriver,
-    ScriptObjectStatus, ScriptOwnerQuery, ScriptTeamStatus,
+    ScriptObjectStatus, ScriptOwnerQuery, ScriptTeamStatus, ScriptWaterRequest,
 };
 
 pub(super) struct HostScriptExecutionDriver<'a> {
@@ -57,6 +57,10 @@ impl<'a> HostScriptExecutionDriver<'a> {
 }
 
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+    fn water(&mut self, request: ScriptWaterRequest<'_>) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(self.world.apply_owned_script_water(request))
+    }
+
     fn ai_player(
         &mut self,
         request: ScriptAiPlayerRequest<'_>,
@@ -198,3 +202,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         )
     }
 }
+
+#[cfg(test)]
+#[path = "water_owner_tests.rs"]
+mod water_owner_tests;
