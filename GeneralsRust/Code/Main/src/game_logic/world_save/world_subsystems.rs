@@ -1049,6 +1049,11 @@ impl GameLogic {
         let Some(terrain) = self.terrain.as_ref() else {
             return;
         };
+        let extent = logical.get_extent();
+        self.pathfinding_system.grid.admit_logical_extent(
+            Vec3::new(extent.lo.x, extent.lo.z, extent.lo.y),
+            Vec3::new(extent.hi.x, extent.hi.z, extent.hi.y),
+        );
         self.pathfinding_system
             .grid
             .admit_raw_terrain(Some(terrain));

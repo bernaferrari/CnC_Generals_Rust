@@ -1,4 +1,5 @@
 //! Actual Main group requests preserve selected-layer height without Core discovery.
+use crate::game_logic::pathfinding::GridPos;
 use crate::game_logic::{GameLogic, ObjectId, Team};
 use glam::Vec3;
 
@@ -259,6 +260,81 @@ fn group_goal_accepts_owned_zero_and_negative_cache_without_ambient_fallback() {
                         "zero and negative samples are actual content"
                     );
                 }
+            });
+        },
+    );
+}
+
+#[test]
+fn logical_extent_queue_admission_uses_driving_active_boundary_and_constructor_is_inert() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "logical_extent_queue_admission_uses_driving_active_boundary_and_constructor_is_inert",
+        || {
+            fn admit_boundary(world: &mut GameLogic, cells: i32) {
+                let mut data = gamelogic::system::map_loader::MapData::new();
+                data.width = 32;
+                data.height = 32;
+                data.heightmap = vec![0; 32 * 32];
+                data.boundaries = vec![gamelogic::common::ICoord2D::new(cells, cells)];
+                world
+                    .world_services
+                    .terrain()
+                    .write()
+                    .unwrap()
+                    .load_map_geometry(data);
+            }
+            let mut first = GameLogic::new();
+            let mut other = GameLogic::new();
+            first.override_world_size(Vec3::ZERO, Vec3::new(320.0, 0.0, 320.0));
+            other.override_world_size(Vec3::ZERO, Vec3::new(320.0, 0.0, 320.0));
+            admit_boundary(&mut first, 12);
+            admit_boundary(&mut other, 25);
+            with_foreign_held(|| {
+                let inert = GameLogic::new();
+                let grid = &inert.pathfinding_system.grid;
+                assert!(grid.in_logical_extent(GridPos::new(0, 0)));
+                assert!(grid.in_logical_extent(GridPos::new(grid.width() - 1, grid.height() - 1)));
+                first.process_pathfind_queue();
+                other.process_pathfind_queue();
+                assert!(
+                    first
+                        .pathfinding_system
+                        .grid
+                        .in_logical_extent(GridPos::new(11, 11))
+                );
+                assert!(
+                    !first
+                        .pathfinding_system
+                        .grid
+                        .in_logical_extent(GridPos::new(12, 12))
+                );
+                assert!(
+                    other
+                        .pathfinding_system
+                        .grid
+                        .in_logical_extent(GridPos::new(24, 24))
+                );
+                admit_boundary(&mut first, 6);
+                first.process_pathfind_queue();
+                assert!(
+                    first
+                        .pathfinding_system
+                        .grid
+                        .in_logical_extent(GridPos::new(5, 5))
+                );
+                assert!(
+                    !first
+                        .pathfinding_system
+                        .grid
+                        .in_logical_extent(GridPos::new(6, 6))
+                );
+                assert!(
+                    other
+                        .pathfinding_system
+                        .grid
+                        .in_logical_extent(GridPos::new(24, 24))
+                );
             });
         },
     );

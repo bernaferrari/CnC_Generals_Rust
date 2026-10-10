@@ -302,7 +302,6 @@ impl PathfindingSystem {
 
     /// C++ `processPathfindQueue` reset of `m_cumulativeCellsAllocated` + extent.
     pub fn begin_pathfind_queue_frame(&mut self) {
-        self.grid.refresh_logical_extent();
         self.cumulative_cells_allocated = 0;
     }
 
@@ -473,7 +472,6 @@ impl PathfindingSystem {
         dest_layer: PathfindLayerEnum,
     ) -> Option<Vec<Vec3>> {
         self.sync_crate_astar();
-        self.grid.refresh_logical_extent();
         self.apply_seeker_human_flag();
         self.grid.query_seeker_id = self.seeker_id.map(|id| id.0).unwrap_or(0);
         self.grid

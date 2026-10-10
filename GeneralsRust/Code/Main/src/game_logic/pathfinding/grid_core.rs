@@ -15,7 +15,7 @@ impl PathfindingGrid {
         let height = (world_height / grid_size).ceil() as i32;
         let cells = (width.max(0) as usize).saturating_mul(height.max(0) as usize);
         let words = cells.div_ceil(64);
-        let mut grid = Self {
+        Self {
             width,
             height,
             grid_size,
@@ -76,29 +76,21 @@ impl PathfindingGrid {
             terrain_gen: 1,
             query_path_diameter: 1,
             query_is_crusher: false,
-        };
-        grid.refresh_logical_extent();
-        grid
+        }
     }
 
-    /// C++ `Pathfinder::processPathfindQueue` m_logicalExtent refresh
-    /// (AIPathfind.cpp:5887-5897).
-    pub fn refresh_logical_extent(&mut self) {
+    /// C++ `processPathfindQueue` receives its driving terrain's active boundary
+    /// (AIPathfind.cpp:5887-5897). Construction retains the declared grid extent.
+    pub(crate) fn admit_logical_extent(&mut self, lo: Vec3, hi: Vec3) {
         let cell = self.grid_size.max(1.0);
-        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
-        let Some(ext) = terrain_owner_handle
-            .read()
-            .ok()
-            .map(|t| t.get_extent())
-            .filter(|e| e.hi.x > e.lo.x && e.hi.y > e.lo.y)
-        else {
+        if hi.x <= lo.x || hi.z <= lo.z {
             return;
-        };
+        }
         // Leftover/C++ terrain is XY; host grid is XZ with origin.
-        let mut lo_x = ((ext.lo.x - self.origin.x) / cell).floor() as i32;
-        let mut lo_y = ((ext.lo.y - self.origin.z) / cell).floor() as i32;
-        let mut hi_x = ((ext.hi.x - self.origin.x) / cell).floor() as i32 - 1;
-        let mut hi_y = ((ext.hi.y - self.origin.z) / cell).floor() as i32 - 1;
+        let mut lo_x = ((lo.x - self.origin.x) / cell).floor() as i32;
+        let mut lo_y = ((lo.z - self.origin.z) / cell).floor() as i32;
+        let mut hi_x = ((hi.x - self.origin.x) / cell).floor() as i32 - 1;
+        let mut hi_y = ((hi.z - self.origin.z) / cell).floor() as i32 - 1;
         lo_x = lo_x.max(0);
         lo_y = lo_y.max(0);
         hi_x = hi_x.min(self.width.saturating_sub(1)).max(lo_x);

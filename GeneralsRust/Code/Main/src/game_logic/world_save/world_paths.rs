@@ -1376,6 +1376,17 @@ impl GameLogic {
 
     /// C++ Pathfinder::processPathfindQueue residual (AI.cpp:332-339).
     pub(crate) fn process_pathfind_queue(&mut self) {
+        // C++ queue5887-5897 refreshes the driving terrain's active boundary.
+        let extent = self
+            .world_services
+            .terrain()
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_extent();
+        self.pathfinding_system.grid.admit_logical_extent(
+            Vec3::new(extent.lo.x, extent.lo.z, extent.lo.y),
+            Vec3::new(extent.hi.x, extent.hi.z, extent.hi.y),
+        );
         self.pathfinding_system.begin_pathfind_queue_frame();
         while self.pathfinding_system.pathfind_budget_remaining() {
             let Some(req) = self.pathfinding_system.pop_pending_path() else {
