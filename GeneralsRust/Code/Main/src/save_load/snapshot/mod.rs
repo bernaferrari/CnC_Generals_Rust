@@ -188,3 +188,5 @@ pub use w3d_ghost_save::{
     save_lock_live_w3d_ghosts, stash_loaded_w3d_ghost_xfer, take_loaded_w3d_ghost_xfer,
 };
 pub(crate) use world_codec::decode_bincode_world_snapshot;
+
+mod hunt_state_persist;

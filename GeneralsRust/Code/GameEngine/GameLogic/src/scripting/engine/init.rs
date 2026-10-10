@@ -1416,8 +1416,12 @@ mod script_object_context_tests {
                 request: ScriptNamedCommand<'_>,
                 this_object: Option<ObjectID>,
             ) -> Option<GameLogicResult<()>> {
-                let ScriptNamedCommand::ForceAttack { unit, .. } = request else {
-                    panic!("unexpected named command: {request:?}");
+                let unit = match request {
+                    ScriptNamedCommand::ForceAttack { unit, .. }
+                    | ScriptNamedCommand::Hunt { unit } => unit,
+                    ScriptNamedCommand::FaceObject { .. } => {
+                        panic!("unexpected named command: {request:?}");
+                    }
                 };
                 self.0.push((unit.into(), this_object));
                 Some(Ok(()))
@@ -1447,8 +1451,26 @@ mod script_object_context_tests {
                     .unwrap(),
                 ScriptActionResult::Success
             );
+            let mut hunt = ScriptAction::new(ScriptActionType::NamedHunt);
+            hunt.add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                THIS_OBJECT.into(),
+            ))
+            .unwrap();
+            assert_eq!(
+                dispatcher
+                    .execute_action_with_driver(&hunt, &mut owner)
+                    .unwrap(),
+                ScriptActionResult::Success
+            );
         });
-        assert_eq!(owner.0, vec![(THIS_OBJECT.into(), Some(73))]);
+        assert_eq!(
+            owner.0,
+            vec![
+                (THIS_OBJECT.into(), Some(73)),
+                (THIS_OBJECT.into(), Some(73))
+            ]
+        );
         assert_eq!(foreign.script_object_id(), Some(13));
     }
 

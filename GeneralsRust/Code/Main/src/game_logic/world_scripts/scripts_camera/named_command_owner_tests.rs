@@ -328,6 +328,11 @@ fn named_commands_ignore_foreign_core_member() {
                 world.host_object(id).unwrap().ai_state,
                 AIState::FacingObject
             );
+            execute(
+                &mut world,
+                &[(ScriptActionType::NamedHunt, "NamedUnit", "")],
+            );
+            assert!(world.host_object(id).unwrap().hunting);
             assert_eq!(foreign.read().unwrap().get_group_id(), Some(91));
             assert!(Arc::ptr_eq(
                 &foreign,

@@ -1110,6 +1110,11 @@ impl Object {
     /// Leftover thing-factory AIUpdate module when the template is loaded;
     /// else combat/mobile heuristic so infantry/vehicles still gate without INI.
     pub fn has_ai_update_interface(&self) -> bool {
+        // Object.cpp419 caches the admitted module interface. Another
+        // world's factory must not override a proven template definition.
+        if let Some(presence) = self.thing.template.authored_ai_update_interface() {
+            return presence;
+        }
         match leftover_stun_template_has_ai_update(&self.template_name) {
             Some(has) => has,
             None => {

@@ -288,6 +288,10 @@ impl SnapshotBuilder {
             );
         }
 
+        if let Some(hunt) = super::hunt_state_persist::capture(object) {
+            modules.insert("AIHuntState".to_owned(), ModuleSnapshot::AIUpdate(hunt));
+        }
+
         if let Some(face) = super::face_state_persist::capture(object)? {
             modules.insert("AIFaceState".to_owned(), ModuleSnapshot::AIUpdate(face));
         }

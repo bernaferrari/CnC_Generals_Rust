@@ -290,7 +290,19 @@ impl ScriptActionDispatcher<'_> {
                     self.do_named_face_named(action)
                 }
             }
-            ScriptActionType::NamedHunt => self.do_named_hunt(action),
+            ScriptActionType::NamedHunt => {
+                use crate::scripting::engine::ScriptNamedCommand;
+                let unit = self.get_string_param(action, 0)?;
+                let this_object = self.context.borrowed_engine().script_object_id();
+                if let Some(result) =
+                    driver.named_command(ScriptNamedCommand::Hunt { unit: &unit }, this_object)
+                {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_named_hunt(action)
+                }
+            }
             ScriptActionType::NamedGuard => self.do_named_guard(action),
             ScriptActionType::NamedStop => self.do_named_stop(action),
 

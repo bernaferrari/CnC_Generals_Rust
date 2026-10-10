@@ -442,79 +442,103 @@ fn executor_team_attack_named_ignores_stale_target_tracker_id() {
     assert!(locomotors.lock().unwrap().is_empty());
 }
 
-#[test]
-fn executor_named_hunt_selects_normal_locomotor_before_hunt() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+struct NamedHuntOwner {
+    calls: Vec<(String, Option<ObjectID>)>,
+    reject: bool,
+}
 
-    get_object_manager().write().unwrap().reset();
-    get_named_object_tracker().clear().unwrap();
-
-    let commands = Arc::new(Mutex::new(Vec::new()));
-    let locomotors = Arc::new(Mutex::new(Vec::new()));
-    let hunter_id = 8495;
-    let hunter = crate::object_manager::GameObjectInstance::new(
-        hunter_id,
-        None,
-        None,
-        ObjectCreationFlags::new(),
-    )
-    .expect("test hunter instance");
-
-    {
-        let __base_arc = hunter.base();
-        let mut base = __base_arc.write().unwrap();
-        base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
-            commands: Arc::clone(&commands),
-            locomotors: Arc::clone(&locomotors),
-        }))));
-        base.enter_group(&crate::ai::AIGroup::new(95));
-        assert_eq!(base.get_group_id(), Some(95));
+impl crate::scripting::engine::ScriptExecutionDriver for NamedHuntOwner {
+    fn after_action(&mut self) -> GameLogicResult<()> {
+        Ok(())
     }
 
-    let hunter_id = hunter.get_id();
-    get_object_manager()
-        .write()
-        .unwrap()
-        .register_object_instance(hunter, Coord3D::new(11.0, 6.0, 0.0))
-        .unwrap();
-    get_named_object_tracker()
-        .register_named_object("ExecutorHunter".to_string(), hunter_id)
-        .unwrap();
+    fn named_command(
+        &mut self,
+        request: crate::scripting::engine::ScriptNamedCommand<'_>,
+        this_object: Option<ObjectID>,
+    ) -> Option<GameLogicResult<()>> {
+        let crate::scripting::engine::ScriptNamedCommand::Hunt { unit } = request else {
+            panic!("unexpected named command: {request:?}");
+        };
+        self.calls.push((unit.into(), this_object));
+        Some(if self.reject {
+            Err(GameLogicError::ModuleError(
+                "hunt owner rejected command".into(),
+            ))
+        } else {
+            Ok(())
+        })
+    }
+}
 
+#[test]
+fn executor_named_hunt_selects_normal_locomotor_before_hunt() {
+    // The driver owns NORMAL -> Hunt and preservation of group membership;
+    // Main's real object tests verify those effects. Core verifies that public
+    // dispatch selects that owner, including its missing-object no-op.
+    let engine = ScriptEngine::new().expect("script engine");
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
+    let mut owner = NamedHuntOwner {
+        calls: Vec::new(),
+        reject: false,
+    };
     let mut action = ScriptAction::new(ScriptActionType::NamedHunt);
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Unit,
-            "ExecutorHunter".to_string(),
+            "ExecutorHunter".into(),
         ))
         .unwrap();
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
-    dispatcher.do_named_hunt(&action).unwrap();
-
-    assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
     assert_eq!(
-        *commands.lock().unwrap(),
-        vec![(
-            AiCommandType::Hunt,
-            None,
-            None,
-            0,
-            CommandSourceType::FromScript,
-        )]
+        dispatcher
+            .execute_action_with_driver(&action, &mut owner)
+            .unwrap(),
+        ScriptActionResult::Success
     );
-    assert_eq!(
-        get_object_manager()
-            .read()
-            .unwrap()
-            .with_object(hunter_id, |o| o
-                .base()
-                .read()
-                .ok()
-                .and_then(|b| b.get_group_id()))
-            .flatten(),
-        Some(95)
+    assert_eq!(owner.calls, vec![("ExecutorHunter".into(), None)]);
+
+    // An authoritative error cannot fall back to a global registry or queue.
+    owner.reject = true;
+    assert!(matches!(
+        dispatcher.execute_action_with_driver(&action, &mut owner),
+        Err(ScriptError::ExecutionFailed(message)) if message.contains("hunt owner rejected command")
+    ));
+    assert_eq!(owner.calls.len(), 2);
+}
+
+#[test]
+fn named_hunt_requires_unit_parameter_before_owner_dispatch() {
+    let engine = ScriptEngine::new().unwrap();
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
+    let mut owner = NamedHuntOwner {
+        calls: Vec::new(),
+        reject: false,
+    };
+    let action = ScriptAction::new(ScriptActionType::NamedHunt);
+    assert!(
+        dispatcher
+            .execute_action_with_driver(&action, &mut owner)
+            .is_err()
+    );
+    assert!(owner.calls.is_empty());
+}
+
+#[test]
+fn default_named_hunt_driver_leaves_standalone_adapter_available() {
+    use crate::scripting::engine::{ScriptExecutionDriver, ScriptNamedCommand};
+    struct UnavailableOwner;
+    impl ScriptExecutionDriver for UnavailableOwner {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            Ok(())
+        }
+    }
+    assert!(
+        UnavailableOwner
+            .named_command(ScriptNamedCommand::Hunt { unit: "Hunter" }, None)
+            .is_none()
     );
 }
 

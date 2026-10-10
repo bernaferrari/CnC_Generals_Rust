@@ -141,11 +141,7 @@ impl GameLogic {
                     }
                 }
                 HostScriptHuntGuardRequest::NamedHunt { unit } => {
-                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
-                        continue;
-                    };
-                    let _ = self.apply_unit_locomotor_set(id, "normal");
-                    let _ = self.unit_command_patrol(id);
+                    self.apply_owned_named_hunt(&unit, None);
                 }
                 HostScriptHuntGuardRequest::TeamGuard { team } => {
                     // C++ doTeamGuard: leftover getTeamNamed instance, every member with AI.
