@@ -10,8 +10,9 @@
 
 use crate::common::crc::Crc;
 use std::cell::RefCell;
+use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Multiplication factor for converting to floating point
@@ -101,63 +102,110 @@ static GAME_AUDIO_RANDOM: Mutex<RandomState> = Mutex::new(RandomState::new());
 static GAME_LOGIC_RANDOM: Mutex<RandomState> = Mutex::new(RandomState::new());
 static GAME_LOGIC_BASE_SEED: AtomicU32 = AtomicU32::new(0);
 
-/// Thread-local scoped-owner slot for the LOGIC stream only.
-///
-/// Client and audio streams stay process-global (C++ parity: only the logic
-/// stream is network-sync-critical). A driving simulation instance publishes
-/// its exclusive `&mut RandomState` here for the duration of one fixed-step
-/// batch; while published, every logic-stream entry point below resolves the
-/// owner instead of the `GAME_LOGIC_RANDOM` fallback.
-thread_local! {
-    static LOGIC_RNG_OWNER: RefCell<Option<*mut RandomState>> = const { RefCell::new(None) };
+/// A session's sole logic stream, used by synchronous callbacks.
+/// The atomic handle supports the actual prepared-world startup worker handoff;
+/// it does not schedule concurrent simulation. Primitive draws linearize here.
+/// Cloning this handle shares the stream; `snapshot()` makes an independent
+/// state value. No references or placeholder state are published to callbacks.
+#[derive(Debug, Clone)]
+pub struct SessionRandom {
+    state: Arc<AtomicU64>,
 }
-
-/// Restores the exact pre-scope owner slot when a [`with_logic_rng_owner`]
-/// scope ends, including during unwinding.  Private and never handed to the
-/// scope callback, so a caller cannot `std::mem::forget` it: forget-safety
-/// comes from the value never escaping the scope frame (shape of Main's
-/// `CoupledShadowScopeGuard`, gameworld_shadow/tick/couple.rs:229-241).
-struct LogicRngOwnerScopeGuard {
-    prev: Option<*mut RandomState>,
+impl Default for SessionRandom {
+    fn default() -> Self {
+        Self::from_state(RandomState::default())
+    }
 }
-
-impl Drop for LogicRngOwnerScopeGuard {
-    fn drop(&mut self) {
-        LOGIC_RNG_OWNER.with(|c| *c.borrow_mut() = self.prev);
+impl SessionRandom {
+    pub fn from_state(state: RandomState) -> Self {
+        Self {
+            state: Arc::new(AtomicU64::new(state.rng.get_seed())),
+        }
+    }
+    pub fn snapshot(&self) -> RandomState {
+        RandomState {
+            rng: fastrand::Rng::with_seed(self.state.load(Ordering::Relaxed)),
+        }
+    }
+    pub fn seed_random(&self, seed: u32) {
+        self.state.store(u64::from(seed), Ordering::Relaxed);
+    }
+    pub fn set_seed_words(&self, words: [u32; 6]) {
+        let mut state = RandomState::default();
+        state.set_seed_words(words);
+        self.state.store(state.rng.get_seed(), Ordering::Relaxed);
+    }
+    pub fn seed_words(&self) -> [u32; 6] {
+        self.snapshot().seed_words()
+    }
+    /// Linearize one library draw; retries have no gameplay side effects.
+    pub fn next_u32(&self) -> u32 {
+        let mut before = self.state.load(Ordering::Relaxed);
+        loop {
+            let mut rng = fastrand::Rng::with_seed(before);
+            let value = rng.u32(..);
+            match self.state.compare_exchange_weak(
+                before,
+                rng.get_seed(),
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return value,
+                Err(current) => before = current,
+            }
+        }
     }
 }
 
-/// Publish `owner` as the live logic-stream RNG for the duration of `f` only.
-///
-/// Scoped-owner migration aid (audit-sanctioned temporary pattern, mirrors
-/// the gameworld-shadow coupled-tick slot): the driving simulation instance
-/// (Main host `GameLogic::logic_random`) publishes its exclusive state for
-/// one fixed-step batch so every logic draw during that tick consumes the
-/// instance state.  Outside such scopes — boot, menus, tests — the
-/// logic-stream entry points keep using the `GAME_LOGIC_RANDOM` global
-/// fallback unchanged.
-///
-/// Nesting is stack-disciplined: a nested scope publishes its own owner
-/// (ambient access inside resolves to the innermost scope) and the outer
-/// owner resumes when the inner scope ends.
-pub fn with_logic_rng_owner<R>(owner: &mut RandomState, f: impl FnOnce() -> R) -> R {
-    let prev = LOGIC_RNG_OWNER.with(|c| c.replace(Some(owner as *mut RandomState)));
+thread_local! {
+    // Temporary compatibility context for legacy primitive draw functions.
+    // The slot owns a safe local handle, never a pointer into GameLogic.
+    static LOGIC_RNG_OWNER: RefCell<Option<SessionRandom>> = const { RefCell::new(None) };
+}
+struct LogicRngOwnerScopeGuard {
+    prev: Option<SessionRandom>,
+}
+impl Drop for LogicRngOwnerScopeGuard {
+    fn drop(&mut self) {
+        LOGIC_RNG_OWNER.with(|slot| {
+            slot.replace(self.prev.take());
+        });
+    }
+}
+/// Publish a safe owning handle for one synchronous operation. Nested worlds
+/// restore the previous handle on return or unwind. This is a temporary bridge;
+/// ordinary explicit draws should use their driving session directly.
+pub fn with_session_random<R>(owner: &SessionRandom, f: impl FnOnce() -> R) -> R {
+    let prev = LOGIC_RNG_OWNER.with(|slot| slot.replace(Some(owner.clone())));
     let _guard = LogicRngOwnerScopeGuard { prev };
     f()
 }
-
-/// Resolve the live logic-stream state: the scoped owner if one is published,
-/// else the `GAME_LOGIC_RANDOM` global fallback (with poison recovery).
-fn with_logic_rng_state<R>(f: impl FnOnce(&mut RandomState) -> R) -> R {
-    let owner = LOGIC_RNG_OWNER.with(|c| *c.borrow());
-    if let Some(ptr) = owner {
-        // SAFETY: published by `with_logic_rng_owner` from an exclusive
-        // `&mut RandomState` whose borrow outlives the scope; the private Drop
-        // guard restores the previous slot at scope end, unwind included, so it
-        // is dereferenceable only while the owner's borrow is alive; the
-        // reference cannot escape this callback.
-        return f(unsafe { &mut *ptr });
+/// Compatibility for explicitly borrowed, independently cloned RandomState.
+/// Rust's exclusive borrow prevents safe callbacks from accessing `owner`
+/// while its state is moved into the scoped handle. The private guard writes
+/// continuation back even during unwind; Main uses `with_session_random` and
+/// never moves/replaces its live field.
+pub fn with_logic_rng_owner<R>(owner: &mut RandomState, f: impl FnOnce() -> R) -> R {
+    struct Restore<'a> {
+        owner: &'a mut RandomState,
+        stream: SessionRandom,
     }
+    impl Drop for Restore<'_> {
+        fn drop(&mut self) {
+            *self.owner = self.stream.snapshot();
+        }
+    }
+    let stream = SessionRandom::from_state(std::mem::take(owner));
+    let _restore = Restore {
+        owner,
+        stream: stream.clone(),
+    };
+    with_session_random(&stream, f)
+}
+fn scoped_logic_rng() -> Option<SessionRandom> {
+    LOGIC_RNG_OWNER.with(|slot| slot.borrow().clone())
+}
+fn with_global_logic_rng<R>(f: impl FnOnce(&mut RandomState) -> R) -> R {
     let mut logic = match GAME_LOGIC_RANDOM.lock() {
         Ok(guard) => guard,
         Err(poisoned) => {
@@ -185,20 +233,21 @@ pub fn init_random() {
 }
 
 /// Reseed the global logic fallback (poison-recovering). Helper for the
-/// broadcast reseed below.
+/// standalone initialization below.
 fn seed_global_logic_random(seed: u32) {
-    let mut global = match GAME_LOGIC_RANDOM.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => {
-            eprintln!("WARN: GAME_LOGIC_RANDOM poisoned, recovering...");
-            poisoned.into_inner()
-        }
-    };
-    global.seed_random(seed);
+    with_global_logic_rng(|global| global.seed_random(seed));
 }
 
 /// Initialize random number generators with specific seed
 pub fn init_random_with_seed(seed: u32) {
+    init_client_audio_random_with_seed(seed);
+    seed_global_logic_random(seed);
+    GAME_LOGIC_BASE_SEED.store(seed, Ordering::SeqCst);
+}
+
+/// Reset application presentation streams without changing any match stream.
+/// Main uses this for the C++ mission-restart/initial-map presentation reset.
+pub fn init_client_audio_random_with_seed(seed: u32) {
     // Use panic recovery to handle poisoned mutexes
     let mut client = match GAME_CLIENT_RANDOM.lock() {
         Ok(guard) => guard,
@@ -219,42 +268,18 @@ pub fn init_random_with_seed(seed: u32) {
     };
     audio.seed_random(seed);
     drop(audio);
-
-    // Logic stream: broadcast reseed — the published driving instance (when a
-    // tick scope is live) AND the global fallback, so the fallback is never
-    // stale for scopes/threads that have no owner published.
-    with_logic_rng_state(|logic| logic.seed_random(seed));
-    if LOGIC_RNG_OWNER.with(|c| c.borrow().is_some()) {
-        seed_global_logic_random(seed);
-    }
-
-    GAME_LOGIC_BASE_SEED.store(seed, Ordering::SeqCst);
 }
 
-/// Initialize only the game logic random generator
+/// Initialize the standalone/process logic fallback. This never reseeds a
+/// published match: match admission must explicitly address its SessionRandom.
 pub fn init_game_logic_random(seed: u32) {
     #[cfg(feature = "deterministic")]
-    {
-        // Scoped-owner resolver: reseed the published driving instance when
-        // called mid-tick, else the global fallback.
-        with_logic_rng_state(|logic| logic.seed_random(0));
-        if LOGIC_RNG_OWNER.with(|c| c.borrow().is_some()) {
-            seed_global_logic_random(0);
-        }
-
-        GAME_LOGIC_BASE_SEED.store(0, Ordering::SeqCst);
-    }
-    #[cfg(not(feature = "deterministic"))]
-    {
-        // Scoped-owner resolver: reseed the published driving instance when
-        // called mid-tick, else the global fallback.
-        with_logic_rng_state(|logic| logic.seed_random(seed));
-        if LOGIC_RNG_OWNER.with(|c| c.borrow().is_some()) {
-            seed_global_logic_random(seed);
-        }
-
-        GAME_LOGIC_BASE_SEED.store(seed, Ordering::SeqCst);
-    }
+    let seed = {
+        let _ = seed;
+        0
+    };
+    seed_global_logic_random(seed);
+    GAME_LOGIC_BASE_SEED.store(seed, Ordering::SeqCst);
 }
 
 /// Get the game logic random seed
@@ -268,12 +293,20 @@ pub fn get_game_logic_random_seed() -> u32 {
 /// Routes through the scoped-owner resolver: a snapshot restore issued inside
 /// a tick writes the driving instance, else the global fallback.
 pub fn set_game_logic_random_seed_state(words: [u32; 6]) {
-    with_logic_rng_state(|logic| logic.set_seed_words(words));
+    if let Some(owner) = scoped_logic_rng() {
+        owner.set_seed_words(words);
+    } else {
+        with_global_logic_rng(|logic| logic.set_seed_words(words));
+    }
 }
 
 /// Read the six-word GameLogic RNG capsule.
 pub fn get_game_logic_random_seed_state() -> [u32; 6] {
-    with_logic_rng_state(|logic| logic.seed_words())
+    if let Some(owner) = scoped_logic_rng() {
+        owner.seed_words()
+    } else {
+        with_global_logic_rng(|logic| logic.seed_words())
+    }
 }
 
 /// Get CRC of the game logic random seed
@@ -281,15 +314,19 @@ pub fn get_game_logic_random_seed_crc() -> u32 {
     // Scoped-owner resolver: CRC the driving instance's state during a tick
     // (this is the network sync check — it must reflect the state the draws
     // actually consume), else the global fallback.
-    with_logic_rng_state(|logic_random| {
-        let mut crc = Crc::new();
+    let mut crc = Crc::new();
+    for seed_part in get_game_logic_random_seed_state() {
+        crc.compute_single(&seed_part);
+    }
+    crc.get()
+}
 
-        for seed_part in logic_random.seed_words() {
-            crc.compute_single(&seed_part);
-        }
-
-        crc.get()
-    })
+fn next_logic_value() -> u32 {
+    if let Some(owner) = scoped_logic_rng() {
+        owner.next_u32()
+    } else {
+        with_global_logic_rng(RandomState::next_u32)
+    }
 }
 
 /// Get game logic random integer value
@@ -306,7 +343,7 @@ pub fn get_game_logic_random_value(lo: i32, hi: i32) -> i32 {
 
     // Scoped-owner resolver: during a published tick scope the draw consumes
     // the driving instance's state, else the GAME_LOGIC_RANDOM fallback.
-    let random_val = with_logic_rng_state(|logic_random| logic_random.next_value());
+    let random_val = next_logic_value();
     // C++ RandomValue.cpp:196 `((Int)(randomValue(...) % delta)) + lo` —
     // unsigned mod, quotient bits reinterpreted as Int, then a signed add
     // that wraps on MSVC x86 (final addition can overflow only when delta
@@ -360,7 +397,7 @@ pub fn get_game_logic_random_value_real(lo: f32, hi: f32) -> f32 {
     }
 
     // Scoped-owner resolver: same routing as the integer logic draw above.
-    let random_val = with_logic_rng_state(|logic_random| logic_random.next_value());
+    let random_val = next_logic_value();
     (random_val as f32 * MULT_FACTOR) * delta + lo
 }
 
@@ -1507,8 +1544,8 @@ mod tests {
     fn scoped_logic_rng_owner_isolates_two_instances() {
         // Two differently seeded driving instances must keep independent RNG
         // states: interleaved scopes draw each instance's own standalone
-        // sequence (C++ has one theGameLogicSeed per driving GameLogic,
-        // RandomValue.cpp:150-174).
+        // Rust sequence. The original singleton no longer chooses the driving
+        // Rust world (user-approved RNG sequence/ownership change).
         let mut a = RandomState::default();
         a.seed_random(0xAAAA_0001);
         let mut b = RandomState::default();
@@ -1537,6 +1574,19 @@ mod tests {
         // Statistically certain for these fixed seeds (matches the existing
         // independence-test style above).
         assert_ne!(got_a, got_b, "differently seeded instances diverge");
+        let shared = SessionRandom::from_state(a.clone());
+        let callback_handle = shared.clone();
+        let mut independent = shared.snapshot();
+        let expected = independent.next_u32();
+        assert_eq!(callback_handle.next_u32(), expected);
+        assert_eq!(shared.seed_words(), independent.seed_words());
+        let before_snapshot_draw = shared.seed_words();
+        independent.next_u32();
+        assert_eq!(
+            shared.seed_words(),
+            before_snapshot_draw,
+            "snapshot clone is independent"
+        );
     }
 
     #[test]
@@ -1597,28 +1647,33 @@ mod tests {
     }
 
     #[test]
-    fn init_reseeds_published_owner_and_global_fallback() {
+    fn init_reseeds_only_global_fallback_while_owner_is_published() {
         let _guard = RNG_TEST_LOCK.lock();
         init_random_with_seed(0x5EED_00BB);
         let mut owner = RandomState::default();
         owner.seed_random(1);
 
         let mut replay = RandomState::default();
+        replay.seed_random(1);
+        let expected_owner = (replay.next_value() % 1000) as i32;
         replay.seed_random(0x5EED_00CC);
-        let expected = (replay.next_value() % 1000) as i32;
+        let expected_fallback = (replay.next_value() % 1000) as i32;
 
-        // A reseed issued inside a published scope (recorder / snapshot
-        // restore mid-tick) must hit the owner AND the global fallback.
+        // Core/another session may initialize its process fallback while Main
+        // owns the synchronous callback. Its explicit stream must stay intact.
         let scoped = with_logic_rng_owner(&mut owner, || {
             init_random_with_seed(0x5EED_00CC);
             get_game_logic_random_value(0, 999)
         });
 
-        assert_eq!(scoped, expected, "a reseed inside a scope hits the owner");
+        assert_eq!(
+            scoped, expected_owner,
+            "global init leaves the owner intact"
+        );
         assert_eq!(
             get_game_logic_random_value(0, 999),
-            expected,
-            "the global fallback was reseeded too"
+            expected_fallback,
+            "the global fallback was reseeded"
         );
         assert_eq!(get_game_logic_random_seed(), 0x5EED_00CC);
     }

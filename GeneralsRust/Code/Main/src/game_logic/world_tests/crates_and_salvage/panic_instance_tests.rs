@@ -32,15 +32,12 @@ fn seeded_panic_logic(seed: u32) -> GameLogic {
     // New-match updates first wake at frame 1. Admit the authored order
     // after the initial frame so the next real step executes Movement.
     logic.update_with_dt_budget(1.0 / 30.0, 1);
-    logic.logic_random.seed_random(seed);
-    logic.logic_base_seed = game_engine::common::random_value::get_game_logic_random_seed();
-    // This fixture issues its authored request outside the ordinary script
-    // phase. Give that synchronous operation the same owned stream as a tick.
-    let mut random = std::mem::take(&mut logic.logic_random);
-    game_engine::common::random_value::with_logic_rng_owner(&mut random, || {
+    logic.set_logic_random_seed(seed);
+    // Out-of-phase fixture request uses the actual handle kept in the world.
+    let random = logic.logic_random.clone();
+    game_engine::common::random_value::with_session_random(&random, || {
         issue_authored_team_panic(&mut logic);
     });
-    logic.logic_random = random;
     let unit = logic.objects.get_mut(&PANIC_UNIT).expect("panic unit");
     unit.wander_width_factor = 30.0;
     let path_end = *unit.movement.path.last().expect("initial waypoint path");

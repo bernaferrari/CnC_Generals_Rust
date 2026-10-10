@@ -1792,7 +1792,8 @@ impl CnCGameEngine {
                         } else {
                             warn!("Failed to queue startup NewGame message for initial-file map");
                         }
-                        game_engine::common::random_value::init_random_with_seed(0);
+                        game_engine::common::random_value::init_client_audio_random_with_seed(0);
+                        game_logic.set_logic_random_seed(0);
                     }
 
                     if let Some(replay_to_load) = replay_to_load.as_ref() {
@@ -1887,6 +1888,15 @@ impl CnCGameEngine {
                     }
 
                     worker_stop_if_abandoned()?;
+                    if replay_startup_requested && !start_in_menu {
+                        // Recorder.cpp:1133 admits the recorded GameInfo seed.
+                        // Address this candidate directly: process initialization
+                        // cannot choose a running Main session's logic stream.
+                        let replay_seed = game_engine::common::recorder::with_recorder(
+                            |recorder| recorder.get_game_info().seed,
+                        ).ok_or_else(|| "startup replay recorder disappeared before seed admission".to_string())?;
+                        game_logic.set_logic_random_seed(replay_seed);
+                    }
                     game_logic.start_new_game(startup_mode);
 
                     let mut loaded_map_name = None;

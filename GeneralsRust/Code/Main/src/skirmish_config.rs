@@ -600,11 +600,8 @@ fn resolve_skirmish_slots(
         return Err("no eligible PlayerTemplate is available for Random Skirmish selection".into());
     }
 
-    // C++ `SkirmishGameOptionsMenu` calls InitGameLogicRandom with GameInfo's
-    // seed immediately before it queues GAME_SKIRMISH.  Use the same shared
-    // logic stream here so its post-selection state matches C++ as well.
-    game_engine::common::random_value::init_game_logic_random(config.random_seed);
-
+    // Caller supplies the driving match's seeded scoped stream; never
+    // broadcast to other sessions or the process fallback here.
     active_slots
         .into_iter()
         .zip(exact)
@@ -636,119 +633,132 @@ pub fn apply_skirmish_config(
     logic: &mut GameLogic,
     config: &SkirmishMatchConfig,
 ) -> Result<(), String> {
-    let resolved_slots = resolve_skirmish_slots(config)?;
-
-    logic.start_new_game(GameMode::Skirmish);
-    logic.clear_all_players();
-
-    let mut assigned = config.slots.clone();
-    populate_random_start_position(&mut assigned, &config.map);
-
-    let cash = config.rules.starting_cash.max(0) as u32;
-    let mut human_id: Option<u32> = None;
-
-    for resolved in resolved_slots {
-        let slot = resolved.slot;
-        let team = resolved.team;
-        let player_id = slot.slot_index as u32;
-        let start_position = assigned
-            .iter()
-            .find(|s| s.slot_index == slot.slot_index)
-            .map(|s| s.start_position)
-            .unwrap_or(slot.start_position);
-        let mut player = Player::new(player_id, team, &slot.player_name, slot.is_human);
-        // C++ Player::init starts with GameInfo cash, then an authored
-        // non-zero PlayerTemplate Money value may replace it.
-        player.resources.supplies = cash;
-        player.color_rgb = slot.color_rgb;
-        player.color_night_rgb =
-            crate::game_logic::host_gamedata_lobby_residual::multiplayer_night_rgb_for_day(
-                slot.color_rgb,
-            );
-
-        player.start_position = start_position;
-        player.alliance_team = slot.team;
-        logic.add_player(player);
-
-        // This binds the exact template's side, starting money, sciences,
-        // production maps, and starting assets *before* map load. Reapply
-        // GameInfo slot fields that C++ Player::initFromDict applies after
-        // Player::init(PlayerTemplate), especially playerColor.
-        if !logic.bind_player_template_identity(player_id, resolved.player_template) {
-            return Err(format!(
-                "validated Skirmish PlayerTemplate failed to bind for slot {}",
-                slot.slot_index
-            ));
-        }
-        // `player_template_bindings` is session state retained by Main's
-        // map-load preserve path. This is the resolved concrete identity;
-        // downstream setup must use it rather than revisit this `Random`
-        // declaration and roll a second time.
-        let player = logic.get_player_mut(player_id).ok_or_else(|| {
-            format!(
-                "Skirmish player {} disappeared while binding its PlayerTemplate",
-                slot.slot_index
-            )
+    // Validate/resolve the candidate without changing an existing match on
+    // error. Replay admission uses the same GameInfo seed in this config.
+    let selection = game_engine::common::random_value::SessionRandom::default();
+    selection.seed_random(config.random_seed);
+    let resolved_slots =
+        game_engine::common::random_value::with_session_random(&selection, || {
+            resolve_skirmish_slots(config)
         })?;
-        player.color_rgb = slot.color_rgb;
-        player.color_night_rgb =
-            crate::game_logic::host_gamedata_lobby_residual::multiplayer_night_rgb_for_day(
-                slot.color_rgb,
-            );
+    logic.set_logic_random_seed(config.random_seed);
+    let stream = logic.logic_random.clone();
+    game_engine::common::random_value::with_session_random(&stream, || {
+        logic.start_new_game(GameMode::Skirmish);
+        // Carry faction-selection draws into the admitted match stream before
+        // the subsequent start-position selection.
+        logic.logic_random.set_seed_words(selection.seed_words());
+        logic.clear_all_players();
 
-        player.start_position = start_position;
-        player.alliance_team = slot.team;
-        let is_observer = player.is_observer;
-        if is_observer {
-            player.is_alive = false;
-        }
-        drop(player);
+        let mut assigned = config.slots.clone();
+        populate_random_start_position(&mut assigned, &config.map);
 
-        if is_observer {
-            if let Ok(mut shroud) = logic.world_services.shroud().lock() {
-                let _ = shroud.reveal_map_for_player_permanently(player_id);
+        let cash = config.rules.starting_cash.max(0) as u32;
+        let mut human_id: Option<u32> = None;
+
+        for resolved in resolved_slots {
+            let slot = resolved.slot;
+            let team = resolved.team;
+            let player_id = slot.slot_index as u32;
+            let start_position = assigned
+                .iter()
+                .find(|s| s.slot_index == slot.slot_index)
+                .map(|s| s.start_position)
+                .unwrap_or(slot.start_position);
+            let mut player = Player::new(player_id, team, &slot.player_name, slot.is_human);
+            // C++ Player::init starts with GameInfo cash, then an authored
+            // non-zero PlayerTemplate Money value may replace it.
+            player.resources.supplies = cash;
+            player.color_rgb = slot.color_rgb;
+            player.color_night_rgb =
+                crate::game_logic::host_gamedata_lobby_residual::multiplayer_night_rgb_for_day(
+                    slot.color_rgb,
+                );
+
+            player.start_position = start_position;
+            player.alliance_team = slot.team;
+            logic.add_player(player);
+
+            // This binds the exact template's side, starting money, sciences,
+            // production maps, and starting assets *before* map load. Reapply
+            // GameInfo slot fields that C++ Player::initFromDict applies after
+            // Player::init(PlayerTemplate), especially playerColor.
+            if !logic.bind_player_template_identity(player_id, resolved.player_template) {
+                return Err(format!(
+                    "validated Skirmish PlayerTemplate failed to bind for slot {}",
+                    slot.slot_index
+                ));
             }
-            if slot.is_human {
-                logic.set_radar_forced(true);
-                if human_id.is_none() {
-                    human_id = Some(player_id);
+            // `player_template_bindings` is session state retained by Main's
+            // map-load preserve path. This is the resolved concrete identity;
+            // downstream setup must use it rather than revisit this `Random`
+            // declaration and roll a second time.
+            let player = logic.get_player_mut(player_id).ok_or_else(|| {
+                format!(
+                    "Skirmish player {} disappeared while binding its PlayerTemplate",
+                    slot.slot_index
+                )
+            })?;
+            player.color_rgb = slot.color_rgb;
+            player.color_night_rgb =
+                crate::game_logic::host_gamedata_lobby_residual::multiplayer_night_rgb_for_day(
+                    slot.color_rgb,
+                );
+
+            player.start_position = start_position;
+            player.alliance_team = slot.team;
+            let is_observer = player.is_observer;
+            if is_observer {
+                player.is_alive = false;
+            }
+            drop(player);
+
+            if is_observer {
+                if let Ok(mut shroud) = logic.world_services.shroud().lock() {
+                    let _ = shroud.reveal_map_for_player_permanently(player_id);
                 }
+                if slot.is_human {
+                    logic.set_radar_forced(true);
+                    if human_id.is_none() {
+                        human_id = Some(player_id);
+                    }
+                }
+                continue;
             }
-            continue;
+
+            if slot.is_human && human_id.is_none() {
+                human_id = Some(player_id);
+            }
+
+            if !slot.is_human {
+                let difficulty = slot
+                    .ai_difficulty
+                    .as_deref()
+                    .map(parse_difficulty)
+                    .unwrap_or(AIDifficulty::Medium);
+                logic.add_ai_opponent(player_id, team, difficulty);
+                logic.set_ai_difficulty(player_id, difficulty);
+            }
         }
 
-        if slot.is_human && human_id.is_none() {
-            human_id = Some(player_id);
-        }
+        // Apply skirmish game rules that the host currently models.
+        // FOW: enable/disable shroud evaluation path on GameLogic when supported.
+        logic.set_skirmish_rules(
+            config.rules.fog_of_war,
+            config.rules.crates_enabled,
+            config.rules.limit_superweapons,
+            config.rules.allow_tech_buildings,
+            config.rules.game_speed,
+        );
 
-        if !slot.is_human {
-            let difficulty = slot
-                .ai_difficulty
-                .as_deref()
-                .map(parse_difficulty)
-                .unwrap_or(AIDifficulty::Medium);
-            logic.add_ai_opponent(player_id, team, difficulty);
-            logic.set_ai_difficulty(player_id, difficulty);
-        }
-    }
+        // C++ startNewGame: ReplayObserver + MultiplayerScripts.scb when numTeams > 1.
+        let _ = logic.ensure_replay_observer_player();
+        logic.install_replay_observer_side();
+        logic.set_install_multiplayer_scripts(skirmish_num_teams(&assigned) > 1);
 
-    // Apply skirmish game rules that the host currently models.
-    // FOW: enable/disable shroud evaluation path on GameLogic when supported.
-    logic.set_skirmish_rules(
-        config.rules.fog_of_war,
-        config.rules.crates_enabled,
-        config.rules.limit_superweapons,
-        config.rules.allow_tech_buildings,
-        config.rules.game_speed,
-    );
-
-    // C++ startNewGame: ReplayObserver + MultiplayerScripts.scb when numTeams > 1.
-    let _ = logic.ensure_replay_observer_player();
-    logic.install_replay_observer_side();
-    logic.set_install_multiplayer_scripts(skirmish_num_teams(&assigned) > 1);
-
-    let _ = human_id;
-    Ok(())
+        let _ = human_id;
+        Ok(())
+    })
 }
 
 /// Local human faction string from config (first human slot).
@@ -1238,10 +1248,7 @@ mod tests {
 
         let mut logic = GameLogic::new();
         apply_skirmish_config(&mut logic, &config).expect("Random config must resolve");
-        assert_eq!(
-            game_engine::common::random_value::get_game_logic_random_seed(),
-            config.random_seed
-        );
+        assert_eq!(logic.logic_base_seed, config.random_seed);
         let selected_before_rebind = [0, 1].map(|player_id| {
             logic
                 .player_template_identity(player_id)

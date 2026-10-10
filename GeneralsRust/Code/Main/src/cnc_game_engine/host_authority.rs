@@ -1126,30 +1126,17 @@ impl CnCGameEngine {
         self.kind_name_cache.borrow_mut().clear();
     }
 
-    /// Commit-time reseed of a staged world's driving-instance logic RNG from
-    /// the Rust RNG state capsule captured at save time.
-    ///
-    /// The staged instance re-derived its words from the game-start base seed
-    /// during `start_new_game`; without this, the first post-load tick would
-    /// replay the entire pre-save draw sequence while the un-reloaded branch
-    /// continues mid-stream.  The instance's recorded base seed is pinned to
-    /// the CURRENT Common broadcast so the next tick's
-    /// `sync_logic_rng_with_global_seed` adopts these words instead of
-    /// re-deriving fresh ones.  `[0; 6]` (pre-v22 saves) is an intentional
-    /// no-op.  Must run after all staging work (map load, singleton install),
-    /// which may itself consume or reseed the global stream.
+    /// Preserve the candidate's saved continuation after presentation commit
+    /// work. The selected seed was restored from snapshot.random_seed; this
+    /// only restores its capsule and never changes another match or fallback.
+    /// The omitted pre-v22 capsule remains a no-op here.
     fn host_restore_staged_logic_rng(
         logic: &mut crate::game_logic::GameLogic,
         seed_words: [u32; 6],
     ) {
-        if seed_words == [0u32; 6] {
-            return;
+        if seed_words != [0; 6] {
+            logic.logic_random.set_seed_words(seed_words);
         }
-        logic.logic_random.set_seed_words(seed_words);
-        logic.logic_base_seed = game_engine::common::random_value::get_game_logic_random_seed();
-        // Out-of-tick draws resolve the process-global fallback; C++ shares
-        // one static stream, so that side continues from the same words too.
-        game_engine::common::random_value::set_game_logic_random_seed_state(seed_words);
     }
 
     /// Install a fully staged save world and its GameClient companion.
@@ -1640,7 +1627,8 @@ impl CnCGameEngine {
             game_client::gui::campaign_manager::get_campaign_manager()
                 .apply_logic_chunk_state(state);
         }
-        game_engine::common::random_value::init_random_with_seed(0);
+        game_engine::common::random_value::init_client_audio_random_with_seed(0);
+        self.game_logic.set_logic_random_seed(0);
         {
             let mut global = game_engine::common::global_data::write();
             global.pending_file = save_info.map_name.clone();
@@ -2920,9 +2908,8 @@ mod staged_restore_tests {
         let mut source = GameLogic::new();
         source.start_new_game(GameMode::Skirmish);
         assert!(source.load_map(&map_name), "load source retail map");
-        // Known base seed, then frames so the driving instance adopts the
-        // broadcast and its RNG state advances past a fresh derivation.
-        game_engine::common::random_value::init_game_logic_random(0x1BAD_B002);
+        // Admit the source seed explicitly, then advance its owned continuation.
+        source.set_logic_random_seed(0x1BAD_B002);
         for _ in 0..8 {
             source.tick_logic_frame(FRAME_TIMESTEP, None, None);
         }
@@ -2930,7 +2917,7 @@ mod staged_restore_tests {
         // tick's published-owner scope does — so the save-point words
         // provably sit past a fresh re-derivation of the base seed.
         let draw_through_instance = |logic: &mut GameLogic, draws: usize| -> Vec<i32> {
-            game_engine::common::random_value::with_logic_rng_owner(&mut logic.logic_random, || {
+            game_engine::common::random_value::with_session_random(&logic.logic_random, || {
                 (0..draws)
                     .map(|_| {
                         game_engine::common::random_value::get_game_logic_random_value(0, 1_000_000)
@@ -2961,8 +2948,8 @@ mod staged_restore_tests {
         let branch_a_draws = draw_through_instance(&mut source, 6);
         let branch_a_words = source.logic_random.seed_words();
 
-        // Branch B: stage the save (its map load may consume or reseed the
-        // global stream) and apply the commit-time reseed.
+        // Branch B: restore the detached candidate's selected seed and exact
+        // continuation, then preserve it across presentation commit work.
         let mut staged = CnCGameEngine::stage_saved_world_for_restore(
             &mut saves,
             "rng_continue",
@@ -2986,9 +2973,8 @@ mod staged_restore_tests {
             "commit must reseed the staged instance from the saved words"
         );
         assert_eq!(
-            staged.logic.logic_base_seed,
-            game_engine::common::random_value::get_game_logic_random_seed(),
-            "commit must pin the instance base to the live broadcast so the first tick cannot re-derive"
+            staged.logic.logic_base_seed, 0x1BAD_B002,
+            "commit must retain the saved selected seed"
         );
         let branch_b_draws = draw_through_instance(&mut staged.logic, 6);
         assert_eq!(
@@ -3177,6 +3163,9 @@ mod staged_restore_tests {
                         "actual owned map load under foreign Core scope"
                     );
                     source.add_player(Player::new(0, Team::USA, "Human", true));
+                    source.set_logic_random_seed(0x5EED_A001);
+                    let _ = source.logic_random.next_u32();
+                    let saved_rng = source.logic_random.seed_words();
                     let saved_player_count = source.get_players().len();
                     let live_terrain = Arc::clone(source.world_services.terrain());
                     let live_light = gamelogic::system::engine_stores::with_world_services(
@@ -3216,6 +3205,12 @@ mod staged_restore_tests {
                         matches!(failure, Err(ref error) if error.contains("rollback witness"))
                     );
                     assert!(source.isInGame());
+                    assert_eq!(
+                        source.logic_random.seed_words(),
+                        saved_rng,
+                        "failed candidate leaves live continuation intact"
+                    );
+                    assert_eq!(source.logic_base_seed, 0x5EED_A001);
                     assert_eq!(source.get_current_map_name(), map_name);
                     assert!(Arc::ptr_eq(source.world_services.terrain(), &live_terrain));
                     assert_eq!(
@@ -3234,6 +3229,8 @@ mod staged_restore_tests {
                     )
                     .expect("successful native owned-service staging");
                     assert!(staged.logic.isInGame());
+                    assert_eq!(staged.logic.logic_base_seed, 0x5EED_A001);
+                    assert_eq!(staged.logic.logic_random.seed_words(), saved_rng);
                     assert!(!Arc::ptr_eq(
                         staged.logic.world_services.terrain(),
                         &live_terrain

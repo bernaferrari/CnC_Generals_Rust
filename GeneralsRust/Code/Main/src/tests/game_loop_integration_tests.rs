@@ -7,8 +7,7 @@ use crate::ui::GameUIState;
 use game_engine::common::frame_clock::FrameClock;
 use glam::Vec3;
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
@@ -24,97 +23,72 @@ enum GamePhase {
 }
 
 struct GameLoopTestFixture {
-    phase_tracker: Arc<Mutex<VecDeque<GamePhase>>>,
-    frame_counter: Arc<AtomicU32>,
-    game_logic: Arc<RwLock<GameLogic>>,
-    command_system: Arc<Mutex<CommandSystem>>,
-    ui_state: Arc<RwLock<GameUIState>>,
-    frame_clock: Mutex<FrameClock>,
+    phase_tracker: VecDeque<GamePhase>,
+    frame_counter: u32,
+    game_logic: GameLogic,
+    command_system: CommandSystem,
+    ui_state: GameUIState,
+    frame_clock: FrameClock,
 }
 
 impl GameLoopTestFixture {
     fn new() -> Self {
         Self {
-            phase_tracker: Arc::new(Mutex::new(VecDeque::new())),
-            frame_counter: Arc::new(AtomicU32::new(0)),
-            game_logic: Arc::new(RwLock::new(GameLogic::new())),
-            command_system: Arc::new(Mutex::new(CommandSystem::new())),
-            ui_state: Arc::new(RwLock::new(GameUIState::default())),
-            frame_clock: Mutex::new(FrameClock::new()),
+            phase_tracker: VecDeque::new(),
+            frame_counter: 0,
+            game_logic: GameLogic::new(),
+            command_system: CommandSystem::new(),
+            ui_state: GameUIState::default(),
+            frame_clock: FrameClock::new(),
         }
     }
-
-    fn record_phase(&self, phase: GamePhase) {
-        if let Ok(mut tracker) = self.phase_tracker.lock() {
-            tracker.push_back(phase);
-        }
+    fn record_phase(&mut self, phase: GamePhase) {
+        self.phase_tracker.push_back(phase);
     }
-
-    fn simulate_frame(&self) -> Duration {
+    fn simulate_frame(&mut self) -> Duration {
         let frame_budget = Duration::from_micros(4_400);
-
         self.record_phase(GamePhase::Input);
-
         self.record_phase(GamePhase::CommandProcessing);
-        if let Ok(mut command_system) = self.command_system.lock() {
-            command_system.queue_immediate_command(
-                CommandType::Move {
-                    destination: Vec3::new(100.0, 0.0, 200.0),
-                },
-                &[],
-                0,
-                ModifierKeys::default(),
-            );
-            if let Ok(mut logic) = self.game_logic.write() {
-                let _ = command_system.process_commands(&mut logic);
-            }
-        }
-
+        self.command_system.queue_immediate_command(
+            CommandType::Move {
+                destination: Vec3::new(100.0, 0.0, 200.0),
+            },
+            &[],
+            0,
+            ModifierKeys::default(),
+        );
+        let _ = self.command_system.process_commands(&mut self.game_logic);
         self.record_phase(GamePhase::GameLogic);
-        if let Ok(mut logic) = self.game_logic.write() {
-            logic.update_with_dt(0.016);
-        }
-
+        self.game_logic.update_with_dt(0.016);
         self.record_phase(GamePhase::FOWUpdate);
-        if let Ok(logic) = self.game_logic.read() {
-            if let Ok(mut shroud) = logic.world_services.shroud().lock() {
-                FOWRenderingBridge::force_visibility_update(&mut shroud);
-            }
+        {
+            let mut shroud = self
+                .game_logic
+                .world_services
+                .shroud()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            FOWRenderingBridge::force_visibility_update(&mut shroud);
         }
-
         self.record_phase(GamePhase::UIUpdate);
-        if let Ok(mut ui) = self.ui_state.write() {
-            ui.current_game_time += 0.016;
-            ui.fps = 60.0;
-        }
-
+        self.ui_state.current_game_time += 0.016;
+        self.ui_state.fps = 60.0;
         self.record_phase(GamePhase::Rendering);
         self.record_phase(GamePhase::FrameSync);
-
-        self.frame_counter.fetch_add(1, Ordering::SeqCst);
-        self.frame_clock
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .advance_fixed(frame_budget)
-            .delta_time
+        self.frame_counter += 1;
+        self.frame_clock.advance_fixed(frame_budget).delta_time
     }
 }
 
 #[test]
 fn phases_execute_in_expected_order() {
-    let fixture = GameLoopTestFixture::new();
+    let mut fixture = GameLoopTestFixture::new();
 
     for _ in 0..3 {
         fixture.simulate_frame();
     }
 
-    let phases: Vec<GamePhase> = fixture
-        .phase_tracker
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .iter()
-        .copied()
-        .collect();
+    let phases: Vec<GamePhase> = fixture.phase_tracker.iter().copied().collect();
 
     let expected = [
         GamePhase::Input,
@@ -137,7 +111,7 @@ fn phases_execute_in_expected_order() {
 
 #[test]
 fn frame_budget_stays_under_rts_target() {
-    let fixture = GameLoopTestFixture::new();
+    let mut fixture = GameLoopTestFixture::new();
     let mut frame_times = Vec::new();
 
     for _ in 0..60 {
@@ -152,54 +126,74 @@ fn frame_budget_stays_under_rts_target() {
     assert!(max <= Duration::from_millis(33));
 }
 
+/// Workers exchange owned inputs/results. Only the driving thread mutates
+/// authoritative simulation, shroud and UI at their synchronous boundaries.
 #[test]
-fn command_fow_ui_threads_can_progress_together() {
-    let fixture = Arc::new(GameLoopTestFixture::new());
-
-    let command_thread = {
-        let fixture = Arc::clone(&fixture);
-        thread::spawn(move || {
-            for _ in 0..100 {
-                if let Ok(mut system) = fixture.command_system.lock() {
-                    system.queue_immediate_command(
-                        CommandType::Invalid,
-                        &[],
-                        0,
-                        ModifierKeys::default(),
-                    );
-                }
+fn command_fow_ui_workers_admit_results_on_the_simulation_owner() {
+    enum WorkerResult {
+        Command(CommandType),
+        Pause(bool),
+        Presentation(f32),
+    }
+    let mut fixture = GameLoopTestFixture::new();
+    let (sender, receiver) = mpsc::channel();
+    let commands = sender.clone();
+    let command_thread = thread::spawn(move || {
+        for _ in 0..100 {
+            commands
+                .send(WorkerResult::Command(CommandType::Invalid))
+                .unwrap();
+        }
+    });
+    let controls = sender.clone();
+    let game_logic_thread = thread::spawn(move || {
+        for i in 0..100 {
+            controls.send(WorkerResult::Pause(i % 2 == 0)).unwrap();
+        }
+    });
+    let ui_thread = thread::spawn(move || {
+        for _ in 0..100 {
+            sender.send(WorkerResult::Presentation(0.016)).unwrap();
+        }
+    });
+    let mut admitted = [0; 3];
+    for result in receiver {
+        match result {
+            WorkerResult::Command(command) => {
+                fixture.command_system.queue_immediate_command(
+                    command,
+                    &[],
+                    0,
+                    ModifierKeys::default(),
+                );
+                admitted[0] += 1;
             }
-        })
-    };
-
-    let game_logic_thread = {
-        let fixture = Arc::clone(&fixture);
-        thread::spawn(move || {
-            for i in 0..100 {
-                if let Ok(mut logic) = fixture.game_logic.write() {
-                    logic.set_paused(i % 2 == 0);
-                }
+            WorkerResult::Pause(paused) => {
+                fixture.game_logic.set_paused(paused);
+                admitted[1] += 1;
             }
-        })
-    };
-
-    let ui_thread = {
-        let fixture = Arc::clone(&fixture);
-        thread::spawn(move || {
-            for _ in 0..100 {
-                if let Ok(mut ui) = fixture.ui_state.write() {
-                    ui.current_game_time += 0.016;
-                }
-                if let Ok(logic) = fixture.game_logic.read() {
-                    if let Ok(mut shroud) = logic.world_services.shroud().lock() {
-                        FOWRenderingBridge::force_visibility_update(&mut shroud);
-                    }
-                }
+            WorkerResult::Presentation(delta) => {
+                fixture.ui_state.current_game_time += delta;
+                let mut shroud = fixture
+                    .game_logic
+                    .world_services
+                    .shroud()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                FOWRenderingBridge::force_visibility_update(&mut shroud);
+                admitted[2] += 1;
             }
-        })
-    };
-
-    command_thread.join().expect("command thread");
-    game_logic_thread.join().expect("game_logic thread");
-    ui_thread.join().expect("ui thread");
+        }
+    }
+    command_thread.join().expect("command worker");
+    game_logic_thread.join().expect("input worker");
+    ui_thread.join().expect("presentation worker");
+    assert_eq!(admitted, [100, 100, 100]);
+    assert!(
+        !fixture.game_logic.is_paused(),
+        "worker order is preserved for one input stream"
+    );
+    assert!((fixture.ui_state.current_game_time - 1.6).abs() < 0.00001);
+    fixture.simulate_frame();
+    assert_eq!(fixture.frame_counter, 1);
 }

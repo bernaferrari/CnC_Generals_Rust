@@ -524,10 +524,9 @@ impl GameLogic {
                 crate::game_logic::host_projectile_stream::ProjectileStreamRegistry::new(),
             pending_patriot_assists: Vec::new(),
             stealth_detector_rate_scans: 0,
-            // Same seeded defaults the Common global statics use at first
-            // use (Rust RNG seed 0): any pre-game reseed
-            // broadcast (menus/skirmish) is adopted at the first tick.
-            logic_random: game_engine::common::random_value::RandomState::default(),
+            // Inert default; match/replay setup admits its selected seed.
+            // Construction never consumes or adopts another world's stream.
+            logic_random: game_engine::common::random_value::SessionRandom::default(),
             logic_base_seed: 0,
 
             is_paused: false,
@@ -1184,16 +1183,9 @@ impl GameLogic {
         self.patriot_assist_lasers.clear();
         self.pending_patriot_assists.clear();
         self.stealth_detector_rate_scans = 0;
-        // New-game reset: re-derive this instance's logic RNG from the base
-        // seed the Common global was last seeded with — the same derivation
-        // the global init uses (RandomValue.cpp:150-174 seedRandom). Menus
-        // reseed the Common stream before a new game (C++ MainMenu.cpp:318 /
-        // MapSelectMenu.cpp:57 InitRandom parity); C++ GameLogic::reset
-        // itself never reseeds (GameLogic.cpp:419-463), so no extra Common
-        // reseed is issued here.
-        let logic_base = game_engine::common::random_value::get_game_logic_random_seed();
-        self.logic_random.seed_random(logic_base);
-        self.logic_base_seed = logic_base;
+        // Restart this match's selected stream. Another world's setup or a
+        // menu's process RNG reseed cannot change this owner.
+        self.logic_random.seed_random(self.logic_base_seed);
         self.is_paused = false;
         self.sim_time_seconds = 0.0;
         self.accumulated_time = 0.0;

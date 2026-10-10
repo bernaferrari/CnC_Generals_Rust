@@ -588,13 +588,13 @@ impl SnapshotBuilder {
         // continuation only after every restore operation succeeds. This is
         // instance state, including for callers of the direct builder API.
         // Older payloads omit this field and use the all-zero sentinel.
+        // The existing random_seed field is the selected seed, not a
+        // process broadcast generation. Restore only this candidate owner.
+        game_logic.set_logic_random_seed(snapshot.random_seed as u32);
         if snapshot.logic_rng_seed_words != [0; 6] {
             game_logic
                 .logic_random
                 .set_seed_words(snapshot.logic_rng_seed_words);
-            // This tracks the broadcast, not the actual stream's seed.
-            game_logic.logic_base_seed =
-                game_engine::common::random_value::get_game_logic_random_seed();
         }
 
         log::info!("World restoration complete");

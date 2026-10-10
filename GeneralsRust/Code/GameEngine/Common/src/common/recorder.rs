@@ -94,6 +94,8 @@ pub struct Recorder {
     /// Live lobby snapshot used by `startRecording` after `reset()` (C++ TheLAN / TheSkirmishGameInfo).
     pending_lobby: Option<ReplayGameInfo>,
     pending_local_index: i32,
+    /// Selected seed supplied by the owning Main match, including valid zero.
+    pending_recording_seed: Option<u32>,
     /// Optional live lobby provider consulted after reset.
     lobby_info_provider: Option<Arc<dyn Fn() -> Option<(ReplayGameInfo, i32)> + Send + Sync>>,
     /// C++ `TheWindowManager->winHide` hook for ReplayControl.wnd.
@@ -1071,6 +1073,7 @@ impl Recorder {
             pending_commands: Vec::new(),
             pending_lobby: None,
             pending_local_index: -1,
+            pending_recording_seed: None,
             lobby_info_provider: None,
             replay_control_hook: None,
             replay_controls_hidden: true,
@@ -1092,6 +1095,7 @@ impl Recorder {
         self.game_info.clear_slot_list();
         self.game_info.reset();
         self.pending_commands.clear();
+        self.pending_recording_seed = None;
 
         if let Some(data) = get_global_data() {
             let data = data.read();
@@ -1148,6 +1152,12 @@ impl Recorder {
     pub fn set_recording_lobby(&mut self, info: ReplayGameInfo, local_index: i32) {
         self.pending_lobby = Some(info);
         self.pending_local_index = local_index;
+    }
+
+    /// Admit the owning match seed for the next recording without reseeding
+    /// any stream or depending on a process-global boot seed.
+    pub fn set_recording_seed(&mut self, seed: u32) {
+        self.pending_recording_seed = Some(seed);
     }
 
     pub fn set_lobby_info_provider(
@@ -1522,6 +1532,7 @@ impl Recorder {
             None
         };
 
+        let selected_seed = self.pending_recording_seed.take();
         self.reset();
         self.mode = RecorderMode::Record;
         if let Some((mut lobby, local_idx)) = captured_lobby {
@@ -1539,6 +1550,10 @@ impl Recorder {
         } else {
             self.game_info.set_crc_interval(100);
             self.pending_local_index = -1;
+        }
+
+        if let Some(seed) = selected_seed {
+            self.game_info.set_seed(seed);
         }
 
         // Get replay directory
@@ -3378,7 +3393,11 @@ mod tests {
 
         let mut writer = Recorder::new();
         writer.set_recording_lobby(lobby, 0);
+        // Zero is a selected match seed, not an absent value that may inherit
+        // the lobby/process seed (42) during Recorder::reset.
+        writer.set_recording_seed(0);
         writer.start_recording(1, 2, 0, 30).unwrap();
+        assert_eq!(writer.get_game_info().seed, 0);
         writer.stop_recording();
 
         let replay_name = format!(
@@ -3388,6 +3407,11 @@ mod tests {
         );
         let mut reader = Recorder::new();
         assert!(reader.playback_file(replay_name).unwrap());
+        assert_eq!(
+            reader.get_game_info().seed,
+            0,
+            "recorded owner seed survives the native replay header"
+        );
         let slot0 = reader.get_game_info().get_slot(0).unwrap();
         assert_eq!(slot0.name, "Host");
         assert_eq!(slot0.color, 3);

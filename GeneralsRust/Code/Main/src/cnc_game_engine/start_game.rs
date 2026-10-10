@@ -618,6 +618,21 @@ impl CnCGameEngine {
         let interactive_start_from_menu = pending.interactive_start_from_menu;
         let offline_mode = matches!(mode, GameMode::SinglePlayer | GameMode::Skirmish);
         let faction_team = Self::team_from_faction(&faction);
+        // Capture playback's retained header before subsystem reset can reset
+        // the application Recorder. It is input to this match, not a global
+        // broadcast that another already-running world must adopt.
+        let replay_seed = if mode == GameMode::Replay {
+            let Some(seed) = game_engine::common::recorder::with_recorder(|recorder| {
+                recorder.get_game_info().seed
+            }) else {
+                warn!("Rejecting Replay start without its recorded GameInfo seed");
+                self.return_to_main_menu_after_match();
+                return;
+            };
+            Some(seed)
+        } else {
+            None
+        };
 
         // Wave 842: retain the selected host-owned match mode through map load
         // / presentation seed.
@@ -628,6 +643,9 @@ impl CnCGameEngine {
         // Wave 843/844/871: clear prior match residuals until load completes.
         self.host_clear_match_residuals();
         info!("host_start_game_from_ui: match residuals cleared");
+        if let Some(seed) = replay_seed {
+            self.game_logic.set_logic_random_seed(seed);
+        }
 
         // Wave 169/840: empty UI map → DEFAULT_SKIRMISH_MAP (Defcon6) before
         // shell-residual rejection. Matches C++ startNewGame default map residual.

@@ -243,19 +243,10 @@ impl GameLogic {
         self.step_simulation_with_budget(delta_time, absolute_time, None);
     }
 
-    /// Adopt any logic-RNG reseed broadcast into this driving instance.
-    ///
-    /// Recorder/replay playback (Recorder.cpp:1132-1133 parity), skirmish
-    /// start, save/restore menus, and `GameLogic::set_random_seed` all reseed
-    /// the Common logic stream outside ticks; the Common base seed is the
-    /// broadcast channel. When it moved since this instance last adopted it,
-    /// reseed the instance using the same Rust backend as the global fallback.
-    fn sync_logic_rng_with_global_seed(&mut self) {
-        let base = game_engine::common::random_value::get_game_logic_random_seed();
-        if base != self.logic_base_seed {
-            self.logic_random.seed_random(base);
-            self.logic_base_seed = base;
-        }
+    /// Admit a seed at this match/replay setup boundary, without broadcasting.
+    pub(crate) fn set_logic_random_seed(&mut self, seed: u32) {
+        self.logic_base_seed = seed;
+        self.logic_random.seed_random(seed);
     }
 
     pub(in super::super) fn step_simulation_with_budget(
@@ -287,13 +278,6 @@ impl GameLogic {
 
         self.accumulated_time += delta_time;
 
-        // Adopt any logic-RNG reseed broadcast before publishing this
-        // instance as the owner for the batch: recorder/replay, skirmish
-        // start, save/restore menus, and `GameLogic::set_random_seed` all
-        // reseed the Common logic stream outside ticks; the base seed is the
-        // broadcast channel.
-        self.sync_logic_rng_with_global_seed();
-
         const FIXED_TIMESTEP: f32 = LOGIC_FRAME_TIMESTEP;
 
         let mut steps_run = 0usize;
@@ -312,64 +296,53 @@ impl GameLogic {
         let step_budget = max_fixed_steps.unwrap_or(LIVE_MAX_FIXED_STEPS_PER_DRIVE_FRAME);
         let mut dropped_excess_time = false;
 
-        // Publish this instance's logic RNG as the Common logic-stream owner
-        // for the whole fixed-step batch (one publish per batch is enough —
-        // draws are sequential). Every logic draw below — helpers bridge,
-        // thing factory, geometry, logical-audio — resolves this instance,
-        // never the process-global fallback.
-        let logic_rng: *mut game_engine::common::random_value::RandomState = &mut self.logic_random;
-        game_engine::common::random_value::with_logic_rng_owner(
-            // SAFETY: `logic_rng` aliases `self.logic_random` for this call
-            // only; the TLS slot is unpublished by the private Drop guard at
-            // scope end (unwind included), so it is dereferenceable only while
-            // this frame — and this field — is alive; nothing in the closure
-            // touches `self.logic_random` directly (only via the resolver).
-            unsafe { &mut *logic_rng },
-            || {
-                while self.accumulated_time >= FIXED_TIMESTEP {
-                    // Frozen steps still evaluate scripts, so they burn real work
-                    // and count against the same per-call catch-up budget even
-                    // though they advance nothing.
-                    if steps_run + frozen_steps >= step_budget {
-                        budget_hit = true;
-                        if live_catchup {
-                            // Drop the excess backlog: after a stall the sim
-                            // resumes from "now" instead of replaying the
-                            // missed window across the next drive frames.
-                            self.accumulated_time = 0.0;
-                            dropped_excess_time = true;
-                        }
-                        break;
+        // Safe local handle keeps the canonical field installed throughout
+        // callbacks. Nested world steps restore the previous scoped handle.
+        let logic_rng = self.logic_random.clone();
+        game_engine::common::random_value::with_session_random(&logic_rng, || {
+            while self.accumulated_time >= FIXED_TIMESTEP {
+                // Frozen steps still evaluate scripts, so they burn real work
+                // and count against the same per-call catch-up budget even
+                // though they advance nothing.
+                if steps_run + frozen_steps >= step_budget {
+                    budget_hit = true;
+                    if live_catchup {
+                        // Drop the excess backlog: after a stall the sim
+                        // resumes from "now" instead of replaying the
+                        // missed window across the next drive frames.
+                        self.accumulated_time = 0.0;
+                        dropped_excess_time = true;
                     }
-                    match run_step(self, FIXED_TIMESTEP) {
-                        SimulationStepOutcome::Advanced => {
-                            self.accumulated_time -= FIXED_TIMESTEP;
-                            // C++ m_frame++ (GameLogic.cpp:3795-3803): this loop is
-                            // the single frame/sim-time advancement owner.
-                            self.frame += 1;
-                            self.host_trigger_world
-                                .lock()
-                                .unwrap_or_else(|e| e.into_inner())
-                                .set_current_frame(self.frame);
-                            self.sim_time_seconds += FIXED_TIMESTEP;
-                            steps_run += 1;
-                            // Residual admission belongs to this completed frame,
-                            // before the next host ingress. Keep the RNG owner
-                            // published through any factory/audio/effect draws.
-                            after_step(self);
-                        }
-                        SimulationStepOutcome::Frozen => {
-                            // C++ GameLogic.cpp:3614-3616 returned early, but the
-                            // engine still ticked that frame: a frozen step burns
-                            // real time. Consume the timestep so the loop cannot
-                            // spin on one step, and advance nothing else.
-                            self.accumulated_time -= FIXED_TIMESTEP;
-                            frozen_steps += 1;
-                        }
+                    break;
+                }
+                match run_step(self, FIXED_TIMESTEP) {
+                    SimulationStepOutcome::Advanced => {
+                        self.accumulated_time -= FIXED_TIMESTEP;
+                        // C++ m_frame++ (GameLogic.cpp:3795-3803): this loop is
+                        // the single frame/sim-time advancement owner.
+                        self.frame += 1;
+                        self.host_trigger_world
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .set_current_frame(self.frame);
+                        self.sim_time_seconds += FIXED_TIMESTEP;
+                        steps_run += 1;
+                        // Residual admission belongs to this completed frame,
+                        // before the next host ingress. Keep the RNG owner
+                        // published through any factory/audio/effect draws.
+                        after_step(self);
+                    }
+                    SimulationStepOutcome::Frozen => {
+                        // C++ GameLogic.cpp:3614-3616 returned early, but the
+                        // engine still ticked that frame: a frozen step burns
+                        // real time. Consume the timestep so the loop cannot
+                        // spin on one step, and advance nothing else.
+                        self.accumulated_time -= FIXED_TIMESTEP;
+                        frozen_steps += 1;
                     }
                 }
-            },
-        );
+            }
+        });
 
         if let Some(total_seconds) = absolute_time {
             // Presentation clock sync must not leak into a batch containing a
@@ -1822,9 +1795,9 @@ mod tests {
 
     /// The fixed-step batch publishes the driving instance's logic RNG as the
     /// Common scoped owner: any logic draw the step makes consumes the
-    /// instance, never the process-global fallback (C++ has one ADC state per
-    /// driving GameLogic, RandomValue.cpp:150-174; the Rust global remains
-    /// for boot/menus/tests outside ticks).
+    /// instance, never the process fallback. C++ RandomValue.cpp:150-174
+    /// supplies the range/seed reference; the user-approved Rust sequence is
+    /// session-owned, while standalone boot/Core callers retain the fallback.
     #[test]
     fn fixed_step_batch_does_not_consume_the_global_logic_stream() {
         let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -1845,75 +1818,104 @@ mod tests {
         );
     }
 
-    /// Recorder/skirmish/save-restore reseeds target the Common entry points
-    /// outside ticks; the driving instance must adopt them and then replay
-    /// the fresh globally-seeded sequence draw-for-draw.
+    /// Match setup and restart change only the selected driving stream.
     #[test]
-    fn reseed_broadcast_is_adopted_into_the_driving_instance() {
-        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        drop_pending_clear_game_data();
-
-        game_engine::common::random_value::init_random_with_seed(0x5EED_0F2);
-        let expected: Vec<i32> = (0..4)
-            .map(|_| game_engine::common::random_value::get_game_logic_random_value(0, 999))
-            .collect();
-
-        // A second, identically seeded world adopts the broadcast at the tick
-        // boundary (what step_simulation_with_budget runs before publishing).
-        game_engine::common::random_value::init_random_with_seed(0x5EED_0F2);
-        let mut logic = GameLogic::new();
-        logic.sync_logic_rng_with_global_seed();
-        let got: Vec<i32> = game_engine::common::random_value::with_logic_rng_owner(
-            &mut logic.logic_random,
+    fn foreign_setup_reset_and_process_reseed_do_not_change_driving_rng() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "foreign_setup_reset_and_process_reseed_do_not_change_driving_rng",
             || {
-                (0..4)
-                    .map(|_| game_engine::common::random_value::get_game_logic_random_value(0, 999))
-                    .collect()
+                drop_pending_clear_game_data();
+                use game_engine::common::random_value::{
+                    get_game_logic_random_value, init_game_logic_random,
+                };
+                const SEED: u32 = 0x5EED_0F2;
+                let mut actual = GameLogic::new();
+                let mut reference = GameLogic::new();
+                actual.set_logic_random_seed(SEED);
+                reference.set_logic_random_seed(SEED);
+                for index in 0..8 {
+                    let mut expected = Vec::new();
+                    reference.tick_logic_frame_with_boundary(
+                        LOGIC_FRAME_TIMESTEP,
+                        None,
+                        Some(1),
+                        |_| {
+                            expected.push(get_game_logic_random_value(0, 999));
+                            expected.push(get_game_logic_random_value(0, 999));
+                        },
+                    );
+                    let mut foreign = GameLogic::new();
+                    foreign.set_logic_random_seed(0xB000_0000 + index);
+                    foreign.start_new_game(GameMode::Skirmish);
+                    foreign.tick_logic_frame(LOGIC_FRAME_TIMESTEP, None, Some(1));
+                    foreign.reset();
+                    assert_eq!(foreign.logic_base_seed, 0xB000_0000 + index);
+                    drop(foreign);
+                    // Engine/menu fallback reseeding is independent too. This
+                    // is outside A's scoped operation; it must not be adopted.
+                    init_game_logic_random(0xF000_0000 + index);
+                    let mut got = Vec::new();
+                    actual.tick_logic_frame_with_boundary(
+                        LOGIC_FRAME_TIMESTEP,
+                        None,
+                        Some(1),
+                        |_| {
+                            got.push(get_game_logic_random_value(0, 999));
+                            let mut nested = GameLogic::new();
+                            nested.set_logic_random_seed(0xC000_0000 + index);
+                            nested.reset();
+                            // Another Core initializer within A's published scope
+                            // changes only its process fallback, never A's stream.
+                            init_game_logic_random(0xD000_0000 + index);
+                            drop(nested);
+                            got.push(get_game_logic_random_value(0, 999));
+                        },
+                    );
+                    assert_eq!(got, expected, "first divergence at frame {}", index + 1);
+                    assert_eq!(
+                        actual.logic_random.seed_words(),
+                        reference.logic_random.seed_words()
+                    );
+                    assert_eq!(actual.logic_base_seed, SEED);
+                }
             },
-        );
-        assert_eq!(
-            got, expected,
-            "instance draws equal the fresh globally-seeded(k) sequence"
         );
     }
 
-    /// `GameLogic::set_random_seed` (snapshot-restore path, gamelogic crate)
-    /// now reseeds the Common logic stream instead of leaving the ADC state
-    /// stale; the driving instance picks the reseed up at the next boundary.
     #[test]
-    fn set_random_seed_reseeds_the_stream_the_driving_instance_adopts() {
-        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        drop_pending_clear_game_data();
-
-        let mut crate_logic = gamelogic::system::game_logic::GameLogic::default();
-        crate_logic.set_random_seed(0x5EED_0F3 as u64);
-        assert_eq!(
-            game_engine::common::random_value::get_game_logic_random_seed(),
-            0x5EED_0F3,
-            "set_random_seed must reseed the Common logic stream"
-        );
-
-        // Fresh reference sequence from the reseeded stream, then the same
-        // reseed driving a new world instance.
-        let expected: Vec<i32> = (0..4)
-            .map(|_| game_engine::common::random_value::get_game_logic_random_value(0, 999))
-            .collect();
-        let mut crate_logic = gamelogic::system::game_logic::GameLogic::default();
-        crate_logic.set_random_seed(0x5EED_0F3 as u64);
-
-        let mut logic = GameLogic::new();
-        logic.sync_logic_rng_with_global_seed();
-        let got: Vec<i32> = game_engine::common::random_value::with_logic_rng_owner(
-            &mut logic.logic_random,
+    fn same_selected_seed_restart_repeats_owned_rng_without_broadcast() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "same_selected_seed_restart_repeats_owned_rng_without_broadcast",
             || {
-                (0..4)
-                    .map(|_| game_engine::common::random_value::get_game_logic_random_value(0, 999))
-                    .collect()
+                use game_engine::common::random_value::{
+                    get_game_logic_random_value, with_session_random,
+                };
+                let mut logic = GameLogic::new();
+                logic.set_logic_random_seed(0x5EED_0F3);
+                let fallback =
+                    game_engine::common::random_value::get_game_logic_random_seed_state();
+                let first = with_session_random(&logic.logic_random, || {
+                    (0..4)
+                        .map(|_| get_game_logic_random_value(0, 999))
+                        .collect::<Vec<_>>()
+                });
+                let first_end = logic.logic_random.seed_words();
+                logic.reset();
+                assert_eq!(logic.logic_base_seed, 0x5EED_0F3);
+                let second = with_session_random(&logic.logic_random, || {
+                    (0..4)
+                        .map(|_| get_game_logic_random_value(0, 999))
+                        .collect::<Vec<_>>()
+                });
+                assert_eq!(first, second);
+                assert_eq!(logic.logic_random.seed_words(), first_end);
+                assert_eq!(
+                    game_engine::common::random_value::get_game_logic_random_seed_state(),
+                    fallback
+                );
             },
-        );
-        assert_eq!(
-            got, expected,
-            "instance draws equal the fresh globally-seeded(k) sequence"
         );
     }
 
@@ -2075,17 +2077,14 @@ mod tests {
         );
     }
     fn seed_boundary_test_owner(logic: &mut GameLogic, seed: u32) {
-        logic.logic_random.seed_random(seed);
-        logic.logic_base_seed = game_engine::common::random_value::get_game_logic_random_seed();
+        logic.set_logic_random_seed(seed);
     }
 
     #[test]
     fn step_boundary_callback_draws_from_the_driving_instance_in_sequence() {
         let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         drop_pending_clear_game_data();
-        use game_engine::common::random_value::{
-            get_game_logic_random_value, with_logic_rng_owner,
-        };
+        use game_engine::common::random_value::{get_game_logic_random_value, with_session_random};
 
         const SEED: u32 = 0xB0A7_DA7A;
         const DT: f32 = LOGIC_FRAME_TIMESTEP;
@@ -2100,17 +2099,16 @@ mod tests {
         });
 
         let _ = reference.update_with_dt_budget(DT, 1);
-        let expected_first = with_logic_rng_owner(&mut reference.logic_random, || {
+        let expected_first = with_session_random(&reference.logic_random, || {
             get_game_logic_random_value(0, 999)
         });
         let _ = reference.update_with_dt_budget(DT, 1);
-        let expected_second = with_logic_rng_owner(&mut reference.logic_random, || {
+        let expected_second = with_session_random(&reference.logic_random, || {
             get_game_logic_random_value(0, 999)
         });
-        let actual_next = with_logic_rng_owner(&mut actual.logic_random, || {
-            get_game_logic_random_value(0, 999)
-        });
-        let expected_next = with_logic_rng_owner(&mut reference.logic_random, || {
+        let actual_next =
+            with_session_random(&actual.logic_random, || get_game_logic_random_value(0, 999));
+        let expected_next = with_session_random(&reference.logic_random, || {
             get_game_logic_random_value(0, 999)
         });
 
@@ -2128,9 +2126,7 @@ mod tests {
     fn nested_foreign_fixed_step_restores_the_outer_instance_stream() {
         let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         drop_pending_clear_game_data();
-        use game_engine::common::random_value::{
-            get_game_logic_random_seed, get_game_logic_random_value, with_logic_rng_owner,
-        };
+        use game_engine::common::random_value::{get_game_logic_random_value, with_session_random};
 
         const SEED: u32 = 0xA101_0001;
         const FOREIGN_SEED: u32 = 0xB202_0002;
@@ -2141,12 +2137,8 @@ mod tests {
         let mut b_ref = GameLogic::new();
         seed_boundary_test_owner(&mut a, SEED);
         seed_boundary_test_owner(&mut a_ref, SEED);
-        // Distinguish B from A while preventing per-batch seed adoption from
-        // replacing B's deliberately independent test stream.
-        b.logic_random.seed_random(FOREIGN_SEED);
-        b_ref.logic_random.seed_random(FOREIGN_SEED);
-        b.logic_base_seed = get_game_logic_random_seed();
-        b_ref.logic_base_seed = get_game_logic_random_seed();
+        b.set_logic_random_seed(FOREIGN_SEED);
+        b_ref.set_logic_random_seed(FOREIGN_SEED);
 
         let mut got_a = Vec::new();
         let mut got_b = Vec::new();
@@ -2159,16 +2151,13 @@ mod tests {
         });
 
         let _ = a_ref.update_with_dt_budget(DT, 1);
-        let expected_a_first = with_logic_rng_owner(&mut a_ref.logic_random, || {
-            get_game_logic_random_value(0, 999)
-        });
+        let expected_a_first =
+            with_session_random(&a_ref.logic_random, || get_game_logic_random_value(0, 999));
         let _ = b_ref.update_with_dt_budget(DT, 1);
-        let expected_b = with_logic_rng_owner(&mut b_ref.logic_random, || {
-            get_game_logic_random_value(0, 999)
-        });
-        let expected_a_second = with_logic_rng_owner(&mut a_ref.logic_random, || {
-            get_game_logic_random_value(0, 999)
-        });
+        let expected_b =
+            with_session_random(&b_ref.logic_random, || get_game_logic_random_value(0, 999));
+        let expected_a_second =
+            with_session_random(&a_ref.logic_random, || get_game_logic_random_value(0, 999));
 
         assert_eq!(got_a, vec![expected_a_first, expected_a_second]);
         assert_eq!(got_b, vec![expected_b]);

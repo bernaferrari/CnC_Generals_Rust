@@ -116,7 +116,9 @@ pub fn honesty_host_tick_logic_frame_boundary_residual_pack_wave923() -> bool {
                 let delivery = advanced.find("after_step(self)");
                 frame.zip(delivery).is_some_and(|(a, b)| a < b)
                     && !frozen.contains("after_step(self)")
-                    && body.contains("with_logic_rng_owner")
+                    && body.contains("with_session_random")
+                    && body.contains("self.logic_random.clone()")
+                    && !body.contains("unsafe")
             },
         )
         && loop_body.contains("host_update_logic_frame")

@@ -1074,18 +1074,10 @@ pub struct GameLogic {
     /// StealthDetectorUpdate DetectionRate residual scans performed.
     pub(super) stealth_detector_rate_scans: u32,
 
-    /// Driving-instance logic-RNG state (scoped-owner migration aid).
-    ///
-    /// Published as the Common logic-stream owner for every fixed-step batch
-    /// (`step_simulation_with_budget`), so logic draws during this world's
-    /// tick consume this instance instead of the process-global fallback.
-    /// C++ parity: one `theGameLogicSeed` ADC state serves the driving
-    /// GameLogic (RandomValue.cpp:150-174) — only the logic stream is
-    /// sync-critical; client/audio streams stay global.
-    pub(crate) logic_random: game_engine::common::random_value::RandomState,
-    /// Base seed `logic_random` was last (re)seeded from. Tracks the Common
-    /// base-seed broadcast so recorder/skirmish/snapshot-restore reseeds are
-    /// adopted at the next tick boundary.
+    /// Sole session stream. The safe local handle is scoped only around
+    /// synchronous legacy draw callbacks; cloning it shares this same stream.
+    pub(crate) logic_random: game_engine::common::random_value::SessionRandom,
+    /// Explicitly selected match/replay seed; reset restarts this stream only.
     pub(crate) logic_base_seed: u32,
 
     /// Game paused state

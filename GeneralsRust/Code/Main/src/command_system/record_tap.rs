@@ -413,8 +413,9 @@ pub fn tap_host_command_for_recorder(command: &GameCommand) {
 
 /// C++ `RecorderClass::updateRecord` starts a file when `MSG_NEW_GAME` is
 /// not `GAME_SHELL` / `GAME_SINGLE_PLAYER` / `GAME_NONE`.
-pub fn tap_host_new_game_for_recorder(mode: GameMode) {
+pub fn tap_host_new_game_for_recorder(mode: GameMode, selected_seed: u32) {
     install_host_replay_bridges();
+    let _ = with_recorder_mut(|recorder| recorder.set_recording_seed(selected_seed));
     let difficulty = gamelogic::helpers::TheScriptEngine::get_global_difficulty();
     let rank = gamelogic::helpers::TheGameLogic::get_rank_points_to_add_at_game_start();
     let max_fps = game_engine::common::global_data::read()
@@ -1875,11 +1876,16 @@ mod tests {
             clear_command_list();
             install_host_replay_bridges();
             with_recorder_mut(|recorder| recorder.reset());
-            tap_host_new_game_for_recorder(GameMode::Skirmish);
+            tap_host_new_game_for_recorder(GameMode::Skirmish, 0x5EED_0021);
 
             let mut queue = VecDeque::new();
             flush_recorder_and_replay_authority(&mut state, &mut queue);
             assert!(with_recorder(|recorder| recorder.is_recording()).unwrap_or(false));
+            assert_eq!(
+                with_recorder(|recorder| recorder.get_game_info().seed),
+                Some(0x5EED_0021),
+                "the actual Main recorder tap carries the selected owner seed"
+            );
             assert!(
                 snapshot_command_list()
                     .iter()

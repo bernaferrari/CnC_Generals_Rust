@@ -234,7 +234,7 @@ impl GameLogic {
     pub fn start_new_game(&mut self, mode: GameMode) {
         self.start_new_game_state(mode);
         crate::command_system::bind_host_replay_authority(&self.replay_pending);
-        crate::command_system::tap_host_new_game_for_recorder(mode);
+        crate::command_system::tap_host_new_game_for_recorder(mode, self.logic_base_seed);
     }
 
     /// Prepare a candidate world for loading a save. C++ GameState::loadGame
