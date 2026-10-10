@@ -456,10 +456,17 @@ impl GameLogic {
     }
 
     pub fn process_commands(&mut self) {
-        // Process all queued commands
+        // The recorder observes this driving world even outside a full tick.
+        crate::command_system::stamp_host_logic_frame(&mut self.replay_pending, self.frame);
+        let state_crc = if crate::command_system::logic_crc_due(self.frame) {
+            self.logic_crc()
+        } else {
+            0
+        };
         crate::command_system::flush_recorder_and_replay_authority(
             &mut self.replay_pending,
             &mut self.command_queue,
+            state_crc,
         );
         while let Some(command) = self.command_queue.pop_front() {
             self.execute_command(command);

@@ -365,27 +365,6 @@ impl GameLogic {
         // (GameLogic.cpp:3762), not once after the fixed-step catch-up batch.
     }
 
-    /// Live-host object fold mixed into leftover `GameLogic::getCRC`.
-    /// C++ walks `m_objList`; leftover objects may be empty on the live tick.
-    fn fold_live_host_logic_crc(&self) -> u32 {
-        let mut hasher = game_engine::common::crc::Crc::new();
-        hasher.compute_crc(&self.frame.to_le_bytes());
-        let mut ids: Vec<u32> = self.objects.keys().map(|id| id.0).collect();
-        ids.sort_unstable();
-        for id in ids {
-            let Some(obj) = self.objects.get(&ObjectId(id)) else {
-                continue;
-            };
-            hasher.compute_crc(&id.to_le_bytes());
-            hasher.compute_crc(&obj.get_position().x.to_bits().to_le_bytes());
-            hasher.compute_crc(&obj.get_position().y.to_bits().to_le_bytes());
-            hasher.compute_crc(&obj.get_position().z.to_bits().to_le_bytes());
-            hasher.compute_crc(&obj.health.current.to_bits().to_le_bytes());
-            hasher.compute_crc(&obj.health.maximum.to_bits().to_le_bytes());
-        }
-        hasher.get()
-    }
-
     /// Execute one simulation step.
     ///
     /// Phase ordering follows C++ GameLogic::update() (GameLogic.cpp lines 3548-3803)
@@ -515,11 +494,15 @@ impl GameLogic {
         // C++: m_CRC = getCRC(CRC_RECALC); TheMessageStream->appendMessage(MSG_LOGIC_CRC);
         // then TheRecorder->UPDATE() inside processCommandList's recorder flush.
         crate::command_system::stamp_host_logic_frame(&mut self.replay_pending, self.frame);
-        let host_fold = self.fold_live_host_logic_crc();
+        let state_crc = if crate::command_system::logic_crc_due(self.frame) {
+            self.logic_crc()
+        } else {
+            0
+        };
         crate::command_system::post_host_logic_crc_if_due(
             &mut self.replay_pending,
             self.frame,
-            host_fold,
+            state_crc,
         );
 
         // -----------------------------------------------------------------------

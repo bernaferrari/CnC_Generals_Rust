@@ -18,6 +18,7 @@ mod combat_fire_fx;
 mod crates;
 mod disabled_expiry;
 mod flight_terrain;
+mod logic_crc;
 mod mood;
 mod movement;
 mod movement_support;

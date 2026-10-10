@@ -463,29 +463,19 @@ pub fn stamp_host_logic_frame(state: &mut ReplayPendingState, frame: u32) {
     state.host_logic_frame.store(frame, Ordering::Relaxed);
 }
 
-fn leftover_logic_crc() -> u32 {
-    gamelogic::get_game_logic()
-        .try_lock()
-        .ok()
-        .map(|logic| logic.get_crc(gamelogic::CrcMode::Recalc))
-        .unwrap_or(0)
-}
-
-fn logic_crc_due(frame: u32) -> bool {
+pub(crate) fn logic_crc_due(frame: u32) -> bool {
     let interval = game_engine::common::crc_debug::replay_crc_interval();
     // C++ GameLogic.cpp:3634 — m_frame > 0 && m_frame % REPLAY_CRC_INTERVAL == 0.
     interval > 0 && frame > 0 && frame % (interval as u32) == 0
 }
 
-/// C++ `GameLogic.cpp:3625-3654`: every `REPLAY_CRC_INTERVAL` frames compute
-/// `getCRC(CRC_RECALC)` and append `MSG_LOGIC_CRC` so `updateRecord` writes it.
-/// The recorded value is the plain state CRC: retail `.rep` files store
-/// `GameLogic::getCRC` exactly (GameLogic.cpp:3636-3652), so folding the live
-/// host object hash into the recorded series would desync playback compare.
+/// C++ `GameLogic.cpp:3625-3654`: append the driving simulation's checksum
+/// unchanged before recorder update. Main supplies its owned Rust checksum;
+/// numeric equivalence to the original full `getCRC` is not established.
 pub fn post_host_logic_crc_if_due(
     state: &mut ReplayPendingState,
     frame: u32,
-    host_fold: u32,
+    state_crc: u32,
 ) -> Option<u32> {
     if !logic_crc_due(frame) {
         return None;
@@ -494,15 +484,8 @@ pub fn post_host_logic_crc_if_due(
         return Some(state.last_logic_crc);
     }
 
-    let crc = leftover_logic_crc();
-    // `host_fold` (live host object fold) is diagnostic only — it must never
-    // blend into the recorded CRC series.
-    log::trace!(
-        "MSG_LOGIC_CRC frame={} state_crc=0x{:08X} host_fold=0x{:08X}",
-        frame,
-        crc,
-        host_fold
-    );
+    let crc = state_crc;
+    log::trace!("MSG_LOGIC_CRC frame={} state_crc=0x{:08X}", frame, crc);
 
     let playback = host_recorder_is_playback();
     // C++ GameLogicDispatch.cpp:1904-1946 threads the local player index.
@@ -640,6 +623,7 @@ pub(crate) fn reset_host_recorder_after_successful_load(state: &mut ReplayPendin
 pub fn flush_recorder_and_replay_authority(
     state: &mut ReplayPendingState,
     host_queue: &mut VecDeque<GameCommand>,
+    state_crc: u32,
 ) {
     install_host_replay_bridges();
     let frame = host_logic_frame(state);
@@ -655,7 +639,7 @@ pub fn flush_recorder_and_replay_authority(
     merge_routed_messages_into_command_list(&routed);
     let playback = host_recorder_is_playback();
     // C++ posts MSG_LOGIC_CRC onto the stream before TheRecorder->update().
-    let posted = post_host_logic_crc_if_due(state, frame, 0);
+    let posted = post_host_logic_crc_if_due(state, frame, state_crc);
     let _ = with_recorder_mut(|recorder| {
         recorder.set_current_frame(frame);
         recorder.update();
@@ -1534,26 +1518,103 @@ mod tests {
     }
 
     #[test]
-    fn logic_crc_post_is_plain_state_crc_without_host_fold_blend() {
-        // C++ GameLogic.cpp:3636-3652 — retail .rep stores getCRC exactly.
+    fn logic_crc_post_records_supplied_owner_state_unchanged() {
+        // GameLogic.cpp:3636-3652 emits the checksum without hashing it again.
         with_recorder_test_lock(|| {
             let mut state = ReplayPendingState::default();
             clear_command_list();
             stamp_host_logic_frame(&mut state, 100);
+            let plain = 0xABCD_0001;
             let posted =
-                post_host_logic_crc_if_due(&mut state, 100, 0xABCD_0001).expect("frame 100 is due");
-            let plain = leftover_logic_crc();
-            assert_eq!(posted, plain, "recorded series must equal getCRC exactly");
-            let mut blended = game_engine::common::crc::Crc::new();
-            blended.compute_crc(&plain.to_le_bytes());
-            blended.compute_crc(&0xABCD_0001u32.to_le_bytes());
-            assert_ne!(
-                posted,
-                blended.get(),
-                "host object fold must not blend into the recorded CRC"
+                post_host_logic_crc_if_due(&mut state, 100, plain).expect("frame 100 is due");
+            assert_eq!(
+                posted, plain,
+                "record the driving simulation's checksum unchanged"
+            );
+            assert_eq!(
+                post_host_logic_crc_if_due(&mut state, 100, 0xBAD_0002),
+                Some(plain),
+                "a second command pass retains the original frame-phase observation"
+            );
+            assert_eq!(
+                snapshot_command_list()
+                    .iter()
+                    .filter(|msg| matches!(msg.get_type(), GameMessageType::LogicCRC(_)))
+                    .count(),
+                1
             );
             clear_command_list();
         });
+    }
+
+    #[test]
+    fn main_command_flush_crc_observes_driving_world_with_foreign_core_ai_held() {
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "main_command_flush_crc_observes_driving_world_with_foreign_core_ai_held",
+            || {
+                use crate::game_logic::{Player, ThingTemplate};
+                let foreign = gamelogic::system::engine_stores::new_for_world();
+                let mut foreign_ai = foreign.ai().write().unwrap();
+                let group = foreign_ai.create_group();
+                let group_id = group.read().unwrap().get_id();
+                let mut first = GameLogic::new();
+                let mut second = GameLogic::new();
+                let mut ids = Vec::new();
+                for world in [&mut first, &mut second] {
+                    world.set_logic_random_seed(0x5EED);
+                    world.frame = 100;
+                    world.add_player(Player::new(0, Team::USA, "Human", true));
+                    world
+                        .templates
+                        .insert("CrcUnit".into(), ThingTemplate::new("CrcUnit"));
+                    ids.push(
+                        world
+                            .create_object_for_player("CrcUnit", 0, Vec3::ZERO)
+                            .unwrap(),
+                    );
+                }
+                assert_eq!(ids[0], ids[1], "same admitted identity in distinct owners");
+                second.get_object_mut(ids[1]).unwrap().health.current = 37.0;
+                second.get_player_mut(0).unwrap().resources.supplies = 27;
+                let first_crc = first.logic_crc();
+                let second_crc = second.logic_crc();
+                assert_ne!(
+                    first_crc, second_crc,
+                    "CRC sees canonical owner state, not an empty Core registry"
+                );
+                let _ = with_recorder_mut(|recorder| recorder.reset());
+                clear_command_list();
+                gamelogic::system::engine_stores::with_active_stores(&foreign, || {
+                    let first_services = first.world_services.clone();
+                    gamelogic::system::engine_stores::with_world_services(&first_services, || {
+                        first.process_commands();
+                    });
+                    assert_eq!(first.replay_pending.last_logic_crc, first_crc);
+                    assert_eq!(first.replay_pending.last_logic_crc_frame, 100);
+                    let second_services = second.world_services.clone();
+                    gamelogic::system::engine_stores::with_world_services(&second_services, || {
+                        second.process_commands();
+                    });
+                    assert_eq!(second.replay_pending.last_logic_crc, second_crc);
+                    assert_eq!(
+                        first.logic_crc(),
+                        first_crc,
+                        "interleaved command flush leaves A intact"
+                    );
+                    first.get_object_mut(ids[0]).unwrap().health.current = 19.0;
+                    gamelogic::system::engine_stores::with_world_services(&first_services, || {
+                        first.process_commands();
+                    });
+                    assert_eq!(
+                        first.replay_pending.last_logic_crc, first_crc,
+                        "second pass cannot replace the original pre-command checksum"
+                    );
+                });
+                assert!(foreign_ai.get_group_by_id(group_id).is_some());
+                clear_command_list();
+            },
+        );
     }
 
     #[test]
@@ -1612,7 +1673,7 @@ mod tests {
             // singleton untouched in this test binary).
             assert_eq!(host_logic_frame(&state), 200);
             let mut queue = VecDeque::new();
-            flush_recorder_and_replay_authority(&mut state, &mut queue);
+            flush_recorder_and_replay_authority(&mut state, &mut queue, 0xCAFE_0001);
             // The flush posts MSG_LOGIC_CRC for updateRecord before update()...
             assert_eq!(
                 state.last_logic_crc_frame, 200,
@@ -1653,12 +1714,12 @@ mod tests {
 
             let mut queue = VecDeque::new();
             stamp_host_logic_frame(&mut state, 7);
-            flush_recorder_and_replay_authority(&mut state, &mut queue);
-            flush_recorder_and_replay_authority(&mut state, &mut queue);
+            flush_recorder_and_replay_authority(&mut state, &mut queue, 0xCAFE_0001);
+            flush_recorder_and_replay_authority(&mut state, &mut queue, 0xCAFE_0001);
             assert_eq!(updates.load(Ordering::SeqCst), 1);
 
             stamp_host_logic_frame(&mut state, 8);
-            flush_recorder_and_replay_authority(&mut state, &mut queue);
+            flush_recorder_and_replay_authority(&mut state, &mut queue, 0xCAFE_0001);
             assert_eq!(updates.load(Ordering::SeqCst), 2);
 
             with_recorder_mut(|recorder| {
@@ -1695,9 +1756,9 @@ mod tests {
 
             let mut queue = VecDeque::new();
             stamp_host_logic_frame(&mut state, 7);
-            flush_recorder_and_replay_authority(&mut state, &mut queue);
+            flush_recorder_and_replay_authority(&mut state, &mut queue, 0xCAFE_0001);
             append_to_command_list(GameMessage::with_player(GameMessageType::DoStop, 1));
-            flush_recorder_and_replay_authority(&mut state, &mut queue);
+            flush_recorder_and_replay_authority(&mut state, &mut queue, 0xCAFE_0001);
             assert!(matches!(
                 snapshot_command_list()[0].get_type(),
                 GameMessageType::DoStop
@@ -1711,7 +1772,7 @@ mod tests {
                     1,
                 )])
                 .unwrap();
-            flush_recorder_and_replay_authority(&mut state, &mut queue);
+            flush_recorder_and_replay_authority(&mut state, &mut queue, 0xCAFE_0001);
             let captured = snapshots.lock().unwrap_or_else(|error| error.into_inner());
             assert_eq!(captured.len(), 2);
             assert!(captured[0].is_empty());
@@ -1782,8 +1843,8 @@ mod tests {
 
             stamp_host_logic_frame(&mut state, 7);
             let mut queue = VecDeque::new();
-            flush_recorder_and_replay_authority(&mut state, &mut queue);
-            flush_recorder_and_replay_authority(&mut state, &mut queue);
+            flush_recorder_and_replay_authority(&mut state, &mut queue, 0xCAFE_0001);
+            flush_recorder_and_replay_authority(&mut state, &mut queue, 0xCAFE_0001);
 
             let captured = snapshots.lock().unwrap_or_else(|error| error.into_inner());
             assert_eq!(captured.len(), 1, "one recorder snapshot per logic frame");
@@ -1849,7 +1910,7 @@ mod tests {
             state.sender.send(vec![message]).unwrap();
             stamp_host_logic_frame(&mut state, 1);
             let mut queue = VecDeque::new();
-            flush_recorder_and_replay_authority(&mut state, &mut queue);
+            flush_recorder_and_replay_authority(&mut state, &mut queue, 0xCAFE_0001);
             assert_eq!(queue.len(), 1);
             assert_eq!(queue.front().unwrap().player_id, 2);
             assert!(matches!(
@@ -1879,7 +1940,7 @@ mod tests {
             tap_host_new_game_for_recorder(GameMode::Skirmish, 0x5EED_0021);
 
             let mut queue = VecDeque::new();
-            flush_recorder_and_replay_authority(&mut state, &mut queue);
+            flush_recorder_and_replay_authority(&mut state, &mut queue, 0xCAFE_0001);
             assert!(with_recorder(|recorder| recorder.is_recording()).unwrap_or(false));
             assert_eq!(
                 with_recorder(|recorder| recorder.get_game_info().seed),
@@ -1893,12 +1954,12 @@ mod tests {
                 "C++ resets TheCommandList after each logic frame, so MSG_NEW_GAME must not start a second recording"
             );
 
-            flush_recorder_and_replay_authority(&mut state, &mut queue);
+            flush_recorder_and_replay_authority(&mut state, &mut queue, 0xCAFE_0001);
             assert!(with_recorder(|recorder| recorder.is_recording()).unwrap_or(false));
             reset_host_recorder_after_successful_load(&mut state);
             bind_host_replay_authority(&state);
             assert!(!with_recorder(|recorder| recorder.is_recording()).unwrap_or(true));
-            flush_recorder_and_replay_authority(&mut state, &mut queue);
+            flush_recorder_and_replay_authority(&mut state, &mut queue, 0xCAFE_0001);
             assert!(!with_recorder(|recorder| recorder.is_recording()).unwrap_or(true));
             clear_command_list();
         });
@@ -1961,7 +2022,7 @@ mod tests {
                     let _ = post_host_logic_crc_if_due(&mut state, frame, 0xFEED_F00D);
                 }
                 let mut queue = VecDeque::new();
-                flush_recorder_and_replay_authority(&mut state, &mut queue);
+                flush_recorder_and_replay_authority(&mut state, &mut queue, 0xCAFE_0001);
             }
             with_recorder_mut(|recorder| recorder.stop_recording());
 
