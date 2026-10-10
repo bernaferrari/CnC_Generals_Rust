@@ -286,8 +286,8 @@ fn logical_extent_queue_admission_uses_driving_active_boundary_and_constructor_i
             }
             let mut first = GameLogic::new();
             let mut other = GameLogic::new();
-            first.override_world_size(Vec3::ZERO, Vec3::new(320.0, 0.0, 320.0));
-            other.override_world_size(Vec3::ZERO, Vec3::new(320.0, 0.0, 320.0));
+            first.override_world_size(320.0, 320.0);
+            other.override_world_size(320.0, 320.0);
             admit_boundary(&mut first, 12);
             admit_boundary(&mut other, 25);
             with_foreign_held(|| {
