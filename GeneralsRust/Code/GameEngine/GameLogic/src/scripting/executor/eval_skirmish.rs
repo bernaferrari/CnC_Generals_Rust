@@ -628,11 +628,42 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_skirmish_player_has_prerequisite_to_build(
         &self,
         condition: &Condition,
+        driver: &dyn ScriptExecutionDriver,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        let player_name = self.get_condition_string_param(condition, 0)?;
+        use crate::scripting::engine::ScriptOwnerQuery;
+        let raw_player = condition
+            .get_parameter(0)
+            .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 0 not found".to_owned()))?
+            .get_string();
         let object_type = condition
             .get_parameter(1)
             .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 1 not found".to_string()))?;
+        let type_name = object_type.get_string();
+        let engine = self.context.borrowed_engine();
+        // C++ objectTypesFromParam copies the current engine list. A named
+        // empty list is distinct from an unknown name, which is one candidate.
+        let types = if type_name.is_empty() {
+            ObjectTypes::new()
+        } else if let Some(list) = engine.get_object_types(type_name) {
+            list
+        } else {
+            let mut types = ObjectTypes::new();
+            types.add_object_type(AsciiString::from(type_name));
+            types
+        };
+        let candidates: Vec<String> = types.iter().map(|name| name.as_str().to_owned()).collect();
+        let current_player = engine.get_current_player_name();
+        match driver.skirmish_player_can_build_any(
+            raw_player,
+            &candidates,
+            current_player.as_deref(),
+        ) {
+            ScriptOwnerQuery::Present(can_build) => return Ok(Self::bool_result(can_build)),
+            ScriptOwnerQuery::Missing => return Ok(ScriptConditionResult::False),
+            ScriptOwnerQuery::Unavailable => {}
+        }
+
+        let player_name = self.get_condition_string_param(condition, 0)?;
 
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
             if let Some(ok) = crate::scripting::host_eval_skirmish_player_has_prerequisite_to_build(
@@ -646,28 +677,17 @@ impl ScriptConditionEvaluator<'_> {
                 });
             }
         }
-        let player_arc = player_list()
+        let Some(player_arc) = player_list()
             .read()
             .ok()
             .and_then(|list| list.find_player_by_name(&player_name))
-            .ok_or_else(|| ScriptError::PlayerNotFound(player_name.clone()))?;
+        else {
+            // C++ evaluateSkirmishPlayerHasPrereqsToBuild returns FALSE.
+            return Ok(ScriptConditionResult::False);
+        };
         let player_guard = player_arc
             .read()
             .map_err(|_| ScriptError::ExecutionFailed("Failed to read player".to_string()))?;
-
-        let mut types = crate::object::object_types::ObjectTypes::new();
-        let type_name = object_type.get_string();
-        if !type_name.is_empty() {
-            if let Some(found) = self
-                .context
-                .with_engine_ref(|engine| engine.get_object_types(type_name))
-                .flatten()
-            {
-                types = found;
-            } else {
-                types.add_object_type(AsciiString::from(type_name));
-            }
-        }
 
         let can_build = types.can_build_any(&player_guard);
         Ok(if can_build {
@@ -1423,6 +1443,10 @@ impl ScriptConditionEvaluator<'_> {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "eval_skirmish/prerequisite_owner_tests.rs"]
+mod prerequisite_owner_tests;
 
 pub(crate) fn leftover_command_button_ready_for_object(
     obj: &crate::object::Object,

@@ -2212,53 +2212,83 @@ fn active_attack_priority_and_object_list_actions_mutate_the_live_engine() {
 
 #[test]
 fn active_skirmish_prerequisite_condition_reads_the_live_object_type_list() {
-    let _test_lock = crate::test_sync::lock();
-    initialize_script_engine().expect("script engine should initialize");
+    use crate::scripting::engine::ScriptOwnerQuery;
 
-    player_list().write().unwrap().clear();
-    let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
-    player
-        .write()
-        .unwrap()
-        .set_display_name("ActiveSkirmishPrerequisitePlayer");
-    player_list().write().unwrap().add_player(player);
+    struct PrerequisiteOwner {
+        candidates: RefCell<Vec<Vec<String>>>,
+    }
+    impl ScriptExecutionDriver for PrerequisiteOwner {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            Ok(())
+        }
+        fn skirmish_player_can_build_any(
+            &self,
+            player: &str,
+            candidates: &[String],
+            _: Option<&str>,
+        ) -> ScriptOwnerQuery<bool> {
+            assert_eq!(player, "ActiveSkirmishPrerequisitePlayer");
+            self.candidates.borrow_mut().push(candidates.to_vec());
+            ScriptOwnerQuery::Present(
+                candidates
+                    .iter()
+                    .any(|candidate| candidate == "OwnedBuildableCandidate"),
+            )
+        }
+    }
 
-    let completed = with_script_engine_mut(|engine| {
-        // C++ objectTypesFromParam first resolves an ObjectTypes list by
-        // exact name, then asks that list whether the player can build
-        // any member.  An empty registered list therefore fails closed
-        // while proving that this lookup works from the active engine.
-        let list_name = "ActiveSkirmishEmptyPrerequisiteList";
-        engine.set_object_types(
-            list_name.to_string(),
-            crate::object::object_types::ObjectTypes::with_list_name(AsciiString::from(list_name)),
-        );
-
-        let mut condition = Condition::new(ConditionType::SkirmishPlayerHasPrerequisiteToBuild);
+    let engine = ScriptEngine::new().expect("owned script engine");
+    let list_name = "ActiveSkirmishEmptyPrerequisiteList";
+    engine.set_object_types(
+        list_name.into(),
+        ObjectTypes::with_list_name(AsciiString::from(list_name)),
+    );
+    let mut condition = Condition::new(ConditionType::SkirmishPlayerHasPrerequisiteToBuild);
+    for (parameter_type, value) in [
+        (ParameterType::Side, "ActiveSkirmishPrerequisitePlayer"),
+        (ParameterType::ObjectType, list_name),
+    ] {
         condition
-            .add_parameter(Parameter::with_string(
-                ParameterType::Side,
-                "ActiveSkirmishPrerequisitePlayer".to_string(),
-            ))
-            .expect("player parameter");
-        condition
-            .add_parameter(Parameter::with_string(
-                ParameterType::ObjectType,
-                list_name.to_string(),
-            ))
-            .expect("object type list parameter");
-
-        let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-        let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
-        assert_eq!(
-            evaluator.evaluate_condition(&mut condition).unwrap(),
-            ScriptConditionResult::False,
-            "an empty C++ ObjectTypes list has no template the player can build"
-        );
-    });
-
-    player_list().write().unwrap().clear();
-    assert_eq!(completed, Some(()));
+            .add_parameter(Parameter::with_string(parameter_type, value.into()))
+            .unwrap();
+    }
+    let evaluator_state = RefCell::new(ScriptContext::at_frame(0));
+    let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
+    let mut driver = PrerequisiteOwner {
+        candidates: RefCell::new(Vec::new()),
+    };
+    assert_eq!(
+        evaluator
+            .evaluate_condition_with_driver(&mut condition, &mut driver)
+            .unwrap(),
+        ScriptConditionResult::False,
+        "a registered empty C++ ObjectTypes list remains empty"
+    );
+    let mut types = ObjectTypes::with_list_name(AsciiString::from(list_name));
+    types.add_object_type(AsciiString::from("OwnedBuildableCandidate"));
+    engine.set_object_types(list_name.into(), types);
+    assert_eq!(
+        evaluator
+            .evaluate_condition_with_driver(&mut condition, &mut driver)
+            .unwrap(),
+        ScriptConditionResult::True,
+        "the next evaluation observes the current borrowed engine list"
+    );
+    engine.set_object_types(list_name.into(), ObjectTypes::new());
+    assert_eq!(
+        evaluator
+            .evaluate_condition_with_driver(&mut condition, &mut driver)
+            .unwrap(),
+        ScriptConditionResult::False
+    );
+    assert_eq!(
+        *driver.candidates.borrow(),
+        vec![
+            Vec::<String>::new(),
+            vec!["OwnedBuildableCandidate".to_owned()],
+            Vec::<String>::new()
+        ]
+    );
 }
 
 #[test]

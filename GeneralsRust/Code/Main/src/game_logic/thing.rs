@@ -5,46 +5,23 @@ use std::collections::HashSet;
 
 mod template_metadata;
 pub use template_metadata::{
-    DockKind,
-    ContainModuleKind,
-    ContainAdmission,
-    RiderChangeRiderMetadata,
-    ContainModuleMetadata,
-    OverchargeBehaviorMetadata,
-    PowerPlantUpdateMetadata,
-    ParkingPlaceMetadata,
-    FlightDeckMetadata,
-    DeployStyleMetadata,
-    SupplyTruckMetadata,
-    SupplyTruckState,
-    ProductionExitStyle,
-    ProductionExitMetadata,
-    VeterancyCrateCollideMetadata,
-    VeterancyGainCreateMetadata,
-    GrantUpgradeCreateMetadata,
-    EjectPilotCreationList,
-    EjectPilotDeathTypes,
-    EjectPilotVeterancyLevels,
-    EjectPilotExemptStatus,
-    EjectPilotRequiredStatus,
-    EjectPilotDieMetadata,
-    RebuildHoleExposeDieMetadata,
-    HackInternetAIUpdateMetadata,
-    HackerDisableBuildingMetadata,
-    ChargePlantAbilityMetadata,
-    pack_unpack_variation_multiplier,
-    apply_pack_unpack_variation_ms,
+    CapturePowerKind, ChargePlantAbilityMetadata, ContainAdmission, ContainModuleKind,
+    ContainModuleMetadata, DeployStyleMetadata, DockKind, EjectPilotCreationList,
+    EjectPilotDeathTypes, EjectPilotDieMetadata, EjectPilotExemptStatus, EjectPilotRequiredStatus,
+    EjectPilotVeterancyLevels, FlightDeckMetadata, GrantUpgradeCreateMetadata,
+    HackInternetAIUpdateMetadata, HackerDisableBuildingMetadata, HostArmorSet, HostGeometryInfo,
+    HostGeometryType, OverchargeBehaviorMetadata, ParkingPlaceMetadata, PowerPlantUpdateMetadata,
+    ProductionExitMetadata, ProductionExitStyle, RebuildHoleExposeDieMetadata,
+    RiderChangeRiderMetadata, SpecialPowerModuleKind, SpecialPowerModuleMetadata,
+    SupplyTruckMetadata, SupplyTruckState, VeterancyCrateCollideMetadata,
+    VeterancyGainCreateMetadata, apply_pack_unpack_variation_ms, pack_unpack_variation_multiplier,
     vary_pack_unpack_duration_ms,
-    SpecialPowerModuleKind,
-    SpecialPowerModuleMetadata,
-    CapturePowerKind,
-    HostArmorSet,
-    HostGeometryType,
-    HostGeometryInfo,
 };
 
 mod template;
 pub use template::ThingTemplate;
+mod build_prerequisites;
+pub(crate) use build_prerequisites::PrerequisiteDefinitions;
 
 /// Leftover Common ThingTemplate::getThreatValue when the factory is live.
 fn leftover_template_threat_value(template_name: &str) -> Option<u16> {

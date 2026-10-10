@@ -415,7 +415,7 @@ impl ScriptConditionEvaluator<'_> {
                 self.eval_skirmish_unowned_faction_unit_exists(condition)
             }
             ConditionType::SkirmishPlayerHasPrerequisiteToBuild => {
-                self.eval_skirmish_player_has_prerequisite_to_build(condition)
+                self.eval_skirmish_player_has_prerequisite_to_build(condition, driver)
             }
             ConditionType::SkirmishPlayerHasComparisonGarrisoned => {
                 self.eval_skirmish_player_has_comparison_garrisoned(condition)

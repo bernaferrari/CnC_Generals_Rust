@@ -218,6 +218,8 @@ fn panel_flag_is_indestructible(flag: &str) -> bool {
 }
 
 mod named_commands;
+#[cfg(test)]
+mod prerequisite_owner_tests;
 mod script_action_effects;
 mod script_execution_driver;
 mod script_runtime_camera;

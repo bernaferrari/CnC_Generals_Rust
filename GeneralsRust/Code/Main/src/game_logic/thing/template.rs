@@ -490,6 +490,15 @@ pub struct ThingTemplate {
     /// Template data, not instance state — re-parsed from leftover factory / INI.
     #[serde(skip)]
     pub production_prerequisites: Vec<game_engine::common::rts::ProductionPrerequisite>,
+    /// Names admitted with the prerequisite definitions, never resolved from
+    /// another match's factory or science store during a gameplay query.
+    #[serde(skip)]
+    pub(crate) prerequisite_definitions: super::build_prerequisites::PrerequisiteDefinitions,
+    /// CPP isEquivalentTo: reskins and authored build variations.
+    #[serde(default)]
+    pub(crate) reskinned_from: Option<String>,
+    #[serde(default)]
+    pub(crate) build_variations: Vec<String>,
 }
 
 impl ThingTemplate {
@@ -652,6 +661,9 @@ impl ThingTemplate {
             authored_ai_update_interface: None,
             forbid_player_commands: false,
             production_prerequisites: Vec::new(),
+            prerequisite_definitions: Default::default(),
+            reskinned_from: None,
+            build_variations: Vec::new(),
         }
     }
     /// C++ `ThingTemplate::getExperienceValue(level)`. Uses the authored
@@ -759,7 +771,7 @@ impl ThingTemplate {
     /// `MaxSimultaneousLinkKey`.
     #[inline]
     pub fn counts_toward_max_simultaneous_of(&self, wanted: &ThingTemplate) -> bool {
-        if self.name.eq_ignore_ascii_case(&wanted.name) {
+        if self.is_equivalent_to(wanted) {
             return true;
         }
         match (
@@ -1299,7 +1311,7 @@ impl ThingTemplate {
     pub fn parse_prerequisites_from_ini_lines(&mut self, lines: &[String]) {
         let mut scratch = game_engine::common::thing::thing_template::ThingTemplate::new();
         scratch.parse_prerequisites_block(lines);
-        self.production_prerequisites = scratch.get_prereqs().to_vec();
+        self.set_production_prerequisites(scratch.get_prereqs().to_vec());
     }
 
     /// Copy leftover-factory `m_prereqInfo` (already parsed + resolveNames).
@@ -1307,6 +1319,8 @@ impl ThingTemplate {
         &mut self,
         prereqs: Vec<game_engine::common::rts::ProductionPrerequisite>,
     ) {
+        self.prerequisite_definitions =
+            super::build_prerequisites::PrerequisiteDefinitions::admit(&prereqs);
         self.production_prerequisites = prereqs;
     }
 

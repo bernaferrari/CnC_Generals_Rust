@@ -146,6 +146,18 @@ pub trait ScriptExecutionDriver {
         ScriptOwnerQuery::Unavailable
     }
 
+    /// CPP ScriptConditions2354/ObjectTypes97: candidates come from this
+    /// execution's live list, with raw player identity and borrowed context.
+    /// Missing is authoritative false; Unavailable retains standalone lookup.
+    fn skirmish_player_can_build_any(
+        &self,
+        _player: &str,
+        _object_types: &[String],
+        _current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Unavailable
+    }
+
     /// Present(false) is a completed empty search and must latch. Missing is
     /// an absent trigger/query and must not latch. After player selection,
     /// neither Missing nor Unavailable permits a foreign-owner fallback.

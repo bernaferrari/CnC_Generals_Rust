@@ -158,6 +158,14 @@ fn apply_production_prerequisites_from_definition(
     if let Some(leftover) = leftover_thing_template_for_prereq(&template.name)
         .or_else(|| leftover_thing_template_for_prereq(&definition.name))
     {
+        template.reskinned_from = leftover
+            .get_reskinned_from()
+            .map(|base| base.get_name().to_string());
+        template.build_variations = leftover
+            .get_build_variations()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
         template.set_production_prerequisites(leftover.get_prereqs().to_vec());
         return;
     }

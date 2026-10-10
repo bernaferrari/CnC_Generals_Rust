@@ -157,6 +157,28 @@ impl<'a> HostScriptExecutionDriver<'a> {
 }
 
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+    fn skirmish_player_can_build_any(
+        &self,
+        player: &str,
+        object_types: &[String],
+        current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<bool> {
+        if self.requires_prepared_player_bindings() {
+            return ScriptOwnerQuery::Unavailable;
+        }
+        let Some(player) = self
+            .script_player_id(player, current_player)
+            .and_then(|id| self.world.players.get(&id))
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        ScriptOwnerQuery::Present(
+            object_types
+                .iter()
+                .any(|name| self.world.script_player_can_build_template(player, name)),
+        )
+    }
+
     fn player_event_source(
         &self,
         player: &str,

@@ -138,14 +138,13 @@ impl ScriptActionDispatcher<'_> {
     ) -> Result<ScriptActionResult, ScriptError> {
         let list_name = self.get_string_param(action, 0)?;
         let object_type = self.get_string_param(action, 1)?;
-        let _ = self.context.with_engine_mut(|engine| {
-            let list_key = list_name.to_string();
-            let mut list = engine
-                .get_object_types(&list_key)
-                .unwrap_or_else(|| ObjectTypes::with_list_name(AsciiString::from(&list_key)));
-            list.add_object_type(AsciiString::from(object_type.as_str()));
-            engine.set_object_types(list_key, list);
-        });
+        let engine = self.context.borrowed_engine();
+        let list_key = list_name.to_string();
+        let mut list = engine
+            .get_object_types(&list_key)
+            .unwrap_or_else(|| ObjectTypes::with_list_name(AsciiString::from(&list_key)));
+        list.add_object_type(AsciiString::from(object_type.as_str()));
+        engine.set_object_types(list_key, list);
         log::debug!("Adding '{}' to object list '{}'", object_type, list_name);
         Ok(ScriptActionResult::Success)
     }
@@ -156,12 +155,11 @@ impl ScriptActionDispatcher<'_> {
     ) -> Result<ScriptActionResult, ScriptError> {
         let list_name = self.get_string_param(action, 0)?;
         let object_type = self.get_string_param(action, 1)?;
-        let _ = self.context.with_engine_mut(|engine| {
-            if let Some(mut list) = engine.get_object_types(&list_name) {
-                list.remove_object_type(&AsciiString::from(object_type.as_str()));
-                engine.set_object_types(list_name.to_string(), list);
-            }
-        });
+        let engine = self.context.borrowed_engine();
+        if let Some(mut list) = engine.get_object_types(&list_name) {
+            list.remove_object_type(&AsciiString::from(object_type.as_str()));
+            engine.set_object_types(list_name.to_string(), list);
+        }
         log::debug!(
             "Removing '{}' from object list '{}'",
             object_type,
