@@ -617,7 +617,7 @@ impl GameLogic {
     }
 
     pub fn terrain_height_at(&self, world_pos: Vec3) -> Option<f32> {
-        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let terrain_owner_handle = self.world_services.terrain().clone();
         let terrain = terrain_owner_handle.read().ok();
         self.terrain_height_at_with_terrain_logic(world_pos, terrain.as_deref())
     }
@@ -656,13 +656,41 @@ impl GameLogic {
         ground
     }
 
+    /// Query the driving logical terrain. Detached host terrain retains its
+    /// local water fallback only when this owner has no admitted logical map.
+    pub(crate) fn is_underwater_at(&self, world_pos: Vec3) -> bool {
+        let owner = self.world_services.terrain();
+        let terrain = owner.read().unwrap_or_else(|e| e.into_inner());
+        if terrain.has_height_map() || terrain.get_water_handle(world_pos.x, world_pos.z).is_some()
+        {
+            return terrain.is_underwater(world_pos.x, world_pos.z, None, None);
+        }
+        self.terrain
+            .as_ref()
+            .is_some_and(|t| t.is_underwater_at_world(world_pos))
+    }
+
+    pub(crate) fn water_surface_at(&self, world_pos: Vec3) -> Option<f32> {
+        let owner = self.world_services.terrain();
+        let terrain = owner.read().unwrap_or_else(|e| e.into_inner());
+        if terrain.get_water_handle(world_pos.x, world_pos.z).is_some() {
+            let mut height = 0.0;
+            terrain.is_underwater(world_pos.x, world_pos.z, Some(&mut height), None);
+            return Some(height);
+        }
+        if terrain.has_height_map() {
+            return None;
+        }
+        self.terrain
+            .as_ref()
+            .and_then(|t| t.water_surface_at_world(world_pos))
+    }
+
     /// C++ `Locomotor::getSurfaceHtAtPt` — water surface when underwater, else terrain.
     pub fn surface_ht_at(&self, world_pos: Vec3) -> Option<f32> {
-        if let Some(terrain) = self.terrain.as_ref() {
-            if terrain.is_underwater_at_world(world_pos) {
-                if let Some(water_y) = terrain.water_surface_at_world(world_pos) {
-                    return Some(water_y);
-                }
+        if self.is_underwater_at(world_pos) {
+            if let Some(water_y) = self.water_surface_at(world_pos) {
+                return Some(water_y);
             }
         }
         self.terrain_height_at(world_pos)
@@ -781,7 +809,7 @@ impl GameLogic {
     /// plus the four `TowerObjectName*` slots. Freeze that authored identity
     /// here so presentation bake cannot invent granite `RoadType::StoneBridge`.
     pub fn terrain_bridge_segments_snapshot(&self) -> Vec<(Vec3, Vec3, f32, String)> {
-        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let terrain_owner_handle = self.world_services.terrain().clone();
         let Ok(terrain) = terrain_owner_handle.read() else {
             return Vec::new();
         };

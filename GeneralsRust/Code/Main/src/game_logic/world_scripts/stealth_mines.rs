@@ -1820,7 +1820,7 @@ impl GameLogic {
     fn mine_spot_blocked(&self, pos: Vec3) -> bool {
         use crate::game_logic::host_mines::{LAND_MINE_GEOMETRY_RADIUS, mine_spot_under_structure};
         if let Some(terrain) = self.terrain.as_ref() {
-            if terrain.is_underwater_at_world(pos) || terrain.is_cliff_at_world(pos) {
+            if self.is_underwater_at(pos) || terrain.is_cliff_at_world(pos) {
                 return true;
             }
         }

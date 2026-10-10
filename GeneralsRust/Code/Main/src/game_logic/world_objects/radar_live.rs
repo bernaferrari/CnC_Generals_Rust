@@ -503,7 +503,7 @@ impl GameLogic {
         // terrain_height_at ordinarily obtains this same read borrow for each
         // bridge query. Pass it explicitly so a queued writer cannot cause a
         // recursive read acquisition halfway through the grid.
-        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let terrain_owner_handle = self.world_services.terrain().clone();
         let terrain = terrain_owner_handle.read().ok();
         let mut samples = Vec::with_capacity((W * H) as usize);
         let mut min_z = f32::MAX;

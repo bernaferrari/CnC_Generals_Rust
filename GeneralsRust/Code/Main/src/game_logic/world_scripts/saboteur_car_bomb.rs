@@ -706,11 +706,8 @@ impl GameLogic {
             return;
         }
 
-        let water_z = self.terrain.as_ref().and_then(|t| t.water_plane_y);
-        let underwater = self
-            .terrain
-            .as_ref()
-            .is_some_and(|t| t.is_underwater_at_world(land_pos));
+        let water_z = self.water_surface_at(land_pos);
+        let underwater = self.is_underwater_at(land_pos);
         let water_kill = water_z.is_some_and(|wz| {
             underwater && land_pos.y <= wz + PARACHUTE_KILL_WHEN_LANDING_IN_WATER_SLOP
         });
@@ -778,10 +775,11 @@ impl GameLogic {
         {
             return false;
         }
-        if self
-            .terrain
-            .as_ref()
-            .is_some_and(|t| t.is_cliff_at_world(pos) || t.is_underwater_at_world(pos))
+        if self.is_underwater_at(pos)
+            || self
+                .terrain
+                .as_ref()
+                .is_some_and(|t| t.is_cliff_at_world(pos))
         {
             return false;
         }

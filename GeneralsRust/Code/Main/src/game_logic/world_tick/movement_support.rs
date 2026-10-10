@@ -806,10 +806,7 @@ impl GameLogic {
                 };
                 let layer = obj.pathfind_layer;
                 let cell_type = self.pathfinding_system.grid.locomotor_cell_type(pos, layer);
-                let underwater = self
-                    .terrain
-                    .as_ref()
-                    .is_some_and(|t| t.is_underwater_at_world(pos));
+                let underwater = self.is_underwater_at(pos);
                 (gy, sy, ahead_y, cell_type, underwater)
             };
             // C++ Locomotor.cpp:1000-1003. DECK_HEIGHT_OFFSET lowers the
@@ -1901,10 +1898,20 @@ impl GameLogic {
                                 // C++ moveTowardsPositionHover checks water after the
                                 // 2D step (Locomotor.cpp:1869), not the pre-move cell.
                                 let p = obj.get_position();
-                                let under = self
-                                    .terrain
-                                    .as_ref()
-                                    .is_some_and(|t| t.is_underwater_at_world(p));
+                                let terrain = self
+                                    .world_services
+                                    .terrain()
+                                    .read()
+                                    .unwrap_or_else(|e| e.into_inner());
+                                let under = if terrain.has_height_map()
+                                    || terrain.get_water_handle(p.x, p.z).is_some()
+                                {
+                                    terrain.is_underwater(p.x, p.z, None, None)
+                                } else {
+                                    self.terrain
+                                        .as_ref()
+                                        .is_some_and(|t| t.is_underwater_at_world(p))
+                                };
                                 obj.apply_hover_over_water(under);
                             }
                             if reached_target {

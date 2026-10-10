@@ -486,3 +486,123 @@ fn actual_snapshot_restore_rejects_unresolved_water_trigger_without_touching_run
         },
     );
 }
+
+#[test]
+fn owned_terrain_queries_ignore_foreign_waypoints_heights_and_bridge_snapshots() {
+    super::super::sequential_actor_tests::isolated(
+        module_path!(),
+        "owned_terrain_queries_ignore_foreign_waypoints_heights_and_bridge_snapshots",
+        || {
+            let (mut first, _) = owner_world();
+            let (mut second, _) = owner_world();
+            for (world, raw, x, deck, name) in [
+                (&mut first, 16, 20.0, 35.0, "FirstBridge"),
+                (&mut second, 48, 40.0, 55.0, "SecondBridge"),
+            ] {
+                let mut map = gamelogic::system::map_loader::MapData::new();
+                map.width = 20;
+                map.height = 20;
+                map.heightmap = vec![raw; 400];
+                map.waypoints
+                    .push(gamelogic::system::map_loader::MapWaypoint {
+                        id: 1,
+                        name: "Player_1_Rally".into(),
+                        location: gamelogic::common::Coord3D::new(x, 20.0, 0.0),
+                        path_label1: String::new(),
+                        path_label2: String::new(),
+                        path_label3: String::new(),
+                        bi_directional: false,
+                    });
+                map.bridges.push(gamelogic::system::map_loader::BridgeData {
+                    polygon: Vec::new(),
+                    height: deck,
+                    from: gamelogic::common::Coord3D::new(10.0, 20.0, deck),
+                    to: gamelogic::common::Coord3D::new(30.0, 20.0, deck),
+                    width: 20.0,
+                    template_name: name.into(),
+                });
+                let handle = world.world_services.terrain().clone();
+                let mut terrain = handle.write().unwrap();
+                world.admit_map_bridge_geometry(&mut terrain, map);
+            }
+            let active = second.world_services.clone();
+            gamelogic::system::engine_stores::with_world_services(&active, || {
+                assert_eq!(
+                    first.leftover_named_waypoint_host_pos("Player_1_Rally"),
+                    Some(glam::Vec3::new(20.0, 10.0, 20.0))
+                );
+                assert_eq!(
+                    first.player_rally_spawn_pos(0),
+                    Some(glam::Vec3::new(20.0, 10.0, 20.0))
+                );
+                assert_eq!(
+                    second.player_rally_spawn_pos(0),
+                    Some(glam::Vec3::new(40.0, 30.0, 20.0))
+                );
+                assert_eq!(
+                    first.terrain_height_at(glam::Vec3::new(20.0, 0.0, 20.0)),
+                    Some(35.0)
+                );
+                assert_eq!(
+                    second.terrain_height_at(glam::Vec3::new(20.0, 0.0, 20.0)),
+                    Some(55.0)
+                );
+                let bridges = first.terrain_bridge_segments_snapshot();
+                assert_eq!(bridges.len(), 1);
+                assert_eq!(bridges[0].0.y, 35.0);
+                assert_eq!(bridges[0].3, "FirstBridge");
+                assert!(first.leftover_named_waypoint_host_pos("Missing").is_none());
+            });
+        },
+    );
+}
+
+#[test]
+fn owned_grid_water_queries_and_detached_terrain_construction_ignore_active_world() {
+    super::super::sequential_actor_tests::isolated(
+        module_path!(),
+        "owned_grid_water_queries_and_detached_terrain_construction_ignore_active_world",
+        || {
+            let (first, _) = owner_world();
+            let (second, _) = owner_world();
+            for (world, base, delta) in [(&first, 2.0, 9.0), (&second, 30.0, 7.0)] {
+                let mut terrain = world.world_services.terrain().write().unwrap();
+                let grid = terrain.water_grid_state_mut();
+                grid.enabled = true;
+                grid.set_resolution(20.0, 20.0, 10.0);
+                grid.set_height(base);
+                grid.height_deltas.insert((2, 2), delta);
+            }
+            let active = second.world_services.clone();
+            gamelogic::system::engine_stores::with_world_services(&active, || {
+                let detached = crate::game_logic::terrain::TerrainData::flat(
+                    glam::Vec3::ZERO,
+                    glam::Vec3::new(200.0, 0.0, 200.0),
+                );
+                let candidate = GameLogic::new();
+                assert!(
+                    std::sync::Arc::ptr_eq(
+                        &gamelogic::terrain::get_terrain_logic(),
+                        active.terrain()
+                    ),
+                    "constructors never select their own terrain"
+                );
+                let position = glam::Vec3::new(20.0, 0.0, 20.0);
+                assert!(
+                    !detached.is_underwater_at_world(position),
+                    "detached flat terrain is dry even while foreign water is active"
+                );
+                assert!(!candidate.is_underwater_at(position));
+                assert!(first.is_underwater_at(position));
+                assert_eq!(first.water_surface_at(position), Some(11.0));
+                assert_eq!(first.surface_ht_at(position), Some(11.0));
+                let outside = glam::Vec3::new(195.0, 0.0, 195.0);
+                assert!(!first.is_underwater_at(outside));
+                assert_eq!(first.water_surface_at(outside), None);
+                assert_eq!(second.water_surface_at(position), Some(37.0));
+                second.world_services.terrain().write().unwrap().reset();
+                assert_eq!(first.water_surface_at(position), Some(11.0));
+            });
+        },
+    );
+}

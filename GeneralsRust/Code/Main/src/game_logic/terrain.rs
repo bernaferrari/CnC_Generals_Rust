@@ -403,25 +403,12 @@ impl TerrainData {
         self.water_plane_y = plane;
     }
 
-    /// Copy from the process-global crate `THE_TERRAIN_LOGIC`.
-    pub fn copy_water_from_global_crate_terrain_logic(&mut self) {
-        if let Ok(logic) = gamelogic::terrain::get_terrain_logic().read() {
-            self.copy_water_from_terrain_logic(&logic);
-        }
-    }
-
     /// C++ `TerrainLogic::isUnderwater` (TerrainLogic.cpp:2119-2154).
     ///
     /// When water polygons were copied from crate TerrainLogic, a point is wet
     /// only inside the highest containing water polygon. With no polygons, fall
     /// back to `water_plane_y` so existing host residuals stay usable.
     pub fn is_underwater_at_world(&self, world: Vec3) -> bool {
-        // C++ TerrainLogic::isUnderwater / getWaterHandle (polygons + water grid).
-        if let Ok(tl) = gamelogic::terrain::get_terrain_logic().try_read() {
-            if tl.get_water_handle(world.x, world.z).is_some() {
-                return tl.is_underwater(world.x, world.z, None, None);
-            }
-        }
         let Some(water_y) = self.water_surface_at_world(world) else {
             return false;
         };

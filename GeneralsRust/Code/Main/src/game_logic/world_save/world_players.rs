@@ -59,7 +59,7 @@ impl GameLogic {
             sync_started.elapsed().as_secs_f32()
         );
 
-        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let terrain_owner_handle = self.world_services.terrain().clone();
 
         let waypoint_count = terrain_owner_handle
             .read()
@@ -339,7 +339,10 @@ impl GameLogic {
         }
         self.transfer_side_build_lists_to_players();
 
-        let waypoint_count = gamelogic::terrain::get_terrain_logic()
+        let waypoint_count = self
+            .world_services
+            .terrain()
+            .clone()
             .try_read()
             .ok()
             .map(|terrain| {

@@ -18,8 +18,8 @@ impl GameLogic {
         source_id: Option<ObjectId>,
     ) -> Vec3 {
         use crate::game_logic::host_repair::{
-            DOZER_FIND_POSITION_OVERLAP_SPHERE, DozerFindPositionQuery,
-            find_good_build_or_repair_position as snap,
+            find_good_build_or_repair_position as snap, DozerFindPositionQuery,
+            DOZER_FIND_POSITION_OVERLAP_SPHERE,
         };
         use gamelogic::ai::pathfind_astar::PathfindCellType;
 
@@ -32,22 +32,12 @@ impl GameLogic {
                     return true;
                 }
             }
-            if let Ok(tl) = gamelogic::terrain::get_terrain_logic().read() {
+            if let Ok(tl) = self.world_services.terrain().read() {
                 return tl.is_cliff_cell(p.x, p.z);
             }
             false
         };
-        let is_underwater = |p: Vec3| {
-            if let Some(t) = self.terrain.as_ref() {
-                if t.is_underwater_at_world(p) {
-                    return true;
-                }
-            }
-            if let Ok(tl) = gamelogic::terrain::get_terrain_logic().read() {
-                return tl.is_underwater(p.x, p.z, None, None);
-            }
-            false
-        };
+        let is_underwater = |p: Vec3| self.is_underwater_at(p);
         let is_impassable = |p: Vec3| {
             if !grid_live {
                 return false;

@@ -116,26 +116,20 @@ impl GameLogic {
     }
 
     /// C++ `findNamedWaypoint` (`GameLogic.cpp:160`) + `getGroundHeight`.
-    pub(crate) fn leftover_named_waypoint_host_pos(name: &str) -> Option<Vec3> {
+    pub(crate) fn leftover_named_waypoint_host_pos(&self, name: &str) -> Option<Vec3> {
         let wp_name = gamelogic::common::AsciiString::from(name);
-        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
-        let loc = terrain_owner_handle.read().ok().and_then(|terrain| {
-            terrain
-                .get_waypoint_by_name(&wp_name)
-                .map(|wp| *wp.get_location())
-        })?;
-        let mut pos = Vec3::new(loc.x, loc.z, loc.y);
-        if let Ok(tl) = gamelogic::terrain::get_terrain_logic().read() {
-            pos.y = tl.get_ground_height(pos.x, pos.z, None);
-        }
+        let terrain_owner_handle = self.world_services.terrain();
+        let terrain = terrain_owner_handle.read().ok()?;
+        let loc = *terrain.get_waypoint_by_name(&wp_name)?.get_location();
+        let pos = Vec3::new(loc.x, terrain.get_ground_height(loc.x, loc.y, None), loc.y);
         Some(pos)
     }
 
     /// C++ `placeNetworkBuildingsForPlayer` `Player_%d_Rally` (1-based start pos).
-    /// Leftover TerrainLogic first; parsed map cache if leftover is empty.
+    /// Driving terrain waypoints first; parsed map cache if this map has none.
     pub(crate) fn player_rally_spawn_pos(&self, start_idx0: u32) -> Option<Vec3> {
         let name = format!("Player_{}_Rally", start_idx0 + 1);
-        if let Some(pos) = Self::leftover_named_waypoint_host_pos(&name) {
+        if let Some(pos) = self.leftover_named_waypoint_host_pos(&name) {
             return Some(pos);
         }
         let starts = self
