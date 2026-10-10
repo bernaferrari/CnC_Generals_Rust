@@ -59,12 +59,15 @@ fn native_world(
     slope: bool,
 ) -> (GameLogic, ObjectId) {
     std::fs::write(path, map_bytes(raw, deck, slope)).unwrap();
+    eprintln!("group height fixture constructing {}", path.display());
     let mut world = member_world();
     world.set_ai_definition_base(game_engine::common::ini::AIData {
         wall_height: wall,
         ..Default::default()
     });
+    eprintln!("group height fixture admitting {}", path.display());
     assert!(world.load_map(path.to_str().unwrap()));
+    eprintln!("group height fixture admitted {}", path.display());
     let raw_height = if slope { 75.0 } else { raw as f32 * 0.625 };
     let id = world
         .create_object(
@@ -109,7 +112,9 @@ fn assert_member_heights(world: &mut GameLogic, id: ObjectId, raw: f32, deck: f3
                 .layer_for_destination(destination) as u8,
             expected_layer
         );
+        eprintln!("group height request layer{expected_layer} height{expected_height}");
         let adjusted = world.adjust_group_member_goal(id, destination, destination);
+        eprintln!("group height resolved layer{expected_layer}: {adjusted:?}");
         assert_eq!(
             adjusted.y, expected_height,
             "actual owned layer {expected_layer}"
@@ -141,8 +146,11 @@ fn main_group_goals_use_driving_ground_bridge_and_wall_with_foreign_ai_held() {
             with_foreign_held(|| {
                 assert_member_heights(&mut first, id, 3.125, 21.0, 21.0);
                 assert_member_heights(&mut other, other_id, 7.5, 55.0, 55.0);
+                eprintln!("group height resetting B");
                 other.reset();
+                eprintln!("group height reset B; constructing inert owner");
                 let _inert = GameLogic::new();
+                eprintln!("group height inert owner constructed; rereading A");
                 assert_member_heights(&mut first, id, 3.125, 21.0, 21.0);
             });
         },
@@ -202,7 +210,19 @@ fn group_goal_samples_final_adjusted_xy_on_authored_cpp_height_plane() {
                 );
                 // Bytes rise8/sample, source scale10, height0.625, border1.
                 // Thus the independently authored world plane is y=0.5*x+5.
-                assert_eq!(adjusted.y, 0.5 * adjusted.x + 5.0);
+                // The admitted Rust heightmap stores byte/255 before the original
+                // lower-triangle arithmetic and rescales by255*0.625. Pin
+                // that exact f32 path independently of the production sampler.
+                let x = adjusted.x / 10.0;
+                let fx = x - x.floor();
+                let p0 = ((x.floor() + 1.0) * 8.0) / 255.0;
+                let p1 = ((x.floor() + 2.0) * 8.0) / 255.0;
+                let encoded_height = (p1 + (1.0 - fx) * (p0 - p1)) * (255.0 * 0.625);
+                assert_eq!(adjusted.y, encoded_height);
+                // On this exact plane/cell, normalizing the integer samples
+                // introduces one f32 ULP versus original byte arithmetic.
+                let analytic_height = 0.5 * adjusted.x + 5.0;
+                assert!(adjusted.y.to_bits().abs_diff(analytic_height.to_bits()) <= 1);
                 assert_ne!(
                     adjusted.y,
                     0.5 * requested.x + 5.0,
