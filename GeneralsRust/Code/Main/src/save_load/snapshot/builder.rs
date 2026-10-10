@@ -29,14 +29,9 @@ impl SnapshotBuilder {
         let mut objects = HashMap::new();
 
         for (id, object) in game_logic.host_objects() {
-            match self.snapshot_object(game_logic, object) {
-                Ok(snapshot) => {
-                    objects.insert(*id, snapshot);
-                }
-                Err(e) => {
-                    log::warn!("Failed to snapshot object {:?}: {}", id, e);
-                }
-            }
+            // A partial object set is not a valid saved world. Preserve the
+            // validation error rather than silently deleting an object on load.
+            objects.insert(*id, self.snapshot_object(game_logic, object)?);
         }
 
         Ok(objects)
@@ -291,6 +286,10 @@ impl SnapshotBuilder {
                     task_queue: Vec::new(),
                 }),
             );
+        }
+
+        if let Some(face) = super::face_state_persist::capture(object)? {
+            modules.insert("AIFaceState".to_owned(), ModuleSnapshot::AIUpdate(face));
         }
 
         if let Some(building_data) = &object.building_data {

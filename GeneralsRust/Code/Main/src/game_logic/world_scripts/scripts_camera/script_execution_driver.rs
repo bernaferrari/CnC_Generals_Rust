@@ -2,8 +2,8 @@
 use super::*;
 use gamelogic::scripting::engine::{
     ScriptAiPlayerRequest, ScriptBridgeStatus, ScriptCameraRequest, ScriptDisplayRequest,
-    ScriptExecutionDriver, ScriptObjectStatus, ScriptOwnerQuery, ScriptTeamStatus,
-    ScriptWaterRequest,
+    ScriptExecutionDriver, ScriptNamedCommand, ScriptObjectStatus, ScriptOwnerQuery,
+    ScriptTeamStatus, ScriptWaterRequest,
 };
 
 pub(super) struct HostScriptExecutionDriver<'a> {
@@ -157,6 +157,18 @@ impl<'a> HostScriptExecutionDriver<'a> {
 }
 
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+    fn named_command(
+        &mut self,
+        request: ScriptNamedCommand<'_>,
+        this_object: Option<gamelogic::common::ObjectID>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        self.world
+            .apply_owned_named_script_command(request, this_object.map(ObjectId));
+        // A missing object is the original no-op, never permission to search
+        // another session's registry or enqueue an ambient command.
+        Some(Ok(()))
+    }
+
     fn skirmish_player_exists(
         &self,
         player: &str,

@@ -85,6 +85,14 @@ pub enum ScriptAiPlayerRequest<'a> {
     },
 }
 
+/// CPP ScriptActions1042–1062/6081–6095: synchronous named AI commands.
+/// The owner resolves literal names and THIS_OBJECT within its own object store.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptNamedCommand<'a> {
+    ForceAttack { unit: &'a str, target: &'a str },
+    FaceObject { unit: &'a str, target: &'a str },
+}
+
 /// CPP ScriptActions water changes are synchronous with the next action.
 #[derive(Debug, Clone, Copy)]
 pub enum ScriptWaterRequest<'a> {
@@ -132,6 +140,16 @@ pub trait ScriptExecutionDriver {
     /// CPP ScriptActions::doNamedDamage: Some selects this execution owner,
     /// including an absent named object; None uses the standalone adapter.
     fn named_damage(&mut self, _name: &str, _amount: i32) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    /// Some selects this owner exclusively, including missing objects or a
+    /// failed command. None retains the standalone Core command adapter.
+    fn named_command(
+        &mut self,
+        _request: ScriptNamedCommand<'_>,
+        _this_object: Option<ObjectID>,
+    ) -> Option<GameLogicResult<()>> {
         None
     }
 

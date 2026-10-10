@@ -217,6 +217,7 @@ fn panel_flag_is_indestructible(flag: &str) -> bool {
         .eq_ignore_ascii_case("indestructible")
 }
 
+mod named_commands;
 mod script_action_effects;
 mod script_execution_driver;
 mod script_runtime_camera;
@@ -259,3 +260,6 @@ mod bridge_condition_owner_tests;
 
 #[cfg(test)]
 mod tech_building_owner_tests;
+
+#[cfg(test)]
+mod named_command_owner_tests;

@@ -4,6 +4,12 @@
 // Observable behavior is unchanged.
 
 impl ScriptEngine {
+    /// CPP ScriptEngine5975: THIS_OBJECT prefers the calling object, then the
+    /// condition object. Return owned identity before crossing owner callbacks.
+    pub(crate) fn script_object_id(&self) -> Option<ObjectID> {
+        self.with_inner(|inner| inner.calling_object.or(inner.condition_object))
+    }
+
     /// C++ assigns authored names, then interns conditions before actions.
     fn seed_template_internal_names(&mut self) {
         let inner = self.inner.get_mut();
@@ -1384,5 +1390,79 @@ impl ScriptEngine {
         if inner.flags[0].is_none() {
             inner.flags[0] = Some(TFlag::new(String::new()));
         }
+    }
+}
+
+#[cfg(test)]
+mod script_object_context_tests {
+    use super::*;
+
+    #[test]
+    fn named_command_snapshots_this_object_from_borrowed_engine() {
+        use crate::scripting::core::{
+            Parameter, ParameterType, ScriptAction, ScriptActionType, THIS_OBJECT,
+        };
+        use crate::scripting::executor::{
+            ScriptActionDispatcher, ScriptActionResult, ScriptContext,
+        };
+
+        struct NamedOwner(Vec<(String, Option<ObjectID>)>);
+        impl ScriptExecutionDriver for NamedOwner {
+            fn after_action(&mut self) -> GameLogicResult<()> {
+                Ok(())
+            }
+            fn named_command(
+                &mut self,
+                request: ScriptNamedCommand<'_>,
+                this_object: Option<ObjectID>,
+            ) -> Option<GameLogicResult<()>> {
+                let ScriptNamedCommand::ForceAttack { unit, .. } = request else {
+                    panic!("unexpected named command: {request:?}");
+                };
+                self.0.push((unit.into(), this_object));
+                Some(Ok(()))
+            }
+        }
+
+        let mut own = ScriptEngine::new().unwrap();
+        own.with_inner_mut(|inner| {
+            inner.calling_object = Some(73);
+            inner.condition_object = Some(41);
+        });
+        let mut foreign = ScriptEngine::new().unwrap();
+        foreign.with_inner_mut(|inner| inner.calling_object = Some(13));
+        let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
+        let mut dispatcher = ScriptActionDispatcher::new(&own, &context);
+        let mut action = ScriptAction::new(ScriptActionType::NamedAttackNamed);
+        for name in [THIS_OBJECT, "Victim"] {
+            action
+                .add_parameter(Parameter::with_string(ParameterType::Unit, name.into()))
+                .unwrap();
+        }
+        let mut owner = NamedOwner(Vec::new());
+        foreign.with_active(|| {
+            assert_eq!(
+                dispatcher
+                    .execute_action_with_driver(&action, &mut owner)
+                    .unwrap(),
+                ScriptActionResult::Success
+            );
+        });
+        assert_eq!(owner.0, vec![(THIS_OBJECT.into(), Some(73))]);
+        assert_eq!(foreign.script_object_id(), Some(13));
+    }
+
+    #[test]
+    fn script_object_id_prefers_calling_object_then_condition_object() {
+        let mut engine = ScriptEngine::new().unwrap();
+        assert_eq!(engine.script_object_id(), None);
+        engine.with_inner_mut(|inner| inner.condition_object = Some(41));
+        assert_eq!(engine.script_object_id(), Some(41));
+        engine.with_inner_mut(|inner| inner.calling_object = Some(73));
+        assert_eq!(engine.script_object_id(), Some(73));
+        engine.with_inner_mut(|inner| inner.calling_object = None);
+        assert_eq!(engine.script_object_id(), Some(41));
+        engine.with_inner_mut(|inner| inner.condition_object = None);
+        assert_eq!(engine.script_object_id(), None);
     }
 }

@@ -2,101 +2,69 @@
 use super::*;
 
 #[test]
-fn executor_named_attack_named_leaves_group_and_dispatches_force_attack() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+fn executor_named_attack_named_selects_borrowed_driver() {
+    use crate::scripting::engine::{ScriptExecutionDriver, ScriptNamedCommand};
 
-    get_object_manager().write().unwrap().reset();
-    get_named_object_tracker().clear().unwrap();
+    struct NamedOwner {
+        calls: Vec<(String, String, Option<ObjectID>)>,
+        reject: bool,
+    }
+    impl ScriptExecutionDriver for NamedOwner {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            Ok(())
+        }
 
-    let commands = Arc::new(Mutex::new(Vec::new()));
-    let locomotors = Arc::new(Mutex::new(Vec::new()));
-    let attacker_id = 8450;
-    let target_id = 8451;
-    let attacker = crate::object_manager::GameObjectInstance::new(
-        attacker_id,
-        None,
-        None,
-        ObjectCreationFlags::new(),
-    )
-    .expect("test attacker instance");
-    let target = crate::object_manager::GameObjectInstance::new(
-        target_id,
-        None,
-        None,
-        ObjectCreationFlags::new(),
-    )
-    .expect("test target instance");
-
-    {
-        let __base_arc = attacker.base();
-        let mut base = __base_arc.write().unwrap();
-        base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
-            commands: Arc::clone(&commands),
-            locomotors: Arc::clone(&locomotors),
-        }))));
-        base.enter_group(&crate::ai::AIGroup::new(91));
-        assert_eq!(base.get_group_id(), Some(91));
+        fn named_command(
+            &mut self,
+            request: ScriptNamedCommand<'_>,
+            this_object: Option<ObjectID>,
+        ) -> Option<GameLogicResult<()>> {
+            let ScriptNamedCommand::ForceAttack { unit, target } = request else {
+                panic!("unexpected named command: {request:?}");
+            };
+            self.calls.push((unit.into(), target.into(), this_object));
+            Some(if self.reject {
+                Err(GameLogicError::ModuleError(
+                    "named owner rejected command".into(),
+                ))
+            } else {
+                Ok(())
+            })
+        }
     }
 
-    let attacker_id = attacker.get_id();
-    get_object_manager()
-        .write()
-        .unwrap()
-        .register_object_instance(attacker, Coord3D::new(12.0, 4.0, 0.0))
-        .unwrap();
-    get_object_manager()
-        .write()
-        .unwrap()
-        .register_object_instance(target, Coord3D::new(20.0, 4.0, 0.0))
-        .unwrap();
-    get_named_object_tracker()
-        .register_named_object("ExecutorAttacker".to_string(), attacker_id)
-        .unwrap();
-    get_named_object_tracker()
-        .register_named_object("ExecutorVictim".to_string(), target_id)
-        .unwrap();
-
+    let engine = ScriptEngine::new().expect("script engine");
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
+    let mut owner = NamedOwner {
+        calls: Vec::new(),
+        reject: false,
+    };
     let mut action = ScriptAction::new(ScriptActionType::NamedAttackNamed);
-    action
-        .add_parameter(Parameter::with_string(
-            ParameterType::Unit,
-            "ExecutorAttacker".to_string(),
-        ))
-        .unwrap();
-    action
-        .add_parameter(Parameter::with_string(
-            ParameterType::Unit,
-            "ExecutorVictim".to_string(),
-        ))
-        .unwrap();
-
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
-    dispatcher.do_named_attack_named(&action).unwrap();
-
-    assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
+    for name in ["ExecutorAttacker", "ExecutorVictim"] {
+        action
+            .add_parameter(Parameter::with_string(ParameterType::Unit, name.into()))
+            .unwrap();
+    }
     assert_eq!(
-        *commands.lock().unwrap(),
-        vec![(
-            AiCommandType::ForceAttackObject,
-            Some(target_id),
-            None,
-            -1,
-            CommandSourceType::FromScript,
-        )]
+        dispatcher
+            .execute_action_with_driver(&action, &mut owner)
+            .unwrap(),
+        ScriptActionResult::Success
     );
     assert_eq!(
-        get_object_manager()
-            .read()
-            .unwrap()
-            .with_object(attacker_id, |o| o
-                .base()
-                .read()
-                .ok()
-                .and_then(|b| b.get_group_id()))
-            .flatten(),
-        None
+        owner.calls,
+        vec![("ExecutorAttacker".into(), "ExecutorVictim".into(), None)]
     );
+
+    // A selected owner's failure is authoritative; the standalone adapter
+    // must not turn it into Success or enqueue the command for another world.
+    owner.reject = true;
+    assert!(matches!(
+        dispatcher.execute_action_with_driver(&action, &mut owner),
+        Err(ScriptError::ExecutionFailed(message)) if message.contains("named owner rejected command")
+    ));
+    assert_eq!(owner.calls.len(), 2);
 }
 
 #[test]

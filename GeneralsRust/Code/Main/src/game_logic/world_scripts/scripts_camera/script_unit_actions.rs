@@ -42,14 +42,13 @@ impl GameLogic {
                     }
                 }
                 HostScriptMoveAttackRequest::NamedAttackNamed { attacker, victim } => {
-                    let Some(aid) = self.host_object_id_by_script_name(&attacker) else {
-                        continue;
-                    };
-                    let Some(vid) = self.host_object_id_by_script_name(&victim) else {
-                        continue;
-                    };
-                    let _ = self.apply_unit_locomotor_set(aid, "normal");
-                    let _ = self.unit_command_force_attack(aid, vid);
+                    self.apply_owned_named_script_command(
+                        gamelogic::scripting::engine::ScriptNamedCommand::ForceAttack {
+                            unit: &attacker,
+                            target: &victim,
+                        },
+                        None,
+                    );
                 }
                 HostScriptMoveAttackRequest::NamedAttackArea { unit, area } => {
                     let Some(id) = self.host_object_id_by_script_name(&unit) else {
@@ -1028,20 +1027,13 @@ impl GameLogic {
         for req in gamelogic::scripting::take_host_script_face_requests() {
             match req {
                 HostScriptFaceRequest::NamedFaceNamed { unit, target } => {
-                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
-                        continue;
-                    };
-                    let Some(tid) = self.host_object_id_by_script_name(&target) else {
-                        continue;
-                    };
-                    let Some(pos) = self
-                        .host_object(tid)
-                        .filter(|o| o.is_alive())
-                        .map(|o| o.get_position())
-                    else {
-                        continue;
-                    };
-                    self.host_script_face_unit(id, pos);
+                    self.apply_owned_named_script_command(
+                        gamelogic::scripting::engine::ScriptNamedCommand::FaceObject {
+                            unit: &unit,
+                            target: &target,
+                        },
+                        None,
+                    );
                 }
                 HostScriptFaceRequest::NamedFaceWaypoint { unit, waypoint } => {
                     let Some(id) = self.host_object_id_by_script_name(&unit) else {

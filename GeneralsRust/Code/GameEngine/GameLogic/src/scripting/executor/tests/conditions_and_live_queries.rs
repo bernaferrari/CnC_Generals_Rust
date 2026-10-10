@@ -305,53 +305,69 @@ fn team_follow_waypoints_honors_as_team_int() {
 }
 
 #[test]
-fn named_face_named_clears_waypoint_queue() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+fn named_face_named_selects_borrowed_driver() {
+    use crate::scripting::engine::{ScriptExecutionDriver, ScriptNamedCommand};
 
-    // C++ ScriptActions.cpp:6092 doNamedFaceNamed clearWaypointQueue.
-    get_object_manager().write().unwrap().reset();
-    get_named_object_tracker().clear().unwrap();
+    struct NamedOwner {
+        calls: Vec<(String, String, Option<ObjectID>)>,
+        reject: bool,
+    }
+    impl ScriptExecutionDriver for NamedOwner {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            Ok(())
+        }
 
-    const UNIT_ID: ObjectID = 8800;
-    const TARGET_ID: ObjectID = 8801;
-    let (_, _, cleared, _) = install_recording_named_unit(UNIT_ID, "FaceUnit", None);
-    let target = crate::object_manager::GameObjectInstance::new(
-        TARGET_ID,
-        None,
-        None,
-        ObjectCreationFlags::new(),
-    )
-    .expect("face target");
-    get_object_manager()
-        .write()
-        .unwrap()
-        .register_object_instance(target, Coord3D::new(9.0, 9.0, 0.0))
-        .unwrap();
-    get_named_object_tracker()
-        .register_named_object("FaceTarget".to_string(), TARGET_ID)
-        .unwrap();
+        fn named_command(
+            &mut self,
+            request: ScriptNamedCommand<'_>,
+            this_object: Option<ObjectID>,
+        ) -> Option<GameLogicResult<()>> {
+            let ScriptNamedCommand::FaceObject { unit, target } = request else {
+                panic!("unexpected named command: {request:?}");
+            };
+            self.calls.push((unit.into(), target.into(), this_object));
+            Some(if self.reject {
+                Err(GameLogicError::ModuleError(
+                    "named owner rejected command".into(),
+                ))
+            } else {
+                Ok(())
+            })
+        }
+    }
 
+    let engine = ScriptEngine::new().expect("script engine");
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
+    let mut owner = NamedOwner {
+        calls: Vec::new(),
+        reject: false,
+    };
     let mut action = ScriptAction::new(ScriptActionType::NamedFaceNamed);
-    action
-        .add_parameter(Parameter::with_string(
-            ParameterType::Unit,
-            "FaceUnit".to_string(),
-        ))
-        .unwrap();
-    action
-        .add_parameter(Parameter::with_string(
-            ParameterType::Unit,
-            "FaceTarget".to_string(),
-        ))
-        .unwrap();
+    for name in ["FaceUnit", "FaceTarget"] {
+        action
+            .add_parameter(Parameter::with_string(ParameterType::Unit, name.into()))
+            .unwrap();
+    }
+    assert_eq!(
+        dispatcher
+            .execute_action_with_driver(&action, &mut owner)
+            .unwrap(),
+        ScriptActionResult::Success
+    );
+    assert_eq!(
+        owner.calls,
+        vec![("FaceUnit".into(), "FaceTarget".into(), None)]
+    );
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
-    dispatcher.do_named_face_named(&action).unwrap();
-    assert_eq!(*cleared.lock().unwrap(), 1);
-
-    get_object_manager().write().unwrap().reset();
-    get_named_object_tracker().clear().unwrap();
+    // A selected owner's failure is authoritative; the standalone adapter
+    // must not turn it into Success or enqueue the command for another world.
+    owner.reject = true;
+    assert!(matches!(
+        dispatcher.execute_action_with_driver(&action, &mut owner),
+        Err(ScriptError::ExecutionFailed(message)) if message.contains("named owner rejected command")
+    ));
+    assert_eq!(owner.calls.len(), 2);
 }
 
 #[test]

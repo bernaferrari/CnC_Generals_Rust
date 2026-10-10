@@ -71,7 +71,6 @@ mod dozer_repair_persist;
 mod game_client_save;
 mod game_state;
 mod hotkey_squad_persist;
-mod world_codec;
 mod lifecycle_tail;
 mod load_post_process;
 mod object;
@@ -86,6 +85,7 @@ mod special_power_cooldown_persist;
 mod special_powers;
 mod subdual_persist;
 mod weapon_set_persist;
+mod world_codec;
 
 pub(crate) mod ai_player_queue_persist;
 mod ai_team_persist;
@@ -97,6 +97,7 @@ mod cleanup_hazard_persist;
 mod deliver_payload_persist;
 mod dock_queue_persist;
 mod dynamic_shroud_persist;
+mod face_state_persist;
 mod firewall_persist;
 mod garrison_firepoint_persist;
 mod gps_scrambler_persist;
@@ -138,9 +139,9 @@ pub use ai::*;
 pub use builder::*;
 pub use client_drawable::*;
 pub use game_client_save::{
-    capture_game_client_xfer_bytes, restore_game_client_from_xfer_bytes,
+    CHUNK_GAME_CLIENT, capture_game_client_xfer_bytes, restore_game_client_from_xfer_bytes,
     restore_objectless_from_client_drawables, stash_loaded_game_client_xfer,
-    take_loaded_game_client_xfer, validate_game_client_xfer_bytes, CHUNK_GAME_CLIENT,
+    take_loaded_game_client_xfer, validate_game_client_xfer_bytes,
 };
 pub use game_state::*;
 pub use gamelogic::system::shroud_manager::{
@@ -149,39 +150,41 @@ pub use gamelogic::system::shroud_manager::{
 pub use hotkey_squad_persist::{
     peek_pending_control_groups, set_pending_control_groups, take_pending_control_groups,
 };
-pub(crate) use world_codec::decode_bincode_world_snapshot;
 pub use lifecycle_tail::{
-    apply_lifecycle_tail_to_host, capture_lifecycle_tail, contain_fixups_from_tail,
-    decode_lifecycle_tail, encode_lifecycle_tail, producer_fixups_from_tail, ContainLink,
-    LifecycleTail, ProducerLink,
+    ContainLink, LifecycleTail, ProducerLink, apply_lifecycle_tail_to_host, capture_lifecycle_tail,
+    contain_fixups_from_tail, decode_lifecycle_tail, encode_lifecycle_tail,
+    producer_fixups_from_tail,
 };
 pub use object::*;
 pub use particle_system_save::{
-    capture_particle_system_xfer_bytes, restore_particle_system_from_xfer_bytes,
-    stash_loaded_particle_system_xfer, take_loaded_particle_system_xfer, CHUNK_PARTICLE_SYSTEM,
+    CHUNK_PARTICLE_SYSTEM, capture_particle_system_xfer_bytes,
+    restore_particle_system_from_xfer_bytes, stash_loaded_particle_system_xfer,
+    take_loaded_particle_system_xfer,
 };
 pub use persist_v18::{
-    peek_pending_camera, set_pending_camera, take_pending_camera, CameraPersist, WorldPersistV18,
+    CameraPersist, WorldPersistV18, peek_pending_camera, set_pending_camera, take_pending_camera,
 };
 pub use player::*;
+pub use player_team_persist::{
+    CHUNK_PLAYERS, CHUNK_TEAM_FACTORY, apply_pending as apply_pending_player_team_chunks,
+    stamp_from_live as stamp_player_team_chunks,
+    stash_loaded_chunks as stash_loaded_player_team_chunks, write_players_block,
+    write_team_factory_block,
+};
 pub(crate) use player_team_persist::{
     clear_pending_chunks as clear_pending_player_team_chunks,
     stash_chunks_for_world as stash_player_team_chunks_for_world, validate_pending_host_alliances,
 };
-pub use player_team_persist::{
-    apply_pending as apply_pending_player_team_chunks, stamp_from_live as stamp_player_team_chunks,
-    stash_loaded_chunks as stash_loaded_player_team_chunks, write_players_block,
-    write_team_factory_block, CHUNK_PLAYERS, CHUNK_TEAM_FACTORY,
-};
 pub use special_powers::*;
 pub use terrain::*;
 pub use terrain_visual_save::{
-    capture_terrain_visual_xfer_bytes, restore_terrain_visual_from_xfer_bytes,
-    stash_loaded_terrain_visual_xfer, take_loaded_terrain_visual_xfer, CHUNK_TERRAIN_VISUAL,
+    CHUNK_TERRAIN_VISUAL, capture_terrain_visual_xfer_bytes,
+    restore_terrain_visual_from_xfer_bytes, stash_loaded_terrain_visual_xfer,
+    take_loaded_terrain_visual_xfer,
 };
 pub use types::*;
 pub use w3d_ghost_save::{
-    capture_w3d_ghost_xfer_bytes, restore_w3d_ghost_manager_from_xfer_bytes,
+    CHUNK_GHOST_OBJECT, capture_w3d_ghost_xfer_bytes, restore_w3d_ghost_manager_from_xfer_bytes,
     save_lock_live_w3d_ghosts, stash_loaded_w3d_ghost_xfer, take_loaded_w3d_ghost_xfer,
-    CHUNK_GHOST_OBJECT,
 };
+pub(crate) use world_codec::decode_bincode_world_snapshot;

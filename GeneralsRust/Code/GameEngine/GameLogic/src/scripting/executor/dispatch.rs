@@ -262,7 +262,34 @@ impl ScriptActionDispatcher<'_> {
 
             // Named unit actions
             ScriptActionType::MoveNamedUnitTo => self.do_named_move_to_waypoint(action),
-            ScriptActionType::NamedAttackNamed => self.do_named_attack_named(action),
+            ScriptActionType::NamedAttackNamed | ScriptActionType::NamedFaceNamed => {
+                use crate::scripting::engine::ScriptNamedCommand;
+                let unit = self.get_string_param(action, 0)?;
+                let target = self.get_string_param(action, 1)?;
+                let this_object = self
+                    .context
+                    .with_engine_ref(|engine| engine.script_object_id())
+                    .flatten();
+                let request = if action_type == ScriptActionType::NamedAttackNamed {
+                    ScriptNamedCommand::ForceAttack {
+                        unit: &unit,
+                        target: &target,
+                    }
+                } else {
+                    ScriptNamedCommand::FaceObject {
+                        unit: &unit,
+                        target: &target,
+                    }
+                };
+                if let Some(result) = driver.named_command(request, this_object) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else if action_type == ScriptActionType::NamedAttackNamed {
+                    self.do_named_attack_named(action)
+                } else {
+                    self.do_named_face_named(action)
+                }
+            }
             ScriptActionType::NamedHunt => self.do_named_hunt(action),
             ScriptActionType::NamedGuard => self.do_named_guard(action),
             ScriptActionType::NamedStop => self.do_named_stop(action),
@@ -543,7 +570,6 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::NamedCustomColor => self.do_named_custom_color(action),
             ScriptActionType::NamedSetStealthEnabled => self.do_named_set_stealth_enabled(action),
             ScriptActionType::NamedSetEmoticon => self.do_named_set_emoticon(action),
-            ScriptActionType::NamedFaceNamed => self.do_named_face_named(action),
             ScriptActionType::NamedFaceWaypoint => self.do_named_face_waypoint(action),
             ScriptActionType::NamedSetEvacLeftOrRight => {
                 self.do_named_set_evac_left_or_right(action)
