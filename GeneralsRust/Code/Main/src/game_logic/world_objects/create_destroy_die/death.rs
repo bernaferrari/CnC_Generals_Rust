@@ -547,6 +547,9 @@ impl GameLogic {
 
         // C++ ProductionUpdate cancelAndRefund on death start (before topple/slow-death deferral).
         self.cancel_all_production(id);
+        // C++ TunnelContain::onDie is synchronous even when a die module
+        // retains the entrance for a later topple/slow-death completion.
+        self.unregister_tunnel_containment(id);
         // C++ SpecialPowerCompletionDie::onDie residual.
         self.maybe_notify_special_power_completion(id);
         // C++ DamDie::onDie residual fires with other die modules at death start.

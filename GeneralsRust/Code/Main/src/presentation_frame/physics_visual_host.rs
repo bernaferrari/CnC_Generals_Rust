@@ -4,7 +4,7 @@
 //! frame) and the calc mutates persistent loco state on each present.
 
 use super::physics_visual_host_inputs::{
-    host_geometry_radii, host_kindof_token, object_visual_ini,
+    ObjectVisualIni, host_geometry_radii, host_kindof_token, object_visual_ini,
     terrain_normal_zup_from_height_samples,
 };
 use crate::game_logic::{
@@ -233,7 +233,7 @@ pub(super) fn collect_facts(
         return None;
     }
     let params = params_for_object(obj);
-    let body = body_for_object(obj, objects, sample_height);
+    let body = body_for_object(obj, objects, sample_height, object_visual_ini);
     let show_client_physics = cached_show_client_physics(show_client_physics, || {
         get_global_data()
             .map(|data| data.read().show_client_physics)
@@ -311,16 +311,19 @@ fn params_for_object(obj: &Object) -> LocomotorVisualParams {
     }
 }
 
-fn body_for_object(
+/// Shared body sampling uses explicit immutable content lookup. Production
+/// supplies the current asset adapter; tests supply local authored definitions.
+pub(super) fn body_for_object(
     obj: &Object,
     objects: &std::collections::HashMap<ObjectId, Object>,
     sample_height: impl Fn(glam::Vec3) -> Option<f32>,
+    definition: impl Fn(&str) -> ObjectVisualIni,
 ) -> PhysicsVisualBody {
     let pos = obj.get_position();
     let vel = obj.movement.velocity;
     let accel = obj.previous_acceleration();
     let dir = obj.unit_direction_vector_2d();
-    let self_ini = object_visual_ini(&obj.template_name);
+    let self_ini = definition(&obj.template_name);
     let (major_radius, minor_radius, bounding_circle_radius, _) =
         host_geometry_radii(obj, &self_ini);
     let height = pos.y - obj.ground_height;
@@ -331,7 +334,7 @@ fn body_for_object(
         .and_then(|id| objects.get(&id))
         .map(|other| {
             let other_pos = other.get_position();
-            let other_ini = object_visual_ini(&other.template_name);
+            let other_ini = definition(&other.template_name);
             let (_, _, other_circle, other_height) = host_geometry_radii(other, &other_ini);
             OverlapVisualTarget {
                 is_shrubbery: host_kindof_token(&other_ini, "SHRUBBERY"),
@@ -380,13 +383,4 @@ fn body_for_object(
         current_overlap: overlap,
         previous_overlap_valid: obj.physics_previous_overlap.is_some(),
     }
-}
-
-#[cfg(test)]
-pub fn body_for_object_with_height_samples(
-    obj: &Object,
-    objects: &std::collections::HashMap<ObjectId, Object>,
-    sample_height: impl Fn(glam::Vec3) -> Option<f32>,
-) -> PhysicsVisualBody {
-    body_for_object(obj, objects, sample_height)
 }

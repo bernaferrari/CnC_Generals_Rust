@@ -592,12 +592,15 @@ impl GameLogic {
         ) else {
             return;
         };
-        if crate::game_logic::audio_dispatch_impl::building_loop_event(site_id.0).as_deref()
+        if self
+            .construction_audio_loops
+            .get(&site_id)
+            .map(String::as_str)
             == Some(event.as_str())
         {
             return;
         }
-        if let Some(old) = crate::game_logic::audio_dispatch_impl::take_building_loop(site_id.0) {
+        if let Some(old) = self.construction_audio_loops.remove(&site_id) {
             self.queue_audio_event(
                 crate::game_logic::AudioEventRequest::new(&old)
                     .with_object(site_id)
@@ -605,7 +608,7 @@ impl GameLogic {
                     .stopping(),
             );
         }
-        crate::game_logic::audio_dispatch_impl::note_building_loop(site_id.0, &event);
+        self.construction_audio_loops.insert(site_id, event.clone());
         self.queue_audio_event(
             crate::game_logic::AudioEventRequest::new(&event)
                 .with_object(site_id)
@@ -617,8 +620,7 @@ impl GameLogic {
 
     /// C++ `DozerAIUpdate::finishBuildingSound` / Worker twin.
     pub fn finish_building_sound(&mut self, site_id: ObjectId) {
-        let Some(event) = crate::game_logic::audio_dispatch_impl::take_building_loop(site_id.0)
-        else {
+        let Some(event) = self.construction_audio_loops.remove(&site_id) else {
             return;
         };
         let pos = self
@@ -632,6 +634,17 @@ impl GameLogic {
                 .with_position(pos)
                 .stopping(),
         );
+    }
+
+    /// End transient playback before replacing this world's object roster.
+    /// Stop requests retain the outgoing objects' positions; no playback state
+    /// is serialized or inherited by recreated IDs.
+    pub(in crate::game_logic) fn finish_all_building_sounds(&mut self) {
+        let mut sites: Vec<_> = self.construction_audio_loops.keys().copied().collect();
+        sites.sort();
+        for site_id in sites {
+            self.finish_building_sound(site_id);
+        }
     }
 
     /// Wave 715: after GW construction writeback records ready structures, host

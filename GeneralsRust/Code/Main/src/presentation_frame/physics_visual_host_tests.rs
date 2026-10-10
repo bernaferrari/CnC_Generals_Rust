@@ -2,13 +2,9 @@
 
 use super::physics_visual_host::{
     FrozenHostPhysicsObject, FrozenHostPhysicsVisuals, HostPhysicsVisualFacts,
-    HostPhysicsVisualState, body_for_object_with_height_samples, cached_show_client_physics,
-    collect_facts,
+    HostPhysicsVisualState, body_for_object, cached_show_client_physics, collect_facts,
 };
-use super::physics_visual_host_inputs::{
-    ObjectVisualIni, clear_test_object_visual_ini, set_test_object_visual_ini,
-    terrain_normal_zup_from_height_samples,
-};
+use super::physics_visual_host_inputs::{ObjectVisualIni, terrain_normal_zup_from_height_samples};
 use crate::game_logic::{Object, ObjectId, Team, ThingTemplate};
 use game_client::physics_visual::{
     LocomotorVisualParams, PhysicsVisualAppearance, PhysicsVisualBody, PhysicsVisualLocoState,
@@ -179,8 +175,8 @@ fn test_object(id: u32, template: &str) -> Object {
 
 #[test]
 fn treads_overlap_uses_ini_geometry_and_kindof_tokens() {
-    clear_test_object_visual_ini();
-    set_test_object_visual_ini(
+    let mut definitions = HashMap::new();
+    definitions.insert(
         "SlopeTank",
         ObjectVisualIni {
             major_radius: Some(12.0),
@@ -190,7 +186,7 @@ fn treads_overlap_uses_ini_geometry_and_kindof_tokens() {
             kindof: None,
         },
     );
-    set_test_object_visual_ini(
+    definitions.insert(
         "Bush",
         ObjectVisualIni {
             major_radius: Some(3.0),
@@ -200,7 +196,7 @@ fn treads_overlap_uses_ini_geometry_and_kindof_tokens() {
             kindof: Some("SHRUBBERY STRUCTURE".to_string()),
         },
     );
-    set_test_object_visual_ini(
+    definitions.insert(
         "Curb",
         ObjectVisualIni {
             major_radius: Some(5.0),
@@ -216,7 +212,12 @@ fn treads_overlap_uses_ini_geometry_and_kindof_tokens() {
     let bush = test_object(2, "Bush");
     let mut objects = HashMap::new();
     objects.insert(bush.id, bush);
-    let body = body_for_object_with_height_samples(&tank, &objects, |_| Some(0.0));
+    let body = body_for_object(
+        &tank,
+        &objects,
+        |_| Some(0.0),
+        |name| definitions.get(name).cloned().unwrap_or_default(),
+    );
     assert!((body.major_radius - 12.0).abs() < f32::EPSILON);
     assert!((body.minor_radius - 4.0).abs() < f32::EPSILON);
     let overlap = body.current_overlap.expect("bush overlap");
@@ -226,19 +227,98 @@ fn treads_overlap_uses_ini_geometry_and_kindof_tokens() {
     tank.physics_current_overlap = Some(ObjectId(3));
     let curb = test_object(3, "Curb");
     objects.insert(curb.id, curb);
-    let body = body_for_object_with_height_samples(&tank, &objects, |_| Some(0.0));
+    let body = body_for_object(
+        &tank,
+        &objects,
+        |_| Some(0.0),
+        |name| definitions.get(name).cloned().unwrap_or_default(),
+    );
     let overlap = body.current_overlap.expect("curb overlap");
     assert!(!overlap.is_shrubbery);
     assert!(overlap.is_low_overlappable);
     assert!((overlap.bounding_circle_radius - 5.0_f32.hypot(2.0)).abs() < 0.001);
 
-    clear_test_object_visual_ini();
     let missing = test_object(4, "NoDefinition");
-    let body = body_for_object_with_height_samples(&missing, &HashMap::new(), |_| None);
+    let body = body_for_object(
+        &missing,
+        &HashMap::new(),
+        |_| None,
+        |name| definitions.get(name).cloned().unwrap_or_default(),
+    );
     assert_eq!(body.terrain_normal_x, 0.0);
     assert_eq!(body.terrain_normal_y, 0.0);
     assert_eq!(body.terrain_normal_z, 1.0);
     assert!((body.major_radius - missing.selection_radius.max(1.0)).abs() < f32::EPSILON);
+}
+
+#[test]
+fn same_name_local_definitions_remain_independent_in_shared_body_sampling() {
+    let mut object = test_object(1, "SharedVisual");
+    object.physics_current_overlap = Some(ObjectId(2));
+    let other = test_object(2, "SharedOverlap");
+    let objects = HashMap::from([(other.id, other)]);
+    let a = HashMap::from([
+        (
+            "SharedVisual",
+            ObjectVisualIni {
+                major_radius: Some(12.0),
+                minor_radius: Some(4.0),
+                ..ObjectVisualIni::default()
+            },
+        ),
+        (
+            "SharedOverlap",
+            ObjectVisualIni {
+                major_radius: Some(3.0),
+                height: Some(2.0),
+                geometry: Some("CYLINDER".into()),
+                kindof: Some("SHRUBBERY".into()),
+                ..ObjectVisualIni::default()
+            },
+        ),
+    ]);
+    let b = HashMap::from([
+        (
+            "SharedVisual",
+            ObjectVisualIni {
+                major_radius: Some(30.0),
+                minor_radius: Some(8.0),
+                ..ObjectVisualIni::default()
+            },
+        ),
+        (
+            "SharedOverlap",
+            ObjectVisualIni {
+                major_radius: Some(5.0),
+                height: Some(7.0),
+                geometry: Some("CYLINDER".into()),
+                kindof: Some("LOW_OVERLAPPABLE".into()),
+                ..ObjectVisualIni::default()
+            },
+        ),
+    ]);
+    let sample = |definitions: &HashMap<&str, ObjectVisualIni>| {
+        body_for_object(
+            &object,
+            &objects,
+            |_| Some(0.0),
+            |name| definitions.get(name).cloned().unwrap_or_default(),
+        )
+    };
+    let first = sample(&a);
+    let foreign = sample(&b);
+    assert_eq!((first.major_radius, first.minor_radius), (12.0, 4.0));
+    assert_eq!((foreign.major_radius, foreign.minor_radius), (30.0, 8.0));
+    let overlap = first.current_overlap.unwrap();
+    assert!(overlap.is_shrubbery);
+    assert!(!overlap.is_low_overlappable);
+    assert_eq!(overlap.max_height_above_position, 2.0);
+    let overlap = foreign.current_overlap.unwrap();
+    assert!(!overlap.is_shrubbery);
+    assert!(overlap.is_low_overlappable);
+    assert_eq!(overlap.max_height_above_position, 7.0);
+    drop(b);
+    assert_eq!(sample(&a), first);
 }
 
 #[test]

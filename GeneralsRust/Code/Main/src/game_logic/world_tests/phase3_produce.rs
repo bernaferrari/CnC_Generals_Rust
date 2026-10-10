@@ -311,6 +311,9 @@ fn under_construction_starts_at_one_hp_and_gains_linearly() {
     ensure_test_structure_template(&mut logic);
     ensure_test_dozer_template(&mut logic);
     ensure_test_player_for_team(&mut logic, Team::USA);
+    // C++ Energy::getEnergySupplyRatio uses production/consumption, not the
+    // compatibility power_available/resources fields authored by the helper.
+    logic.get_player_mut(0).unwrap().power_produced = 100;
     let sid = logic
         .create_object_under_construction("TestBuilding", Team::USA, glam::Vec3::ZERO)
         .expect("scaffold");
@@ -565,6 +568,11 @@ fn start_production_door_cycle_preserves_opening_deadline() {
             "already-OPENING must preserve DoorOpeningTime"
         );
         assert!(!o.tick_production_door(10 + open));
+        assert_eq!(
+            o.production_door_phase, 1,
+            "C++ keeps OPENING at the exact deadline"
+        );
+        assert!(!o.tick_production_door(10 + open + 1));
         assert_eq!(o.production_door_phase, 2, "door must reach WAITING_OPEN");
     }
 }
@@ -781,10 +789,27 @@ fn completed_production_preserves_factory_identity_exit_facing_and_rally() {
     // checkForAdjust → adjustCoordToCell (AIPathfind.cpp:8936-8948) snaps to
     // the pathfind cell. The destination is that snapped rally, never the
     // raw coordinate.
+    // Main's target_position is the active locomotor path node, not C++'s
+    // separate final state-machine goal. The exit traverses the natural point
+    // before the terminal adjusted rally (DefaultProductionExitUpdate:80-94).
+    assert_eq!(
+        unit.movement.target_position,
+        unit.movement
+            .path
+            .get(unit.movement.current_path_index)
+            .copied(),
+        "active exit target must remain the current path node"
+    );
+    assert!(
+        unit.movement.path.len() > 1,
+        "natural exit and rally must both be retained"
+    );
     let dest = unit
         .movement
-        .target_position
-        .expect("rally destination installed");
+        .path
+        .last()
+        .copied()
+        .expect("terminal rally destination installed");
     assert!(
         (dest - rally).length() < 10.0,
         "destination must be the cell-adjusted rally {rally}, got {dest}"
@@ -833,71 +858,307 @@ fn assign_unit_path_fail_closed_and_retail_ai_names() {
 
 #[test]
 fn dozer_dock_plays_under_construction_loop_and_stops_on_complete() {
-    use crate::game_logic::audio_dispatch_impl::{
-        clear_building_loops, clear_test_template_voices, set_test_per_unit_sound,
-    };
-    clear_test_template_voices();
-    clear_building_loops();
-    set_test_per_unit_sound(
-        "TestBuilding",
-        "UnderConstruction",
-        "BuildingConstructionLoop",
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "dozer_dock_plays_under_construction_loop_and_stops_on_complete",
+        || {
+            use crate::game_logic::audio_dispatch_impl::{
+                clear_test_template_voices, set_test_per_unit_sound,
+            };
+            clear_test_template_voices();
+            set_test_per_unit_sound(
+                "TestBuilding",
+                "UnderConstruction",
+                "BuildingConstructionLoop",
+            );
+            let mut logic = GameLogic::new();
+            ensure_test_structure_template(&mut logic);
+            ensure_test_dozer_template(&mut logic);
+            ensure_test_player_for_team(&mut logic, Team::USA);
+            let sid = logic
+                .create_object_under_construction("TestBuilding", Team::USA, glam::Vec3::ZERO)
+                .expect("scaffold");
+            if let Some(o) = logic.host_object_mut(sid) {
+                o.template_mut().build_time = 10.0;
+                o.construction_percent = 0.0;
+            }
+            let did = logic
+                .create_object("TestDozer", Team::USA, glam::Vec3::new(2.0, 0.0, 0.0))
+                .expect("dozer");
+            assert!(logic.resume_construction(&[did], sid));
+            logic.queued_audio_events.clear();
+            logic.update_construction(&[sid], 1.0);
+            assert!(
+                logic.queued_audio_events.iter().any(|e| {
+                    e.event_type == "BuildingConstructionLoop"
+                        && e.is_looping
+                        && !e.stop
+                        && e.object_id == Some(sid)
+                }),
+                "docked dozer must start UnderConstruction loop: {:?}",
+                logic.queued_audio_events
+            );
+            logic.queued_audio_events.clear();
+            logic.update_construction(&[sid], 1.0);
+            assert!(
+                !logic.queued_audio_events.iter().any(|e| {
+                    e.event_type == "BuildingConstructionLoop" && e.is_looping && !e.stop
+                }),
+                "already-playing loop must not restart: {:?}",
+                logic.queued_audio_events
+            );
+            if let Some(o) = logic.host_object_mut(sid) {
+                o.construction_percent = 0.99;
+            }
+            logic.queued_audio_events.clear();
+            logic.update_construction(&[sid], 1.0);
+            assert!(
+                logic
+                    .host_object(sid)
+                    .is_some_and(|o| !o.status.under_construction),
+                "scaffold must complete"
+            );
+            assert!(
+                logic.queued_audio_events.iter().any(|e| {
+                    e.event_type == "BuildingConstructionLoop" && e.stop && e.object_id == Some(sid)
+                }),
+                "complete must finishBuildingSound: {:?}",
+                logic.queued_audio_events
+            );
+            clear_test_template_voices();
+        },
     );
-    let mut logic = GameLogic::new();
-    ensure_test_structure_template(&mut logic);
-    ensure_test_dozer_template(&mut logic);
-    ensure_test_player_for_team(&mut logic, Team::USA);
-    let sid = logic
-        .create_object_under_construction("TestBuilding", Team::USA, glam::Vec3::ZERO)
-        .expect("scaffold");
-    if let Some(o) = logic.host_object_mut(sid) {
-        o.template_mut().build_time = 10.0;
-        o.construction_percent = 0.0;
-    }
-    let did = logic
-        .create_object("TestDozer", Team::USA, glam::Vec3::new(2.0, 0.0, 0.0))
-        .expect("dozer");
-    assert!(logic.resume_construction(&[did], sid));
+}
+
+fn construction_audio_fixture(logic: &mut GameLogic, pos: glam::Vec3) -> ObjectId {
+    ensure_test_structure_template(logic);
+    ensure_test_dozer_template(logic);
+    ensure_test_player_for_team(logic, Team::USA);
+    let site = logic
+        .create_object_under_construction("TestBuilding", Team::USA, pos)
+        .expect("construction site");
+    let object = logic.host_object_mut(site).unwrap();
+    object.template_mut().build_time = 10.0;
+    object.construction_percent = 0.0;
+    let dozer = logic
+        .create_object("TestDozer", Team::USA, pos + glam::Vec3::new(2.0, 0.0, 0.0))
+        .expect("builder");
+    assert!(logic.resume_construction(&[dozer], site));
     logic.queued_audio_events.clear();
-    logic.update_construction(&[sid], 1.0);
-    assert!(
-        logic.queued_audio_events.iter().any(|e| {
-            e.event_type == "BuildingConstructionLoop"
-                && e.is_looping
-                && !e.stop
-                && e.object_id == Some(sid)
-        }),
-        "docked dozer must start UnderConstruction loop: {:?}",
-        logic.queued_audio_events
+    site
+}
+
+#[test]
+fn construction_audio_same_id_completion_and_reset_are_owner_local() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "construction_audio_same_id_completion_and_reset_are_owner_local",
+        || {
+            use crate::game_logic::audio_dispatch_impl::{
+                clear_test_template_voices, set_test_per_unit_sound,
+            };
+            clear_test_template_voices();
+            set_test_per_unit_sound(
+                "TestBuilding",
+                "UnderConstruction",
+                "BuildingConstructionLoop",
+            );
+            let mut a = GameLogic::new();
+            let mut b = GameLogic::new();
+            let a_site = construction_audio_fixture(&mut a, glam::Vec3::ZERO);
+            let b_site = construction_audio_fixture(&mut b, glam::Vec3::ZERO);
+            assert_eq!(a_site, b_site);
+            a.update_construction(&[a_site], 1.0);
+            b.update_construction(&[b_site], 1.0);
+            for logic in [&a, &b] {
+                assert!(
+                    logic
+                        .queued_audio_events
+                        .iter()
+                        .any(|event| event.event_type == "BuildingConstructionLoop"
+                            && event.is_looping
+                            && !event.stop
+                            && event.object_id == Some(a_site)),
+                    "each driving match must start its own same-ID loop"
+                );
+            }
+            a.queued_audio_events.clear();
+            b.queued_audio_events.clear();
+            b.host_object_mut(b_site).unwrap().construction_percent = 0.99;
+            b.update_construction(&[b_site], 1.0);
+            assert!(!b.host_object(b_site).unwrap().status.under_construction);
+            assert!(b.queued_audio_events.iter().any(|event| event.stop
+                && event.event_type == "BuildingConstructionLoop"
+                && event.object_id == Some(b_site)));
+            a.update_construction(&[a_site], 1.0);
+            assert!(
+                !a.queued_audio_events
+                    .iter()
+                    .any(|event| event.event_type == "BuildingConstructionLoop"),
+                "B completion must leave A playing"
+            );
+            b.reset();
+            let b_site = construction_audio_fixture(&mut b, glam::Vec3::ZERO);
+            assert_eq!(a_site, b_site);
+            b.update_construction(&[b_site], 1.0);
+            assert!(b.queued_audio_events.iter().any(|event| event.is_looping
+                && !event.stop
+                && event.event_type == "BuildingConstructionLoop"));
+            b.queued_audio_events.clear();
+            b.reset();
+            assert!(b.queued_audio_events.iter().any(|event| event.stop
+                && event.event_type == "BuildingConstructionLoop"
+                && event.object_id == Some(b_site)));
+            let _candidate = GameLogic::new();
+            a.queued_audio_events.clear();
+            a.update_construction(&[a_site], 1.0);
+            assert!(
+                !a.queued_audio_events
+                    .iter()
+                    .any(|event| event.event_type == "BuildingConstructionLoop"),
+                "B reset and candidate construction leave A playing"
+            );
+            clear_test_template_voices();
+        },
     );
-    logic.queued_audio_events.clear();
-    logic.update_construction(&[sid], 1.0);
-    assert!(
-        !logic
-            .queued_audio_events
-            .iter()
-            .any(|e| { e.event_type == "BuildingConstructionLoop" && e.is_looping && !e.stop }),
-        "already-playing loop must not restart: {:?}",
-        logic.queued_audio_events
+}
+
+#[test]
+fn construction_audio_replacement_stops_before_start_and_missing_sound_keeps_loop() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "construction_audio_replacement_stops_before_start_and_missing_sound_keeps_loop",
+        || {
+            use crate::game_logic::audio_dispatch_impl::{
+                clear_test_template_voices, set_test_per_unit_sound,
+            };
+            clear_test_template_voices();
+            set_test_per_unit_sound(
+                "TestBuilding",
+                "UnderConstruction",
+                "BuildingConstructionLoop",
+            );
+            let mut logic = GameLogic::new();
+            let pos = glam::Vec3::new(10.0, 3.0, 20.0);
+            let site = construction_audio_fixture(&mut logic, pos);
+            logic.start_building_sound(site, "TestBuilding", pos);
+            logic.queued_audio_events.clear();
+            set_test_per_unit_sound(
+                "TestBuilding",
+                "UnderConstruction",
+                "ReplacementConstructionLoop",
+            );
+            logic.start_building_sound(site, "TestBuilding", pos);
+            assert_eq!(logic.queued_audio_events.len(), 2);
+            let old = &logic.queued_audio_events[0];
+            assert_eq!(old.event_type, "BuildingConstructionLoop");
+            assert!(old.stop && !old.is_looping);
+            assert_eq!(old.object_id, Some(site));
+            assert_eq!(old.position, Some(pos));
+            let new = &logic.queued_audio_events[1];
+            assert_eq!(new.event_type, "ReplacementConstructionLoop");
+            assert!(!new.stop && new.is_looping);
+            assert_eq!(new.priority, 80);
+            assert_eq!(new.object_id, Some(site));
+            assert_eq!(new.position, Some(pos));
+            logic.queued_audio_events.clear();
+            logic.start_building_sound(site, "TestBuilding", pos);
+            assert!(
+                logic.queued_audio_events.is_empty(),
+                "same owner/event is suppressed"
+            );
+            set_test_per_unit_sound("TestBuilding", "UnderConstruction", "");
+            logic.start_building_sound(site, "TestBuilding", pos);
+            assert!(
+                logic.queued_audio_events.is_empty(),
+                "missing definition preserves existing playback"
+            );
+            logic.finish_building_sound(site);
+            assert_eq!(logic.queued_audio_events.len(), 1);
+            assert_eq!(
+                logic.queued_audio_events[0].event_type,
+                "ReplacementConstructionLoop"
+            );
+            assert!(logic.queued_audio_events[0].stop);
+            clear_test_template_voices();
+        },
     );
-    if let Some(o) = logic.host_object_mut(sid) {
-        o.construction_percent = 0.99;
-    }
-    logic.queued_audio_events.clear();
-    logic.update_construction(&[sid], 1.0);
-    assert!(
-        logic
-            .host_object(sid)
-            .is_some_and(|o| !o.status.under_construction),
-        "scaffold must complete"
+}
+
+#[test]
+fn construction_audio_restore_and_direct_removal_stop_outgoing_owner_loop() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "construction_audio_restore_and_direct_removal_stop_outgoing_owner_loop",
+        || {
+            use crate::game_logic::audio_dispatch_impl::{
+                clear_test_template_voices, set_test_per_unit_sound,
+            };
+            clear_test_template_voices();
+            set_test_per_unit_sound(
+                "TestBuilding",
+                "UnderConstruction",
+                "BuildingConstructionLoop",
+            );
+            let mut source = GameLogic::new();
+            let site = construction_audio_fixture(&mut source, glam::Vec3::ZERO);
+            source.start_building_sound(site, "TestBuilding", glam::Vec3::ZERO);
+            let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+            let snapshot = builder.create_world_snapshot(&source).unwrap();
+            let mut destination = GameLogic::new();
+            let old_pos = glam::Vec3::new(8.0, 0.0, 9.0);
+            let old_site = construction_audio_fixture(&mut destination, old_pos);
+            assert_eq!(old_site, site);
+            destination.start_building_sound(old_site, "TestBuilding", old_pos);
+            destination.queued_audio_events.clear();
+            builder
+                .restore_from_snapshot(&snapshot, &mut destination)
+                .unwrap();
+            assert!(
+                destination
+                    .queued_audio_events
+                    .iter()
+                    .any(|event| event.stop
+                        && event.object_id == Some(site)
+                        && event.position == Some(old_pos)
+                        && event.event_type == "BuildingConstructionLoop"),
+                "restore stops outgoing playback before replacing its position"
+            );
+            assert_eq!(
+                destination.host_object(site).unwrap().get_position(),
+                glam::Vec3::ZERO
+            );
+            destination.queued_audio_events.clear();
+            destination.start_building_sound(site, "TestBuilding", glam::Vec3::ZERO);
+            assert_eq!(
+                destination.queued_audio_events.len(),
+                1,
+                "restored ID starts transient playback afresh"
+            );
+            assert!(
+                destination.queued_audio_events[0].is_looping
+                    && !destination.queued_audio_events[0].stop
+            );
+            destination.queued_audio_events.clear();
+            destination.destroy_object(site);
+            destination.process_destroy_list();
+            assert!(destination.host_object(site).is_none());
+            assert!(
+                destination
+                    .queued_audio_events
+                    .iter()
+                    .any(|event| event.stop
+                        && event.object_id == Some(site)
+                        && event.position == Some(glam::Vec3::ZERO)
+                        && event.event_type == "BuildingConstructionLoop")
+            );
+            source.queued_audio_events.clear();
+            source.start_building_sound(site, "TestBuilding", glam::Vec3::ZERO);
+            assert!(
+                source.queued_audio_events.is_empty(),
+                "destination restore/removal does not stop source playback"
+            );
+            clear_test_template_voices();
+        },
     );
-    assert!(
-        logic.queued_audio_events.iter().any(|e| {
-            e.event_type == "BuildingConstructionLoop" && e.stop && e.object_id == Some(sid)
-        }),
-        "complete must finishBuildingSound: {:?}",
-        logic.queued_audio_events
-    );
-    clear_test_template_voices();
-    clear_building_loops();
 }

@@ -548,6 +548,7 @@ impl GameLogic {
             scripts_loaded: false,
             mission_script_counter: 0,
             queued_audio_events: Vec::new(),
+            construction_audio_loops: HashMap::new(),
             ambient_sound_retries: AmbientSoundRetries::default(),
             command_queue: VecDeque::new(),
             accepted_gather_commands: VecDeque::new(),
@@ -780,6 +781,7 @@ impl GameLogic {
             *self.host_physics_visuals.get_mut() = Default::default();
         }
         self.drawable_tint_envelopes.clear();
+        self.finish_all_building_sounds();
         self.objects.clear();
         self.ambient_sound_retries.clear();
         // C++ WeaponStore::resetWeaponTemplates clears same-template history.

@@ -320,6 +320,10 @@ impl GameLogic {
                 }
             }
 
+            // Defensive admission for residual after-death queue producers;
+            // ordinary onDie/onDelete already consumed this registered latch.
+            self.unregister_tunnel_containment(event.id);
+            self.finish_building_sound(event.id);
             if let Some(obj) = self.objects.remove(&event.id) {
                 // A DockUpdate queue is module-owned; discard it with the
                 // owning dock Object rather than retaining a dead ObjectId.
@@ -519,58 +523,8 @@ impl GameLogic {
                         }
                     }
                 } else if is_tunnel {
-                    let player_id = obj.tunnel_system_key();
-                    // C++ TunnelTracker::onTunnelDestroyed (TunnelTracker.cpp:187).
-                    let remaining: Vec<ObjectId> = self
-                        .objects
-                        .values()
-                        .filter(|o| {
-                            o.id != event.id
-                                && o.is_alive()
-                                && o.tunnel_system_key() == player_id
-                                && !o.status.sold
-                                && (o.is_tunnel_network_style_container()
-                                    || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                                        &o.template_name,
-                                    ))
-                        })
-                        .map(|o| o.id)
-                        .collect();
-                    let outcome = self
-                        .tunnel_network
-                        .on_tunnel_destroyed(player_id, event.id, &remaining);
-                    if outcome.cave_in {
-                        for uid in outcome.cave_in_units {
-                            if let Some(unit) = self.objects.get_mut(&uid) {
-                                unit.set_contained_by(None);
-                                unit.set_target(None);
-                                unit.stop_moving();
-                                unit.set_status_moving(false);
-                                unit.set_status_attacking(false);
-                                unit.status.destroyed = true;
-                                unit.health.current = 0.0;
-                            }
-                            self.mark_object_for_destruction(uid, event.killer);
-                        }
-                    } else if let Some(valid) = outcome.remapped_to {
-                        let pool = self.tunnel_network.contained_for_player(player_id);
-                        let remapped: Vec<ObjectId> = pool
-                            .into_iter()
-                            .filter(|&uid| {
-                                self.objects
-                                    .get(&uid)
-                                    .is_some_and(|u| u.contained_by == Some(event.id))
-                            })
-                            .collect();
-                        for uid in remapped {
-                            if let Some(unit) = self.objects.get_mut(&uid) {
-                                unit.set_contained_by(Some(valid));
-                            }
-                            // C++ Object::onContainedBy restamps m_containedByFrame.
-                            self.tunnel_network
-                                .stamp_contained_by_frame(uid, self.frame);
-                        }
-                    }
+                    // Registered TunnelContain callbacks ran while the object
+                    // was installed; physical removal never replays them.
                 } else {
                     // C++ OpenContain::onDie: processDamageToContained then
                     // killRidersWhoAreNotFreeToExit then removeAllContained.
@@ -1218,7 +1172,7 @@ mod tests {
         GameLogic, KindOf, ObjectId, Player, PlayerTemplateIdentity, Team, ThingTemplate,
     };
 
-    fn setup_two_tunnels_and_rider() -> (GameLogic, ObjectId, ObjectId, ObjectId) {
+    fn setup_two_tunnels_and_rider() -> (GameLogic, ObjectId, ObjectId, ObjectId, u32) {
         let mut logic = GameLogic::new();
         logic
             .players
@@ -1260,17 +1214,35 @@ mod tests {
         if let Some(u) = logic.host_object_mut(uid) {
             u.set_contained_by(Some(t1));
         }
-        let key = crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA);
+        // C++ TunnelContain uses the admitted controlling player's tracker.
+        // A faction sentinel is a different pool from the actual owner.
+        let key = logic
+            .host_object(t1)
+            .expect("admitted entrance")
+            .tunnel_system_key();
+        assert_eq!(logic.host_object(t2).unwrap().tunnel_system_key(), key);
+        assert!(
+            logic
+                .host_object(t1)
+                .unwrap()
+                .is_tunnel_network_style_container()
+        );
+        assert!(
+            logic
+                .host_object(t2)
+                .unwrap()
+                .is_tunnel_network_style_container()
+        );
         logic.tunnel_network.on_tunnel_created(key, t1);
         logic.tunnel_network.on_tunnel_created(key, t2);
         assert!(logic.tunnel_network.record_enter(key, uid, t1));
-        (logic, t1, t2, uid)
+        (logic, t1, t2, uid, key)
     }
 
     #[test]
     fn tunnel_on_die_keeps_shared_pool_when_another_entrance_lives() {
         // C++ TunnelContain.cpp:326 onDie — no OpenContain eject.
-        let (mut logic, t1, t2, uid) = setup_two_tunnels_and_rider();
+        let (mut logic, t1, t2, uid, key) = setup_two_tunnels_and_rider();
         let origin = logic
             .host_object(uid)
             .map(|o| o.get_position())
@@ -1278,10 +1250,7 @@ mod tests {
         logic.mark_object_for_destruction(t1, None);
         logic.process_destroy_list();
         assert!(
-            logic.tunnel_network.is_in_network(
-                crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA),
-                uid,
-            ),
+            logic.tunnel_network.is_in_network(key, uid),
             "occupant must stay in the shared pool"
         );
         let u = logic.host_object(uid).expect("rider lives");
@@ -1297,18 +1266,13 @@ mod tests {
             (p.x - origin.x).abs() < 0.01 && (p.z - origin.z).abs() < 0.01,
             "must not spill at rubble"
         );
-        assert_eq!(
-            logic.tunnel_network.contain_count(
-                crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA),
-            ),
-            1,
-        );
+        assert_eq!(logic.tunnel_network.contain_count(key), 1);
     }
 
     #[test]
     fn tunnel_on_die_remaps_to_oldest_registered_entrance() {
         // C++ TunnelTracker.cpp:201 m_tunnelIDs.front() after remove.
-        let (mut logic, t1, t2, uid) = setup_two_tunnels_and_rider();
+        let (mut logic, t1, t2, uid, key) = setup_two_tunnels_and_rider();
         let t3 = logic
             .create_object(
                 "GLATunnelNetwork",
@@ -1320,10 +1284,8 @@ mod tests {
             o.set_status_under_construction(false);
             o.construction_percent = 1.0;
         }
-        logic.tunnel_network.on_tunnel_created(
-            crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA),
-            t3,
-        );
+        assert_eq!(logic.host_object(t3).unwrap().tunnel_system_key(), key);
+        logic.tunnel_network.on_tunnel_created(key, t3);
         logic.mark_object_for_destruction(t1, None);
         logic.process_destroy_list();
         let u = logic.host_object(uid).expect("rider lives");
@@ -1338,7 +1300,7 @@ mod tests {
     #[test]
     fn tunnel_on_die_remap_restarts_time_for_full_heal() {
         // C++ Object::onContainedBy restamps m_containedByFrame.
-        let (mut logic, t1, _t2, uid) = setup_two_tunnels_and_rider();
+        let (mut logic, t1, _t2, uid, _key) = setup_two_tunnels_and_rider();
         logic.tunnel_network.stamp_contained_by_frame(uid, 0);
         logic.frame = 40;
         logic.mark_object_for_destruction(t1, None);
@@ -1353,21 +1315,13 @@ mod tests {
     #[test]
     fn last_tunnel_die_cave_in_kills_pool() {
         // C++ TunnelTracker.cpp:192-197 last tunnel destroyObject all contained.
-        let (mut logic, t1, t2, uid) = setup_two_tunnels_and_rider();
+        let (mut logic, t1, t2, uid, key) = setup_two_tunnels_and_rider();
         logic.mark_object_for_destruction(t1, None);
         logic.process_destroy_list();
-        assert!(logic.tunnel_network.is_in_network(
-            crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA),
-            uid,
-        ));
+        assert!(logic.tunnel_network.is_in_network(key, uid));
         logic.mark_object_for_destruction(t2, None);
         logic.process_destroy_list();
-        assert_eq!(
-            logic.tunnel_network.contain_count(
-                crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA),
-            ),
-            0,
-        );
+        assert_eq!(logic.tunnel_network.contain_count(key), 0);
         assert!(logic.tunnel_network.honesty_cave_in_ok());
         let dead = logic.host_object(uid);
         assert!(
@@ -1379,14 +1333,11 @@ mod tests {
     #[test]
     fn bunker_buster_record_exit_removes_tunnel_pool() {
         // C++ TunnelContain.cpp:95 harmAndForceExitAllContained + record_exit.
-        let (mut logic, t1, _t2, uid) = setup_two_tunnels_and_rider();
+        let (mut logic, t1, _t2, uid, key) = setup_two_tunnels_and_rider();
         let (kills, _, _) = logic.apply_bunker_buster_to_target(t1, Team::USA, 100.0, None);
         assert!(kills >= 1);
         assert!(
-            !logic.tunnel_network.is_in_network(
-                crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA),
-                uid,
-            ),
+            !logic.tunnel_network.is_in_network(key, uid),
             "bunker-buster must record_exit the shared pool occupant"
         );
     }
@@ -1394,7 +1345,7 @@ mod tests {
     #[test]
     fn tunnel_occupant_immune_to_entrance_splash() {
         // hq-vsp1v: C++ Weapon.cpp dealDamageInternal partition-world only.
-        let (mut logic, t1, _t2, uid) = setup_two_tunnels_and_rider();
+        let (mut logic, t1, _t2, uid, key) = setup_two_tunnels_and_rider();
         logic
             .players
             .insert(1, Player::new(1, Team::USA, "USA", true));
@@ -1405,7 +1356,6 @@ mod tests {
             .create_object("SplashGun", Team::USA, glam::Vec3::new(-80.0, 0.0, 0.0))
             .expect("gun");
         let hp_before = logic.host_object(uid).unwrap().health.current;
-        let key = crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA);
         let _hits = logic.apply_instant_hit_splash_at(
             glam::Vec3::new(0.0, 0.0, 0.0),
             500.0,
@@ -1430,8 +1380,7 @@ mod tests {
     #[test]
     fn tunnel_occupant_death_frees_shared_slot() {
         // hq-vsp1v: C++ removeFromContain → TunnelTracker::removeFromContain.
-        let (mut logic, _t1, _t2, uid) = setup_two_tunnels_and_rider();
-        let key = crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA);
+        let (mut logic, _t1, _t2, uid, key) = setup_two_tunnels_and_rider();
         assert_eq!(logic.tunnel_network.contain_count(key), 1);
         logic.mark_object_for_destruction(uid, None);
         logic.process_destroy_list();
@@ -1439,6 +1388,76 @@ mod tests {
             !logic.tunnel_network.is_in_network(key, uid),
             "dead occupant must leave the shared MaxTunnelCapacity pool"
         );
+        assert_eq!(logic.tunnel_network.contain_count(key), 0);
+    }
+
+    #[test]
+    fn tunnel_death_callback_precedes_deferred_removal_and_is_once_only() {
+        let (mut logic, first, second, rider, key) = setup_two_tunnels_and_rider();
+        logic.frame = 40;
+        // Explicitly admit a supported owner-local death continuation. The
+        // callback phase must not depend on guessed name/kind topple admission.
+        for entrance in [first, second] {
+            let mut continuation =
+                crate::game_logic::host_structure_topple::HostStructureToppleData::default();
+            continuation.begin(40, 1.0, 0.0, 0);
+            logic
+                .host_object_mut(entrance)
+                .unwrap()
+                .structure_topple_data = Some(continuation);
+        }
+        let before = logic.tunnel_network.tunnels_destroyed;
+        logic.mark_object_for_destruction(first, None);
+        let dying = logic
+            .host_object(first)
+            .expect("entrance stays installed during onDie");
+        assert!(dying.status.on_die_started);
+        // The explicitly admitted continuation retains the entrance, while
+        // its synchronous TunnelContain callback has already completed.
+        assert!(
+            dying
+                .structure_topple_data
+                .as_ref()
+                .is_some_and(|data| data.is_active())
+        );
+        assert!(!logic.tunnel_network.tunnel_ids_for(key).contains(&first));
+        assert_eq!(logic.tunnel_network.tunnel_ids_for(key), &[second]);
+        assert_eq!(logic.host_object(rider).unwrap().contained_by, Some(second));
+        assert_eq!(logic.tunnel_network.contained_by_frame(rider), Some(40));
+        assert_eq!(logic.tunnel_network.tunnels_destroyed, before + 1);
+        logic.process_destroy_list();
+        assert!(
+            logic.host_object(first).is_some(),
+            "callbacks must precede deferred physical removal"
+        );
+        logic.mark_object_for_destruction(first, None);
+        logic.destroy_object(first);
+        logic.process_destroy_list();
+        assert!(logic.host_object(first).is_none());
+        assert_eq!(logic.tunnel_network.tunnels_destroyed, before + 1);
+        assert_eq!(logic.tunnel_network.cave_ins, 0);
+        assert_eq!(logic.tunnel_network.contain_count(key), 1);
+
+        logic.mark_object_for_destruction(second, None);
+        assert!(logic.host_object(second).unwrap().status.on_die_started);
+        assert!(logic.tunnel_network.tunnel_ids_for(key).is_empty());
+        assert_eq!(logic.tunnel_network.contain_count(key), 0);
+        assert_eq!(logic.tunnel_network.tunnels_destroyed, before + 2);
+        assert_eq!(logic.tunnel_network.cave_ins, 1);
+        // C++ TunnelTracker::destroyObject calls destroyObject, not body damage.
+        let child = logic
+            .host_object(rider)
+            .expect("queued child stays installed until removal");
+        assert!(child.status.destroyed);
+        assert!(!child.status.on_die_started);
+        assert_eq!(child.contained_by, None);
+        logic.mark_object_for_destruction(second, None);
+        logic.destroy_object(second);
+        logic.process_destroy_list();
+        assert!(logic.host_object(second).is_none());
+        assert!(logic.host_object(rider).is_none());
+        assert_eq!(logic.tunnel_network.tunnels_destroyed, before + 2);
+        assert_eq!(logic.tunnel_network.cave_ins, 1);
         assert_eq!(logic.tunnel_network.contain_count(key), 0);
     }
 

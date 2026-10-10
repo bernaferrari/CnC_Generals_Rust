@@ -2622,6 +2622,7 @@ pub fn with_recorder<R>(f: impl FnOnce(&Recorder) -> R) -> Option<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::ini::ini_game_data::ensure_global_data;
     use std::path::{Path, PathBuf};
 
     fn read_utf16_z_end(bytes: &[u8], mut offset: usize) -> usize {
@@ -2794,9 +2795,10 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let map_name = "Maps/TestPlayback.map".to_string();
         let expected_seed = 0x1357_9BDF;
-        let captured_types = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (sink_types, captured_types_rx) = std::sync::mpsc::channel::<GameMessageType>();
 
-        if let Some(global) = get_global_data() {
+        {
+            let global = ensure_global_data();
             let mut data = global.write();
             data.set_path_user_data(temp.path().to_string_lossy().to_string());
             data.map_name = map_name.clone();
@@ -2823,31 +2825,33 @@ mod tests {
         );
         assert!(temp.path().join("Replays").join(&replay_name).exists());
 
-        if let Some(global) = get_global_data() {
+        {
+            let global = ensure_global_data();
             global.write().pending_file = "OldPending.map".to_string();
         }
 
         let mut reader = Recorder::new();
         reader.set_game_mode_provider(Some(Arc::new(|| 2)));
-        let sink_types = captured_types.clone();
         reader.set_command_sink(Some(std::sync::Arc::new(move |msg| {
-            sink_types.lock().unwrap().push(msg.get_type().clone());
+            sink_types
+                .send(msg.get_type().clone())
+                .expect("test observation receiver remains alive");
         })));
         assert!(reader.playback_file(replay_name).unwrap());
         assert_eq!(get_game_logic_random_seed(), expected_seed);
 
-        let pending = get_global_data()
-            .map(|global| global.read().pending_file.clone())
-            .unwrap_or_default();
+        let pending = ensure_global_data().read().pending_file.clone();
         assert_eq!(pending, map_name);
+        let mut captured_types: Vec<GameMessageType> = captured_types_rx.try_iter().collect();
         assert_eq!(
-            captured_types.lock().unwrap().as_slice(),
+            captured_types.as_slice(),
             &[GameMessageType::ClearGameData, GameMessageType::NewGame,]
         );
 
         reader.stop_playback();
+        captured_types.extend(captured_types_rx.try_iter());
         assert_eq!(
-            captured_types.lock().unwrap().as_slice(),
+            captured_types.as_slice(),
             &[
                 GameMessageType::ClearGameData,
                 GameMessageType::NewGame,
@@ -2861,7 +2865,8 @@ mod tests {
         // C++ GameLogic.h:375 isInGame() is true for GAME_SHELL.
         let temp = tempfile::tempdir().unwrap();
 
-        if let Some(global) = get_global_data() {
+        {
+            let global = ensure_global_data();
             let mut data = global.write();
             data.set_path_user_data(temp.path().to_string_lossy().to_string());
             data.map_name = "Maps/PlaybackShellClear.map".to_string();
@@ -2882,17 +2887,19 @@ mod tests {
             writer.replay_extension()
         );
 
-        let captured_types = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (sink_types, captured_types_rx) = std::sync::mpsc::channel::<GameMessageType>();
         let mut reader = Recorder::new();
         reader.set_game_mode_provider(Some(Arc::new(|| GAME_SHELL)));
-        let sink_types = captured_types.clone();
         reader.set_command_sink(Some(std::sync::Arc::new(move |msg| {
-            sink_types.lock().unwrap().push(msg.get_type().clone());
+            sink_types
+                .send(msg.get_type().clone())
+                .expect("test observation receiver remains alive");
         })));
 
         assert!(reader.playback_file(replay_name).unwrap());
+        let captured_types: Vec<GameMessageType> = captured_types_rx.try_iter().collect();
         assert_eq!(
-            captured_types.lock().unwrap().as_slice(),
+            captured_types.as_slice(),
             &[GameMessageType::ClearGameData, GameMessageType::NewGame,]
         );
     }
@@ -2901,7 +2908,8 @@ mod tests {
     fn test_playback_file_skips_clear_game_data_when_not_in_game() {
         let temp = tempfile::tempdir().unwrap();
 
-        if let Some(global) = get_global_data() {
+        {
+            let global = ensure_global_data();
             let mut data = global.write();
             data.set_path_user_data(temp.path().to_string_lossy().to_string());
             data.map_name = "Maps/PlaybackNoClear.map".to_string();
@@ -2922,19 +2930,18 @@ mod tests {
             writer.replay_extension()
         );
 
-        let captured_types = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (sink_types, captured_types_rx) = std::sync::mpsc::channel::<GameMessageType>();
         let mut reader = Recorder::new();
         reader.set_game_mode_provider(Some(Arc::new(|| GAME_NONE)));
-        let sink_types = captured_types.clone();
         reader.set_command_sink(Some(std::sync::Arc::new(move |msg| {
-            sink_types.lock().unwrap().push(msg.get_type().clone());
+            sink_types
+                .send(msg.get_type().clone())
+                .expect("test observation receiver remains alive");
         })));
 
         assert!(reader.playback_file(replay_name).unwrap());
-        assert_eq!(
-            captured_types.lock().unwrap().as_slice(),
-            &[GameMessageType::NewGame,]
-        );
+        let captured_types: Vec<GameMessageType> = captured_types_rx.try_iter().collect();
+        assert_eq!(captured_types.as_slice(), &[GameMessageType::NewGame,]);
     }
 
     #[test]
@@ -2942,7 +2949,8 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let map_name = "Maps/HeaderParity.map".to_string();
 
-        if let Some(global) = get_global_data() {
+        {
+            let global = ensure_global_data();
             let mut data = global.write();
             data.set_path_user_data(temp.path().to_string_lossy().to_string());
             data.map_name = map_name.clone();
@@ -3022,8 +3030,9 @@ mod tests {
 
     #[test]
     fn test_recorder_init_prefers_pending_file_over_map_name() {
-        let snapshot = get_global_data().map(|global| global.read().clone());
-        if let Some(global) = get_global_data() {
+        let global = ensure_global_data();
+        let snapshot = global.read().clone();
+        {
             let mut data = global.write();
             data.pending_file = "Maps/PendingOverride.map".to_string();
             data.map_name = "Maps/MapNameFallback.map".to_string();
@@ -3037,16 +3046,15 @@ mod tests {
             "Maps/PendingOverride.map"
         );
 
-        if let (Some(global), Some(snapshot)) = (get_global_data(), snapshot) {
-            *global.write() = snapshot;
-        }
+        *global.write() = snapshot;
     }
 
     #[test]
     fn test_analyze_replay_sets_analysis_mode_and_progress_state() {
         let temp = tempfile::tempdir().unwrap();
 
-        if let Some(global) = get_global_data() {
+        {
+            let global = ensure_global_data();
             let mut data = global.write();
             data.set_path_user_data(temp.path().to_string_lossy().to_string());
             data.map_name = "Maps/AnalysisReplay.map".to_string();
@@ -3080,7 +3088,8 @@ mod tests {
     fn test_analyze_replay_suppresses_clear_game_data_messages() {
         let temp = tempfile::tempdir().unwrap();
 
-        if let Some(global) = get_global_data() {
+        {
+            let global = ensure_global_data();
             let mut data = global.write();
             data.set_path_user_data(temp.path().to_string_lossy().to_string());
             data.map_name = "Maps/AnalysisClearReplay.map".to_string();
@@ -3101,24 +3110,27 @@ mod tests {
             writer.replay_extension()
         );
 
-        let captured_types = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (sink_types, captured_types_rx) = std::sync::mpsc::channel::<GameMessageType>();
         let mut analyzer = Recorder::new();
-        let sink_types = captured_types.clone();
         analyzer.set_command_sink(Some(std::sync::Arc::new(move |msg| {
-            sink_types.lock().unwrap().push(msg.get_type().clone());
+            sink_types
+                .send(msg.get_type().clone())
+                .expect("test observation receiver remains alive");
         })));
 
         assert!(analyzer.analyze_replay(replay_name).unwrap());
         analyzer.stop_playback();
 
-        assert!(captured_types.lock().unwrap().is_empty());
+        let captured_types: Vec<GameMessageType> = captured_types_rx.try_iter().collect();
+        assert!(captured_types.is_empty());
     }
 
     #[test]
     fn test_version_playback_detects_header_mismatch_matrix() {
         let temp = tempfile::tempdir().unwrap();
 
-        if let Some(global) = get_global_data() {
+        {
+            let global = ensure_global_data();
             let mut data = global.write();
             data.set_path_user_data(temp.path().to_string_lossy().to_string());
             data.map_name = "Maps/VersionMatrixReplay.map".to_string();
@@ -3345,7 +3357,8 @@ mod tests {
     #[test]
     fn test_start_recording_preserves_lobby_slots() {
         let temp = tempfile::tempdir().unwrap();
-        if let Some(global) = get_global_data() {
+        {
+            let global = ensure_global_data();
             let mut data = global.write();
             data.set_path_user_data(temp.path().to_string_lossy().to_string());
             data.map_name = "Maps/LobbySlots.map".to_string();
@@ -3449,7 +3462,8 @@ mod tests {
     #[test]
     fn test_logic_crc_from_file_reaches_handle_crc_message() {
         let temp = tempfile::tempdir().unwrap();
-        if let Some(global) = get_global_data() {
+        {
+            let global = ensure_global_data();
             let mut data = global.write();
             data.set_path_user_data(temp.path().to_string_lossy().to_string());
             data.map_name = "Maps/CrcPath.map".to_string();
@@ -3531,7 +3545,8 @@ mod tests {
     fn cleanup_replay_file_preserves_original_rep() {
         let temp = tempfile::tempdir().unwrap();
         let stats = temp.path().join("stats");
-        if let Some(global) = get_global_data() {
+        {
+            let global = ensure_global_data();
             let mut data = global.write();
             data.set_path_user_data(temp.path().to_string_lossy().to_string());
             data.save_stats = true;
@@ -3571,7 +3586,8 @@ mod tests {
         // C++ Recorder.cpp:1123-1134 appends MSG_NEW_GAME to TheMessageStream
         // (not TheCommandList). stopPlayback :447 appends MSG_CLEAR_GAME_DATA.
         let temp = tempfile::tempdir().unwrap();
-        if let Some(global) = get_global_data() {
+        {
+            let global = ensure_global_data();
             let mut data = global.write();
             data.set_path_user_data(temp.path().to_string_lossy().to_string());
             data.map_name = "Maps/PlaybackStream.map".to_string();

@@ -1114,6 +1114,9 @@ pub struct GameLogic {
     /// Audio events queued this frame (mirrors C++ TheAudio pattern)
     /// In production, these would be sent to the audio engine
     pub queued_audio_events: Vec<AudioEventRequest>,
+    /// Transient per-site construction playback; identical IDs in other matches
+    /// have independent loops. Native handles and per-builder parity remain separate.
+    pub(super) construction_audio_loops: HashMap<ObjectId, String>,
     /// Presentation retry deadlines belong to this world, not ObjectId alone.
     pub(super) ambient_sound_retries: AmbientSoundRetries,
 

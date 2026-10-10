@@ -57,42 +57,7 @@ impl GameLogic {
             return;
         }
         if object.is_tunnel_network_style_container() {
-            let player = object.tunnel_system_key();
-            // CPP TunnelContain347: only a currently registered entrance
-            // calls onTunnelDestroyed. Construction/reset may leave it inert.
-            if !self.tunnel_network.tunnel_ids_for(player).contains(&id) {
-                return;
-            }
-            let remaining: Vec<_> = self
-                .tunnel_network
-                .tunnel_ids_for(player)
-                .iter()
-                .copied()
-                .filter(|other| {
-                    *other != id && self.objects.get(other).is_some_and(|o| !o.status.destroyed)
-                })
-                .collect();
-            let outcome = self
-                .tunnel_network
-                .on_tunnel_destroyed(player, id, &remaining);
-            if outcome.cave_in {
-                for child in outcome.cave_in_units {
-                    if let Some(object) = self.objects.get_mut(&child) {
-                        object.set_contained_by(None);
-                    }
-                    self.destroy_object(child);
-                }
-            } else if let Some(entrance) = outcome.remapped_to {
-                for child in self.tunnel_network.contained_for_player(player) {
-                    if let Some(object) = self.objects.get_mut(&child) {
-                        if object.contained_by == Some(id) {
-                            object.set_contained_by(Some(entrance));
-                            self.tunnel_network
-                                .stamp_contained_by_frame(child, self.frame);
-                        }
-                    }
-                }
-            }
+            self.unregister_tunnel_containment(id);
             return;
         }
         let kind = object.thing().template.contain_module.kind;
@@ -108,6 +73,54 @@ impl GameLogic {
             let children = object.contained_units();
             for child in children {
                 self.destroy_object(child);
+            }
+        }
+    }
+
+    /// C++ TunnelContain::onDie/onDelete share m_isCurrentlyRegistered.
+    /// Keep the dying entrance installed while remapping or deleting children;
+    /// the exact registered ID is consumed before any reentrant callback.
+    pub(in super::super) fn unregister_tunnel_containment(&mut self, id: ObjectId) {
+        let Some(object) = self.objects.get(&id) else {
+            return;
+        };
+        if !object.is_tunnel_network_style_container() {
+            return;
+        }
+        let player = object.tunnel_system_key();
+        // CPP TunnelContain347: only a currently registered entrance
+        // calls onTunnelDestroyed. Construction/reset may leave it inert.
+        if !self.tunnel_network.tunnel_ids_for(player).contains(&id) {
+            return;
+        }
+        let remaining: Vec<_> = self
+            .tunnel_network
+            .tunnel_ids_for(player)
+            .iter()
+            .copied()
+            .filter(|other| {
+                *other != id && self.objects.get(other).is_some_and(|o| !o.status.destroyed)
+            })
+            .collect();
+        let outcome = self
+            .tunnel_network
+            .on_tunnel_destroyed(player, id, &remaining);
+        if outcome.cave_in {
+            for child in outcome.cave_in_units {
+                if let Some(object) = self.objects.get_mut(&child) {
+                    object.set_contained_by(None);
+                }
+                self.destroy_object(child);
+            }
+        } else if let Some(entrance) = outcome.remapped_to {
+            for child in self.tunnel_network.contained_for_player(player) {
+                if let Some(object) = self.objects.get_mut(&child) {
+                    if object.contained_by == Some(id) {
+                        object.set_contained_by(Some(entrance));
+                        self.tunnel_network
+                            .stamp_contained_by_frame(child, self.frame);
+                    }
+                }
             }
         }
     }
@@ -154,6 +167,7 @@ impl GameLogic {
         {
             gamelogic::helpers::TheGameClient.destroy_drawable(draw);
         }
+        self.finish_building_sound(id);
         let Some(object) = self.objects.remove(&id) else {
             return false;
         };

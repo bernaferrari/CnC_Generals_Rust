@@ -1310,6 +1310,7 @@ impl GameLogic {
             *self.host_physics_visuals.get_mut() = Default::default();
         }
         self.visual_world_epoch = self.visual_world_epoch.wrapping_add(1).max(1);
+        self.finish_all_building_sounds();
         self.objects.clear();
         // Playback/retry deadlines are transient; restored IDs start fresh.
         self.ambient_sound_retries.clear();
@@ -2878,6 +2879,7 @@ impl GameLogic {
                     }
                     // Immediate remove — same spirit as C++ destroy-before-create.
                     self.host_radar_remove_object(object_id);
+                    self.finish_building_sound(object_id);
                     let _removed = self.objects.remove(&object_id);
                     if let Some(new_id) = self.create_object(&replacement, team, pos) {
                         if let Some(obj) = self.objects.get_mut(&new_id) {

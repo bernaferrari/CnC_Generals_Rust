@@ -195,7 +195,6 @@ thread_local! {
     static PER_UNIT_SOUND_OVERRIDE: RefCell<HashMap<(String, String), String>> =
         RefCell::new(HashMap::new());
     static INITIATE_SOUND_OVERRIDE: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
-    static BUILDING_LOOPS: RefCell<HashMap<u32, String>> = RefCell::new(HashMap::new());
 }
 
 fn nonempty_event_name(event: &game_engine::common::audio::AudioEventRts) -> Option<String> {
@@ -291,23 +290,6 @@ pub fn resolve_special_power_initiate_sound(
     retail_fallback
         .filter(|s| !s.is_empty())
         .map(str::to_string)
-}
-
-/// Remember a live UnderConstruction loop on the construction site.
-pub fn note_building_loop(site_id: u32, event: &str) -> Option<String> {
-    BUILDING_LOOPS.with(|m| m.borrow_mut().insert(site_id, event.to_string()))
-}
-
-pub fn building_loop_event(site_id: u32) -> Option<String> {
-    BUILDING_LOOPS.with(|m| m.borrow().get(&site_id).cloned())
-}
-
-pub fn take_building_loop(site_id: u32) -> Option<String> {
-    BUILDING_LOOPS.with(|m| m.borrow_mut().remove(&site_id))
-}
-
-pub fn clear_building_loops() {
-    BUILDING_LOOPS.with(|m| m.borrow_mut().clear());
 }
 
 fn named_template_voice(
@@ -902,7 +884,6 @@ mod tests {
             Some("TestSpySatInitiate")
         );
         clear_test_template_voices();
-        clear_building_loops();
     }
 
     #[test]

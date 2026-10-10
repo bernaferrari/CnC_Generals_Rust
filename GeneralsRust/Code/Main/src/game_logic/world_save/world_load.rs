@@ -238,6 +238,7 @@ impl GameLogic {
                         }
                         let object_spawn_started = Instant::now();
                         report_progress(0.58, "Spawning world objects");
+                        self.finish_all_building_sounds();
                         self.objects.clear();
                         // Build a mapping from map-defined player IDs to teams.
                         let mut map_player_to_team: HashMap<u32, Team> = HashMap::new();

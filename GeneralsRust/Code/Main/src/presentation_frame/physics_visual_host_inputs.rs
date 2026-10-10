@@ -11,8 +11,6 @@ use crate::game_logic::host_partition_collision_physics_residual::{
     geometry_bounding_circle_radius, geometry_max_height_above_position,
 };
 use glam::Vec3;
-use std::cell::RefCell;
-use std::collections::HashMap;
 
 /// C++ `MAP_XY_FACTOR` residual used by host `slope_at_world` when the
 /// live heightmap scale is not reachable from this crate boundary.
@@ -25,24 +23,6 @@ pub struct ObjectVisualIni {
     pub height: Option<f32>,
     pub geometry: Option<String>,
     pub kindof: Option<String>,
-}
-
-#[cfg(test)]
-thread_local! {
-    static TEST_OBJECT_INI: RefCell<HashMap<String, ObjectVisualIni>> =
-        RefCell::new(HashMap::new());
-}
-
-#[cfg(test)]
-pub fn set_test_object_visual_ini(template_name: &str, ini: ObjectVisualIni) {
-    TEST_OBJECT_INI.with(|slot| {
-        slot.borrow_mut().insert(template_name.to_string(), ini);
-    });
-}
-
-#[cfg(test)]
-pub fn clear_test_object_visual_ini() {
-    TEST_OBJECT_INI.with(|slot| slot.borrow_mut().clear());
 }
 
 /// C++ Z-up unit normal from four host Y-up height samples.
@@ -81,12 +61,6 @@ where
 }
 
 pub fn object_visual_ini(template_name: &str) -> ObjectVisualIni {
-    #[cfg(test)]
-    {
-        if let Some(ini) = TEST_OBJECT_INI.with(|slot| slot.borrow().get(template_name).cloned()) {
-            return ini;
-        }
-    }
     object_visual_ini_from_asset_manager(template_name).unwrap_or_default()
 }
 
