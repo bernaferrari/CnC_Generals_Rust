@@ -2432,8 +2432,6 @@ mod staged_restore_tests {
         source.add_player(Player::new(0, Team::USA, "Human", true));
         source.add_player(Player::new(1, Team::China, "Computer", false));
         source.setup_skirmish_ai(0);
-        gamelogic::ai::integration::initialize_ai_integration()
-            .expect("initialize independent compatibility AI fixture");
         let foreign_core = gamelogic::system::engine_stores::new_for_world();
         let (first_live_ai_group_id, second_live_ai_group_id) = {
             let ai_store = foreign_core.ai();
@@ -2444,12 +2442,19 @@ mod staged_restore_tests {
             let second = second.read().expect("read second live AI group").get_id();
             (first, second)
         };
+        // C++ AIPlayer.cpp:81 reads its AI owner's teamSeconds at construction.
+        // Admit this independent Core fixture under its own store, then restore
+        // Main's service selection before testing the real rollback boundary.
         let live_integration_ai_player_count =
-            gamelogic::ai::integration::with_ai_integration_mut(|manager| {
-                manager.ensure_ai_player(77, false);
-                manager.get_ai_player_count()
-            })
-            .expect("live AI integration manager initialized");
+            gamelogic::system::engine_stores::with_active_stores(&foreign_core, || {
+                gamelogic::ai::integration::initialize_ai_integration()
+                    .expect("initialize independent compatibility AI fixture");
+                gamelogic::ai::integration::with_ai_integration_mut(|manager| {
+                    manager.ensure_ai_player(77, false);
+                    manager.get_ai_player_count()
+                })
+                .expect("live AI integration manager initialized")
+            });
         let catalog = source.templates.clone();
         saves
             .save_game(
@@ -3136,12 +3141,15 @@ mod staged_restore_tests {
                 std::fs::write(&map_path, map.into_ckmp_bytes()).unwrap();
                 let map_name = map_path.to_str().unwrap().to_string();
                 let foreign = gamelogic::system::engine_stores::new_for_world();
-                gamelogic::ai::integration::initialize_ai_integration().unwrap();
-                let integration_count = gamelogic::ai::integration::with_ai_integration_mut(|ai| {
-                    ai.ensure_ai_player(77, false);
-                    ai.get_ai_player_count()
-                })
-                .unwrap();
+                let integration_count =
+                    gamelogic::system::engine_stores::with_active_stores(&foreign, || {
+                        gamelogic::ai::integration::initialize_ai_integration().unwrap();
+                        gamelogic::ai::integration::with_ai_integration_mut(|ai| {
+                            ai.ensure_ai_player(77, false);
+                            ai.get_ai_player_count()
+                        })
+                        .unwrap()
+                    });
                 let mut foreign_ai = foreign.ai().write().unwrap();
                 let group = foreign_ai.create_group();
                 let group_id = group.read().unwrap().get_id();

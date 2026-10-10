@@ -261,9 +261,10 @@ impl<'a> CommandExecutor<'a> {
                 any_attacker = true;
                 continue;
             }
-            let has_ai = self.game_logic.host_object(unit_id).is_some_and(|u| {
-                u.is_mobile() || u.can_attack()
-            });
+            let has_ai = self
+                .game_logic
+                .host_object(unit_id)
+                .is_some_and(|u| u.is_mobile() || u.can_attack());
             if !has_ai {
                 continue;
             }
@@ -415,9 +416,10 @@ impl<'a> CommandExecutor<'a> {
                 }
             }
 
-            let has_ai = self.game_logic.host_object(unit_id).is_some_and(|unit| {
-                unit.is_mobile() || unit.can_attack()
-            });
+            let has_ai = self
+                .game_logic
+                .host_object(unit_id)
+                .is_some_and(|unit| unit.is_mobile() || unit.can_attack());
             if has_ai
                 && self
                     .game_logic
@@ -430,17 +432,17 @@ impl<'a> CommandExecutor<'a> {
                 None
             } else {
                 self.game_logic.host_object(unit_id).and_then(|unit| {
-                if !unit.can_move() {
-                    return None;
-                }
-                let pos = unit.get_position();
-                let dist = (pos.x - attack_pos.x).hypot(pos.z - attack_pos.z);
-                let range = unit.weapon.as_ref().map(|w| w.range).unwrap_or(50.0);
-                if dist > range.max(20.0) {
-                    Some(attack_pos)
-                } else {
-                    None
-                }
+                    if !unit.can_move() {
+                        return None;
+                    }
+                    let pos = unit.get_position();
+                    let dist = (pos.x - attack_pos.x).hypot(pos.z - attack_pos.z);
+                    let range = unit.weapon.as_ref().map(|w| w.range).unwrap_or(50.0);
+                    if dist > range.max(20.0) {
+                        Some(attack_pos)
+                    } else {
+                        None
+                    }
                 })
             };
             if let Some(dest) = need_approach {
@@ -490,9 +492,10 @@ impl<'a> CommandExecutor<'a> {
             }
         }
         for &unit_id in units {
-            let has_ai = self.game_logic.host_object(unit_id).is_some_and(|unit| {
-                unit.is_mobile() || unit.can_attack()
-            });
+            let has_ai = self
+                .game_logic
+                .host_object(unit_id)
+                .is_some_and(|unit| unit.is_mobile() || unit.can_attack());
             if has_ai {
                 let _ = self.game_logic.unit_command_stop(unit_id);
             }

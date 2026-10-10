@@ -334,7 +334,12 @@ impl GameLogic {
         self.sync_legacy_team_factory_from_sides();
 
         if !self.players.is_empty() {
-            self.apply_host_players_from_side_dicts(&sides_data.side_dicts, false);
+            // GameLogic.cpp:1288+ rebuilds occupied Skirmish dictionaries from
+            // GameInfo after prepareForMP_or_Skirmish. Authored map side indices
+            // must not overwrite this session's already admitted lobby slots.
+            if self.game_mode != GameMode::Skirmish {
+                self.apply_host_players_from_side_dicts(&sides_data.side_dicts, false);
+            }
             self.stash_side_builds_on_host(&sides_data.side_builds);
         }
         self.transfer_side_build_lists_to_players();

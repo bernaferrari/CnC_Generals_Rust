@@ -4,7 +4,7 @@ use super::super::super::*;
 impl GameLogic {
     pub(super) fn tick_heal_contain_and_tunnel(&mut self) {
         use crate::game_logic::host_tunnel_network::{
-            heal_contain_done, tunnel_tracker_heal_amount, TUNNEL_FULL_HEAL_FRAMES,
+            TUNNEL_FULL_HEAL_FRAMES, heal_contain_done, tunnel_tracker_heal_amount,
         };
 
         // C++ GarrisonContain::update: drop effectively-dead occupants so
@@ -635,7 +635,7 @@ impl GameLogic {
         position: Vec3,
         can_move: bool,
     ) {
-        use crate::game_logic::host_supply_gather::{wanting_dock_target, WantingDockTarget};
+        use crate::game_logic::host_supply_gather::{WantingDockTarget, wanting_dock_target};
         const SUPPLY_BOX_VALUE: u32 =
             crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX as u32;
         let cash = self
@@ -750,7 +750,7 @@ impl GameLogic {
         owner_player_id: Option<u32>,
         from: Vec3,
     ) {
-        use crate::game_logic::host_repair::{find_position_around_dozer, DozerFindPositionQuery};
+        use crate::game_logic::host_repair::{DozerFindPositionQuery, find_position_around_dozer};
         use crate::game_logic::host_supply_gather::REGROUP_SUCCESS_DISTANCE_SQUARED;
         use gamelogic::ai::pathfind_astar::PathfindCellType;
         // C++ RegroupingState::onEnter clears the ignore before the search.

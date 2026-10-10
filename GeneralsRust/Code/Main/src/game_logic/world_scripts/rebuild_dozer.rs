@@ -18,8 +18,8 @@ impl GameLogic {
         source_id: Option<ObjectId>,
     ) -> Vec3 {
         use crate::game_logic::host_repair::{
-            find_good_build_or_repair_position as snap, DozerFindPositionQuery,
-            DOZER_FIND_POSITION_OVERLAP_SPHERE,
+            DOZER_FIND_POSITION_OVERLAP_SPHERE, DozerFindPositionQuery,
+            find_good_build_or_repair_position as snap,
         };
         use gamelogic::ai::pathfind_astar::PathfindCellType;
 

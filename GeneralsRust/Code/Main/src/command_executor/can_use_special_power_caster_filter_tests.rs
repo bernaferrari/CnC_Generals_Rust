@@ -785,7 +785,7 @@ fn object_target_click_rejects_fogged_ghost() {
     }
 
     {
-        let shroud_manager = logic.engine_stores.shroud();
+        let shroud_manager = logic.world_services.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.set_host_object_shroud_status(0, depot_id.0, ObjectShroudStatus::Fogged);
         shroud.set_host_object_shroud_status(0, tank_id.0, ObjectShroudStatus::Fogged);
@@ -835,7 +835,7 @@ fn object_target_click_rejects_fogged_ghost() {
     );
 
     {
-        let shroud_manager = logic.engine_stores.shroud();
+        let shroud_manager = logic.world_services.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.set_host_object_shroud_status(0, depot_id.0, ObjectShroudStatus::Clear);
         shroud.set_host_object_shroud_status(0, tank_id.0, ObjectShroudStatus::Clear);
@@ -857,24 +857,12 @@ fn object_target_click_rejects_fogged_ghost() {
         !logic.is_special_power_ready_for(caster, &SpecialPowerType::CashHack),
         "valid CLEAR CashHack must consume the charge"
     );
-
-    if let Ok(mut shroud) = get_shroud_manager().lock() {
-        shroud.clear_all();
-    }
 }
 
 #[test]
 fn location_power_unit_click_leftover_gates_shroud() {
     use crate::command_system::PowerTarget;
     use crate::game_logic::KindOf;
-    use gamelogic::system::shroud_manager::get_shroud_manager;
-
-    {
-        let shroud_manager = get_shroud_manager();
-        let mut shroud = shroud_manager.lock().expect("shroud");
-        shroud.clear_all();
-        shroud.init_shroud_grid(512.0, 512.0);
-    }
 
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "USA", true));
@@ -902,11 +890,10 @@ fn location_power_unit_click_leftover_gates_shroud() {
     let enemy_id = logic
         .create_object_for_player("HqHr2aeEnemy", 1, Vec3::new(80.0, 0.0, 40.0))
         .expect("enemy");
-    // GameLogic::new() resets the shroud world (clear_all drops the grid);
-    // (re)initialize the 512x shroud grid so the leftover cell-shroud gate
+    // Initialize this map owner's 512x shroud grid so the cell-shroud gate
     // sees CELLSHROUD_SHROUDED the way a loaded C++ map does.
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = logic.world_services.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(512.0, 512.0);
@@ -932,10 +919,6 @@ fn location_power_unit_click_leftover_gates_shroud() {
         logic.is_special_power_ready_for(cc_id, &SpecialPowerType::Airstrike),
         "shrouded location-power unit click must not consume charge"
     );
-
-    if let Ok(mut shroud) = get_shroud_manager().lock() {
-        shroud.clear_all();
-    }
 }
 
 #[test]

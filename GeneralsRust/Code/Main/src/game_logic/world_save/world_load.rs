@@ -273,7 +273,11 @@ impl GameLogic {
                                     "Preserving {} host player(s) across map load (skirmish/SP config)",
                                     self.players.len()
                                 );
-                                self.apply_host_players_from_sides_list(false);
+                                // C++ prepares occupied Skirmish slots from GameInfo,
+                                // not the authored map's Civilian/player dictionaries.
+                                if self.game_mode != GameMode::Skirmish {
+                                    self.apply_host_players_from_sides_list(false);
+                                }
                             } else {
                                 self.players.clear();
                                 for (&pid, &team) in &map_player_to_team {

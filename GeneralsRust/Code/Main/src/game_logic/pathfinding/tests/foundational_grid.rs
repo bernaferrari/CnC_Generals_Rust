@@ -317,6 +317,7 @@ fn classify_map_cell_water_wins_over_cliff_no_slope_gate() {
         include_str!("../../world_save.rs"),
         include_str!("../../world_save/world_subsystems.rs"),
         include_str!("../../world_save/world_paths.rs"),
+        include_str!("../../world_save/world_bridges.rs"),
         include_str!("../../world_save/world_runtime.rs"),
         include_str!("../../world_save/world_players.rs"),
         include_str!("../../world_save/world_load.rs"),
@@ -326,8 +327,9 @@ fn classify_map_cell_water_wins_over_cliff_no_slope_gate() {
         "live seed_pathfinding_from_terrain must not slope-gate Impassable"
     );
     assert!(
-        src.contains("is_underwater_at_world(tl)")
-            && src.contains("classify_map_cell(cliff, water)"),
+        src.contains("logical.is_underwater")
+            && src.contains("PathfindingGrid::classify_map_cell(")
+            && src.contains("terrain.is_cliff_at_world(tl)"),
         "live seed must sample four corners then classify_map_cell"
     );
 }

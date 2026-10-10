@@ -645,6 +645,10 @@ impl CnCGameEngine {
         info!("host_start_game_from_ui: match residuals cleared");
         if let Some(seed) = replay_seed {
             self.game_logic.set_logic_random_seed(seed);
+        } else if mode == GameMode::SinglePlayer {
+            // Campaign/Challenge starts select seed 0 in C++ menus. Admission
+            // targets this session instead of relying on a process broadcast.
+            self.game_logic.set_logic_random_seed(0);
         }
 
         // Wave 169/840: empty UI map → DEFAULT_SKIRMISH_MAP (Defcon6) before

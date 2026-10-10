@@ -333,6 +333,33 @@ pub fn shroud_manager() -> Arc<Mutex<ShroudManager>> {
     Arc::clone(active_services().shroud())
 }
 
+pub fn the_ai() -> Arc<RwLock<AI>> {
+    Arc::clone(active().ai())
+}
+
+/// Move `bundle`'s AI contents out for a whole-world restore transaction
+/// while preserving the lock identity aliases hold (contents swap, C++
+/// AI.cpp:280 wrapper semantics). The runtime world transaction owns the
+/// only raw use of this boundary API and passes the explicit bundle it
+/// captured at `begin`, so the swap never depends on ambient resolution.
+pub(crate) fn take_ai_for_world_boundary(bundle: &Arc<EngineStores>) -> AI {
+    let mut ai = bundle
+        .ai()
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    std::mem::replace(&mut *ai, AI::new())
+}
+
+/// Install AI contents into `bundle` at a whole-world restore boundary and
+/// return the contents they replaced. See [`take_ai_for_world_boundary`].
+pub(crate) fn replace_ai_for_world_boundary(bundle: &Arc<EngineStores>, next: AI) -> AI {
+    let mut ai = bundle
+        .ai()
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    std::mem::replace(&mut *ai, next)
+}
+
 #[cfg(test)]
 fn active_stack_depth() -> usize {
     ACTIVE
