@@ -571,6 +571,17 @@ impl ObjectPathQueue {
         true
     }
 
+    /// Undo a failed supplied callback before that callback admitted any queue effects.
+    pub(crate) fn restore_front(&mut self, id: ObjectID) {
+        let previous = (self.head + PATHFIND_QUEUE_LEN - 1) % PATHFIND_QUEUE_LEN;
+        assert_eq!(
+            self.slots[previous], INVALID_ID,
+            "failed queue callback changed the popped slot"
+        );
+        self.slots[previous] = id;
+        self.head = previous;
+    }
+
     pub(crate) fn pop_front(&mut self) -> Option<ObjectID> {
         if self.head == self.tail {
             return None;

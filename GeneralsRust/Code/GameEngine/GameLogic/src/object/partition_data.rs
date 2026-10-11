@@ -85,6 +85,44 @@ impl PartitionData {
         )
     }
 
+    pub(crate) fn get_shrouded_status_with_native_partition(
+        &self,
+        player_index: i32,
+        object: &Object,
+        partition: &crate::object::collide::PartitionManager,
+        players: &crate::player::PlayerList,
+    ) -> ObjectShroudStatus {
+        if player_index < 0 || player_index as usize >= MAX_PLAYER_COUNT {
+            return ObjectShroudStatus::Clear;
+        }
+        if !partition.updated_since_last_reset() {
+            return ObjectShroudStatus::Invalid;
+        }
+        let generated;
+        let cells = match partition.object_coi_cells(object.get_id()) {
+            Some(cells) => cells,
+            None => {
+                generated = geometry_cells_for_object(object);
+                &generated
+            }
+        };
+        let counts = partition
+            .shroud
+            .count_cells(player_index, cells.iter().map(|cell| (cell.x, cell.y)));
+        self.status_from_counts(
+            player_index as usize,
+            counts,
+            object.is_kind_of(KindOf::Immobile),
+            object.is_kind_of(KindOf::Mine),
+            || {
+                let player = players.get_player(player_index)?.read().ok()?;
+                let team = object.get_team()?;
+                let team = team.read().ok()?;
+                Some(player.get_relationship_with_team(&team))
+            },
+        )
+    }
+
     fn status_from_counts(
         &self,
         idx: usize,

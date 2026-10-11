@@ -417,7 +417,7 @@ impl RailedTransportAIUpdate {
         &mut self,
         _cmd_source: CommandSourceType,
         owner: &Arc<std::sync::RwLock<crate::object::Object>>,
-        runtime: &mut UnitAiStateRuntime<'_>,
+        runtime: &mut UnitAiStateRuntime<'_, '_>,
         driver: &mut crate::ai::states::AIStateMachineDriver<'_>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if dual_world_registry_unavailable() {

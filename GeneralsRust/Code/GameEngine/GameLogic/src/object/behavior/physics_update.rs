@@ -535,7 +535,11 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
     }
 
     fn is_motive(&self) -> bool {
-        self.state.motive_force_expires > TheGameLogic::get_frame()
+        self.is_motive_at(TheGameLogic::get_frame())
+            .expect("native physics deadline observation")
+    }
+    fn is_motive_at(&self, frame: u32) -> Result<bool, String> {
+        Ok(self.state.motive_force_expires > frame)
     }
 
     fn get_acceleration(&self) -> Coord3D {

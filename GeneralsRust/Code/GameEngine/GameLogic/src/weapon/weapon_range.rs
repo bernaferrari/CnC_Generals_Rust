@@ -144,16 +144,60 @@ impl Weapon {
         is_structure: bool,
         borrowed_positions: &[(ObjectId, Coord3D)],
     ) -> bool {
+        self.is_within_attack_range_from_observations(
+            source_pos,
+            source_radius,
+            source_geom,
+            bonus,
+            target_pos,
+            target_radius,
+            is_bridge,
+            is_structure,
+            &mut || {
+                let mut info = BridgeAttackInfo::new();
+                if let Ok(terrain) = crate::terrain::get_terrain_logic().try_read() {
+                    terrain.get_bridge_attack_points(target_id, &mut info);
+                }
+                info
+            },
+            &mut || {
+                ThePartitionManager::get().is_some_and(|partition| {
+                    partition
+                        .iterate_potential_collisions_with_borrowed_positions(
+                            source_pos,
+                            source_geom,
+                            0.0,
+                            borrowed_positions,
+                        )
+                        .contains(&target_id)
+                })
+            },
+        )
+    }
+
+    /// One shared range predicate. Borrowed native owners provide the same
+    /// bridge points, contact query, and already-resolved passenger bonuses.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn is_within_attack_range_from_observations(
+        &self,
+        source_pos: &Coord3D,
+        source_radius: f32,
+        source_geom: &GeometryInfo,
+        bonus: &WeaponBonus,
+        target_pos: Coord3D,
+        target_radius: f32,
+        is_bridge: bool,
+        is_structure: bool,
+        bridge_points: &mut dyn FnMut() -> BridgeAttackInfo,
+        contact: &mut dyn FnMut() -> bool,
+    ) -> bool {
         let max_range = self.template.get_attack_range(bonus);
         let min_range = self.template.get_minimum_attack_range();
         let attack_range_sqr = max_range * max_range;
         let min_range_sqr = min_range * min_range;
 
         let dist_sqr = if is_bridge {
-            let mut info = BridgeAttackInfo::new();
-            if let Ok(guard) = crate::terrain::get_terrain_logic().try_read() {
-                guard.get_bridge_attack_points(target_id, &mut info);
-            }
+            let info = bridge_points();
             let d1 = boundary_dist_sqr(source_pos, source_radius, &info.attack_point1, 0.0);
             if d1 <= attack_range_sqr {
                 d1
@@ -174,16 +218,7 @@ impl Weapon {
         }
 
         if self.is_contact_weapon() && is_structure {
-            let Some(partition) = ThePartitionManager::get() else {
-                return false;
-            };
-            let hits = partition.iterate_potential_collisions_with_borrowed_positions(
-                source_pos,
-                source_geom,
-                0.0,
-                borrowed_positions,
-            );
-            return hits.iter().any(|&id| id == target_id);
+            return contact();
         }
 
         true

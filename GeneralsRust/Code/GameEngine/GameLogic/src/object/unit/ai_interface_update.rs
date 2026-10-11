@@ -354,6 +354,55 @@ impl UnitAIUpdate {
         Ok(true)
     }
     pub(super) fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.update_with_optional_world(None)
+    }
+    /// The original installed parent-FSM phase, including synchronous terminal
+    /// commands. The caller owns the surrounding AI/movement scheduler phases;
+    /// this method does not masquerade as a complete native AIUpdate tick.
+    pub(super) fn update_enter_phase_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.validate_world_owner(world)?;
+        self.validate_owned_enter_components()?;
+        if world.pathfinder().is_none() {
+            return Err("supplied AIEnter requires its owner pathfinder".into());
+        }
+        let machine = self
+            .ai_state_machine
+            .as_mut()
+            .ok_or("installed AI has no machine")?;
+        let state = machine.get_current_state_id();
+        if state != Some(AIStateType::Enter as u32) || machine.get_temporary_state().is_some() {
+            return Err("supplied operation admits only the ordinary AIEnter phase".into());
+        }
+        let owner = self
+            .runtime
+            .native_owner()
+            .ok_or("installed owner missing")?;
+        let owner = owner.read().map_err(|_| "installed owner poisoned")?;
+        world.validate_enter_operation(
+            &owner,
+            Some(machine.get_goal_object_id()),
+            crate::ai::AiCommandType::Enter,
+            self.runtime.get_last_command_source(),
+        )?;
+        drop(owner);
+        let mut runtime = super::UnitAiStateRuntime {
+            runtime: &mut self.runtime,
+            parent_exists: true,
+            parent_state_id: None,
+            world: Some(world),
+        };
+        machine.update_with_synchronous_commands(&mut runtime, |driver, ai, terminal| {
+            ai.execute_command_native(terminal.params(), driver)
+        })?;
+        Ok(())
+    }
+    fn update_with_optional_world(
+        &mut self,
+        mut world: Option<&mut dyn crate::modules::ai_world::AiWorld>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if self.runtime.data.is_blocked {
             self.runtime.data.blocked_frames = self.runtime.data.blocked_frames.saturating_add(1);
         } else if self.runtime.data.blocked_frames > 1 {
@@ -441,8 +490,14 @@ impl UnitAIUpdate {
 
         if let Some(mut jet_ai) = self.runtime.components.jet_ai.take() {
             if let Some(machine) = self.ai_state_machine.as_mut() {
-                let mut runtime = super::UnitAiStateRuntime::new(&mut self.runtime, true);
+                let mut runtime = super::UnitAiStateRuntime {
+                    runtime: &mut self.runtime,
+                    parent_exists: true,
+                    parent_state_id: None,
+                    world: world.take(),
+                };
                 jet_ai.update_with_ai(&mut runtime, &mut machine.driver());
+                world = runtime.world.take();
             }
             self.runtime.components.jet_ai = Some(jet_ai);
         }
@@ -589,7 +644,12 @@ impl UnitAIUpdate {
             });
         }
         if let Some(machine) = self.ai_state_machine.as_mut() {
-            let mut runtime = super::UnitAiStateRuntime::new(&mut self.runtime, true);
+            let mut runtime = super::UnitAiStateRuntime {
+                runtime: &mut self.runtime,
+                parent_exists: true,
+                parent_state_id: None,
+                world: world.take(),
+            };
             if runtime.runtime.data.ai_dead
                 && machine.get_current_state_id() != Some(AIStateType::Dead as u32)
             {
@@ -602,12 +662,22 @@ impl UnitAIUpdate {
             machine.update_with_synchronous_commands(&mut runtime, |driver, ai, terminal| {
                 ai.execute_command_native(terminal.params(), driver)
             })?;
+            world = runtime.world.take();
         }
         if let Some(owner_id) = self.owner_object_id() {
             let pending_state =
                 self.with_owned_object_mut(owner_id, |owner| owner.ai_pending_state_id.take());
             if let Some(Some(state_id)) = pending_state {
-                self.enter_ai_state(state_id);
+                if let Some(machine) = self.ai_state_machine.as_mut() {
+                    let mut runtime = super::UnitAiStateRuntime {
+                        runtime: &mut self.runtime,
+                        parent_exists: true,
+                        parent_state_id: None,
+                        world: world.take(),
+                    };
+                    let _ = machine.driver().set_state_with_ai(state_id, &mut runtime);
+                    world = runtime.world.take();
+                }
             }
         }
         if let Some(owner_id) = self.owner_object_id() {
@@ -997,18 +1067,29 @@ impl UnitAIUpdate {
         self.apply_stored_locomotor_goal();
         self.finish_completed_movement_like_cpp();
 
-        let now = TheGameLogic::get_frame();
+        let now = world
+            .as_deref()
+            .map(|world| world.frame())
+            .unwrap_or_else(TheGameLogic::get_frame);
         if self.runtime.data.queue_for_path_frame != 0
             && now >= self.runtime.data.queue_for_path_frame
         {
-            if let Ok(ai) = the_ai().read() {
+            if let Some(world) = world.as_deref_mut() {
+                let request = self
+                    .runtime
+                    .build_classic_path_request(self.runtime.data.requested_destination, false)?;
+                world
+                    .pathfinder()
+                    .ok_or("supplied AIEnter pathfinder missing")?
+                    .queue_for_path_request(request)?;
+            } else if let Ok(ai) = the_ai().read() {
                 if let Some(pathfinder) = ai.pathfinder() {
                     if let Ok(mut pf) = pathfinder.write() {
                         let _ = pf.queue_for_path(self.runtime.unit_id);
                     }
                 }
             }
-            self.set_queue_for_path_time(0);
+            self.runtime.data.queue_for_path_frame = 0;
         }
 
         let update_turrets = self
@@ -1279,6 +1360,122 @@ impl UnitAIUpdate {
         self.runtime
             .is_weapon_slot_on_turret_and_aiming_at_target(slot, target)
     }
+    /// C++ AIUpdate.cpp:5217-5249. A saved installed path is restored; the
+    /// transient path request queue is neither synthesized nor serialized here.
+    pub(crate) fn load_post_process_enter_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.validate_world_owner(world)
+            .map_err(|error| error.to_string())?;
+        self.validate_owned_enter_components()
+            .map_err(|error| error.to_string())?;
+        if self
+            .ai_state_machine
+            .as_ref()
+            .and_then(|machine| machine.get_current_state_id())
+            != Some(AIStateType::Enter as u32)
+        {
+            return Err("supplied postload requires the installed Enter state".into());
+        }
+        let owner_arc = self
+            .runtime
+            .native_owner()
+            .ok_or("installed owner missing")?;
+        let (position, layer, id, radius, immobile, ground, bridge_end) = {
+            let owner = owner_arc.read().map_err(|_| "installed owner poisoned")?;
+            (
+                *owner.get_position(),
+                owner.get_layer(),
+                owner.get_id(),
+                owner.get_geometry_info().get_bounding_circle_radius(),
+                owner.is_kind_of(KindOf::Immobile),
+                self.runtime
+                    .is_doing_ground_movement_for_owner_with_world(&owner, Some(world))?,
+                world.interacts_with_bridge_end(&owner)?,
+            )
+        };
+        let moving = self.is_moving();
+        let saved_goal = self.runtime.data.pathfind_goal_cell;
+        // Admit the mutable service before changing any saved occupancy marker.
+        let pathfinder = world.pathfinder().ok_or("supplied pathfinder missing")?;
+        let (cell_radius, center_in_cell) =
+            crate::ai::pathfind_complete::PathfindingSystem::compute_radius_and_center(radius);
+        // updateGoal uses its original capped footprint, independently of updatePos.
+        let mut diameter = 2.0 * radius;
+        let cell_size = crate::ai::pathfind_astar::PATHFIND_CELL_SIZE_F;
+        if diameter > cell_size && diameter < 2.0 * cell_size {
+            diameter = 2.0 * cell_size;
+        }
+        let mut goal_diameter = (diameter / cell_size + 0.3).floor() as i32;
+        if goal_diameter == 0 {
+            goal_diameter = 1;
+        }
+        let mut goal_center = goal_diameter & 1 != 0;
+        let mut goal_radius = goal_diameter / 2;
+        if goal_radius > 2 {
+            goal_radius = 2;
+            goal_center = true;
+        }
+        let path_layer = ClassicPathLayer::from_u32(layer as u32);
+        let goal = if !moving {
+            Some(position)
+        } else if saved_goal.x >= 0 && saved_goal.y >= 0 {
+            let cell = crate::ai::pathfind_astar::PATHFIND_CELL_SIZE_F;
+            Some(Coord3D::new(
+                saved_goal.x as f32 * cell + cell * 0.5,
+                saved_goal.y as f32 * cell + cell * 0.5,
+                position.z,
+            ))
+        } else {
+            None
+        };
+        if let Some(goal) = goal {
+            self.runtime.data.pathfind_goal_cell = ICoord2D::new(-1, -1);
+            if !immobile {
+                let new_cell = super::ai_core::UnitAiRuntime::compute_goal_cell(&goal, goal_center);
+                if ground {
+                    self.runtime.update_ground_goal_cells(
+                        pathfinder,
+                        id,
+                        new_cell,
+                        path_layer,
+                        goal_radius,
+                        goal_center,
+                        bridge_end,
+                    );
+                } else {
+                    self.runtime.update_aircraft_goal_cells(
+                        pathfinder,
+                        id,
+                        new_cell,
+                        goal_radius,
+                        goal_center,
+                    );
+                }
+            }
+        }
+        if !moving {
+            self.runtime.data.pathfind_cur_cell = ICoord2D::new(-1, -1);
+            if !immobile && ground {
+                let cell =
+                    super::ai_core::UnitAiRuntime::compute_goal_cell(&position, center_in_cell);
+                pathfinder.update_pos_cells(
+                    crate::ai::pathfind_astar::GridCoord::new(cell.x, cell.y),
+                    id,
+                    crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32),
+                    cell_radius,
+                    center_in_cell,
+                    bridge_end,
+                );
+                if pathfinder.is_map_ready() {
+                    self.runtime.data.pathfind_cur_cell = cell;
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn load_post_process_path_cells(&mut self) {
         let Some((pos, layer, id, radius, bridge_end)) = get_unit_arc(self.runtime.unit_id)
             .and_then(|unit| {

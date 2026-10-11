@@ -436,6 +436,57 @@ impl UnitAIUpdate {
         &mut self,
         pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
     ) -> Result<bool, String> {
+        self.do_queued_pathfind_with_observations(pathfinder, None)
+    }
+
+    pub(super) fn do_enter_pathfind_with_services(
+        &mut self,
+        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+        factory: &crate::object::object_factory::ObjectFactory,
+        players: &crate::player::PlayerList,
+        terrain: &crate::terrain::TerrainLogic,
+        frame: u32,
+    ) -> Result<bool, String> {
+        let owner = self
+            .runtime
+            .native_owner()
+            .ok_or("queued Enter owner missing")?;
+        let supplied = factory
+            .get_object(self.runtime.unit_id)
+            .and_then(|object| object.get_base_object())
+            .ok_or("queued Enter supplied owner missing")?;
+        if !Arc::ptr_eq(&owner, &supplied) {
+            return Err("queued Enter belongs to another factory".into());
+        }
+        self.validate_owned_enter_components()
+            .map_err(|error| error.to_string())?;
+        if self.get_current_state_id() != Some(AIStateType::Enter as u32)
+            || self.runtime.data.is_safe_path
+            || self.runtime.data.is_attack_path
+            || self.runtime.data.is_approach_path
+            || self.runtime.data.is_final_goal
+        {
+            return Err("supplied Enter queue does not admit this path family".into());
+        }
+        let observations =
+            crate::ai::pathfind_complete::PathfindObservations::admit(factory, players, terrain)?;
+        self.do_queued_pathfind_with_observations(
+            pathfinder,
+            Some((frame, terrain.get_maximum_pathfind_extent(), &observations)),
+        )
+    }
+
+    fn do_queued_pathfind_with_observations(
+        &mut self,
+        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+        native: Option<(
+            u32,
+            Region3D,
+            &crate::ai::pathfind_complete::PathfindObservations,
+        )>,
+    ) -> Result<bool, String> {
+        let frame = native.map_or_else(TheGameLogic::get_frame, |(frame, _, _)| frame);
+        let observations = native.map(|(_, _, observations)| observations);
         if !self.runtime.data.waiting_for_path {
             return Ok(false);
         }
@@ -463,8 +514,10 @@ impl UnitAIUpdate {
 
         // C++ AIUpdate.cpp:1648-1696. Native owner identity is resolved from
         // the constructor-bound weak owner; same-ID legacy Units are irrelevant.
-        if self.native_should_force_direct_path_for_off_map_start(&destination)
-            && self.install_direct_path_from_current_position(&destination)
+        if self.native_should_force_direct_path_for_off_map_start_with_extent(
+            &destination,
+            native.map(|(_, extent, _)| extent),
+        ) && self.runtime.install_direct_path_at(&destination, frame)
         {
             return Ok(true);
         }
@@ -472,31 +525,39 @@ impl UnitAIUpdate {
             self.runtime.data.set_can_path_through_units(false).ok();
             return Ok(true);
         }
-        if self.native_line_passable_shortcut(&destination, pathfinder)
-            && self.install_direct_path_from_current_position(&destination)
+        if self.native_line_passable_shortcut_with_observations(
+            &destination,
+            pathfinder,
+            observations,
+        ) && self.runtime.install_direct_path_at(&destination, frame)
         {
             return Ok(true);
         }
-        if self.try_install_closest_path_for_invalid_destination_with_pathfinder(
+        if self.try_install_closest_path_for_invalid_destination_at(
             &destination,
             pathfinder,
+            native.map(|_| frame),
+            observations,
         )? {
             return Ok(true);
         }
 
         let request = self.build_classic_path_request(destination, false)?;
         let (downhill_only, _) = self.native_path_movement_policy();
-        let result =
-            pathfinder.find_path_with_movement_policy(request.clone(), Some(downhill_only));
+        let result = pathfinder.find_path_with_observations(
+            request.clone(),
+            Some(downhill_only),
+            observations,
+        )?;
         if result.success && !result.waypoints.is_empty() {
-            self.install_path_result_with_pathfinder(&result, pathfinder)?;
+            self.install_path_result_at(&result, pathfinder, native.map(|_| frame))?;
             return Ok(true);
         }
         if self.has_current_path() {
             if self.runtime.data.blocked_and_stuck {
-                self.stop_stuck_old_path_after_failed_path_with_pathfinder(pathfinder)?;
+                self.stop_stuck_old_path_after_failed_path_at(pathfinder, frame)?;
             } else {
-                self.runtime.data.path_timestamp = TheGameLogic::get_frame();
+                self.runtime.data.path_timestamp = frame;
                 self.runtime.data.blocked_frames = 0;
                 self.runtime.data.blocked_and_stuck = false;
             }
@@ -504,16 +565,17 @@ impl UnitAIUpdate {
         }
         self.runtime.data.retry_path = true;
         let (downhill_only, aircraft_goal_only) = self.native_path_movement_policy();
-        let closest = pathfinder.find_closest_path_with_movement_policy(
+        let closest = pathfinder.find_closest_path_with_observations(
             request,
             Some(downhill_only),
             Some(aircraft_goal_only),
-        );
+            observations,
+        )?;
         if closest.success && !closest.waypoints.is_empty() {
-            self.install_path_result_with_pathfinder(&closest, pathfinder)?;
+            self.install_path_result_at(&closest, pathfinder, native.map(|_| frame))?;
             return Ok(true);
         }
-        self.runtime.data.path_timestamp = TheGameLogic::get_frame();
+        self.runtime.data.path_timestamp = frame;
         self.runtime.data.blocked_frames = 0;
         self.runtime.data.blocked_and_stuck = false;
         Ok(false)
@@ -524,8 +586,19 @@ impl UnitAIUpdate {
         result: &crate::ai::pathfind_complete::PathResult,
         pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
     ) -> Result<(), String> {
-        self.runtime
-            .set_path_from_coords_with_pathfinder(&result.waypoints, pathfinder)?;
+        self.install_path_result_at(result, pathfinder, None)
+    }
+    fn install_path_result_at(
+        &mut self,
+        result: &crate::ai::pathfind_complete::PathResult,
+        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+        frame: Option<u32>,
+    ) -> Result<(), String> {
+        self.runtime.set_path_from_coords_with_pathfinder_at(
+            &result.waypoints,
+            pathfinder,
+            frame,
+        )?;
         self.runtime.data.remember_result_layers(
             &result.waypoints,
             &result
@@ -558,13 +631,25 @@ impl UnitAIUpdate {
     }
 
     fn native_should_force_direct_path_for_off_map_start(&self, destination: &Coord3D) -> bool {
+        self.native_should_force_direct_path_for_off_map_start_with_extent(destination, None)
+    }
+    fn native_should_force_direct_path_for_off_map_start_with_extent(
+        &self,
+        destination: &Coord3D,
+        extent: Option<Region3D>,
+    ) -> bool {
         let Some(owner) = self.runtime.native_owner() else {
             return false;
         };
         let Ok(owner) = owner.read() else {
             return false;
         };
-        leftover_should_force_direct_path_for_off_map_start(owner.get_position(), destination)
+        if let Some(extent) = extent {
+            !extent.is_in_region_no_z(destination)
+                && !extent.is_in_region_no_z(owner.get_position())
+        } else {
+            leftover_should_force_direct_path_for_off_map_start(owner.get_position(), destination)
+        }
     }
 
     fn native_follow_exit_direct_path(&mut self, destination: &Coord3D) -> bool {
@@ -581,6 +666,14 @@ impl UnitAIUpdate {
         &self,
         destination: &Coord3D,
         pathfinder: &crate::ai::pathfind_complete::PathfindingSystem,
+    ) -> bool {
+        self.native_line_passable_shortcut_with_observations(destination, pathfinder, None)
+    }
+    fn native_line_passable_shortcut_with_observations(
+        &self,
+        destination: &Coord3D,
+        pathfinder: &crate::ai::pathfind_complete::PathfindingSystem,
+        observations: Option<&crate::ai::pathfind_complete::PathfindObservations>,
     ) -> bool {
         if self.runtime.data.is_final_goal {
             return false;
@@ -609,11 +702,12 @@ impl UnitAIUpdate {
         }
         let ignore = (self.runtime.data.ignore_obstacle_id != INVALID_ID)
             .then_some(self.runtime.data.ignore_obstacle_id);
-        pathfinder.is_line_passable_for_surfaces(
+        pathfinder.is_line_passable_for_surfaces_with_observations(
             owner.get_position(),
             destination,
             surfaces,
             ignore,
+            observations,
         )
     }
 
@@ -622,20 +716,36 @@ impl UnitAIUpdate {
         destination: &Coord3D,
         pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
     ) -> Result<bool, String> {
+        self.try_install_closest_path_for_invalid_destination_at(
+            destination,
+            pathfinder,
+            None,
+            None,
+        )
+    }
+    fn try_install_closest_path_for_invalid_destination_at(
+        &mut self,
+        destination: &Coord3D,
+        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+        frame: Option<u32>,
+        observations: Option<&crate::ai::pathfind_complete::PathfindObservations>,
+    ) -> Result<bool, String> {
+        let now = frame.unwrap_or_else(TheGameLogic::get_frame);
         let request = self.build_classic_path_request(*destination, false)?;
-        if pathfinder.valid_movement_position(
+        if pathfinder.valid_movement_position_with_observations(
             request.surfaces,
             request.is_crusher,
             destination,
             request.ignore_obstacle_id,
+            observations,
         ) {
             return Ok(false);
         }
         if self.has_current_path() {
             if self.runtime.data.blocked_and_stuck {
-                self.stop_stuck_old_path_after_failed_path_with_pathfinder(pathfinder)?;
+                self.stop_stuck_old_path_after_failed_path_at(pathfinder, now)?;
             } else {
-                self.runtime.data.path_timestamp = TheGameLogic::get_frame();
+                self.runtime.data.path_timestamp = now;
                 self.runtime.data.blocked_frames = 0;
                 self.runtime.data.blocked_and_stuck = false;
             }
@@ -643,16 +753,17 @@ impl UnitAIUpdate {
         }
         self.runtime.data.retry_path = true;
         let (downhill_only, aircraft_goal_only) = self.native_path_movement_policy();
-        let result = pathfinder.find_closest_path_with_movement_policy(
+        let result = pathfinder.find_closest_path_with_observations(
             request,
             Some(downhill_only),
             Some(aircraft_goal_only),
-        );
+            observations,
+        )?;
         if result.success && !result.waypoints.is_empty() {
-            self.install_path_result_with_pathfinder(&result, pathfinder)?;
+            self.install_path_result_at(&result, pathfinder, frame)?;
             return Ok(true);
         }
-        self.runtime.data.path_timestamp = TheGameLogic::get_frame();
+        self.runtime.data.path_timestamp = now;
         self.runtime.data.blocked_frames = 0;
         self.runtime.data.blocked_and_stuck = false;
         Ok(false)
@@ -789,6 +900,13 @@ impl UnitAIUpdate {
         &mut self,
         pathfinder: &crate::ai::pathfind_complete::PathfindingSystem,
     ) -> Result<(), String> {
+        self.stop_stuck_old_path_after_failed_path_at(pathfinder, TheGameLogic::get_frame())
+    }
+    fn stop_stuck_old_path_after_failed_path_at(
+        &mut self,
+        pathfinder: &crate::ai::pathfind_complete::PathfindingSystem,
+        frame: u32,
+    ) -> Result<(), String> {
         let owner = self
             .runtime
             .native_owner()
@@ -800,9 +918,9 @@ impl UnitAIUpdate {
         let snapped = pathfinder.snap_position(&current_pos);
         drop(owner);
         self.destroy_path();
-        self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND);
+        self.runtime.data.queue_for_path_frame = frame.saturating_add(LOGICFRAMES_PER_SECOND);
         self.runtime.set_locomotor_goal_none();
-        self.runtime.data.path_timestamp = TheGameLogic::get_frame();
+        self.runtime.data.path_timestamp = frame;
         self.runtime.data.blocked_frames = 0;
         self.runtime.data.is_blocked = false;
         self.runtime.data.blocked_and_stuck = false;

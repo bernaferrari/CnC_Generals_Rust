@@ -158,6 +158,13 @@ pub(crate) struct CppStateAdapter<S: CppState> {
 struct TransitionThunk<S: CppState + 'static> {
     predicate: fn(&S, &StateTransitionUserData) -> Result<bool, String>,
     user_data: StateTransitionUserData,
+    ai_predicate: Option<
+        fn(
+            &S,
+            &StateTransitionUserData,
+            &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+        ) -> Result<bool, String>,
+    >,
 }
 
 impl<S: CppState> CppStateAdapter<S> {
@@ -385,6 +392,17 @@ impl<S: CppState + 'static> core::StateImplementation for CppStateAdapter<S> {
             }
         }
     }
+    fn evaluate_transition_payload_with_ai(
+        &self,
+        payload: &(dyn Any + Send + Sync),
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Option<Result<bool, String>> {
+        let thunk = payload.downcast_ref::<TransitionThunk<S>>()?;
+        let Some(predicate) = thunk.ai_predicate else {
+            return self.evaluate_transition_payload(payload).map(Ok);
+        };
+        Some(predicate(&self.inner, &thunk.user_data, ai))
+    }
 }
 
 /// Register a translated C++ state without an intermediate forwarding trait.
@@ -424,6 +442,7 @@ pub(crate) fn cpp_transition<S: CppState + 'static>(
     let thunk = TransitionThunk::<S> {
         predicate,
         user_data,
+        ai_predicate: None,
     };
 
     let wrapped_user_data = StateTransitionUserData {
@@ -431,6 +450,57 @@ pub(crate) fn cpp_transition<S: CppState + 'static>(
     };
 
     StateConditionInfo::new(invoke, to_state_id, wrapped_user_data, description)
+}
+
+/// Native predicates borrow the runtime already driving the current step.
+/// Standalone adapters retain their original predicate and concrete payload.
+pub(crate) fn cpp_transition_with_ai<S: CppState + 'static>(
+    legacy_predicate: fn(&S, &StateTransitionUserData) -> Result<bool, String>,
+    predicate: fn(
+        &S,
+        &StateTransitionUserData,
+        &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<bool, String>,
+    to_state_id: StateId,
+    user_data: StateTransitionUserData,
+    description: &str,
+) -> StateConditionInfo {
+    fn unavailable(
+        _state: &dyn core::StateImplementation,
+        _data: &StateTransitionUserData,
+    ) -> bool {
+        false
+    }
+    fn invoke(
+        state: &dyn core::StateImplementation,
+        data: &StateTransitionUserData,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+    ) -> Result<bool, String> {
+        let Some(payload) = data.data.as_ref() else {
+            return Err("borrowed transition payload missing".into());
+        };
+        match ai {
+            Some(ai) if ai.world().is_some() => {
+                state.evaluate_transition_payload_with_ai(payload.as_ref(), ai)
+            }
+            _ => state.evaluate_transition_payload(payload.as_ref()).map(Ok),
+        }
+        .unwrap_or_else(|| Err("borrowed transition payload type mismatch".into()))
+    }
+    let thunk = TransitionThunk::<S> {
+        predicate: legacy_predicate,
+        user_data,
+        ai_predicate: Some(predicate),
+    };
+    StateConditionInfo::new(
+        unavailable,
+        to_state_id,
+        StateTransitionUserData {
+            data: Some(Arc::new(thunk)),
+        },
+        description,
+    )
+    .with_ai_test(invoke)
 }
 
 #[cfg(test)]

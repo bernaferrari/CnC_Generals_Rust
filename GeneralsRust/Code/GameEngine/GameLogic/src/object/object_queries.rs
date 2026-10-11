@@ -8,6 +8,18 @@ use super::object_impl_imports::*;
 use super::*;
 
 impl Object {
+    /// Resolve only the retained team identity of this object; never select a global factory.
+    pub(crate) fn controlling_player_id_from_pin(&self) -> Result<Option<u32>, String> {
+        match (&self.team_pin, self.team_id) {
+            (Some(team), _) => Ok(team
+                .read()
+                .map_err(|_| "owned team poisoned")?
+                .get_controlling_player_id()),
+            (None, Some(_)) => Err("owned object has an unresolved team identity".into()),
+            (None, None) => Ok(None),
+        }
+    }
+
     /// AI helper: idle if AI present.
     pub fn ai_idle(&mut self) {
         if let Some(ai) = &self.ai {
@@ -78,6 +90,46 @@ impl Object {
     pub fn is_neutral_controlled(&self) -> bool {
         self.with_controlling_player(|guard| guard.get_player_type() == PlayerType::Neutral)
             .unwrap_or(false)
+    }
+
+    /// Relationship observation over the admitted team's exact pin and the
+    /// supplied player roster, without resolving a same-ID ambient team.
+    pub fn relationship_to_with_players(
+        &self,
+        other: &Object,
+        players: &crate::player::PlayerList,
+    ) -> Relationship {
+        let (Some(my_team), Some(their_team)) = (&self.team_pin, &other.team_pin) else {
+            return Relationship::Neutral;
+        };
+        if self.is_undetected_defector() {
+            return Relationship::Neutral;
+        }
+        if other.is_undetected_defector() {
+            return Relationship::Allies;
+        }
+        if Arc::ptr_eq(my_team, their_team) {
+            return Relationship::Allies;
+        }
+        let (Ok(my_team), Ok(their_team)) = (my_team.read(), their_team.read()) else {
+            return Relationship::Neutral;
+        };
+        if my_team.get_id() == their_team.get_id() {
+            return Relationship::Allies;
+        }
+        if let Some(override_relation) = my_team.override_relationship_with_team(&their_team) {
+            return override_relation;
+        }
+        let Some(controller) = my_team
+            .get_controlling_player_id()
+            .and_then(|index| players.get_player(index as Int))
+        else {
+            return Relationship::Neutral;
+        };
+        controller
+            .read()
+            .map(|player| player.get_relationship_with_team(&their_team))
+            .unwrap_or(Relationship::Neutral)
     }
 
     pub fn relationship_to(&self, other: &Object) -> Relationship {
@@ -904,6 +956,19 @@ impl Object {
         use crate::common::types::ObjectStatusMaskType;
         self.set_status(ObjectStatusMaskType::UNSELECTABLE, true);
         self.finish_on_contained_by(container_id, is_enclosing)
+    }
+
+    /// Object.cpp:671-679; spatial effects follow through the driving service.
+    pub(crate) fn admit_contained_by_at(
+        &mut self,
+        container_id: ObjectID,
+        is_enclosing: bool,
+        frame: UnsignedInt,
+    ) {
+        self.set_status(ObjectStatusMaskType::UNSELECTABLE, true);
+        self.set_status(ObjectStatusMaskType::MASKED, is_enclosing);
+        self.contained_by_id = container_id;
+        self.contained_by_frame = frame;
     }
 
     fn finish_on_contained_by(

@@ -383,10 +383,20 @@ impl CppState for AIIdleState {
         ai: &mut dyn AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         // C++ resets before drawing the one initial countdown offset.
-        ai.reset_next_mood_check_time();
+        if let Some(world) = ai.world_mut() {
+            let frame = world.frame();
+            let force_idle_frames = world.force_idle_frames();
+            ai.reset_mood_check_at_owned(frame, force_idle_frames)?;
+            self.initial_sleep_offset = ai
+                .world_mut()
+                .expect("admitted world disappeared")
+                .idle_sleep_offset();
+        } else {
+            ai.reset_next_mood_check_time();
+            self.initial_sleep_offset =
+                get_game_logic_random_value(0, (LOGICFRAMES_PER_SECOND * 2) as i32) as u16;
+        }
         self.inited = true;
-        self.initial_sleep_offset =
-            get_game_logic_random_value(0, (LOGICFRAMES_PER_SECOND * 2) as i32) as u16;
         Ok(StateReturnType::Continue)
     }
 

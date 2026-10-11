@@ -36,6 +36,8 @@ use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
 #[path = "open_admission.rs"]
 mod admission;
+#[path = "open_owned_enter.rs"]
+pub(in crate::object::contain) mod owned_enter;
 
 type ObjectId = ObjectID;
 type FirePointMatrix = [[f32; 4]; 3];
@@ -2655,6 +2657,17 @@ impl OpenContain {
 }
 
 impl ContainModuleInterface for OpenContain {
+    fn supports_owned_enter(&self) -> bool {
+        true
+    }
+    fn add_to_contain_with_world(
+        &mut self,
+        passenger: ObjectID,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.enter_with_world(passenger, world)
+    }
+
     fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::crc(self, xfer)
     }
@@ -2751,6 +2764,16 @@ impl ContainModuleInterface for OpenContain {
 
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
         OpenContain::is_valid_container_for(self, obj, check_capacity)
+    }
+
+    fn is_valid_container_for_with_world(
+        &self,
+        obj: &Object,
+        owner: &Object,
+        capacity: bool,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> bool {
+        OpenContain::is_valid_container_for_with_world(self, obj, owner, capacity, world)
     }
 
     fn is_valid_container_for_with_owner(

@@ -130,309 +130,54 @@ impl Object {
     }
 
     pub(super) fn look(&mut self) {
-        // Wave 264: empty dual-world → no factory object walks.
         if dual_world_registry_unavailable() {
             return;
         }
-
-        if !self.partition_last_look.is_invalid() {
-            warn!("Object {} look called without unlook", self.id);
-            return;
-        }
-
-        let Some(controller) = self.get_controlling_player() else {
-            return;
-        };
-        if self.is_destroyed() || self.is_effectively_dead() {
-            return;
-        }
-
-        if let Some(container_id) = self.get_container_id() {
-            let not_garrisonable = crate::object::registry::OBJECT_REGISTRY
-                .with_object(container_id, |container_guard| {
-                    let Some(contain) = container_guard.get_contain() else {
-                        return false;
-                    };
-                    // Rust-only re-entrancy guard: look() can run while the
-                    // caller already holds this contain mutex (attach paths);
-                    // a blocking lock would self-deadlock. Under contention
-                    // the caller is mid-attach, so let the reveal proceed.
-                    contain
-                        .try_lock()
-                        .ok()
-                        .map(|contain_guard| !contain_guard.is_garrisonable())
-                        .unwrap_or(false)
-                })
-                .unwrap_or(false);
-            if not_garrisonable {
-                return;
-            }
-        }
-
-        let shroud_clearing_range = self.get_shroud_clearing_range();
-        if shroud_clearing_range > 0.0 {
-            let mut looking_mask = PlayerMaskType::none();
-
-            // C++ Object::look: KINDOF_REVEAL_TO_ALL uses PLAYERMASK_ALL so every
-            // player gets the unit's normal shroud-clearing range.
-            if self.is_kind_of(KindOf::RevealToAll) {
-                looking_mask = crate::common::PLAYERMASK_ALL;
-            } else if let (Ok(controller_guard), Ok(list)) =
-                (controller.read(), player_list().read())
-            {
-                for current_player_arc in list.iter() {
-                    let Ok(current_player) = current_player_arc.read() else {
-                        continue;
-                    };
-
-                    let is_allied = Self::controller_relationship_to_player_default_team(
-                        &controller_guard,
-                        &current_player,
-                    ) == Relationship::Allies;
-
-                    if is_allied {
-                        looking_mask |= current_player.get_player_mask();
-                    }
-                }
-                looking_mask |= self.vision_spied_mask;
-            } else {
-                looking_mask |= self.vision_spied_mask;
-            }
-
-            if let Some(partition) = crate::helpers::ThePartitionManager::get() {
-                let pos = *self.get_position();
-                partition.do_shroud_reveal(&pos, shroud_clearing_range, looking_mask);
-                self.partition_last_look.where_pos = pos;
-                self.partition_last_look.for_whom = looking_mask;
-                self.partition_last_look.how_far = shroud_clearing_range;
-            }
-        }
-
-        let shroud_reveal_to_all_range = self.get_template().get_shroud_reveal_to_all_range();
-        if shroud_reveal_to_all_range > 0.0
-            && !self.test_status(ObjectStatusTypes::UnderConstruction)
-        {
-            let stealthed_and_not_detected = self.test_status(ObjectStatusTypes::Stealthed)
-                && !self.test_status(ObjectStatusTypes::Detected)
-                && !self.test_status(ObjectStatusTypes::Disguised);
-            if !stealthed_and_not_detected {
-                let mut players_mask = PlayerMaskType::none();
-                if let (Ok(controller_guard), Ok(list)) = (controller.read(), player_list().read())
-                {
-                    for current_player_arc in list.iter() {
-                        let Ok(current_player) = current_player_arc.read() else {
-                            continue;
-                        };
-                        let relationship = Self::controller_relationship_to_player_default_team(
-                            &controller_guard,
-                            &current_player,
-                        );
-                        if matches!(relationship, Relationship::Enemies | Relationship::Neutral) {
-                            players_mask |= current_player.get_player_mask();
-                        }
-                    }
-                }
-
-                if let Some(partition) = crate::helpers::ThePartitionManager::get() {
-                    let pos = *self.get_position();
-                    partition.do_shroud_reveal(&pos, shroud_reveal_to_all_range, players_mask);
-                    self.partition_reveal_all_last_look.where_pos = pos;
-                    self.partition_reveal_all_last_look.for_whom = players_mask;
-                    self.partition_reveal_all_last_look.how_far = shroud_reveal_to_all_range;
-                }
-            }
-        }
+        self.with_legacy_partition_services(|object, services| object.partition_look(services));
     }
 
     pub(super) fn unlook(&mut self) {
-        if self.partition_last_look.is_invalid() {
-            return;
-        }
-
-        if let Some(partition) = crate::helpers::ThePartitionManager::get() {
-            partition.queue_undo_shroud_reveal(
-                &self.partition_last_look.where_pos,
-                self.partition_last_look.how_far,
-                self.partition_last_look.for_whom,
-            );
-        }
-        self.partition_last_look.reset();
-
-        if !self.partition_reveal_all_last_look.is_invalid() {
-            if let Some(partition) = crate::helpers::ThePartitionManager::get() {
-                partition.queue_undo_shroud_reveal(
-                    &self.partition_reveal_all_last_look.where_pos,
-                    self.partition_reveal_all_last_look.how_far,
-                    self.partition_reveal_all_last_look.for_whom,
-                );
-            }
-            self.partition_reveal_all_last_look.reset();
-        }
+        self.with_legacy_partition_services(|object, services| object.partition_unlook(services));
     }
 
     pub(super) fn shroud(&mut self) {
-        if !self.partition_last_shroud.is_invalid() {
-            warn!("Object {} shroud called without unshroud", self.id);
-            return;
-        }
-
-        let Some(controller) = self.get_controlling_player() else {
-            return;
-        };
-
-        if self.test_status(ObjectStatusTypes::UnderConstruction)
-            || self.is_effectively_dead()
-            || self.get_shroud_range() <= 0.0
-        {
-            return;
-        }
-
-        let mut shrouding_mask = PlayerMaskType::none();
-        if let (Ok(controller_guard), Ok(list)) = (controller.read(), player_list().read()) {
-            for current_player_arc in list.iter() {
-                let Ok(current_player) = current_player_arc.read() else {
-                    continue;
-                };
-                let relationship = Self::controller_relationship_to_player_default_team(
-                    &controller_guard,
-                    &current_player,
-                );
-                if relationship != Relationship::Allies {
-                    shrouding_mask |= current_player.get_player_mask();
-                }
-            }
-        }
-
-        if let Some(partition) = crate::helpers::ThePartitionManager::get() {
-            let pos = *self.get_position();
-            partition.do_shroud_cover(&pos, self.get_shroud_range(), shrouding_mask);
-            self.partition_last_shroud.where_pos = pos;
-            self.partition_last_shroud.for_whom = shrouding_mask;
-            self.partition_last_shroud.how_far = self.get_shroud_range();
-        }
+        self.with_legacy_partition_services(|object, services| object.partition_shroud(services));
     }
 
     pub(super) fn unshroud(&mut self) {
-        if self.partition_last_shroud.is_invalid() {
-            return;
-        }
-
-        if let Some(partition) = crate::helpers::ThePartitionManager::get() {
-            partition.undo_shroud_cover(
-                &self.partition_last_shroud.where_pos,
-                self.partition_last_shroud.how_far,
-                self.partition_last_shroud.for_whom,
-            );
-        }
-        self.partition_last_shroud.reset();
+        self.with_legacy_partition_services(|object, services| object.partition_unshroud(services));
     }
 
     pub(super) fn add_value(&mut self) {
-        if !self.partition_last_value.is_invalid() {
-            warn!("Object {} add_value called without remove_value", self.id);
-            return;
-        }
-        let Some(controller) = self.get_controlling_player() else {
-            return;
-        };
-        if self.test_status(ObjectStatusTypes::UnderConstruction)
-            || self.is_effectively_dead()
-            || self.get_shroud_clearing_range() <= 0.0
-        {
-            return;
-        }
-
-        let Ok(controller_guard) = controller.read() else {
-            return;
-        };
-        let pos = *self.get_position();
-        let value = self.get_template().get_build_cost().max(0) as u32;
-        self.partition_last_value.where_pos = pos;
-        self.partition_last_value.data = value;
-        self.partition_last_value.for_whom = controller_guard.get_player_mask();
-        self.partition_last_value.how_far = self.get_vision_range();
-
-        if let Some(partition) = crate::helpers::ThePartitionManager::get() {
-            partition.do_value_affect(
-                &self.partition_last_value.where_pos,
-                self.partition_last_value.how_far,
-                self.partition_last_value.data,
-                self.partition_last_value.for_whom,
-            );
-        }
+        self.with_legacy_partition_services(|object, services| {
+            object.partition_add_value(services)
+        });
     }
 
     pub(super) fn remove_value(&mut self) {
-        if self.partition_last_value.is_invalid() {
-            return;
-        }
-        if let Some(partition) = crate::helpers::ThePartitionManager::get() {
-            partition.undo_value_affect(
-                &self.partition_last_value.where_pos,
-                self.partition_last_value.how_far,
-                self.partition_last_value.data,
-                self.partition_last_value.for_whom,
-            );
-        }
-        self.partition_last_value.reset();
+        self.with_legacy_partition_services(|object, services| {
+            object.partition_remove_value(services)
+        });
     }
 
     pub(super) fn add_threat(&mut self) {
-        if !self.partition_last_threat.is_invalid() {
-            warn!("Object {} add_threat called without remove_threat", self.id);
-            return;
-        }
-        let Some(controller) = self.get_controlling_player() else {
-            return;
-        };
-        if self.test_status(ObjectStatusTypes::UnderConstruction)
-            || self.is_effectively_dead()
-            || self.get_shroud_clearing_range() <= 0.0
-        {
-            return;
-        }
-
-        let Ok(controller_guard) = controller.read() else {
-            return;
-        };
-        let pos = *self.get_position();
-        self.partition_last_threat.where_pos = pos;
-        self.partition_last_threat.data = self.get_template().get_threat_value();
-        self.partition_last_threat.for_whom = controller_guard.get_player_mask();
-        self.partition_last_threat.how_far = self.get_vision_range();
-
-        if let Some(partition) = crate::helpers::ThePartitionManager::get() {
-            partition.do_threat_affect(
-                &self.partition_last_threat.where_pos,
-                self.partition_last_threat.how_far,
-                self.partition_last_threat.data,
-                self.partition_last_threat.for_whom,
-            );
-        }
+        self.with_legacy_partition_services(|object, services| {
+            object.partition_add_threat(services)
+        });
     }
 
     pub(super) fn remove_threat(&mut self) {
-        if self.partition_last_threat.is_invalid() {
-            return;
-        }
-        if let Some(partition) = crate::helpers::ThePartitionManager::get() {
-            partition.undo_threat_affect(
-                &self.partition_last_threat.where_pos,
-                self.partition_last_threat.how_far,
-                self.partition_last_threat.data,
-                self.partition_last_threat.for_whom,
-            );
-        }
-        self.partition_last_threat.reset();
+        self.with_legacy_partition_services(|object, services| {
+            object.partition_remove_threat(services)
+        });
     }
 
     /// Handle partition cell maintenance
     /// Called when object position/visibility changes to refresh shroud and influence maps.
     pub fn handle_partition_cell_maintenance(&mut self) {
-        self.update_partition_object_position();
-        self.handle_shroud();
-        self.handle_value_map();
-        self.handle_threat_map();
+        self.with_legacy_partition_services(|object, services| {
+            object.partition_maintenance(services)
+        });
     }
 
     /// Set visibility flag for a specific player

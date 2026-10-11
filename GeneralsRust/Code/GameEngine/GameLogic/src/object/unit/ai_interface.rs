@@ -20,12 +20,40 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::xfer_ai_update_state(self, xfer)
     }
 
+    fn validate_owned_attack_target_callbacks(&self) -> Result<(), String> {
+        if self.runtime.components.jet_ai.is_some() {
+            Err("native target Jet lock-on callbacks not admitted".into())
+        } else {
+            Ok(())
+        }
+    }
+    fn load_post_process_enter_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        UnitAIUpdate::load_post_process_enter_with_world(self, world)
+    }
+
     fn load_post_process_path_cells(&mut self) {
         UnitAIUpdate::load_post_process_path_cells(self);
     }
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         UnitAIUpdate::update(self)
+    }
+
+    fn update_enter_phase_with_world(
+        &mut self,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        UnitAIUpdate::update_enter_phase_with_world(self, world)
+    }
+    fn execute_command_with_world(
+        &mut self,
+        command: &crate::ai::AiCommandParams,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        UnitAIUpdate::execute_command_with_world(self, command, world)
     }
 
     fn apply_bump_speed_limit(&mut self, mut desired_speed: Real, mut blocked: bool) -> Real {
@@ -220,6 +248,19 @@ impl AIUpdateInterface for UnitAIUpdate {
 
     fn do_pathfind(&mut self) {
         UnitAIUpdate::do_pathfind(self)
+    }
+
+    fn do_enter_pathfind_with_services(
+        &mut self,
+        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+        factory: &crate::object::object_factory::ObjectFactory,
+        players: &crate::player::PlayerList,
+        terrain: &crate::terrain::TerrainLogic,
+        frame: u32,
+    ) -> Result<bool, String> {
+        UnitAIUpdate::do_enter_pathfind_with_services(
+            self, pathfinder, factory, players, terrain, frame,
+        )
     }
 
     fn do_pathfind_with_pathfinder(

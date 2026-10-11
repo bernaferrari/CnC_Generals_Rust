@@ -254,6 +254,39 @@ impl ObjectFactory {
         flags: ObjectCreationFlags,
         extra_status: ObjectStatusMaskType,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
+        self.create_object_inner(template_name, position, team, flags, extra_status, true)
+    }
+
+    /// Prepare an installed object in this factory without singleton admission.
+    /// The application supplies native onCreate/admission services separately.
+    pub fn prepare_object(
+        &mut self,
+        template: Arc<dyn ThingTemplate>,
+        position: Coord3D,
+        team: Option<Arc<RwLock<Team>>>,
+        flags: ObjectCreationFlags,
+    ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
+        let name = template.get_name().to_string();
+        self.template_cache.insert(name.clone(), template);
+        self.create_object_inner(
+            &name,
+            position,
+            team,
+            flags | ObjectCreationFlags::NO_DRAWABLE,
+            ObjectStatusMaskType::NONE,
+            false,
+        )
+    }
+
+    fn create_object_inner(
+        &mut self,
+        template_name: &str,
+        position: Coord3D,
+        team: Option<Arc<RwLock<Team>>>,
+        flags: ObjectCreationFlags,
+        extra_status: ObjectStatusMaskType,
+        publish: bool,
+    ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         // Get template
         let template = self.get_or_load_template(template_name)?;
 
@@ -266,7 +299,12 @@ impl ObjectFactory {
         // Create base object first
         let mut status_mask = template.get_initial_object_status();
         status_mask |= extra_status;
-        let base_object = Object::new_with_id_preparing_ai(
+        let assemble = if publish {
+            Object::new_with_id_preparing_ai
+        } else {
+            Object::new_unpublished_preparing_ai
+        };
+        let base_object = assemble(
             template.clone(),
             object_id,
             status_mask,
@@ -279,17 +317,23 @@ impl ObjectFactory {
             let mut obj_guard = base_object
                 .write()
                 .map_err(|e| format!("object write lock poisoned: {}", e))?;
-            obj_guard.set_position(&position)?;
+            if publish {
+                obj_guard.set_position(&position)?;
+            } else {
+                obj_guard.geometry_info.position = position;
+            }
         }
 
         // Register the base object with the global GameLogic singleton
-        TheGameLogic::register_object(base_object.clone())
-            .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync>)?;
+        if publish {
+            TheGameLogic::register_object(base_object.clone())
+                .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync>)?;
+        }
 
         // new_with_id has already installed modules and run onObjectCreated,
         // before GameLogic admission, as in C++ Object.cpp:388-476.
         // Run onCreate hooks on those same instances.
-        {
+        if publish {
             let mut obj_guard = base_object
                 .write()
                 .map_err(|e| format!("object write lock poisoned: {}", e))?;

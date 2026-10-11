@@ -10,7 +10,9 @@ include!("behavior.rs");
 include!("contain.rs");
 include!("ai_update.rs");
 
+pub mod ai_native_world;
 pub(crate) mod ai_state_runtime;
+pub mod ai_world;
 include!("ai_update_ext.rs");
 include!("specialized_ai.rs");
 include!("physics.rs");
@@ -40,3 +42,6 @@ pub const MODULES_SRC: &str = concat!(
     include_str!("specialized_behavior.rs"),
     include_str!("update_sleep.rs"),
 );
+
+#[cfg(test)]
+mod ai_native_world_tests;

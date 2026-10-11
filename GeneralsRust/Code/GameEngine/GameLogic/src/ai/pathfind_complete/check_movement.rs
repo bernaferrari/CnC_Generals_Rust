@@ -1,5 +1,44 @@
 use super::*;
 
+/// C++ observes the two actual objects at each occupancy branch. Only the
+/// compatibility adapter discovers those objects in the ambient registry.
+fn observe_movement_pair<T>(
+    source: ObjectID,
+    occupant: ObjectID,
+    observations: Option<&PathfindObservations<'_>>,
+    observe: impl FnOnce(&crate::object::Object, &crate::object::Object) -> T,
+) -> Result<Option<T>, String> {
+    let Some(observations) = observations else {
+        return Ok(OBJECT_REGISTRY
+            .with_object(source, |source| {
+                OBJECT_REGISTRY.with_object(occupant, |occupant| observe(source, occupant))
+            })
+            .flatten());
+    };
+    let Some(source) = observations.object(source) else {
+        return Ok(None);
+    };
+    let Some(occupant) = observations.object(occupant) else {
+        return Ok(None);
+    };
+    let source = source.read().map_err(|_| "path movement source poisoned")?;
+    let occupant = occupant
+        .read()
+        .map_err(|_| "path movement occupant poisoned")?;
+    Ok(Some(observe(&source, &occupant)))
+}
+
+fn movement_relationship(
+    source: &crate::object::Object,
+    occupant: &crate::object::Object,
+    observations: Option<&PathfindObservations<'_>>,
+) -> Relationship {
+    match observations {
+        Some(observations) => observations.relationship(source, occupant),
+        None => source.relationship_to(occupant),
+    }
+}
+
 impl PathfindingSystem {
     // ========================================================================
     // GROUP B – Destination adjustment
@@ -39,6 +78,27 @@ impl PathfindingSystem {
         unit_radius: f32,
         ignore_obstacle_id: Option<ObjectID>,
     ) -> bool {
+        self.adjust_destination_from_with_observations(
+            from,
+            surfaces,
+            is_crusher,
+            dest,
+            unit_radius,
+            ignore_obstacle_id,
+            None,
+        )
+    }
+
+    pub(crate) fn adjust_destination_from_with_observations(
+        &self,
+        from: Option<&Coord3D>,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        dest: &mut Coord3D,
+        unit_radius: f32,
+        ignore_obstacle_id: Option<ObjectID>,
+        observations: Option<&PathfindObservations<'_>>,
+    ) -> bool {
         let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
         // C++: if (!center) adjustDest += PATHFIND_CELL_SIZE_F/2 before worldToCell.
         let mut adjust_dest = *dest;
@@ -51,7 +111,7 @@ impl PathfindingSystem {
         let layer = self.get_layer_for_coord(cell);
 
         // Exact cell first (C++ checkForAdjust on seed cell).
-        if self.try_adjust_cell(
+        if self.try_adjust_cell_with_observations(
             cell.x,
             cell.y,
             layer,
@@ -62,6 +122,7 @@ impl PathfindingSystem {
             ignore_obstacle_id,
             from,
             dest,
+            observations,
         ) {
             return true;
         }
@@ -78,7 +139,7 @@ impl PathfindingSystem {
             for _ in 0..delta {
                 i += 1;
                 limit -= 1;
-                if self.try_adjust_cell(
+                if self.try_adjust_cell_with_observations(
                     i,
                     j,
                     layer,
@@ -89,6 +150,7 @@ impl PathfindingSystem {
                     ignore_obstacle_id,
                     from,
                     dest,
+                    observations,
                 ) {
                     return true;
                 }
@@ -97,7 +159,7 @@ impl PathfindingSystem {
             for _ in 0..delta {
                 j += 1;
                 limit -= 1;
-                if self.try_adjust_cell(
+                if self.try_adjust_cell_with_observations(
                     i,
                     j,
                     layer,
@@ -108,6 +170,7 @@ impl PathfindingSystem {
                     ignore_obstacle_id,
                     from,
                     dest,
+                    observations,
                 ) {
                     return true;
                 }
@@ -117,7 +180,7 @@ impl PathfindingSystem {
             for _ in 0..delta {
                 i -= 1;
                 limit -= 1;
-                if self.try_adjust_cell(
+                if self.try_adjust_cell_with_observations(
                     i,
                     j,
                     layer,
@@ -128,6 +191,7 @@ impl PathfindingSystem {
                     ignore_obstacle_id,
                     from,
                     dest,
+                    observations,
                 ) {
                     return true;
                 }
@@ -136,7 +200,7 @@ impl PathfindingSystem {
             for _ in 0..delta {
                 j -= 1;
                 limit -= 1;
-                if self.try_adjust_cell(
+                if self.try_adjust_cell_with_observations(
                     i,
                     j,
                     layer,
@@ -147,6 +211,7 @@ impl PathfindingSystem {
                     ignore_obstacle_id,
                     from,
                     dest,
+                    observations,
                 ) {
                     return true;
                 }
@@ -171,16 +236,56 @@ impl PathfindingSystem {
         from: Option<&Coord3D>,
         dest: &mut Coord3D,
     ) -> bool {
+        self.try_adjust_cell_with_observations(
+            cx,
+            cy,
+            layer,
+            surfaces,
+            is_crusher,
+            radius,
+            center_in_cell,
+            ignore_obstacle_id,
+            from,
+            dest,
+            None,
+        )
+    }
+
+    pub(crate) fn try_adjust_cell_with_observations(
+        &self,
+        cx: i32,
+        cy: i32,
+        layer: PathfindLayerEnum,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        radius: i32,
+        center_in_cell: bool,
+        ignore_obstacle_id: Option<ObjectID>,
+        from: Option<&Coord3D>,
+        dest: &mut Coord3D,
+        observations: Option<&PathfindObservations<'_>>,
+    ) -> bool {
         let coord = GridCoord::new(cx, cy);
         if !self.is_valid_coord(coord) {
             return false;
         }
         // C++: no final destinations on cliffs.
-        let world = self.world_pos_for_coord(coord, layer);
+        let world = match observations {
+            Some(observations) => Self::cell_center_with_height(coord, layer, |x, y, layer| {
+                observations.terrain.get_layer_height(
+                    x,
+                    y,
+                    crate::path::PathfindLayerEnum::from_u32(layer as u32),
+                    None,
+                    false,
+                )
+            }),
+            None => self.world_pos_for_coord(coord, layer),
+        };
         if self.get_cell_type(&world) == Some(PathfindCellType::Cliff) {
             return false;
         }
-        if !self.is_destination_valid(
+        if !self.is_destination_valid_with_observations(
             coord,
             layer,
             surfaces,
@@ -188,24 +293,47 @@ impl PathfindingSystem {
             radius,
             center_in_cell,
             ignore_obstacle_id,
+            observations,
         ) {
             return false;
         }
         let mut adjust_dest = world;
-        if let Some(terrain) = TheTerrainLogic::get() {
+        if let Some(observations) = observations {
+            adjust_dest.z = observations.terrain.get_layer_height(
+                world.x,
+                world.y,
+                crate::path::PathfindLayerEnum::Ground,
+                None,
+                false,
+            );
+        } else if let Some(terrain) = TheTerrainLogic::get() {
             adjust_dest.z =
                 terrain.get_layer_height(world.x, world.y, CommonPathfindLayerEnum::Ground);
         }
 
         // C++ checkForAdjust path gate via clientSafeQuickDoesPathExist.
         if let Some(from_pos) = from {
-            let path_exists = self.client_safe_quick_does_path_exist(surfaces, from_pos, dest);
-            let adjusted_path_exists =
-                self.client_safe_quick_does_path_exist(surfaces, from_pos, &adjust_dest);
+            let path_exists = self.client_safe_quick_does_path_exist_with_observations(
+                surfaces,
+                from_pos,
+                dest,
+                observations,
+            );
+            let adjusted_path_exists = self.client_safe_quick_does_path_exist_with_observations(
+                surfaces,
+                from_pos,
+                &adjust_dest,
+                observations,
+            );
             let mut ok = adjusted_path_exists;
             if !path_exists {
                 // C++: if (!pathExists) { if (clientSafeQuick(dest, adjustDest)) ok }
-                if self.client_safe_quick_does_path_exist(surfaces, dest, &adjust_dest) {
+                if self.client_safe_quick_does_path_exist_with_observations(
+                    surfaces,
+                    dest,
+                    &adjust_dest,
+                    observations,
+                ) {
                     ok = true;
                 }
             }
@@ -232,11 +360,60 @@ impl PathfindingSystem {
         center_in_cell: bool,
         ignore_obstacle_id: Option<ObjectID>,
     ) -> bool {
+        self.is_destination_valid_with_observations(
+            cell,
+            _layer,
+            surfaces,
+            is_crusher,
+            radius,
+            center_in_cell,
+            ignore_obstacle_id,
+            None,
+        )
+    }
+
+    pub(crate) fn is_destination_valid_with_observations(
+        &self,
+        cell: GridCoord,
+        _layer: PathfindLayerEnum,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        radius: i32,
+        center_in_cell: bool,
+        ignore_obstacle_id: Option<ObjectID>,
+        observations: Option<&PathfindObservations<'_>>,
+    ) -> bool {
         if !self.is_valid_coord(cell) {
             return false;
         }
+        let ignore_cells = match observations {
+            Some(observations) => observations.ignored_cells(ignore_obstacle_id),
+            None => ignored_obstacle_cells(ignore_obstacle_id),
+        };
+        self.is_destination_valid_with_ignored_cells(
+            cell,
+            _layer,
+            surfaces,
+            is_crusher,
+            radius,
+            center_in_cell,
+            ignore_cells.as_ref(),
+        )
+    }
 
-        let ignore_cells = ignored_obstacle_cells(ignore_obstacle_id);
+    pub(crate) fn is_destination_valid_with_ignored_cells(
+        &self,
+        cell: GridCoord,
+        _layer: PathfindLayerEnum,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        radius: i32,
+        center_in_cell: bool,
+        ignore_cells: Option<&HashSet<GridCoord>>,
+    ) -> bool {
+        if !self.is_valid_coord(cell) {
+            return false;
+        }
         let pathfinder = &self.pathfinder;
 
         // Check all cells in the unit's footprint
@@ -252,12 +429,7 @@ impl PathfindingSystem {
         for x in start_x..end_x {
             for y in start_y..end_y {
                 let coord = GridCoord::new(x, y);
-                if !pathfinder.is_passable_with_ignore(
-                    coord,
-                    surfaces,
-                    is_crusher,
-                    ignore_cells.as_ref(),
-                ) {
+                if !pathfinder.is_passable_with_ignore(coord, surfaces, is_crusher, ignore_cells) {
                     return false;
                 }
             }
@@ -323,13 +495,26 @@ impl PathfindingSystem {
         info: &mut CheckMovementInfo,
         ignore_id: ObjectID,
     ) -> bool {
+        self.check_for_movement_with_observations(obj_id, info, ignore_id, None)
+            .expect("compatibility movement observations are infallible")
+    }
+
+    /// C++ AIPathfind.cpp:4971-5076 with the driving factory/player observations.
+    /// The mover's ignored obstacle is supplied by its already borrowed AI.
+    pub(crate) fn check_for_movement_with_observations(
+        &self,
+        obj_id: ObjectID,
+        info: &mut CheckMovementInfo,
+        ignore_id: ObjectID,
+        observations: Option<&PathfindObservations<'_>>,
+    ) -> Result<bool, String> {
         info.ally_fixed_count = 0;
         info.ally_moving = false;
         info.ally_goal = false;
         info.enemy_fixed = false;
 
         if obj_id == INVALID_ID {
-            return true;
+            return Ok(true);
         }
 
         let mut num_cells_above = info.radius;
@@ -352,7 +537,7 @@ impl PathfindingSystem {
             for j in (info.cell.y - info.radius)..(info.cell.y + num_cells_above) {
                 let coord = GridCoord::new(i, j);
                 if !self.is_valid_coord(coord) {
-                    return false; // off the map
+                    return Ok(false); // off the map
                 }
                 let Some(row) = goals.get(coord.x as usize) else {
                     continue;
@@ -386,14 +571,16 @@ impl PathfindingSystem {
 
                 let mut check = false;
                 if flags == UNIT_PRESENT_MOVING || flags == UNIT_GOAL_OTHER_MOVING {
-                    let is_ally = OBJECT_REGISTRY
-                        .with_object(obj_id, |obj_guard| {
-                            OBJECT_REGISTRY.with_object(pos_unit, |unit_guard| {
-                                obj_guard.relationship_to(&unit_guard) == Relationship::Allies
-                            })
-                        })
-                        .flatten()
-                        .unwrap_or(false);
+                    let is_ally = observe_movement_pair(
+                        obj_id,
+                        pos_unit,
+                        observations,
+                        |source, occupant| {
+                            movement_relationship(source, occupant, observations)
+                                == Relationship::Allies
+                        },
+                    )?
+                    .unwrap_or(false);
                     if is_ally {
                         info.ally_moving = true;
                     }
@@ -410,33 +597,37 @@ impl PathfindingSystem {
                 }
 
                 // C++ INFANTRY_MOVES_THROUGH_INFANTRY (AIPathfind.cpp:5031-5036).
-                let infantry_through = OBJECT_REGISTRY
-                    .with_object(obj_id, |obj_guard| {
-                        OBJECT_REGISTRY.with_object(pos_unit, |unit_guard| {
-                            obj_guard.is_kind_of(KindOf::Infantry)
-                                && unit_guard.is_kind_of(KindOf::Infantry)
-                        })
-                    })
-                    .flatten()
+                let infantry_through =
+                    observe_movement_pair(obj_id, pos_unit, observations, |source, occupant| {
+                        source.is_kind_of(KindOf::Infantry) && occupant.is_kind_of(KindOf::Infantry)
+                    })?
                     .unwrap_or(false);
                 if infantry_through {
                     continue;
                 }
 
                 // order matters: obj considers unit relationship.
-                let Some((rel, unit_has_ai, can_crush)) = OBJECT_REGISTRY
-                    .with_object(obj_id, |obj_guard| {
-                        OBJECT_REGISTRY.with_object(pos_unit, |unit_guard| {
-                            let rel = obj_guard.relationship_to(&unit_guard);
-                            let unit_has_ai = unit_guard.get_ai_update_interface().is_some();
-                            let can_crush = obj_guard.can_crush_or_squish(
-                                &unit_guard,
-                                CrushSquishTestType::TestCrushOrSquish,
-                            );
-                            (rel, unit_has_ai, can_crush)
-                        })
-                    })
-                    .flatten()
+                let Some((rel, unit_has_ai, can_crush)) =
+                    observe_movement_pair(obj_id, pos_unit, observations, |source, occupant| {
+                        let rel = movement_relationship(source, occupant, observations);
+                        // C++ only observes the neighbor's AI in the ally branch;
+                        // its presence is sufficient and never locks the cached AI.
+                        let unit_has_ai = rel == Relationship::Allies
+                            && occupant.get_ai_update_interface().is_some();
+                        let can_crush = rel != Relationship::Allies
+                            && match observations {
+                                Some(_) => source.can_crush_or_squish_with_relationship(
+                                    occupant,
+                                    CrushSquishTestType::TestCrushOrSquish,
+                                    rel,
+                                ),
+                                None => source.can_crush_or_squish(
+                                    occupant,
+                                    CrushSquishTestType::TestCrushOrSquish,
+                                ),
+                            };
+                        (rel, unit_has_ai, can_crush)
+                    })?
                 else {
                     continue;
                 };
@@ -444,7 +635,7 @@ impl PathfindingSystem {
                 if rel == Relationship::Allies {
                     // C++: can't path through non-AI allies.
                     if !unit_has_ai {
-                        return false;
+                        return Ok(false);
                     }
                     let mut found = false;
                     for k in 0..num_ally {
@@ -467,7 +658,7 @@ impl PathfindingSystem {
             }
         }
 
-        true
+        Ok(true)
     }
 
     /// Find a pathable spot near the destination.

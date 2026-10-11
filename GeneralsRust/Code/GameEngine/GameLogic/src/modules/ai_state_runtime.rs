@@ -28,12 +28,60 @@ fn snap_closest_goal_position_with_interface(
 }
 
 pub(crate) trait AiStateRuntime {
+    /// Published parent control observed during one nested attack entry. It is
+    /// neither saved state nor a second writable owner of the machine.
+    fn get_parent_state_id(&self) -> Option<u32> {
+        None
+    }
+    fn exchange_parent_state_id(&mut self, _state: Option<u32>) -> Option<u32> {
+        None
+    }
+
+    fn world(&self) -> Option<&dyn super::ai_world::AiWorld> {
+        None
+    }
+    fn world_mut(&mut self) -> Option<&mut (dyn crate::modules::ai_world::AiWorld + '_)> {
+        None
+    }
+
+    fn enter_owned(&mut self, _passenger: ObjectID, _target: ObjectID) -> Result<(), String> {
+        Err("AI operation has no supplied containment owner".into())
+    }
+
     fn dispatch_command_with_driver(
         &mut self,
         params: &crate::ai::AiCommandParams,
         driver: &mut crate::ai::states::AIStateMachineDriver<'_>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
+    fn are_turrets_linked(&self) -> bool {
+        false
+    }
+    fn get_which_turret_for_cur_weapon(&self) -> TurretType {
+        TurretType::Invalid
+    }
+    fn set_turret_target_position(&mut self, _turret: TurretType, _pos: &Coord3D) {}
+    fn is_allowed_to_chase(&self) -> bool {
+        false
+    }
+    fn get_cur_locomotor_speed(&self) -> Real {
+        0.0
+    }
+    fn get_cur_locomotor_speed_for_owner(
+        &self,
+        _owner: &crate::object::Object,
+    ) -> Result<Real, String> {
+        Err("runtime does not admit a borrowed locomotor owner".into())
+    }
+    fn is_doing_ground_movement_for_owner(
+        &self,
+        _owner: &crate::object::Object,
+    ) -> Result<bool, String> {
+        Err("runtime does not admit a borrowed movement owner".into())
+    }
+    fn request_attack_path(&mut self, _victim: ObjectID, _pos: &Coord3D) -> Result<(), String> {
+        Err("runtime does not admit owned attack path requests".into())
+    }
     fn set_final_position(&mut self, _position: &Coord3D);
     fn is_idle_with_parent_state(&self, parent_is_idle: bool) -> bool;
     fn set_movement_target(&mut self, target: &Coord3D) -> Result<(), String>;
@@ -113,6 +161,13 @@ pub(crate) trait AiStateRuntime {
     ) -> Option<Arc<RwLock<Object>>>;
     fn get_next_mood_check_time(&self) -> u32;
     fn reset_next_mood_check_time(&mut self);
+    fn reset_mood_check_at_owned(
+        &mut self,
+        _frame: u32,
+        _force_idle_frames: u32,
+    ) -> Result<(), String> {
+        Err("runtime does not admit owned mood timing".into())
+    }
     fn get_mood_matrix_value(&self) -> u32;
     fn get_mood_matrix_action_adjustment(&mut self, _action: crate::ai::MoodMatrixAction) -> u32;
     fn set_original_victim_pos(&mut self, _pos: Option<Coord3D>);
@@ -172,6 +227,21 @@ impl AiStateRuntime for AiUpdateRuntimeAdapter<'_> {
         AIUpdateInterface::execute_command(self.0, params)
     }
 
+    fn are_turrets_linked(&self) -> bool {
+        AIUpdateInterface::are_turrets_linked(self.0)
+    }
+    fn get_which_turret_for_cur_weapon(&self) -> TurretType {
+        AIUpdateInterface::get_which_turret_for_cur_weapon(self.0)
+    }
+    fn set_turret_target_position(&mut self, turret: TurretType, pos: &Coord3D) {
+        AIUpdateInterface::set_turret_target_position(self.0, turret, pos)
+    }
+    fn get_cur_locomotor_speed(&self) -> Real {
+        AIUpdateInterface::get_cur_locomotor_speed(self.0)
+    }
+    fn request_attack_path(&mut self, victim: ObjectID, pos: &Coord3D) -> Result<(), String> {
+        AIUpdateInterface::request_attack_path(self.0, victim, pos)
+    }
     fn set_final_position(&mut self, _position: &Coord3D) {
         AIUpdateInterface::set_final_position(self.0, _position)
     }

@@ -121,7 +121,7 @@ impl ChinookAIUpdate {
     pub fn handle_command_with_runtime(
         &mut self,
         params: &AiCommandParams,
-        runtime: &mut UnitAiStateRuntime<'_>,
+        runtime: &mut UnitAiStateRuntime<'_, '_>,
         driver: &mut crate::ai::states::AIStateMachineDriver<'_>,
     ) -> bool {
         // Wave 349: empty dual-world → false.

@@ -35,9 +35,11 @@ mod types;
 pub use ai_core::UnitAIUpdate;
 pub(crate) use ai_core::UnitAiComponents;
 /// A synchronous loan of one AI runtime to its currently executing state.
-pub(crate) struct UnitAiStateRuntime<'a> {
-    runtime: &'a mut ai_core::UnitAiRuntime,
+pub(crate) struct UnitAiStateRuntime<'runtime, 'world> {
+    runtime: &'runtime mut ai_core::UnitAiRuntime,
     parent_exists: bool,
+    parent_state_id: Option<u32>,
+    world: Option<&'world mut dyn crate::modules::ai_world::AiWorld>,
 }
 pub use ai_path::{
     leftover_compute_quick_path_coords, leftover_is_in_region_no_z,

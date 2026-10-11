@@ -17,6 +17,20 @@ impl PathfindingSystem {
         request: PathRequest,
         downhill_only: Option<bool>,
     ) -> PathResult {
+        self.find_path_with_observations(request, downhill_only, None)
+            .expect("compatibility path observations are infallible")
+    }
+
+    pub(crate) fn find_path_with_observations(
+        &mut self,
+        mut request: PathRequest,
+        downhill_only: Option<bool>,
+        observations: Option<&PathfindObservations>,
+    ) -> Result<PathResult, String> {
+        if let Some(observations) = observations {
+            request.is_human = observations.owner_is_human(request.object_id)?;
+        }
+
         let downhill_only =
             downhill_only.unwrap_or_else(|| Self::object_is_downhill_only(request.object_id));
         // Check cache first
@@ -36,13 +50,18 @@ impl PathfindingSystem {
         {
             let cache = &self.path_cache;
             if let Some(cached) = cache.get(&cache_key) {
-                return cached.clone();
+                return Ok(cached.clone());
             }
         }
 
         // C++ findPath: clientSafeQuickDoesPathExist first.
-        if !self.client_safe_quick_does_path_exist(request.surfaces, &request.from, &request.to) {
-            return PathResult::none();
+        if !self.client_safe_quick_does_path_exist_with_observations(
+            request.surfaces,
+            &request.from,
+            &request.to,
+            observations,
+        ) {
+            return Ok(PathResult::none());
         }
 
         // C++: clear_passable_flags; hierarchical probe; if no hPat → set_all_passable.
@@ -94,7 +113,8 @@ impl PathfindingSystem {
 
         let _ = zone_join;
 
-        let result = self.find_path_internal_with_downhill_policy(request, Some(downhill_only));
+        let result =
+            self.find_path_internal_with_observations(request, Some(downhill_only), observations)?;
 
         // Cache the result
         {
@@ -107,7 +127,7 @@ impl PathfindingSystem {
             }
         }
 
-        result
+        Ok(result)
     }
 
     /// Internal path finding implementation
@@ -121,17 +141,35 @@ impl PathfindingSystem {
         request: PathRequest,
         downhill_policy: Option<bool>,
     ) -> PathResult {
+        self.find_path_internal_with_observations(request, downhill_policy, None)
+            .expect("compatibility path observations are infallible")
+    }
+
+    pub(crate) fn find_path_internal_with_observations(
+        &mut self,
+        mut request: PathRequest,
+        downhill_policy: Option<bool>,
+        observations: Option<&PathfindObservations>,
+    ) -> Result<PathResult, String> {
+        if let Some(observations) = observations {
+            request.is_human = observations.owner_is_human(request.object_id)?;
+        }
+
+        let observation_error = std::cell::RefCell::new(None);
         let start = GridCoord::from_world(&request.from);
         let goal = GridCoord::from_world(&request.to);
-        let ignore_cells = ignored_obstacle_cells(request.ignore_obstacle_id);
+        let ignore_cells = observations.map_or_else(
+            || ignored_obstacle_cells(request.ignore_obstacle_id),
+            |world| world.ignored_cells(request.ignore_obstacle_id),
+        );
 
         // Validate coordinates
         if !self.is_valid_coord(start) || !self.is_valid_coord(goal) {
-            return PathResult::none();
+            return Ok(PathResult::none());
         }
         // C++ human: reject cells outside m_logicalExtent.
         if request.is_human && (!self.in_logical_extent(start) || !self.in_logical_extent(goal)) {
-            return PathResult::none();
+            return Ok(PathResult::none());
         }
 
         // Check zone connectivity for fast rejection
@@ -139,7 +177,7 @@ impl PathfindingSystem {
         {
             let zones = &self.zones;
             if !zones.are_connected(start, goal, request.surfaces, request.is_crusher) {
-                return PathResult::none();
+                return Ok(PathResult::none());
             }
         }
 
@@ -158,7 +196,17 @@ impl PathfindingSystem {
         }
         // Persist for callers that read is_tunneling during this path.
         // Note: PathfindingSystem is &self here — use interior via cell local only.
-        let is_dozer = Self::object_is_dozer(request.object_id);
+        let is_dozer = observations.map_or_else(
+            || Self::object_is_dozer(request.object_id),
+            |world| {
+                world.object(request.object_id).is_some_and(|object| {
+                    object
+                        .read()
+                        .expect("admitted path owner poisoned")
+                        .is_kind_of(KindOf::Dozer)
+                })
+            },
+        );
         let dozer_id = request.object_id;
         // Snapshot obstacle owners before A* so dozerHack does not re-lock pathfinder.
         let obstacle_owners: HashMap<(i32, i32), ObjectID> = if is_dozer {
@@ -186,11 +234,18 @@ impl PathfindingSystem {
                 acceptable_surfaces: request.surfaces,
                 ..Default::default()
             };
-            if !self.check_for_movement_with_ignore_id(
+            if !match self.check_for_movement_with_observations(
                 obj_id,
                 &mut info,
                 request.ignore_obstacle_id.unwrap_or(INVALID_ID),
+                observations,
             ) {
+                Ok(value) => value,
+                Err(error) => {
+                    *observation_error.borrow_mut() = Some(error);
+                    false
+                }
+            } {
                 return 0;
             }
             if info.ally_fixed_count > 0 {
@@ -214,7 +269,15 @@ impl PathfindingSystem {
         let ground_h = |cell: GridCoord| -> f32 {
             let wx = (cell.x as f32 + 0.5) * PATHFIND_CELL_SIZE_F;
             let wy = (cell.y as f32 + 0.5) * PATHFIND_CELL_SIZE_F;
-            if let Some(terrain) = TheTerrainLogic::get() {
+            if let Some(world) = observations {
+                world.terrain.get_layer_height(
+                    wx,
+                    wy,
+                    crate::path::PathfindLayerEnum::Ground,
+                    None,
+                    false,
+                )
+            } else if let Some(terrain) = TheTerrainLogic::get() {
                 terrain.get_layer_height(wx, wy, CommonPathfindLayerEnum::Ground)
             } else {
                 0.0
@@ -235,7 +298,22 @@ impl PathfindingSystem {
             let Some(&obs_id) = obstacle_owners.get(&(coord.x, coord.y)) else {
                 return false;
             };
-            Self::dozer_hack_allows_obstacle(dozer_id, obs_id)
+            if let Some(world) = observations {
+                let Some(source) = world.object(dozer_id) else {
+                    return false;
+                };
+                let Some(target) = world.object(obs_id) else {
+                    return false;
+                };
+                let source = source.read().expect("admitted dozer poisoned");
+                if dozer_id == obs_id {
+                    return true;
+                }
+                let target = target.read().expect("admitted obstacle poisoned");
+                world.relationship(&source, &target) != Relationship::Enemies
+            } else {
+                Self::dozer_hack_allows_obstacle(dozer_id, obs_id)
+            }
         };
         // C++ examineCellsCallback: abort line on enemyFixed / allyFixedCount.
         let line_ok = |cell: GridCoord| -> bool {
@@ -251,11 +329,18 @@ impl PathfindingSystem {
                 acceptable_surfaces: request.surfaces,
                 ..Default::default()
             };
-            if !self.check_for_movement_with_ignore_id(
+            if !match self.check_for_movement_with_observations(
                 obj_id,
                 &mut info,
                 request.ignore_obstacle_id.unwrap_or(INVALID_ID),
+                observations,
             ) {
+                Ok(value) => value,
+                Err(error) => {
+                    *observation_error.borrow_mut() = Some(error);
+                    false
+                }
+            } {
                 return false;
             }
             if info.enemy_fixed || info.ally_fixed_count > 0 {
@@ -265,14 +350,28 @@ impl PathfindingSystem {
             // check_for_movement only sets enemy_fixed when !can_crush.
             let pos_u = self.pos_unit_at(cell, PathfindLayerEnum::Ground);
             if pos_u != INVALID_ID && pos_u != obj_id {
-                let is_enemy = OBJECT_REGISTRY
-                    .with_object(obj_id, |g| {
-                        OBJECT_REGISTRY.with_object(pos_u, |u| {
-                            g.relationship_to(&u) != crate::common::Relationship::Allies
+                let is_enemy = if let Some(world) = observations {
+                    let source = world.object(obj_id);
+                    let target = world.object(pos_u);
+                    match (source, target) {
+                        (Some(source), Some(target)) => {
+                            world.relationship(
+                                &source.read().expect("admitted source poisoned"),
+                                &target.read().expect("admitted target poisoned"),
+                            ) != Relationship::Allies
+                        }
+                        _ => false,
+                    }
+                } else {
+                    OBJECT_REGISTRY
+                        .with_object(obj_id, |g| {
+                            OBJECT_REGISTRY.with_object(pos_u, |u| {
+                                g.relationship_to(&u) != crate::common::Relationship::Allies
+                            })
                         })
-                    })
-                    .flatten()
-                    .unwrap_or(false);
+                        .flatten()
+                        .unwrap_or(false)
+                };
                 if is_enemy {
                     return false;
                 }
@@ -313,8 +412,11 @@ impl PathfindingSystem {
             dozer_ok_ref,
         );
 
+        if let Some(error) = observation_error.into_inner() {
+            return Err(error);
+        }
         let Some((grid_path, cells_examined)) = grid_path else {
-            return PathResult::none();
+            return Ok(PathResult::none());
         };
         // C++ m_cumulativeCellsAllocated += cells examined this path.
         self.cumulative_cells_allocated = self
@@ -324,7 +426,7 @@ impl PathfindingSystem {
         // Convert grid path via buildActualPath (centerInCell from unit radius).
         // Matches C++ buildActualPath() at AIPathfind.cpp:8954-9071
         let (_radius, center_in_cell) = Self::compute_radius_and_center(request.unit_radius);
-        let built = self.build_actual_path_from_layered_path(
+        let built = self.build_actual_path_from_layered_path_with_observations(
             &grid_path,
             &request.from,
             &request.to,
@@ -333,33 +435,35 @@ impl PathfindingSystem {
             false,
             center_in_cell,
             request.object_id,
+            observations,
         );
         if built.success {
             let mut result = built;
             let coordinate_path: Vec<_> = grid_path.iter().map(|(coord, _)| *coord).collect();
             result.total_cost = self.calculate_path_cost(&coordinate_path);
             // C++ path->optimize(obj, surfaces, blocked) after prependCells.
-            let optimized = self.optimize_path_blocked(
+            let optimized = self.optimize_path_blocked_with_observations(
                 &result.waypoints,
                 &result.layers,
                 &request,
                 result.blocked_by_ally,
-            );
+                observations,
+            )?;
             let opt_len = optimized.0.len();
-            return PathResult {
+            return Ok(PathResult {
                 success: true,
                 waypoints: optimized.0,
                 layers: optimized.1,
                 can_optimize: vec![true; opt_len],
                 total_cost: result.total_cost,
                 blocked_by_ally: result.blocked_by_ally,
-            };
+            });
         }
         // C++ internalFindPath returns NULL when buildActualPath fails. Do not
         // reconstruct a path from raw grid coordinates: that bypasses the
         // layer/terrain/occupancy validation performed by buildActualPath and
         // can turn an A* failure into a straight march through an invalid cell.
-        PathResult::none()
+        Ok(PathResult::none())
     }
 
     /// Find closest reachable path (for blocked destinations)
@@ -379,6 +483,21 @@ impl PathfindingSystem {
         downhill_only: Option<bool>,
         aircraft_goal_only: Option<bool>,
     ) -> PathResult {
+        self.find_closest_path_with_observations(request, downhill_only, aircraft_goal_only, None)
+            .expect("compatibility path observations are infallible")
+    }
+
+    pub(crate) fn find_closest_path_with_observations(
+        &mut self,
+        mut request: PathRequest,
+        downhill_only: Option<bool>,
+        aircraft_goal_only: Option<bool>,
+        observations: Option<&PathfindObservations>,
+    ) -> Result<PathResult, String> {
+        if let Some(observations) = observations {
+            request.is_human = observations.owner_is_human(request.object_id)?;
+        }
+
         const COST_ORTHO: i32 = 10;
         const COST_DIAG: i32 = 14;
         // C++ COST_TO_DISTANCE_FACTOR = 1/10 → SQR = 1/100.
@@ -386,7 +505,7 @@ impl PathfindingSystem {
         const MAX_EXPAND: i32 = 4000;
 
         if !self.is_map_ready {
-            return PathResult::none();
+            return Ok(PathResult::none());
         }
 
         let goal_grid = GridCoord::from_world(&request.to);
@@ -398,16 +517,22 @@ impl PathfindingSystem {
 
         if aircraft_goal_only {
             let goal_layer = self.get_layer_for_coord(goal_grid);
-            if self.check_destination(
+            if self.check_destination_with_observations(
                 &request,
                 goal_grid,
                 goal_layer,
                 radius,
                 center_in_cell,
                 Some(aircraft_goal_only),
+                observations,
             ) {
-                let adjusted = self.world_pos_for_coord(goal_grid, goal_layer);
-                return Self::destination_only_result(request.from, adjusted, goal_layer);
+                let adjusted =
+                    self.world_pos_for_coord_with_observations(goal_grid, goal_layer, observations);
+                return Ok(Self::destination_only_result(
+                    request.from,
+                    adjusted,
+                    goal_layer,
+                ));
             }
             // Aircraft without exact goal: fall through to closest-cell A*.
         }
@@ -435,14 +560,14 @@ impl PathfindingSystem {
 
         let start = Self::cell_for_unit_position(&request.from, center_in_cell);
         if !self.is_valid_coord(start) || !self.is_valid_coord(goal_grid) {
-            return PathResult::none();
+            return Ok(PathResult::none());
         }
         if request.is_human
             && (!self.in_logical_extent(start) || !self.in_logical_extent(goal_grid))
         {
             // Computer can leave logical map; humans cannot start outside.
             if request.is_human && !self.in_logical_extent(start) {
-                return PathResult::none();
+                return Ok(PathResult::none());
             }
         }
 
@@ -498,7 +623,7 @@ impl PathfindingSystem {
             if cx == goal_grid.x && cy == goal_grid.y {
                 // C++: if goal invalid destination and we have closer, keep scanning.
                 let goal_ok = can_path_through_units
-                    || self.is_destination_valid(
+                    || self.is_destination_valid_with_observations(
                         cell,
                         layer,
                         surfaces,
@@ -506,6 +631,7 @@ impl PathfindingSystem {
                         radius,
                         center_in_cell,
                         request.ignore_obstacle_id,
+                        observations,
                     );
                 if goal_ok || closest_cell.is_none() {
                     found_goal_cell = true;
@@ -516,7 +642,7 @@ impl PathfindingSystem {
                     // continue scanning for closer valid cell
                 }
             } else if !self.is_tunneling
-                && self.is_destination_valid(
+                && self.is_destination_valid_with_observations(
                     cell,
                     layer,
                     surfaces,
@@ -524,15 +650,17 @@ impl PathfindingSystem {
                     radius,
                     center_in_cell,
                     request.ignore_obstacle_id,
+                    observations,
                 )
             {
                 // C++: if (!startedStuck || validMovementPosition(...))
                 let movement_ok = !started_stuck
-                    || self.valid_movement_cell(
+                    || self.valid_movement_cell_with_observations(
                         surfaces,
                         is_crusher,
                         cell,
                         request.ignore_obstacle_id,
+                        observations,
                     );
                 if movement_ok {
                     let dx = (goal_grid.x - cx).abs() as f32;
@@ -602,7 +730,7 @@ impl PathfindingSystem {
         }
 
         let Some((best_cell, _)) = closest_cell else {
-            return PathResult::none();
+            return Ok(PathResult::none());
         };
 
         // Path to exact goal or closest valid cell.
@@ -612,19 +740,27 @@ impl PathfindingSystem {
         } else {
             let layer = self.get_layer_for_coord(best_cell);
             let mut p = Coord3D::new(0.0, 0.0, 0.0);
-            self.adjust_coord_to_cell(best_cell.x, best_cell.y, center_in_cell, &mut p, layer);
+            self.adjust_coord_to_cell_with_observations(
+                best_cell.x,
+                best_cell.y,
+                center_in_cell,
+                &mut p,
+                layer,
+                observations,
+            );
             p
         };
         let from = request.from;
         request.to = to_pos;
         // Use internal path to avoid hierarchical precheck doubling work.
-        let result = self.find_path_internal_with_downhill_policy(request, Some(downhill_only));
-        if result.success {
+        let result =
+            self.find_path_internal_with_observations(request, Some(downhill_only), observations)?;
+        Ok(if result.success {
             result
         } else if aircraft_goal_only {
             Self::destination_only_result(from, to_pos, self.get_layer_for_coord(best_cell))
         } else {
             PathResult::none()
-        }
+        })
     }
 }

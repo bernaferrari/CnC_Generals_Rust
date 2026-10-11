@@ -939,6 +939,55 @@ impl Snapshotable for OverlordContain {
 }
 
 impl ContainModuleInterface for OverlordContain {
+    fn supports_owned_enter(&self) -> bool {
+        self.base.supports_owned_enter()
+    }
+    fn add_to_contain_with_world(
+        &mut self,
+        id: ObjectID,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        // The driving operation resolves redirection before borrowing this
+        // physical module. A bare Overlord uses its own TransportContain.
+        let Some(passenger) = self.base.base.begin_enter_with_world(id, world)? else {
+            return Ok(());
+        };
+        self.base.base.attach_enter_with_world(&passenger, world);
+        self.base.on_containing_with_world(&passenger, world);
+        let portable = passenger
+            .passenger
+            .read()
+            .expect("admitted Overlord passenger poisoned")
+            .is_kind_of(KindOf::PortableStructure);
+        if portable {
+            self.activate_redirected_contain()
+                .expect("redirection activation is infallible");
+            if self.module_data.experience_sink_for_rider {
+                passenger
+                    .passenger
+                    .write()
+                    .expect("admitted Overlord payload poisoned")
+                    .with_experience_tracker_mut(|tracker| {
+                        tracker.set_experience_sink(self.object_id)
+                    });
+            }
+            let owner = &passenger.owner;
+            let stealthed = owner
+                .read()
+                .expect("admitted Overlord owner poisoned")
+                .is_stealthed();
+            if stealthed {
+                let mut passenger = passenger
+                    .passenger
+                    .write()
+                    .expect("admitted Overlord payload poisoned");
+                world.grant_payload_stealth(&mut passenger);
+            }
+        }
+        self.base.base.finish_enter_with_world(&passenger, world);
+        Ok(())
+    }
+
     fn can_contain(&self, object_id: ObjectID) -> bool {
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
             return self.is_valid_container_for(&*obj_guard, true);
@@ -1066,6 +1115,18 @@ impl ContainModuleInterface for OverlordContain {
             }
         }
         crate::modules::ContainAdmissionTarget::LiteralOwner
+    }
+
+    fn is_valid_container_for_with_world(
+        &self,
+        obj: &Object,
+        owner: &Object,
+        capacity: bool,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> bool {
+        ContainModuleInterface::is_valid_container_for_with_world(
+            &self.base, obj, owner, capacity, world,
+        )
     }
 
     fn is_valid_container_for_with_owner(

@@ -133,12 +133,18 @@ fn goal_boundary_dist_sqr(
 
 impl Weapon {
     pub fn new(template: Arc<WeaponTemplate>, weapon_slot: WeaponSlotType) -> Self {
+        Self::new_at(template, weapon_slot, TheGameLogic::get_frame())
+    }
+    pub(crate) fn new_at(
+        template: Arc<WeaponTemplate>,
+        weapon_slot: WeaponSlotType,
+        frame: u32,
+    ) -> Self {
         let min_pitch = template.min_target_pitch;
         let max_pitch = template.max_target_pitch;
         let shots_per_barrel = template.shots_per_barrel;
         let pitch_limited = min_pitch > -std::f32::consts::PI || max_pitch < std::f32::consts::PI;
-        let suspend_fx_frame =
-            TheGameLogic::get_frame().saturating_add(template.suspend_fx_delay as UnsignedInt);
+        let suspend_fx_frame = frame.saturating_add(template.suspend_fx_delay as UnsignedInt);
 
         Self {
             template,
@@ -680,15 +686,49 @@ impl Weapon {
         consecutive_shots: Option<i32>,
         held_bonus_flags: Option<WeaponBonusConditionFlags>,
     ) -> GameLogicResult<()> {
+        self.pre_fire_weapon_with_consecutive_at(
+            _source,
+            _victim,
+            consecutive_shots,
+            held_bonus_flags,
+            TheGameLogic::get_frame(),
+        )
+    }
+
+    /// Original pre-fire transition with the driving operation's clock.
+    /// Explicit consecutive-shot and inherited bonus observations avoid owner
+    /// discovery while the caller borrows its actual weapon set.
+    pub(crate) fn pre_fire_weapon_with_consecutive_at(
+        &mut self,
+        _source: ObjectId,
+        _victim: ObjectId,
+        consecutive_shots: Option<i32>,
+        held_bonus_flags: Option<WeaponBonusConditionFlags>,
+        frame: u32,
+    ) -> GameLogicResult<()> {
         let delay = self.get_pre_attack_delay_with_consecutive(
             _source,
             _victim,
             consecutive_shots,
             held_bonus_flags,
         );
+        self.begin_pre_fire_delay_at(delay, frame)
+    }
+
+    pub(crate) fn pre_fire_with_observations_at(
+        &mut self,
+        consecutive_shots: i32,
+        bonus: &WeaponBonus,
+        frame: u32,
+    ) -> GameLogicResult<()> {
+        let delay = self.pre_attack_delay_from_observations(consecutive_shots, bonus);
+        self.begin_pre_fire_delay_at(delay, frame)
+    }
+
+    fn begin_pre_fire_delay_at(&mut self, delay: i32, frame: u32) -> GameLogicResult<()> {
         if delay > 0 {
             self.store_status(WeaponStatus::PreAttack);
-            self.when_pre_attack_finished = TheGameLogic::get_frame() + (delay as u32);
+            self.when_pre_attack_finished = frame.wrapping_add(delay as u32);
             if self.template.leech_range_weapon {
                 self.leech_weapon_range_active = true;
             }
@@ -741,12 +781,26 @@ impl Weapon {
         source: &crate::object::Object,
         target: &crate::object::Object,
     ) -> f32 {
-        if self.get_status() == WeaponStatus::OutOfAmmo && !self.template.get_auto_reloads_clip() {
+        let status = self.get_status();
+        if status == WeaponStatus::OutOfAmmo && !self.template.get_auto_reloads_clip() {
             return 0.0;
         }
         let bonus = self.compute_bonus_for_object(source);
+        self.estimate_weapon_damage_for_objects_with_bonus(source, target, &bonus, status)
+    }
+
+    pub(crate) fn estimate_weapon_damage_for_objects_with_bonus(
+        &self,
+        source: &crate::object::Object,
+        target: &crate::object::Object,
+        bonus: &WeaponBonus,
+        status: WeaponStatus,
+    ) -> f32 {
+        if status == WeaponStatus::OutOfAmmo && !self.template.get_auto_reloads_clip() {
+            return 0.0;
+        }
         self.template
-            .estimate_weapon_template_damage_for_objects(source.get_id(), target, &bonus)
+            .estimate_weapon_template_damage_for_objects(source.get_id(), target, bonus)
     }
 
     pub(crate) fn get_attack_range_for_object(&self, source: &crate::object::Object) -> f32 {
@@ -965,6 +1019,15 @@ impl Weapon {
         bonus: &WeaponBonus,
         load_instantly: bool,
     ) -> GameLogicResult<()> {
+        self.reload_with_bonus_at(source, bonus, load_instantly, TheGameLogic::get_frame())
+    }
+    pub(crate) fn reload_with_bonus_at(
+        &mut self,
+        source: ObjectId,
+        bonus: &WeaponBonus,
+        load_instantly: bool,
+        frame: u32,
+    ) -> GameLogicResult<()> {
         // C++ Weapon::reloadWithBonus (Weapon.cpp:1877-1912).
         let clip_size = self.template.clip_size;
         // Drop a stale pending so a skipped slot cannot beat the weapon that reloads.
@@ -982,7 +1045,7 @@ impl Weapon {
         } else {
             self.template.get_clip_reload_time(bonus)
         };
-        self.when_last_reload_started = TheGameLogic::get_frame();
+        self.when_last_reload_started = frame;
         self.when_we_can_fire_again = self.when_last_reload_started + (reload_time as u32);
         self.shared_fire_sync = Some((self.when_we_can_fire_again, WeaponStatus::ReloadingClip));
 
@@ -1014,8 +1077,10 @@ impl Weapon {
     }
 
     pub fn get_status(&self) -> WeaponStatus {
-        let current_frame = TheGameLogic::get_frame();
+        self.get_status_at(TheGameLogic::get_frame())
+    }
 
+    pub fn get_status_at(&self, current_frame: u32) -> WeaponStatus {
         // C++ Weapon::getStatus (Weapon.cpp:2736-2742): PRE_ATTACK is a pure
         // frame test — stored status is not consulted.
         if current_frame < self.when_pre_attack_finished {
@@ -1037,7 +1102,11 @@ impl Weapon {
 
     /// Get remaining ammunition
     pub fn get_remaining_ammo(&self) -> u32 {
-        match self.get_status() {
+        self.get_remaining_ammo_at(TheGameLogic::get_frame())
+    }
+
+    pub(crate) fn get_remaining_ammo_at(&self, frame: u32) -> u32 {
+        match self.get_status_at(frame) {
             WeaponStatus::ReloadingClip => 0,
             _ => self.ammo_in_clip,
         }
@@ -1103,6 +1172,41 @@ impl Weapon {
         consecutive_shots: Option<i32>,
         held_bonus_flags: Option<WeaponBonusConditionFlags>,
     ) -> i32 {
+        if self.template.prefire_type == WeaponPrefireType::PrefirePerClip
+            && self.template.clip_size > 0
+            && self.ammo_in_clip < self.template.clip_size as u32
+        {
+            return 0;
+        }
+        let consecutive = if self.template.prefire_type == WeaponPrefireType::PrefirePerAttack {
+            consecutive_shots.unwrap_or_else(|| {
+                TheGameLogic::find_object_by_id(source)
+                    .and_then(|arc| {
+                        arc.try_read()
+                            .ok()
+                            .map(|obj| obj.get_num_consecutive_shots_fired_at_target(victim))
+                    })
+                    .unwrap_or(0)
+            })
+        } else {
+            0
+        };
+        if self.template.prefire_type == WeaponPrefireType::PrefirePerAttack && consecutive > 0 {
+            return 0;
+        }
+        let bonus = if let Some(flags) = held_bonus_flags {
+            self.bonus_from_flags(flags)
+        } else {
+            self.compute_bonus(source, WeaponBonusConditionFlags::new())
+        };
+        self.pre_attack_delay_from_observations(consecutive, &bonus)
+    }
+
+    fn pre_attack_delay_from_observations(
+        &self,
+        consecutive_shots: i32,
+        bonus: &WeaponBonus,
+    ) -> i32 {
         match self.template.prefire_type {
             WeaponPrefireType::PrefirePerClip => {
                 if self.template.clip_size > 0 && self.ammo_in_clip < self.template.clip_size as u32
@@ -1110,28 +1214,10 @@ impl Weapon {
                     return 0;
                 }
             }
-            WeaponPrefireType::PrefirePerAttack => {
-                let consecutive = consecutive_shots.unwrap_or_else(|| {
-                    TheGameLogic::find_object_by_id(source)
-                        .and_then(|arc| {
-                            arc.try_read()
-                                .ok()
-                                .map(|obj| obj.get_num_consecutive_shots_fired_at_target(victim))
-                        })
-                        .unwrap_or(0)
-                });
-                if consecutive > 0 {
-                    return 0;
-                }
-            }
-            WeaponPrefireType::PrefirePerShot => {}
+            WeaponPrefireType::PrefirePerAttack if consecutive_shots > 0 => return 0,
+            _ => {}
         }
-        let bonus = if let Some(flags) = held_bonus_flags {
-            self.bonus_from_flags(flags)
-        } else {
-            self.compute_bonus(source, WeaponBonusConditionFlags::new())
-        };
-        self.template.get_pre_attack_delay(&bonus)
+        self.template.get_pre_attack_delay(bonus)
     }
     /// Check if this is a damage weapon.
     ///
@@ -1591,6 +1677,27 @@ impl Weapon {
             None,
             &victim_pos,
         )
+    }
+
+    /// Same Weapon.cpp:3096/3110 geometry against explicitly supplied terrain.
+    pub(crate) fn is_clear_goal_firing_line_of_sight_with_objects(
+        &self,
+        source: &crate::object::Object,
+        goal: &Coord3D,
+        victim: Option<&crate::object::Object>,
+        position: &Coord3D,
+        terrain: &crate::terrain::TerrainLogic,
+    ) -> bool {
+        let height = source.get_geometry_info().get_max_height_above_position();
+        let origin = glam::Vec3::new(goal.x, goal.y, goal.z + height);
+        let target = victim
+            .map(|victim| {
+                victim
+                    .get_geometry_info()
+                    .get_center_position(victim.get_position())
+            })
+            .unwrap_or(*position);
+        terrain.is_clear_line_of_sight(&origin, &glam::Vec3::new(target.x, target.y, target.z))
     }
 
     /// Check if source at goal position would have clear terrain LOS to a position.

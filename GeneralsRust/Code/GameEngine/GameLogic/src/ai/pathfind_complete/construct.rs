@@ -178,22 +178,66 @@ impl PathfindingSystem {
         max_per_frame: usize,
         mut do_pathfind: impl FnMut(&mut dyn crate::modules::AIUpdateInterface, &mut PathfindingSystem),
     ) -> usize {
+        self.process_queue_with_owner(max_per_frame, None, |id, pathfinder| {
+            if let Some(ai) = OBJECT_REGISTRY
+                .with_object(id, |obj| obj.get_ai_update_interface())
+                .flatten()
+            {
+                if let Ok(mut ai) = ai.lock() {
+                    do_pathfind(&mut *ai, pathfinder);
+                    return Ok(true);
+                }
+                // Preserve the compatibility poisoned-interface behavior.
+                return Ok(true);
+            }
+            Ok(false)
+        })
+        .expect("compatibility queue callbacks are infallible")
+    }
+
+    /// Same queue budget/order, with the driving terrain and cached object callback.
+    pub fn process_queue_with_owner(
+        &mut self,
+        max_per_frame: usize,
+        extent: Option<crate::common::Region3D>,
+        mut do_pathfind: impl FnMut(ObjectID, &mut PathfindingSystem) -> Result<bool, String>,
+    ) -> Result<usize, String> {
         // Terrain/queue drain is valid with zero objects (C++ pathfinder on empty maps).
         // Fail-closed object lookups happen per queued ObjectID below.
 
         // C++: if (!m_isMapReady) return;
         if !self.is_map_ready {
-            return 0;
+            return Ok(0);
         }
         // C++: if needToCalculateZones → calculateZones and return (no queue drain).
         let dirty = self.zones.zones_dirty;
         if dirty {
             self.recalculate_zones_from_cells();
-            return 0;
+            return Ok(0);
         }
 
         // C++ processPathfindQueue: refresh m_logicalExtent from terrain extent.
-        self.refresh_logical_extent();
+        if let Some(extent) = extent {
+            let lo = ICoord2D::new(
+                (extent.lo.x / PATHFIND_CELL_SIZE_F).floor() as i32,
+                (extent.lo.y / PATHFIND_CELL_SIZE_F).floor() as i32,
+            );
+            let hi = ICoord2D::new(
+                (extent.hi.x / PATHFIND_CELL_SIZE_F).floor() as i32 - 1,
+                (extent.hi.y / PATHFIND_CELL_SIZE_F).floor() as i32 - 1,
+            );
+            self.set_logical_extent(
+                ICoord2D::new(lo.x.max(0), lo.y.max(0)),
+                ICoord2D::new(
+                    hi.x.min(self.width.saturating_sub(1) as i32)
+                        .max(lo.x.max(0)),
+                    hi.y.min(self.height.saturating_sub(1) as i32)
+                        .max(lo.y.max(0)),
+                ),
+            );
+        } else {
+            self.refresh_logical_extent();
+        }
         self.cumulative_cells_allocated = 0;
 
         // C++ while (m_cumulativeCellsAllocated < PATHFIND_CELLS_PER_FRAME && queue nonempty)
@@ -213,18 +257,15 @@ impl PathfindingSystem {
             };
             // C++: Object* obj = findObjectByID; if (ai) ai->doPathfind(this);
             if id != INVALID_ID {
-                if let Some(ai) = OBJECT_REGISTRY
-                    .with_object(id, |obj_g| obj_g.get_ai_update_interface())
-                    .flatten()
-                {
-                    if let Ok(mut ai_g) = ai.lock() {
-                        // C++ ai->doPathfind reads the live ignore id and destination.
-                        do_pathfind(&mut *ai_g, self);
-                        drop(ai_g);
-                        // One pathfind per queue entry. The PathRequest was snapshotted
-                        // at queue time; do not search it after do_pathfind.
-                        self.request_queue.retain(|r| r.object_id != id);
+                let handled = match do_pathfind(id, self) {
+                    Ok(handled) => handled,
+                    Err(error) => {
+                        self.object_path_queue.restore_front(id);
+                        return Err(error);
                     }
+                };
+                if handled {
+                    self.request_queue.retain(|request| request.object_id != id);
                 } else {
                     // Fallback: PathRequest residual for host/tests without registry object.
                     let request = self
@@ -255,6 +296,6 @@ impl PathfindingSystem {
             processed += 1;
         }
 
-        processed
+        Ok(processed)
     }
 }

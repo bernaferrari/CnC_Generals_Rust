@@ -410,7 +410,7 @@ fn leftover_misc_event_name(
 }
 
 /// C++ `AudioEventRTS` exclusive owner + caller volume, then `TheAudio->addAudioEvent`.
-fn leftover_event_to_engine(event: &AudioEventRts) -> EngineAudioEventRts {
+pub(crate) fn leftover_event_to_engine(event: &AudioEventRts) -> EngineAudioEventRts {
     let mut engine_event = match event.owner_type {
         LeftoverAudioOwner::Positional | LeftoverAudioOwner::Dead => {
             if let Some((x, y, z)) = event.position {

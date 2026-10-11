@@ -12,14 +12,20 @@ use super::registry::{
 use super::types::*;
 
 /// Bound services used only while one installed AI follows its owned AiPath.
-pub(super) struct NativePathMovementContext {
-    pathfinder: Arc<RwLock<crate::ai::Pathfinder>>,
+enum NativePathfinderLoan<'a> {
+    Shared(Arc<RwLock<crate::ai::Pathfinder>>),
+    Borrowed(&'a mut crate::ai::Pathfinder),
+}
+
+pub(super) struct NativePathMovementContext<'a> {
+    pathfinder: NativePathfinderLoan<'a>,
     surfaces: crate::locomotor::LocomotorSurfaceTypeMask,
     ignore_obstacle_id: Option<ObjectID>,
+    owned_ignore_cells: Option<std::collections::HashSet<crate::ai::pathfind_astar::GridCoord>>,
     layer: crate::ai::pathfind::PathfindLayerEnum,
 }
 
-impl NativePathMovementContext {
+impl<'a> NativePathMovementContext<'a> {
     pub(super) fn new(
         pathfinder: Arc<RwLock<crate::ai::Pathfinder>>,
         surfaces: crate::locomotor::LocomotorSurfaceTypeMask,
@@ -27,15 +33,31 @@ impl NativePathMovementContext {
         layer: crate::ai::pathfind::PathfindLayerEnum,
     ) -> Self {
         Self {
-            pathfinder,
+            pathfinder: NativePathfinderLoan::Shared(pathfinder),
             surfaces,
             ignore_obstacle_id,
+            owned_ignore_cells: None,
+            layer,
+        }
+    }
+    pub(super) fn borrowed(
+        pathfinder: &'a mut crate::ai::Pathfinder,
+        surfaces: crate::locomotor::LocomotorSurfaceTypeMask,
+        ignore_obstacle_id: Option<ObjectID>,
+        layer: crate::ai::pathfind::PathfindLayerEnum,
+        owned_ignore_cells: Option<std::collections::HashSet<crate::ai::pathfind_astar::GridCoord>>,
+    ) -> Self {
+        Self {
+            pathfinder: NativePathfinderLoan::Borrowed(pathfinder),
+            surfaces,
+            ignore_obstacle_id,
+            owned_ignore_cells,
             layer,
         }
     }
 }
 
-impl crate::ai::pathfind::PathMovementContext for NativePathMovementContext {
+impl crate::ai::pathfind::PathMovementContext for NativePathMovementContext<'_> {
     fn object_layer(&mut self) -> crate::ai::pathfind::PathfindLayerEnum {
         self.layer
     }
@@ -46,7 +68,7 @@ impl crate::ai::pathfind::PathMovementContext for NativePathMovementContext {
         from: &Coord3D,
         to: &Coord3D,
     ) -> bool {
-        self.pathfinder.read().ok().is_some_and(|pathfinder| {
+        let query = |pathfinder: &crate::ai::Pathfinder| {
             pathfinder.is_line_passable_for_surfaces_on_layer(
                 from,
                 to,
@@ -54,12 +76,29 @@ impl crate::ai::pathfind::PathMovementContext for NativePathMovementContext {
                 crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32),
                 self.ignore_obstacle_id,
             )
-        })
+        };
+        match &self.pathfinder {
+            NativePathfinderLoan::Shared(owner) => {
+                owner.read().ok().is_some_and(|owner| query(&owner))
+            }
+            NativePathfinderLoan::Borrowed(owner) => owner.is_line_passable_on_layer_with_cells(
+                from,
+                to,
+                self.surfaces,
+                crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32),
+                self.owned_ignore_cells.as_ref(),
+            ),
+        }
     }
 
     fn set_debug_path_position(&mut self, position: &Coord3D) {
-        if let Ok(mut pathfinder) = self.pathfinder.write() {
-            pathfinder.set_debug_path_position(*position);
+        match &mut self.pathfinder {
+            NativePathfinderLoan::Shared(owner) => {
+                if let Ok(mut owner) = owner.write() {
+                    owner.set_debug_path_position(*position);
+                }
+            }
+            NativePathfinderLoan::Borrowed(owner) => owner.set_debug_path_position(*position),
         }
     }
 }
@@ -325,6 +364,14 @@ impl UnitAIUpdate {
         self.runtime.get_path_last_node()
     }
     pub(super) fn has_nonempty_path(&self) -> bool {
+        if self.runtime.owner.is_some() {
+            return self
+                .runtime
+                .data
+                .current_path_snapshot
+                .as_ref()
+                .is_some_and(|path| path.get_first_node().is_some());
+        }
         let Some(unit) = get_unit_arc(self.runtime.unit_id) else {
             return false;
         };
@@ -337,6 +384,14 @@ impl UnitAIUpdate {
             .is_some_and(|path| !path.is_empty())
     }
     pub(super) fn peek_cached_point_on_path(&self) -> Option<Coord3D> {
+        if self.runtime.owner.is_some() {
+            return self
+                .runtime
+                .data
+                .current_path_snapshot
+                .as_ref()
+                .map(|path| path.peek_cached_point_on_path());
+        }
         let unit = get_unit_arc(self.runtime.unit_id)?;
         let guard = unit.read().ok()?;
         let pos = guard.get_position();
@@ -1058,12 +1113,15 @@ impl UnitAIUpdate {
             };
             if is_ground_movement {
                 let mut context = NativePathMovementContext {
-                    pathfinder: pathfinder
-                        .as_ref()
-                        .expect("ground movement has pathfinder")
-                        .clone(),
+                    pathfinder: NativePathfinderLoan::Shared(
+                        pathfinder
+                            .as_ref()
+                            .expect("ground movement has pathfinder")
+                            .clone(),
+                    ),
                     surfaces,
                     ignore_obstacle_id,
+                    owned_ignore_cells: None,
                     layer,
                 };
                 let info = path.compute_point_on_path(&current, &mut context);

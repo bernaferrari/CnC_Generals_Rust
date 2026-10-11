@@ -59,7 +59,14 @@ fn terrain_with_waypoints(add_waypoints: bool, test: impl FnOnce()) {
                 .is_some()
         );
     }
-    *crate::terrain::get_terrain_logic().write().unwrap() = terrain;
+    // Map and pathfinder belong to the same fixture world. Publishing through
+    // the ambient accessor before entering its scope would populate the
+    // process fallback, leaving this fresh world without authored waypoints.
+    if add_waypoints {
+        assert!(terrain.get_waypoint_by_id(9_801).is_some());
+        assert!(terrain.get_waypoint_by_id(9_802).is_some());
+    }
+    *stores.services().terrain().write().unwrap() = terrain;
     crate::system::engine_stores::with_active_stores(&stores, test);
 }
 fn fixture(

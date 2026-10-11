@@ -25,12 +25,27 @@ impl Object {
         if condition != crate::weapon::WeaponSetConditionType::PreAttack {
             return;
         }
+        self.stretch_preattack_animation_at(
+            condition,
+            slot,
+            crate::helpers::TheGameLogic::get_frame(),
+        );
+    }
+
+    pub(super) fn stretch_preattack_animation_at(
+        &mut self,
+        condition: crate::weapon::WeaponSetConditionType,
+        slot: crate::weapon::WeaponSlotType,
+        now: u32,
+    ) {
+        if condition != crate::weapon::WeaponSetConditionType::PreAttack {
+            return;
+        }
         let done = self
             .weapon_set
             .get_weapon_in_slot(slot)
             .map(|weapon| weapon.get_pre_attack_finished_frame())
             .unwrap_or(0);
-        let now = crate::helpers::TheGameLogic::get_frame();
         if done > now {
             self.set_animation_loop_duration(done - now);
         }

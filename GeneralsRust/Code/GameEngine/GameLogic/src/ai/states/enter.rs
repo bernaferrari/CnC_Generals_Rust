@@ -98,24 +98,34 @@ impl AIEnterState {
     fn finish_exit_with_optional_ai(
         &mut self,
         exit: StateExitType,
-        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<(), String> {
-        if dual_world_registry_unavailable() {
+        if ai.as_deref().and_then(|ai| ai.world()).is_none() && dual_world_registry_unavailable() {
             return Ok(());
         }
-        if let Some(ai) = ai {
+        if let Some(ai) = ai.as_deref_mut() {
             self.base.on_exit_with_ai(exit, ai);
         } else {
             self.base.cpp_on_exit(exit)?;
         }
+        if let Some(runtime) = ai.as_deref_mut() {
+            runtime.ignore_obstacle(None).map_err(|e| e.to_string())?;
+            runtime
+                .set_allow_invalid_position(false)
+                .map_err(|e| e.to_string())?;
+        }
         if let Some(owner) = self.base.base.get_machine_owner() {
             if let Ok(mut owner_guard) = owner.write() {
-                owner_guard.ai_pending_clear_ignore = true;
-                owner_guard.ai_pending_allow_invalid_position = Some(false);
+                owner_guard.ai_pending_clear_ignore = ai.is_none();
+                owner_guard.ai_pending_allow_invalid_position =
+                    if ai.is_none() { Some(false) } else { None };
             }
             if let Ok(owner_guard) = owner.read() {
                 if self.entry_to_clear != INVALID_ID {
-                    if let Some(goal) = get_legacy_object(self.entry_to_clear) {
+                    if let Some(goal) = match ai.as_deref().and_then(|ai| ai.world()) {
+                        Some(world) => world.object(self.entry_to_clear),
+                        None => get_legacy_object(self.entry_to_clear),
+                    } {
                         if let Ok(goal_guard) = goal.read() {
                             if let Some(contain) = goal_guard.get_contain() {
                                 contain.on_object_wants_to_enter_or_exit(
@@ -139,7 +149,7 @@ impl AIEnterState {
         mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
-        if dual_world_registry_unavailable() {
+        if ai.as_deref().and_then(|ai| ai.world()).is_none() && dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
         }
 
@@ -161,9 +171,17 @@ impl AIEnterState {
                 .get_machine_goal_object_id()
                 .ok_or_else(|| "enter state missing goal object".to_string())?
         };
-        let goal = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
-            .ok_or_else(|| "enter state missing goal object".to_string())?;
+        if owner.read().map_err(|_| "enter owner poisoned")?.get_id() == goal_id {
+            return Ok(StateReturnType::Failure);
+        }
+        let goal = match ai.as_deref().and_then(|ai| ai.world()) {
+            Some(world) => world.object(goal_id),
+            None => crate::helpers::TheGameLogic::find_object_by_id(goal_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id)),
+        };
+        let Some(goal) = goal else {
+            return Ok(StateReturnType::Failure);
+        };
 
         {
             let mut owner_guard = owner
@@ -173,13 +191,26 @@ impl AIEnterState {
                 .lock()
                 .map_err(|_| "enter state goal lock poisoned".to_string())?;
 
-            let cmd_source = owner_guard.ai_fire_last_command_source;
-            if !TheActionManager::can_enter_object(
-                &*owner_guard,
-                &*goal_guard,
-                cmd_source,
-                CanEnterType::CheckCapacity,
-            ) {
+            let cmd_source = ai
+                .as_deref()
+                .filter(|runtime| runtime.world().is_some())
+                .map(|runtime| runtime.get_last_command_source())
+                .unwrap_or(owner_guard.ai_fire_last_command_source);
+            let can_enter = match ai.as_deref().and_then(|ai| ai.world()) {
+                Some(world) => world.can_enter(
+                    &owner_guard,
+                    &goal_guard,
+                    cmd_source,
+                    CanEnterType::CheckCapacity,
+                ),
+                None => TheActionManager::can_enter_object(
+                    &owner_guard,
+                    &goal_guard,
+                    cmd_source,
+                    CanEnterType::CheckCapacity,
+                ),
+            };
+            if !can_enter {
                 return Ok(StateReturnType::Failure);
             }
 
@@ -193,6 +224,19 @@ impl AIEnterState {
             owner_guard.ai_pending_allow_invalid_position = Some(true);
         }
 
+        if let Some(runtime) = ai.as_deref_mut() {
+            // CPP performs these before the internal move can request a path.
+            runtime
+                .ignore_obstacle_id(goal_id)
+                .map_err(|e| e.to_string())?;
+            runtime
+                .set_allow_invalid_position(true)
+                .map_err(|e| e.to_string())?;
+            if let Ok(mut owner) = owner.write() {
+                owner.ai_pending_ignore_id = None;
+                owner.ai_pending_allow_invalid_position = None;
+            }
+        }
         self.base.goal_position = self.goal_position;
         self.base.preset_owner = self.preset_owner.clone();
         self.base.set_adjusts_destination(false);
@@ -216,7 +260,7 @@ impl AIEnterState {
         mut owner_context: Option<&mut dyn std::any::Any>,
     ) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
-        if dual_world_registry_unavailable() {
+        if ai.as_deref().and_then(|ai| ai.world()).is_none() && dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
         }
 
@@ -236,9 +280,17 @@ impl AIEnterState {
                 .get_machine_goal_object_id()
                 .ok_or_else(|| "enter state missing goal object".to_string())?
         };
-        let goal = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
-            .ok_or_else(|| "enter state missing goal object".to_string())?;
+        if owner.read().map_err(|_| "enter owner poisoned")?.get_id() == goal_id {
+            return Ok(StateReturnType::Failure);
+        }
+        let goal = match ai.as_deref().and_then(|ai| ai.world()) {
+            Some(world) => world.object(goal_id),
+            None => crate::helpers::TheGameLogic::find_object_by_id(goal_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id)),
+        };
+        let Some(goal) = goal else {
+            return Ok(StateReturnType::Failure);
+        };
 
         {
             let mut owner_guard = owner
@@ -248,10 +300,16 @@ impl AIEnterState {
                 .lock()
                 .map_err(|_| "enter state goal lock poisoned".to_string())?;
 
-            if goal_guard.get_contained_by().is_some()
-                && goal_guard.is_above_terrain()
-                && !owner_guard.is_above_terrain()
-            {
+            let airborne_contained_goal = if goal_guard.get_contained_by().is_some() {
+                if let Some(world) = ai.as_deref().and_then(|runtime| runtime.world()) {
+                    world.above_terrain(&goal_guard)? && !world.above_terrain(&owner_guard)?
+                } else {
+                    goal_guard.is_above_terrain() && !owner_guard.is_above_terrain()
+                }
+            } else {
+                false
+            };
+            if airborne_contained_goal {
                 return Ok(StateReturnType::Failure);
             }
 
@@ -263,20 +321,48 @@ impl AIEnterState {
                 }
             }
 
-            let cmd_source = owner_guard.ai_fire_last_command_source;
-            if !TheActionManager::can_enter_object(
-                &*owner_guard,
-                &*goal_guard,
-                cmd_source,
-                CanEnterType::CheckCapacity,
-            ) {
-                if owner_guard.relationship_to(&goal_guard) == Relationship::Enemies {
-                    let can_attack = TheActionManager::get_can_attack_object(
-                        &owner_guard,
-                        &goal_guard,
-                        cmd_source,
-                        AbleToAttackType::NewTarget,
-                    );
+            let cmd_source = ai
+                .as_deref()
+                .filter(|runtime| runtime.world().is_some())
+                .map(|runtime| runtime.get_last_command_source())
+                .unwrap_or(owner_guard.ai_fire_last_command_source);
+            let can_enter = match ai.as_deref().and_then(|ai| ai.world()) {
+                Some(world) => world.can_enter(
+                    &owner_guard,
+                    &goal_guard,
+                    cmd_source,
+                    CanEnterType::CheckCapacity,
+                ),
+                None => TheActionManager::can_enter_object(
+                    &owner_guard,
+                    &goal_guard,
+                    cmd_source,
+                    CanEnterType::CheckCapacity,
+                ),
+            };
+            if !can_enter {
+                let enemy = match ai.as_deref().and_then(|runtime| runtime.world()) {
+                    Some(world) => {
+                        world.relationship(&owner_guard, &goal_guard)
+                            == crate::object::contain::open_contain::ObjectRelationship::Enemy
+                    }
+                    None => owner_guard.relationship_to(&goal_guard) == Relationship::Enemies,
+                };
+                if enemy {
+                    let can_attack = match ai.as_deref().and_then(|runtime| runtime.world()) {
+                        Some(world) => world.can_attack(
+                            &owner_guard,
+                            &goal_guard,
+                            cmd_source,
+                            AbleToAttackType::NewTarget,
+                        )?,
+                        None => TheActionManager::get_can_attack_object(
+                            &owner_guard,
+                            &goal_guard,
+                            cmd_source,
+                            AbleToAttackType::NewTarget,
+                        ),
+                    };
                     if matches!(
                         can_attack,
                         CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
@@ -323,7 +409,13 @@ impl AIEnterState {
                 .lock()
                 .map_err(|_| "enter state goal lock poisoned".to_string())?;
 
-            if goal_guard.is_above_terrain() && !owner_guard.is_above_terrain() {
+            let goal_airborne = match ai.as_deref().and_then(|runtime| runtime.world()) {
+                Some(world) => {
+                    world.above_terrain(&goal_guard)? && !world.above_terrain(&owner_guard)?
+                }
+                None => goal_guard.is_above_terrain() && !owner_guard.is_above_terrain(),
+            };
+            if goal_airborne {
                 return Ok(StateReturnType::Continue);
             }
 
@@ -337,7 +429,17 @@ impl AIEnterState {
             }
             let close_enough = dx * dx + dy * dy < radius * radius;
             if close_enough {
-                if let Some(contain) = goal_guard.get_contain() {
+                if ai.as_deref().and_then(|ai| ai.world()).is_some() {
+                    let passenger_id = owner_guard.get_id();
+                    let target_id = goal_guard.get_id();
+                    drop(goal_guard);
+                    drop(owner_guard);
+                    // Original border phase. Release both object borrows before
+                    // the virtual containment chain can revisit either object.
+                    ai.as_deref_mut()
+                        .expect("supplied world runtime")
+                        .enter_owned(passenger_id, target_id)?;
+                } else if let Some(contain) = goal_guard.get_contain() {
                     contain.add_to_contain(&*owner_guard);
                 }
             }

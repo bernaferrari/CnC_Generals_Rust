@@ -36,7 +36,9 @@ mod construct;
 mod find_path;
 mod hierarchical;
 mod line_passable;
+mod observations;
 mod occupancy;
+pub(crate) use observations::PathfindObservations;
 mod snap;
 mod system;
 mod tall_buildings;
@@ -48,6 +50,8 @@ mod counter_tests;
 mod path_retirement_tests;
 #[cfg(test)]
 mod queue_ownership_tests;
+#[cfg(test)]
+mod reconstruction_tests;
 #[cfg(test)]
 mod tests;
 

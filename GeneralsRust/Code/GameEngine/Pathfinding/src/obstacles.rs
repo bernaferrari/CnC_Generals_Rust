@@ -10,6 +10,23 @@ use crate::astar::AStarPathfinder;
 use crate::cell::{GridCoord, PathfindCellType, PathfindLayerEnum};
 
 impl AStarPathfinder {
+    /// Read all obstacle facts from the same C++ `getCell(layer, x, y)` result.
+    /// Missing or impassable elevated cells use the ground cell, including its
+    /// identity and transparency; an off-map query has no cell.
+    pub fn obstacle_observation_at(
+        &self,
+        coord: GridCoord,
+        layer: PathfindLayerEnum,
+    ) -> Option<(PathfindCellType, Option<u32>, bool)> {
+        let cell = self.get_cell_on_layer(coord, layer)?;
+        let key = Self::obstacle_key(coord, cell.get_layer());
+        Some((
+            cell.get_type(),
+            self.obstacle_owners.get(&key).copied(),
+            self.obstacle_transparent.contains(&key),
+        ))
+    }
+
     /// C++ PathfindCell::getObstacleID.
     pub fn get_cell_obstacle_id(&self, coord: GridCoord) -> Option<u32> {
         self.obstacle_owners

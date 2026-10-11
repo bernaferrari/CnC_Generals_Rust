@@ -257,6 +257,13 @@ pub struct StateConditionInfo {
     pub test: StateTransFuncPtr,
     owner_test:
         Option<fn(&dyn StateImplementation, &StateTransitionUserData, &mut dyn Any) -> bool>,
+    ai_test: Option<
+        fn(
+            &dyn StateImplementation,
+            &StateTransitionUserData,
+            Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+        ) -> Result<bool, String>,
+    >,
     pub to_state_id: StateId,
     pub user_data: StateTransitionUserData,
     pub description: String,
@@ -272,6 +279,7 @@ impl StateConditionInfo {
         Self {
             test,
             owner_test: None,
+            ai_test: None,
             to_state_id,
             user_data,
             description: description.to_string(),
@@ -286,11 +294,32 @@ impl StateConditionInfo {
         self
     }
 
-    fn evaluate(&self, state: &dyn StateImplementation, owner: &mut dyn Any) -> bool {
-        match self.owner_test {
+    /// Evaluate against the same runtime loan used by this state step.
+    pub(crate) fn with_ai_test(
+        mut self,
+        test: fn(
+            &dyn StateImplementation,
+            &StateTransitionUserData,
+            Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+        ) -> Result<bool, String>,
+    ) -> Self {
+        self.ai_test = Some(test);
+        self
+    }
+
+    fn evaluate(
+        &self,
+        state: &dyn StateImplementation,
+        owner: &mut dyn Any,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+    ) -> Result<bool, String> {
+        if let Some(test) = self.ai_test {
+            return test(state, &self.user_data, ai);
+        }
+        Ok(match self.owner_test {
             Some(test) => test(state, &self.user_data, owner),
             None => (self.test)(state, &self.user_data),
-        }
+        })
     }
 }
 
@@ -630,6 +659,13 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
     /// without requiring callers to downcast trait objects at each transition.
     fn evaluate_transition_payload(&self, _payload: &(dyn Any + Send + Sync)) -> Option<bool> {
         None
+    }
+    fn evaluate_transition_payload_with_ai(
+        &self,
+        payload: &(dyn Any + Send + Sync),
+        _ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Option<Result<bool, String>> {
+        self.evaluate_transition_payload(payload).map(Ok)
     }
 }
 
@@ -1015,7 +1051,16 @@ impl StateMachine {
     /// Same step, with the owner AI loaned to the current state (see
     /// [`StateImplementation::update_with_owner`]).
     pub fn update_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
-        let now = self.get_current_frame();
+        self.update_with_owner_at_frame(owner, self.get_current_frame())
+    }
+
+    /// Run the ordinary state body with the driving operation's frame. The
+    /// absolute deadline remains the only saved clock state.
+    pub(crate) fn update_with_owner_at_frame(
+        &mut self,
+        owner: &mut dyn std::any::Any,
+        now: UnsignedInt,
+    ) -> StateReturnType {
         if self.control.sleep_till != 0 && now < self.control.sleep_till {
             if self.control.current_state_id.is_none() {
                 return StateReturnType::Failure;
@@ -1060,7 +1105,7 @@ impl StateMachine {
             {
                 let _ = self.set_current_state_with_owner(next, owner);
             }
-            self.apply_pending_victim_goal();
+            self.apply_pending_victim_goal(None);
             if self.control.current_state_id.is_none() {
                 return StateReturnType::Failure;
             }
@@ -1071,7 +1116,7 @@ impl StateMachine {
             }
 
             if let StateReturnType::Sleep(frames) = status {
-                self.control.sleep_till = now.wrapping_add(frames);
+                self.sleep_at_frame(now, frames);
                 return self.check_for_sleep_transitions(
                     StateReturnType::Sleep(self.control.sleep_till.wrapping_sub(now)),
                     owner,
@@ -1108,7 +1153,7 @@ impl StateMachine {
         ai: &'step mut A,
         owner: &'step mut dyn Any,
     ) -> StateUpdate<'step, A> {
-        let now = self.get_current_frame();
+        let now = self.frame_with_runtime(Some(ai.as_state_runtime()));
         if self.control.sleep_till != 0 && now < self.control.sleep_till {
             if self.control.current_state_id.is_none() {
                 return StateUpdate::Complete(StateReturnType::Failure);
@@ -1206,7 +1251,7 @@ impl StateMachine {
         {
             let _ = self.set_current_state_with_ai_and_owner(next, ai, owner);
         }
-        self.apply_pending_victim_goal();
+        self.apply_pending_victim_goal(ai.world());
         if self.control.current_state_id.is_none() {
             return StateReturnType::Failure;
         }
@@ -1214,7 +1259,7 @@ impl StateMachine {
             status = StateReturnType::Continue;
         }
         if let StateReturnType::Sleep(frames) = status {
-            self.control.sleep_till = now.wrapping_add(frames);
+            self.sleep_at_frame(now, frames);
             return self.check_for_sleep_transitions_ai(
                 StateReturnType::Sleep(self.control.sleep_till.wrapping_sub(now)),
                 Some(ai),
@@ -1224,23 +1269,34 @@ impl StateMachine {
         self.check_for_transitions_ai(status, Some(ai), owner)
     }
 
-    fn apply_pending_victim_goal(&mut self) {
-        let Some(owner) = self.get_owner() else {
-            return;
-        };
-        let Ok(owner_guard) = owner.read() else {
-            return;
-        };
-        let Some(id) = owner_guard.ai_fire_pending_victim else {
+    fn apply_pending_victim_goal(&mut self, world: Option<&dyn crate::modules::ai_world::AiWorld>) {
+        self.apply_pending_victim_goal_with_lookup(|id| match world {
+            Some(world) => world.object(id),
+            None => crate::helpers::TheGameLogic::find_object_by_id(id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id)),
+        });
+    }
+
+    fn apply_pending_victim_goal_with_lookup(
+        &mut self,
+        lookup: impl FnOnce(crate::common::ObjectID) -> Option<Arc<RwLock<Object>>>,
+    ) {
+        // The fire callback's pending identity is observed now, not when its
+        // state body was admitted. Release this loan before resolving a target
+        // which may be the same object (or reenter its owner store).
+        let Some(id) = self.get_owner().and_then(|owner| {
+            owner
+                .read()
+                .ok()
+                .and_then(|owner| owner.ai_fire_pending_victim)
+        }) else {
             return;
         };
         if id == crate::common::INVALID_ID {
             return;
         }
         self.control.goal_object_id = id;
-        if let Some(arc) = crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-        {
+        if let Some(arc) = lookup(id) {
             if let Ok(guard) = arc.read() {
                 self.control
                     .internal_set_goal_position(*guard.get_position());
@@ -1248,7 +1304,6 @@ impl StateMachine {
         }
     }
 
-    /// Clear the machine's internals to a known, initialized state
     pub fn clear(&mut self) {
         self.clear_impl(None);
     }
@@ -1565,8 +1620,8 @@ impl StateMachine {
             }
 
             if let StateReturnType::Sleep(frames) = status {
-                let now = self.get_current_frame();
-                self.control.sleep_till = now.wrapping_add(frames);
+                let now = self.frame_with_runtime(ai.as_deref());
+                self.sleep_at_frame(now, frames);
                 return self.check_for_sleep_transitions_ai(
                     StateReturnType::Sleep(self.control.sleep_till.wrapping_sub(now)),
                     ai,
@@ -1704,7 +1759,7 @@ impl StateMachine {
     fn check_condition_transitions_ai(
         &mut self,
         meta: &StateMeta,
-        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
         let Some(state_id) = self.control.current_state_id else {
@@ -1714,7 +1769,25 @@ impl StateMachine {
             return StateReturnType::Failure;
         };
         for transition in &meta.transitions {
-            if transition.evaluate(state.as_ref(), owner) {
+            let matched = match transition.evaluate(
+                state.as_ref(),
+                owner,
+                match ai.as_mut() {
+                    Some(ai) => Some(&mut **ai),
+                    None => None,
+                },
+            ) {
+                Ok(matched) => matched,
+                Err(error) => {
+                    log::warn!(
+                        "State condition '{}' failed: {}",
+                        transition.description,
+                        error
+                    );
+                    return StateReturnType::Failure;
+                }
+            };
+            if matched {
                 return match transition.to_state_id {
                     EXIT_MACHINE_WITH_SUCCESS => StateReturnType::Success,
                     EXIT_MACHINE_WITH_FAILURE => StateReturnType::Failure,
@@ -1729,7 +1802,7 @@ impl StateMachine {
         &mut self,
         meta: &StateMeta,
         status: StateReturnType,
-        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+        mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
         let Some(state_id) = self.control.current_state_id else {
@@ -1740,7 +1813,25 @@ impl StateMachine {
         };
 
         for transition in &meta.transitions {
-            if transition.evaluate(state.as_ref(), owner) {
+            let matched = match transition.evaluate(
+                state.as_ref(),
+                owner,
+                match ai.as_mut() {
+                    Some(ai) => Some(&mut **ai),
+                    None => None,
+                },
+            ) {
+                Ok(matched) => matched,
+                Err(error) => {
+                    log::warn!(
+                        "State condition '{}' failed: {}",
+                        transition.description,
+                        error
+                    );
+                    return StateReturnType::Failure;
+                }
+            };
+            if matched {
                 return match transition.to_state_id {
                     EXIT_MACHINE_WITH_SUCCESS => StateReturnType::Success,
                     EXIT_MACHINE_WITH_FAILURE => StateReturnType::Failure,
@@ -2004,6 +2095,23 @@ impl StateMachine {
         self.clear();
     }
 
+    fn sleep_at_frame(&mut self, now: UnsignedInt, frames: UnsignedInt) {
+        // C++ uses the saved absolute unsigned deadline, including wrapping
+        // addition and the zero sentinel. Do not substitute elapsed durations.
+        self.control.sleep_till = now.wrapping_add(frames);
+    }
+
+    /// Observe the clock at the original operation boundary. A supplied
+    /// world owns timing; standalone compatibility operations retain the
+    /// original ambient adapter. No clock is cached in the machine.
+    fn frame_with_runtime(
+        &self,
+        ai: Option<&dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+    ) -> UnsignedInt {
+        ai.and_then(|ai| ai.world())
+            .map_or_else(|| self.get_current_frame(), |world| world.frame())
+    }
+
     /// Get current frame
     /// Matches C++ StateMachine.cpp line 397: TheGameLogic->getFrame()
     pub fn get_current_frame(&self) -> u32 {
@@ -2244,7 +2352,7 @@ mod tests {
     use super::*;
 
     #[derive(Debug)]
-    struct FixedState {
+    pub(super) struct FixedState {
         id: StateId,
         name: &'static str,
         on_enter_return: StateReturnType,
@@ -2252,7 +2360,7 @@ mod tests {
     }
 
     impl FixedState {
-        fn new(
+        pub(super) fn new(
             name: &'static str,
             on_enter_return: StateReturnType,
             update_return: StateReturnType,
@@ -2564,3 +2672,15 @@ mod idle_lock_tests;
 #[cfg(test)]
 #[path = "state_machine_cpp_contract_tests.rs"]
 mod cpp_contract_tests;
+
+#[cfg(test)]
+#[path = "state_machine/condition_runtime_tests.rs"]
+mod condition_runtime_tests;
+
+#[cfg(test)]
+#[path = "state_machine/operation_frame_tests.rs"]
+mod operation_frame_tests;
+
+#[cfg(test)]
+#[path = "state_machine/pending_victim_tests.rs"]
+mod pending_victim_tests;

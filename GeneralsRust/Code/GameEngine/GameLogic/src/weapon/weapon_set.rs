@@ -534,6 +534,31 @@ impl WeaponSet {
         conditions: &WeaponSetFlags,
         owner_bonus_flags: impl FnOnce() -> crate::common::types::WeaponBonusConditionFlags,
     ) -> GameLogicResult<()> {
+        self.update_weapon_set_inner(object_id, conditions, owner_bonus_flags, None)
+    }
+    /// Admit effective definitions and a clock without selecting a global world.
+    pub fn update_weapon_set_with_services(
+        &mut self,
+        object_id: ObjectID,
+        conditions: &WeaponSetFlags,
+        owner_bonus_flags: crate::common::types::WeaponBonusConditionFlags,
+        frame: u32,
+        bonuses: &super::WeaponBonusSet,
+    ) -> GameLogicResult<()> {
+        self.update_weapon_set_inner(
+            object_id,
+            conditions,
+            || owner_bonus_flags,
+            Some((frame, bonuses)),
+        )
+    }
+    fn update_weapon_set_inner(
+        &mut self,
+        object_id: ObjectID,
+        conditions: &WeaponSetFlags,
+        owner_bonus_flags: impl FnOnce() -> crate::common::types::WeaponBonusConditionFlags,
+        services: Option<(u32, &super::WeaponBonusSet)>,
+    ) -> GameLogicResult<()> {
         // Find best matching weapon template set
         let best_set = self.find_best_weapon_template_set(conditions);
 
@@ -544,7 +569,12 @@ impl WeaponSet {
                 .map_or(true, |current| !Arc::ptr_eq(current, &best_set))
             {
                 // Switch to new weapon template set
-                self.switch_weapon_template_set(best_set, object_id, owner_bonus_flags())?;
+                self.switch_weapon_template_set(
+                    best_set,
+                    object_id,
+                    owner_bonus_flags(),
+                    services,
+                )?;
             }
         }
 
@@ -597,6 +627,7 @@ impl WeaponSet {
         new_set: Arc<WeaponTemplateSet>,
         object_id: ObjectID,
         owner_bonus_flags: crate::common::types::WeaponBonusConditionFlags,
+        services: Option<(u32, &super::WeaponBonusSet)>,
     ) -> GameLogicResult<()> {
         // C++ WeaponSet.cpp:281-286: If weapon lock is NOT shared across sets,
         // release ALL locks and reset curWeapon to PRIMARY.
@@ -620,12 +651,23 @@ impl WeaponSet {
 
             if let Some(template) = new_set.get_weapon_template(slot) {
                 // Create new weapon
-                let mut new_weapon = Weapon::new(Arc::clone(template), slot);
+                let mut new_weapon = match services {
+                    Some((frame, _)) => Weapon::new_at(Arc::clone(template), slot, frame),
+                    None => Weapon::new(Arc::clone(template), slot),
+                };
 
                 // C++ WeaponSet.cpp:303: loadAmmoNow - start with full clips
-                let bonus =
-                    new_weapon.bonus_from_flags(super::map_common_bonus_flags(owner_bonus_flags));
-                new_weapon.reload_with_bonus(object_id, &bonus, true)?;
+                let flags = super::map_common_bonus_flags(owner_bonus_flags);
+                match services {
+                    Some((frame, bonuses)) => {
+                        let bonus = new_weapon.bonus_from_supplied_flags(flags, Some(bonuses));
+                        new_weapon.reload_with_bonus_at(object_id, &bonus, true, frame)?;
+                    }
+                    None => {
+                        let bonus = new_weapon.bonus_from_flags(flags);
+                        new_weapon.reload_with_bonus(object_id, &bonus, true)?;
+                    }
+                }
 
                 self.weapons[slot_index] = Some(new_weapon);
                 self.filled_weapon_slot_mask |= 1 << slot_index;
@@ -688,8 +730,9 @@ impl WeaponSet {
             return Ok(false);
         }
 
-        let selection =
-            self.select_weapon_inner(source_obj, target_obj, criteria, command_source, None, None);
+        let selection = self
+            .select_weapon_inner(source_obj, target_obj, criteria, command_source, None, None)
+            .expect("registry selector has no fallible supplied world observations");
         Ok(self.apply_weapon_selection(selection))
     }
 
@@ -901,9 +944,17 @@ impl WeaponSet {
     /// True when every filled slot is OUT_OF_AMMO. Empty slots do not count.
     /// An all-empty set is true, matching WeaponSet.cpp:968-980.
     pub fn is_out_of_ammo(&self) -> bool {
+        self.is_out_of_ammo_with_status(|weapon| weapon.get_status())
+    }
+
+    pub(crate) fn is_out_of_ammo_at(&self, frame: u32) -> bool {
+        self.is_out_of_ammo_with_status(|weapon| weapon.get_status_at(frame))
+    }
+
+    fn is_out_of_ammo_with_status(&self, status: impl Fn(&Weapon) -> WeaponStatus) -> bool {
         for weapon_opt in &self.weapons {
             if let Some(weapon) = weapon_opt {
-                if weapon.get_status() != WeaponStatus::OutOfAmmo {
+                if status(weapon) != WeaponStatus::OutOfAmmo {
                     return false;
                 }
             }
@@ -1350,6 +1401,53 @@ mod tests {
     }
 
     #[test]
+    fn ammo_check_at_uses_cpp_status_deadlines_in_slot_order() {
+        // WeaponSet.cpp:968-980 asks each actual weapon for getStatus. The
+        // explicit frame replaces only that observation's clock ownership.
+        let mut set = WeaponSet::new();
+        assert!(set.is_out_of_ammo_at(100));
+        let mut weapon = Weapon::new(
+            Arc::new(WeaponTemplate::new("OwnedAmmoDeadline".to_string())),
+            WeaponSlotType::Secondary,
+        );
+        weapon.set_possible_next_shot_frame(100);
+        weapon.set_status(WeaponStatus::ReloadingClip);
+        set.restore_weapon(WeaponSlotType::Secondary, weapon);
+
+        assert!(!set.is_out_of_ammo_at(99));
+        assert!(set.is_out_of_ammo_at(100));
+        set.get_weapon_in_slot_mut(WeaponSlotType::Secondary)
+            .unwrap()
+            .ammo_in_clip = 1;
+        assert!(!set.is_out_of_ammo_at(100));
+        assert_eq!(
+            set.get_weapon_in_slot(WeaponSlotType::Secondary)
+                .unwrap()
+                .load_status(),
+            WeaponStatus::ReadyToFire,
+        );
+    }
+
+    #[test]
+    fn ammo_check_at_preserves_cpp_unsigned_preattack_comparison() {
+        let mut set = WeaponSet::new();
+        let mut weapon = Weapon::new(
+            Arc::new(WeaponTemplate::new("OwnedAmmoWrap".to_string())),
+            WeaponSlotType::Primary,
+        );
+        weapon.set_possible_next_shot_frame(0);
+        weapon.set_pre_attack_finished_frame(4);
+        weapon.set_status(WeaponStatus::PreAttack);
+        set.restore_weapon(WeaponSlotType::Primary, weapon);
+
+        // Weapon.cpp:2736-2752 compares unsigned frame values directly.
+        assert!(set.is_out_of_ammo_at(u32::MAX));
+        assert!(!set.is_out_of_ammo_at(0));
+        assert!(!set.is_out_of_ammo_at(3));
+        assert!(set.is_out_of_ammo_at(4));
+    }
+
+    #[test]
     fn weapon_set_update_selects_default_unconditioned_set() {
         let primary = test_weapon_template("DefaultPrimary", 4);
         let default_set = test_template_set(primary, None, false);
@@ -1422,6 +1520,7 @@ mod tests {
                 original_set,
                 100,
                 crate::common::types::WeaponBonusConditionFlags::empty(),
+                None,
             )
             .expect("initial weapon set");
         weapon_set.set_weapon_lock(WeaponSlotType::Secondary, WeaponLockType::LockedPermanently);
@@ -1440,6 +1539,7 @@ mod tests {
                 replacement_set,
                 100,
                 crate::common::types::WeaponBonusConditionFlags::empty(),
+                None,
             )
             .expect("replacement weapon set");
 
@@ -1476,6 +1576,7 @@ mod tests {
                 original_set,
                 100,
                 crate::common::types::WeaponBonusConditionFlags::empty(),
+                None,
             )
             .expect("initial weapon set");
         weapon_set.set_weapon_lock(WeaponSlotType::Secondary, WeaponLockType::LockedPermanently);
@@ -1485,6 +1586,7 @@ mod tests {
                 replacement_set,
                 100,
                 crate::common::types::WeaponBonusConditionFlags::empty(),
+                None,
             )
             .expect("replacement weapon set");
 

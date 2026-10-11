@@ -127,6 +127,10 @@ pub trait PhysicsBehavior: Send + Sync + std::fmt::Debug {
     fn is_motive(&self) -> bool {
         false
     }
+    /// Same motive deadline observed through the driving operation's clock.
+    fn is_motive_at(&self, _frame: u32) -> Result<bool, String> {
+        Err("physics does not admit explicit motive timing".into())
+    }
 
     /// C++ `getAcceleration` returns last frame's acceleration (`m_prevAccel`).
     fn get_acceleration(&self) -> crate::common::Coord3D {

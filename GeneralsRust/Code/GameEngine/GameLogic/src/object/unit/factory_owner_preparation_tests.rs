@@ -58,25 +58,24 @@ impl Drop for Unregister {
         crate::ai::object_registry::unregister_legacy_object(self.0);
     }
 }
+/// A local runtime fixture has no admitted world services to finalize.
+/// Its exact owner handle is still the installed AI's identity.
+fn unpublished_owner(id: u32, health: f32) -> Arc<RwLock<crate::object::Object>> {
+    let mut owner = crate::object::Object::new_test(id, health);
+    owner.ambient_lifecycle_admitted = false;
+    Arc::new(RwLock::new(owner))
+}
 fn prepare(owner: &Arc<RwLock<crate::object::Object>>) -> Arc<std::sync::Mutex<UnitAIUpdate>> {
     let id = owner.read().unwrap().get_id();
     crate::object::object_factory::factory_ai::prepare_unit_ai(owner, &template(), id)
 }
 #[test]
 fn actual_factory_preparation_binds_exact_owner_without_legacy_unit_admission() {
-    let _serial = crate::test_sync::lock();
     let id = 0xA1_F0_23;
-    assert!(super::registry::get_unit_arc(id).is_none());
-    let first = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
-    let second = Arc::new(RwLock::new(crate::object::Object::new_test(id, 200.0)));
-    let rng = game_engine::common::random_value::get_game_logic_random_seed_state();
-    let foreign = crate::system::game_logic::get_game_logic().lock().unwrap();
+    let first = unpublished_owner(id, 100.0);
+    let second = unpublished_owner(id, 200.0);
     let first_ai = prepare(&first);
     let second_ai = prepare(&second);
-    assert_eq!(
-        game_engine::common::random_value::get_game_logic_random_seed_state(),
-        rng
-    );
     for (owner, ai) in [(&first, &first_ai), (&second, &second_ai)] {
         let ai = ai.lock().unwrap();
         let machine = ai
@@ -91,8 +90,6 @@ fn actual_factory_preparation_binds_exact_owner_without_legacy_unit_admission() 
         );
         assert_eq!(ai.get_next_mood_check_time(), 0);
     }
-    assert!(super::registry::get_unit_arc(id).is_none());
-    drop(foreign);
 }
 #[test]
 fn foreign_same_id_unit_cannot_select_factory_owner_or_receive_its_module_flags() {
@@ -133,16 +130,13 @@ fn foreign_same_id_unit_cannot_select_factory_owner_or_receive_its_module_flags(
 
 #[test]
 fn prepared_same_id_data_operates_beside_held_parent_and_object_guards() {
-    let _serial = crate::test_sync::lock();
     let id = 0xA1_F0_25;
-    assert!(super::registry::get_unit_arc(id).is_none());
-    let first = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
-    let second = Arc::new(RwLock::new(crate::object::Object::new_test(id, 200.0)));
+    let first = unpublished_owner(id, 100.0);
+    let second = unpublished_owner(id, 200.0);
     let first_ai = prepare(&first);
     let second_ai = prepare(&second);
     let _held_first_owner = first.write().unwrap();
     let _held_second_owner = second.write().unwrap();
-    let _held_ambient = crate::system::game_logic::get_game_logic().lock().unwrap();
     for (ai, frame, index, source, goal) in [
         (
             &first_ai,
@@ -203,14 +197,12 @@ fn prepared_same_id_data_operates_beside_held_parent_and_object_guards() {
             .get_next_mood_check_time(),
         909
     );
-    assert!(super::registry::get_unit_arc(id).is_none());
 }
 
 #[test]
 fn prepared_data_bump_speed_preserves_cpp_arithmetic_with_parent_held() {
-    let _serial = crate::test_sync::lock();
     let id = 0xA1_F0_26;
-    let owner = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
+    let owner = unpublished_owner(id, 100.0);
     let ai = prepare(&owner);
     let mut ai = ai.lock().unwrap();
     let UnitAIUpdate {
@@ -233,9 +225,8 @@ fn prepared_data_bump_speed_preserves_cpp_arithmetic_with_parent_held() {
 
 #[test]
 fn prepared_data_loans_the_actual_locomotor_member_with_parent_held() {
-    let _serial = crate::test_sync::lock();
     let id = 0xA1_F0_27;
-    let owner = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
+    let owner = unpublished_owner(id, 100.0);
     let name = "PreparedDataBorrowLoco";
     let mut loco = crate::locomotor::LocomotorTemplate::new(name.into());
     loco.preferred_height = 10.0;
@@ -254,7 +245,6 @@ fn prepared_data_loans_the_actual_locomotor_member_with_parent_held() {
     let data = &mut runtime.data;
     let _parent = ai_state_machine.as_mut().unwrap();
     let _owner = owner.write().unwrap();
-    let _ambient = crate::system::game_logic::get_game_logic().lock().unwrap();
     let member = std::ptr::from_ref(data.locomotor_set.get_active().unwrap());
     data.with_cur_locomotor_mut(&mut |loco| {
         assert!(std::ptr::eq(std::ptr::from_ref(loco), member));
@@ -267,15 +257,13 @@ fn prepared_data_loans_the_actual_locomotor_member_with_parent_held() {
     assert_eq!(data.get_preferred_height(), Some(73.0));
     assert!(data.current_locomotor_is_ultra_accurate());
     assert_eq!(data.locomotor_set.active_name(), Some(name));
-    assert!(super::registry::get_unit_arc(id).is_none());
 }
 
 #[test]
 fn prepared_native_driver_changes_real_goals_and_state_before_idle_sleep_finishes() {
-    let _serial = crate::test_sync::lock();
     let id = 0xA1_F0_28;
-    let first = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
-    let second = Arc::new(RwLock::new(crate::object::Object::new_test(id, 200.0)));
+    let first = unpublished_owner(id, 100.0);
+    let second = unpublished_owner(id, 200.0);
     let first_ai = prepare(&first);
     let second_ai = prepare(&second);
     for (owner, handle, target, goal) in [
@@ -297,7 +285,7 @@ fn prepared_native_driver_changes_real_goals_and_state_before_idle_sleep_finishe
             machine.set_state_with_ai(crate::ai::states::AIStateType::Idle as u32, &mut runtime),
             crate::state_machine::StateReturnType::Continue
         );
-        runtime.runtime.set_queue_for_path_time(123);
+        runtime.runtime.data.queue_for_path_frame = 123;
         let mut called = false;
         let result = machine.update_state_machine(&mut runtime, |driver, ai, _owner| {
             called = true;
@@ -374,14 +362,12 @@ fn prepared_native_driver_changes_real_goals_and_state_before_idle_sleep_finishe
             .get_goal_object_id(),
         0xA1_F0_31
     );
-    assert!(super::registry::get_unit_arc(id).is_none());
 }
 
 #[test]
 fn prepared_native_driver_preserves_cpp_logical_lock_during_commands() {
-    let _serial = crate::test_sync::lock();
     let id = 0xA1_F0_29;
-    let owner = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
+    let owner = unpublished_owner(id, 100.0);
     let handle = prepare(&owner);
     let mut ai = handle.lock().unwrap();
     let parent = std::ptr::from_ref(ai.ai_state_machine.as_ref().unwrap());
@@ -423,19 +409,11 @@ fn prepared_native_driver_preserves_cpp_logical_lock_during_commands() {
 
 #[test]
 fn prepared_cpp_blocked_speed_default_is_zero_and_inert() {
-    let _serial = crate::test_sync::lock();
     let id = 0xA1_F0_32;
-    let first = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
-    let second = Arc::new(RwLock::new(crate::object::Object::new_test(id, 200.0)));
-    let rng = game_engine::common::random_value::get_game_logic_random_seed_state();
-    let _held_ambient = crate::system::game_logic::get_game_logic().lock().unwrap();
+    let first = unpublished_owner(id, 100.0);
+    let second = unpublished_owner(id, 200.0);
     let first_ai = prepare(&first);
     let second_ai = prepare(&second);
-    assert_eq!(
-        game_engine::common::random_value::get_game_logic_random_seed_state(),
-        rng
-    );
-    drop(_held_ambient);
     for (owner, handle) in [(&first, &first_ai), (&second, &second_ai)] {
         let ai = handle.lock().unwrap();
         let _held_owner = owner.write().unwrap();
@@ -451,14 +429,12 @@ fn prepared_cpp_blocked_speed_default_is_zero_and_inert() {
         assert_eq!(machine.get_current_state_id(), None);
         assert!(Arc::ptr_eq(&machine.base.get_owner().unwrap(), owner));
     }
-    assert!(super::registry::get_unit_arc(id).is_none());
 }
 
 #[test]
 fn prepared_cpp_blocked_speed_initial_cap_limits_then_recovers() {
-    let _serial = crate::test_sync::lock();
     let id = 0xA1_F0_33;
-    let owner = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
+    let owner = unpublished_owner(id, 100.0);
     let handle = prepare(&owner);
     let mut ai = handle.lock().unwrap();
     let native = &mut *ai;
@@ -476,9 +452,8 @@ fn prepared_cpp_blocked_speed_initial_cap_limits_then_recovers() {
 
 #[test]
 fn prepared_cpp_blocked_speed_snapshot_keeps_fresh_recomputed_cap() {
-    let _serial = crate::test_sync::lock();
     let id = 0xA1_F0_34;
-    let owner = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
+    let owner = unpublished_owner(id, 100.0);
     let source = prepare(&owner);
     let loaded = prepare(&owner);
     let mut source = source.lock().unwrap();

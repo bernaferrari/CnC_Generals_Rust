@@ -1067,10 +1067,31 @@ impl Object {
         }
     }
 
+    /// C++ Object.cpp:1504-1518 at this session's exact pre-fire boundary.
+    pub(crate) fn pre_fire_current_weapon_with_observations(
+        &mut self,
+        frame: u32,
+        victim: ObjectID,
+        bonus: &crate::weapon::WeaponBonus,
+    ) -> crate::GameLogicResult<()> {
+        let Some((weapon, _)) = self.weapon_set.get_current_weapon() else {
+            return Ok(());
+        };
+        if frame.wrapping_add(1) < weapon.get_possible_next_shot_frame() {
+            return Ok(());
+        }
+        let consecutive = self.get_num_consecutive_shots_fired_at_target(victim);
+        if let Some(weapon) = self.weapon_set.get_current_weapon_mut() {
+            weapon.pre_fire_with_observations_at(consecutive, bonus, frame)?;
+            self.friend_set_undetected_defector(false);
+        }
+        Ok(())
+    }
+
     pub fn pre_fire_current_weapon(&mut self, victim: Option<ObjectID>) {
         let mut weapon_set = std::mem::take(&mut self.weapon_set);
         let started = if let Some(weapon) = weapon_set.get_current_weapon_mut() {
-            let next_frame = TheGameLogic::get_frame().saturating_add(1);
+            let next_frame = TheGameLogic::get_frame().wrapping_add(1);
             if next_frame >= weapon.get_possible_next_shot_frame() {
                 let victim_id = victim.unwrap_or(INVALID_ID);
                 let consecutive = self.get_num_consecutive_shots_fired_at_target(victim_id);
@@ -1190,11 +1211,15 @@ impl Object {
         criteria: WeaponChoiceCriteria,
         cmd_source: CommandSourceType,
         ai: &dyn crate::modules::ai_state_runtime::AiStateRuntime,
-    ) -> bool {
-        let selection =
-            self.weapon_set
-                .select_weapon_for_objects(self, target, criteria, cmd_source, Some(ai));
-        self.weapon_set.apply_weapon_selection(selection)
+    ) -> Result<bool, String> {
+        let selection = self.weapon_set.select_weapon_for_objects(
+            self,
+            target,
+            criteria,
+            cmd_source,
+            Some(ai),
+        )?;
+        Ok(self.weapon_set.apply_weapon_selection(selection))
     }
 
     pub fn choose_best_weapon_for_target_id(
@@ -1209,12 +1234,33 @@ impl Object {
     }
 
     pub fn is_able_to_attack(&self) -> bool {
+        self.is_able_to_attack_inner(None)
+    }
+    /// Pointer-native eligibility after the driving AI admitted its component
+    /// family. Spawn callbacks still need their own explicit runtime adapter.
+    pub(crate) fn is_able_to_attack_with_world(
+        &self,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<bool, String> {
+        if self.get_spawn_behavior_interface_public().is_some() {
+            return Err("supplied attack eligibility does not admit spawn callbacks".into());
+        }
+        Ok(self.is_able_to_attack_inner(Some(world)))
+    }
+    fn is_able_to_attack_inner(
+        &self,
+        world: Option<&dyn crate::modules::ai_world::AiWorld>,
+    ) -> bool {
         // C++ Object.cpp:3153-3307.
         if self.test_status(ObjectStatusTypes::NoAttack) {
             return false;
         }
         if let Some(container_id) = self.get_contained_by() {
-            if let Some(container) = crate::helpers::TheGameLogic::find_object_by_id(container_id) {
+            let container = match world {
+                Some(world) => world.object(container_id),
+                None => crate::helpers::TheGameLogic::find_object_by_id(container_id),
+            };
+            if let Some(container) = container {
                 if let Ok(guard) = container.try_read() {
                     if let Some(contain) = guard.get_contain() {
                         if let Ok(contain) = contain.try_lock() {
@@ -1244,7 +1290,10 @@ impl Object {
                 let slaver_subdued = self
                     .with_slaved_update_interface(|slaved| slaved.slaver_id())
                     .flatten()
-                    .and_then(crate::helpers::TheGameLogic::find_object_by_id)
+                    .and_then(|id| match world {
+                        Some(world) => world.object(id),
+                        None => crate::helpers::TheGameLogic::find_object_by_id(id),
+                    })
                     .and_then(|slaver| {
                         let guard = slaver.try_read().ok()?;
                         Some(guard.is_disabled_by_type(DisabledType::DisabledSubdued))
@@ -1317,6 +1366,11 @@ impl Object {
 
     pub fn is_out_of_ammo(&self) -> bool {
         self.weapon_set.is_out_of_ammo()
+    }
+
+    /// C++ WeaponSet.cpp:968-980 at the driving operation's supplied frame.
+    pub(crate) fn is_out_of_ammo_at(&self, frame: UnsignedInt) -> bool {
+        self.weapon_set.is_out_of_ammo_at(frame)
     }
 
     /// Check if current weapon is locked
@@ -1394,6 +1448,24 @@ impl Object {
                 target,
                 cmd_source,
                 None,
+            )
+    }
+
+    pub(crate) fn get_able_to_attack_specific_object_with_world(
+        &self,
+        attack_type: AbleToAttackType,
+        target: &Object,
+        cmd_source: CommandSourceType,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<CanAttackResult, String> {
+        self.weapon_set
+            .get_able_to_attack_specific_object_with_world(
+                attack_type,
+                self,
+                target,
+                cmd_source,
+                None,
+                world,
             )
     }
 
@@ -1590,6 +1662,27 @@ impl Object {
     /// Check if this object can crush or squish another object.
     /// C++ Reference: Object.cpp line 1076 (Object::canCrushOrSquish)
     pub fn can_crush_or_squish(&self, other: &Object, test_type: CrushSquishTestType) -> bool {
+        self.can_crush_or_squish_with_relationship_observation(other, test_type, || {
+            self.relationship_to(other)
+        })
+    }
+
+    /// The directional relationship was observed by this operation's player owner.
+    pub(crate) fn can_crush_or_squish_with_relationship(
+        &self,
+        other: &Object,
+        test_type: CrushSquishTestType,
+        relationship: Relationship,
+    ) -> bool {
+        self.can_crush_or_squish_with_relationship_observation(other, test_type, || relationship)
+    }
+
+    fn can_crush_or_squish_with_relationship_observation(
+        &self,
+        other: &Object,
+        test_type: CrushSquishTestType,
+        relationship: impl FnOnce() -> Relationship,
+    ) -> bool {
         if self.is_disabled_by_type(DisabledType::DisabledUnmanned) {
             return false;
         }
@@ -1597,7 +1690,7 @@ impl Object {
         let crusher_level = self.get_crusher_level();
 
         // Order matters: we want to know if I consider it to be an ally, not vice versa
-        if self.relationship_to(other) == Relationship::Allies {
+        if relationship() == Relationship::Allies {
             return false;
         }
 
@@ -2285,11 +2378,11 @@ impl Object {
     }
 
     pub fn adjust_model_condition_for_weapon_status(&mut self) {
-        let Some(drawable) = self.drawable.clone() else {
-            return;
-        };
+        self.adjust_model_condition_for_weapon_status_at(crate::helpers::TheGameLogic::get_frame());
+    }
 
-        let now = crate::helpers::TheGameLogic::get_frame();
+    pub(crate) fn adjust_model_condition_for_weapon_status_at(&mut self, now: UnsignedInt) {
+        let drawable = self.drawable.clone();
         let current_slot = self.weapon_set.get_current_weapon_slot();
 
         for slot_index in 0..WEAPONSLOT_COUNT {
@@ -2299,27 +2392,44 @@ impl Object {
                 _ => WeaponSlotType::Tertiary,
             };
 
-            let weapon_data = self.weapon_set.get_weapon_in_slot(slot).map(|weapon| {
-                (
-                    weapon.get_remaining_ammo(),
-                    weapon.get_template().clip_size as u32,
-                    weapon.get_last_shot_frame(),
-                    weapon.get_status(),
-                )
-            });
-            let Some((remaining_ammo, clip_size, last_shot_frame, weapon_status)) = weapon_data
-            else {
+            let Some(weapon) = self.weapon_set.get_weapon_in_slot(slot) else {
                 self.last_weapon_condition[slot_index] =
                     crate::weapon::WeaponSetConditionType::None as u8;
-                if let Err(err) = self.clear_and_set_model_condition_flags(
-                    Self::all_weapon_fire_flags(slot),
-                    ModelConditionFlags::empty(),
-                ) {
-                    log::debug!("Object::update_weapon_firing_status clear flags failed: {err}");
-                }
                 continue;
             };
+            let condition_to_set = if slot != current_slot {
+                crate::weapon::WeaponSetConditionType::None
+            } else if weapon.get_last_shot_frame() == now {
+                crate::weapon::WeaponSetConditionType::Firing
+            } else if !self.test_status(ObjectStatusTypes::IsAttacking) {
+                crate::weapon::WeaponSetConditionType::None
+            } else {
+                let weapon_status = weapon.get_status_at(now);
+                let mut condition = match weapon_status {
+                    WeaponStatus::BetweenFiringShots => {
+                        crate::weapon::WeaponSetConditionType::Between
+                    }
+                    WeaponStatus::ReloadingClip => crate::weapon::WeaponSetConditionType::Reloading,
+                    WeaponStatus::PreAttack => crate::weapon::WeaponSetConditionType::PreAttack,
+                    _ => crate::weapon::WeaponSetConditionType::None,
+                };
+                if weapon_status == WeaponStatus::ReadyToFire
+                    && condition == crate::weapon::WeaponSetConditionType::None
+                    && (self.test_status(ObjectStatusTypes::IsAimingWeapon)
+                        || self.test_status(ObjectStatusTypes::IsFiringWeapon))
+                {
+                    condition = crate::weapon::WeaponSetConditionType::Between;
+                }
+                condition
+            };
 
+            // C++ records missing slots without a drawable, but present slot
+            // condition caches and clip/model callbacks require a drawable.
+            let Some(drawable) = drawable.as_ref() else {
+                continue;
+            };
+            let remaining_ammo = weapon.get_remaining_ammo_at(now);
+            let clip_size = weapon.get_template().clip_size as u32;
             if let Ok(mut draw_guard) = drawable.write() {
                 let common_slot = match slot {
                     WeaponSlotType::Primary => crate::common::WeaponSlotType::Primary,
@@ -2327,32 +2437,6 @@ impl Object {
                     WeaponSlotType::Tertiary => crate::common::WeaponSlotType::Tertiary,
                 };
                 draw_guard.update_drawable_clip_status(remaining_ammo, clip_size, common_slot);
-            }
-
-            let mut condition_to_set = if slot != current_slot {
-                crate::weapon::WeaponSetConditionType::None
-            } else if last_shot_frame == now {
-                crate::weapon::WeaponSetConditionType::Firing
-            } else if !self.test_status(ObjectStatusTypes::IsAttacking) {
-                crate::weapon::WeaponSetConditionType::None
-            } else {
-                match weapon_status {
-                    WeaponStatus::BetweenFiringShots => {
-                        crate::weapon::WeaponSetConditionType::Between
-                    }
-                    WeaponStatus::ReloadingClip => crate::weapon::WeaponSetConditionType::Reloading,
-                    WeaponStatus::PreAttack => crate::weapon::WeaponSetConditionType::PreAttack,
-                    _ => crate::weapon::WeaponSetConditionType::None,
-                }
-            };
-
-            if weapon_status == WeaponStatus::ReadyToFire
-                && condition_to_set == crate::weapon::WeaponSetConditionType::None
-                && self.test_status(ObjectStatusTypes::IsAttacking)
-                && (self.test_status(ObjectStatusTypes::IsAimingWeapon)
-                    || self.test_status(ObjectStatusTypes::IsFiringWeapon))
-            {
-                condition_to_set = crate::weapon::WeaponSetConditionType::Between;
             }
 
             let last_condition = self.last_weapon_condition[slot_index];
@@ -2366,7 +2450,7 @@ impl Object {
                 ) {
                     log::debug!("Object::update_weapon_firing_status set flags failed: {err}");
                 }
-                self.stretch_preattack_animation(condition_to_set, slot);
+                self.stretch_preattack_animation_at(condition_to_set, slot, now);
             }
         }
     }
@@ -2497,6 +2581,9 @@ impl Object {
 
     pub fn get_num_consecutive_shots_fired_at_target(&self, victim_id: ObjectID) -> i32 {
         for entry in self.interface_entries(&self.update_module_handles) {
+            if !entry.has_firing_tracker {
+                continue;
+            }
             let mut count: Option<i32> = None;
             entry.with_module(|module| {
                 if let Some(tracker_module) = module_behavior_utility_kind(module)

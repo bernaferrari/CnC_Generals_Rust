@@ -334,13 +334,63 @@ impl Object {
         }
     }
 
-    pub(super) fn on_disabled_edge(&mut self, becoming_disabled: bool) {
-        self.cancel_dozer_task_on_disabled_edge(becoming_disabled);
+    /// The selected leaf AI has no Dozer component. These admitted default
+    /// behavior callbacks and zero power/radar effects are the same original
+    /// onDisabledEdge route without reacquiring its already borrowed UnitAI.
+    pub(crate) fn validate_owned_leaf_held(&self) -> Result<(), String> {
+        if self.get_template().get_energy_production() > 0
+            || !self.upgrade_module_handles.is_empty()
+        {
+            return Err("owned leaf HELD does not admit power/radar upgrade callbacks".into());
+        }
+        if self
+            .behaviors
+            .iter()
+            .any(|behavior| !behavior.has_owned_default_disabled_callback())
+        {
+            return Err("owned leaf HELD does not admit injected disabled callbacks".into());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_native_leaf_enter_effects(&self) -> Result<(), String> {
+        if let Some(drawable) = self.get_drawable() {
+            drop(
+                drawable
+                    .write()
+                    .map_err(|_| "owned Enter drawable poisoned")?,
+            );
+        }
+        self.validate_owned_leaf_held()?;
+        if !self.collide_module_handles.is_empty() || self.get_contain().is_some() {
+            return Err(
+                "native leaf entry does not admit collide or nested contain callbacks".into(),
+            );
+        }
+        Ok(())
+    }
+
+    pub(crate) fn set_held_for_owned_leaf(&mut self) {
+        self.validate_owned_leaf_held()
+            .expect("admitted leaf HELD callbacks");
+        let was_disabled = self.is_disabled();
+        self.disabled_mask.set_disabled(DisabledType::Held);
+        if !was_disabled && self.is_disabled() {
+            self.dispatch_disabled_behavior_callbacks(true);
+        }
+    }
+
+    fn dispatch_disabled_behavior_callbacks(&mut self, becoming_disabled: bool) {
         for behavior in &mut self.behaviors {
             if let Ok(mut guard) = behavior.access() {
                 guard.on_disabled_edge(becoming_disabled);
             }
         }
+    }
+
+    pub(super) fn on_disabled_edge(&mut self, becoming_disabled: bool) {
+        self.cancel_dozer_task_on_disabled_edge(becoming_disabled);
+        self.dispatch_disabled_behavior_callbacks(becoming_disabled);
 
         let Some(player) = self.get_controlling_player() else {
             return;

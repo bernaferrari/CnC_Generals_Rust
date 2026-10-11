@@ -3,6 +3,9 @@
 //! Contain module for transport units with specialized transport functionality
 //! including slot capacity, exit handling, and payload management.
 
+#[path = "transport_owned_enter.rs"]
+mod owned_enter;
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
@@ -457,6 +460,10 @@ impl TransportContain {
         {
             return false;
         }
+        self.accepts_slots(actual_obj, owner, check_capacity)
+    }
+
+    fn accepts_slots(&self, actual_obj: &Object, owner: &Object, check_capacity: bool) -> bool {
         // CPP compares the controlling Player identity. IDs retain that identity
         // without rediscovering either Player through a process-global list.
         if owner.get_controlling_player_id() != actual_obj.get_controlling_player_id() {
@@ -1671,6 +1678,17 @@ impl Snapshotable for TransportContain {
 }
 
 impl ContainModuleInterface for TransportContain {
+    fn supports_owned_enter(&self) -> bool {
+        !self.module_data.armed_riders_upgrade_weapon_set
+    }
+    fn add_to_contain_with_world(
+        &mut self,
+        id: ObjectID,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.enter_with_world(id, world)
+    }
+
     fn set_rally_point(&mut self, pos: Coord3D) {
         self.base.set_rally_point(pos);
     }
@@ -1822,6 +1840,33 @@ impl ContainModuleInterface for TransportContain {
 
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
         TransportContain::is_valid_container_for(self, obj, check_capacity)
+    }
+
+    fn is_valid_container_for_with_world(
+        &self,
+        obj: &Object,
+        owner: &Object,
+        capacity: bool,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> bool {
+        if let Some(rider_id) = super::unwrap_special_zero_slot_rider(obj) {
+            if rider_id == owner.get_id() || rider_id == obj.get_id() {
+                return false;
+            }
+            let Some(rider) = world.object(rider_id) else {
+                return false;
+            };
+            let Ok(rider) = rider.read() else {
+                return false;
+            };
+            return self
+                .base
+                .is_valid_container_for_with_world(&rider, owner, capacity, world)
+                && self.accepts_slots(&rider, owner, capacity);
+        }
+        self.base
+            .is_valid_container_for_with_world(obj, owner, capacity, world)
+            && self.accepts_slots(obj, owner, capacity)
     }
 
     fn is_valid_container_for_with_owner(

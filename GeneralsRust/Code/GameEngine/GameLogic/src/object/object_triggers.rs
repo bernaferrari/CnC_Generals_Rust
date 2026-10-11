@@ -55,36 +55,11 @@ impl Object {
         frame: Option<UnsignedInt>,
         changed: &mut dyn FnMut(ObjectID),
     ) {
-        let (_, _, translation) = matrix.to_scale_rotation_translation();
-        let old_pos = self.geometry_info.position;
-        let pi = std::f32::consts::PI;
-        let mut new_angle = matrix.x_axis.y.atan2(matrix.x_axis.x);
-        while new_angle > pi {
-            new_angle -= 2.0 * pi;
-        }
-        while new_angle < -pi {
-            new_angle += 2.0 * pi;
-        }
-        let mut old_angle = self.geometry_info.angle;
-        while old_angle > pi {
-            old_angle -= 2.0 * pi;
-        }
-        while old_angle < -pi {
-            old_angle += 2.0 * pi;
-        }
-        self.geometry_info.position = translation;
-        self.geometry_info.angle = new_angle;
-        self.geometry_info.height_above_terrain = self.calculate_height_above_terrain();
-
-        if let Some(drawable) = &self.drawable {
-            if let Ok(mut drawable) = drawable.write() {
-                drawable.set_transform(*matrix);
-            }
-        }
-        let pos_diff = (old_pos.x - translation.x).abs() > 0.01
-            || (old_pos.y - translation.y).abs() > 0.01
-            || (old_pos.z - translation.z).abs() > 0.01;
-        let ang_diff = (old_angle - new_angle).abs() > 0.01;
+        let (pos_diff, ang_diff) = self.apply_transform_local(matrix, &mut |object| {
+            object.calculate_height_above_terrain()
+        });
+        let translation = self.geometry_info.position;
+        let new_angle = self.geometry_info.angle;
         if pos_diff || ang_diff {
             self.react_contain_to_transform();
         }
@@ -109,6 +84,114 @@ impl Object {
         if pos_diff {
             self.set_trigger_area_flags_with_context(frame, changed);
         }
+    }
+
+    /// The identical local transform phase used by both service adapters.
+    fn apply_transform_local(
+        &mut self,
+        matrix: &Matrix3D,
+        height: &mut dyn FnMut(&Object) -> Real,
+    ) -> (bool, bool) {
+        let (_, _, translation) = matrix.to_scale_rotation_translation();
+        let old_pos = self.geometry_info.position;
+        let pi = std::f32::consts::PI;
+        let mut new_angle = matrix.x_axis.y.atan2(matrix.x_axis.x);
+        while new_angle > pi {
+            new_angle -= 2.0 * pi;
+        }
+        while new_angle < -pi {
+            new_angle += 2.0 * pi;
+        }
+        let mut old_angle = self.geometry_info.angle;
+        while old_angle > pi {
+            old_angle -= 2.0 * pi;
+        }
+        while old_angle < -pi {
+            old_angle += 2.0 * pi;
+        }
+        self.geometry_info.position = translation;
+        self.geometry_info.angle = new_angle;
+        self.geometry_info.height_above_terrain = height(self);
+
+        if let Some(drawable) = &self.drawable {
+            if let Ok(mut drawable) = drawable.write() {
+                drawable.set_transform(*matrix);
+            }
+        }
+        let pos_diff = (old_pos.x - translation.x).abs() > 0.01
+            || (old_pos.y - translation.y).abs() > 0.01
+            || (old_pos.z - translation.z).abs() > 0.01;
+        let ang_diff = (old_angle - new_angle).abs() > 0.01;
+        (pos_diff, ang_diff)
+    }
+
+    /// Explicit native transform for the admitted leaf passenger family. A
+    /// passenger that itself contains objects requires its own virtual callback
+    /// capability and is rejected before any field changes.
+    pub(crate) fn set_transform_matrix_with_services(
+        &mut self,
+        matrix: &Matrix3D,
+        terrain: &crate::terrain::TerrainLogic,
+        collision: &mut crate::object::collide::collision_system::CollisionSystem,
+        frame: u32,
+        changed: &mut dyn FnMut(ObjectID),
+        notify_terrain_moved: &mut dyn FnMut(&Object),
+    ) -> Result<(), String> {
+        if self.get_contain().is_some() {
+            return Err("leaf transform does not admit nested containment callbacks".into());
+        }
+        let (pos_diff, ang_diff) = self.apply_transform_local(matrix, &mut |object| {
+            let p = object.get_position();
+            p.z - terrain.get_layer_height(
+                p.x,
+                p.y,
+                crate::path::PathfindLayerEnum::from_u32(object.get_layer() as u32),
+                None,
+                false,
+            )
+        });
+        if (pos_diff || ang_diff) && self.partition_data.is_some() {
+            let p = self.geometry_info.position;
+            let position = crate::object::collide::Coord3D::new(p.x, p.y, p.z);
+            if collision
+                .update_object_pose(self.id, position, self.geometry_info.angle)
+                .is_err()
+            {
+                let geometry = Self::collision_geometry_from_bounds(
+                    &self.geometry_info,
+                    self.get_template_geometry_type(),
+                );
+                // Same initial-placement fallback as the compatibility adapter.
+                let _ = collision.register_object(self.id, position, geometry, None);
+            }
+        }
+        if pos_diff {
+            let triggers = terrain
+                .get_trigger_areas()
+                .get_triggers()
+                .iter()
+                .cloned()
+                .map(Arc::new)
+                .collect::<Vec<_>>();
+            self.set_trigger_area_flags_with_observations(
+                Some(frame),
+                changed,
+                notify_terrain_moved,
+                Some(triggers),
+            );
+            let extent = terrain.get_extent();
+            let position = self.get_position();
+            let in_map = position.x >= extent.lo.x
+                && position.x <= extent.hi.x
+                && position.y >= extent.lo.y
+                && position.y <= extent.hi.y;
+            if in_map {
+                self.private_status &= !(ObjectPrivateStatusBits::OffMap as u8);
+            } else {
+                self.private_status |= ObjectPrivateStatusBits::OffMap as u8;
+            }
+        }
+        Ok(())
     }
 
     pub fn get_multi_logical_bone_position(
@@ -492,6 +575,25 @@ impl Object {
         frame: Option<UnsignedInt>,
         changed: &mut dyn FnMut(ObjectID),
     ) {
+        self.set_trigger_area_flags_with_observations(
+            frame,
+            changed,
+            &mut |object| {
+                if let Some(client) = crate::helpers::TheGameClient::get() {
+                    client.notify_terrain_object_moved_from(object);
+                }
+            },
+            None,
+        );
+    }
+
+    fn set_trigger_area_flags_with_observations(
+        &mut self,
+        frame: Option<UnsignedInt>,
+        changed: &mut dyn FnMut(ObjectID),
+        notify_terrain_moved: &mut dyn FnMut(&Object),
+        triggers: Option<Vec<Arc<PolygonTrigger>>>,
+    ) {
         // projectiles cannot trigger areas. (jkmcd)
         // neither can inert objects, like the radar ping, etc. (jkmcd)
         if self.is_kind_of(KindOf::Projectile) || self.is_kind_of(KindOf::Inert) {
@@ -514,12 +616,7 @@ impl Object {
         if !self.is_kind_of(KindOf::Immobile)
             && (self.is_kind_of(KindOf::Infantry) || self.is_kind_of(KindOf::Vehicle))
         {
-            if let Some(client) = crate::helpers::TheGameClient::get() {
-                // Object::setPosition already owns this object mutably. Pass
-                // its current facts directly instead of reacquiring the same
-                // object's registry read lock here.
-                client.notify_terrain_object_moved_from(self);
-            }
+            notify_terrain_moved(self);
         }
 
         // C++ lines 2565-2568: Update pathfinder position
@@ -563,7 +660,10 @@ impl Object {
 
         // C++ lines 2595-2651: Check for newly entered trigger areas.
         // Iterate every PolygonTrigger, not only already-tracked ones.
-        self.enter_untracked_polygon_triggers(now, changed);
+        match triggers {
+            Some(triggers) => self.enter_polygon_triggers(now, changed, triggers),
+            None => self.enter_untracked_polygon_triggers(now, changed),
+        }
     }
 
     /// C++ Object.cpp:2615-2657 — walk `PolygonTrigger::getFirstPolygonTrigger()`.
@@ -585,6 +685,15 @@ impl Object {
             .collect();
         drop(terrain);
 
+        self.enter_polygon_triggers(now, changed, triggers);
+    }
+
+    fn enter_polygon_triggers(
+        &mut self,
+        now: UnsignedInt,
+        changed: &mut dyn FnMut(ObjectID),
+        triggers: Vec<Arc<PolygonTrigger>>,
+    ) {
         for trigger_arc in triggers {
             let already_tracked = (0..(self.num_trigger_areas_active as usize)).any(|i| {
                 self.trigger_info[i]

@@ -583,7 +583,7 @@ impl JetStateMachine {
     fn set_state(
         &mut self,
         state: JetAIStateType,
-        ai: &mut UnitAiStateRuntime<'_>,
+        ai: &mut UnitAiStateRuntime<'_, '_>,
         driver: &mut AIStateMachineDriver<'_>,
         jet_ai: &mut JetAIUpdate,
     ) {
@@ -596,7 +596,7 @@ impl JetStateMachine {
 
     fn clear(
         &mut self,
-        ai: &mut UnitAiStateRuntime<'_>,
+        ai: &mut UnitAiStateRuntime<'_, '_>,
         driver: &mut AIStateMachineDriver<'_>,
         jet_ai: &mut JetAIUpdate,
     ) {
@@ -608,7 +608,7 @@ impl JetStateMachine {
 
     fn update(
         &mut self,
-        ai: &mut UnitAiStateRuntime<'_>,
+        ai: &mut UnitAiStateRuntime<'_, '_>,
         driver: &mut AIStateMachineDriver<'_>,
         jet_ai: &mut JetAIUpdate,
     ) {
@@ -689,7 +689,7 @@ impl JetStateMachine {
 
     fn on_enter(
         &mut self,
-        ai: &mut UnitAiStateRuntime<'_>,
+        ai: &mut UnitAiStateRuntime<'_, '_>,
         driver: &mut AIStateMachineDriver<'_>,
         jet_ai: &mut JetAIUpdate,
     ) {
@@ -891,7 +891,7 @@ impl JetStateMachine {
     fn on_exit(
         &mut self,
         state: JetAIStateType,
-        ai: &mut UnitAiStateRuntime<'_>,
+        ai: &mut UnitAiStateRuntime<'_, '_>,
         driver: &mut AIStateMachineDriver<'_>,
         jet_ai: &mut JetAIUpdate,
     ) {
@@ -989,7 +989,7 @@ impl JetStateMachine {
     fn on_update(
         &mut self,
         state: JetAIStateType,
-        ai: &mut UnitAiStateRuntime<'_>,
+        ai: &mut UnitAiStateRuntime<'_, '_>,
         driver: &mut AIStateMachineDriver<'_>,
         jet_ai: &mut JetAIUpdate,
     ) -> crate::state_machine::StateReturnType {
@@ -1406,7 +1406,7 @@ impl JetStateMachine {
     }
     fn issue_taxi_path(
         &mut self,
-        ai: &mut UnitAiStateRuntime<'_>,
+        ai: &mut UnitAiStateRuntime<'_, '_>,
         driver: &mut AIStateMachineDriver<'_>,
         jet_ai: &mut JetAIUpdate,
     ) {
@@ -1522,7 +1522,7 @@ impl JetStateMachine {
 
     fn issue_jet_flight_path(
         &mut self,
-        ai: &mut UnitAiStateRuntime<'_>,
+        ai: &mut UnitAiStateRuntime<'_, '_>,
         driver: &mut AIStateMachineDriver<'_>,
         jet_ai: &mut JetAIUpdate,
         landing: bool,
@@ -1575,7 +1575,7 @@ impl JetStateMachine {
 
     fn enter_heli_takeoff_or_landing(
         &mut self,
-        _ai: &mut UnitAiStateRuntime<'_>,
+        _ai: &mut UnitAiStateRuntime<'_, '_>,
         driver: &mut AIStateMachineDriver<'_>,
         jet_ai: &mut JetAIUpdate,
         landing: bool,
@@ -1632,7 +1632,7 @@ impl JetStateMachine {
 
     fn update_heli_takeoff_or_landing(
         &mut self,
-        ai: &mut UnitAiStateRuntime<'_>,
+        ai: &mut UnitAiStateRuntime<'_, '_>,
         driver: &mut AIStateMachineDriver<'_>,
         jet_ai: &mut JetAIUpdate,
     ) -> crate::state_machine::StateReturnType {
@@ -1819,7 +1819,7 @@ impl JetAIUpdate {
         })
     }
 
-    pub fn on_object_created(&mut self, ai: &mut UnitAiStateRuntime<'_>) {
+    pub fn on_object_created(&mut self, ai: &mut UnitAiStateRuntime<'_, '_>) {
         self.set_allow_air_loco(false);
         let _ = ai.choose_locomotor_set(LocomotorSetType::Taxiing);
         self.engines_on = true;
@@ -1839,7 +1839,7 @@ impl JetAIUpdate {
 
     pub fn update_with_ai(
         &mut self,
-        ai: &mut UnitAiStateRuntime<'_>,
+        ai: &mut UnitAiStateRuntime<'_, '_>,
         driver: &mut AIStateMachineDriver<'_>,
     ) {
         self.get_producer_location(Some(ai));
@@ -1953,7 +1953,7 @@ impl JetAIUpdate {
     pub fn handle_command(
         &mut self,
         params: &AiCommandParams,
-        ai: &mut UnitAiStateRuntime<'_>,
+        ai: &mut UnitAiStateRuntime<'_, '_>,
         driver: &mut AIStateMachineDriver<'_>,
     ) -> bool {
         // Wave 309: empty dual-world → fail-closed.
@@ -2136,7 +2136,7 @@ impl JetAIUpdate {
         &mut self,
         airfield_id: ObjectID,
         cmd_source: crate::ai::CommandSourceType,
-        ai: &mut UnitAiStateRuntime<'_>,
+        ai: &mut UnitAiStateRuntime<'_, '_>,
         driver: &mut AIStateMachineDriver<'_>,
     ) {
         // Wave 309: empty dual-world → no-op.
@@ -2255,11 +2255,11 @@ impl JetAIUpdate {
         self.afterburners_on = enable;
     }
 
-    pub fn add_waypoint_to_goal_path(&self, ai: &mut UnitAiStateRuntime<'_>, pos: &Coord3D) {
+    pub fn add_waypoint_to_goal_path(&self, ai: &mut UnitAiStateRuntime<'_, '_>, pos: &Coord3D) {
         let _ = ai.append_goal_position_to_path(pos);
     }
 
-    fn get_producer_location(&mut self, ai: Option<&mut UnitAiStateRuntime<'_>>) {
+    fn get_producer_location(&mut self, ai: Option<&mut UnitAiStateRuntime<'_, '_>>) {
         if self.get_flag(JetFlag::HasProducerLocation) {
             return;
         }

@@ -16,7 +16,7 @@ impl WeaponSet {
         criteria: WeaponChoiceCriteria,
         command_source: CommandSourceType,
         ai: Option<&dyn crate::modules::ai_state_runtime::AiStateRuntime>,
-    ) -> (WeaponSlotType, bool) {
+    ) -> Result<(WeaponSlotType, bool), String> {
         self.select_weapon_inner(
             source.get_id(),
             target.get_id(),
@@ -41,13 +41,15 @@ impl WeaponSet {
         command_source: CommandSourceType,
         objects: Option<(&Object, &Object)>,
         ai: Option<&dyn crate::modules::ai_state_runtime::AiStateRuntime>,
-    ) -> (WeaponSlotType, bool) {
+    ) -> Result<(WeaponSlotType, bool), String> {
         if self.is_current_weapon_locked() {
-            return (self.current_weapon, true);
+            return Ok((self.current_weapon, true));
         }
         if target_obj == 0 && objects.is_none() {
-            return (WeaponSlotType::Primary, true);
+            return Ok((WeaponSlotType::Primary, true));
         }
+
+        let world = ai.and_then(|ai| ai.world());
 
         let mut found = false;
         let mut found_backup = false;
@@ -76,8 +78,11 @@ impl WeaponSet {
                     continue;
                 }
             }
-            if weapon.get_status() == WeaponStatus::OutOfAmmo
-                && !weapon.get_template().get_auto_reloads_clip()
+            let status = || match world {
+                Some(world) => weapon.get_status_at(world.frame()),
+                None => weapon.get_status(),
+            };
+            if status() == WeaponStatus::OutOfAmmo && !weapon.get_template().get_auto_reloads_clip()
             {
                 continue;
             }
@@ -96,12 +101,36 @@ impl WeaponSet {
                 continue;
             }
 
-            let damage = objects.map_or_else(
-                || weapon.estimate_weapon_damage(source_obj, Some(target_obj), None),
-                |(source, target)| weapon.estimate_weapon_damage_for_objects(source, target),
-            );
+            let (damage, mut attack_range) = if let Some(world) = world {
+                let (source, target) =
+                    objects.ok_or("supplied weapon selection requires borrowed objects")?;
+                let estimate_status = status();
+                let bonus = world.weapon_bonus(source, weapon)?;
+                (
+                    weapon.estimate_weapon_damage_for_objects_with_bonus(
+                        source,
+                        target,
+                        &bonus,
+                        estimate_status,
+                    ),
+                    weapon.get_template().get_attack_range(&bonus),
+                )
+            } else {
+                (
+                    objects.map_or_else(
+                        || weapon.estimate_weapon_damage(source_obj, Some(target_obj), None),
+                        |(source, target)| {
+                            weapon.estimate_weapon_damage_for_objects(source, target)
+                        },
+                    ),
+                    objects.map_or_else(
+                        || weapon.get_attack_range(source_obj),
+                        |(source, _)| weapon.get_attack_range_for_object(source),
+                    ),
+                )
+            };
 
-            let mut weapon_is_ready = weapon.get_status() == WeaponStatus::ReadyToFire;
+            let mut weapon_is_ready = status() == WeaponStatus::ReadyToFire;
             let turret_aiming = if objects.is_some() {
                 ai.is_some_and(|ai| {
                     ai.is_weapon_slot_on_turret_and_aiming_at_target(slot, target_obj)
@@ -125,10 +154,6 @@ impl WeaponSet {
                 continue;
             }
 
-            let mut attack_range = objects.map_or_else(
-                || weapon.get_attack_range(source_obj),
-                |(source, _)| weapon.get_attack_range_for_object(source),
-            );
             let mut damage = damage;
             let preferred = self
                 .current_weapon_template_set
@@ -149,7 +174,7 @@ impl WeaponSet {
             if preferred_matches {
                 damage = 1.0e10;
                 attack_range = 1.0e10;
-                weapon_is_ready = weapon.get_status() != WeaponStatus::OutOfAmmo;
+                weapon_is_ready = status() != WeaponStatus::OutOfAmmo;
             }
 
             match criteria {
@@ -183,11 +208,11 @@ impl WeaponSet {
         }
 
         if found {
-            (current_decision, true)
+            Ok((current_decision, true))
         } else if found_backup {
-            (current_decision_backup, true)
+            Ok((current_decision_backup, true))
         } else {
-            (WeaponSlotType::Primary, false)
+            Ok((WeaponSlotType::Primary, false))
         }
     }
 }

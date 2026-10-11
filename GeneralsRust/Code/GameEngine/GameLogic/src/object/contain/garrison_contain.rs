@@ -1286,9 +1286,21 @@ impl GarrisonContain {
         observing_player: Option<&Player>,
     ) -> Option<Arc<RwLock<Player>>> {
         let my_player = self
-            .with_owner_object(|guard| guard.get_controlling_player())
+            .with_owner_object(|owner| owner.get_controlling_player())
             .flatten();
-
+        self.apparent_player_for_controller(my_player, observing_player, |index| {
+            ThePlayerList()
+                .read()
+                .ok()
+                .and_then(|players| players.get_player(index).cloned())
+        })
+    }
+    fn apparent_player_for_controller(
+        &self,
+        my_player: Option<Arc<RwLock<Player>>>,
+        observing_player: Option<&Player>,
+        player: impl Fn(i32) -> Option<Arc<RwLock<Player>>>,
+    ) -> Option<Arc<RwLock<Player>>> {
         if self.hide_garrisoned_state_from_non_allies {
             if let (Some(original_team), Some(my_player), Some(observer)) = (
                 self.original_team.as_ref(),
@@ -1309,9 +1321,7 @@ impl GarrisonContain {
                                 if let Some(controller_id) =
                                     original_guard.get_controlling_player_id()
                                 {
-                                    if let Ok(list) = ThePlayerList().read() {
-                                        return list.get_player(controller_id as i32).cloned();
-                                    }
+                                    return player(controller_id as i32);
                                 }
                             }
                         }
@@ -3178,6 +3188,20 @@ impl ContainModuleInterface for GarrisonContain {
         observing_player: Option<&Player>,
     ) -> Option<Arc<RwLock<Player>>> {
         GarrisonContain::get_apparent_controlling_player(self, observing_player)
+    }
+
+    fn get_apparent_controlling_player_with_world(
+        &self,
+        owner: &Object,
+        observing_player: Option<&Player>,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Option<Arc<RwLock<Player>>> {
+        let my_player = owner
+            .get_controlling_player_id()
+            .and_then(|id| world.player(id as i32));
+        self.apparent_player_for_controller(my_player, observing_player, |index| {
+            world.player(index)
+        })
     }
 
     fn is_passenger_allowed_to_fire(&self, id: Option<ObjectID>) -> bool {

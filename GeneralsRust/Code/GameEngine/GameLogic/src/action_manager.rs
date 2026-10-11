@@ -1167,6 +1167,42 @@ impl TheActionManager {
         mode: CanEnterType,
         lookup: &dyn Fn(ObjectID) -> Option<Arc<RwLock<Object>>>,
     ) -> bool {
+        Self::can_enter_object_with_services(
+            obj,
+            object_to_enter,
+            command_source,
+            mode,
+            lookup,
+            &is_object_shrouded_for_action,
+            &|source, target| {
+                TheGameLogic::find_object_by_id(target.get_id()).is_some_and(|other| {
+                    COLLISION_MANAGER
+                        .would_like_to_collide_with(source.get_id(), &other)
+                        .unwrap_or(false)
+                })
+            },
+            &|contain, passenger, owner, capacity| {
+                contain.is_valid_container_for_with_owner(passenger, owner, capacity)
+            },
+        )
+    }
+
+    /// The original predicate with store-selected observation services.
+    pub fn can_enter_object_with_services(
+        obj: &Object,
+        object_to_enter: &Object,
+        command_source: CommandSourceType,
+        mode: CanEnterType,
+        lookup: &dyn Fn(ObjectID) -> Option<Arc<RwLock<Object>>>,
+        shrouded: &dyn Fn(&Object, &Object, CommandSourceType) -> bool,
+        wants_collision: &dyn Fn(&Object, &Object) -> bool,
+        valid_container: &dyn Fn(
+            &dyn crate::modules::ContainModuleInterface,
+            &Object,
+            &Object,
+            bool,
+        ) -> bool,
+    ) -> bool {
         if obj.get_id() == object_to_enter.get_id() {
             return false;
         }
@@ -1175,7 +1211,7 @@ impl TheActionManager {
             return false;
         }
 
-        if is_object_shrouded_for_action(obj, object_to_enter, command_source) {
+        if shrouded(obj, object_to_enter, command_source) {
             return false;
         }
 
@@ -1237,13 +1273,8 @@ impl TheActionManager {
             return false;
         }
 
-        if let Some(other_handle) = TheGameLogic::find_object_by_id(object_to_enter.get_id()) {
-            if COLLISION_MANAGER
-                .would_like_to_collide_with(obj.get_id(), &other_handle)
-                .unwrap_or(false)
-            {
-                return true;
-            }
+        if wants_collision(obj, object_to_enter) {
+            return true;
         }
 
         #[cfg(feature = "allow_surrender")]
@@ -1335,11 +1366,7 @@ impl TheActionManager {
                 return false;
             }
 
-            if !contain_guard.is_valid_container_for_with_owner(
-                obj,
-                admission_owner,
-                check_capacity,
-            ) {
+            if !valid_container(&*contain_guard, obj, admission_owner, check_capacity) {
                 return false;
             }
         }
@@ -2001,22 +2028,67 @@ impl TheActionManager {
         command_source: CommandSourceType,
         attack_type: AbleToAttackType,
     ) -> CanAttackResult {
+        Self::get_can_attack_object_inner(
+            obj,
+            object_to_attack,
+            command_source,
+            attack_type,
+            None,
+            || Ok(obj.is_able_to_attack()),
+        )
+        .expect("standalone attack eligibility is infallible")
+    }
+    pub(crate) fn get_can_attack_object_with_world(
+        obj: &Object,
+        object_to_attack: &Object,
+        command_source: CommandSourceType,
+        attack_type: AbleToAttackType,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<CanAttackResult, String> {
+        if obj.get_spawn_behavior_interface_public().is_some() {
+            return Err("supplied attack eligibility does not admit spawn callbacks".into());
+        }
+        Self::get_can_attack_object_inner(
+            obj,
+            object_to_attack,
+            command_source,
+            attack_type,
+            Some(world),
+            || obj.is_able_to_attack_with_world(world),
+        )
+    }
+    fn get_can_attack_object_inner(
+        obj: &Object,
+        object_to_attack: &Object,
+        command_source: CommandSourceType,
+        attack_type: AbleToAttackType,
+        world: Option<&dyn crate::modules::ai_world::AiWorld>,
+        ability: impl FnOnce() -> Result<bool, String>,
+    ) -> Result<CanAttackResult, String> {
         if obj.is_effectively_dead()
             || object_to_attack.is_effectively_dead()
             || obj.get_id() == object_to_attack.get_id()
         {
-            return ATTACKRESULT_NOT_POSSIBLE;
+            return Ok(ATTACKRESULT_NOT_POSSIBLE);
         }
 
-        if !obj.is_able_to_attack() {
-            return ATTACKRESULT_NOT_POSSIBLE;
+        if !ability()? {
+            return Ok(ATTACKRESULT_NOT_POSSIBLE);
         }
 
-        let result = obj.get_able_to_attack_specific_object_for_objects(
-            attack_type,
-            object_to_attack,
-            command_source,
-        );
+        let result = match world {
+            Some(world) => obj.get_able_to_attack_specific_object_with_world(
+                attack_type,
+                object_to_attack,
+                command_source,
+                world,
+            )?,
+            None => obj.get_able_to_attack_specific_object_for_objects(
+                attack_type,
+                object_to_attack,
+                command_source,
+            ),
+        };
         if result != ATTACKRESULT_NOT_POSSIBLE {
             // C++ checks every slot for any nonzero mask, including empty slots.
             if command_source == CommandSourceType::FromPlayer
@@ -2028,18 +2100,18 @@ impl TheActionManager {
                 .into_iter()
                 .any(|slot| obj.get_weapon_in_weapon_slot_command_source_mask(slot) != 0)
             {
-                return ATTACKRESULT_NOT_POSSIBLE;
+                return Ok(ATTACKRESULT_NOT_POSSIBLE);
             }
 
             if result == CanAttackResult::InvalidShot && obj.is_kind_of(KindOf::Dozer) {
                 if let Some((weapon, _)) = obj.get_current_weapon() {
                     if weapon.get_damage_type() == DamageType::Disarm {
-                        return ATTACKRESULT_NOT_POSSIBLE;
+                        return Ok(ATTACKRESULT_NOT_POSSIBLE);
                     }
                 }
             }
 
-            return result;
+            return Ok(result);
         }
 
         if obj.is_kind_of(KindOf::SpawnsAreTheWeapons) {
@@ -2054,13 +2126,13 @@ impl TheActionManager {
                         command_source,
                     );
                     if result != ATTACKRESULT_NOT_POSSIBLE {
-                        return result;
+                        return Ok(result);
                     }
                 }
             }
         }
 
-        ATTACKRESULT_NOT_POSSIBLE
+        Ok(ATTACKRESULT_NOT_POSSIBLE)
     }
 
     /// Convenience overload using object IDs.
@@ -3091,3 +3163,7 @@ mod tests {
         ));
     }
 }
+
+#[cfg(test)]
+#[path = "action_attack_order_tests.rs"]
+mod attack_order_tests;

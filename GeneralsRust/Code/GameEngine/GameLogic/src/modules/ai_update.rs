@@ -15,6 +15,20 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     fn set_final_position(&mut self, _position: &Coord3D) {}
     /// Update AI logic
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    /// Run the cached implementation with the driving world's explicit services.
+    fn update_enter_phase_with_world(
+        &mut self,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Err("AI implementation does not support supplied world operations".into())
+    }
+    fn execute_command_with_world(
+        &mut self,
+        _command: &crate::ai::AiCommandParams,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Err("AI implementation does not support supplied world commands".into())
+    }
     /// Serialize live AIUpdate runtime state through the owning AIUpdate module.
     ///
     /// The default keeps test doubles and non-standard AI shims compatible; concrete
@@ -24,6 +38,17 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     }
     /// C++ `AIUpdateInterface::loadPostProcess` path-cell rebuild.
     fn load_post_process_path_cells(&mut self) {}
+    /// Restore installed Enter path occupancy using the exact driving owner.
+    fn load_post_process_enter_with_world(
+        &mut self,
+        _world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("AI module does not support supplied Enter postload".into())
+    }
+    /// Admit only targeter/aim callbacks that do not discover ambient services.
+    fn validate_owned_attack_target_callbacks(&self) -> Result<(), String> {
+        Err("AI target callbacks have no supplied admission".into())
+    }
     /// Check if the object is moving
     fn is_moving(&self) -> bool;
     /// Check if the object is idle
@@ -1033,6 +1058,18 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         _pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
     ) {
         self.do_pathfind();
+    }
+
+    /// Actual standard Enter path completion, borrowing the queue's owner services.
+    fn do_enter_pathfind_with_services(
+        &mut self,
+        _pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+        _factory: &crate::object::object_factory::ObjectFactory,
+        _players: &crate::player::PlayerList,
+        _terrain: &crate::terrain::TerrainLogic,
+        _frame: u32,
+    ) -> Result<bool, String> {
+        Err("installed AI does not admit supplied Enter path completion".into())
     }
 
     fn is_waiting_for_path(&self) -> bool {

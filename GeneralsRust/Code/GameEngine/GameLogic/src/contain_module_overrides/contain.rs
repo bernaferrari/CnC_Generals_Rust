@@ -11,7 +11,7 @@ pub struct ContainModuleDataAdapter<T: Clone + Send + Sync + std::fmt::Debug + '
 }
 
 impl<T: Clone + Send + Sync + std::fmt::Debug + 'static> ContainModuleDataAdapter<T> {
-    fn new(contain: T) -> Self {
+    pub(crate) fn new(contain: T) -> Self {
         Self {
             base: BaseModuleData::new(),
             contain,

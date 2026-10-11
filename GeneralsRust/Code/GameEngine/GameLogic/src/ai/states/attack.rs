@@ -1051,7 +1051,7 @@ impl AIAttackObjectState {
         mut ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
     ) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
-        if dual_world_registry_unavailable() {
+        if ai.as_deref().and_then(|ai| ai.world()).is_none() && dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
         }
 
@@ -1089,7 +1089,11 @@ impl AIAttackObjectState {
             }
 
             // C++ lines 5493-5495: Out of ammo check
-            if owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile) {
+            let out_of_ammo = match ai.as_deref().and_then(|ai| ai.world()) {
+                Some(world) => owner_guard.is_out_of_ammo_at(world.frame()),
+                None => owner_guard.is_out_of_ammo(),
+            };
+            if out_of_ammo && !owner_guard.is_kind_of(KindOf::Projectile) {
                 return Ok(StateReturnType::Failure);
             }
         }
@@ -1102,9 +1106,12 @@ impl AIAttackObjectState {
                 .get_machine_goal_object_id()
                 .ok_or_else(|| "attack object state missing goal object".to_string())?
         };
-        let target = crate::helpers::TheGameLogic::find_object_by_id(target_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
-            .ok_or_else(|| "attack object state missing goal object".to_string())?;
+        let target = match ai.as_deref().and_then(|ai| ai.world()) {
+            Some(world) => world.object(target_id),
+            None => crate::helpers::TheGameLogic::find_object_by_id(target_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id)),
+        }
+        .ok_or_else(|| "attack object state missing goal object".to_string())?;
         self.target_id = target.read().map(|g| g.get_id()).unwrap_or(INVALID_ID);
 
         {
@@ -1150,13 +1157,20 @@ impl AIAttackObjectState {
                     WeaponChoiceCriteria::PreferMostDamage,
                     cmd_source,
                     ai,
-                ),
+                )?,
                 None => owner_guard.choose_best_weapon_for_target(
                     &target_guard,
                     WeaponChoiceCriteria::PreferMostDamage,
                     cmd_source,
                 ),
             };
+            // C++ chooseWeapon refreshes presentation even when no weapon is found.
+            match ai.as_deref().and_then(|ai| ai.world()) {
+                Some(world) => {
+                    owner_guard.adjust_model_condition_for_weapon_status_at(world.frame())
+                }
+                None => owner_guard.adjust_model_condition_for_weapon_status(),
+            }
             if !weapon_found {
                 return Ok(StateReturnType::Failure);
             }
@@ -1278,6 +1292,22 @@ impl CppState for AIAttackObjectState {
 
     fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         self.classic_on_enter_with_optional_ai(None)
+    }
+
+    fn cpp_on_enter_with_control(
+        &mut self,
+        control: &mut StateMachineControl,
+        ai: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
+    ) -> Result<StateReturnType, String> {
+        match ai {
+            Some(ai) => {
+                let prior = ai.exchange_parent_state_id(control.get_current_state_id());
+                let result = self.classic_on_enter_with_optional_ai(Some(&mut *ai));
+                ai.exchange_parent_state_id(prior);
+                result
+            }
+            None => self.classic_on_enter_with_optional_ai(None),
+        }
     }
 
     fn cpp_on_enter_with_ai(
@@ -1470,13 +1500,20 @@ impl AIAttackObjectState {
                     WeaponChoiceCriteria::PreferMostDamage,
                     cmd_source,
                     ai,
-                ),
+                )?,
                 None => owner_guard.choose_best_weapon_for_target(
                     &target_guard,
                     WeaponChoiceCriteria::PreferMostDamage,
                     cmd_source,
                 ),
             };
+            // C++ chooseWeapon refreshes presentation even when no weapon is found.
+            match ai.as_deref().and_then(|ai| ai.world()) {
+                Some(world) => {
+                    owner_guard.adjust_model_condition_for_weapon_status_at(world.frame())
+                }
+                None => owner_guard.adjust_model_condition_for_weapon_status(),
+            }
             if !weapon_found {
                 return Ok(StateReturnType::Failure);
             }

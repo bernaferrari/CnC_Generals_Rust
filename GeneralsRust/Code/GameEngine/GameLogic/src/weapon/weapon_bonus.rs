@@ -67,8 +67,19 @@ impl Weapon {
 
     /// Same bonus math as `compute_bonus`, but the caller already holds the object.
     pub(crate) fn bonus_from_flags(&self, flags: WeaponBonusConditionFlags) -> WeaponBonus {
+        let global = TheGameLogic::get_global_weapon_bonus_set();
+        self.bonus_from_supplied_flags(flags, global.as_ref())
+    }
+
+    /// Original bonus composition, with effective match definitions supplied.
+    /// The source/container flags are resolved by their canonical owner first.
+    pub(crate) fn bonus_from_supplied_flags(
+        &self,
+        flags: WeaponBonusConditionFlags,
+        global: Option<&super::masks_enums::WeaponBonusSet>,
+    ) -> WeaponBonus {
         let mut bonus = WeaponBonus::new();
-        if let Some(global) = TheGameLogic::get_global_weapon_bonus_set() {
+        if let Some(global) = global {
             global.append_bonuses(flags, &mut bonus);
         }
         if let Some(extra_bonus_set) = &self.template.extra_bonus {

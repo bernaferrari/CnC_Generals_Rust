@@ -63,6 +63,32 @@ pub fn contain_admission_with_lookup(
 }
 
 pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
+    /// Admission against an explicit store and relationship owner. Unsupported
+    /// derived modules must not rediscover a process-global player or rider.
+    fn is_valid_container_for_with_world(
+        &self,
+        _passenger: &Object,
+        _owner: &Object,
+        _check_capacity: bool,
+        _world: &dyn ai_world::AiWorld,
+    ) -> bool {
+        false
+    }
+
+    /// Whether the installed derived module admits the complete supplied boarding callback.
+    fn supports_owned_enter(&self) -> bool {
+        false
+    }
+
+    /// Synchronous boarding through the driving store after object guards end.
+    /// Derived containers opt in only when their complete callback is supported.
+    fn add_to_contain_with_world(
+        &mut self,
+        _passenger: ObjectID,
+        _world: &mut dyn ai_world::AiWorld,
+    ) -> Result<(), String> {
+        Err("contain module does not support supplied world boarding".into())
+    }
     fn can_contain(&self, object_id: ObjectID) -> bool;
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String>;
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String>;
@@ -308,6 +334,17 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     fn get_apparent_controlling_player(
         &self,
         _observing_player: Option<&Player>,
+    ) -> Option<Arc<RwLock<Player>>> {
+        None
+    }
+
+    /// C++ apparent-player query with the physical container already supplied.
+    /// Open/Transport retain the original default of no apparent controller.
+    fn get_apparent_controlling_player_with_world(
+        &self,
+        _owner: &Object,
+        _observing_player: Option<&Player>,
+        _world: &dyn crate::modules::ai_world::AiWorld,
     ) -> Option<Arc<RwLock<Player>>> {
         None
     }

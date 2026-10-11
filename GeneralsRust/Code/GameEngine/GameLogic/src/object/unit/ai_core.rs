@@ -45,6 +45,7 @@ pub struct UnitAIUpdate {
 pub(super) struct UnitAiRuntime {
     pub(super) unit_id: ObjectID,
     pub(super) owner: Option<Weak<RwLock<Object>>>,
+    pub(super) ambient_lifecycle_admitted: bool,
     pub(super) current_victim_id: ObjectID,
     pub(super) crate_created: ObjectID,
     pub(super) components: UnitAiComponents,
@@ -133,11 +134,22 @@ impl UnitAIUpdate {
             .as_ref()
             .map(|owner| AIStateMachine::new(owner.clone(), "AIStateMachine"));
 
+        let ambient_lifecycle_admitted = owner
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .and_then(|owner| {
+                owner
+                    .read()
+                    .ok()
+                    .map(|owner| owner.ambient_lifecycle_admitted)
+            })
+            .unwrap_or(true);
         Self {
             ai_state_machine,
             runtime: UnitAiRuntime {
                 unit_id,
                 owner,
+                ambient_lifecycle_admitted,
                 current_victim_id: INVALID_ID,
                 crate_created: crate::common::INVALID_ID,
                 components,

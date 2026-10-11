@@ -8,6 +8,9 @@ use super::registry::get_unit_arc;
 
 impl Drop for UnitAIUpdate {
     fn drop(&mut self) {
+        if !self.runtime.ambient_lifecycle_admitted {
+            return;
+        }
         let Some(unit) = get_unit_arc(self.runtime.unit_id) else {
             return;
         };
@@ -18,6 +21,16 @@ impl Drop for UnitAIUpdate {
         let Some(base) = guard.get_base_object() else {
             return;
         };
+        if let Some(owner) = self
+            .runtime
+            .owner
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+        {
+            if !Arc::ptr_eq(&owner, &base) {
+                return;
+            }
+        }
         let owner_id = base
             .read()
             .ok()

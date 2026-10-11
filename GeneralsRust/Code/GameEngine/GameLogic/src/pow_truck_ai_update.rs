@@ -464,7 +464,7 @@ impl POWTruckAIUpdate {
         owner_id: ObjectID,
         prisoner_id: ObjectID,
         cmd_source: CommandSourceType,
-        runtime: &mut UnitAiStateRuntime<'_>,
+        runtime: &mut UnitAiStateRuntime<'_, '_>,
         driver: &mut crate::ai::states::AIStateMachineDriver<'_>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if dual_world_registry_unavailable() {
@@ -496,7 +496,7 @@ impl POWTruckAIUpdate {
         owner_id: ObjectID,
         prison_id: Option<ObjectID>,
         cmd_source: CommandSourceType,
-        runtime: &mut UnitAiStateRuntime<'_>,
+        runtime: &mut UnitAiStateRuntime<'_, '_>,
         driver: &mut crate::ai::states::AIStateMachineDriver<'_>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if matches!(cmd_source, CommandSourceType::FromPlayer) {

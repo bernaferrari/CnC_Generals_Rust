@@ -1452,6 +1452,7 @@ pub struct ModuleEntry {
     module_data: Arc<dyn ModuleData>,
     module: Mutex<Box<dyn Module>>,
     has_dock_update: bool,
+    has_firing_tracker: bool,
 }
 
 impl fmt::Debug for ModuleEntry {
@@ -1475,6 +1476,9 @@ impl ModuleEntry {
         // The concrete module type never changes after installation. This is
         // immutable interface metadata, not another mutable dock runtime.
         let has_dock_update = module_dock_update_kind(module.as_mut()).is_some();
+        let has_firing_tracker = module_behavior_utility_kind(module.as_mut())
+            .and_then(BehaviorUtilityModuleKindMut::into_firing_tracker)
+            .is_some();
         Self {
             name,
             tag,
@@ -1482,6 +1486,7 @@ impl ModuleEntry {
             module_data,
             module: Mutex::new(module),
             has_dock_update,
+            has_firing_tracker,
         }
     }
 
@@ -2324,6 +2329,9 @@ pub struct Object {
 
     /// onDestroy and the destructor run at distinct C++ frame boundaries.
     lifecycle: ObjectLifecycle,
+    /// Compatibility publication admits ambient destructor adapters. Prepared
+    /// factory objects have no such admission; dropping them releases local data.
+    ambient_lifecycle_admitted: bool,
 
     #[cfg(any(debug_assertions, feature = "internal"))]
     has_died_already: bool,
@@ -2404,6 +2412,7 @@ mod object_combat;
 mod object_impl_imports;
 mod object_lifecycle;
 mod object_modules;
+mod object_partition_services;
 mod object_queries;
 mod object_special_power;
 mod object_status;
@@ -2413,6 +2422,7 @@ mod object_thing;
 mod object_triggers;
 mod object_update;
 mod object_upgrade;
+pub use object_partition_services::ObjectPartitionServices;
 mod object_vision;
 mod object_xfer;
 mod status_cmds;
@@ -2435,3 +2445,6 @@ mod object_upgrade_admission_tests;
 
 #[cfg(test)]
 mod radar_owner_tests;
+
+#[cfg(test)]
+mod owned_prefire_tests;

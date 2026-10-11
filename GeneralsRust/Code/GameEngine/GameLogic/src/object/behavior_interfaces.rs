@@ -108,6 +108,16 @@ impl BehaviorInterfaceHandle {
         }
     }
 
+    pub(super) fn has_owned_default_disabled_callback(&self) -> bool {
+        match &self.kind {
+            // Both implementations inherit BehaviorModuleInterface's actual
+            // default onDisabledEdge; neither resolves its ModuleEntry here.
+            BehaviorInterfaceKind::Helper(_) | BehaviorInterfaceKind::Template(_) => true,
+            #[cfg(any(test, feature = "internal"))]
+            BehaviorInterfaceKind::Injected(_) => false,
+        }
+    }
+
     /// Match immutable wrapper metadata without constructing a detached view.
     /// Injected test behaviors preserve their previous poisoned-lock policy.
     pub(super) fn matches_name(&self, name: &str) -> bool {

@@ -53,7 +53,20 @@ impl OpenContain {
     }
 
     fn accepts_relationship(&self, obj: &Object, owner: &Object) -> bool {
-        let relationship = obj.get_relationship_to(owner);
+        self.accepts_relationship_value(obj.get_relationship_to(owner))
+    }
+
+    pub(super) fn is_valid_container_for_with_world(
+        &self,
+        obj: &Object,
+        owner: &Object,
+        _capacity: bool,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> bool {
+        self.accepts_kind(obj) && self.accepts_relationship_value(world.relationship(obj, owner))
+    }
+
+    fn accepts_relationship_value(&self, relationship: ObjectRelationship) -> bool {
         match relationship {
             ObjectRelationship::Ally => self.module_data.allow_allies_inside,
             ObjectRelationship::Enemy => self.module_data.allow_enemies_inside,

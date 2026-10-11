@@ -104,18 +104,63 @@ impl Object {
         team: Option<Arc<RwLock<Team>>>,
         prepare_unit_ai: bool,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
+        Self::new_with_id_admission(
+            thing_template,
+            object_id,
+            object_status_mask,
+            team,
+            prepare_unit_ai,
+            true,
+        )
+    }
+
+    /// Assemble the same installed modules/cache without ambient publication.
+    /// Native onCreate/admission services are a separate explicit phase.
+    pub(super) fn new_unpublished_preparing_ai(
+        thing_template: Arc<dyn ThingTemplate>,
+        object_id: ObjectID,
+        object_status_mask: ObjectStatusMaskType,
+        team: Option<Arc<RwLock<Team>>>,
+        prepare_unit_ai: bool,
+    ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
+        Self::new_with_id_admission(
+            thing_template,
+            object_id,
+            object_status_mask,
+            team,
+            prepare_unit_ai,
+            false,
+        )
+    }
+
+    fn new_with_id_admission(
+        thing_template: Arc<dyn ThingTemplate>,
+        object_id: ObjectID,
+        object_status_mask: ObjectStatusMaskType,
+        team: Option<Arc<RwLock<Team>>>,
+        prepare_unit_ai: bool,
+        publish: bool,
+    ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
         // set_team runs on the still-unshared object: registration below is
         // what publishes the id, so the previous uniquely-owned write guard
         // spelled a lock that protected nothing.
-        let mut obj = Self::new_raw(thing_template.clone(), object_id, object_status_mask, None);
-        obj.set_team(team)?;
+        let mut obj = Self::new_raw(
+            thing_template.clone(),
+            object_id,
+            object_status_mask,
+            if publish { None } else { team.clone() },
+        );
+        obj.ambient_lifecycle_admitted = publish;
+        if publish {
+            obj.set_team(team)?;
+        }
 
         // THREAD: register_object below publishes this handle by id through
         // OBJECT_REGISTRY and the legacy registry; the outer RwLock is that
         // shared-object contract, not file-owned state.
         let object_arc = Arc::new(RwLock::new(obj));
 
-        if object_id != INVALID_ID {
+        if publish && object_id != INVALID_ID {
             OBJECT_REGISTRY.register_object(object_id, &object_arc);
             register_legacy_object(&object_arc);
         }
@@ -123,7 +168,7 @@ impl Object {
         if let Err(err) =
             Self::init_modules_preparing_ai(&object_arc, thing_template.as_ref(), prepare_unit_ai)
         {
-            if object_id != INVALID_ID {
+            if publish && object_id != INVALID_ID {
                 OBJECT_REGISTRY.unregister_object(object_id);
                 unregister_legacy_object(object_id);
             }
@@ -361,6 +406,7 @@ impl Object {
             single_use_command_used: false,
             is_receiving_difficulty_bonus: false,
             lifecycle: ObjectLifecycle::Alive,
+            ambient_lifecycle_admitted: true,
 
             #[cfg(any(debug_assertions, feature = "internal"))]
             has_died_already: false,
@@ -1456,7 +1502,9 @@ impl Object {
 
 impl Drop for Object {
     fn drop(&mut self) {
-        self.run_destructor_tail();
+        if self.ambient_lifecycle_admitted {
+            self.run_destructor_tail();
+        }
     }
 }
 

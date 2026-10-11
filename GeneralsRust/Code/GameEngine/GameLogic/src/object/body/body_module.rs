@@ -158,6 +158,11 @@ pub trait BodyModuleInterface: Send + Sync {
     /// Estimate damage without applying it
     fn estimate_damage(&self, damage_info: &DamageInfoInput) -> BodyResult<f32>;
 
+    /// Reject unresolved ambient callbacks before a supplied weapon selector mutates AI.
+    fn validate_owned_damage_estimate(&self) -> BodyResult<()> {
+        Err(BodyError::OperationNotSupported)
+    }
+
     /// Get current health
     fn get_health(&self) -> f32;
 

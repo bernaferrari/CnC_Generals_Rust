@@ -56,7 +56,9 @@ use crate::physics::GRAVITY;
 use crate::player::PlayerType;
 use crate::polygon_trigger::PolygonTrigger;
 use crate::scripting::engine::get_script_engine;
-use crate::state_machine::cpp_state::{CppState, cpp_transition, register_cpp_state};
+use crate::state_machine::cpp_state::{
+    CppState, cpp_transition, cpp_transition_with_ai, register_cpp_state,
+};
 use crate::state_machine::*;
 use crate::team::{Team, TeamID, TheTeamFactory};
 use crate::terrain::get_terrain_logic;
@@ -70,6 +72,9 @@ use crate::common::INVALID_ID;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
+
+#[path = "attack_entry.rs"]
+mod attack_entry;
 
 // ---------------------------------------------------------------------------
 // in_weapon_range_object helper (negation of out_of_weapon_range_object)
@@ -371,14 +376,16 @@ impl AttackStateMachine {
 
         let object_conditions_aim = if force_attacking {
             vec![
-                cpp_transition::<AIAttackAimAtTargetState>(
+                cpp_transition_with_ai::<AIAttackAimAtTargetState>(
                     out_of_weapon_range_object_aim,
+                    attack_entry::out_of_weapon_range_object_aim,
                     AttackSubStateId::PursueTarget as u32,
                     StateTransitionUserData::new(),
                     "out_of_weapon_range_object",
                 ),
-                cpp_transition::<AIAttackAimAtTargetState>(
+                cpp_transition_with_ai::<AIAttackAimAtTargetState>(
                     cannot_possibly_attack_object_aim,
+                    attack_entry::cannot_possibly_attack_object_aim,
                     EXIT_MACHINE_WITH_FAILURE,
                     StateTransitionUserData::with_data(AttackContinuationData {
                         attack_type: AbleToAttackType::ContinuedTargetForced,
@@ -386,8 +393,9 @@ impl AttackStateMachine {
                     }),
                     "cannot_possibly_attack_object",
                 ),
-                cpp_transition::<AIAttackAimAtTargetState>(
+                cpp_transition_with_ai::<AIAttackAimAtTargetState>(
                     want_to_squish_target_aim,
+                    attack_entry::want_to_squish_target_aim,
                     AttackSubStateId::PursueTarget as u32,
                     StateTransitionUserData::new(),
                     "want_to_squish_target",
@@ -395,20 +403,23 @@ impl AttackStateMachine {
             ]
         } else {
             vec![
-                cpp_transition::<AIAttackAimAtTargetState>(
+                cpp_transition_with_ai::<AIAttackAimAtTargetState>(
                     out_of_weapon_range_object_aim,
+                    attack_entry::out_of_weapon_range_object_aim,
                     AttackSubStateId::PursueTarget as u32,
                     StateTransitionUserData::new(),
                     "out_of_weapon_range_object",
                 ),
-                cpp_transition::<AIAttackAimAtTargetState>(
+                cpp_transition_with_ai::<AIAttackAimAtTargetState>(
                     want_to_squish_target_aim,
+                    attack_entry::want_to_squish_target_aim,
                     AttackSubStateId::PursueTarget as u32,
                     StateTransitionUserData::new(),
                     "want_to_squish_target",
                 ),
-                cpp_transition::<AIAttackAimAtTargetState>(
+                cpp_transition_with_ai::<AIAttackAimAtTargetState>(
                     cannot_possibly_attack_object_aim,
+                    attack_entry::cannot_possibly_attack_object_aim,
                     EXIT_MACHINE_WITH_FAILURE,
                     StateTransitionUserData::with_data(AttackContinuationData {
                         attack_type: AbleToAttackType::ContinuedTarget,
@@ -421,14 +432,16 @@ impl AttackStateMachine {
 
         let object_conditions_fire = if force_attacking {
             vec![
-                cpp_transition::<AIAttackFireWeaponState>(
+                cpp_transition_with_ai::<AIAttackFireWeaponState>(
                     out_of_weapon_range_object_fire,
+                    attack_entry::out_of_weapon_range_object_fire,
                     AttackSubStateId::PursueTarget as u32,
                     StateTransitionUserData::new(),
                     "out_of_weapon_range_object",
                 ),
-                cpp_transition::<AIAttackFireWeaponState>(
+                cpp_transition_with_ai::<AIAttackFireWeaponState>(
                     cannot_possibly_attack_object_fire,
+                    attack_entry::cannot_possibly_attack_object_fire,
                     EXIT_MACHINE_WITH_FAILURE,
                     StateTransitionUserData::with_data(AttackContinuationData {
                         attack_type: AbleToAttackType::ContinuedTargetForced,
@@ -436,8 +449,9 @@ impl AttackStateMachine {
                     }),
                     "cannot_possibly_attack_object",
                 ),
-                cpp_transition::<AIAttackFireWeaponState>(
+                cpp_transition_with_ai::<AIAttackFireWeaponState>(
                     want_to_squish_target_fire,
+                    attack_entry::want_to_squish_target_fire,
                     AttackSubStateId::PursueTarget as u32,
                     StateTransitionUserData::new(),
                     "want_to_squish_target",
@@ -445,20 +459,23 @@ impl AttackStateMachine {
             ]
         } else {
             vec![
-                cpp_transition::<AIAttackFireWeaponState>(
+                cpp_transition_with_ai::<AIAttackFireWeaponState>(
                     out_of_weapon_range_object_fire,
+                    attack_entry::out_of_weapon_range_object_fire,
                     AttackSubStateId::PursueTarget as u32,
                     StateTransitionUserData::new(),
                     "out_of_weapon_range_object",
                 ),
-                cpp_transition::<AIAttackFireWeaponState>(
+                cpp_transition_with_ai::<AIAttackFireWeaponState>(
                     want_to_squish_target_fire,
+                    attack_entry::want_to_squish_target_fire,
                     AttackSubStateId::PursueTarget as u32,
                     StateTransitionUserData::new(),
                     "want_to_squish_target",
                 ),
-                cpp_transition::<AIAttackFireWeaponState>(
+                cpp_transition_with_ai::<AIAttackFireWeaponState>(
                     cannot_possibly_attack_object_fire,
+                    attack_entry::cannot_possibly_attack_object_fire,
                     EXIT_MACHINE_WITH_FAILURE,
                     StateTransitionUserData::with_data(AttackContinuationData {
                         attack_type: AbleToAttackType::ContinuedTarget,
@@ -469,15 +486,17 @@ impl AttackStateMachine {
             ]
         };
 
-        let position_conditions_aim = vec![cpp_transition::<AIAttackAimAtTargetState>(
+        let position_conditions_aim = vec![cpp_transition_with_ai::<AIAttackAimAtTargetState>(
             out_of_weapon_range_position_aim,
+            attack_entry::out_of_weapon_range_position_aim,
             AttackSubStateId::PursueTarget as u32,
             StateTransitionUserData::new(),
             "out_of_weapon_range_position",
         )];
 
-        let position_conditions_fire = vec![cpp_transition::<AIAttackFireWeaponState>(
+        let position_conditions_fire = vec![cpp_transition_with_ai::<AIAttackFireWeaponState>(
             out_of_weapon_range_position_fire,
+            attack_entry::out_of_weapon_range_position_fire,
             AttackSubStateId::PursueTarget as u32,
             StateTransitionUserData::new(),
             "out_of_weapon_range_position",
@@ -509,23 +528,82 @@ impl AttackStateMachine {
             },
         );
 
-        register_cpp_state(
-            &mut base,
-            AttackSubStateId::PursueTarget as u32,
-            pursue_state,
-            Some(AttackSubStateId::ApproachTarget as u32),
-            Some(AttackSubStateId::ApproachTarget as u32),
-            &[],
-        );
-
-        register_cpp_state(
-            &mut base,
-            AttackSubStateId::ApproachTarget as u32,
-            approach_state,
-            Some(AttackSubStateId::AimAtTarget as u32),
-            Some(EXIT_MACHINE_WITH_FAILURE),
-            &[],
-        );
+        // AIStates.cpp:309-379: immobile owners fail immediately on chase;
+        // portable attackers wait for their carrier instead of requesting motion.
+        let owner_kinds = base.get_owner().map(|owner| {
+            let owner = owner
+                .read()
+                .expect("attack machine admitted owner poisoned");
+            (
+                owner.is_kind_of(KindOf::Immobile),
+                owner.is_kind_of(KindOf::PortableStructure) && owner.is_kind_of(KindOf::CanAttack),
+            )
+        });
+        match owner_kinds {
+            Some((true, _)) => {
+                let chase = attack_entry::StationaryChase::new(&base, false);
+                register_cpp_state(
+                    &mut base,
+                    AttackSubStateId::PursueTarget as u32,
+                    chase,
+                    Some(EXIT_MACHINE_WITH_FAILURE),
+                    Some(EXIT_MACHINE_WITH_FAILURE),
+                    &[],
+                );
+            }
+            Some((false, true)) => {
+                let chase = attack_entry::StationaryChase::new(&base, true);
+                register_cpp_state(
+                    &mut base,
+                    AttackSubStateId::PursueTarget as u32,
+                    chase,
+                    Some(EXIT_MACHINE_WITH_FAILURE),
+                    Some(EXIT_MACHINE_WITH_FAILURE),
+                    &[cpp_transition_with_ai::<attack_entry::StationaryChase>(
+                        attack_entry::portable_in_range,
+                        attack_entry::portable_in_range_with_ai,
+                        AttackSubStateId::AimAtTarget as u32,
+                        StateTransitionUserData::new(),
+                        "in_weapon_range_object",
+                    )],
+                );
+            }
+            _ => {
+                if attacking_object {
+                    register_cpp_state(
+                        &mut base,
+                        AttackSubStateId::PursueTarget as u32,
+                        pursue_state,
+                        Some(AttackSubStateId::ApproachTarget as u32),
+                        Some(AttackSubStateId::ApproachTarget as u32),
+                        &[],
+                    );
+                } else {
+                    let chase = AIAttackApproachTargetState::new(
+                        &base,
+                        follow,
+                        attacking_object,
+                        force_attacking,
+                    );
+                    register_cpp_state(
+                        &mut base,
+                        AttackSubStateId::PursueTarget as u32,
+                        chase,
+                        Some(AttackSubStateId::AimAtTarget as u32),
+                        Some(EXIT_MACHINE_WITH_FAILURE),
+                        &[],
+                    );
+                }
+                register_cpp_state(
+                    &mut base,
+                    AttackSubStateId::ApproachTarget as u32,
+                    approach_state,
+                    Some(AttackSubStateId::AimAtTarget as u32),
+                    Some(EXIT_MACHINE_WITH_FAILURE),
+                    &[],
+                );
+            }
+        }
 
         Self {
             base,
@@ -692,6 +770,17 @@ impl CppState for AIAttackAimAtTargetState {
 
     fn cpp_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
+    }
+
+    fn cpp_on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        if ai.world().is_some() {
+            attack_entry::aim_enter(self, ai)
+        } else {
+            self.cpp_on_enter()
+        }
     }
 
     fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
@@ -1000,6 +1089,18 @@ impl CppState for AIAttackAimAtTargetState {
         Ok(StateReturnType::Continue)
     }
 
+    fn cpp_on_exit_with_ai(
+        &mut self,
+        exit: StateExitType,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<(), String> {
+        if ai.world().is_some() {
+            attack_entry::aim_exit(self, exit, ai)
+        } else {
+            self.cpp_on_exit(exit)
+        }
+    }
+
     fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if let Some(owner) = self.base.get_machine_owner() {
             if let Ok(mut guard) = owner.lock() {
@@ -1081,6 +1182,17 @@ impl CppState for AIAttackFireWeaponState {
 
     fn base_state_mut(&mut self) -> &mut State {
         &mut self.base
+    }
+
+    fn cpp_on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        if ai.world().is_some() {
+            attack_entry::fire_enter(self, ai)
+        } else {
+            self.cpp_on_enter()
+        }
     }
 
     fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
@@ -1272,6 +1384,18 @@ impl CppState for AIAttackFireWeaponState {
         }
 
         Ok(StateReturnType::Success)
+    }
+
+    fn cpp_on_exit_with_ai(
+        &mut self,
+        exit: StateExitType,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<(), String> {
+        if ai.world().is_some() {
+            attack_entry::fire_exit(self, exit, ai)
+        } else {
+            self.cpp_on_exit(exit)
+        }
     }
 
     fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
@@ -1698,6 +1822,17 @@ impl CppState for AIAttackPursueTargetState {
         Snapshotable::xfer(self, xfer)
     }
 
+    fn cpp_on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        if ai.world().is_some() {
+            attack_entry::pursue_enter(self, ai)
+        } else {
+            self.cpp_on_enter()
+        }
+    }
+
     fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
@@ -1806,6 +1941,18 @@ impl CppState for AIAttackPursueTargetState {
         }
 
         Ok(code)
+    }
+
+    fn cpp_on_exit_with_ai(
+        &mut self,
+        exit: StateExitType,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<(), String> {
+        if ai.world().is_some() {
+            attack_entry::pursue_exit(self, exit, ai)
+        } else {
+            self.cpp_on_exit(exit)
+        }
     }
 
     fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
@@ -2183,6 +2330,17 @@ impl CppState for AIAttackApproachTargetState {
         Snapshotable::xfer(self, xfer)
     }
 
+    fn cpp_on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<StateReturnType, String> {
+        if ai.world().is_some() {
+            attack_entry::approach_enter(self, ai)
+        } else {
+            self.cpp_on_enter()
+        }
+    }
+
     fn cpp_on_enter(&mut self) -> Result<StateReturnType, String> {
         // Wave 257: empty dual-world → fail-closed state.
         if dual_world_registry_unavailable() {
@@ -2360,6 +2518,18 @@ impl CppState for AIAttackApproachTargetState {
         }
 
         Ok(code)
+    }
+
+    fn cpp_on_exit_with_ai(
+        &mut self,
+        exit: StateExitType,
+        ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
+    ) -> Result<(), String> {
+        if ai.world().is_some() {
+            attack_entry::approach_exit(self, exit, ai)
+        } else {
+            self.cpp_on_exit(exit)
+        }
     }
 
     fn cpp_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {

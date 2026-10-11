@@ -13,6 +13,52 @@ impl PathfindingSystem {
         unit_radius: f32,
         unit_id: ObjectID,
     ) {
+        self.snap_closest_goal_position_with_observations(
+            surfaces,
+            is_crusher,
+            pos,
+            unit_radius,
+            unit_id,
+            None,
+        )
+    }
+
+    pub(crate) fn snap_closest_goal_position_with_observations(
+        &self,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        pos: &mut Coord3D,
+        unit_radius: f32,
+        unit_id: ObjectID,
+        observations: Option<&PathfindObservations<'_>>,
+    ) {
+        let ignore_cells = match observations {
+            Some(observations) => {
+                observations.ignored_cells(Some(unit_id).filter(|&id| id != INVALID_ID))
+            }
+            None => ignored_obstacle_cells(Some(unit_id).filter(|&id| id != INVALID_ID)),
+        };
+        self.snap_closest_goal_position_with_ignored_cells(
+            surfaces,
+            is_crusher,
+            pos,
+            unit_radius,
+            unit_id,
+            observations,
+            ignore_cells.as_ref(),
+        );
+    }
+
+    pub(crate) fn snap_closest_goal_position_with_ignored_cells(
+        &self,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        pos: &mut Coord3D,
+        unit_radius: f32,
+        unit_id: ObjectID,
+        observations: Option<&PathfindObservations<'_>>,
+        ignore_cells: Option<&HashSet<GridCoord>>,
+    ) {
         let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
         let mut adjust_dest = *pos;
         if !center_in_cell {
@@ -23,22 +69,23 @@ impl PathfindingSystem {
         let cell = GridCoord::from_world(&adjust_dest);
 
         // Always snap seed cell first (C++ adjustCoordToCell even if check fails).
-        self.adjust_coord_to_cell(
+        self.adjust_coord_to_cell_with_observations(
             cell.x,
             cell.y,
             center_in_cell,
             pos,
             PathfindLayerEnum::Ground,
+            observations,
         );
 
-        if self.is_destination_valid(
+        if self.is_destination_valid_with_ignored_cells(
             cell,
             layer,
             surfaces,
             is_crusher,
             radius,
             center_in_cell,
-            Some(unit_id).filter(|&id| id != INVALID_ID),
+            ignore_cells,
         ) {
             return;
         }
@@ -50,16 +97,23 @@ impl PathfindingSystem {
                 if !self.is_valid_coord(c) {
                     continue;
                 }
-                if self.is_destination_valid(
+                if self.is_destination_valid_with_ignored_cells(
                     c,
                     layer,
                     surfaces,
                     is_crusher,
                     radius,
                     center_in_cell,
-                    Some(unit_id).filter(|&id| id != INVALID_ID),
+                    ignore_cells,
                 ) {
-                    self.adjust_coord_to_cell(i, j, center_in_cell, pos, layer);
+                    self.adjust_coord_to_cell_with_observations(
+                        i,
+                        j,
+                        center_in_cell,
+                        pos,
+                        layer,
+                        observations,
+                    );
                     return;
                 }
             }
@@ -74,7 +128,14 @@ impl PathfindingSystem {
                         continue;
                     }
                     if self.goal_cell_available(c, layer, unit_id) {
-                        self.adjust_coord_to_cell(i, j, center_in_cell, pos, layer);
+                        self.adjust_coord_to_cell_with_observations(
+                            i,
+                            j,
+                            center_in_cell,
+                            pos,
+                            layer,
+                            observations,
+                        );
                         return;
                     }
                 }
@@ -86,7 +147,14 @@ impl PathfindingSystem {
                         continue;
                     }
                     if !self.goal_cell_fixed_occupied(c, layer) {
-                        self.adjust_coord_to_cell(i, j, center_in_cell, pos, layer);
+                        self.adjust_coord_to_cell_with_observations(
+                            i,
+                            j,
+                            center_in_cell,
+                            pos,
+                            layer,
+                            observations,
+                        );
                         return;
                     }
                 }
@@ -103,24 +171,62 @@ impl PathfindingSystem {
         pos: &mut Coord3D,
         layer: PathfindLayerEnum,
     ) {
-        let coord = GridCoord::new(cell_x, cell_y);
-        let snapped = if center_in_cell {
-            self.world_pos_for_coord(coord, layer)
-        } else {
-            // Corner-aligned: cell origin + small bias (C++ uses non-center footprint).
-            Coord3D::new(
-                cell_x as f32 * PATHFIND_CELL_SIZE_F + 0.05,
-                cell_y as f32 * PATHFIND_CELL_SIZE_F + 0.05,
-                0.0,
-            )
-        };
-        pos.x = snapped.x;
-        pos.y = snapped.y;
-        if let Some(terrain) = TheTerrainLogic::get() {
-            pos.z = terrain.get_layer_height(pos.x, pos.y, CommonPathfindLayerEnum::Ground);
-        } else {
-            pos.z = snapped.z;
-        }
+        self.adjust_coord_to_cell_with_observations(
+            cell_x,
+            cell_y,
+            center_in_cell,
+            pos,
+            layer,
+            None,
+        )
+    }
+
+    pub(crate) fn adjust_coord_to_cell_with_observations(
+        &self,
+        cell_x: i32,
+        cell_y: i32,
+        center_in_cell: bool,
+        pos: &mut Coord3D,
+        layer: PathfindLayerEnum,
+        observations: Option<&PathfindObservations<'_>>,
+    ) {
+        *pos = Self::coord_to_cell_with_height(
+            cell_x,
+            cell_y,
+            center_in_cell,
+            layer,
+            |x, y, layer| match observations {
+                Some(observations) => observations.terrain.get_layer_height(
+                    x,
+                    y,
+                    crate::path::PathfindLayerEnum::from_u32(layer as u32),
+                    None,
+                    false,
+                ),
+                None => TheTerrainLogic::get()
+                    .map(|terrain| terrain.get_layer_height(x, y, layer))
+                    .unwrap_or(0.0),
+            },
+        );
+    }
+
+    /// AIPathfind.cpp:8934-8946. The corner bias is a fraction of cell size;
+    /// terrain is sampled once at the node's actual layer.
+    pub(super) fn coord_to_cell_with_height(
+        cell_x: i32,
+        cell_y: i32,
+        center_in_cell: bool,
+        layer: PathfindLayerEnum,
+        sample: impl FnOnce(f32, f32, CommonPathfindLayerEnum) -> f32,
+    ) -> Coord3D {
+        let bias = if center_in_cell { 0.5 } else { 0.05 };
+        let x = (cell_x as f32 + bias) * PATHFIND_CELL_SIZE_F;
+        let y = (cell_y as f32 + bias) * PATHFIND_CELL_SIZE_F;
+        Coord3D::new(
+            x,
+            y,
+            sample(x, y, CommonPathfindLayerEnum::from_u32(layer as u32)),
+        )
     }
 
     pub(crate) fn goal_cell_available(

@@ -133,11 +133,36 @@ impl Object {
         }
     }
 
+    pub(crate) fn get_shrouded_status_with_native_partition(
+        &self,
+        player_index: i32,
+        partition: &crate::object::collide::PartitionManager,
+        players: &crate::player::PlayerList,
+    ) -> ObjectShroudStatus {
+        if self.is_kind_of(KindOf::AlwaysVisible) || self.get_container_id().is_some() {
+            return ObjectShroudStatus::Clear;
+        }
+        match &self.partition_data {
+            Some(data) => data.get_shrouded_status_with_native_partition(
+                player_index,
+                self,
+                partition,
+                players,
+            ),
+            None => ObjectShroudStatus::Clear,
+        }
+    }
+
+    pub(crate) fn clear_owned_partition_registration(&mut self) {
+        self.partition_data = None;
+    }
+
     /// C++ `TheAI->pathfinder()->addObjectToPathfindMap(this)`.
     pub(super) fn add_self_to_pathfind_map(&self) {
         let pos = *self.get_position();
         let footprint = crate::ai::object_footprint_positions(self).unwrap_or_else(|| vec![pos]);
-        let ai_store = crate::ai::the_ai(); if let Ok(ai) = ai_store.read() {
+        let ai_store = crate::ai::the_ai();
+        if let Ok(ai) = ai_store.read() {
             if let Some(pf) = ai.pathfinder() {
                 if let Ok(mut pf) = pf.write() {
                     pf.add_object_to_map(self.id, &footprint, false);

@@ -94,6 +94,14 @@ impl UnitAiRuntime {
         &mut self,
         fallback_goal: Option<Coord3D>,
     ) -> Real {
+        self.get_locomotor_distance_to_goal_with_world(fallback_goal, None)
+    }
+
+    fn get_locomotor_distance_to_goal_with_world(
+        &mut self,
+        fallback_goal: Option<Coord3D>,
+        mut world: Option<&mut dyn crate::modules::ai_world::AiWorld>,
+    ) -> Real {
         // C++ POSITION_EXPLICIT is unimplemented and NONE/ANGLE are already there.
         if self.data.locomotor_goal_type != 1 {
             return 0.0;
@@ -118,7 +126,8 @@ impl UnitAiRuntime {
                 *owner.get_position(),
                 crate::ai::pathfind::PathfindLayerEnum::from_u32(owner.get_layer() as u32),
                 owner.is_kind_of(KindOf::Projectile),
-                self.is_doing_ground_movement_for_owner(&owner),
+                self.is_doing_ground_movement_for_owner_with_world(&owner, world.as_deref())
+                    .expect("admitted ground movement services"),
             )
         };
         let treat_as_aircraft = self.components.jet_ai.as_ref().map_or_else(
@@ -148,20 +157,53 @@ impl UnitAiRuntime {
         let (distance, mut goal_position) = if treat_as_aircraft {
             path.compute_flight_dist_to_goal(&position)
         } else {
-            let pathfinder = crate::ai::the_ai()
-                .read()
-                .ok()
-                .and_then(|ai| ai.pathfinder());
-            let Some(pathfinder) = pathfinder else {
-                return Real::INFINITY;
+            let info = if let Some(world) = world.as_deref_mut() {
+                let ignore_cells =
+                    ignore_obstacle_id
+                        .and_then(|id| world.object(id))
+                        .and_then(|object| {
+                            let object = object.read().expect("admitted path obstacle poisoned");
+                            crate::ai::object_footprint_positions_with_height(&object, |x, y| {
+                                world.terrain_layer_height(
+                                    x,
+                                    y,
+                                    crate::common::PathfindLayerEnum::Ground,
+                                )
+                            })
+                            .map(|positions| {
+                                positions
+                                    .into_iter()
+                                    .map(|position| {
+                                        crate::ai::pathfind_astar::GridCoord::from_world(&position)
+                                    })
+                                    .collect()
+                            })
+                        });
+                let pathfinder = world.pathfinder().expect("admitted owner pathfinder");
+                let mut context = super::ai_loco::NativePathMovementContext::borrowed(
+                    pathfinder,
+                    legal_surfaces,
+                    ignore_obstacle_id,
+                    layer,
+                    ignore_cells,
+                );
+                path.compute_point_on_path(&position, &mut context)
+            } else {
+                let pathfinder = crate::ai::the_ai()
+                    .read()
+                    .ok()
+                    .and_then(|ai| ai.pathfinder());
+                let Some(pathfinder) = pathfinder else {
+                    return Real::INFINITY;
+                };
+                let mut context = super::ai_loco::NativePathMovementContext::new(
+                    pathfinder,
+                    legal_surfaces,
+                    ignore_obstacle_id,
+                    layer,
+                );
+                path.compute_point_on_path(&position, &mut context)
             };
-            let mut context = super::ai_loco::NativePathMovementContext::new(
-                pathfinder,
-                legal_surfaces,
-                ignore_obstacle_id,
-                layer,
-            );
-            let info = path.compute_point_on_path(&position, &mut context);
             (info.dist_along_path, info.pos_on_path)
         };
         if let Some(last_node) = last_node {
@@ -584,9 +626,29 @@ impl UnitAiRuntime {
         let Ok(owner_guard) = owner_arc.read() else {
             return 0;
         };
-        let Some(controller_is_human) = owner_guard.with_controlling_player(|player_guard| {
+        let controller_is_human = owner_guard.with_controlling_player(|player_guard| {
             player_guard.get_player_type() == crate::player::PlayerType::Human
-        }) else {
+        });
+        self.mood_matrix_for_controller(controller_is_human)
+    }
+    fn get_mood_matrix_value_with_world(
+        &self,
+        parent_exists: bool,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> u32 {
+        if !parent_exists {
+            return 0;
+        }
+        let Some(owner) = self.native_owner() else {
+            return 0;
+        };
+        let Ok(owner) = owner.read() else {
+            return 0;
+        };
+        self.mood_matrix_for_controller(world.controller_is_human(&owner))
+    }
+    fn mood_matrix_for_controller(&self, controller_is_human: Option<bool>) -> u32 {
+        let Some(controller_is_human) = controller_is_human else {
             return 0;
         };
 
@@ -637,6 +699,26 @@ impl UnitAiRuntime {
         }
 
         let mood_matrix = self.get_mood_matrix_value(parent_exists);
+        Self::mood_matrix_action_adjustment(action, mood_matrix)
+    }
+    fn get_mood_matrix_action_adjustment_with_world(
+        &mut self,
+        parent_exists: bool,
+        action: MoodMatrixAction,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> u32 {
+        let Some(owner) = self.native_owner() else {
+            return mood_matrix_adjustment::ACTION_OK;
+        };
+        if owner.read().ok().is_some_and(|owner| {
+            owner.is_kind_of(KindOf::Infantry) && owner.is_kind_of(KindOf::IgnoredInGui)
+        }) {
+            return mood_matrix_adjustment::ACTION_OK;
+        }
+        let mood_matrix = self.get_mood_matrix_value_with_world(parent_exists, world);
+        Self::mood_matrix_action_adjustment(action, mood_matrix)
+    }
+    fn mood_matrix_action_adjustment(action: MoodMatrixAction, mood_matrix: u32) -> u32 {
         if (mood_matrix & mood_matrix_parameters::CONTROLLER_PLAYER) != 0 {
             return mood_matrix_adjustment::ACTION_OK;
         }
@@ -955,43 +1037,58 @@ impl UnitAiRuntime {
         self.is_doing_ground_movement_for_owner(&owner)
     }
     fn is_doing_ground_movement_for_owner(&self, object: &Object) -> bool {
+        self.is_doing_ground_movement_for_owner_with_world(object, None)
+            .unwrap_or(false)
+    }
+
+    pub(super) fn is_doing_ground_movement_for_owner_with_world(
+        &self,
+        object: &Object,
+        world: Option<&dyn crate::modules::ai_world::AiWorld>,
+    ) -> Result<bool, String> {
         if self
             .components
             .jet_ai
             .as_ref()
             .is_some_and(|jet| jet.is_doing_ground_movement())
         {
-            return true;
+            return Ok(true);
         }
         if object.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned)
             && object.is_kind_of(crate::common::KindOf::ProducedAtHelipad)
         {
-            return true;
+            return Ok(true);
         }
         if self.data.locomotor_set.get_valid_surfaces() == crate::ai::pathfind_complete::SURFACE_AIR
         {
-            return false;
+            return Ok(false);
         }
         let Some(locomotor) = self.data.locomotor_set.get_active() else {
-            return false;
+            return Ok(false);
         };
         if locomotor.get_legal_surfaces() & crate::ai::pathfind_complete::SURFACE_AIR != 0 {
-            return false;
+            return Ok(false);
         }
         if object.is_disabled_by_type(crate::common::DisabledType::Held) {
-            return false;
+            return Ok(false);
         }
-        if object.is_above_terrain()
-            && object.get_physics().is_some_and(|physics| {
-                physics
-                    .access()
-                    .ok()
-                    .is_some_and(|physics| physics.get_allow_to_fall())
-            })
-        {
-            return false;
+        let above = match world {
+            Some(world) => world.above_terrain(object)?,
+            None => object.is_above_terrain(),
+        };
+        if above {
+            if let Some(physics) = object.get_physics() {
+                let allows_fall = match physics.access() {
+                    Ok(physics) => physics.get_allow_to_fall(),
+                    Err(_) if world.is_none() => false,
+                    Err(_) => return Err("admitted owner physics poisoned".into()),
+                };
+                if allows_fall {
+                    return Ok(false);
+                }
+            }
         }
-        true
+        Ok(true)
     }
 
     pub(super) fn update_goal_position(
@@ -999,7 +1096,7 @@ impl UnitAiRuntime {
         goal: &Coord3D,
         layer: crate::common::PathfindLayerEnum,
     ) -> Result<(), String> {
-        self.update_goal_position_impl(goal, layer, None)
+        self.update_goal_position_impl(goal, layer, None, None)
     }
 
     pub(super) fn update_goal_position_with_pathfinder(
@@ -1008,7 +1105,16 @@ impl UnitAiRuntime {
         layer: crate::common::PathfindLayerEnum,
         pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
     ) -> Result<(), String> {
-        self.update_goal_position_impl(goal, layer, Some(pathfinder))
+        self.update_goal_position_impl(goal, layer, Some(pathfinder), None)
+    }
+
+    fn update_goal_position_with_world(
+        &mut self,
+        goal: &Coord3D,
+        layer: crate::common::PathfindLayerEnum,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        self.update_goal_position_impl(goal, layer, None, Some(world))
     }
 
     fn update_goal_position_impl(
@@ -1016,11 +1122,17 @@ impl UnitAiRuntime {
         goal: &Coord3D,
         layer: crate::common::PathfindLayerEnum,
         mut driving_pathfinder: Option<&mut crate::ai::pathfind_complete::PathfindingSystem>,
+        mut world: Option<&mut dyn crate::modules::ai_world::AiWorld>,
     ) -> Result<(), String> {
-        let is_ground_movement = self.is_doing_ground_movement();
         let owner_arc = self
             .native_owner()
             .ok_or_else(|| "unit owner no longer available".to_string())?;
+        let is_ground_movement = if let Some(world) = world.as_deref() {
+            let owner = owner_arc.read().map_err(|_| "unit owner lock poisoned")?;
+            self.is_doing_ground_movement_for_owner_with_world(&owner, Some(world))?
+        } else {
+            self.is_doing_ground_movement()
+        };
         let mut owner = owner_arc
             .write()
             .map_err(|_| "unit owner lock poisoned".to_string())?;
@@ -1037,7 +1149,13 @@ impl UnitAiRuntime {
             other => crate::path::PathfindLayerEnum::from_u32(other as u32),
         };
         let mut interacts_with_bridge_end = false;
-        if let Ok(terrain) = crate::terrain::get_terrain_logic().read() {
+        if let Some(world) = world.as_deref() {
+            adjusted.z = world.goal_layer_height(adjusted.x, adjusted.y, layer);
+            if layer != crate::common::PathfindLayerEnum::Ground {
+                interacts_with_bridge_end = world.bridge_layer_interaction(&owner, layer)?;
+            }
+            owner.set_destination_layer(layer);
+        } else if let Ok(terrain) = crate::terrain::get_terrain_logic().read() {
             if layer == crate::common::PathfindLayerEnum::Wall {
                 adjusted.z = crate::ai::the_ai()
                     .read()
@@ -1089,7 +1207,30 @@ impl UnitAiRuntime {
         }
         let path_layer = ClassicPathLayer::from_u32(layer as u32);
         let new_cell = Self::compute_goal_cell(&adjusted, center_in_cell);
-        if let Some(pf) = driving_pathfinder.as_deref_mut() {
+        if let Some(world) = world.as_deref_mut() {
+            let pf = world
+                .pathfinder()
+                .ok_or("supplied goal pathfinder missing")?;
+            if !is_ground_movement && !is_unmanned_heli {
+                self.update_aircraft_goal_cells(
+                    pf,
+                    owner_id,
+                    new_cell,
+                    radius_cells,
+                    center_in_cell,
+                );
+            } else {
+                self.update_ground_goal_cells(
+                    pf,
+                    owner_id,
+                    new_cell,
+                    path_layer,
+                    radius_cells,
+                    center_in_cell,
+                    interacts_with_bridge_end,
+                );
+            }
+        } else if let Some(pf) = driving_pathfinder.as_deref_mut() {
             if !is_ground_movement && !is_unmanned_heli {
                 self.update_aircraft_goal_cells_with_system(
                     pf,
@@ -1734,18 +1875,43 @@ pub(super) fn is_attacking_for_runtime(
         || guard.movement_state == MovementState::Attacking
 }
 
-impl<'a> UnitAiStateRuntime<'a> {
+impl<'runtime, 'world> UnitAiStateRuntime<'runtime, 'world> {
     pub(crate) fn owner(&self) -> Option<Arc<RwLock<Object>>> {
         self.runtime.owner.as_ref().and_then(Weak::upgrade)
     }
-    pub(crate) fn new(runtime: &'a mut UnitAiRuntime, parent_exists: bool) -> Self {
+    pub(crate) fn new(runtime: &'runtime mut UnitAiRuntime, parent_exists: bool) -> Self {
         Self {
             runtime,
             parent_exists,
+            parent_state_id: None,
+            world: None,
         }
     }
 }
-impl AiStateRuntime for UnitAiStateRuntime<'_> {
+impl AiStateRuntime for UnitAiStateRuntime<'_, '_> {
+    fn get_parent_state_id(&self) -> Option<u32> {
+        self.parent_state_id
+    }
+    fn exchange_parent_state_id(&mut self, state: Option<u32>) -> Option<u32> {
+        std::mem::replace(&mut self.parent_state_id, state)
+    }
+    fn world(&self) -> Option<&dyn crate::modules::ai_world::AiWorld> {
+        self.world.as_deref()
+    }
+    fn world_mut(&mut self) -> Option<&mut (dyn crate::modules::ai_world::AiWorld + '_)> {
+        match self.world.as_mut() {
+            Some(world) => Some(&mut **world),
+            None => None,
+        }
+    }
+
+    fn enter_owned(&mut self, passenger: ObjectID, target: ObjectID) -> Result<(), String> {
+        self.world
+            .as_deref_mut()
+            .ok_or("AI operation has no supplied world")?
+            .enter(passenger, target)
+    }
+
     fn dispatch_command_with_driver(
         &mut self,
         params: &crate::ai::AiCommandParams,
@@ -1761,6 +1927,99 @@ impl AiStateRuntime for UnitAiStateRuntime<'_> {
         &mut self,
     ) -> Option<&mut dyn crate::modules::SupplyTruckAIInterface> {
         self.runtime.get_supply_truck_ai_interface_mut()
+    }
+    fn are_turrets_linked(&self) -> bool {
+        self.runtime.data.are_turrets_linked()
+    }
+    fn get_which_turret_for_cur_weapon(&self) -> TurretType {
+        self.runtime.data.get_which_turret_for_cur_weapon()
+    }
+    fn set_turret_target_position(&mut self, turret: TurretType, pos: &Coord3D) {
+        let machine = match turret {
+            TurretType::Primary => self.runtime.data.turret_primary_machine.as_mut(),
+            TurretType::Secondary => self.runtime.data.turret_secondary_machine.as_mut(),
+            TurretType::Invalid => None,
+        };
+        if let Some(machine) = machine {
+            machine.turret_mut().set_target_position(Some(*pos));
+        }
+    }
+    fn is_allowed_to_chase(&self) -> bool {
+        self.runtime.data.allow_chase
+    }
+    fn get_cur_locomotor_speed(&self) -> Real {
+        let Some(owner) = self.runtime.native_owner() else {
+            return 0.0;
+        };
+        let Some(loco) = self.runtime.data.locomotor_set.get_active() else {
+            return 0.0;
+        };
+        let condition = owner
+            .read()
+            .ok()
+            .and_then(|owner| owner.get_body_module())
+            .and_then(|body| {
+                body.lock()
+                    .ok()
+                    .map(|body| to_locomotor_body_damage_type(body.get_damage_state()))
+            })
+            .unwrap_or(BodyDamageType::Pristine);
+        loco.get_max_speed_for_condition(condition)
+    }
+    fn get_cur_locomotor_speed_for_owner(&self, owner: &Object) -> Result<Real, String> {
+        let Some(loco) = self.runtime.data.locomotor_set.get_active() else {
+            return Ok(0.0);
+        };
+        let condition = match owner.get_body_module() {
+            Some(body) => to_locomotor_body_damage_type(
+                body.lock()
+                    .map_err(|_| "owner body poisoned")?
+                    .get_damage_state(),
+            ),
+            None => BodyDamageType::Pristine,
+        };
+        Ok(loco.get_max_speed_for_condition(condition))
+    }
+    fn is_doing_ground_movement_for_owner(&self, owner: &Object) -> Result<bool, String> {
+        self.runtime
+            .is_doing_ground_movement_for_owner_with_world(owner, self.world.as_deref())
+    }
+    fn request_attack_path(&mut self, victim: ObjectID, pos: &Coord3D) -> Result<(), String> {
+        let world = self
+            .world
+            .as_deref_mut()
+            .ok_or("attack path requires supplied owner")?;
+        if world.object(victim).is_none() {
+            return Err("attack path victim missing".into());
+        }
+        if !self.runtime.has_valid_locomotor_surfaces() {
+            return Err("Attempting to path immobile unit".into());
+        }
+        if world.pathfinder().is_none() {
+            return Err("attack path requires supplied pathfinder".into());
+        }
+        let now = world.frame();
+        let data = &mut self.runtime.data;
+        data.requested_destination = *pos;
+        data.requested_victim_id = victim;
+        data.is_attack_path = true;
+        data.is_approach_path = false;
+        data.is_safe_path = false;
+        data.waiting_for_path = true;
+        data.ignore_obstacle_id = victim;
+        if data.path_timestamp > now.saturating_sub(3) {
+            data.queue_for_path_frame = now.saturating_add(LOGICFRAMES_PER_SECOND * 2);
+            self.runtime.set_locomotor_goal_none();
+            return Ok(());
+        }
+        let request = self.runtime.build_classic_path_request(*pos, false)?;
+        world
+            .pathfinder()
+            .expect("admitted pathfinder disappeared")
+            .queue_for_path_request(request)?;
+        self.runtime.data.queue_for_path_frame = 0;
+        self.runtime.data.path_timestamp = now;
+        Ok(())
     }
     fn set_final_position(&mut self, _position: &Coord3D) {
         self.runtime.set_final_position(_position)
@@ -1796,7 +2055,12 @@ impl AiStateRuntime for UnitAiStateRuntime<'_> {
         self.runtime.get_retry_path()
     }
     fn get_locomotor_distance_to_goal(&mut self, fallback_goal: Option<Coord3D>) -> Real {
-        self.runtime.get_locomotor_distance_to_goal(fallback_goal)
+        self.runtime.get_locomotor_distance_to_goal_with_world(
+            fallback_goal,
+            self.world
+                .as_deref_mut()
+                .map(|world| world as &mut dyn crate::modules::ai_world::AiWorld),
+        )
     }
     fn get_last_command_source(&self) -> crate::ai::CommandSourceType {
         self.runtime.get_last_command_source()
@@ -1808,7 +2072,25 @@ impl AiStateRuntime for UnitAiStateRuntime<'_> {
         self.runtime.set_locomotor_goal_none()
     }
     fn remove_pathfinder_goal(&mut self) {
-        self.runtime.remove_pathfinder_goal()
+        let Some(world) = self.world.as_deref_mut() else {
+            return self.runtime.remove_pathfinder_goal();
+        };
+        let Some(owner) = self.runtime.native_owner() else {
+            return;
+        };
+        let Ok(owner) = owner.read() else {
+            return;
+        };
+        let id = owner.get_id();
+        let (radius, centered) = UnitAiRuntime::compute_pathfind_radius_and_center_from_radius(
+            owner.get_geometry_info().get_bounding_circle_radius(),
+        );
+        drop(owner);
+        // The command ingress admits this service before changing machine state.
+        if let Some(pathfinder) = world.pathfinder() {
+            self.runtime
+                .remove_goal_cells(pathfinder, id, radius, centered);
+        }
     }
     fn set_locomotor_goal_orientation(&mut self, angle: Real) {
         self.runtime.set_locomotor_goal_orientation(angle)
@@ -1911,8 +2193,51 @@ impl AiStateRuntime for UnitAiStateRuntime<'_> {
     fn clear_move_out_of_way(&mut self) {
         self.runtime.clear_move_out_of_way()
     }
-    fn request_path(&mut self, _destination: &Coord3D, _is_final_goal: bool) -> Result<(), String> {
-        self.runtime.request_path(_destination, _is_final_goal)
+    fn request_path(&mut self, destination: &Coord3D, is_final_goal: bool) -> Result<(), String> {
+        let Some(world) = self.world.as_deref_mut() else {
+            return self.runtime.request_path(destination, is_final_goal);
+        };
+        let now = world.frame();
+        if !self.runtime.has_valid_locomotor_surfaces() {
+            return Err("Attempting to path immobile unit".into());
+        }
+        // Admit the actual owner pathfinder before changing request state.
+        if world.pathfinder().is_none() {
+            return Err("supplied AI world has no pathfinder".into());
+        }
+        let data = &mut self.runtime.data;
+        data.requested_destination = *destination;
+        data.is_final_goal = is_final_goal;
+        data.is_attack_path = false;
+        data.requested_victim_id = INVALID_ID;
+        data.is_approach_path = false;
+        data.is_safe_path = false;
+        if self.runtime.can_compute_quick_path() {
+            self.runtime.install_direct_path_at(destination, now);
+            return Ok(());
+        }
+        self.runtime.data.waiting_for_path = true;
+        if self.runtime.data.path_timestamp > now.saturating_sub(3) {
+            self.runtime.data.queue_for_path_frame = now.saturating_add(LOGICFRAMES_PER_SECOND);
+            if self.runtime.data.blocked_and_stuck {
+                self.runtime.data.ignore_collisions_until =
+                    now.saturating_add(LOGICFRAMES_PER_SECOND * 2);
+                self.runtime.data.blocked_frames = 0;
+                self.runtime.data.is_blocked = false;
+                self.runtime.data.blocked_and_stuck = false;
+            }
+            return Ok(());
+        }
+        let request = self
+            .runtime
+            .build_classic_path_request(*destination, false)?;
+        world
+            .pathfinder()
+            .ok_or("supplied pathfinder disappeared")?
+            .queue_for_path_request(request)?;
+        self.runtime.data.queue_for_path_frame = 0;
+        self.runtime.data.path_timestamp = now;
+        Ok(())
     }
     fn can_compute_quick_path(&self) -> bool {
         self.runtime.can_compute_quick_path()
@@ -1944,15 +2269,36 @@ impl AiStateRuntime for UnitAiStateRuntime<'_> {
     fn get_next_mood_check_time(&self) -> u32 {
         self.runtime.get_next_mood_check_time()
     }
+    fn reset_mood_check_at_owned(
+        &mut self,
+        frame: u32,
+        force_idle_frames: u32,
+    ) -> Result<(), String> {
+        self.runtime.reset_mood_check_at(frame, force_idle_frames);
+        Ok(())
+    }
     fn reset_next_mood_check_time(&mut self) {
         self.runtime.reset_next_mood_check_time()
     }
     fn get_mood_matrix_value(&self) -> u32 {
-        self.runtime.get_mood_matrix_value(self.parent_exists)
+        match self.world.as_deref() {
+            Some(world) => self
+                .runtime
+                .get_mood_matrix_value_with_world(self.parent_exists, world),
+            None => self.runtime.get_mood_matrix_value(self.parent_exists),
+        }
     }
-    fn get_mood_matrix_action_adjustment(&mut self, _action: crate::ai::MoodMatrixAction) -> u32 {
-        self.runtime
-            .get_mood_matrix_action_adjustment(self.parent_exists, _action)
+    fn get_mood_matrix_action_adjustment(&mut self, action: crate::ai::MoodMatrixAction) -> u32 {
+        match self.world.as_deref() {
+            Some(world) => self.runtime.get_mood_matrix_action_adjustment_with_world(
+                self.parent_exists,
+                action,
+                world,
+            ),
+            None => self
+                .runtime
+                .get_mood_matrix_action_adjustment(self.parent_exists, action),
+        }
     }
     fn set_original_victim_pos(&mut self, _pos: Option<Coord3D>) {
         self.runtime.set_original_victim_pos(_pos)
@@ -2011,27 +2357,61 @@ impl AiStateRuntime for UnitAiStateRuntime<'_> {
         self.runtime.request_safe_path(_repulsor_id)
     }
     fn is_doing_ground_movement(&self) -> bool {
-        self.runtime.is_doing_ground_movement()
+        let Some(world) = self.world.as_deref() else {
+            return self.runtime.is_doing_ground_movement();
+        };
+        let owner = self.runtime.native_owner().expect("admitted AI owner");
+        let owner = owner.read().expect("admitted AI owner poisoned");
+        self.runtime
+            .is_doing_ground_movement_for_owner_with_world(&owner, Some(world))
+            .expect("admitted movement services")
     }
     fn update_goal_position(
         &mut self,
         _goal: &Coord3D,
         _layer: crate::common::PathfindLayerEnum,
     ) -> Result<(), String> {
-        self.runtime.update_goal_position(_goal, _layer)
+        match self.world.as_deref_mut() {
+            Some(world) => self
+                .runtime
+                .update_goal_position_with_world(_goal, _layer, world),
+            None => self.runtime.update_goal_position(_goal, _layer),
+        }
     }
     fn adjust_destination(&mut self, _goal: &mut Coord3D) -> bool {
-        self.runtime.adjust_destination(_goal)
+        let Some(world) = self.world.as_deref() else {
+            return self.runtime.adjust_destination(_goal);
+        };
+        if self.runtime.data.locomotor_set.get_active().is_none() {
+            return false;
+        }
+        let owner = self.runtime.native_owner().expect("admitted goal owner");
+        let owner = owner.read().expect("admitted goal owner poisoned");
+        world
+            .adjust_destination(&owner, &self.runtime.data.locomotor_set, _goal)
+            .expect("admitted destination observations")
     }
     fn snap_closest_goal_position(
         &mut self,
         owner: &crate::object::Object,
         goal: &mut Coord3D,
     ) -> bool {
-        self.runtime.snap_closest_goal_position(owner, goal)
+        match self.world.as_deref() {
+            Some(world) => {
+                world
+                    .snap_closest_goal_position(owner, &self.runtime.data.locomotor_set, goal)
+                    .expect("admitted goal snap observations");
+                true
+            }
+            None => self.runtime.snap_closest_goal_position(owner, goal),
+        }
     }
     fn set_adjusts_destination(&mut self, adjust: bool) {
-        self.runtime.set_adjusts_destination(adjust)
+        // The real state owns adjustsDestinations. The Unit projection is only
+        // the compatibility adapter; a supplied session never writes its peer.
+        if self.world.is_none() {
+            self.runtime.set_adjusts_destination(adjust);
+        }
     }
     fn should_adjust_destination(&self, state_adjusts: bool) -> bool {
         if !state_adjusts {
@@ -2151,6 +2531,17 @@ impl UnitAiRuntime {
         path: &[Coord3D],
         pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
     ) -> Result<(), String> {
+        self.set_path_from_coords_with_pathfinder_at(path, pathfinder, None)
+    }
+    pub(super) fn set_path_from_coords_with_pathfinder_at(
+        &mut self,
+        path: &[Coord3D],
+        pathfinder: &mut crate::ai::pathfind_complete::PathfindingSystem,
+        frame: Option<u32>,
+    ) -> Result<(), String> {
+        if frame.is_some() && self.data.is_final_goal {
+            return Err("supplied Enter path install requires a non-final goal".into());
+        }
         let installed_path = self.path_with_cpp_final_node(path)?;
         let last = *installed_path
             .last()
@@ -2158,7 +2549,7 @@ impl UnitAiRuntime {
         self.data.blocked_frames = 0;
         self.data.blocked_and_stuck = false;
         self.data.queue_for_path_frame = 0;
-        self.data.path_timestamp = TheGameLogic::get_frame();
+        self.data.path_timestamp = frame.unwrap_or_else(TheGameLogic::get_frame);
         self.data.movement_complete = false;
         self.data.locomotor_goal_type = 1;
         self.data.locomotor_goal_data = Coord3D::ZERO;
@@ -2289,6 +2680,13 @@ impl UnitAiRuntime {
         &mut self,
         destination: &Coord3D,
     ) -> bool {
+        self.install_direct_path_at(destination, TheGameLogic::get_frame())
+    }
+    pub(super) fn install_direct_path_at(
+        &mut self,
+        destination: &Coord3D,
+        frame: UnsignedInt,
+    ) -> bool {
         let Some(owner) = self.native_owner() else {
             return false;
         };
@@ -2302,7 +2700,7 @@ impl UnitAiRuntime {
         self.data.blocked_and_stuck = false;
         self.data.waiting_for_path = false;
         self.data.queue_for_path_frame = 0;
-        self.data.path_timestamp = TheGameLogic::get_frame();
+        self.data.path_timestamp = frame;
         self.data.movement_complete = false;
         self.data.requested_destination = *destination;
         self.data.locomotor_goal_type = 1;

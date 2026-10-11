@@ -1,5 +1,6 @@
 #![allow(deprecated, unused_imports, dead_code)]
 
+use crate::common::audio::AudioEventRts;
 use crate::modules::ai_state_runtime::AiStateRuntime;
 
 use super::attack::*;
@@ -1404,13 +1405,69 @@ impl AIMoveToState {
         // Check if moved beyond tolerance
         diff_x * diff_x + diff_y * diff_y <= tolerance_sqr
     }
+    fn movement_sound(owner_guard: &Object) -> Option<(AudioEventRts, bool)> {
+        let mut use_damaged = false;
+        if let Some(body) = owner_guard.get_body_module() {
+            if let Ok(body_guard) = body.lock() {
+                use_damaged = body_guard.get_damage_state() > BodyDamageType::Damaged;
+            }
+        }
+        let template = owner_guard.get_template();
+        let mut start_sound = if use_damaged {
+            template.get_sound_move_start_damaged()
+        } else {
+            template.get_sound_move_start()
+        };
+        let loop_sound = if use_damaged {
+            template.get_sound_move_loop_damaged()
+        } else {
+            template.get_sound_move_loop()
+        };
+        if start_sound.get_event_name().is_empty() {
+            start_sound = loop_sound.clone();
+        }
+        if start_sound.get_event_name().is_empty() {
+            return None;
+        }
+        start_sound.set_object_id(owner_guard.get_id());
+        let looping = start_sound.get_event_name() == loop_sound.get_event_name()
+            && !loop_sound.get_event_name().is_empty();
+        Some((start_sound, looping))
+    }
+
+    pub(crate) fn start_move_sound_with_ai(
+        &mut self,
+        owner: &Arc<RwLock<Object>>,
+        ai: &mut dyn AiStateRuntime,
+    ) -> Result<(), String> {
+        let event = {
+            let owner = owner.read().map_err(|_| "movement sound owner poisoned")?;
+            Self::movement_sound(&owner)
+        };
+        if let Some((event, looping)) = event {
+            let handle = match ai.world_mut() {
+                Some(world) => world.add_audio_event(&event),
+                None => TheAudio::get()
+                    .map(|audio| audio.add_audio_event(&event))
+                    .unwrap_or(0),
+            };
+            if looping {
+                self.ambient_playing_handle = handle;
+            }
+        }
+        Ok(())
+    }
+
     fn finish_move_update(
         &mut self,
-        owner_guard: &mut Object,
+        owner: &Arc<RwLock<Object>>,
         ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
         if self.waiting_for_path {
-            self.path_timestamp = TheGameLogic::get_frame();
+            self.path_timestamp = ai
+                .world()
+                .map(|world| world.frame())
+                .unwrap_or_else(TheGameLogic::get_frame);
             if ai.is_waiting_for_path() {
                 return Ok(StateReturnType::Continue);
             }
@@ -1418,10 +1475,12 @@ impl AIMoveToState {
                 return Ok(StateReturnType::Failure);
             }
             self.waiting_for_path = false;
-            if self.adjust_destinations
-                && !owner_guard.test_status(crate::common::ObjectStatusTypes::Parachuting)
-                && ai.is_allowed_to_adjust_destination()
-            {
+            self.path_goal_position = self.goal_position;
+            let parachuting = owner
+                .read()
+                .map_err(|_| "movement owner poisoned")?
+                .test_status(crate::common::ObjectStatusTypes::Parachuting);
+            if self.adjust_destinations && !parachuting && ai.is_allowed_to_adjust_destination() {
                 if let (Some(last), Some(ordinal)) =
                     (ai.get_path_last_node(), ai.installed_path_last_layer())
                 {
@@ -1433,23 +1492,31 @@ impl AIMoveToState {
             } else {
                 ai.remove_pathfinder_goal();
             }
-            self.path_goal_position = self.goal_position;
             if !ai.get_retry_path() {
                 self.try_one_more_repath = false;
             }
         }
         let adjustment = ai.get_mood_matrix_action_adjustment(MoodMatrixAction::Move);
         if self.is_move_to && (adjustment & mood_matrix_adjustment::ACTION_TO_ATTACK_MOVE) != 0 {
-            owner_guard.ai_pending_attack_move = Some(self.goal_position);
+            owner
+                .write()
+                .map_err(|_| "movement owner poisoned")?
+                .ai_pending_attack_move = Some(self.goal_position);
         }
         let mut goal_moved = false;
-        if let Some(goal_obj) = self.base.get_machine_goal_object_id().and_then(|id| {
-            crate::helpers::TheGameLogic::find_object_by_id(id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-        }) {
+        if let Some(goal_obj) =
+            self.base
+                .get_machine_goal_object_id()
+                .and_then(|id| match ai.world() {
+                    Some(world) => world.object(id),
+                    None => crate::helpers::TheGameLogic::find_object_by_id(id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id)),
+                })
+        {
             let goal_guard = goal_obj
                 .read()
                 .map_err(|_| "goal object lock poisoned".to_string())?;
+            let owner_guard = owner.read().map_err(|_| "movement owner poisoned")?;
             let mut new_goal = *goal_guard.get_position();
             if owner_guard.is_kind_of(KindOf::Projectile) {
                 let half_height = goal_guard
@@ -1499,12 +1566,23 @@ impl AIMoveToState {
         }
         let frames_blocked = ai.get_num_frames_blocked();
         let blocked = ai.is_blocked_and_stuck() || frames_blocked > 2 * LOGICFRAMES_PER_SECOND;
-        let now = TheGameLogic::get_frame();
+        let now = ai
+            .world()
+            .map(|world| world.frame())
+            .unwrap_or_else(TheGameLogic::get_frame);
         if blocked {
             self.blocked_repath_timestamp = now;
         }
         let mut set_condition_flag = ModelConditionFlags::MOVING;
-        if is_cliff_at(owner_guard.get_position()) {
+        let owner_position = *owner
+            .read()
+            .map_err(|_| "movement owner poisoned")?
+            .get_position();
+        let cliff = match ai.world() {
+            Some(world) => world.cliff_at(&owner_position)?,
+            None => is_cliff_at(&owner_position),
+        };
+        if cliff {
             let moving_backwards = {
                 let mut __back = false;
                 ai.with_cur_locomotor(&mut |loco| __back = loco.is_moving_backwards());
@@ -1516,25 +1594,35 @@ impl AIMoveToState {
                 ModelConditionFlags::CLIMBING
             };
         }
-        owner_guard.set_model_condition_state(ModelConditionFlags::MOVING);
-        if set_condition_flag == ModelConditionFlags::MOVING {
-            owner_guard.clear_model_condition_state(ModelConditionFlags::CLIMBING);
-            owner_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
-        } else {
-            let clear_flag = if set_condition_flag == ModelConditionFlags::CLIMBING {
-                ModelConditionFlags::RAPPELLING
+        {
+            let mut owner_guard = owner.write().map_err(|_| "movement owner poisoned")?;
+            if cliff {
+                let opposite = if set_condition_flag == ModelConditionFlags::CLIMBING {
+                    ModelConditionFlags::RAPPELLING
+                } else {
+                    ModelConditionFlags::CLIMBING
+                };
+                owner_guard.clear_model_condition_state(opposite);
+            }
+            if frames_blocked > LOGICFRAMES_PER_SECOND / 4 {
+                owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
             } else {
-                ModelConditionFlags::CLIMBING
-            };
-            owner_guard.clear_model_condition_state(clear_flag);
-            owner_guard.set_model_condition_state(set_condition_flag);
-        }
-        if frames_blocked > LOGICFRAMES_PER_SECOND / 4 {
-            owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
+                if set_condition_flag == ModelConditionFlags::MOVING {
+                    owner_guard.clear_model_condition_state(ModelConditionFlags::CLIMBING);
+                    owner_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
+                }
+                owner_guard.set_model_condition_state(ModelConditionFlags::MOVING);
+                if set_condition_flag != ModelConditionFlags::MOVING {
+                    owner_guard.set_model_condition_state(set_condition_flag);
+                }
+            }
         }
         let null_path = ai.get_path().is_none();
-        let quick_projectile =
-            owner_guard.is_kind_of(KindOf::Projectile) && ai.can_compute_quick_path();
+        let projectile = owner
+            .read()
+            .map_err(|_| "movement owner poisoned")?
+            .is_kind_of(KindOf::Projectile);
+        let quick_projectile = projectile && ai.can_compute_quick_path();
         if quick_projectile {
             self.path_timestamp = 0;
         }
@@ -1545,7 +1633,10 @@ impl AIMoveToState {
         }
         if force_recompute || time_up {
             let goal_changed = !self.is_same_position(
-                owner_guard.get_position(),
+                &*owner
+                    .read()
+                    .map_err(|_| "movement owner poisoned")?
+                    .get_position(),
                 &self.path_goal_position,
                 &self.goal_position,
             );
@@ -1571,14 +1662,28 @@ impl AIMoveToState {
                 }
             }
         }
-        let close_enough = {
-            let mut __close = 5.0;
-            ai.with_cur_locomotor(&mut |loco| __close = loco.get_close_enough_dist());
-            __close
+        let mut close_enough = None;
+        ai.with_cur_locomotor(&mut |loco| close_enough = Some(loco.get_close_enough_dist()));
+        let Some(close_enough) = close_enough else {
+            return Ok(StateReturnType::Failure);
         };
-        if ai.get_locomotor_distance_to_goal(self.base.get_machine_goal_position()) <= close_enough
-        {
-            owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
+        if ai.get_locomotor_distance_to_goal(self.base.get_machine_goal_position()) < close_enough {
+            if ai.is_doing_ground_movement() {
+                let final_position = ai.get_path_last_node().unwrap_or(self.goal_position);
+                let position = *owner
+                    .read()
+                    .map_err(|_| "movement owner poisoned")?
+                    .get_position();
+                let dx = position.x - final_position.x;
+                let dy = position.y - final_position.y;
+                let tolerance = 4.0 * PATHFIND_CELL_SIZE_F;
+                if dx * dx + dy * dy > tolerance * tolerance {
+                    return Ok(StateReturnType::Continue);
+                }
+            }
+            if self.adjust_destinations {
+                ai.set_locomotor_goal_none();
+            }
             return Ok(StateReturnType::Success);
         }
         Ok(StateReturnType::Continue)
@@ -1655,10 +1760,7 @@ impl StateImplementation for AIMoveToState {
             };
             owner
         };
-        let Ok(mut owner_guard) = owner.lock() else {
-            return StateReturnType::Failure;
-        };
-        self.finish_move_update(&mut owner_guard, ai)
+        self.finish_move_update(&owner, ai)
             .unwrap_or(StateReturnType::Failure)
     }
 
@@ -1706,17 +1808,16 @@ impl CppState for AIMoveToState {
                 .get_machine_owner()
                 .ok_or_else(|| "AIMoveToState missing owner".to_string())?
         };
-        let mut owner_guard = owner
-            .lock()
-            .map_err(|_| "AIMoveToState owner lock poisoned".to_string())?;
+        let owner_guard = owner.read().map_err(|_| "AIMoveToState owner poisoned")?;
         let ai_arc = owner_guard
             .get_ai_update_interface()
             .ok_or_else(|| "AIMoveToState missing AiStateRuntime".to_string())?;
+        drop(owner_guard);
         let mut ai_guard = ai_arc
             .lock()
             .map_err(|_| "AIMoveToState AI lock poisoned".to_string())?;
         return self.finish_move_update(
-            &mut owner_guard,
+            &owner,
             &mut crate::modules::ai_state_runtime::AiUpdateRuntimeAdapter(&mut *ai_guard),
         );
     }
@@ -1725,7 +1826,7 @@ impl CppState for AIMoveToState {
         &mut self,
         ai: &mut dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<StateReturnType, String> {
-        if dual_world_registry_unavailable() {
+        if ai.world().is_none() && dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
         }
         let owner = if let Some(owner) = self.preset_owner.clone() {
@@ -1735,45 +1836,16 @@ impl CppState for AIMoveToState {
                 .get_machine_owner()
                 .ok_or_else(|| "AIMoveToState missing owner".to_string())?
         };
-        let mut owner_guard = owner
-            .lock()
-            .map_err(|_| "AIMoveToState owner lock poisoned".to_string())?;
-        self.finish_move_update(&mut owner_guard, ai)
+        self.finish_move_update(&owner, ai)
     }
 
-    fn start_move_sound(&mut self, owner_guard: &Object) {
-        let mut use_damaged = false;
-        if let Some(body) = owner_guard.get_body_module() {
-            if let Ok(body_guard) = body.lock() {
-                use_damaged = body_guard.get_damage_state() > BodyDamageType::Damaged;
-            }
-        }
-        let template = owner_guard.get_template();
-        let mut start_sound = if use_damaged {
-            template.get_sound_move_start_damaged()
-        } else {
-            template.get_sound_move_start()
-        };
-        let loop_sound = if use_damaged {
-            template.get_sound_move_loop_damaged()
-        } else {
-            template.get_sound_move_loop()
-        };
-        if start_sound.get_event_name().is_empty() {
-            start_sound = loop_sound.clone();
-        }
-        if start_sound.get_event_name().is_empty() {
-            return;
-        }
-        start_sound.set_object_id(owner_guard.get_id());
-        if let Some(audio) = TheAudio::get() {
-            if start_sound.get_event_name() == loop_sound.get_event_name()
-                && !loop_sound.get_event_name().is_empty()
-            {
-                let handle = audio.add_audio_event(&start_sound);
-                self.ambient_playing_handle = handle;
-            } else {
-                audio.add_audio_event(&start_sound);
+    fn start_move_sound(&mut self, owner: &Object) {
+        if let Some((event, looping)) = Self::movement_sound(owner) {
+            if let Some(audio) = TheAudio::get() {
+                let handle = audio.add_audio_event(&event);
+                if looping {
+                    self.ambient_playing_handle = handle;
+                }
             }
         }
     }
@@ -1786,7 +1858,9 @@ impl CppState for AIMoveToState {
         // AIInternalMoveToState::onExit: sound, endingMove, exact ground
         // finalization. It does not destroyPath or reset path extra distance.
         if self.ambient_playing_handle != 0 {
-            if let Some(audio) = TheAudio::get() {
+            if let Some(world) = ai.world_mut() {
+                world.remove_audio_event(self.ambient_playing_handle);
+            } else if let Some(audio) = TheAudio::get() {
                 audio.remove_audio_event(self.ambient_playing_handle);
             }
             self.ambient_playing_handle = 0;
@@ -1796,8 +1870,8 @@ impl CppState for AIMoveToState {
         let mut ultra = false;
         ai.with_cur_locomotor(&mut |loco| ultra = loco.is_ultra_accurate());
         if ground && ultra {
-            if let Some(owner) = self.base.get_machine_owner() {
-                let owner = owner
+            if let Some(owner_arc) = self.base.get_machine_owner() {
+                let owner = owner_arc
                     .read()
                     .map_err(|_| "movement exit owner poisoned".to_string())?;
                 let dx = self.goal_position.x - owner.get_position().x;
@@ -1805,8 +1879,21 @@ impl CppState for AIMoveToState {
                 if owner.get_team().is_some()
                     && dx * dx + dy * dy < PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F
                 {
+                    let owner_id = owner.get_id();
                     drop(owner);
-                    ai.set_final_position(&self.goal_position);
+                    if let Some(world) = ai.world_mut() {
+                        let admitted =
+                            world.object(owner_id).ok_or("movement exit owner absent")?;
+                        if !Arc::ptr_eq(&owner_arc, &admitted) {
+                            return Err("movement exit owner replaced".into());
+                        }
+                        let mut owner = owner_arc
+                            .write()
+                            .map_err(|_| "movement exit owner poisoned")?;
+                        world.set_object_position(&mut owner, &self.goal_position)?;
+                    } else {
+                        ai.set_final_position(&self.goal_position);
+                    }
                 }
             }
         }
@@ -1865,7 +1952,9 @@ impl AIMoveToState {
         mut borrowed: Option<&mut dyn crate::modules::ai_state_runtime::AiStateRuntime>,
         authored_goal: Option<Coord3D>,
     ) -> Result<StateReturnType, String> {
-        if dual_world_registry_unavailable() {
+        if borrowed.as_deref().and_then(|ai| ai.world()).is_none()
+            && dual_world_registry_unavailable()
+        {
             return Ok(StateReturnType::Failure);
         }
 
@@ -1884,8 +1973,11 @@ impl AIMoveToState {
             self.goal_position = goal;
             self.base.goal_position_copied = Some(goal);
         } else if let Some(goal_obj) = self.base.get_machine_goal_object_id().and_then(|id| {
-            crate::helpers::TheGameLogic::find_object_by_id(id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+            match borrowed.as_deref().and_then(|ai| ai.world()) {
+                Some(world) => world.object(id),
+                None => crate::helpers::TheGameLogic::find_object_by_id(id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id)),
+            }
         }) {
             let goal_guard = goal_obj
                 .read()
@@ -1916,11 +2008,19 @@ impl AIMoveToState {
                 .get_machine_owner()
                 .ok_or_else(|| "AIMoveToState missing owner".to_string())?
         };
+        let owner_position = *owner
+            .read()
+            .map_err(|_| "movement entry owner poisoned")?
+            .get_position();
+        let cliff = match borrowed.as_deref().and_then(|ai| ai.world()) {
+            Some(world) => world.cliff_at(&owner_position)?,
+            None => is_cliff_at(&owner_position),
+        };
         let mut owner_guard = owner
             .lock()
             .map_err(|_| "AIMoveToState owner lock poisoned".to_string())?;
         owner_guard.set_model_condition_state(ModelConditionFlags::MOVING);
-        if is_cliff_at(owner_guard.get_position()) {
+        if cliff {
             owner_guard.set_model_condition_state(ModelConditionFlags::CLIMBING);
             owner_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
         }
@@ -1961,13 +2061,11 @@ impl AIMoveToState {
         ai_guard.friend_starting_move();
         ai_guard.with_cur_locomotor_mut(&mut |loco| loco.start_move());
 
-        {
-            let owner_guard = owner
-                .read()
-                .map_err(|_| "movement sound owner poisoned".to_string())?;
-            self.start_move_sound(&owner_guard);
-        }
+        self.start_move_sound_with_ai(&owner, ai_guard)?;
 
+        if formation_group.is_some() && ai_guard.world().is_some() {
+            return Err("supplied AIEnter does not admit formation group movement".into());
+        }
         if let Some(group_id) = formation_group {
             // Capture the same getter the existing group algorithm uses before
             // its lock; the caller's installed AI is already borrowed here.

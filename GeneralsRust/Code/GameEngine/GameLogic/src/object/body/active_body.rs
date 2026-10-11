@@ -1858,6 +1858,22 @@ impl ActiveBody {
 }
 
 impl BodyModuleInterface for ActiveBody {
+    fn validate_owned_damage_estimate(&self) -> BodyResult<()> {
+        if !self.state.armor_flags_dirty && self.armor.template().is_some() {
+            return Ok(());
+        }
+        let (name, _) = Self::resolve_armor_choice(
+            self.engine_template.as_ref(),
+            &self.state.armor_set_flags,
+            self.module_data.default_armor_template.as_ref(),
+        );
+        if name.is_none() {
+            Ok(())
+        } else {
+            Err(BodyError::ArmorValidationFailed)
+        }
+    }
+
     fn do_damage_fx_after_death(&mut self, damage_info: &DamageInfo) {
         let _ = self.do_damage_fx(damage_info);
     }

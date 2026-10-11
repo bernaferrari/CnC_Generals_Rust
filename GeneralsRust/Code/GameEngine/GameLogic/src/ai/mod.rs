@@ -52,6 +52,7 @@ pub use game_engine::common::rts::ScienceType;
 
 pub mod integration;
 pub mod object_registry;
+mod pathfinder_attack_view;
 mod target_acquisition;
 
 // Constants
@@ -1492,6 +1493,16 @@ impl Pathfinder {
 }
 
 pub(crate) fn object_footprint_positions(obj: &Object) -> Option<Vec<Coord3D>> {
+    object_footprint_positions_with_height(obj, |x, y| {
+        crate::helpers::TheTerrainLogic::get().map_or(0.0, |terrain| {
+            terrain.get_layer_height(x, y, crate::common::PathfindLayerEnum::Ground)
+        })
+    })
+}
+pub(crate) fn object_footprint_positions_with_height(
+    obj: &Object,
+    mut height: impl FnMut(f32, f32) -> f32,
+) -> Option<Vec<Coord3D>> {
     use crate::ai::pathfind_astar::{GridCoord, PathfindLayerEnum};
     use crate::common::KindOf;
     use crate::path::PATHFIND_CELL_SIZE_F;
@@ -1586,13 +1597,7 @@ pub(crate) fn object_footprint_positions(obj: &Object) -> Option<Vec<Coord3D>> {
     for (cx, cy) in cells {
         let coord = GridCoord::new(cx, cy);
         let mut world = coord.to_world(0.0);
-        if let Some(terrain) = crate::helpers::TheTerrainLogic::get() {
-            world.z = terrain.get_layer_height(
-                world.x,
-                world.y,
-                crate::common::PathfindLayerEnum::Ground,
-            );
-        }
+        world.z = height(world.x, world.y);
         positions.push(world);
     }
     Some(positions)
@@ -2092,6 +2097,16 @@ impl Pathfinder {
         locomotor_set: &crate::locomotor::LocomotorSet,
         dest: &mut Coord3D,
     ) -> bool {
+        self.adjust_destination_with_observations(obj, locomotor_set, dest, None)
+    }
+
+    pub(crate) fn adjust_destination_with_observations(
+        &self,
+        obj: &Object,
+        locomotor_set: &crate::locomotor::LocomotorSet,
+        dest: &mut Coord3D,
+        observations: Option<&pathfind_complete::PathfindObservations<'_>>,
+    ) -> bool {
         // C++ projectiles skip adjust.
         if obj.is_kind_of(KindOf::Projectile) {
             return true;
@@ -2103,13 +2118,14 @@ impl Pathfinder {
             .get_bounding_circle_radius()
             .max(0.0);
         let from = *obj.get_position();
-        self.inner.adjust_destination_from(
+        self.inner.adjust_destination_from_with_observations(
             Some(&from),
             surfaces,
             is_crusher,
             dest,
             unit_radius,
             None,
+            observations,
         )
     }
 
@@ -2284,6 +2300,18 @@ impl Pathfinder {
             .is_line_passable_for_surfaces(from, to, surfaces, ignore_obstacle_id)
     }
 
+    pub(crate) fn is_line_passable_on_layer_with_cells(
+        &self,
+        from: &Coord3D,
+        to: &Coord3D,
+        surfaces: u32,
+        layer: pathfind_astar::PathfindLayerEnum,
+        cells: Option<&std::collections::HashSet<pathfind_astar::GridCoord>>,
+    ) -> bool {
+        self.inner
+            .is_line_passable_on_layer_with_cells(from, to, surfaces, layer, cells)
+    }
+
     /// C++ path-following passability using the layer recorded on the active path node.
     pub fn is_line_passable_for_surfaces_on_layer(
         &self,
@@ -2391,141 +2419,37 @@ impl Pathfinder {
         victim: Option<&Object>,
         victim_pos: &Coord3D,
     ) -> bool {
-        // Global AI data switch.
-        let ai_store = the_ai();
-        let attack_uses_los = ai_store
+        let attack_uses_los = the_ai()
             .read()
             .ok()
             .map(|ai| ai.get_ai_data().attack_uses_line_of_sight)
             .unwrap_or(false);
-        if !attack_uses_los {
-            return false;
-        }
-
-        // If attacker doesn't need LOS, not blocked.
-        if !attacker.is_kind_of(KindOf::AttackNeedsLineOfSight) {
-            return false;
-        }
-
-        // LOS_TERRAIN: weapon clear-goal firing LOS (skip for immobile — can't move around).
-        // C++ Weapon::isClearGoalFiringLineOfSightTerrain.
-        if !attacker.is_kind_of(KindOf::Immobile) {
-            if let Some((weapon, _)) = attacker.get_current_weapon() {
-                let clear = if let Some(v) = victim {
-                    weapon.is_clear_goal_firing_line_of_sight_terrain(
+        self.is_attack_view_blocked_with_observations(
+            attacker,
+            attacker_pos,
+            victim,
+            victim_pos,
+            attack_uses_los,
+            &mut || {
+                let weapon = attacker
+                    .get_current_weapon()
+                    .expect("attack LOS terrain query requires current weapon")
+                    .0;
+                Ok(match victim {
+                    Some(victim) => weapon.is_clear_goal_firing_line_of_sight_terrain(
                         attacker.get_id(),
                         attacker_pos,
-                        v.get_id(),
-                    )
-                } else {
-                    weapon.is_clear_goal_firing_line_of_sight_terrain_pos(
+                        victim.get_id(),
+                    ),
+                    None => weapon.is_clear_goal_firing_line_of_sight_terrain_pos(
                         attacker.get_id(),
                         attacker_pos,
                         victim_pos,
-                    )
-                };
-                if !clear {
-                    return true;
-                }
-            } else if let Ok(terrain) = crate::terrain::get_terrain_logic().read() {
-                // Fallback when no current weapon template is attached.
-                if !terrain.is_clear_line_of_sight(attacker_pos, victim_pos) {
-                    return true;
-                }
-            }
-        }
-
-        // C++: layer = victim->getLayer() or GROUND; if attacker off-ground and
-        // victim on ground, use attacker layer; skipCount=3 for bridge/rooftop.
-        let attacker_layer = attacker.get_layer();
-        let victim_layer = victim
-            .map(|v| v.get_layer())
-            .unwrap_or(crate::common::PathfindLayerEnum::Ground);
-        let mut layer = if matches!(
-            victim_layer,
-            crate::common::PathfindLayerEnum::Ground | crate::common::PathfindLayerEnum::Invalid
-        ) {
-            crate::common::PathfindLayerEnum::Ground
-        } else {
-            victim_layer
-        };
-        let mut skip_count = 0i32;
-        if !matches!(
-            attacker_layer,
-            crate::common::PathfindLayerEnum::Ground | crate::common::PathfindLayerEnum::Invalid
-        ) {
-            skip_count = 3;
-            if matches!(
-                layer,
-                crate::common::PathfindLayerEnum::Ground
-                    | crate::common::PathfindLayerEnum::Invalid
-            ) {
-                layer = attacker_layer;
-            }
-        }
-        let path_layer = {
-            let v = layer as u32;
-            if (2..=14).contains(&v) || v == 15 {
-                crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(v)
-            } else {
-                crate::ai::pathfind_astar::PathfindLayerEnum::Ground
-            }
-        };
-
-        let attacker_id = attacker.get_id();
-        let victim_id = victim.map(|v| v.get_id()).unwrap_or(INVALID_ID);
-        let container_id = attacker.get_contained_by().unwrap_or(INVALID_ID);
-        let attacker_slaver = Self::object_slaver_id(attacker);
-        let victim_container = victim
-            .and_then(|v| v.get_contained_by())
-            .unwrap_or(INVALID_ID);
-        let victim_slaver = victim.map(Self::object_slaver_id).unwrap_or(INVALID_ID);
-
-        // C++ info.victimCell = getCell(layer, &victimPos).
-        let victim_cell_obstacle = self
-            .inner
-            .get_cell_obstacle_id(crate::ai::pathfind_astar::GridCoord::from_world(victim_pos))
-            .unwrap_or(INVALID_ID);
-
-        // C++ attackBlockedByObstacleCallback via cell obstacle IDs.
-        let blocked = self.inner.iterate_cells_along_line_world(
-            attacker_pos,
-            victim_pos,
-            path_layer,
-            |_from, to_c, _x, _y| {
-                if skip_count > 0 {
-                    skip_count -= 1;
-                    return 0;
-                }
-                let world = self.inner.world_pos_for_coord(to_c, path_layer);
-                if self.inner.get_cell_type(&world) != Some(PathfindCellType::Obstacle) {
-                    return 0;
-                }
-                if self.inner.is_cell_obstacle_transparent(to_c) {
-                    return 0;
-                }
-                let oid = self.inner.get_cell_obstacle_id(to_c).unwrap_or(INVALID_ID);
-                if oid == INVALID_ID {
-                    return 1; // unknown obstacle blocks
-                }
-                // C++ never block own / victim / container / slaver.
-                if oid == attacker_id
-                    || oid == victim_id
-                    || oid == container_id
-                    || oid == victim_container
-                    || oid == attacker_slaver
-                    || oid == victim_slaver
-                {
-                    return 0;
-                }
-                // C++: victim inside another object's bounds — don't block.
-                if victim_cell_obstacle != INVALID_ID && oid == victim_cell_obstacle {
-                    return 0;
-                }
-                1
+                    ),
+                })
             },
-        );
-        blocked != 0
+        )
+        .expect("standalone attack LOS observations are infallible")
     }
 
     /// ID-first LOS obstacle check; delegates to classic PathfindingSystem.
@@ -2657,14 +2581,58 @@ impl Pathfinder {
         locomotor_set: &crate::locomotor::LocomotorSet,
         pos: &mut Coord3D,
     ) {
+        self.snap_closest_goal_position_with_observations(obj, locomotor_set, pos, None)
+    }
+
+    pub(crate) fn snap_closest_goal_position_with_observations(
+        &self,
+        obj: &Object,
+        locomotor_set: &crate::locomotor::LocomotorSet,
+        pos: &mut Coord3D,
+        observations: Option<&pathfind_complete::PathfindObservations<'_>>,
+    ) {
         let surfaces = locomotor_set.get_valid_surfaces();
         let is_crusher = obj.get_crusher_level() > 0;
         let unit_radius = obj
             .get_geometry_info()
             .get_bounding_circle_radius()
             .max(0.0);
-        self.inner
-            .snap_closest_goal_position(surfaces, is_crusher, pos, unit_radius, obj.get_id());
+        let Some(observations) = observations else {
+            self.inner.snap_closest_goal_position(
+                surfaces,
+                is_crusher,
+                pos,
+                unit_radius,
+                obj.get_id(),
+            );
+            return;
+        };
+        // The caller already loans obj; freeze its footprint without acquiring
+        // that same native object's RwLock inside destination checks.
+        let ignore_cells = object_footprint_positions_with_height(obj, |x, y| {
+            observations.terrain.get_layer_height(
+                x,
+                y,
+                crate::path::PathfindLayerEnum::Ground,
+                None,
+                false,
+            )
+        })
+        .map(|positions| {
+            positions
+                .into_iter()
+                .map(|position| pathfind_astar::GridCoord::from_world(&position))
+                .collect::<std::collections::HashSet<_>>()
+        });
+        self.inner.snap_closest_goal_position_with_ignored_cells(
+            surfaces,
+            is_crusher,
+            pos,
+            unit_radius,
+            obj.get_id(),
+            Some(observations),
+            ignore_cells.as_ref(),
+        );
     }
 
     /// C++ `Pathfinder::snapPosition(Object*, Coord3D*)`.

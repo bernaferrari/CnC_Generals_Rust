@@ -19,12 +19,27 @@ impl PathfindingSystem {
         request: &PathRequest,
         blocked: bool,
     ) -> (Vec<Coord3D>, Vec<PathfindLayerEnum>) {
-        let ignore_cells = ignored_obstacle_cells(request.ignore_obstacle_id);
+        self.optimize_path_blocked_with_observations(waypoints, layers, request, blocked, None)
+            .expect("compatibility path observations are infallible")
+    }
+    pub(crate) fn optimize_path_blocked_with_observations(
+        &self,
+        waypoints: &[Coord3D],
+        layers: &[PathfindLayerEnum],
+        request: &PathRequest,
+        blocked: bool,
+        observations: Option<&PathfindObservations>,
+    ) -> Result<(Vec<Coord3D>, Vec<PathfindLayerEnum>), String> {
+        let ignore_cells = observations.map_or_else(
+            || ignored_obstacle_cells(request.ignore_obstacle_id),
+            |world| world.ignored_cells(request.ignore_obstacle_id),
+        );
         let obj_id = request.object_id;
 
+        let error = std::cell::RefCell::new(None);
         // Line passability checker — C++ isLinePassable(..., blocked, false).
         let passability = |from: &Coord3D, to: &Coord3D, layer: PathfindLayerEnum| {
-            self.is_line_passable_for_object_with_ignore_id(
+            self.is_line_passable_with_observations(
                 obj_id,
                 from,
                 to,
@@ -37,13 +52,23 @@ impl PathfindingSystem {
                 0,
                 true,
                 Some(request.ignore_obstacle_id.unwrap_or(INVALID_ID)),
+                observations,
             )
+            .unwrap_or_else(|cause| {
+                *error.borrow_mut() = Some(cause);
+                false
+            })
         };
 
         // C++ buildActualPath calls Path::optimize only. optimizeGroundPath
         // belongs to buildGroundPath and must not run over this already-pruned
         // node sequence, where it could collapse the bridge-layer span again.
-        self.optimizer.optimize(waypoints, layers, passability)
+        let optimized = self.optimizer.optimize(waypoints, layers, passability);
+        if let Some(error) = error.into_inner() {
+            Err(error)
+        } else {
+            Ok(optimized)
+        }
     }
 
     pub(crate) fn world_pos_for_coord(
@@ -51,7 +76,24 @@ impl PathfindingSystem {
         coord: GridCoord,
         layer: PathfindLayerEnum,
     ) -> Coord3D {
+        self.world_pos_for_coord_with_observations(coord, layer, None)
+    }
+    pub(crate) fn world_pos_for_coord_with_observations(
+        &self,
+        coord: GridCoord,
+        layer: PathfindLayerEnum,
+        observations: Option<&PathfindObservations>,
+    ) -> Coord3D {
         Self::cell_center_with_height(coord, layer, |x, y, common_layer| {
+            if let Some(world) = observations {
+                return world.terrain.get_layer_height(
+                    x,
+                    y,
+                    crate::path::PathfindLayerEnum::from_u32(common_layer as u32),
+                    None,
+                    false,
+                );
+            }
             TheTerrainLogic::get()
                 .map(|terrain| terrain.get_layer_height(x, y, common_layer))
                 .unwrap_or(0.0)
@@ -167,11 +209,44 @@ impl PathfindingSystem {
         center_in_cell: bool,
         ignore_obstacle_id: Option<ObjectID>,
     ) -> bool {
+        self.is_line_passable_with_observations(
+            obj_id,
+            from,
+            to,
+            surfaces,
+            is_crusher,
+            layer,
+            ignore_cells,
+            allow_pinched,
+            consider_transient,
+            footprint_radius,
+            center_in_cell,
+            ignore_obstacle_id,
+            None,
+        )
+        .expect("compatibility movement observations are infallible")
+    }
+    pub(crate) fn is_line_passable_with_observations(
+        &self,
+        obj_id: ObjectID,
+        from: &Coord3D,
+        to: &Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        layer: PathfindLayerEnum,
+        ignore_cells: Option<&HashSet<GridCoord>>,
+        allow_pinched: bool,
+        consider_transient: bool,
+        footprint_radius: i32,
+        center_in_cell: bool,
+        ignore_obstacle_id: Option<ObjectID>,
+        observations: Option<&PathfindObservations>,
+    ) -> Result<bool, String> {
         let dx = to.x - from.x;
         let dy = to.y - from.y;
         let distance = (dx * dx + dy * dy).sqrt();
         if distance < 0.1 {
-            return true;
+            return Ok(true);
         }
 
         let steps = (distance / (PATHFIND_CELL_SIZE_F * 0.5)).ceil() as i32;
@@ -186,10 +261,10 @@ impl PathfindingSystem {
                 let pathfinder = &self.pathfinder;
                 // C++: if (!allowPinched && to->getPinched()) bail.
                 if !allow_pinched && pathfinder.is_pinched(coord) == Some(true) {
-                    return false;
+                    return Ok(false);
                 }
                 if !pathfinder.is_passable_with_ignore(coord, surfaces, is_crusher, ignore_cells) {
-                    return false;
+                    return Ok(false);
                 }
             }
 
@@ -205,21 +280,35 @@ impl PathfindingSystem {
                     ..Default::default()
                 };
                 let can_move = match ignore_obstacle_id {
-                    Some(ignore_id) => {
-                        self.check_for_movement_with_ignore_id(obj_id, &mut info, ignore_id)
+                    Some(ignore_id) => self.check_for_movement_with_observations(
+                        obj_id,
+                        &mut info,
+                        ignore_id,
+                        observations,
+                    ),
+                    None => {
+                        if observations.is_some() {
+                            self.check_for_movement_with_observations(
+                                obj_id,
+                                &mut info,
+                                INVALID_ID,
+                                observations,
+                            )
+                        } else {
+                            Ok(self.check_for_movement(obj_id, &mut info))
+                        }
                     }
-                    None => self.check_for_movement(obj_id, &mut info),
-                };
+                }?;
                 if !can_move {
-                    return false;
+                    return Ok(false);
                 }
                 if info.ally_fixed_count > 0 || info.enemy_fixed {
-                    return false;
+                    return Ok(false);
                 }
             }
         }
 
-        true
+        Ok(true)
     }
 
     /// Check if ground path is passable
@@ -339,12 +428,35 @@ impl PathfindingSystem {
         center_in_cell: bool,
         aircraft_goal_only: Option<bool>,
     ) -> bool {
+        self.check_destination_with_observations(
+            request,
+            cell,
+            layer,
+            radius,
+            center_in_cell,
+            aircraft_goal_only,
+            None,
+        )
+    }
+    pub(crate) fn check_destination_with_observations(
+        &self,
+        request: &PathRequest,
+        cell: GridCoord,
+        layer: PathfindLayerEnum,
+        radius: i32,
+        center_in_cell: bool,
+        aircraft_goal_only: Option<bool>,
+        observations: Option<&PathfindObservations>,
+    ) -> bool {
         // Wave 262: empty dual-world → fail-closed.
-        if dual_world_registry_unavailable() {
+        if observations.is_none() && dual_world_registry_unavailable() {
             return false;
         }
 
-        let ignore_cells = ignored_obstacle_cells(request.ignore_obstacle_id);
+        let ignore_cells = observations.map_or_else(
+            || ignored_obstacle_cells(request.ignore_obstacle_id),
+            |world| world.ignored_cells(request.ignore_obstacle_id),
+        );
         let pathfinder = &self.pathfinder;
         let center_cell = ICoord2D::new(cell.x, cell.y);
         let check_for_aircraft = aircraft_goal_only
@@ -391,14 +503,26 @@ impl PathfindingSystem {
                 ok = false;
                 return;
             }
-            let Some(relationship) = OBJECT_REGISTRY
-                .with_object(request.object_id, |obj_guard| {
-                    OBJECT_REGISTRY.with_object(goal_unit, |goal_guard| {
-                        obj_guard.relationship_to(&goal_guard)
+            let relationship = if let Some(world) = observations {
+                let source = world.object(request.object_id);
+                let target = world.object(goal_unit);
+                match (source, target) {
+                    (Some(source), Some(target)) => Some(world.relationship(
+                        &source.read().expect("admitted source poisoned"),
+                        &target.read().expect("admitted goal poisoned"),
+                    )),
+                    _ => None,
+                }
+            } else {
+                OBJECT_REGISTRY
+                    .with_object(request.object_id, |obj_guard| {
+                        OBJECT_REGISTRY.with_object(goal_unit, |goal_guard| {
+                            obj_guard.relationship_to(&goal_guard)
+                        })
                     })
-                })
-                .flatten()
-            else {
+                    .flatten()
+            };
+            let Some(relationship) = relationship else {
                 return;
             };
             if !request.move_allies && matches!(relationship, crate::common::Relationship::Allies) {
@@ -759,8 +883,18 @@ impl PathfindingSystem {
         from: &Coord3D,
         to: &Coord3D,
     ) -> bool {
+        self.client_safe_quick_does_path_exist_with_observations(surfaces, from, to, None)
+    }
+    pub(crate) fn client_safe_quick_does_path_exist_with_observations(
+        &self,
+        surfaces: LocomotorSurfaceTypeMask,
+        from: &Coord3D,
+        to: &Coord3D,
+        observations: Option<&PathfindObservations>,
+    ) -> bool {
         // C++ validMovementPosition(false, destLayer, locoSet, to)
-        if !self.valid_movement_position(surfaces, false, to, None) {
+        if !self.valid_movement_position_with_observations(surfaces, false, to, None, observations)
+        {
             return false;
         }
         // C++: no goals on cliffs

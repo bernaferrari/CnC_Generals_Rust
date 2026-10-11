@@ -69,6 +69,146 @@ impl UnitAIUpdate {
         self.execute_standalone_command(command)
     }
 
+    pub(super) fn execute_command_with_world(
+        &mut self,
+        command: &crate::ai::AiCommandParams,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.validate_world_owner(world)?;
+        self.validate_owned_enter_components()?;
+        // The supplied endpoint owns Enter and its immediate terminal entries.
+        // An arbitrary old state could execute an ambient specialized onExit.
+        let current = self
+            .ai_state_machine
+            .as_ref()
+            .ok_or("installed AI has no state machine")?;
+        let initializes_idle = current.get_current_state_id().is_none()
+            && command.cmd == crate::ai::AiCommandType::Idle;
+        if current.get_temporary_state().is_some()
+            || (!initializes_idle
+                && !matches!(current.get_current_state_id(),
+                Some(id) if id == AIStateType::Idle as u32
+                    || id == AIStateType::Enter as u32
+                    || id == AIStateType::Busy as u32))
+        {
+            return Err(
+                "supplied AIEnter does not admit this previous state or temporary state".into(),
+            );
+        }
+        if !matches!(
+            command.cmd,
+            crate::ai::AiCommandType::Enter
+                | crate::ai::AiCommandType::Idle
+                | crate::ai::AiCommandType::AttackObject
+                | crate::ai::AiCommandType::Busy
+        ) {
+            return Err(
+                "supplied AI operation supports the standard AIEnter transition family only".into(),
+            );
+        }
+        if world.pathfinder().is_none() {
+            return Err("supplied AIEnter requires its owner's pathfinder".into());
+        }
+        let owner = self
+            .runtime
+            .native_owner()
+            .ok_or("installed owner missing")?;
+        let owner = owner.read().map_err(|_| "installed owner poisoned")?;
+        world.validate_enter_operation(&owner, command.obj, command.cmd, command.cmd_source)?;
+        drop(owner);
+        let machine = self
+            .ai_state_machine
+            .as_mut()
+            .ok_or("installed AI has no state machine")?;
+        let mut runtime = super::UnitAiStateRuntime {
+            runtime: &mut self.runtime,
+            parent_exists: true,
+            parent_state_id: None,
+            world: Some(world),
+        };
+        runtime.execute_command_native(command, &mut machine.driver())
+    }
+
+    pub(super) fn validate_owned_enter_components(
+        &self,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let owner = self
+            .runtime
+            .native_owner()
+            .ok_or("installed AI owner missing")?;
+        let owner = owner.read().map_err(|_| "installed AI owner poisoned")?;
+        if owner.get_formation_id() != crate::common::FormationID::NONE
+            && owner.get_group_id().is_some()
+        {
+            return Err("supplied AIEnter does not admit formation group movement".into());
+        }
+        if let Some(body) = owner.get_body_module() {
+            drop(body.lock().map_err(|_| "installed AI body poisoned")?);
+        }
+        if let Some(physics) = owner.get_physics() {
+            drop(
+                physics
+                    .access()
+                    .map_err(|_| "installed AI physics unavailable")?,
+            );
+        }
+        // Eligibility recursively inspects firing passengers and enclosing
+        // garrison fire points. Those native callbacks are not yet admitted by
+        // this bounded infantry-enter endpoint, including their slave effects.
+        if owner.get_contain().is_some() || owner.get_contained_by().is_some() {
+            return Err("supplied AIEnter does not admit a containing or contained source".into());
+        }
+        if owner.get_spawn_behavior_interface_public().is_some() {
+            return Err("supplied AIEnter does not admit slave forwarding callbacks".into());
+        }
+        drop(owner);
+        if self.runtime.data.turret_primary_machine.is_some()
+            || self.runtime.data.turret_secondary_machine.is_some()
+        {
+            return Err("supplied AIEnter does not admit autonomous turret updates".into());
+        }
+        let c = &self.runtime.components;
+        if c.supply_truck_ai.is_some()
+            || c.chinook_ai.is_some()
+            || c.jet_ai.is_some()
+            || c.worker_ai.is_some()
+            || c.dozer_ai.is_some()
+            || c.railed_transport_ai.is_some()
+            || c.hack_internet_ai.is_some()
+            || c.assault_transport_ai.is_some()
+            || c.deliver_payload_ai.is_some()
+            || c.transport_ai.is_some()
+            || c.deploy_style_ai.is_some()
+            || c.wander_ai.is_some()
+        {
+            return Err("supplied AIEnter does not admit specialized AI components".into());
+        }
+        #[cfg(feature = "allow_surrender")]
+        if c.pow_truck_ai.is_some() {
+            return Err("supplied AIEnter does not admit POW AI".into());
+        }
+        Ok(())
+    }
+
+    pub(super) fn validate_world_owner(
+        &self,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let owner = self
+            .runtime
+            .owner
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+            .ok_or("installed AI owner is missing")?;
+        let admitted = world
+            .object(self.runtime.unit_id)
+            .ok_or("AI owner absent from supplied world")?;
+        if !Arc::ptr_eq(&owner, &admitted) {
+            return Err("supplied world does not own this installed AI".into());
+        }
+        Ok(())
+    }
+
     fn execute_standalone_command(
         &mut self,
         command: &crate::ai::AiCommandParams,

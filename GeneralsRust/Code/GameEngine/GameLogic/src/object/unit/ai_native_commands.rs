@@ -14,7 +14,7 @@ use super::types::*;
 use crate::ai::states::AIStateMachineDriver;
 use crate::modules::ai_state_runtime::AiStateRuntime;
 
-impl UnitAiStateRuntime<'_> {
+impl UnitAiStateRuntime<'_, '_> {
     // Retained Jet boundary: these callers still use the standalone Unit order
     // until their C++ AIInternalMoveToState ownership is migrated (hq-n8qlq).
     pub(crate) fn move_registered_unit(

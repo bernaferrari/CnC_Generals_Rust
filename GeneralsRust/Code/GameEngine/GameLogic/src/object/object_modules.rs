@@ -876,15 +876,36 @@ impl Object {
         thing_template: &dyn ThingTemplate,
         prepare_unit_ai: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Err(err) = crate::contain_module_overrides::ensure_module_overrides_installed() {
-            warn!(
-                "Failed to install module overrides before module init: {}",
-                err
-            );
-        }
-
-        // Register the template's descriptors with the global factory (if initialised).
-        let _ = thing_template.module_descriptors();
+        // Unpublished owners install the same constructors from an independent
+        // catalog. A peer's startup or thread-local override staging cannot
+        // replace the definitions halfway through this object's assembly.
+        let unpublished = !object
+            .read()
+            .map_err(|_| "object poisoned before module admission")?
+            .ambient_lifecycle_admitted;
+        let owned_factory = if unpublished {
+            let mut factory = ModuleFactory::new();
+            crate::contain_module_overrides::register_module_overrides(&mut factory)?;
+            for entry in thing_template.get_behavior_module_info() {
+                factory.add_module_internal(
+                    None,
+                    None,
+                    ModuleType::Behavior,
+                    &entry.name,
+                    entry.interface_flags(),
+                );
+            }
+            Some(factory)
+        } else {
+            if let Err(err) = crate::contain_module_overrides::ensure_module_overrides_installed() {
+                warn!(
+                    "Failed to install module overrides before module init: {}",
+                    err
+                );
+            }
+            let _ = thing_template.module_descriptors();
+            None
+        };
 
         let thing_handle: Arc<ObjectThingHandle> = Arc::new(ObjectThingHandle::new(object));
         let module_handle: Arc<dyn ModuleThing> = thing_handle.clone();
@@ -927,6 +948,9 @@ impl Object {
                         )));
                     }
                     Err(err) => {
+                        if unpublished {
+                            return Err(err);
+                        }
                         let object_id = object
                             .read()
                             .ok()
@@ -942,35 +966,39 @@ impl Object {
             Ok(())
         };
 
-        let mut installed = false;
-        match get_module_factory() {
-            Ok(factory_guard) => {
-                if let Some(factory) = factory_guard.as_ref() {
-                    install_behavior_modules(factory)?;
-                    installed = true;
+        if let Some(factory) = owned_factory.as_ref() {
+            install_behavior_modules(factory)?;
+        } else {
+            let mut installed = false;
+            match get_module_factory() {
+                Ok(factory_guard) => {
+                    if let Some(factory) = factory_guard.as_ref() {
+                        install_behavior_modules(factory)?;
+                        installed = true;
+                    }
                 }
+                Err(_) => warn!("Failed to lock ModuleFactory when creating modules"),
             }
-            Err(_) => warn!("Failed to lock ModuleFactory when creating modules"),
-        }
 
-        if !installed {
-            if init_module_factory().is_ok() {
-                match get_module_factory() {
-                    Ok(factory_guard) => {
-                        if let Some(factory) = factory_guard.as_ref() {
-                            install_behavior_modules(factory)?;
-                        } else {
-                            warn!(
-                                "ModuleFactory still not initialised after retry while creating modules"
-                            );
+            if !installed {
+                if init_module_factory().is_ok() {
+                    match get_module_factory() {
+                        Ok(factory_guard) => {
+                            if let Some(factory) = factory_guard.as_ref() {
+                                install_behavior_modules(factory)?;
+                            } else {
+                                warn!(
+                                    "ModuleFactory still not initialised after retry while creating modules"
+                                );
+                            }
+                        }
+                        Err(_) => {
+                            warn!("Failed to lock ModuleFactory after retry while creating modules")
                         }
                     }
-                    Err(_) => {
-                        warn!("Failed to lock ModuleFactory after retry while creating modules")
-                    }
+                } else {
+                    warn!("ModuleFactory initialisation failed while creating modules");
                 }
-            } else {
-                warn!("ModuleFactory initialisation failed while creating modules");
             }
         }
 
@@ -1156,11 +1184,15 @@ impl Object {
                     }
                     initial_update_wake_frame(module)
                 });
-                if let Err(err) = crate::helpers::TheGameLogic::register_update_module(
-                    object_id,
-                    proxy.clone(),
-                    wake_frame,
-                ) {
+                if let Err(err) = if owner.ambient_lifecycle_admitted {
+                    crate::helpers::TheGameLogic::register_update_module(
+                        object_id,
+                        proxy.clone(),
+                        wake_frame,
+                    )
+                } else {
+                    Ok(())
+                } {
                     warn!(
                         "Failed to register update module '{}' for object {}: {}",
                         entry.name(),

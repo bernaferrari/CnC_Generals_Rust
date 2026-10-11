@@ -262,6 +262,39 @@ impl PathfindingSystem {
         self.is_line_passable_ex(from, to, surfaces, false, ignore_obstacle_id, false)
     }
 
+    pub(crate) fn is_line_passable_for_surfaces_with_observations(
+        &self,
+        from: &Coord3D,
+        to: &Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        ignore: Option<ObjectID>,
+        observations: Option<&PathfindObservations>,
+    ) -> bool {
+        let cells = observations.map_or_else(
+            || ignored_obstacle_cells(ignore),
+            |world| world.ignored_cells(ignore),
+        );
+        self.is_line_passable(
+            from,
+            to,
+            surfaces,
+            false,
+            PathfindLayerEnum::Ground,
+            cells.as_ref(),
+            false,
+        )
+    }
+    pub(crate) fn is_line_passable_on_layer_with_cells(
+        &self,
+        from: &Coord3D,
+        to: &Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        layer: PathfindLayerEnum,
+        cells: Option<&HashSet<GridCoord>>,
+    ) -> bool {
+        self.is_line_passable(from, to, surfaces, false, layer, cells, false)
+    }
+
     /// C++ `Pathfinder::isLinePassable` with crusher + allowPinched flags.
     pub fn is_line_passable_ex(
         &self,
@@ -469,8 +502,18 @@ impl PathfindingSystem {
         layer: PathfindLayerEnum,
         object_id: ObjectID,
     ) -> bool {
+        self.cell_blocked_by_ally_with_observations(cell, layer, object_id, None)
+    }
+
+    pub(crate) fn cell_blocked_by_ally_with_observations(
+        &self,
+        cell: GridCoord,
+        layer: PathfindLayerEnum,
+        object_id: ObjectID,
+        observations: Option<&PathfindObservations<'_>>,
+    ) -> bool {
         // Wave 262: empty dual-world → fail-closed.
-        if dual_world_registry_unavailable() {
+        if observations.is_none() && dual_world_registry_unavailable() {
             return false;
         }
 
@@ -484,6 +527,17 @@ impl PathfindingSystem {
         };
         if pos_unit == INVALID_ID || pos_unit == object_id {
             return false;
+        }
+        if let Some(observations) = observations {
+            let Some(source) = observations.object(object_id) else {
+                return false;
+            };
+            let Some(other) = observations.object(pos_unit) else {
+                return false;
+            };
+            let source = source.read().expect("admitted path source poisoned");
+            let other = other.read().expect("admitted path occupant poisoned");
+            return observations.relationship(&source, &other) == Relationship::Allies;
         }
         OBJECT_REGISTRY
             .with_object(object_id, |self_g| {
@@ -563,122 +617,165 @@ impl PathfindingSystem {
         center_in_cell: bool,
         object_id: ObjectID,
     ) -> PathResult {
-        let _ = (surfaces, is_crusher);
+        self.build_actual_path_from_layered_path_with_observations(
+            grid_path,
+            from_world,
+            to_world,
+            surfaces,
+            is_crusher,
+            blocked,
+            center_in_cell,
+            object_id,
+            None,
+        )
+    }
+
+    pub(crate) fn build_actual_path_from_layered_path_with_observations(
+        &mut self,
+        grid_path: &[(GridCoord, PathfindLayerEnum)],
+        from_world: &Coord3D,
+        to_world: &Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        blocked: bool,
+        center_in_cell: bool,
+        object_id: ObjectID,
+        observations: Option<&PathfindObservations<'_>>,
+    ) -> PathResult {
+        self.reconstruct_layered_path(
+            grid_path,
+            from_world,
+            to_world,
+            surfaces,
+            is_crusher,
+            blocked,
+            center_in_cell,
+            object_id,
+            observations,
+            |x, y, layer| match observations {
+                Some(observations) => observations.terrain.get_layer_height(
+                    x,
+                    y,
+                    crate::path::PathfindLayerEnum::from_u32(layer as u32),
+                    None,
+                    false,
+                ),
+                None => TheTerrainLogic::get()
+                    .map(|terrain| terrain.get_layer_height(x, y, layer))
+                    .unwrap_or(0.0),
+            },
+        )
+    }
+
+    /// AIPathfind.cpp:8954-9070. Shared reconstruction; the height callback is
+    /// the native terrain observation, not another pathfinding implementation.
+    pub(super) fn reconstruct_layered_path(
+        &mut self,
+        grid_path: &[(GridCoord, PathfindLayerEnum)],
+        from_world: &Coord3D,
+        _to_world: &Coord3D,
+        _surfaces: LocomotorSurfaceTypeMask,
+        _is_crusher: bool,
+        blocked: bool,
+        center_in_cell: bool,
+        object_id: ObjectID,
+        observations: Option<&PathfindObservations<'_>>,
+        mut sample_height: impl FnMut(f32, f32, CommonPathfindLayerEnum) -> f32,
+    ) -> PathResult {
         if grid_path.is_empty() {
             return PathResult::none();
         }
-
-        // grid_path is start→goal; prependCells walks goal→start.
-        // C++ buildActualPath(..., centerInCell, blocked).
-        let center = center_in_cell;
+        let mut grid_path = grid_path;
+        if grid_path.len() > 1 {
+            let (goal, goal_layer) = grid_path[grid_path.len() - 1];
+            let (parent, parent_layer) = grid_path[grid_path.len() - 2];
+            if self.pathfinder.is_pinched_on_layer(goal, goal_layer) == Some(true)
+                && self.pathfinder.is_pinched_on_layer(parent, parent_layer) != Some(true)
+            {
+                grid_path = &grid_path[..grid_path.len() - 1];
+            }
+        }
         let mut waypoints: Vec<Coord3D> = Vec::with_capacity(grid_path.len() + 1);
-        let mut layers: Vec<PathfindLayerEnum> = Vec::with_capacity(grid_path.len() + 1);
-        let mut can_optimize: Vec<bool> = Vec::with_capacity(grid_path.len() + 1);
+        let mut layers = Vec::with_capacity(grid_path.len() + 1);
+        let mut can_optimize = Vec::with_capacity(grid_path.len() + 1);
         let mut blocked_by_ally = blocked;
-
-        // Reverse walk excluding the start cell (same cell as unit feet).
-        // C++: for (cell = goal; cell->parent; cell = parent)
-        let mut prev_type: Option<PathfindCellType> = None;
-        let mut prev_layer: Option<PathfindLayerEnum> = None;
-        let mut prev_coord: Option<GridCoord> = None;
-
-        for idx in (0..grid_path.len()).rev() {
+        let mut previous: Option<(GridCoord, PathfindLayerEnum, PathfindCellType)> = None;
+        // The final parentless cell is handled after this loop, as in C++.
+        for idx in (1..grid_path.len()).rev() {
             let (coord, layer) = grid_path[idx];
+            self.zones.set_passable(coord.x, coord.y, true);
+            self.pathfinder.set_zone_passable(coord, true);
+            let pos = Self::coord_to_cell_with_height(
+                coord.x,
+                coord.y,
+                center_in_cell,
+                layer,
+                &mut sample_height,
+            );
             let ctype = self
-                .get_cell_type_at_cell(layer, coord.x, coord.y)
+                .pathfinder
+                .get_cell_type_on_layer(coord, layer)
+                .or_else(|| self.get_cell_type_at_cell(layer, coord.x, coord.y))
                 .unwrap_or(PathfindCellType::Clear);
-
-            // Same cell layer transition: skip duplicate x,y (C++ continue).
-            if let Some(pc) = prev_coord {
-                if pc.x == coord.x && pc.y == coord.y {
+            if let Some((prev_coord, prev_layer, _)) = previous {
+                if prev_coord == coord {
                     if let Some(first_layer) = layers.first_mut() {
-                        let use_layer = if layer == PathfindLayerEnum::Ground {
-                            prev_layer.unwrap_or(layer)
+                        *first_layer = if layer == PathfindLayerEnum::Ground {
+                            prev_layer
                         } else {
                             layer
                         };
-                        *first_layer = use_layer;
                     }
-                    prev_type = Some(ctype);
-                    prev_layer = Some(layer);
+                    // C++ continue deliberately leaves prevCell unchanged.
                     continue;
                 }
             }
-
-            // Skip last node in reverse (start cell) — unit feet added below.
-            if idx == 0 {
-                prev_type = Some(ctype);
-                prev_layer = Some(layer);
-                prev_coord = Some(coord);
-                // C++ setPassable(start cell) when building ground path reverse.
-                self.zones.set_passable(coord.x, coord.y, true);
-                self.pathfinder.set_zone_passable(coord, true);
-                break;
-            }
-
             let mut can_opt = true;
             if ctype == PathfindCellType::Cliff {
-                if prev_type.is_some_and(|t| t != PathfindCellType::Cliff) {
+                if previous.is_some_and(|(_, _, ctype)| ctype != PathfindCellType::Cliff) {
                     if let Some(first) = can_optimize.first_mut() {
                         *first = false;
                     }
                 }
-            } else if prev_type == Some(PathfindCellType::Cliff) {
+            } else if previous.is_some_and(|(_, _, ctype)| ctype == PathfindCellType::Cliff) {
                 can_opt = false;
             }
-
-            let mut pos = if idx + 1 == grid_path.len() {
-                // first reverse step is goal cell — keep requested goal world pos.
-                *to_world
-            } else {
-                // C++ adjustCoordToCell(cellX, cellY, centerInCell, pos, layer).
-                let mut p = Coord3D::new(0.0, 0.0, 0.0);
-                self.adjust_coord_to_cell(coord.x, coord.y, center, &mut p, layer);
-                p
-            };
-            if let Some(terrain) = TheTerrainLogic::get() {
-                pos.z = terrain.get_layer_height(pos.x, pos.y, CommonPathfindLayerEnum::Ground);
-            }
-
-            // prepend
             waypoints.insert(0, pos);
             layers.insert(0, layer);
             can_optimize.insert(0, can_opt);
-
-            // C++ cell->isBlockedByAlly() → path.setBlockedByAlly(true)
-            if object_id != INVALID_ID {
-                if self.cell_blocked_by_ally(coord, layer, object_id) {
-                    blocked_by_ally = true;
-                }
+            if object_id != INVALID_ID
+                && self.cell_blocked_by_ally_with_observations(
+                    coord,
+                    layer,
+                    object_id,
+                    observations,
+                )
+            {
+                blocked_by_ally = true;
             }
-
-            prev_type = Some(ctype);
-            prev_layer = Some(layer);
-            prev_coord = Some(coord);
+            previous = Some((coord, layer, ctype));
         }
-
-        // Very short path: only goal (no parent) — C++ goalCellNull.
-        if waypoints.is_empty() && !grid_path.is_empty() {
-            let (_, layer) = *grid_path.last().unwrap();
-            let mut pos = *to_world;
-            if let Some(terrain) = TheTerrainLogic::get() {
-                pos.z = terrain.get_layer_height(pos.x, pos.y, CommonPathfindLayerEnum::Ground);
-            }
-            waypoints.push(pos);
-            layers.push(layer);
+        let (start, start_layer) = grid_path[0];
+        self.zones.set_passable(start.x, start.y, true);
+        self.pathfinder.set_zone_passable(start, true);
+        if grid_path.len() == 1 {
+            waypoints.push(Self::coord_to_cell_with_height(
+                start.x,
+                start.y,
+                center_in_cell,
+                start_layer,
+                &mut sample_height,
+            ));
+            layers.push(start_layer);
             can_optimize.push(true);
         }
-
-        // Prepend actual unit feet if different from first node.
         if let Some(first) = waypoints.first() {
-            if (from_world.x - first.x).abs() > 0.01 || (from_world.y - first.y).abs() > 0.01 {
-                let layer = layers.first().copied().unwrap_or(PathfindLayerEnum::Ground);
+            if from_world.x != first.x || from_world.y != first.y {
                 waypoints.insert(0, *from_world);
-                layers.insert(0, layer);
+                layers.insert(0, start_layer);
                 can_optimize.insert(0, true);
             }
         }
-
         PathResult {
             success: !waypoints.is_empty(),
             waypoints,
