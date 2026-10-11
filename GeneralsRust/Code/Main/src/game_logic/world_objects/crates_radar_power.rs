@@ -871,124 +871,35 @@ impl GameLogic {
     /// China CC RadarUpgrade TriggeredBy Upgrade_ChinaRadar (researched);
     /// GLA RadarVan GrantUpgradeCreate Upgrade_GLARadar + RadarUpgrade DisableProof.
     pub(crate) fn update_player_radar(&mut self) {
-        use crate::game_logic::host_radar::{
-            RADAR_OFFLINE_AUDIO, RADAR_ONLINE_AUDIO, is_disabled_for_radar, is_legal_radar_provider,
-        };
-        use crate::game_logic::host_upgrades::{
-            normalize_upgrade_identity, radar_provider_required_research_upgrade,
-        };
-        use std::collections::HashMap;
-
-        // leftover Object::on_disabled_edge: capture hasRadar before remove/add.
-        let prior_has: HashMap<u32, bool> = self
-            .players
-            .iter()
-            .map(|(&id, player)| (id, player.has_radar()))
-            .collect();
-        let edges: Vec<_> = self
-            .objects
-            .values_mut()
-            .flat_map(Object::take_radar_disabled_edges)
-            .collect();
-        for edge in edges {
-            let Some(pid) = edge.player_id else {
-                continue;
-            };
-            let Some(player) = self.players.get_mut(&pid) else {
-                continue;
-            };
-            if edge.becoming_disabled {
-                player.remove_radar(edge.disable_proof);
-            } else {
-                player.add_radar(edge.disable_proof);
-            }
+        let ids: Vec<_> = self.objects.keys().copied().collect();
+        for id in ids {
+            self.admit_host_radar_provider(id);
         }
-
-        let mut providers_by_player: HashMap<u32, u32> = HashMap::new();
-        let mut disable_proof_by_player: HashMap<u32, u32> = HashMap::new();
-        for obj in self.objects.values() {
-            // leftover Object::on_disabled_edge: EMP/hacked/held applied
-            // RadarUpgrade does not contribute (removeRadar while disabled).
-            if is_disabled_for_radar(obj.is_disabled(), obj.status.under_construction) {
-                continue;
-            }
-            if !is_legal_radar_provider(
-                obj.is_alive(),
-                obj.is_constructed() && !obj.status.under_construction,
-                obj.is_command_center() || obj.is_kind_of(KindOf::CommandCenter),
-                &obj.template_name,
-            ) {
-                continue;
-            }
-            let Some(player_id) = self.player_owner_for_host_object(obj) else {
-                continue;
-            };
-            // C++ RadarUpgrade::attemptUpgrade: China CC needs the researched
-            // radar tag. America CC / RadarVan GrantUpgradeCreate skip this.
-            if let Some(required) = radar_provider_required_research_upgrade(&obj.template_name) {
-                let researched = self.players.get(&player_id).is_some_and(|player| {
-                    player.has_unlocked_upgrade(required)
-                        || player
-                            .unlocked_sciences
-                            .iter()
-                            .any(|name| normalize_upgrade_identity(name).contains("chinaradar"))
-                });
-                let tagged = obj.has_upgrade_tag(required)
-                    || obj
-                        .applied_upgrades
-                        .iter()
-                        .any(|name| normalize_upgrade_identity(name).contains("chinaradar"));
-                if !researched && !tagged {
-                    continue;
-                }
-            }
-            *providers_by_player.entry(player_id).or_insert(0) += 1;
-            if crate::game_logic::host_radar::is_radar_van_template(&obj.template_name) {
-                *disable_proof_by_player.entry(player_id).or_insert(0) += 1;
-            }
+        let removed: Vec<_> = self
+            .host_radar
+            .providers
+            .keys()
+            .copied()
+            .filter(|id| !self.objects.contains_key(id))
+            .collect();
+        for id in removed {
+            self.remove_host_radar_provider(id);
         }
-
-        // Apply radar_count recompute per player (absolute set, not delta).
-        // C++ onPowerBrownOutChange always disableRadar()/enableRadar().
-        // hasRadar stays true when m_disableProofRadarCount > 0 (Radar Van).
-        let player_ids: Vec<u32> = self.players.keys().copied().collect();
-        let mut transition_events: Vec<(u32, bool, bool)> = Vec::new();
-        for pid in player_ids {
-            let Some(player) = self.players.get_mut(&pid) else {
-                continue;
-            };
-            let count = providers_by_player.get(&pid).copied().unwrap_or(0);
-            let proof = disable_proof_by_player.get(&pid).copied().unwrap_or(0) as i32;
-            let sabotaged = player.power_sabotaged_till_frame > 0
-                && self.frame < player.power_sabotaged_till_frame;
-            let brownout = player.power_available < 0 || sabotaged;
-            let had = prior_has
-                .get(&pid)
-                .copied()
-                .unwrap_or_else(|| player.has_radar());
-            player.disable_proof_radar_count = proof;
+        let ids: Vec<_> = self.players.keys().copied().collect();
+        for id in ids {
+            let player = self.players.get_mut(&id).unwrap();
+            let had = player.has_radar();
+            let brownout = player.power_available < 0
+                || (player.power_sabotaged_till_frame > 0
+                    && self.frame < player.power_sabotaged_till_frame);
             if brownout {
                 player.disable_radar();
             } else {
                 player.enable_radar();
             }
-            player.set_radar_state(count as i32, player.radar_disabled);
-            let has_now = player.has_radar();
-            transition_events.push((count, had, has_now));
-        }
-
-        for (count, had, has_now) in transition_events {
-            let (came_online, went_offline) =
-                self.host_radar.record_player_radar(count, had, has_now);
-            if came_online {
-                self.queue_audio_event(
-                    AudioEventRequest::new(RADAR_ONLINE_AUDIO).with_priority(130),
-                );
-            } else if went_offline {
-                self.queue_audio_event(
-                    AudioEventRequest::new(RADAR_OFFLINE_AUDIO).with_priority(130),
-                );
-            }
+            let count = player.radar_count.max(0) as u32;
+            let has = player.has_radar();
+            self.record_host_radar_transition(id, count, had, has);
         }
     }
 

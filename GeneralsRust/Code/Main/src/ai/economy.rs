@@ -208,48 +208,59 @@ impl AIPlayer {
     /// C++ `AIPlayer::queueDozer` (AIPlayer.cpp:3128-3171): prepend a priority
     /// dozer work order and startTraining immediately when no KINDOF_DOZER exists.
     pub(super) fn queue_dozer(&mut self, game_logic: &mut GameLogic, current_time: f32) {
-        if self.dozer_already_queued() {
-            return;
+        if let Some(attempt) = self.prepare_dozer_queue(game_logic) {
+            let queued = attempt.execute(game_logic);
+            self.finish_dozer_queue(attempt, queued, current_time);
         }
-        let Some(template_name) = Self::faction_dozer_template(self.team) else {
-            return;
-        };
-        // C++ findFactory(dozer, busyOk=true) — a busy Command Center is allowed.
-        let Some(factory_id) =
-            Self::find_factory_for_unit_ex(game_logic, template_name, self.team, true)
-        else {
-            return;
-        };
+    }
 
-        let mut preexisting: Vec<ObjectId> = game_logic
+    pub(super) fn prepare_dozer_queue(
+        &self,
+        world: &GameLogic,
+    ) -> Option<super::economic_owner::DozerQueueAttempt> {
+        if self.dozer_already_queued() {
+            return None;
+        }
+        let template = Self::faction_dozer_template(self.team)?;
+        let factory = Self::find_factory_for_unit_ex(world, template, self.team, true)?;
+        let mut preexisting: Vec<_> = world
             .host_objects()
             .iter()
-            .filter_map(|(&unit_id, unit)| {
-                (game_logic.object_owned_by_player(unit, self.player_id)
-                    && unit.producer_id == Some(factory_id)
-                    && unit.template_name.eq_ignore_ascii_case(template_name))
-                .then_some(unit_id)
+            .filter_map(|(&id, object)| {
+                (world.object_owned_by_player(object, self.player_id)
+                    && object.producer_id == Some(factory)
+                    && object.template_name.eq_ignore_ascii_case(template))
+                .then_some(id)
             })
             .collect();
         preexisting.sort_by_key(|id| id.0);
+        Some(super::economic_owner::DozerQueueAttempt {
+            player: self.player_id,
+            template: template.into(),
+            factory,
+            preexisting,
+        })
+    }
 
-        let mut order = AIWorkOrder::new(template_name.to_string(), 1, 100);
-        let queued = Self::with_can_build_units(game_logic, self.player_id, true, |gl| {
-            gl.enqueue_production(factory_id, template_name.to_string())
-        });
+    pub(super) fn finish_dozer_queue(
+        &mut self,
+        attempt: super::economic_owner::DozerQueueAttempt,
+        queued: bool,
+        now: f32,
+    ) {
+        let mut order = AIWorkOrder::new(attempt.template, 1, 100);
         if queued {
-            order.factory_id = Some(factory_id);
+            order.factory_id = Some(attempt.factory);
             order.queued_count = 1;
-            order.observed_unit_ids = preexisting;
+            order.observed_unit_ids = attempt.preexisting;
         }
         self.team_queue.push_front(AITeamQueue::new(
-            "DOZER - building one at the factory".to_string(),
+            "DOZER - building one at the factory".into(),
             vec![order],
             true,
-            (current_time * LOGIC_FRAMES_PER_SECOND) as u32,
+            (now * LOGIC_FRAMES_PER_SECOND) as u32,
         ));
-        // C++ m_teamDelay = 0 so queueUnits retries immediately.
-        self.next_team_queue_time = current_time;
+        self.next_team_queue_time = now;
         if queued {
             self.activity_count = self.activity_count.saturating_add(1);
         }
@@ -275,28 +286,12 @@ impl AIPlayer {
             })
             .collect();
 
-        for (structure_id, position) in unfinished {
-            let has_live_builder = game_logic.host_objects().values().any(|object| {
-                game_logic.object_owned_by_player(object, self.player_id)
-                    && object.is_alive()
-                    && object.can_construct()
-                    && object.target == Some(structure_id)
-                    && object.ai_state == AIState::Constructing
-            });
-            if has_live_builder {
-                continue;
-            }
-
-            if let Some(dozer_id) =
-                Self::find_available_dozer(game_logic, self.team, position, self.repair_dozer)
-            {
-                if game_logic.resume_construction(&[dozer_id], structure_id) {
-                    // `resume_construction` creates the authoritative dock;
-                    // this command restores the corresponding movement/path.
-                    let _ = game_logic.unit_command_begin_construct(dozer_id, position);
-                }
-            }
-        }
+        game_logic.resume_owned_ai_construction(
+            self.player_id,
+            self.team,
+            self.repair_dozer,
+            unfinished,
+        );
     }
 
     /// C++ `AIPlayer::buildStructureWithDozer` position wiggle
@@ -378,118 +373,88 @@ impl AIPlayer {
         ai_data: &AiDataView,
     ) {
         self.resume_interrupted_construction(game_logic);
-        // C++ findDozer → queueDozer when no KINDOF_DOZER exists (AIPlayer.cpp:3254-3256).
         if !Self::team_has_any_dozer(game_logic, self.team) {
             self.queue_dozer(game_logic, current_time);
         }
-
-        let is_under_powered = game_logic
-            .get_player(self.player_id)
-            .is_some_and(|player| player.power_available < 0);
-        let build_index = self.select_priority_or_power_build_with_ai_data(
-            game_logic,
-            current_time,
-            is_under_powered,
-            ai_data,
-        );
-        if let Some(index) = build_index {
-            self.relocate_defense_if_illegal(game_logic, index);
-            if let Some((template_name, position, mut build_cost)) =
-                self.building_queue.get(index).and_then(|building| {
-                    game_logic
-                        .templates
-                        .get(&building.template_name)
-                        .map(|template| {
-                            (
-                                building.template_name.clone(),
-                                building.position,
-                                template.build_cost,
-                            )
-                        })
-                })
-            {
-                build_cost.supplies = game_logic.modified_build_cost_supplies(
-                    self.player_id,
-                    &template_name,
-                    build_cost.supplies,
-                );
-                let started =
-                    Self::find_available_dozer(game_logic, self.team, position, self.repair_dozer)
-                        .and_then(|dozer_id| {
-                            // C++ buildStructureWithDozer tries the intended
-                            // location first (AIPlayer.cpp:504-517), then
-                            // wiggles an expanding square for the first legal
-                            // spot (AIPlayer.cpp:519-583). Without the wiggle
-                            // an obstructed pad is retried forever.
-                            let is_legal = |candidate: Vec3| {
-                                game_logic.is_location_legal_to_build_for_builder(
-                                    self.team,
-                                    candidate,
-                                    &template_name,
-                                    Some(dozer_id),
-                                )
-                            };
-                            let build_position = if is_legal(position) {
-                                position
-                            } else {
-                                let adjusted =
-                                    Self::wiggle_find_legal_build_position(position, is_legal)?;
-                                // Store the adjusted pad like the base-defense
-                                // fan does, so rebuilds reuse the legal spot.
-                                if let Some(building) = self.building_queue.get_mut(index) {
-                                    building.position = adjusted;
-                                }
-                                adjusted
-                            };
-                            let structure_id = game_logic.create_dozer_scaffold(
-                                &template_name,
-                                self.player_id,
-                                dozer_id,
-                                build_position,
-                                0.0,
-                                build_cost,
-                            )?;
-
-                            // The authoritative construction APIs carry the exact live
-                            // association that `update_construction` consumes: target is
-                            // the scaffold and the dozer receives its construct path.
-                            let assigned =
-                                game_logic.resume_construction(&[dozer_id], structure_id);
-                            let commanded = assigned
-                                && game_logic
-                                    .unit_command_begin_construct(dozer_id, build_position);
-                            if commanded {
-                                Some(structure_id)
-                            } else {
-                                // This is only an invariant failure after the earlier
-                                // affordability/path checks.  Do not leave an unpaid,
-                                // unassigned scaffold behind.
-                                game_logic.cancel_dozers_building(structure_id);
-                                game_logic.destroy_object(structure_id);
-                                None
-                            }
-                        });
-
-                if let Some(object_id) = started {
-                    let built_at = self.building_queue[index].position;
-                    let building = &mut self.building_queue[index];
-                    building.object_id = Some(object_id);
-                    building.decrement_num_rebuilds();
-                    // C++ setObjectTimestamp(0) once rebuild is enabled/started.
-                    building.destroyed_at_time = None;
-                    self.activity_count = self.activity_count.saturating_add(1);
-                    log::debug!(
-                        "AI Player {} building {} at {:?}",
-                        self.player_id,
-                        template_name,
-                        built_at
-                    );
-                }
+        if let Some(attempt) = self.prepare_scaffold_attempt(game_logic, current_time, ai_data) {
+            if let Some(object) = attempt.execute(game_logic) {
+                self.finish_scaffold_attempt(&attempt, object);
             }
         }
-
-        // C++ processBaseBuilding: captured pads unbind; missing pads scan GLA holes.
         self.sync_build_list_object_status(game_logic, current_time);
+    }
+
+    pub(super) fn prepare_scaffold_attempt(
+        &mut self,
+        game_logic: &GameLogic,
+        current_time: f32,
+        ai_data: &AiDataView,
+    ) -> Option<super::economic_owner::ScaffoldAttempt> {
+        let under_powered = game_logic
+            .get_player(self.player_id)
+            .is_some_and(|player| player.power_available < 0);
+        let index = self.select_priority_or_power_build_with_ai_data(
+            game_logic,
+            current_time,
+            under_powered,
+            ai_data,
+        )?;
+        self.relocate_defense_if_illegal(game_logic, index);
+        let building = self.building_queue.get(index)?;
+        let template_name = building.template_name.clone();
+        let position = building.position;
+        let mut cost = game_logic.templates.get(&template_name)?.build_cost;
+        cost.supplies =
+            game_logic.modified_build_cost_supplies(self.player_id, &template_name, cost.supplies);
+        let dozer = Self::find_available_dozer(game_logic, self.team, position, self.repair_dozer)?;
+        let legal = |candidate| {
+            game_logic.is_location_legal_to_build_for_builder(
+                self.team,
+                candidate,
+                &template_name,
+                Some(dozer),
+            )
+        };
+        let position = if legal(position) {
+            position
+        } else {
+            Self::wiggle_find_legal_build_position(position, legal)?
+        };
+        let building = self.building_queue.get_mut(index)?;
+        building.position = position;
+        if building.runtime_visit_token == 0 {
+            building.runtime_visit_token = self.next_building_visit_token;
+            self.next_building_visit_token = self
+                .next_building_visit_token
+                .checked_add(1)
+                .expect("AI building token exhaustion");
+        }
+        Some(super::economic_owner::ScaffoldAttempt {
+            player: self.player_id,
+            token: building.runtime_visit_token,
+            template_name,
+            position,
+            dozer,
+            cost,
+        })
+    }
+
+    pub(super) fn finish_scaffold_attempt(
+        &mut self,
+        attempt: &super::economic_owner::ScaffoldAttempt,
+        object: ObjectId,
+    ) {
+        let Some(building) = self
+            .building_queue
+            .iter_mut()
+            .find(|building| building.runtime_visit_token == attempt.token)
+        else {
+            return;
+        };
+        building.object_id = Some(object);
+        building.decrement_num_rebuilds();
+        building.destroyed_at_time = None;
+        self.activity_count = self.activity_count.saturating_add(1);
     }
 
     pub(super) fn pad_object_still_ours(
@@ -825,21 +790,36 @@ impl AIPlayer {
 
     /// C++ `AIPlayer::buildUpgrade` — named player upgrade at a ready factory.
     pub fn build_upgrade(&mut self, game_logic: &mut GameLogic, upgrade_name: &str) -> bool {
-        if upgrade_name.trim().is_empty() {
+        let Some(attempt) = self.prepare_script_upgrade(game_logic, upgrade_name) else {
             return false;
+        };
+        if !attempt.execute(game_logic) {
+            return false;
+        }
+        self.activity_count = self.activity_count.saturating_add(1);
+        true
+    }
+
+    pub(super) fn prepare_script_upgrade(
+        &self,
+        game_logic: &GameLogic,
+        upgrade_name: &str,
+    ) -> Option<super::postmilitary_owner::UpgradeAttempt> {
+        if upgrade_name.trim().is_empty() {
+            return None;
         }
         let upgrade_type = game_logic.upgrade_type(upgrade_name);
         if upgrade_type == gamelogic::upgrade::UpgradeType::Object {
-            return false;
+            return None;
         }
         let Some(player) = game_logic.get_player(self.player_id) else {
-            return false;
+            return None;
         };
         if !player.is_alive
             || player.has_unlocked_upgrade(upgrade_name)
             || player.has_queued_upgrade(upgrade_name)
         {
-            return false;
+            return None;
         }
         let leftover_cost = game_logic
             .upgrade_template(upgrade_name)
@@ -852,49 +832,19 @@ impl AIPlayer {
             power: 0,
         };
         if cost_supplies > 0 && !player.can_afford(&cost) {
-            return false;
+            return None;
         }
         let Some(producer_id) = self.find_upgrade_producer(game_logic, upgrade_name, upgrade_type)
         else {
-            return false;
+            return None;
         };
-        let Some(player) = game_logic.get_player_mut(self.player_id) else {
-            return false;
-        };
-        if !player.queue_upgrade(upgrade_name, &cost, upgrade_type) {
-            return false;
-        }
-        let secs = game_logic.upgrade_research_time_secs(upgrade_name);
-        if !game_logic.unit_command_building_add_upgrade_to_queue(
-            producer_id,
-            upgrade_name,
-            secs,
+        Some(super::postmilitary_owner::UpgradeAttempt {
+            player: self.player_id,
+            team: self.team,
+            name: upgrade_name.into(),
+            producer: producer_id,
             cost,
-        ) {
-            if let Some(player) = game_logic.get_player_mut(self.player_id) {
-                let _ = player.cancel_queued_upgrade(upgrade_name, &cost);
-            }
-            return false;
-        }
-        game_logic.record_host_upgrade_queued(
-            self.player_id,
-            self.team,
-            upgrade_name,
-            Some(producer_id),
-        );
-        game_logic.host_upgrades_mut().set_build_cost_paid(
-            upgrade_name,
-            self.player_id,
-            cost.supplies,
-        );
-        let frames = (secs * LOGIC_FRAMES_PER_SECOND).round().max(1.0) as u32;
-        game_logic.host_upgrades_mut().set_resolved_research_frames(
-            upgrade_name,
-            self.player_id,
-            frames,
-        );
-        self.activity_count = self.activity_count.saturating_add(1);
-        true
+        })
     }
 
     /// C++ `AIPlayer::findSupplyCenter`.
@@ -1574,13 +1524,20 @@ impl AIPlayer {
             return;
         }
 
-        let desired = self.desired_gatherers_per_supply_center();
-        if desired == 0 {
-            return;
-        }
+        let fallback_desired = self.desired_gatherers_per_supply_center();
         let total_collectors = self.total_live_collectors(game_logic);
         let centers = self.live_supply_centers(game_logic);
         for center_id in centers {
+            // CPP queueSupplyTruck consumes the completed BuildListInfo target.
+            // Non-authored centers retain the retail side default.
+            let desired = self
+                .building_queue
+                .iter()
+                .find(|pad| pad.object_id == Some(center_id) && pad.supply_building)
+                .map_or(fallback_desired, |pad| pad.desired_gatherers.max(0) as u32);
+            if desired == 0 {
+                continue;
+            }
             self.route_idle_supply_center_collectors(game_logic, center_id);
 
             let current = self.collector_count_for_supply_center(game_logic, center_id);

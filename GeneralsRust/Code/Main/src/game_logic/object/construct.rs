@@ -1176,6 +1176,8 @@ impl Object {
             formation_id: 0,
             formation_offset: glam::Vec2::ZERO,
             overcharge_enabled: false,
+            radar_upgrade_executed: Vec::new(),
+            radar_upgrade_contributors: Vec::new(),
             pending_radar_disabled_edges: Vec::new(),
             active_weapon_slot: 0,
             weapon_lock_type: WeaponLockType::NotLocked,
@@ -1291,6 +1293,7 @@ impl Object {
             has_overlord_gattling_addon: false,
             overlord_addon_body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
+            overlord_redirection_active: false,
             overlord_portable_occupant: None,
             has_overlord_propaganda_addon: false,
             is_helix_transport: false,
@@ -2108,6 +2111,8 @@ impl Object {
             formation_id: 0,
             formation_offset: glam::Vec2::ZERO,
             overcharge_enabled: false,
+            radar_upgrade_executed: Vec::new(),
+            radar_upgrade_contributors: Vec::new(),
             pending_radar_disabled_edges: Vec::new(),
             active_weapon_slot: 0,
             weapon_lock_type: WeaponLockType::NotLocked,
@@ -2222,6 +2227,7 @@ impl Object {
             attack_move_command_src: None,
             overlord_addon_body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
+            overlord_redirection_active: false,
             overlord_portable_occupant: None,
             has_overlord_gattling_addon: false,
             has_overlord_propaganda_addon: false,

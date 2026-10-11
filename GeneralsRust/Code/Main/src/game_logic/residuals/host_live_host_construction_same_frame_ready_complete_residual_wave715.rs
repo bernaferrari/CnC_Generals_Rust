@@ -1,6 +1,6 @@
-//! Wave 715: sole-tick construction complete runs after GW ready writeback
-//! in the same coupled tick (not deferred to the next host `update_construction`).
-//! Mirrors production Wave 714. Never flips `playable_claim`.
+//! Construction ownership audit. Historical CLI receipt names remain
+//! navigation metadata; source checks require one canonical host writer and
+//! immutable shadow comparisons. Runtime regressions exercise the host phases.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 static RESIDUAL_OK: AtomicBool = AtomicBool::new(false);
@@ -12,8 +12,8 @@ pub const LIVE_HOST_CONSTRUCTION_SAME_FRAME_READY_COMPLETE_METHOD_NAMES_WAVE715:
     "host_apply_construction_completions_after_ready_writeback",
     "apply_post_writeback_complete_op",
     "ConstructionCompletionsAfterReadyWriteback",
-    "gameworld_construction_sole_tick_enabled",
-    "writeback_construction_to_host",
+    "host_owns_construction",
+    "compare_construction_to_host",
     "host_construction_ready_log",
     "Wave 715",
     "playable_claim = false",
@@ -81,8 +81,8 @@ pub fn honesty_host_construction_same_frame_ready_complete_method_names_residual
         "host_apply_construction_completions_after_ready_writeback",
     )
     .is_some()
-        && residual_name_index(names, "gameworld_construction_sole_tick_enabled").is_some()
-        && residual_name_index(names, "writeback_construction_to_host").is_some()
+        && residual_name_index(names, "host_owns_construction").is_some()
+        && residual_name_index(names, "compare_construction_to_host").is_some()
         && residual_name_index(names, "host_construction_ready_log").is_some()
         && residual_name_index(names, "Wave 715").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
@@ -91,37 +91,7 @@ pub fn honesty_host_construction_same_frame_ready_complete_method_names_residual
 }
 pub fn honesty_host_construction_same_frame_ready_complete_source_markers_residual_wave715() -> bool
 {
-    let gl = gl_source();
-    let sh = shadow_source();
-    let gl_ok = gl.contains("host_apply_construction_completions_after_ready_writeback")
-        && gl.contains("Wave 715")
-        && gl.contains("Empty mid-update ready set: sole completes only via post-writeback helper");
-    // mid-update must not drain ready log under sole
-    let no_mid_drain = {
-        let i = gl.find("fn update_construction");
-        match i {
-            Some(start) => {
-                let end = (start + 2500).min(gl.len());
-                let chunk = &gl[start..end];
-                !chunk.contains("host_construction_ready_log::drain()")
-            }
-            None => false,
-        }
-    };
-    let sh_ok = (sh.contains("host_apply_construction_completions_after_ready_writeback")
-        || sh.contains("ConstructionCompletionsAfterReadyWriteback")
-        || sh.contains("apply_post_writeback_complete_op"))
-        && sh.contains("Wave 715");
-    let order_ok = match (
-        sh.find("let _construction_wb = shadow.writeback_construction_to_host"),
-        sh.find("host_apply_construction_completions_after_ready_writeback")
-            .or_else(|| sh.find("ConstructionCompletionsAfterReadyWriteback"))
-            .or_else(|| sh.find("apply_post_writeback_complete_op")),
-    ) {
-        (Some(w), Some(c)) => c > w && c - w < 400,
-        _ => false,
-    };
-    let ok = gl_ok && no_mid_drain && sh_ok && order_ok && !gl.contains("playable_claim = true");
+    let ok = super::construction_owner_source_contract::host_owns_construction();
     residual_action_store(ResidualHostConstructionSameFrameReadyCompleteAction::SourceMarkers);
     ok
 }
@@ -141,15 +111,12 @@ pub fn honesty_host_construction_same_frame_ready_complete_nav_commands_residual
     ok
 }
 pub fn simulate_host_construction_same_frame_ready_complete_collect_source() -> bool {
-    let ok = gl_source().contains("host_apply_construction_completions_after_ready_writeback")
-        && (shadow_source().contains("host_apply_construction_completions_after_ready_writeback")
-            || shadow_source().contains("ConstructionCompletionsAfterReadyWriteback")
-            || shadow_source().contains("apply_post_writeback_complete_op"));
+    let ok = super::construction_owner_source_contract::host_owns_construction();
     residual_action_store(ResidualHostConstructionSameFrameReadyCompleteAction::CollectSource);
     ok
 }
 pub fn simulate_host_construction_same_frame_ready_complete_dispatch_source() -> bool {
-    let ok = gl_source().contains("Wave 715") && shadow_source().contains("Wave 715");
+    let ok = super::construction_owner_source_contract::host_owns_construction();
     residual_action_store(ResidualHostConstructionSameFrameReadyCompleteAction::DispatchSource);
     ok
 }
@@ -172,12 +139,7 @@ pub fn simulate_live_host_construction_same_frame_ready_complete_honesty() -> bo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::host_construction_ready_log;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
-    use crate::gameworld_shadow::{
-        begin_shadow_coupled_tick, end_shadow_coupled_tick,
-        gameworld_construction_sole_tick_enabled,
-    };
     use glam::Vec3;
 
     fn ensure_template(logic: &mut GameLogic, name: &str) {
@@ -222,51 +184,45 @@ mod tests {
     }
 
     #[test]
-    fn sole_tick_post_writeback_completes_structure() {
-        let _guard = crate::gameworld_shadow::authority_env_lock();
-        let prev_sh = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-        host_construction_ready_log::clear();
-
+    fn owned_dozer_phase_completes_structure_without_ready_writeback() {
+        use crate::game_logic::{AIState, Player};
         let mut logic = GameLogic::new();
-        logic.set_construction_authority(true);
+        let mut player = Player::new(0, Team::USA, "OwnedBuilder", true);
+        // CPP Energy consumption==0 returns production; zero production
+        // invokes the low-energy slowdown rather than full-speed construction.
+        player.power_produced = 1;
+        logic.add_player(player);
         ensure_template(&mut logic, "SfBarracks");
+        let mut template = ThingTemplate::new("SfDozer");
+        template
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Dozer)
+            .set_health(200.0);
+        logic.templates.insert(template.name.clone(), template);
         let id = logic
-            .create_object("SfBarracks", Team::USA, Vec3::new(10.0, 0.0, 10.0))
-            .expect("structure");
-        {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
-            obj.construction_percent = 1.0;
-            obj.set_status_under_construction(true);
-        }
-
-        begin_shadow_coupled_tick();
-        assert!(gameworld_construction_sole_tick_enabled());
-        // Empty ready: no-op.
-        logic.host_apply_construction_completions_after_ready_writeback();
-        assert!(
-            logic
-                .get_objects()
-                .get(&id)
-                .map(|o| o.status.under_construction)
-                .unwrap_or(false),
-            "must stay under construction without ready log"
+            .create_object_for_player("SfBarracks", 0, Vec3::ZERO)
+            .unwrap();
+        let dozer = logic
+            .create_object_for_player("SfDozer", 0, Vec3::ZERO)
+            .unwrap();
+        logic.dozer_new_task_build(dozer, id);
+        let action = logic.host_object(dozer).unwrap().dozer_dock_action.unwrap();
+        let object = logic.host_object_mut(id).unwrap();
+        object.set_status_under_construction(true);
+        object.construction_percent = 0.99;
+        object.builder_id = Some(dozer);
+        let builder = logic.host_object_mut(dozer).unwrap();
+        builder.set_position(action);
+        builder.set_target(Some(id));
+        builder.set_ai_state(AIState::Constructing);
+        builder.movement.path.clear();
+        builder.waiting_for_path = false;
+        logic.update_construction(&[id, dozer], 0.2);
+        assert_eq!(logic.host_object(id).unwrap().construction_percent, 1.0);
+        assert!(!logic.host_object(id).unwrap().status.under_construction);
+        assert_eq!(
+            logic.host_object(dozer).unwrap().dozer_task_build_target,
+            None
         );
-
-        host_construction_ready_log::record(id, 1.0);
-        logic.host_apply_construction_completions_after_ready_writeback();
-        let obj = logic.get_objects().get(&id).expect("obj");
-        assert!(
-            !obj.status.under_construction,
-            "ready path must clear under_construction"
-        );
-        assert!(obj.construction_percent + 1e-6 >= 1.0);
-        end_shadow_coupled_tick();
-        let _ = ObjectId;
-
-        match prev_sh {
-            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-        }
     }
 }

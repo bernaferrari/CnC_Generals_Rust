@@ -78,7 +78,12 @@ impl AIPlayer {
             .filter(|team| !team.reinforcement)
             // Teams whose OnCreate script carries hunt/guard/attack orders
             // are commanded by the script path on activation.
-            .filter(|team| !self.ready_team_has_on_create_orders(team))
+            .filter(|team| {
+                !self.ready_team_has_on_create_orders(
+                    team,
+                    AiWorldView::new(game_logic).script_engine(),
+                )
+            })
             .flat_map(|team| {
                 team.work_orders
                     .iter()
@@ -102,7 +107,11 @@ impl AIPlayer {
     /// orders — the script path commands the team after activation, so the
     /// script-absent fallback in `evaluate_attack_opportunities` must leave
     /// it alone.
-    fn ready_team_has_on_create_orders(&self, team: &AITeamQueue) -> bool {
+    fn ready_team_has_on_create_orders(
+        &self,
+        team: &AITeamQueue,
+        engine: Option<&gamelogic::scripting::engine::ScriptEngine>,
+    ) -> bool {
         let on_create = self
             .team_factory
             .lock()
@@ -113,7 +122,7 @@ impl AIPlayer {
                     .map(|proto| proto.get_script_on_create().to_string())
             })
             .unwrap_or_default();
-        Self::classify_on_create_script(&on_create) != OnCreateIntent::None
+        Self::classify_on_create_script_with_engine(&on_create, engine) != OnCreateIntent::None
     }
 
     /// AIData wealth/poor rate residual: returns speed multiplier (>= rate means faster).
@@ -284,7 +293,6 @@ impl AIPlayer {
                 }
             }
         }
-
         self.attack_in_progress = true;
         self.last_attack_time = current_time;
         self.activity_count = self.activity_count.saturating_add(1);
@@ -738,19 +746,7 @@ impl AIPlayer {
             gamelogic::ai::pathfind_complete::SURFACE_GROUND
         };
         let is_crusher = unit.crusher_level > 0;
-        let hop_targets: Vec<gamelogic::common::Coord3D> = {
-            let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
-            let Ok(terrain) = terrain_owner_handle.read() else {
-                return false;
-            };
-            let mut out = Vec::new();
-            let mut cur = terrain.get_waypoint_by_id(start_waypoint_id);
-            while let Some(way) = cur {
-                out.push(*way.get_location());
-                cur = way.get_next();
-            }
-            out
-        };
+        let hop_targets = game_logic.owned_waypoint_hops(start_waypoint_id);
 
         for target in hop_targets {
             let hop = Vec3::new(target.x, target.z, target.y);
@@ -768,14 +764,35 @@ impl AIPlayer {
     }
 
     /// C++ `AIPlayer::updateBridgeRepair` (`AIPlayer.cpp:2296-2384`).
-    pub(super) fn update_bridge_repair(&mut self, game_logic: &mut GameLogic, current_time: f32) {
+    pub(super) fn update_bridge_repair(&mut self, world: &mut GameLogic, now: f32) {
+        if let Some(effect) = self.prepare_bridge_repair(world, now) {
+            match effect {
+                super::postmilitary_owner::BridgeRepairEffect::QueueDozer => {
+                    self.queue_dozer(world, now);
+                    self.dozer_queued_for_repair = true;
+                }
+                effect => {
+                    let repairing = effect.execute(world, self.player_id);
+                    if repairing {
+                        self.dozer_is_repairing = true;
+                    }
+                }
+            }
+        }
+    }
+
+    pub(super) fn prepare_bridge_repair(
+        &mut self,
+        game_logic: &GameLogic,
+        current_time: f32,
+    ) -> Option<super::postmilitary_owner::BridgeRepairEffect> {
         use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
         if self.structures_to_repair.is_empty() {
-            return;
+            return None;
         }
         if self.last_bridge_repair_time >= 0.0 && current_time - self.last_bridge_repair_time < 1.0
         {
-            return;
+            return None;
         }
         self.last_bridge_repair_time = current_time;
 
@@ -787,11 +804,11 @@ impl AIPlayer {
             self.structures_to_repair.remove(0);
         }
         if self.structures_to_repair.is_empty() {
-            return;
+            return None;
         }
         let bridge_id = self.structures_to_repair[0];
         let Some(bridge) = game_logic.host_object(bridge_id) else {
-            return;
+            return None;
         };
         let bridge_pos = bridge.get_position();
         let bridge_pristine = matches!(bridge.body_damage_state, HostBodyDamageType::Pristine)
@@ -800,7 +817,7 @@ impl AIPlayer {
         if self.repair_dozer.is_none() {
             self.dozer_is_repairing = false;
             if self.dozer_queued_for_repair {
-                return;
+                return None;
             }
             if let Some(dozer_id) =
                 Self::find_available_dozer(game_logic, self.team, bridge_pos, None)
@@ -809,71 +826,56 @@ impl AIPlayer {
                 if let Some(dozer) = game_logic.host_object(dozer_id) {
                     self.repair_dozer_origin = dozer.get_position();
                 }
-                game_logic.queue_command(crate::command_system::GameCommand {
-                    command_type: crate::command_system::CommandType::Repair {
-                        target_id: bridge_id,
-                    },
-                    player_id: self.player_id,
-                    command_id: 0,
-                    timestamp: std::time::SystemTime::now(),
-                    selected_units: vec![dozer_id],
-                    modifier_keys: crate::command_system::ModifierKeys::default(),
+                return Some(super::postmilitary_owner::BridgeRepairEffect::Repair {
+                    dozer: dozer_id,
+                    bridge: bridge_id,
                 });
-                self.dozer_is_repairing = true;
-                return;
             }
-            self.queue_dozer(game_logic, current_time);
-            self.dozer_queued_for_repair = true;
-            return;
+            return Some(super::postmilitary_owner::BridgeRepairEffect::QueueDozer);
         }
 
         let Some(dozer_id) = self.repair_dozer else {
-            return;
+            return None;
         };
         let Some(dozer) = game_logic.host_object(dozer_id) else {
             self.repair_dozer = None;
             self.last_bridge_repair_time = -1.0;
-            return;
+            return None;
         };
         if !dozer.is_alive() {
             self.repair_dozer = None;
             self.last_bridge_repair_time = -1.0;
-            return;
+            return None;
         }
         let dozer_idle = dozer.ai_state == AIState::Idle;
 
         if self.dozer_is_repairing {
             if !dozer_idle {
-                return;
+                return None;
             }
             if bridge_pristine {
                 self.structures_to_repair.remove(0);
                 self.dozer_is_repairing = false;
                 if self.structures_to_repair.is_empty() {
-                    let mut home = if self.base_center.length_squared() > 0.0 {
+                    let home = if self.base_center.length_squared() > 0.0 {
                         self.base_center
                     } else {
                         self.repair_dozer_origin
                     };
-                    // C++ AIPlayer.cpp:2370-2372 adjustToPossibleDestination then aiMoveToPosition.
-                    let _ = game_logic.adjust_to_possible_destination(dozer_id, &mut home);
-                    let _ = game_logic.unit_command_move_to(dozer_id, home);
+                    // Adjustment and the actual move run after restoring the owner.
+                    return Some(super::postmilitary_owner::BridgeRepairEffect::Home {
+                        dozer: dozer_id,
+                        position: home,
+                    });
                 }
-                return;
+                return None;
             }
         }
 
-        game_logic.queue_command(crate::command_system::GameCommand {
-            command_type: crate::command_system::CommandType::Repair {
-                target_id: bridge_id,
-            },
-            player_id: self.player_id,
-            command_id: 0,
-            timestamp: std::time::SystemTime::now(),
-            selected_units: vec![dozer_id],
-            modifier_keys: crate::command_system::ModifierKeys::default(),
-        });
-        self.dozer_is_repairing = true;
+        Some(super::postmilitary_owner::BridgeRepairEffect::Repair {
+            dozer: dozer_id,
+            bridge: bridge_id,
+        })
     }
 
     pub(super) fn player_structure_bounds(

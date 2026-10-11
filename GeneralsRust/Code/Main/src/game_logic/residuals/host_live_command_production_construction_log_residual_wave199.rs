@@ -1,4 +1,5 @@
-//! Wave 199 residual peels: construction start logs progress; production cancel
+//! Historical Wave 199 navigation receipt: construction is now observed on its owner.
+//! Production cancel
 //! logs `HostProductionEvent::Cancel` for GameWorld queue last-writer.
 //! Never flips shell `playable_claim`.
 //!
@@ -6,7 +7,7 @@
 //! Host residual only — network deferred.
 //!
 //! Sources:
-//! - `create_object_under_construction` → `host_construction_progress_log::record`
+//! - `create_object_under_construction` → `host_owns_construction`
 //! - `cancel_production` → `host_production_log::record_cancel`
 //! - shadow `apply_host_production_events` handles Cancel
 //!
@@ -22,7 +23,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 /// Production/construction log residual method names.
 pub const LIVE_COMMAND_PRODUCTION_CONSTRUCTION_LOG_METHOD_NAMES_WAVE199: &[&str] = &[
     "create_object_under_construction",
-    "host_construction_progress_log::record",
+    "host_owns_construction",
     "host_production_log::record_cancel",
     "HostProductionEvent::Cancel",
     "playable_claim = false",
@@ -84,15 +85,7 @@ pub fn honesty_live_command_production_construction_log_residual_pack_wave199() 
 
 /// Source residual: under-construction create records progress log at 0%.
 pub fn honesty_construction_start_progress_log_source() -> bool {
-    let src = super::GAME_LOGIC_HOST_SRC;
-    let i = match src.find("fn create_object_under_construction") {
-        Some(i) => i,
-        None => return false,
-    };
-    let body = &src[i..];
-    body.contains("host_construction_progress_log::record")
-        && body.contains("0.0, true, 0.0")
-        && body.contains("host_spawn_log::record")
+    super::construction_owner_source_contract::host_owns_construction()
 }
 
 /// Source residual: cancel_production records Cancel; shadow matches Cancel.
@@ -111,9 +104,8 @@ pub fn honesty_production_cancel_log_source() -> bool {
         && gw.contains("HostProductionEvent::Cancel")
 }
 
-/// Live residual: cancel production latches Cancel event; construction start latches progress.
+/// Actual scaffold admission plus the independent production cancellation receipt.
 pub fn simulate_live_command_production_construction_log_honesty() -> bool {
-    use crate::game_logic::host_construction_progress_log;
     use crate::game_logic::host_production_log::{self, HostProductionEvent};
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
@@ -130,7 +122,6 @@ pub fn simulate_live_command_production_construction_log_honesty() -> bool {
     }
 
     host_production_log::clear();
-    host_construction_progress_log::clear();
 
     // Direct log APIs (command path sources already honesty-checked).
     host_production_log::record_cancel(crate::game_logic::ObjectId(42), "CancelUnit199");
@@ -159,23 +150,16 @@ pub fn simulate_live_command_production_construction_log_honesty() -> bool {
         logic.templates.insert("ConstrBldg199".into(), t);
     }
 
-    host_construction_progress_log::clear();
     let Some(bid) = logic.create_object_under_construction(
         "ConstrBldg199",
         Team::USA,
         Vec3::new(50.0, 0.0, 50.0),
     ) else {
-        // Legal-build gate may reject; still accept direct progress log path.
-        host_construction_progress_log::record(crate::game_logic::ObjectId(99), 0.0, true, 0.0);
-        let progress = host_construction_progress_log::drain();
-        return progress
-            .iter()
-            .any(|e| e.under_construction && (e.percent - 0.0).abs() < 1e-6);
+        return false;
     };
-    let progress = host_construction_progress_log::drain();
-    progress
-        .iter()
-        .any(|e| e.object == bid && e.under_construction && (e.percent - 0.0).abs() < 1e-6)
+    logic.host_object(bid).is_some_and(|object| {
+        object.status.under_construction && object.construction_percent == 0.0
+    })
 }
 
 #[cfg(test)]

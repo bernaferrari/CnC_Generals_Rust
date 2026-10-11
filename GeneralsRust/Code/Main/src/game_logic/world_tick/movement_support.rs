@@ -2134,6 +2134,7 @@ impl GameLogic {
                     restamp_after_move = true;
                 }
             }
+            self.admit_host_radar_disabled_edges(id);
             if restamp_after_move {
                 // C++ PhysicsUpdate.cpp:739-743 samples getLayerHeight on the
                 // post-integrate position and adds the carrier deck.
@@ -2166,6 +2167,7 @@ impl GameLogic {
                     }
                 }
             }
+            self.admit_host_radar_disabled_edges(id);
             if let Some(goal) = plant_goal {
                 self.apply_arrival_goal_snap(id, Some(goal));
             }
@@ -2379,6 +2381,7 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&id) {
                 Self::stamp_object_airborne_target(obj, gy, &mut self.health_events);
             }
+            self.admit_host_radar_disabled_edges(id);
         }
     }
 

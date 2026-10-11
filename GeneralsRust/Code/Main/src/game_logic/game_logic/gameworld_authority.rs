@@ -42,8 +42,6 @@ pub struct GameWorldAuthority {
     pub ai_decision: bool,
     /// Projectile spawn deferral last-writer (`*_FIRE_SPAWN_AUTHORITY` successor).
     pub fire_spawn: bool,
-    /// Construction percent last-writer (`*_CONSTRUCTION_AUTHORITY` successor).
-    pub construction: bool,
     /// Special-power cooldown last-writer (`*_SPECIAL_POWER_AUTHORITY` successor).
     pub special_power: bool,
     /// Production queue last-writer (`*_PRODUCTION_AUTHORITY` successor).
@@ -62,7 +60,6 @@ impl GameWorldAuthority {
         projectile: false,
         ai_decision: false,
         fire_spawn: false,
-        construction: false,
         special_power: false,
         production: false,
         weapon: false,
@@ -161,9 +158,6 @@ impl GameLogic {
 
     /// Opt GameWorld shadow in as construction percent last-writer.
     #[inline]
-    pub fn set_construction_authority(&mut self, on: bool) {
-        self.set_gameworld_authority(|a| a.construction = on);
-    }
 
     /// Opt GameWorld shadow in as special-power cooldown last-writer.
     #[inline]

@@ -12,7 +12,7 @@ pub const LIVE_HOST_EAGER_PROD_CONSTRUCTION_HELPER_METHOD_NAMES_WAVE709: &[&str]
     "eager_apply_host_production_after_logic",
     "eager_apply_host_production_progress_after_logic",
     "eager_apply_host_construction_after_logic",
-    "eager_apply_host_construction_progress_after_logic",
+    "eager_observe_host_construction_after_logic",
     "host_production_log",
     "host_construction_log",
     "Wave 709",
@@ -80,8 +80,7 @@ pub fn honesty_host_eager_prod_construction_helper_method_names_residual_wave709
     let ok = residual_name_index(names, "eager_apply_host_production_after_logic").is_some()
         && residual_name_index(names, "eager_apply_host_production_progress_after_logic").is_some()
         && residual_name_index(names, "eager_apply_host_construction_after_logic").is_some()
-        && residual_name_index(names, "eager_apply_host_construction_progress_after_logic")
-            .is_some()
+        && residual_name_index(names, "eager_observe_host_construction_after_logic").is_some()
         && residual_name_index(names, "host_production_log").is_some()
         && residual_name_index(names, "host_construction_log").is_some()
         && residual_name_index(names, "Wave 709").is_some()
@@ -95,12 +94,13 @@ pub fn honesty_host_eager_prod_construction_helper_source_markers_residual_wave7
     let api_ok = sh.contains("pub fn eager_apply_host_production_after_logic")
         && sh.contains("pub fn eager_apply_host_production_progress_after_logic")
         && sh.contains("pub fn eager_apply_host_construction_after_logic")
-        && sh.contains("pub fn eager_apply_host_construction_progress_after_logic")
+        && sh.contains("pub fn eager_observe_host_construction_after_logic")
         && sh.contains("Wave 709")
         && sh.contains("take_early_production_batch")
-        && sh.contains("take_early_construction_batch")
+        && sh.contains("logic.construction_events.pending()")
+        && !sh.contains("take_early_construction_batch")
         && sh.contains("early_production_applied")
-        && sh.contains("early_construction_progress_applied");
+        && super::construction_owner_source_contract::host_owns_construction();
     let eng_ok = eng.contains("eager_apply_all_host_residuals_after_logic")
         && eng.contains("eager_apply_all_host_residuals_after_logic")
         && eng.contains("Wave 682/925");
@@ -156,17 +156,14 @@ pub fn simulate_live_host_eager_prod_construction_helper_honesty() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::host_construction_log;
-    use crate::game_logic::host_construction_progress_log;
     use crate::game_logic::host_production_log;
     use crate::game_logic::host_production_progress_log::{self, HostProductionQueueItem};
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::gameworld_shadow::{
         GameWorldShadow, begin_shadow_coupled_tick, eager_apply_host_construction_after_logic,
-        eager_apply_host_construction_progress_after_logic,
         eager_apply_host_production_after_logic, eager_apply_host_production_progress_after_logic,
-        eager_map_host_spawn_if_coupled, end_shadow_coupled_tick, shadow_session_after_host_tick,
-        with_coupled_shadow,
+        eager_map_host_spawn_if_coupled, eager_observe_host_construction_after_logic,
+        end_shadow_coupled_tick, shadow_session_after_host_tick, with_coupled_shadow,
     };
     use glam::Vec3;
 
@@ -212,8 +209,6 @@ mod tests {
         crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         host_production_log::clear();
         host_production_progress_log::clear();
-        host_construction_log::clear();
-        host_construction_progress_log::clear();
 
         let mut logic = GameLogic::new();
         ensure_template(&mut logic, "EagerPcUnit", 100.0);
@@ -223,8 +218,7 @@ mod tests {
             .expect("spawn");
         host_production_log::clear();
         host_production_progress_log::clear();
-        host_construction_log::clear();
-        host_construction_progress_log::clear();
+
         host_production_log::record_enqueue(id, "EagerPcChild");
         host_production_progress_log::record(
             id,
@@ -241,12 +235,16 @@ mod tests {
             0.0,
             1.0,
         );
-        host_construction_log::record(id, "EagerPcUnit");
-        host_construction_progress_log::record(id, 0.5, true, 0.1);
+        logic.construction_events.record(id, "EagerPcUnit");
+
         assert!(host_production_log::len() >= 1);
         assert_eq!(host_production_progress_log::len(), 1);
-        assert_eq!(host_construction_log::len(), 1);
-        assert_eq!(host_construction_progress_log::len(), 1);
+        assert_eq!(logic.construction_events.pending().len(), 1);
+        {
+            let object = logic.host_object_mut(id).unwrap();
+            object.construction_percent = 0.5;
+            object.status.under_construction = true;
+        }
 
         let mut shadow = GameWorldShadow::new(64);
         begin_shadow_coupled_tick();
@@ -264,11 +262,20 @@ mod tests {
         let _ = eager_apply_host_production_after_logic(&mut shadow, &logic);
         let _ = eager_apply_host_production_progress_after_logic(&mut shadow, &logic);
         let _ = eager_apply_host_construction_after_logic(&mut shadow, &logic);
-        let _ = eager_apply_host_construction_progress_after_logic(&mut shadow, &logic);
+        let _ = eager_observe_host_construction_after_logic(&mut shadow, &logic);
         assert!(host_production_log::drain().is_empty());
         assert!(host_production_progress_log::drain().is_empty());
-        assert!(host_construction_log::drain().is_empty());
-        assert!(host_construction_progress_log::drain().is_empty());
+        assert_eq!(
+            logic.construction_events.pending().len(),
+            1,
+            "shadow must retain presentation receipt"
+        );
+        let entity = shadow.entity_for_host(id).unwrap();
+        assert_eq!(
+            shadow.world().entity(entity).unwrap().construction_percent,
+            0.5
+        );
+        assert!(shadow.world().entity(entity).unwrap().under_construction);
         let _probe = shadow_session_after_host_tick(&mut shadow, &mut logic);
         end_shadow_coupled_tick();
         let _ = ObjectId;

@@ -121,6 +121,47 @@ impl Default for ContainAdmission {
     }
 }
 
+/// Frozen containment DieMux fields, using the same C++ flag parser/evaluator
+/// as other authored die modules. This is definition data, never a fired latch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContainDeathRules {
+    pub death_types: u32,
+    pub veterancy_levels: u32,
+    pub exempt_status: u64,
+    pub required_status: u64,
+}
+impl ContainDeathRules {
+    pub fn from_attributes(attributes: &[(&str, &str)]) -> Self {
+        let parsed =
+            crate::game_logic::host_fx_list_die::fx_list_die_from_behavior_attrs(attributes);
+        Self {
+            death_types: parsed.death_types,
+            veterancy_levels: parsed.veterancy_levels,
+            exempt_status: parsed.exempt_status,
+            required_status: parsed.required_status,
+        }
+    }
+    pub fn allows(
+        &self,
+        death: crate::game_logic::host_usa_pilot::HostDeathType,
+        veterancy: crate::game_logic::VeterancyLevel,
+        status: u64,
+    ) -> bool {
+        crate::game_logic::host_fx_list_die::HostFxListDieData {
+            death_types: self.death_types,
+            veterancy_levels: self.veterancy_levels,
+            exempt_status: self.exempt_status,
+            required_status: self.required_status,
+            ..Default::default()
+        }
+        .leftover_die_mux_allows(
+            death,
+            crate::game_logic::host_fx_list_die::leftover_veterancy_from_host(veterancy),
+            status,
+        )
+    }
+}
+
 /// Frozen, exact Object INI containment data used by normal Enter.  This is
 /// intentionally separate from the specialized host transport flags: those
 /// flags retain explicit implemented behavior, while this metadata makes newly
@@ -191,7 +232,7 @@ impl RiderChangeRiderMetadata {
 /// intentionally separate from the specialized host transport flags: those
 /// flags retain explicit implemented behavior, while this metadata makes newly
 /// parsed retail containers usable without a template-name heuristic.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContainModuleMetadata {
     #[serde(default)]
     pub kind: ContainModuleKind,
@@ -202,6 +243,14 @@ pub struct ContainModuleMetadata {
     pub slots: Option<usize>,
     #[serde(default)]
     pub admission: ContainAdmission,
+    /// C++ parsePercentToReal; None retains synthesized adapter defaults.
+    #[serde(default)]
+    pub damage_percent_to_units: Option<f32>,
+    /// TransportContain default false: kill rather than direct destruction.
+    #[serde(default)]
+    pub destroy_riders_who_are_not_free_to_exit: bool,
+    #[serde(default)]
+    pub death_rules: Option<ContainDeathRules>,
     /// C++ OpenContain defaults are all true; retain authored overrides.
     #[serde(default = "default_allow_inside")]
     pub allow_allies_inside: bool,
@@ -331,6 +380,9 @@ impl Default for ContainModuleMetadata {
         Self {
             kind: ContainModuleKind::None,
             slots: None,
+            damage_percent_to_units: None,
+            destroy_riders_who_are_not_free_to_exit: false,
+            death_rules: None,
             admission: ContainAdmission::Unsupported,
             allow_allies_inside: true,
             allow_enemies_inside: true,

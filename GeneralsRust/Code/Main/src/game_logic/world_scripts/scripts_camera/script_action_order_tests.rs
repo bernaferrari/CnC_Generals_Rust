@@ -55,7 +55,7 @@ fn execute_chain(world: &mut GameLogic, mut actions: Vec<Box<ScriptAction>>, nes
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();
-    *get_script_engine().write().unwrap() = Some(engine);
+    world.install_owned_script_engine(engine);
     world.scripts_loaded = true;
     world.evaluate_and_execute_scripts(0.0);
 }
@@ -243,37 +243,20 @@ fn actual_world_construction_does_not_publish_script_engine() {
                 "constructing a second world must also remain inert"
             );
 
-            // Map/script startup remains the explicit installation operation.
-            // Missing map data must not prevent installation of the host handler.
             first.initialize_scripts("__inert_constructor_missing_map__");
-            assert!(
-                get_script_engine()
-                    .read()
-                    .unwrap()
-                    .as_ref()
-                    .unwrap()
-                    .action_handler()
-                    .is_some()
-            );
-            get_script_engine()
-                .read()
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .set_counter("ConstructorMarker", 73)
-                .unwrap();
+            assert!(get_script_engine().read().unwrap().is_none());
+            let engine = first.owned_script_engine.as_ref().unwrap();
+            assert!(engine.action_handler().is_some());
+            engine.set_counter("ConstructorMarker", 73).unwrap();
             let third = GameLogic::new();
-            assert_eq!(
-                get_script_engine()
-                    .read()
-                    .unwrap()
+            assert_eq!(engine.get_counter("ConstructorMarker").unwrap().value, 73);
+            assert!(
+                third
+                    .owned_script_engine
                     .as_ref()
                     .unwrap()
                     .get_counter("ConstructorMarker")
-                    .unwrap()
-                    .value,
-                73,
-                "a constructor must not replace an explicitly installed engine"
+                    .is_none()
             );
             drop((second, third));
         },

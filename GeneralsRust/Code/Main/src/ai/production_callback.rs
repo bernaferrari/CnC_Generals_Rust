@@ -78,23 +78,103 @@ impl GameLogic {
     /// looking for the exact bound BuildList entry. This is a synchronous owner
     /// operation, not a later economic poll or a Core registry notification.
     pub(crate) fn notify_owned_ai_structure_produced(&mut self, structure: ObjectId) {
+        self.notify_owned_ai_structure_produced_with_engine(structure, None);
+    }
+
+    pub(crate) fn notify_owned_ai_structure_produced_with_engine(
+        &mut self,
+        structure: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+    ) {
         let Some(object) = self.host_object(structure) else {
             return;
         };
         let Some(owner) = self.player_owner_for_host_object(object) else {
             return;
         };
-        let Some(ai) = self.ai_manager.ai_players.get_mut(&owner) else {
-            return;
-        };
-        ai.next_team_queue_time = 0.0;
-        ai.next_building_time = 0.0;
-        if let Some(building) = ai
-            .building_queue
-            .iter_mut()
-            .find(|building| building.object_id == Some(structure))
-        {
+        // CPP AIPlayer.cpp128-157: an unmatched completion may be the exact
+        // successor of a pad-bound rebuild hole. Resolve identity before the
+        // mutable AI borrow; never guess from position or template alone.
+        let rebuilt_pad = self.ai_manager.ai_players.get(&owner).and_then(|ai| {
+            ai.building_queue.iter().position(|pad| {
+                self.templates
+                    .get(&pad.template_name)
+                    .is_some_and(|plan| plan.is_equivalent_to(&object.thing().template))
+                    && pad
+                        .object_id
+                        .and_then(|hole| self.host_object(hole))
+                        .is_some_and(|hole| {
+                            hole.is_rebuild_hole
+                                && hole.rebuild_reconstructing_id == Some(structure)
+                        })
+            })
+        });
+        let definitions = self.ai_definitions.snapshot();
+        let (completion, desired) = {
+            let Some(ai) = self.ai_manager.ai_players.get_mut(&owner) else {
+                return;
+            };
+            ai.next_team_queue_time = 0.0;
+            ai.next_building_time = 0.0;
+            let side = ai.side_info_name();
+            let desired = definitions
+                .side_info
+                .iter()
+                .filter(|info| side.is_some_and(|side| info.side == side))
+                .last()
+                .map_or(0, |info| match ai.difficulty {
+                    AIDifficulty::Easy => info.easy,
+                    AIDifficulty::Medium => info.normal,
+                    AIDifficulty::Hard | AIDifficulty::Brutal => info.hard,
+                })
+                .wrapping_add(1);
+            let Some(building) = ai
+                .building_queue
+                .iter_mut()
+                .find(|building| building.object_id == Some(structure))
+            else {
+                if let Some(index) = rebuilt_pad {
+                    ai.building_queue[index].object_id = Some(structure);
+                }
+                // Original rebound branch does not replay map properties,
+                // attached scripts, upgrades, or supply bookkeeping.
+                return;
+            };
             building.is_built = true;
+            (building.completion.clone(), desired)
+        };
+        if let Some(completion) = completion {
+            if let Some(object) = self.host_object_mut(structure) {
+                object.name = completion.name;
+                object.set_initial_health_percent(completion.health_percent);
+                object.set_script_unsellable(completion.unsellable);
+                object.set_status_under_construction(false);
+                object.status.reconstructing = false;
+            }
+            self.apply_researched_player_upgrades_to_object(structure);
+            // Named-object queries resolve the canonical host roster directly;
+            // no global cache of a second Object model is published.
+            if let Some(engine) = interpreter {
+                self.run_object_script_with_interpreter(engine, &completion.script, structure);
+            } else {
+                self.run_owned_object_script(&completion.script, structure);
+            }
+        }
+        // Re-resolve after the immediate script; it may destroy/capture/change
+        // the structure or its pad. CPP checks the actual completed module now.
+        let is_supply = self.host_object(structure).is_some_and(|object| {
+            object.thing().template.dock_kind == crate::game_logic::DockKind::SupplyCenter
+        });
+        if is_supply {
+            if let Some(building) = self.ai_manager.ai_players.get_mut(&owner).and_then(|ai| {
+                ai.building_queue
+                    .iter_mut()
+                    .find(|building| building.object_id == Some(structure))
+            }) {
+                building.supply_building = true;
+                building.current_gatherers = -1;
+                building.desired_gatherers = desired;
+            }
         }
     }
 

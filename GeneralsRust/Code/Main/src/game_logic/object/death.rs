@@ -105,6 +105,25 @@ impl Object {
         current_frame: u32,
         attacker_pos: Option<(f32, f32)>,
     ) -> bool {
+        let override_direction = if self.name.is_empty() {
+            None
+        } else {
+            gamelogic::scripting::engine::with_script_engine_ref(|engine| {
+                engine.topple_direction_for_name(&self.name)
+            })
+            .flatten()
+            .map(|direction| (direction.x, direction.y))
+            .or_else(|| gamelogic::scripting::host_script_topple_direction_for(&self.name))
+        };
+        self.begin_structure_topple_with_direction(current_frame, attacker_pos, override_direction)
+    }
+
+    pub(crate) fn begin_structure_topple_with_direction(
+        &mut self,
+        current_frame: u32,
+        attacker_pos: Option<(f32, f32)>,
+        override_direction: Option<(f32, f32)>,
+    ) -> bool {
         if !self.is_kind_of(crate::game_logic::KindOf::Structure) {
             return false;
         }
@@ -124,20 +143,12 @@ impl Object {
             Some((ax, az)) => (pos.x - ax, pos.z - az),
             None => (1.0, 0.0),
         };
-        // C++ StructureToppleUpdate/ToppleUpdate::adjustToppleDirection.
-        if !self.name.is_empty() {
-            let leftover = gamelogic::scripting::engine::with_script_engine_ref(|engine| {
-                engine.topple_direction_for_name(&self.name)
-            })
-            .flatten();
-            let mapped = leftover
-                .map(|d| (d.x, d.y))
-                .or_else(|| gamelogic::scripting::host_script_topple_direction_for(&self.name));
-            if let Some((sx, sy)) = mapped {
-                if sx * sx + sy * sy > 1e-12 {
-                    dx = sx;
-                    dz = sy;
-                }
+        // CPP applies the named override when death begins, never when the
+        // script records it. The driving owner supplies this canonical value.
+        if let Some((sx, sy)) = override_direction {
+            if sx * sx + sy * sy > 1e-12 {
+                dx = sx;
+                dz = sy;
             }
         }
         let mut data = crate::game_logic::host_structure_topple::HostStructureToppleData::default();
@@ -332,9 +343,13 @@ impl Object {
     /// Returns true if slow death started (caller should defer destroy).
     /// Starts only when Object INI authors `SlowDeathBehavior`.
     pub fn begin_slow_death(&mut self, current_frame: u32) -> bool {
-        let Some(ini) =
-            crate::game_logic::host_slow_death::slow_death_ini_for_template(&self.template_name)
-        else {
+        let ini = match &self.thing.template.authored_slow_death {
+            Some(modules) => modules.first().cloned(),
+            None => {
+                crate::game_logic::host_slow_death::slow_death_ini_for_template(&self.template_name)
+            }
+        };
+        let Some(ini) = ini else {
             return self
                 .slow_death
                 .as_ref()
@@ -693,13 +708,20 @@ impl Object {
 
     /// C++ InstantDeathBehavior::onDie residual — queues FX/OCL/Weapon.
     pub fn fire_instant_death(&mut self) -> bool {
-        let Some(ini) = crate::game_logic::host_instant_death::first_applicable_instant_death(
-            &self.template_name,
-            self.status.under_construction,
-            self.status.death_type,
-        ) else {
-            return false;
+        let ini = match &self.thing.template.authored_instant_death {
+            Some(modules) => modules
+                .iter()
+                .find(|module| {
+                    module.is_applicable(self.status.under_construction, self.status.death_type)
+                })
+                .cloned(),
+            None => crate::game_logic::host_instant_death::first_applicable_instant_death(
+                &self.template_name,
+                self.status.under_construction,
+                self.status.death_type,
+            ),
         };
+        let Some(ini) = ini else { return false };
         let burst = ini.pick(self.id.0);
         if let Some(fx) = burst.fx {
             if self.pending_death_fx.is_none() {

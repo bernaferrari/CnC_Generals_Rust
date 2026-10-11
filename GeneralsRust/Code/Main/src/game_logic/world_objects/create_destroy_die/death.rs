@@ -457,7 +457,16 @@ impl GameLogic {
     }
 
     pub(crate) fn mark_object_for_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
-        self.begin_object_death(id, killer);
+        self.begin_object_death(id, killer, None);
+    }
+
+    pub(in crate::game_logic) fn mark_object_for_destruction_with_topple(
+        &mut self,
+        id: ObjectId,
+        killer: Option<Team>,
+        topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+    ) {
+        self.begin_object_death(id, killer, topple_interpreter);
     }
 
     /// C++ GameLogic::destroyObject requests deletion independently of body
@@ -499,7 +508,12 @@ impl GameLogic {
         let _ = crate::gameworld_shadow::eager_mark_host_destroy_if_coupled(id);
     }
 
-    fn begin_object_death(&mut self, id: ObjectId, killer: Option<Team>) {
+    fn begin_object_death(
+        &mut self,
+        id: ObjectId,
+        killer: Option<Team>,
+        topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+    ) {
         if self
             .objects
             .get(&id)
@@ -510,6 +524,7 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.status.on_die_started = true;
         }
+        self.admit_object_drawable_deselection(id);
         self.assault_transport_give_final_orders(id);
         // C++ AIUpdate dtor / setCurrentVictim(NULL) + turret nuke on death.
         self.drop_jet_targeters_on_attack_exit(id);
@@ -545,11 +560,28 @@ impl GameLogic {
         // C++ AIDockState::onExit → AIDockMachine::halt → cancelDock on death.
         self.cancel_dock_reservation(id);
 
+        // CPP OverlordContain200: deactivate before synchronous child kill;
+        // the child's callbacks still resolve the installed outer object.
+        let redirected = self.redirected_containment_owner(id);
+        if redirected != id {
+            if let Some(outer) = self.objects.get_mut(&id) {
+                outer.overlord_redirection_active = false;
+            }
+            if let Some(child) = self.objects.get_mut(&redirected) {
+                child.kill(&mut self.health_events);
+            }
+            self.mark_object_for_destruction(redirected, None);
+            // Base TransportContain::onDie now sees the physical payload in
+            // the hull's literal roster, not the redirected infantry list.
+            self.remove_direct_contained_child(id, redirected);
+        }
+
+        // All contained effects complete on the installed owner before later
+        // InstantDeath, SlowDeath or retained-body callbacks can observe it.
+        self.complete_installed_containment_death(id, killer);
+
         // C++ ProductionUpdate cancelAndRefund on death start (before topple/slow-death deferral).
         self.cancel_all_production(id);
-        // C++ TunnelContain::onDie is synchronous even when a die module
-        // retains the entrance for a later topple/slow-death completion.
-        self.unregister_tunnel_containment(id);
         // C++ SpecialPowerCompletionDie::onDie residual.
         self.maybe_notify_special_power_completion(id);
         // C++ DamDie::onDie residual fires with other die modules at death start.
@@ -608,22 +640,12 @@ impl GameLogic {
         // template carries KindOf::Structure.
         // Body death follows its authored delayed or retained death behavior.
         let is_mine = self.objects.get(&id).is_some_and(|o| o.mine_data.is_some());
-        // C++ CaveContain::onDie (CaveContain.cpp:197-211) overrides
-        // OpenContain::onDie with no super call: death immediately
-        // unregisters the cave and runs TunnelTracker::onTunnelDestroyed —
-        // the last-cave cave-in that kills the shared pool.  Retail caves
-        // author no StructureToppleUpdate / StructureCollapseUpdate, so a
-        // cave-style container must reach the destroy list (and its cave-in
-        // branch) instead of deferring into a topple/collapse animation.
-        let is_cave = self
-            .objects
-            .get(&id)
-            .is_some_and(|o| o.is_cave_style_container());
-        let defer_death_animations =
-            !sold && !under_construction && !is_rebuild_hole && !is_mine && !is_cave;
+        // Derived containment callbacks have already completed while installed.
+        // An authored delayed death may retain the empty owner afterward.
+        let defer_death_animations = !sold && !under_construction && !is_rebuild_hole && !is_mine;
         if defer_death_animations {
             // C++ StructureTopple/Collapse residual: buildings fall/sink before remove.
-            if self.try_begin_structure_topple_instead_of_destroy(id) {
+            if self.try_begin_structure_topple_with_override(id, topple_interpreter) {
                 return;
             }
             // C++ SlowDeathBehavior residual: infantry/vehicles delay destroy + sink.
@@ -1075,6 +1097,14 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
     ) -> bool {
+        self.try_begin_structure_topple_with_override(id, None)
+    }
+
+    fn try_begin_structure_topple_with_override(
+        &mut self,
+        id: ObjectId,
+        topple_interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+    ) -> bool {
         let attacker_pos = {
             let src = self.objects.get(&id).and_then(|o| o.last_damage_source);
             src.and_then(|sid| {
@@ -1085,6 +1115,17 @@ impl GameLogic {
             })
         };
         let frame = self.frame;
+        // Read at the actual Topple admission, after prior onDie callbacks.
+        // An explicitly supplied interpreter remains authoritative even when
+        // its named override is absent; no process owner or mirror is selected.
+        let override_direction = self
+            .host_object(id)
+            .and_then(|object| {
+                topple_interpreter
+                    .or(self.owned_script_engine.as_ref())
+                    .and_then(|engine| engine.topple_direction_for_name(&object.name))
+            })
+            .map(|direction| (direction.x, direction.y));
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -1133,7 +1174,7 @@ impl GameLogic {
         if obj.begin_structure_collapse(frame) {
             return true;
         }
-        if obj.begin_structure_topple(frame, attacker_pos) {
+        if obj.begin_structure_topple_with_direction(frame, attacker_pos, override_direction) {
             return true;
         }
         false

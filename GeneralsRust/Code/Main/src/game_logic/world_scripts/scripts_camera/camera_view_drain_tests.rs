@@ -186,8 +186,8 @@ fn camera_view_drain_nested_authored_blur_then_bw_applies_before_next_action() {
             engine
                 .set_script_list_for_player(0, Some(Box::new(list)))
                 .unwrap();
-            *get_script_engine().write().unwrap() = Some(engine);
             let mut world = GameLogic::new();
+            world.install_owned_script_engine(engine);
             world.scripts_loaded = true;
             world.evaluate_and_execute_scripts(0.0);
             assert_eq!(world.mission_script_counter, 1);

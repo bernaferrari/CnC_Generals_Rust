@@ -16,11 +16,13 @@ pub(super) fn world() -> (GameLogic, ObjectId, ObjectId) {
     let mut template = ThingTemplate::new("OwnedNamedInfantry");
     template
         .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Attackable)
         .set_health(100.0)
         .set_primary_weapon(Weapon::default());
     use crate::game_logic::host_upgrade_module_residuals::{
         AuthoredLocomotorSet, HostLocomotorSetKind,
     };
+    template.transport_slot_count = Some(1);
     template.set_authored_ai_update_interface(Some(true));
     template.authored_locomotor_sets = Some(vec![
         AuthoredLocomotorSet {

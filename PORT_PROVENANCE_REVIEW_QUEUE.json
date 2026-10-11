@@ -12614,6 +12614,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/prototype_owner_order_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/roster_restore.rs"
             },
@@ -12626,6 +12631,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/snapshot.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/state_owned.rs"
             },
             {
               "cargo_reachable": true,
@@ -46588,9 +46598,16 @@
           "blockers": [
             "unreviewed_mapping",
             "unreviewed_symbol_ownership",
+            "unreviewed_source_range_ownership",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/garrison_admission.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/garrison_contain.rs"
           ],
           "candidate_destinations": [
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/garrison_admission.rs"
+            },
             {
               "cargo_reachable": true,
               "classification": "implementation",
@@ -47138,6 +47155,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_contain.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_contain/overlord_admission_owner_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -50681,6 +50703,7 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/partition_manager.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/squish_collide.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/cave_contain.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/garrison_admission.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/garrison_contain.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/heal_contain.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/helix_contain.rs",
@@ -51643,6 +51666,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/garrison_admission.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/garrison_contain.rs"
             },
             {
@@ -51684,6 +51712,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_contain.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_contain/overlord_admission_owner_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -52398,6 +52431,11 @@
             {
               "cargo_reachable": true,
               "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_modules/garrison_admission_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_modules/physics_installation_tests.rs"
             },
             {
@@ -52543,6 +52581,11 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/production/production_update_complete/owned_upgrade.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/production/queue.rs"
             },
             {
@@ -52564,6 +52607,16 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/production/tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "implementation",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/production/upgrade_completion.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/radar_owner_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -188998,7 +189051,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "aa515e171bd1af640fc5949a4acb567fa5edef26185506fd14a9678170e58715",
+  "provenance_input_digest": "8e38d429247ccf815104a203a7cea8ad3c538065e53233f96cd0b637494d118e",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

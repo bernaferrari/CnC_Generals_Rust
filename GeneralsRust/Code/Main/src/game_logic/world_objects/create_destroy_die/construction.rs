@@ -61,6 +61,32 @@ impl GameLogic {
         )
     }
 
+    #[cfg(test)]
+    pub(crate) fn create_dozer_scaffold_observing(
+        &mut self,
+        template: &str,
+        player: u32,
+        constructor: ObjectId,
+        position: Vec3,
+        cost: Resources,
+        observe: impl FnMut(&GameLogic, ObjectId),
+    ) -> Option<ObjectId> {
+        let (owner, team) = self.unit_owner_if_can_construct(constructor)?;
+        if owner != player || !self.players.get(&owner)?.can_afford(&cost) {
+            return None;
+        }
+        self.create_scaffold_with_factory_observer(
+            template,
+            team,
+            Some(owner),
+            position,
+            0.0,
+            Some(constructor),
+            Some(cost),
+            observe,
+        )
+    }
+
     fn create_scaffold(
         &mut self,
         template_name: &str,
@@ -181,10 +207,13 @@ impl GameLogic {
             object.set_under_construction_model_conditions(false);
         }
         self.health_events.record_applied_heal(id, 1.0);
-        crate::game_logic::host_construction_progress_log::record(id, 0.0, true, 0.0);
+
         Some(id)
     }
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod difficulty_owner_tests;

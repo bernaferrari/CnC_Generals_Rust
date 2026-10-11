@@ -158,3 +158,6 @@ include!("continuation_tests.rs");
 
 #[cfg(test)]
 mod live_ghost_grid_owner_tests;
+
+mod radar_upgrade_completion;
+pub use radar_upgrade_completion::{OwnedUpgradeCompletionServices, UpgradeCompletionServices};

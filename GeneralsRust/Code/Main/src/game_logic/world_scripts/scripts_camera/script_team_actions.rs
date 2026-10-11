@@ -318,7 +318,8 @@ impl GameLogic {
             obj.deselect();
             obj.set_team(Team::Neutral);
         }
-        self.selected_objects.retain(|sid| *sid != id);
+        self.admit_host_radar_disabled_edges(id);
+        self.admit_local_drawable_deselected(id);
         for player in self.players.values_mut() {
             player.selected_objects.retain(|sid| *sid != id);
         }
@@ -927,6 +928,84 @@ impl GameLogic {
         Self::resolve_host_team_name(team_name).unwrap_or(crate::game_logic::Team::Neutral)
     }
 
+    /// CPP ScriptActions952: resolve/create this session's team before newObject.
+    pub(super) fn apply_owned_script_create_object(
+        &mut self,
+        request: gamelogic::scripting::engine::ScriptObjectCreation<'_>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let resolved = self.resolve_owned_script_team(request.team, calling, condition)?;
+        let team_id = if let Some((id, _)) = resolved {
+            id
+        } else {
+            if request.team == gamelogic::scripting::core::THIS_TEAM {
+                return Ok(());
+            }
+            let creation = self
+                .team_factory
+                .lock()
+                .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+                .create_inactive_team_with_owned_effects(request.team);
+            let Some((team, effects)) = creation else {
+                return Ok(());
+            };
+            let id = {
+                let team = team
+                    .read()
+                    .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?;
+                team.get_id()
+            };
+            for script in effects {
+                if let Some(engine) = interpreter {
+                    self.execute_owned_ai_condition(engine, &script, None);
+                } else {
+                    self.with_owned_script_engine(|engine, world| {
+                        world.execute_owned_ai_condition(engine, &script, None)
+                    });
+                }
+            }
+            if let Some(team) = self
+                .team_factory
+                .lock()
+                .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+                .find_team_by_id(id)
+            {
+                team.write()
+                    .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+                    .set_active();
+            }
+            id
+        };
+        // Re-resolve after callbacks: deleted/replaced teams cannot admit objects.
+        let identity = self
+            .team_factory
+            .lock()
+            .map_err(|error| gamelogic::GameLogicError::Threading(error.to_string()))?
+            .find_team_by_id(team_id)
+            .and_then(|team| {
+                team.read().ok().map(|team| {
+                    (
+                        team.get_name().as_str().to_owned(),
+                        team.get_controlling_player_id(),
+                    )
+                })
+            });
+        let Some((name, Some(controller))) = identity else {
+            return Ok(());
+        };
+        let position = Self::host_script_coord_to_world(request.x, request.y, request.z);
+        if let Some(id) =
+            self.create_object_on_owned_script_team(request.template, controller, &name, position)
+        {
+            if let Some(object) = self.objects.get_mut(&id) {
+                object.set_orientation(request.angle);
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn host_script_create_object(
         &mut self,
         name: Option<&str>,
@@ -1061,9 +1140,6 @@ impl GameLogic {
                 unit.set_formation(0, glam::Vec2::ZERO);
             }
         }
-        let _ = gamelogic::object::registry::OBJECT_REGISTRY.with_object_mut(id.0, |obj| {
-            obj.leave_group();
-        });
     }
 
     /// C++ `getAIUpdateInterface` + `getCurLocomotor`. Structures have no
@@ -1687,7 +1763,7 @@ impl GameLogic {
         waypoint_name: &str,
     ) -> Option<(u32, glam::Vec3)> {
         let name = gamelogic::common::AsciiString::from(waypoint_name);
-        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let terrain_owner_handle = self.world_services.terrain();
         let (wid, loc) = terrain_owner_handle.read().ok().and_then(|terrain| {
             terrain
                 .get_waypoint_by_name(&name)
@@ -1712,7 +1788,7 @@ impl GameLogic {
         from: glam::Vec3,
     ) -> Option<Vec<glam::Vec3>> {
         let leftover_pos = gamelogic::common::Coord3D::new(from.x, from.z, from.y);
-        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let terrain_owner_handle = self.world_services.terrain();
         let terrain = terrain_owner_handle.read().ok()?;
         let start = terrain.get_closest_waypoint_on_path(&leftover_pos, path_label)?;
         let chain = terrain.walk_link0_chain(start, gamelogic::terrain::WAYPOINT_PATH_LIMIT);
@@ -1741,7 +1817,7 @@ impl GameLogic {
         from: glam::Vec3,
     ) -> Option<u32> {
         let leftover_pos = gamelogic::common::Coord3D::new(from.x, from.z, from.y);
-        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
+        let terrain_owner_handle = self.world_services.terrain();
         let terrain = terrain_owner_handle.read().ok()?;
         let start = terrain.get_closest_waypoint_on_path(&leftover_pos, path_label)?;
         Some(start.get_id())
@@ -1822,6 +1898,10 @@ impl GameLogic {
                     }
                 }
             }
+            if let Some(unit) = self.host_object_mut(unit_id) {
+                unit.last_command_source =
+                    crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
+            }
             let _ = self.unit_command_waypoint_path_prep(unit_id, as_team);
             let assigned = if exact {
                 self.assign_unit_path_exact(unit_id, goal, via)
@@ -1882,6 +1962,59 @@ impl GameLogic {
             .map(|(id, _)| id)
     }
 
+    /// CPP ScriptActions1414-1436: resolve team then victim, retain roster
+    /// identity and issue group AttackObject at the synchronous action phase.
+    /// CPP1362: validate the target team and AI before source preparation.
+    pub(super) fn apply_owned_named_attack_team(
+        &mut self,
+        unit: &str,
+        team: &str,
+        this_object: Option<ObjectId>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some(id) = self.owned_named_script_object(unit, this_object) else {
+            return Ok(());
+        };
+        let Some((team_id, _members)) = self.resolve_owned_script_team(team, calling, condition)?
+        else {
+            return Ok(());
+        };
+        if !self
+            .host_object(id)
+            .is_some_and(|object| object.has_ai_update_interface())
+        {
+            return Ok(());
+        }
+        self.host_object_mut(id)
+            .unwrap()
+            .set_formation(0, glam::Vec2::ZERO);
+        self.apply_unit_locomotor_set(id, "normal");
+        self.apply_owned_attack_team_member(id, team_id);
+        Ok(())
+    }
+
+    pub(super) fn apply_owned_attack_team_member(&mut self, id: ObjectId, team_id: u32) {
+        self.drop_jet_targeters_on_attack_exit(id);
+        self.clear_unit_movement_path(id);
+        let object = self.host_object_mut(id).unwrap();
+        Self::clear_owned_named_ai_goal(object);
+        object.stop_moving();
+        object.set_ai_state(AIState::Idle);
+        let identity = format!("owned:{team_id}");
+        let target = self.choose_attack_team_victim(id, &identity, false);
+        if let Some(target) = target {
+            self.unit_command_script_attack(id, target);
+        }
+        if let Some(object) = self.host_object_mut(id) {
+            object.set_max_shots_to_fire(-1);
+            object.auto_acquire_when_idle = true;
+            object.attack_priority_set = Some(format!("AIGroup.AttackTeam.{identity}"));
+            object.last_command_source =
+                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
+        }
+    }
+
     pub(super) fn host_script_attack_team(&mut self, unit_id: ObjectId, victim_team: &str) {
         if let Some(team) = Self::resolve_host_team_name(victim_team) {
             if team != crate::game_logic::Team::Neutral {
@@ -1908,9 +2041,35 @@ impl GameLogic {
         }
     }
 
+    /// CPP ScriptActions1336–1359: validate first, then leave/Normal/AttackArea.
+    pub(super) fn apply_owned_named_attack_area(
+        &mut self,
+        unit: &str,
+        area: &str,
+        this_object: Option<ObjectId>,
+    ) {
+        let Some(id) = self.owned_named_script_object(unit, this_object) else {
+            return;
+        };
+        if self.host_named_guard_area_polygon(area).is_none()
+            || !self
+                .host_object(id)
+                .is_some_and(|object| object.has_ai_update_interface())
+        {
+            return;
+        }
+        self.host_object_mut(id)
+            .unwrap()
+            .set_formation(0, glam::Vec2::ZERO);
+        self.apply_unit_locomotor_set(id, "normal");
+        self.host_script_attack_area(id, area);
+    }
+
     pub(super) fn host_script_attack_area(&mut self, unit_id: ObjectId, area_name: &str) {
         let tag = format!("AIGroup.AttackArea.poly:{area_name}");
-        let center = self.host_script_area_center(area_name);
+        let center = self
+            .host_named_guard_area_polygon(area_name)
+            .map(|(center, _, _)| center);
         if let Some(unit) = self.objects.get_mut(&unit_id) {
             unit.auto_acquire_when_idle = true;
             unit.attack_priority_set = Some(tag.clone());
@@ -1922,13 +2081,13 @@ impl GameLogic {
             Some(area_name),
         );
         if let Some(vid) = victim {
-            let _ = self.unit_command_attack(unit_id, vid);
+            let _ = self.unit_command_script_attack(unit_id, vid);
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 unit.auto_acquire_when_idle = true;
                 unit.attack_priority_set = Some(tag);
             }
         } else if let Some(dest) = center {
-            let _ = self.unit_command_attack_move_to(unit_id, dest);
+            let _ = self.unit_command_script_attack_move_to(unit_id, dest);
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 unit.attack_priority_set = Some(tag);
             }

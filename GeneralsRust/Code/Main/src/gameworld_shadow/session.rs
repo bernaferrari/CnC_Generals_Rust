@@ -441,18 +441,6 @@ pub fn shadow_session_after_host_tick(
                 false,
             ),
         };
-    let (construction_events, early_construction_applied) = match take_early_construction_batch() {
-        Some((ev, applied)) => (ev, applied),
-        None => (crate::game_logic::host_construction_log::drain(), false),
-    };
-    let (construction_progress_events, early_construction_progress_applied) =
-        match take_early_construction_progress_batch() {
-            Some((ev, applied)) => (ev, applied),
-            None => (
-                crate::game_logic::host_construction_progress_log::drain(),
-                false,
-            ),
-        };
     // Wave 707: prefer post-logic special-power batch.
     let (special_power_events, early_special_power_applied) = match take_early_special_power_batch()
     {
@@ -475,11 +463,7 @@ pub fn shadow_session_after_host_tick(
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_contain_log::drain(), false),
     };
-    // Wave 707: prefer post-logic radar batch.
-    let (radar_events, early_radar_applied) = match take_early_radar_batch() {
-        Some((ev, applied)) => (ev, applied),
-        None => (crate::game_logic::host_radar_log::drain(), false),
-    };
+    let radar_events = logic.host_radar_snapshot();
     // Wave 707: prefer post-logic player-progress batch.
     let (player_progress_events, early_player_progress_applied) =
         match take_early_player_progress_batch() {
@@ -546,18 +530,11 @@ pub fn shadow_session_after_host_tick(
         shadow.apply_host_production_door_events(&production_door_events)
     };
     // Wave 709: skip GW re-apply when post-logic eager path already ran.
-    let _construction_applied = if early_construction_applied {
-        0
-    } else {
-        shadow.apply_host_construction_events(&construction_events, logic)
-    };
-    let _construction_progress_applied = if early_construction_progress_applied {
-        0
-    } else {
-        shadow.apply_host_construction_progress_events(&construction_progress_events)
-    };
-    let _construction_tick = shadow
-        .tick_construction_progress(game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL);
+    // Shadow mapping borrows the driving session's presentation FIFO; it
+    // must never consume receipts before PresentationFrame freezes them.
+    let _construction_applied =
+        shadow.apply_host_construction_events(logic.construction_events.pending(), logic);
+    let _construction_observed = shadow.observe_host_construction(logic);
     // Wave 707: skip GW re-apply when post-logic eager path already ran.
     let _sp_applied = if early_special_power_applied {
         0
@@ -598,12 +575,7 @@ pub fn shadow_session_after_host_tick(
     let _contain_wb = shadow.writeback_contain_to_host(logic);
     let _contain_ready =
         logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Contain);
-    // Wave 707: skip GW re-apply when post-logic eager path already ran.
-    let _radar_applied = if early_radar_applied {
-        0
-    } else {
-        shadow.apply_host_radar_events(&radar_events)
-    };
+    let _radar_applied = shadow.apply_host_radar_events(&radar_events);
     // Wave 707: skip GW re-apply when post-logic eager path already ran.
     let _progress_applied = if early_player_progress_applied {
         0
@@ -2210,10 +2182,8 @@ pub fn shadow_session_after_host_tick(
     let _ = shadow.writeback_shock_stun_to_host(logic);
     // Wave 662: drain shock-stun ready log after GW writeback.
     let _w662_ready = logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::ShockStun);
-    let _ = shadow.writeback_rebuild_producer_to_host(logic);
+    let _ = shadow.compare_rebuild_producer_to_host(logic);
     // Wave 626: drain construction-complete-clear ready log after GW writeback.
-    let _ccc_ready = logic
-        .apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::ConstructionCompleteClear);
     let _ = shadow.writeback_sole_healing_to_host(logic);
     // Wave 663: drain sole-healing ready log after GW writeback.
     let _w663_ready =
@@ -2230,15 +2200,9 @@ pub fn shadow_session_after_host_tick(
     let _ = shadow.writeback_hijacker_to_host(logic);
     // Wave 647: drain hijacker ready log after GW writeback.
     let _hj_ready = logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Hijacker);
-    let _construction_wb = shadow.writeback_construction_to_host(logic);
+    let _construction_wb = shadow.compare_construction_to_host(logic);
     // Wave 715/938: same-frame host construction complete via post-writeback authority.
-    logic.apply_post_writeback_complete_op(
-        crate::game_logic::PostWritebackCompleteOp::ConstructionCompletionsAfterReadyWriteback,
-    );
     // Wave 716/938: same-frame host sell finish via post-writeback authority.
-    logic.apply_post_writeback_complete_op(
-        crate::game_logic::PostWritebackCompleteOp::SellCompletionsAfterReadyWriteback,
-    );
     let _owner_wb = shadow.writeback_owner_to_host(logic);
     // Wave 629: drain owner-ready log after GW owner writeback.
     let _owner_ready = logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::Owner);

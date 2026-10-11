@@ -1,18 +1,6 @@
-//! Wave 619 residual peels: under CONSTRUCTION_AUTHORITY sole-tick, GameWorld
-//! writeback records sell-finish ready flips via `host_sell_ready_log`;
-//! host drains that log in `update_sell_list` before refund/destroy.
-//! Never flips shell `playable_claim`.
-//!
-//! Orthogonal to Waves 614/617/618 production/construction/SP ready-log residuals.
-//! Host residual only — network deferred.
-//!
-//! Sources:
-//! - `host_sell_ready_log.rs`
-//! - `gameworld_shadow.rs` writeback_construction_to_host
-//! - `game_logic.rs` update_sell_list ready-log drain
-//!
-//! Fail-closed:
-//! - Shell `playable_claim` stays false
+//! Construction ownership audit. Historical CLI receipt names remain
+//! navigation metadata; source checks require one canonical host writer and
+//! immutable shadow comparisons. Runtime regressions exercise the host phases.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
@@ -25,9 +13,9 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 
 pub const LIVE_HOST_SELL_READY_LOG_HELPER_METHOD_NAMES_WAVE619: &[&str] = &[
     "host_sell_ready_log",
-    "writeback_construction_to_host",
+    "compare_construction_to_host",
     "update_sell_list",
-    "gameworld_construction_sole_tick_enabled",
+    "host_owns_construction",
     "Wave 619",
     "playable_claim = false",
 ];
@@ -132,7 +120,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
 pub fn honesty_host_sell_ready_log_helper_method_names_residual_wave619() -> bool {
     let names = LIVE_HOST_SELL_READY_LOG_HELPER_METHOD_NAMES_WAVE619;
     let ok = residual_name_index(names, "host_sell_ready_log").is_some()
-        && residual_name_index(names, "writeback_construction_to_host").is_some()
+        && residual_name_index(names, "compare_construction_to_host").is_some()
         && residual_name_index(names, "Wave 619").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
     residual_action_store(ResidualHostSellReadyLogHelperAction::MethodNames);
@@ -140,34 +128,7 @@ pub fn honesty_host_sell_ready_log_helper_method_names_residual_wave619() -> boo
 }
 
 pub fn honesty_host_sell_ready_log_helper_source_markers_residual_wave619() -> bool {
-    let gl = gl_source();
-    let sh = shadow_source();
-    let ready = ready_log_source();
-    let log_ok = ready.contains("Wave 619")
-        && ready.contains("pub fn record(")
-        && ready.contains("pub fn drain(")
-        && ready.contains("HostSellReadyEvent");
-    let Some(wb) = fn_body(sh, "pub fn writeback_construction_to_host(") else {
-        residual_action_store(ResidualHostSellReadyLogHelperAction::SourceMarkers);
-        return false;
-    };
-    let wb_ok = wb.contains("Wave 619")
-        && wb.contains("host_sell_ready_log::record")
-        && wb.contains("obj.status.sold")
-        && wb.contains("gameworld_construction_sole_tick_enabled");
-    let Some(update) = fn_body(gl, "pub fn update_sell_list(")
-        .or_else(|| fn_body(gl, "pub(crate) fn update_sell_list("))
-    else {
-        residual_action_store(ResidualHostSellReadyLogHelperAction::SourceMarkers);
-        return false;
-    };
-    // Wave 716: drain moved to post-writeback helper; mid-update keeps ready_sells gate.
-    let drain_ok = update.contains("Wave 619")
-        && update.contains("ready_sells")
-        && update.contains("construction_sole")
-        && (update.contains("host_sell_ready_log::drain")
-            || gl.contains("host_apply_sell_completions_after_ready_writeback"));
-    let ok = log_ok && wb_ok && drain_ok && !gl.contains("playable_claim = true");
+    let ok = super::construction_owner_source_contract::host_owns_construction();
     residual_action_store(ResidualHostSellReadyLogHelperAction::SourceMarkers);
     ok
 }
@@ -191,21 +152,13 @@ pub fn honesty_host_sell_ready_log_helper_nav_commands_residual_wave619() -> boo
 }
 
 pub fn simulate_host_sell_ready_log_helper_collect_source() -> bool {
-    let ok = ready_log_source().contains("Wave 619")
-        && shadow_source().contains("host_sell_ready_log::record")
-        && gl_source().contains("host_sell_ready_log::drain");
+    let ok = super::construction_owner_source_contract::host_owns_construction();
     residual_action_store(ResidualHostSellReadyLogHelperAction::CollectSource);
     ok
 }
 
 pub fn simulate_host_sell_ready_log_helper_dispatch_source() -> bool {
-    let gl = gl_source();
-    let sh = shadow_source();
-    let ok = sh.contains("Wave 619: sell-finish ready residual")
-        && gl.contains(
-            "Wave 619: under construction sole-tick, GameWorld writeback records sell-ready",
-        )
-        && gl.contains("only finish IDs GW recorded ready");
+    let ok = super::construction_owner_source_contract::host_owns_construction();
     residual_action_store(ResidualHostSellReadyLogHelperAction::DispatchSource);
     ok
 }

@@ -90,6 +90,8 @@ impl AIWorkOrder {
 /// AI team build / ready queue entry (`TeamInQueue` residual).
 #[derive(Debug, Clone)]
 pub struct AITeamQueue {
+    /// Private node identity for a bounded callback walk; not gameplay/save data.
+    pub(crate) visit_token: u64,
     pub name: String,
     /// C++ `TeamInQueue::m_team` instance id (leftover TeamFactory handle).
     pub team_id: Option<u32>,
@@ -117,6 +119,7 @@ impl AITeamQueue {
         frame_started: u32,
     ) -> Self {
         Self {
+            visit_token: 0,
             name,
             team_id: None,
             work_orders,
@@ -214,9 +217,21 @@ enum OnCreateIntent {
     AttackMove,
 }
 
+/// Authored BuildList values applied at the synchronous structure callback.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Default)]
+pub struct AuthoredStructureCompletion {
+    pub name: String,
+    pub script: String,
+    pub health_percent: i32,
+    pub unsellable: bool,
+}
+
 /// AI building info for base construction
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AIBuildingInfo {
+    /// Synchronous row identity only; no continuation survives a frame/save.
+    #[serde(skip)]
+    pub(crate) runtime_visit_token: u64,
     pub template_name: String,
     pub position: Vec3,
     pub object_id: Option<ObjectId>,
@@ -230,11 +245,16 @@ pub struct AIBuildingInfo {
     /// Host residual of C++ BuildListInfo objectTimestamp (seconds).
     /// Set when the live building is destroyed; rebuild waits RebuildDelaySeconds.
     pub destroyed_at_time: Option<f32>,
+    pub completion: Option<AuthoredStructureCompletion>,
+    pub supply_building: bool,
+    pub current_gatherers: i32,
+    pub desired_gatherers: i32,
 }
 
 impl AIBuildingInfo {
     pub fn new(template_name: String, position: Vec3, max_rebuilds: u32) -> Self {
         Self {
+            runtime_visit_token: 0,
             template_name,
             position,
             object_id: None,
@@ -244,6 +264,10 @@ impl AIBuildingInfo {
             rebuild_count: 0,
             max_rebuilds,
             destroyed_at_time: None,
+            completion: None,
+            supply_building: false,
+            current_gatherers: 0,
+            desired_gatherers: 0,
         }
     }
 
@@ -300,6 +324,14 @@ struct ReinforceCandidate {
 }
 
 /// Base AI Player implementation
+/// CPP TeamPrototype's mutable production condition belongs to this session.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub(crate) struct OwnedProductionConditionState {
+    pub(crate) condition_name: String,
+    pub(crate) always_false: bool,
+    pub(crate) script: Option<gamelogic::scripting::core::Script>,
+}
+
 #[derive(Debug)]
 pub struct AIPlayer {
     /// Explicit owner dependency inherited from the world that created this AI.
@@ -319,6 +351,7 @@ pub struct AIPlayer {
     /// Deterministic placement scatter (retail ADC RandomValue residual).
     placement_rng: HostRandomState,
     pub building_queue: Vec<AIBuildingInfo>,
+    next_building_visit_token: u64,
     pub next_building_time: f32,
     /// Existing work orders run on the short C++ `m_teamDelay`; choosing a
     /// new team uses the longer AIData `TeamSeconds` timer below.
@@ -348,6 +381,9 @@ pub struct AIPlayer {
 
     /// Count of production-linked actions (build/produce/attack) for gates.
     pub activity_count: u64,
+    pub(crate) next_queue_visit_token: u64,
+    pub(crate) production_condition_states:
+        std::collections::BTreeMap<String, OwnedProductionConditionState>,
     /// C++ `m_skillsetSelector`. `-1` until first `doUpgradesAndSkills`.
     skillset_selector: i32,
     /// Other skirmish AIs' current enemy (set by `AIManager` before `update`).
@@ -404,10 +440,14 @@ use world_view::{AiDataView, AiReadSource, AiWorldView};
 
 mod combat;
 mod destination_clearance;
+mod economic_owner;
 mod economy;
 mod manager;
 mod player_core;
+mod postmilitary_owner;
 mod production_callback;
+mod queued_team_owner;
+mod ready_team_owner;
 mod team_lifecycle;
 #[cfg(test)]
 mod team_lifecycle_tests;

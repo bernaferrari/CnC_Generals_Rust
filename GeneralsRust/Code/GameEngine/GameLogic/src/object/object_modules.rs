@@ -11,6 +11,9 @@ use super::*;
 mod contain_installation_tests;
 
 #[cfg(test)]
+mod garrison_admission_tests;
+
+#[cfg(test)]
 mod physics_installation_tests;
 
 #[cfg(test)]
@@ -299,6 +302,31 @@ impl Object {
             }
         }
         None
+    }
+
+    /// Extend the first authored RadarUpdate on this exact owner. Drawable
+    /// publication precedes deadline/active state just as in C++ extendRadar.
+    pub fn extend_radar_at(&mut self, frame: UnsignedInt) {
+        let Some(entry) = self
+            .modules
+            .iter()
+            .find(|entry| {
+                entry.name().as_str() == "RadarUpdate"
+                    && (entry.mask().0 & ModuleInterfaceType::UPDATE.0) != 0
+            })
+            .cloned()
+        else {
+            return;
+        };
+        self.set_model_condition_state(ModelConditionFlags::RADAR_EXTENDING);
+        entry.with_module(|module| {
+            if let Some(radar) = module
+                .as_any_mut()
+                .downcast_mut::<crate::object::behavior::radar_update::RadarUpdateModule>(
+            ) {
+                radar.behavior_mut().extended_at(frame);
+            }
+        });
     }
 
     /// Invoke a callback with the first exit interface found.

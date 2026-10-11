@@ -68,6 +68,13 @@ impl Drawable {
             return Ok(());
         }
 
+        // CPP Drawable1218: only the admitted client update emits the pulse.
+        // colorFlash changes the tint envelope, never the scripted countdown.
+        if self.flash_count > 0 && frame_number % 15 == 0 {
+            self.color_flash(Some(self.flash_color), 4, 0, false);
+            self.flash_count -= 1;
+        }
+
         // Update damage visualization
         self.update_damage_state()?;
 

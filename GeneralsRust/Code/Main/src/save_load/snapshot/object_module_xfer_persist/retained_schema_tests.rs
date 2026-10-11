@@ -4,8 +4,8 @@ use crate::game_logic::{KindOf, Team, ThingTemplate};
 use glam::Vec3;
 
 #[test]
-fn keepobject_oxfr_v3_appends_retained_rows_after_unchanged_latch_and_module_vectors() {
-    assert_eq!(OXFR_VERSION, 3);
+fn keepobject_oxfr_v4_appends_retained_rows_after_unchanged_latch_and_module_vectors() {
+    assert_eq!(OXFR_VERSION, 4);
     let mut source = GameLogic::new();
     let mut template = ThingTemplate::new("TechOilDerrick");
     template.add_kind_of(KindOf::Structure);
@@ -29,7 +29,7 @@ fn keepobject_oxfr_v3_appends_retained_rows_after_unchanged_latch_and_module_vec
     bytes.extend_from_slice(&sentinel);
     assert_eq!(&bytes[..16], b"preceding-domain");
     let mut suffix = find_oxfr_suffix(&bytes).unwrap();
-    assert_eq!(take_u32(&mut suffix).unwrap(), 3);
+    assert_eq!(take_u32(&mut suffix).unwrap(), 4);
     let len = take_u32(&mut suffix).unwrap() as usize;
     let encoded = &suffix[..len];
     assert!(
@@ -46,7 +46,7 @@ fn keepobject_oxfr_v3_appends_retained_rows_after_unchanged_latch_and_module_vec
 }
 
 #[test]
-fn keepobject_oxfr_v3_applies_explicit_false_rows_without_using_latch_or_dead_hp() {
+fn keepobject_oxfr_v4_applies_explicit_false_rows_without_using_latch_or_dead_hp() {
     let mut source = GameLogic::new();
     source
         .templates
@@ -76,4 +76,36 @@ fn keepobject_oxfr_v3_applies_explicit_false_rows_without_using_latch_or_dead_hp
     assert!(!object.status.on_die_started);
     assert!(object.keep_object_die.is_none());
     assert_eq!(object.health.current, 0.0);
+}
+
+#[test]
+fn radar_executed_payload_rejects_missing_contributor_rows() {
+    let mut source = GameLogic::new();
+    let mut template = ThingTemplate::new("MalformedRadarState");
+    template.radar_upgrade_rules = Some(vec![crate::game_logic::host_radar::RadarUpgradeRules {
+        triggered_by: vec!["Upgrade_Example".into()],
+        conflicts_with: Vec::new(),
+        removes_upgrades: Vec::new(),
+        fx_list: None,
+        requires_all: false,
+        disable_proof: false,
+        valid: true,
+    }]);
+    source.templates.insert(template.name.clone(), template);
+    let id = source
+        .create_object("MalformedRadarState", Team::Neutral, Vec3::ZERO)
+        .unwrap();
+    let mut payload = capture(&source);
+    payload.radar.push(RadarPersist {
+        object_id: id.0,
+        executed: vec![true],
+        contributors: Vec::new(),
+        radar_extend_done_frame: 0,
+        radar_extend_complete: false,
+        radar_active: false,
+    });
+    assert!(matches!(
+        apply_payload(&mut source, payload),
+        Err(SaveLoadError::Corrupted(_))
+    ));
 }

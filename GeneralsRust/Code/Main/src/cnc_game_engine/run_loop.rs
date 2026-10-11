@@ -298,6 +298,10 @@ pub async fn run_cnc_game(
             }
 
             let update_started = Instant::now();
+            // Admit the app's presentation control into this specific session.
+            engine.host_game_logic_mut().set_radar_client_quiet(
+                game_client::helpers::TheInGameUI::is_client_quiet(),
+            );
             // C++ GameEngine::update (GameEngine.cpp:732-752):
             // VERIFY_CRC → TheRadar->UPDATE() → TheAudio->UPDATE() →
             // TheGameClient->UPDATE() → propagateMessages → … →

@@ -1873,12 +1873,10 @@ fn production_door_opening_freezes_into_presentation() {
 
 #[test]
 fn construction_complete_freezes_into_presentation_events() {
-    crate::game_logic::host_construction_log::clear();
-    crate::game_logic::host_construction_log::record(
-        crate::game_logic::ObjectId(42),
-        "TestBarracks",
-    );
     let mut logic = crate::game_logic::GameLogic::new();
+    logic
+        .construction_events
+        .record(crate::game_logic::ObjectId(42), "TestBarracks");
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         frame.events.iter().any(|e| {
@@ -1894,7 +1892,7 @@ fn construction_complete_freezes_into_presentation_events() {
         frame.events
     );
     // drained
-    assert!(crate::game_logic::host_construction_log::drain().is_empty());
+    assert!(logic.construction_events.pending().is_empty());
 }
 
 #[test]
@@ -2054,4 +2052,122 @@ fn screen_region_queries_keep_inclusive_frustum_edges_in_both_drag_directions() 
             );
         }
     }
+}
+
+#[test]
+fn construction_completion_refreshes_owned_control_bar_without_another_tick() {
+    // DozerAIUpdate.cpp completion marks ControlBar dirty. Main supplies a fresh
+    // immutable view of the completed owner at that same observation boundary.
+    fn session() -> (GameLogic, ObjectId) {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        let mut template = ThingTemplate::new("OwnedFactory");
+        template
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1000.0);
+        template.energy_production = Some(20);
+        logic.templates.insert("OwnedFactory".into(), template);
+        let id = logic
+            .create_object_under_construction("OwnedFactory", Team::USA, Vec3::ZERO)
+            .unwrap();
+        logic.host_object_mut(id).unwrap().selected = true;
+        logic.get_player_mut(0).unwrap().selected_objects = vec![id];
+        (logic, id)
+    }
+    let (mut a, id) = session();
+    let (mut b, peer) = session();
+    assert_eq!(id, peer);
+    let before = PresentationFrame::build_from_logic(&mut a, 0);
+    assert_eq!(
+        before.populate_command_set_strip()[0].command_name,
+        "Command_CancelConstruction"
+    );
+    assert_eq!(before.local_power_produced, 0);
+    let frame = a.frame;
+    a.notify_structure_construction_complete(id);
+    assert_eq!(a.frame, frame);
+    let after = PresentationFrame::build_from_logic(&mut a, 0);
+    assert_eq!(after.local_power_produced, 20);
+    assert!(
+        !after
+            .objects
+            .iter()
+            .find(|object| object.id == id)
+            .unwrap()
+            .under_construction
+    );
+    assert!(
+        !after
+            .populate_command_set_strip()
+            .iter()
+            .any(|button| button.command_name == "Command_CancelConstruction")
+    );
+    assert_eq!(
+        before.populate_command_set_strip()[0].command_name,
+        "Command_CancelConstruction"
+    );
+    let other = PresentationFrame::build_from_logic(&mut b, 0);
+    assert_eq!(other.local_power_produced, 0);
+    assert_eq!(
+        other.populate_command_set_strip()[0].command_name,
+        "Command_CancelConstruction"
+    );
+}
+
+#[test]
+fn construction_completion_capture_does_not_consume_same_id_peer_output() {
+    let mut owner = crate::game_logic::GameLogic::new();
+    let mut peer = crate::game_logic::GameLogic::new();
+    let id = crate::game_logic::ObjectId(42);
+    owner.construction_events.record(id, "OwnerBarracks");
+    peer.construction_events.record(id, "PeerBarracks");
+    let owner_frame = PresentationFrame::build_from_logic(&mut owner, 0);
+    assert!(owner_frame.events.iter().any(|event| matches!(event,
+        PresentationEvent::ConstructionComplete { id: got, template } if *got == id && template == "OwnerBarracks")));
+    assert!(!owner_frame.events.iter().any(|event| matches!(event,
+        PresentationEvent::ConstructionComplete { template, .. } if template == "PeerBarracks")));
+    assert!(peer.construction_events.has_pending(id));
+    assert!(!owner.construction_events.has_pending(id));
+    let peer_frame = PresentationFrame::build_from_logic(&mut peer, 0);
+    assert!(peer_frame.events.iter().any(|event| matches!(event,
+        PresentationEvent::ConstructionComplete { id: got, template } if *got == id && template == "PeerBarracks")));
+    assert!(!peer.construction_events.has_pending(id));
+    let next_owner = PresentationFrame::build_from_logic(&mut owner, 0);
+    assert!(
+        !next_owner
+            .events
+            .iter()
+            .any(|event| matches!(event, PresentationEvent::ConstructionComplete { .. }))
+    );
+}
+
+#[test]
+fn construction_completion_output_is_not_replayed_after_snapshot_restore() {
+    let mut source = crate::game_logic::GameLogic::new();
+    source
+        .construction_events
+        .record(crate::game_logic::ObjectId(42), "CompletedBeforeSave");
+    let snapshot = crate::save_load::snapshot::SnapshotBuilder::new()
+        .create_world_snapshot(&source)
+        .unwrap();
+    let mut restored = crate::game_logic::GameLogic::new();
+    restored
+        .construction_events
+        .record(crate::game_logic::ObjectId(7), "PreviousMatch");
+    crate::save_load::snapshot::SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    let frame = PresentationFrame::build_from_logic(&mut restored, 0);
+    assert!(
+        !frame
+            .events
+            .iter()
+            .any(|event| matches!(event, PresentationEvent::ConstructionComplete { .. }))
+    );
+    assert!(
+        source
+            .construction_events
+            .has_pending(crate::game_logic::ObjectId(42))
+    );
 }

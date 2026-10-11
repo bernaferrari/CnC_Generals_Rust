@@ -66,20 +66,34 @@ impl Team {
 
     /// Set controlling player
     pub fn set_controlling_player_id(&mut self, player_id: Option<UnsignedInt>) {
-        // Always assign the controller (C++ Team::setControllingPlayer).
-        // Empty leftover registry only skips the dual-world member walk.
-        let changed = self.controlling_player_id != player_id;
-        self.controlling_player_id = player_id;
-        if !changed || dual_world_registry_unavailable() {
+        let members = self.set_controlling_player_id_for_owned_members(player_id);
+        if members.is_empty() || dual_world_registry_unavailable() {
             return;
         }
 
         // C++ parity (Team::setControllingPlayer): refresh partition/shroud state of all members
         // when team control changes.
-        for &object_id in &self.members {
+        for object_id in members {
             let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object_guard| {
                 object_guard.handle_partition_cell_maintenance();
             });
+        }
+    }
+
+    /// Commit this team's controller and release the changed member roster for
+    /// the driving store's immediate partition/shroud maintenance. No registry
+    /// is selected while this team is borrowed.
+    #[must_use]
+    pub fn set_controlling_player_id_for_owned_members(
+        &mut self,
+        player_id: Option<UnsignedInt>,
+    ) -> Vec<ObjectID> {
+        let changed = self.controlling_player_id != player_id;
+        self.controlling_player_id = player_id;
+        if changed {
+            self.members.clone()
+        } else {
+            Vec::new()
         }
     }
 

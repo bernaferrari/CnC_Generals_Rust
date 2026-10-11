@@ -586,21 +586,10 @@ fn with_global_and_startup_state_snapshot_restored<F: FnOnce()>(f: F) {
     let previous_difficulty = gamelogic::helpers::TheScriptEngine::get_global_difficulty();
     let previous_rank_points =
         gamelogic::helpers::TheGameLogic::get_rank_points_to_add_at_game_start();
-    let previous_session =
-        crate::game_logic::host_faction_skirmish_residual::live_host_session_difficulty();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
     *game_engine::common::global_data::write() = global_snapshot;
     gamelogic::helpers::TheScriptEngine::set_global_difficulty(previous_difficulty);
     gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(previous_rank_points);
-    crate::game_logic::host_faction_skirmish_residual::set_live_host_session_difficulty(
-        match previous_session {
-            Some(crate::ai::AIDifficulty::Easy) => 0,
-            Some(crate::ai::AIDifficulty::Medium) => 1,
-            Some(crate::ai::AIDifficulty::Hard) => 2,
-            Some(crate::ai::AIDifficulty::Brutal) => 3,
-            None => i32::MIN,
-        },
-    );
     if let Err(payload) = result {
         std::panic::resume_unwind(payload);
     }
@@ -881,10 +870,11 @@ fn startup_new_game_dispatch_applies_script_side_effects() {
             gamelogic::helpers::TheScriptEngine::get_global_difficulty(),
             2
         );
-        assert_eq!(
-            crate::game_logic::host_faction_skirmish_residual::live_host_session_difficulty(),
-            Some(crate::ai::AIDifficulty::Hard)
-        );
+        let mut owner = crate::game_logic::GameLogic::new();
+        let peer = crate::game_logic::GameLogic::new();
+        CnCGameEngine::admit_startup_difficulty(&mut owner, Some(dispatch));
+        assert_eq!(owner.get_difficulty(), crate::ai::AIDifficulty::Hard);
+        assert_eq!(peer.get_difficulty(), crate::ai::AIDifficulty::Medium);
         assert_eq!(
             gamelogic::helpers::TheGameLogic::get_rank_points_to_add_at_game_start(),
             77

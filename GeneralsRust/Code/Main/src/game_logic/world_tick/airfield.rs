@@ -769,6 +769,7 @@ impl GameLogic {
             jet.begin_parked_airfield_rearm(self.frame);
             let _ = jet.tick_parked_airfield_rearm(self.frame);
         }
+        self.admit_object_drawable_deselection(jet_id);
         self.release_airfield_runway_for_jet(jet_id);
         self.sync_airfield_hangar_doors(airfield_id);
         if let Some(jet) = self.objects.get_mut(&jet_id) {
@@ -1863,6 +1864,7 @@ impl GameLogic {
             );
             jet.record_host_movement();
         }
+        self.admit_object_drawable_deselection(jet_id);
         self.sync_airfield_hangar_doors(producer_id);
         true
     }
@@ -2973,6 +2975,7 @@ impl GameLogic {
             jet.begin_parked_airfield_rearm(self.frame);
             let _ = jet.tick_parked_airfield_rearm(self.frame);
         }
+        self.admit_object_drawable_deselection(jet_id);
         // C++ ParkingPlaceBehavior holds the stall (m_objectID) so the airfield
         // knows its parked aircraft; live pairs the docked contained_by marker
         // with the container listing (contained_units mirror). Direct list

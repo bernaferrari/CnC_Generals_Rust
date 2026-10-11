@@ -84,6 +84,10 @@ impl GameLogic {
         // true. This matters especially for a selected-map → default-map
         // fallback: if both attempts fail, callers must see that no map loaded.
         self.map_loaded = false;
+        self.finish_all_building_sounds();
+        self.objects.clear();
+        self.named_unit_history.clear();
+        self.construction_events.reset();
         self.map_name = map_name.to_string();
         self.map_definition_source = Some(definition_source.unwrap_or(map_name).to_string());
         self.pathfinding_height_samples = None;
@@ -96,6 +100,9 @@ impl GameLogic {
             .store(false, Ordering::Release);
         self.script_event_pump_busy_frames = 0;
         self.loaded_script_lists.clear();
+        self.owned_script_engine = None;
+        self.objects_receive_difficulty_bonus = true;
+        self.set_script_input_enabled(true);
         self.script_source_path = None;
         self.script_broadcasts.clear();
         self.new_script_messages.clear();
@@ -189,11 +196,13 @@ impl GameLogic {
                     report_progress(0.40, "Syncing shell runtime");
                 }
                 let sync_started = Instant::now();
-                self.sync_legacy_runtime_from_fast_chunky_with_progress(
+                if !self.sync_legacy_runtime_from_fast_chunky_with_progress(
                     path,
                     &chunky,
                     &mut report_progress,
-                );
+                ) {
+                    return false;
+                }
                 log::info!(
                     "Map '{}' legacy runtime sync finished in {:.2}s (fast path)",
                     map_name,
@@ -249,8 +258,9 @@ impl GameLogic {
                         }
                         let object_spawn_started = Instant::now();
                         report_progress(0.58, "Spawning world objects");
-                        self.finish_all_building_sounds();
-                        self.objects.clear();
+                        // Singleton onCreate actions may already have created
+                        // objects during PlayerList admission. Preserve them.
+
                         // Build a mapping from map-defined player IDs to teams.
                         let mut map_player_to_team: HashMap<u32, Team> = HashMap::new();
                         for obj in objects {
@@ -393,10 +403,7 @@ impl GameLogic {
                                 if let Some(name) =
                                     obj.name.as_deref().map(str::trim).filter(|n| !n.is_empty())
                                 {
-                                    if let Some(created) = self.objects.get_mut(&id) {
-                                        created.name = name.to_string();
-                                        created.record_host_identity();
-                                    }
+                                    self.set_host_object_name(id, name);
                                 }
                                 self.sync_named_shell_object_into_legacy_runtime(obj, id);
                                 if let Some(rot) = obj.rotation {
@@ -995,11 +1002,9 @@ pub(in super::super) fn load_multiplayer_scripts_scb() -> Option<ScriptList> {
     read_info.lists.into_iter().next().map(|boxed| *boxed)
 }
 
-pub(in super::super) fn clear_live_campaign_victorious_for_new_game() {
-    if let Ok(mut guard) = gamelogic::scripting::engine::get_script_engine().write() {
-        if let Some(engine) = guard.as_mut() {
-            engine.set_campaign_victorious(false);
-        }
+pub(in super::super) fn clear_live_campaign_victorious_for_new_game(world: &GameLogic) {
+    if let Some(engine) = &world.owned_script_engine {
+        engine.set_campaign_victorious(false);
     }
 }
 

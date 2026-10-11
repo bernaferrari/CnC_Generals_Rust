@@ -48,6 +48,10 @@ struct UpdateExecutionContext<'a> {
     lookup: &'a mut HashMap<ObjectID, Vec<ModuleIdentity>>,
     current: &'a UpdateModulePtr,
     now: UnsignedInt,
+    upgrade_observation:
+        Option<game_engine::common::thing::update_module::UpgradeProductionObservation>,
+    objects: &'a HashMap<ObjectID, Arc<RwLock<Object>>>,
+    owner_id: ObjectID,
     normal_cursor: Option<&'a mut usize>,
 }
 
@@ -72,6 +76,38 @@ fn awaken_registered_update(
 }
 
 impl UpdateScheduleContext for UpdateExecutionContext<'_> {
+    fn upgrade_production_observation(
+        &self,
+    ) -> Option<game_engine::common::thing::update_module::UpgradeProductionObservation> {
+        self.upgrade_observation
+    }
+
+    fn change_owner_model_conditions(&mut self, clear: u128, set: u128) -> bool {
+        let Some(owner) = self.objects.get(&self.owner_id) else {
+            return false;
+        };
+        owner
+            .write()
+            .expect("production model owner poisoned")
+            .clear_and_set_model_condition_flags(
+                crate::common::ModelConditionFlags::from_bits_retain(clear),
+                crate::common::ModelConditionFlags::from_bits_retain(set),
+            );
+        true
+    }
+
+    fn complete_radar_extension(&mut self) -> bool {
+        let Some(owner) = self.objects.get(&self.owner_id) else {
+            return false;
+        };
+        let mut owner = owner.write().expect("RadarUpdate owner poisoned");
+        let _ = owner.clear_and_set_model_condition_flags(
+            crate::common::ModelConditionFlags::RADAR_EXTENDING,
+            crate::common::ModelConditionFlags::RADAR_UPGRADED,
+        );
+        true
+    }
+
     fn frame(&self) -> u32 {
         self.now
     }
@@ -138,6 +174,14 @@ fn unregister_registered_update(
 
 impl GameLogic {
     fn process_sleepy_updates(&mut self, current_frame: UnsignedInt) {
+        self.process_sleepy_updates_with_upgrade_services(current_frame, None);
+    }
+
+    fn process_sleepy_updates_with_upgrade_services(
+        &mut self,
+        current_frame: UnsignedInt,
+        mut services: Option<&mut dyn UpgradeCompletionServices>,
+    ) {
         // C++ GameLogic.cpp:3698–3736 keeps a module registered during update,
         // then rebalances it immediately before executing the next callback.
         while let Some(entry) = self.sleepy_updates.peek() {
@@ -166,10 +210,19 @@ impl GameLogic {
             let should_process = object_disabled
                 .map(|mask| disabled_module_should_process(mask, module_disabled_mask))
                 .unwrap_or(true);
+            let upgrade_observation = services.as_ref().and_then(|services| {
+                self.objects.get(&object_id).map(|owner| {
+                    services.observation(
+                        &owner.read().expect("production owner poisoned"),
+                        self.frame,
+                    )
+                })
+            });
+            let mut completed_upgrade = None;
             let sleep = if should_process {
                 // Legacy callers still use this bridge; explicit scheduling
                 // callbacks below do not discover it or lock GameLogic again.
-                let _cur = enter_cur_update_module(&module);
+                let _cur = services.is_none().then(|| enter_cur_update_module(&module));
                 match module.write() {
                     Ok(mut update) => {
                         let mut context = UpdateExecutionContext {
@@ -178,9 +231,14 @@ impl GameLogic {
                             lookup: &mut self.module_lookup,
                             current: &module,
                             now: current_frame,
+                            upgrade_observation,
+                            objects: &self.objects,
+                            owner_id: object_id,
                             normal_cursor: None,
                         };
-                        match update.update_scheduled(&mut context) {
+                        let result = update.update_scheduled(&mut context);
+                        completed_upgrade = update.take_completed_upgrade();
+                        match result {
                             Ok(sleep) => sleep,
                             Err(error) => {
                                 warn!(
@@ -202,6 +260,9 @@ impl GameLogic {
             } else {
                 UpdateSleepTime::None
             };
+            if let (Some(name), Some(services)) = (completed_upgrade, services.as_mut()) {
+                self.finish_scheduled_upgrade(&module, object_id, &name, &mut **services);
+            }
             let next_wake = match sleep {
                 UpdateSleepTime::Forever => UPDATE_SLEEP_FOREVER_FRAMES,
                 UpdateSleepTime::None => current_frame
@@ -263,6 +324,13 @@ impl GameLogic {
 
     /// Process normal (every-frame) update modules
     fn process_normal_updates(&mut self) {
+        self.process_normal_updates_with_upgrade_services(None);
+    }
+
+    fn process_normal_updates_with_upgrade_services(
+        &mut self,
+        mut services: Option<&mut dyn UpgradeCompletionServices>,
+    ) {
         let phases = [
             SleepyUpdatePhase::Initial,
             SleepyUpdatePhase::Physics,
@@ -312,7 +380,16 @@ impl GameLogic {
 
                 let object_id = entry.object_id;
                 let handle = Arc::clone(&entry.module);
-                let _cur = enter_cur_update_module(&handle);
+                let upgrade_observation = services.as_ref().and_then(|services| {
+                    self.objects.get(&object_id).map(|owner| {
+                        services.observation(
+                            &owner.read().expect("production owner poisoned"),
+                            self.frame,
+                        )
+                    })
+                });
+                let mut completed_upgrade = None;
+                let _cur = services.is_none().then(|| enter_cur_update_module(&handle));
                 if let Ok(mut module) = handle.write() {
                     let mut context = UpdateExecutionContext {
                         queue: &mut self.sleepy_updates,
@@ -320,9 +397,14 @@ impl GameLogic {
                         lookup: &mut self.module_lookup,
                         current: &handle,
                         now: self.frame,
+                        upgrade_observation,
+                        objects: &self.objects,
+                        owner_id: object_id,
                         normal_cursor: Some(&mut cursor),
                     };
-                    match module.update_scheduled(&mut context) {
+                    let result = module.update_scheduled(&mut context);
+                    completed_upgrade = module.take_completed_upgrade();
+                    match result {
                         Ok(UpdateSleepTime::None) => {}
                         Ok(other) => {
                             warn!(
@@ -338,8 +420,52 @@ impl GameLogic {
                         }
                     }
                 }
+                if let (Some(name), Some(services)) = (completed_upgrade, services.as_mut()) {
+                    self.finish_scheduled_upgrade(&handle, object_id, &name, &mut **services);
+                }
             }
         }
+    }
+
+    fn finish_scheduled_upgrade(
+        &mut self,
+        handle: &UpdateModulePtr,
+        object_id: ObjectID,
+        name: &str,
+        services: &mut dyn UpgradeCompletionServices,
+    ) {
+        // No update-proxy or installed-entry guard is alive across effects.
+        let Some(owner) = self.objects.get(&object_id).cloned() else {
+            return;
+        };
+        services.complete(self, object_id, name);
+        if !self
+            .objects
+            .get(&object_id)
+            .is_some_and(|current| Arc::ptr_eq(current, &owner))
+        {
+            return;
+        }
+        let registered = self
+            .module_lookup
+            .get(&object_id)
+            .is_some_and(|modules| modules.contains(&ModuleIdentity::of(handle)));
+        if !registered || !self.objects.contains_key(&object_id) {
+            return;
+        }
+        let mut update = handle.write().expect("production continuation poisoned");
+        let mut context = UpdateExecutionContext {
+            queue: &mut self.sleepy_updates,
+            normal: &mut self.normal_updates,
+            lookup: &mut self.module_lookup,
+            current: handle,
+            now: self.frame,
+            upgrade_observation: None,
+            objects: &self.objects,
+            owner_id: object_id,
+            normal_cursor: None,
+        };
+        update.resume_completed_upgrade(&mut context);
     }
 
     pub fn get_number_sleepy_updates(&self) -> usize {

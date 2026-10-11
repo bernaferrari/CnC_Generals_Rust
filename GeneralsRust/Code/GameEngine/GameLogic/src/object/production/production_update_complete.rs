@@ -32,10 +32,9 @@ use crate::common::{
 };
 use crate::helpers::{TheAudio, TheGameLogic, TheThingFactory};
 use crate::modules::{
-    ExitInterface,
-    BehaviorModule, BehaviorModuleInterface, DieModuleInterface, ExitDoorType, MODULEINTERFACE_DIE,
-    MODULEINTERFACE_UPDATE, ProductionUpdateInterface, UPDATE_SLEEP_NONE, UpdateModuleInterface,
-    UpdateSleepTime,
+    BehaviorModule, BehaviorModuleInterface, DieModuleInterface, ExitDoorType, ExitInterface,
+    MODULEINTERFACE_DIE, MODULEINTERFACE_UPDATE, ProductionUpdateInterface, UPDATE_SLEEP_NONE,
+    UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::ProductionBehaviorQueueKindMut;
 use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
@@ -1397,7 +1396,23 @@ impl ProductionUpdateComplete {
                         }
                         UpgradeType::Object => {
                             if let Ok(mut obj) = owner.write() {
-                                obj.give_upgrade(upgrade.as_ref());
+                                let player_mask = player
+                                    .read()
+                                    .expect("production player poisoned")
+                                    .get_completed_upgrade_mask();
+                                let frame = game_logic::current_frame();
+                                super::upgrade_completion::grant_object_upgrade(
+                                    &mut obj,
+                                    upgrade.as_ref(),
+                                    player_mask,
+                                    &mut |owner, proof| {
+                                        player
+                                            .write()
+                                            .expect("production player poisoned")
+                                            .add_radar(proof);
+                                        owner.extend_radar_at(frame);
+                                    },
+                                );
                             }
                         }
                     }
@@ -2225,3 +2240,5 @@ mod tests {
         );
     }
 }
+
+mod owned_upgrade;

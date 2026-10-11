@@ -133,17 +133,8 @@ impl ScriptActionDispatcher<'_> {
             return;
         };
 
-        let frames = LOGICFRAMES_PER_SECOND as i32 * time_in_seconds;
-        let count = frames / ((LOGICFRAMES_PER_SECOND as i32) / 2).max(1);
-        if count <= 0 {
-            return;
-        }
-
         if let Ok(mut drawable_guard) = drawable_arc.write() {
-            // First pulse so presentation samples the tint envelope this frame.
-            drawable_guard.color_flash(Some(flash_color), 8, 0, false);
-            drawable_guard.set_flash_color(flash_color);
-            drawable_guard.set_flash_count(count);
+            super::apply_script_drawable_flash(&mut drawable_guard, time_in_seconds, flash_color);
         };
     }
 
@@ -242,6 +233,60 @@ impl ScriptActionDispatcher<'_> {
 
         if matches!(
             action_type,
+            ScriptActionType::TeamAllUseCommandbuttonOnNearestEnemyUnit
+                | ScriptActionType::TeamAllUseCommandbuttonOnNearestGarrisonedBuilding
+                | ScriptActionType::TeamAllUseCommandbuttonOnNearestKindof
+                | ScriptActionType::TeamAllUseCommandbuttonOnNearestEnemyBuilding
+                | ScriptActionType::TeamAllUseCommandbuttonOnNearestEnemyBuildingClass
+                | ScriptActionType::TeamAllUseCommandbuttonOnNearestObjecttype
+        ) {
+            use crate::scripting::HostScriptUseCommandButtonRequest as Request;
+            let team = self.get_string_param(action, 0)?;
+            let button = self.get_string_param(action, 1)?;
+            let request = match action_type {
+                ScriptActionType::TeamAllUseCommandbuttonOnNearestEnemyUnit => {
+                    Request::TeamOnNearestEnemy { team, button }
+                }
+                ScriptActionType::TeamAllUseCommandbuttonOnNearestGarrisonedBuilding => {
+                    Request::TeamOnNearestGarrisonedBuilding { team, button }
+                }
+                ScriptActionType::TeamAllUseCommandbuttonOnNearestKindof => {
+                    Request::TeamOnNearestKindof {
+                        team,
+                        button,
+                        kindof: self.get_string_param(action, 2)?,
+                    }
+                }
+                ScriptActionType::TeamAllUseCommandbuttonOnNearestEnemyBuilding => {
+                    Request::TeamOnNearestEnemyBuilding { team, button }
+                }
+                ScriptActionType::TeamAllUseCommandbuttonOnNearestEnemyBuildingClass => {
+                    Request::TeamOnNearestEnemyBuildingClass {
+                        team,
+                        button,
+                        kindof: self.get_string_param(action, 2)?,
+                    }
+                }
+                _ => Request::TeamOnNearestObjectType {
+                    team,
+                    button,
+                    object_type: self.get_string_param(action, 2)?,
+                },
+            };
+            let (calling, condition) = self
+                .context
+                .with_engine_ref(|engine| {
+                    (engine.get_calling_team_id(), engine.get_condition_team_id())
+                })
+                .unwrap_or((None, None));
+            if let Some(result) = driver.team_nearest_button(&request, calling, condition) {
+                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                return Ok(ScriptActionResult::Success);
+            }
+        }
+
+        if matches!(
+            action_type,
             ScriptActionType::TeamExecuteSequentialScript
                 | ScriptActionType::TeamExecuteSequentialScriptLooping
                 | ScriptActionType::TeamStopSequentialScript
@@ -283,17 +328,201 @@ impl ScriptActionDispatcher<'_> {
             }
         }
 
+        if matches!(
+            action_type,
+            ScriptActionType::SoundPlayNamed
+                | ScriptActionType::EnableObjectSound
+                | ScriptActionType::DisableObjectSound
+                | ScriptActionType::NamedSetUnmannedStatus
+                | ScriptActionType::TeamSetUnmannedStatus
+                | ScriptActionType::DeleteAllUnmanned
+                | ScriptActionType::NamedSetStealthEnabled
+                | ScriptActionType::TeamSetStealthEnabled
+                | ScriptActionType::ObjectCreateRadarEvent
+                | ScriptActionType::TeamCreateRadarEvent
+        ) {
+            use crate::scripting::engine::ScriptObjectEffect;
+            use crate::scripting::{
+                HostScriptObjectSoundRequest as Sound, HostScriptRadarEventRequest as Radar,
+                HostScriptStealthEnabledRequest as Stealth, HostScriptUnmannedRequest as Unmanned,
+            };
+            let (object, calling, condition) = self
+                .context
+                .with_engine_ref(|engine| {
+                    (
+                        engine.script_object_id(),
+                        engine.get_calling_team_id(),
+                        engine.get_condition_team_id(),
+                    )
+                })
+                .unwrap_or_default();
+            let sound;
+            let unmanned;
+            let stealth;
+            let radar;
+            let request = match action_type {
+                ScriptActionType::SoundPlayNamed => {
+                    sound = Sound::PlayNamed {
+                        sound: self.get_string_param(action, 0)?,
+                        unit: self.get_string_param(action, 1)?,
+                    };
+                    ScriptObjectEffect::Sound(&sound)
+                }
+                ScriptActionType::EnableObjectSound | ScriptActionType::DisableObjectSound => {
+                    sound = Sound::Enable {
+                        unit: self.get_string_param(action, 0)?,
+                        enable: action_type == ScriptActionType::EnableObjectSound,
+                    };
+                    ScriptObjectEffect::Sound(&sound)
+                }
+                ScriptActionType::NamedSetUnmannedStatus => {
+                    unmanned = Unmanned::Named {
+                        unit: self.get_string_param(action, 0)?,
+                    };
+                    ScriptObjectEffect::Unmanned(&unmanned)
+                }
+                ScriptActionType::TeamSetUnmannedStatus => {
+                    unmanned = Unmanned::Team {
+                        team: self.get_string_param(action, 0)?,
+                    };
+                    ScriptObjectEffect::Unmanned(&unmanned)
+                }
+                ScriptActionType::DeleteAllUnmanned => {
+                    unmanned = Unmanned::DeleteAll;
+                    ScriptObjectEffect::Unmanned(&unmanned)
+                }
+                ScriptActionType::NamedSetStealthEnabled => {
+                    stealth = Stealth::Named {
+                        unit: self.get_string_param(action, 0)?,
+                        enabled: self.get_int_param(action, 1)? != 0,
+                    };
+                    ScriptObjectEffect::Stealth(&stealth)
+                }
+                ScriptActionType::TeamSetStealthEnabled => {
+                    stealth = Stealth::Team {
+                        team: self.get_string_param(action, 0)?,
+                        enabled: self.get_int_param(action, 1)? != 0,
+                    };
+                    ScriptObjectEffect::Stealth(&stealth)
+                }
+                ScriptActionType::ObjectCreateRadarEvent => {
+                    radar = Radar::Object {
+                        unit: self.get_string_param(action, 0)?,
+                        event_type: self.get_int_param(action, 1)?,
+                    };
+                    ScriptObjectEffect::Radar(&radar)
+                }
+                ScriptActionType::TeamCreateRadarEvent => {
+                    radar = Radar::Team {
+                        team: self.get_string_param(action, 0)?,
+                        event_type: self.get_int_param(action, 1)?,
+                    };
+                    ScriptObjectEffect::Radar(&radar)
+                }
+                _ => unreachable!(),
+            };
+            if let Some(result) = driver.object_effect(request, object, calling, condition) {
+                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                return Ok(ScriptActionResult::Success);
+            }
+        }
+
+        if matches!(
+            action_type,
+            ScriptActionType::NamedFlash
+                | ScriptActionType::NamedFlashWhite
+                | ScriptActionType::NamedCustomColor
+        ) {
+            use crate::scripting::engine::ScriptNamedPresentation;
+            let unit = self.get_string_param(action, 0)?;
+            let value = self.get_int_param(action, 1)?;
+            let request = if action_type == ScriptActionType::NamedCustomColor {
+                ScriptNamedPresentation::CustomColor {
+                    unit: &unit,
+                    color: value as u32,
+                }
+            } else {
+                ScriptNamedPresentation::Flash {
+                    unit: &unit,
+                    seconds: value,
+                    white: action_type == ScriptActionType::NamedFlashWhite,
+                }
+            };
+            let this_object = self
+                .context
+                .with_engine_ref(|engine| engine.script_object_id())
+                .flatten();
+            if let Some(result) = driver.named_presentation(request, this_object) {
+                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                return Ok(ScriptActionResult::Success);
+            }
+        }
+        if action_type == ScriptActionType::TeamAttackNamed {
+            let team = self.get_string_param(action, 0)?;
+            let target = self.get_string_param(action, 1)?;
+            let (object, calling, condition) = self
+                .context
+                .with_engine_ref(|engine| {
+                    (
+                        engine.script_object_id(),
+                        engine.get_calling_team_id(),
+                        engine.get_condition_team_id(),
+                    )
+                })
+                .unwrap_or_default();
+            if let Some(result) =
+                driver.team_attack_named(&team, &target, object, calling, condition)
+            {
+                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                return Ok(ScriptActionResult::Success);
+            }
+        }
+        if action_type == ScriptActionType::NamedAttackTeam {
+            let unit = self.get_string_param(action, 0)?;
+            let team = self.get_string_param(action, 1)?;
+            let (object, calling, condition) = self
+                .context
+                .with_engine_ref(|engine| {
+                    (
+                        engine.script_object_id(),
+                        engine.get_calling_team_id(),
+                        engine.get_condition_team_id(),
+                    )
+                })
+                .unwrap_or_default();
+            if let Some(result) = driver.named_attack_team(&unit, &team, object, calling, condition)
+            {
+                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                return Ok(ScriptActionResult::Success);
+            }
+        }
+
         // Dispatch to the appropriate handler based on action type
         let result = match action_type {
             // Victory/Defeat actions
-            ScriptActionType::Victory => self.do_victory(),
-            ScriptActionType::Defeat => self.do_defeat(),
-            ScriptActionType::Quickvictory => self.do_quick_victory(),
-            ScriptActionType::Localdefeat => self.do_local_defeat(),
+            ScriptActionType::Victory => self.do_victory(driver),
+            ScriptActionType::Defeat => self.do_defeat(driver),
+            ScriptActionType::Quickvictory => self.do_quick_victory(driver),
+            ScriptActionType::Localdefeat => self.do_local_defeat(driver),
 
             // Team actions
             ScriptActionType::MoveTeamTo => self.do_move_team_to(action),
-            ScriptActionType::TeamAttackTeam => self.do_team_attack_team(action),
+            ScriptActionType::TeamAttackTeam => {
+                let source = self.get_string_param(action, 0)?;
+                let target = self.get_string_param(action, 1)?;
+                let engine = self.context.borrowed_engine();
+                if let Some(result) = driver.team_attack_team(
+                    &source,
+                    &target,
+                    engine.get_calling_team_id(),
+                    engine.get_condition_team_id(),
+                ) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_team_attack_team(action)
+                }
+            }
             ScriptActionType::TeamHunt => self.do_team_hunt(action),
             ScriptActionType::TeamGuard => {
                 let team = self.get_string_param(action, 0)?;
@@ -310,19 +539,143 @@ impl ScriptActionDispatcher<'_> {
                     self.do_team_guard(action)
                 }
             }
-            ScriptActionType::TeamDelete => self.do_team_delete(action),
-            ScriptActionType::TeamKill => self.do_team_kill(action),
-            ScriptActionType::DamageMembersOfTeam => self.do_damage_team_members(action),
+            ScriptActionType::TeamDelete => {
+                let name = self.get_string_param(action, 0)?;
+                let engine = self.context.borrowed_engine();
+                let request = super::HostScriptKillDeleteDamageRequest::TeamDelete {
+                    team: name,
+                    ignore_dead: false,
+                };
+                if let Some(result) = driver.delete_or_kill(
+                    &request,
+                    engine.script_object_id(),
+                    engine.get_calling_team_id(),
+                    engine.get_condition_team_id(),
+                ) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_team_delete(action)
+                }
+            }
+            ScriptActionType::TeamKill => {
+                let name = self.get_string_param(action, 0)?;
+                let engine = self.context.borrowed_engine();
+                let request = super::HostScriptKillDeleteDamageRequest::TeamKill { team: name };
+                if let Some(result) = driver.delete_or_kill(
+                    &request,
+                    engine.script_object_id(),
+                    engine.get_calling_team_id(),
+                    engine.get_condition_team_id(),
+                ) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_team_kill(action)
+                }
+            }
+            ScriptActionType::DamageMembersOfTeam => {
+                let team = self.get_string_param(action, 0)?;
+                let amount = self.get_real_param(action, 1)?;
+                let (calling, condition) = self
+                    .context
+                    .with_engine_mut(|engine| {
+                        (engine.get_calling_team_id(), engine.get_condition_team_id())
+                    })
+                    .unwrap_or((None, None));
+                if let Some(result) = driver.team_damage(&team, amount, calling, condition) {
+                    result.map_err(|e| ScriptError::ExecutionFailed(e.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_damage_team_members(action)
+                }
+            }
             ScriptActionType::TeamSetState => self.do_set_team_state(action),
-            ScriptActionType::TeamFollowWaypoints => self.do_team_follow_waypoints(action),
+            ScriptActionType::TeamFollowWaypoints | ScriptActionType::TeamFollowWaypointsExact => {
+                let team = self.get_string_param(action, 0)?;
+                let path = self.get_string_param(action, 1)?;
+                let as_team = self.get_int_param(action, 2).unwrap_or(1) != 0;
+                let exact = action_type == ScriptActionType::TeamFollowWaypointsExact;
+                let engine = self.context.borrowed_engine();
+                if let Some(result) = driver.team_waypoint_path(
+                    &team,
+                    &path,
+                    as_team,
+                    exact,
+                    engine.get_calling_team_id(),
+                    engine.get_condition_team_id(),
+                ) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else if exact {
+                    self.do_team_follow_waypoints_exact(action)
+                } else {
+                    self.do_team_follow_waypoints(action)
+                }
+            }
 
             // Unit creation/deletion actions
-            ScriptActionType::CreateObject => self.do_create_object(action),
+            ScriptActionType::CreateObject => {
+                let template = self.get_string_param(action, 0)?;
+                let team = self.get_string_param(action, 1)?;
+                let position = self.get_coord_param(action, 2)?;
+                let angle = self.get_real_param(action, 3)?;
+                let (calling, condition) = self
+                    .context
+                    .with_engine_ref(|engine| {
+                        (engine.get_calling_team_id(), engine.get_condition_team_id())
+                    })
+                    .unwrap_or_default();
+                let request = crate::scripting::engine::ScriptObjectCreation {
+                    template: &template,
+                    team: &team,
+                    x: position.x,
+                    y: position.y,
+                    z: position.z,
+                    angle,
+                };
+                if let Some(result) = driver.create_object(request, calling, condition) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_create_object(action)
+                }
+            }
             ScriptActionType::CreateNamedOnTeamAtWaypoint => {
                 self.do_create_named_on_team_at_waypoint(action)
             }
-            ScriptActionType::NamedDelete => self.do_named_delete(action),
-            ScriptActionType::NamedKill => self.do_named_kill(action),
+            ScriptActionType::NamedDelete => {
+                let name = self.get_string_param(action, 0)?;
+                let engine = self.context.borrowed_engine();
+                let request = super::HostScriptKillDeleteDamageRequest::NamedDelete { unit: name };
+                if let Some(result) = driver.delete_or_kill(
+                    &request,
+                    engine.script_object_id(),
+                    engine.get_calling_team_id(),
+                    engine.get_condition_team_id(),
+                ) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_named_delete(action)
+                }
+            }
+            ScriptActionType::NamedKill => {
+                let name = self.get_string_param(action, 0)?;
+                let engine = self.context.borrowed_engine();
+                let request = super::HostScriptKillDeleteDamageRequest::NamedKill { unit: name };
+                if let Some(result) = driver.delete_or_kill(
+                    &request,
+                    engine.script_object_id(),
+                    engine.get_calling_team_id(),
+                    engine.get_condition_team_id(),
+                ) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_named_kill(action)
+                }
+            }
             ScriptActionType::NamedDamage => {
                 let name = self.get_string_param(action, 0)?;
                 let amount = self.get_int_param(action, 1)?;
@@ -335,7 +688,17 @@ impl ScriptActionDispatcher<'_> {
             }
 
             // Named unit actions
-            ScriptActionType::MoveNamedUnitTo => self.do_named_move_to_waypoint(action),
+            ScriptActionType::MoveNamedUnitTo => {
+                let unit = self.get_string_param(action, 0)?;
+                let waypoint = self.get_string_param(action, 1)?;
+                let this_object = self.context.borrowed_engine().script_object_id();
+                if let Some(result) = driver.named_waypoint(&unit, &waypoint, None, this_object) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_named_move_to_waypoint(action)
+                }
+            }
             ScriptActionType::NamedAttackNamed | ScriptActionType::NamedFaceNamed => {
                 use crate::scripting::engine::ScriptNamedCommand;
                 let unit = self.get_string_param(action, 0)?;
@@ -390,13 +753,37 @@ impl ScriptActionDispatcher<'_> {
                     self.do_named_guard(action)
                 }
             }
-            ScriptActionType::NamedStop => self.do_named_stop(action),
+            ScriptActionType::NamedStop => {
+                let unit = self.get_string_param(action, 0)?;
+                let this_object = self.context.borrowed_engine().script_object_id();
+                if let Some(result) = driver.named_command(
+                    crate::scripting::engine::ScriptNamedCommand::Stop { unit: &unit },
+                    this_object,
+                ) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_named_stop(action)
+                }
+            }
 
             // Player actions
-            ScriptActionType::PlayerSetMoney => self.do_set_money(action),
-            ScriptActionType::PlayerGiveMoney => self.do_give_money(action),
+            ScriptActionType::PlayerSetMoney => self.do_set_money(action, driver),
+            ScriptActionType::PlayerGiveMoney => self.do_give_money(action, driver),
             ScriptActionType::PlayerGrantScience => self.do_player_grant_science(action),
-            ScriptActionType::PlayerKill => self.do_player_kill(action),
+            ScriptActionType::PlayerKill => {
+                let player = self.get_string_param(action, 0)?;
+                let current = self
+                    .context
+                    .with_engine_ref(|engine| engine.get_current_player_name())
+                    .flatten();
+                if let Some(result) = driver.kill_player(&player, current.as_deref()) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_player_kill(action)
+                }
+            }
             ScriptActionType::PlayerHunt => self.do_player_hunt(action),
 
             // Display/UI actions
@@ -416,7 +803,7 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::PlaySoundEffect => self.do_play_sound_effect(action),
             ScriptActionType::PlaySoundEffectAt => self.do_play_sound_effect_at(action),
             ScriptActionType::SpeechPlay => self.do_speech_play(action),
-            ScriptActionType::MusicSetTrack => self.do_music_track_change(action),
+            ScriptActionType::MusicSetTrack => self.do_music_track_change(action, driver),
 
             // Radar actions
             ScriptActionType::RadarDisable => self.do_radar_disable(),
@@ -425,8 +812,8 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::MapShroudAtWaypoint => self.do_shroud_map_at_waypoint(action),
 
             // Input control
-            ScriptActionType::DisableInput => self.do_disable_input(),
-            ScriptActionType::EnableInput => self.do_enable_input(),
+            ScriptActionType::DisableInput => self.do_disable_input(driver),
+            ScriptActionType::EnableInput => self.do_enable_input(driver),
 
             // ============================================================================
             // COUNTER/FLAG/TIMER ACTIONS - Core scripting state
@@ -458,14 +845,28 @@ impl ScriptActionDispatcher<'_> {
             // ============================================================================
             // ADDITIONAL TEAM ACTIONS
             // ============================================================================
-            ScriptActionType::BuildTeam => self.do_build_team(action),
-            ScriptActionType::RecruitTeam => self.do_recruit_team(action),
+            ScriptActionType::BuildTeam => self.do_build_team(action, driver),
+            ScriptActionType::RecruitTeam => self.do_recruit_team(action, driver),
             ScriptActionType::CreateReinforcementTeam => self.do_create_reinforcement_team(action),
             ScriptActionType::TeamWander => self.do_team_wander(action),
             ScriptActionType::TeamWanderInPlace => self.do_team_wander_in_place(action),
-            ScriptActionType::TeamPanic => self.do_team_panic(action),
+            ScriptActionType::TeamPanic => self.do_team_panic(action, driver),
             ScriptActionType::TeamStop => self.do_team_stop(action),
-            ScriptActionType::TeamStopAndDisband => self.do_team_stop_and_disband(action),
+            ScriptActionType::TeamStopAndDisband => {
+                let team = self.get_string_param(action, 0)?;
+                let (calling, condition) = self
+                    .context
+                    .with_engine_ref(|engine| {
+                        (engine.get_calling_team_id(), engine.get_condition_team_id())
+                    })
+                    .unwrap_or_default();
+                if let Some(result) = driver.team_stop(&team, calling, condition, true) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_team_stop_and_disband(action)
+                }
+            }
             ScriptActionType::TeamAvailableForRecruitment => {
                 self.do_team_available_for_recruitment(action)
             }
@@ -473,7 +874,24 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::TeamMergeIntoTeam => self.do_team_merge(action),
             ScriptActionType::TeamFlash => self.do_team_flash(action),
             ScriptActionType::TeamFlashWhite => self.do_team_flash_white(action),
-            ScriptActionType::TeamTransferToPlayer => self.do_team_transfer_to_player(action),
+            ScriptActionType::TeamTransferToPlayer => {
+                let team = self.get_string_param(action, 0)?;
+                let player = self.get_string_param(action, 1)?;
+                let engine = self.context.borrowed_engine();
+                let current = engine.get_current_player_name();
+                if let Some(result) = driver.team_transfer(
+                    &team,
+                    &player,
+                    current.as_deref(),
+                    engine.get_calling_team_id(),
+                    engine.get_condition_team_id(),
+                ) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_team_transfer_to_player(action)
+                }
+            }
             ScriptActionType::TeamSetOverrideRelationToTeam => {
                 self.do_team_set_override_relation_to_team(action)
             }
@@ -500,7 +918,28 @@ impl ScriptActionDispatcher<'_> {
             }
             ScriptActionType::TeamExitAllBuildings => self.do_team_exit_all_buildings(action),
             ScriptActionType::TeamGuardPosition => self.do_team_guard_position(action),
-            ScriptActionType::TeamGuardObject => self.do_team_guard_object(action),
+            ScriptActionType::TeamGuardObject => {
+                let team = self.get_string_param(action, 0)?;
+                let target = self.get_string_param(action, 1)?;
+                let (this_object, calling, condition) = self
+                    .context
+                    .with_engine_mut(|engine| {
+                        (
+                            engine.script_object_id(),
+                            engine.get_calling_team_id(),
+                            engine.get_condition_team_id(),
+                        )
+                    })
+                    .unwrap_or((None, None, None));
+                if let Some(result) =
+                    driver.team_guard_object(&team, &target, this_object, calling, condition)
+                {
+                    result.map_err(|e| ScriptError::ExecutionFailed(e.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_team_guard_object(action)
+                }
+            }
             ScriptActionType::TeamGuardArea => self.do_team_guard_area(action),
             ScriptActionType::TeamGuardSupplyCenter => self.do_team_guard_supply_center(action),
             ScriptActionType::TeamGuardInTunnelNetwork => {
@@ -508,14 +947,28 @@ impl ScriptActionDispatcher<'_> {
             }
             // C++ parity: executeAction dispatches TEAM_GUARD_FOR_FRAMECOUNT to
             // doTeamIdleForFramecount, despite a separate doTeamGuardForFramecount helper.
-            ScriptActionType::TeamGuardForFramecount => self.do_team_idle_for_framecount(action),
-            ScriptActionType::TeamIdleForFramecount => self.do_team_idle_for_framecount(action),
+            ScriptActionType::TeamGuardForFramecount | ScriptActionType::TeamIdleForFramecount => {
+                let team = self.get_string_param(action, 0)?;
+                let frames = self.get_int_param(action, 1)?;
+                let engine = self.context.borrowed_engine();
+                if let Some(result) = driver.team_idle(
+                    &team,
+                    engine.get_calling_team_id(),
+                    engine.get_condition_team_id(),
+                ) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    if frames > 0 {
+                        Ok(ScriptActionResult::Pending(frames as f32))
+                    } else {
+                        Ok(ScriptActionResult::Success)
+                    }
+                } else {
+                    self.do_team_idle_for_framecount(action)
+                }
+            }
             ScriptActionType::TeamSpinForFramecount => self.do_team_spin_for_framecount(action),
             ScriptActionType::TeamIncreasePriority => self.do_team_increase_priority(action),
             ScriptActionType::TeamDecreasePriority => self.do_team_decrease_priority(action),
-            ScriptActionType::TeamFollowWaypointsExact => {
-                self.do_team_follow_waypoints_exact(action)
-            }
             ScriptActionType::TeamAttackArea => self.do_team_attack_area(action),
             ScriptActionType::TeamAttackNamed => self.do_team_attack_named(action),
             ScriptActionType::TeamApplyAttackPrioritySet => {
@@ -550,12 +1003,54 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::TeamSetStealthEnabled => self.do_team_set_stealth_enabled(action),
             ScriptActionType::TeamSetRepulsor => self.do_team_set_repulsor(action),
             ScriptActionType::TeamCreateRadarEvent => self.do_team_create_radar_event(action),
-            ScriptActionType::TeamDeleteLiving => self.do_team_delete_living(action),
-            ScriptActionType::TeamWaitForNotContainedAll => {
-                self.do_team_wait_for_not_contained_all(action)
+            ScriptActionType::TeamDeleteLiving => {
+                let name = self.get_string_param(action, 0)?;
+                let engine = self.context.borrowed_engine();
+                let request = super::HostScriptKillDeleteDamageRequest::TeamDelete {
+                    team: name,
+                    ignore_dead: true,
+                };
+                if let Some(result) = driver.delete_or_kill(
+                    &request,
+                    engine.script_object_id(),
+                    engine.get_calling_team_id(),
+                    engine.get_condition_team_id(),
+                ) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_team_delete_living(action)
+                }
             }
-            ScriptActionType::TeamWaitForNotContainedPartial => {
-                self.do_team_wait_for_not_contained_partial(action)
+            ScriptActionType::TeamWaitForNotContainedAll
+            | ScriptActionType::TeamWaitForNotContainedPartial => {
+                let name = self.get_string_param(action, 0)?;
+                let engine = self.context.borrowed_engine();
+                let all = action.action_type == ScriptActionType::TeamWaitForNotContainedAll;
+                match driver.team_contained(
+                    &name,
+                    engine.get_calling_team_id(),
+                    engine.get_condition_team_id(),
+                    all,
+                ) {
+                    crate::scripting::engine::ScriptOwnerQuery::Present(contained) => {
+                        Ok(if contained {
+                            ScriptActionResult::Pending(1.0)
+                        } else {
+                            ScriptActionResult::Success
+                        })
+                    }
+                    crate::scripting::engine::ScriptOwnerQuery::Missing => {
+                        Ok(ScriptActionResult::Success)
+                    }
+                    crate::scripting::engine::ScriptOwnerQuery::Unavailable => {
+                        if all {
+                            self.do_team_wait_for_not_contained_all(action)
+                        } else {
+                            self.do_team_wait_for_not_contained_partial(action)
+                        }
+                    }
+                }
             }
             ScriptActionType::TeamMoveTowardsNearestObjectType => {
                 use crate::scripting::engine::{
@@ -596,7 +1091,20 @@ impl ScriptActionDispatcher<'_> {
                 }
             }
             ScriptActionType::TeamHuntWithCommandButton => {
-                self.do_team_hunt_with_command_button(action)
+                let team = self.get_string_param(action, 0)?;
+                let button = self.get_string_param(action, 1)?;
+                let engine = self.context.borrowed_engine();
+                if let Some(result) = driver.team_hunt_button(
+                    &team,
+                    &button,
+                    engine.get_calling_team_id(),
+                    engine.get_condition_team_id(),
+                ) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_team_hunt_with_command_button(action)
+                }
             }
             ScriptActionType::TeamUseCommandbuttonAbilityOnNamed => {
                 self.do_team_use_command_button_on_named(action)
@@ -629,7 +1137,7 @@ impl ScriptActionDispatcher<'_> {
                 self.do_team_all_use_command_button_on_nearest_object_type(action)
             }
             ScriptActionType::TeamPartialUseCommandbutton => {
-                self.do_team_partial_use_command_button(action)
+                self.do_team_partial_use_command_button(action, driver)
             }
             ScriptActionType::TeamCaptureNearestUnownedFactionUnit => {
                 self.do_team_capture_nearest_unowned_faction_unit(action)
@@ -673,16 +1181,60 @@ impl ScriptActionDispatcher<'_> {
                     self.do_named_exit_all(action)
                 }
             }
-            ScriptActionType::NamedFollowWaypoints => self.do_named_follow_waypoints(action),
-            ScriptActionType::NamedFollowWaypointsExact => {
-                self.do_named_follow_waypoints_exact(action)
+            ScriptActionType::NamedFollowWaypoints
+            | ScriptActionType::NamedFollowWaypointsExact => {
+                let unit = self.get_string_param(action, 0)?;
+                let path = self.get_string_param(action, 1)?;
+                let this_object = self.context.borrowed_engine().script_object_id();
+                let exact = action_type == ScriptActionType::NamedFollowWaypointsExact;
+                if let Some(result) = driver.named_waypoint(&unit, &path, Some(exact), this_object)
+                {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else if exact {
+                    self.do_named_follow_waypoints_exact(action)
+                } else {
+                    self.do_named_follow_waypoints(action)
+                }
             }
-            ScriptActionType::NamedAttackArea => self.do_named_attack_area(action),
+            ScriptActionType::NamedAttackArea => {
+                let unit = self.get_string_param(action, 0)?;
+                let area = self.get_string_param(action, 1)?;
+                let current_player = self
+                    .context
+                    .with_engine_ref(|engine| engine.get_current_player_name())
+                    .flatten();
+                let this_object = self
+                    .context
+                    .with_engine_ref(|engine| engine.script_object_id())
+                    .flatten();
+                if let Some(result) =
+                    driver.named_attack_area(&unit, &area, current_player.as_deref(), this_object)
+                {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_named_attack_area(action)
+                }
+            }
             ScriptActionType::NamedAttackTeam => self.do_named_attack_team(action),
             ScriptActionType::NamedApplyAttackPrioritySet => {
                 self.do_named_apply_attack_priority_set(action)
             }
-            ScriptActionType::NamedSetAttitude => self.do_named_set_attitude(action),
+            ScriptActionType::NamedSetAttitude => {
+                let unit = self.get_string_param(action, 0)?;
+                let mood = self.get_int_param(action, 1)?;
+                let this_object = self
+                    .context
+                    .with_engine_ref(|engine| engine.script_object_id())
+                    .flatten();
+                if let Some(result) = driver.named_attitude(&unit, this_object, mood) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_named_set_attitude(action)
+                }
+            }
             ScriptActionType::NamedFlash => self.do_named_flash(action),
             ScriptActionType::NamedFlashWhite => self.do_named_flash_white(action),
             ScriptActionType::NamedGarrisonSpecificBuilding => {
@@ -699,10 +1251,10 @@ impl ScriptActionDispatcher<'_> {
                 self.do_named_transfer_ownership_player(action)
             }
             ScriptActionType::NamedHideSpecialPowerDisplay => {
-                self.do_named_hide_special_power_display(action)
+                self.do_named_hide_special_power_display(action, driver)
             }
             ScriptActionType::NamedShowSpecialPowerDisplay => {
-                self.do_named_show_special_power_display(action)
+                self.do_named_show_special_power_display(action, driver)
             }
             ScriptActionType::NamedStopSpecialPowerCountdown => {
                 self.do_named_stop_special_power_countdown(action)
@@ -739,7 +1291,9 @@ impl ScriptActionDispatcher<'_> {
             }
             ScriptActionType::NamedReceiveUpgrade => self.do_named_receive_upgrade(action),
             ScriptActionType::NamedSetHeld => self.do_named_set_held(action),
-            ScriptActionType::NamedSetToppleDirection => self.do_named_set_topple_direction(action),
+            ScriptActionType::NamedSetToppleDirection => {
+                self.do_named_set_topple_direction(action, driver)
+            }
             ScriptActionType::NamedSetRepulsor => self.do_named_set_repulsor(action),
             ScriptActionType::NamedCustomColor => self.do_named_custom_color(action),
             ScriptActionType::NamedSetStealthEnabled => self.do_named_set_stealth_enabled(action),
@@ -751,16 +1305,48 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::NamedSetUnmannedStatus => self.do_named_set_unmanned_status(action),
             ScriptActionType::NamedSetBoobytrapped => self.do_named_set_boobytrapped(action),
             ScriptActionType::UnitExecuteSequentialScript => {
-                self.do_unit_execute_sequential_script(action)
+                self.do_unit_execute_sequential_script(action, driver)
             }
             ScriptActionType::UnitExecuteSequentialScriptLooping => {
-                self.do_unit_execute_sequential_script_looping(action)
+                self.do_unit_execute_sequential_script_looping(action, driver)
             }
             ScriptActionType::UnitStopSequentialScript => {
-                self.do_unit_stop_sequential_script(action)
+                self.do_unit_stop_sequential_script(action, driver)
             }
-            ScriptActionType::UnitGuardForFramecount => self.do_unit_guard_for_framecount(action),
-            ScriptActionType::UnitIdleForFramecount => self.do_unit_idle_for_framecount(action),
+            ScriptActionType::UnitGuardForFramecount => {
+                use crate::scripting::engine::{ScriptNamedCommand, ScriptOwnerQuery};
+                let unit = self.get_string_param(action, 0)?;
+                let frames = self.get_int_param(action, 1)?;
+                match driver.named_frame_command(
+                    ScriptNamedCommand::Guard { unit: &unit },
+                    self.context.borrowed_engine().script_object_id(),
+                ) {
+                    ScriptOwnerQuery::Present(()) => Ok(if frames > 0 {
+                        ScriptActionResult::Pending(frames as f32)
+                    } else {
+                        ScriptActionResult::Success
+                    }),
+                    ScriptOwnerQuery::Missing => Ok(ScriptActionResult::Success),
+                    ScriptOwnerQuery::Unavailable => self.do_unit_guard_for_framecount(action),
+                }
+            }
+            ScriptActionType::UnitIdleForFramecount => {
+                use crate::scripting::engine::{ScriptNamedCommand, ScriptOwnerQuery};
+                let unit = self.get_string_param(action, 0)?;
+                let frames = self.get_int_param(action, 1)?;
+                match driver.named_frame_command(
+                    ScriptNamedCommand::Stop { unit: &unit },
+                    self.context.borrowed_engine().script_object_id(),
+                ) {
+                    ScriptOwnerQuery::Present(()) => Ok(if frames > 0 {
+                        ScriptActionResult::Pending(frames as f32)
+                    } else {
+                        ScriptActionResult::Success
+                    }),
+                    ScriptOwnerQuery::Missing => Ok(ScriptActionResult::Success),
+                    ScriptOwnerQuery::Unavailable => self.do_unit_idle_for_framecount(action),
+                }
+            }
             ScriptActionType::UnitDestroyAllContained => self.do_unit_destroy_all_contained(action),
             ScriptActionType::UnitMoveTowardsNearestObjectType => {
                 use crate::scripting::engine::{
@@ -813,7 +1399,16 @@ impl ScriptActionDispatcher<'_> {
             // ============================================================================
             // ADDITIONAL PLAYER ACTIONS
             // ============================================================================
-            ScriptActionType::PlayerSellEverything => self.do_player_sell_everything(action),
+            ScriptActionType::PlayerSellEverything => {
+                let player = self.get_string_param(action, 0)?;
+                let current = self.context.borrowed_engine().get_current_player_name();
+                if let Some(result) = driver.sell_everything(&player, current.as_deref()) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_player_sell_everything(action)
+                }
+            }
             ScriptActionType::PlayerDisableBaseConstruction => {
                 self.do_player_disable_base_construction(action)
             }
@@ -961,15 +1556,15 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::SoundRemoveType => self.do_sound_remove_type(action),
             ScriptActionType::EnableObjectSound => self.do_enable_object_sound(action),
             ScriptActionType::DisableObjectSound => self.do_disable_object_sound(action),
-            ScriptActionType::MoviePlayFullscreen => self.do_movie_play_fullscreen(action),
+            ScriptActionType::MoviePlayFullscreen => self.do_movie_play_fullscreen(action, driver),
             ScriptActionType::MoviePlayRadar => self.do_movie_play_radar(action),
 
             // ============================================================================
             // RADAR/MAP ACTIONS
             // ============================================================================
             ScriptActionType::RadarCreateEvent => self.do_radar_create_event(action),
-            ScriptActionType::RadarForceEnable => self.do_radar_force_enable(),
-            ScriptActionType::RadarRevertToNormal => self.do_radar_revert_to_normal(),
+            ScriptActionType::RadarForceEnable => self.do_radar_force_enable(driver),
+            ScriptActionType::RadarRevertToNormal => self.do_radar_revert_to_normal(driver),
             ScriptActionType::MapRevealAll => self.do_map_reveal_all(action),
             ScriptActionType::MapRevealAllPerm => self.do_map_reveal_all_perm(action),
             ScriptActionType::MapRevealAllUndoPerm => self.do_map_reveal_all_undo_perm(action),
@@ -991,7 +1586,9 @@ impl ScriptActionDispatcher<'_> {
             // DISPLAY/UI ACTIONS
             // ============================================================================
             ScriptActionType::CameoFlash => self.do_cameo_flash(action),
-            ScriptActionType::DisplayCountdownTimer => self.do_display_countdown_timer(action),
+            ScriptActionType::DisplayCountdownTimer => {
+                self.do_display_countdown_timer(action, driver)
+            }
             ScriptActionType::HideCountdownTimer => self.do_hide_countdown_timer(action),
             ScriptActionType::EnableCountdownTimerDisplay => {
                 self.do_enable_countdown_timer_display()
@@ -1009,10 +1606,10 @@ impl ScriptActionDispatcher<'_> {
             // ============================================================================
             // TIME CONTROL
             // ============================================================================
-            ScriptActionType::FreezeTime => self.do_freeze_time(),
-            ScriptActionType::UnfreezeTime => self.do_unfreeze_time(),
+            ScriptActionType::FreezeTime => self.do_freeze_time(driver),
+            ScriptActionType::UnfreezeTime => self.do_unfreeze_time(driver),
             ScriptActionType::SetVisualSpeedMultiplier => {
-                self.do_set_visual_speed_multiplier(action)
+                self.do_set_visual_speed_multiplier(action, driver)
             }
             ScriptActionType::SetFpsLimit => self.do_set_fps_limit(action),
 
@@ -1024,8 +1621,16 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::WaterChangeHeightOverTime => {
                 self.do_water_change_height_over_time(action, driver)
             }
-            ScriptActionType::SetCaveIndex => self.do_set_cave_index(action),
-            ScriptActionType::ShowWeather => self.do_show_weather(action),
+            ScriptActionType::SetCaveIndex => {
+                let name = self.get_string_param(action, 0)?;
+                let index = self.get_int_param(action, 1)?;
+                if driver.set_named_cave_index(&name, index).is_some() {
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_set_cave_index(action)
+                }
+            }
+            ScriptActionType::ShowWeather => self.do_show_weather(action, driver),
             ScriptActionType::SetInfantryLightingOverride => {
                 self.do_set_infantry_lighting_override(action)
             }
@@ -1069,7 +1674,14 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::ObjectlistRemoveobjecttype => {
                 self.do_object_list_remove_object_type(action)
             }
-            ScriptActionType::ObjectAllowBonuses => self.do_object_allow_bonuses(action),
+            ScriptActionType::ObjectAllowBonuses => {
+                let enable = self.get_int_param(action, 0)? != 0;
+                if driver.set_object_difficulty_bonus(enable).is_some() {
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_object_allow_bonuses(action)
+                }
+            }
             ScriptActionType::DeleteAllUnmanned => self.do_delete_all_unmanned(action),
             ScriptActionType::ChooseVictimAlwaysUsesNormal => {
                 self.do_choose_victim_always_uses_normal(action)
@@ -1083,22 +1695,22 @@ impl ScriptActionDispatcher<'_> {
             // ============================================================================
             ScriptActionType::SkirmishBuildBuilding => self.do_skirmish_build_building(action),
             ScriptActionType::SkirmishFollowApproachPath => {
-                self.do_skirmish_follow_approach_path(action)
+                self.do_skirmish_follow_approach_path(action, driver)
             }
             ScriptActionType::SkirmishMoveToApproachPath => {
-                self.do_skirmish_move_to_approach_path(action)
+                self.do_skirmish_move_to_approach_path(action, driver)
             }
             ScriptActionType::SkirmishBuildBaseDefenseFront => {
-                self.do_skirmish_build_base_defense_front(action)
+                self.do_skirmish_build_base_defense_front(action, driver)
             }
             ScriptActionType::SkirmishBuildBaseDefenseFlank => {
-                self.do_skirmish_build_base_defense_flank(action)
+                self.do_skirmish_build_base_defense_flank(action, driver)
             }
             ScriptActionType::SkirmishBuildStructureFront => {
-                self.do_skirmish_build_structure_front(action)
+                self.do_skirmish_build_structure_front(action, driver)
             }
             ScriptActionType::SkirmishBuildStructureFlank => {
-                self.do_skirmish_build_structure_flank(action)
+                self.do_skirmish_build_structure_flank(action, driver)
             }
             ScriptActionType::SkirmishFireSpecialPowerAtMostCost => {
                 self.do_skirmish_fire_special_power_at_most_cost(action)
@@ -1116,11 +1728,13 @@ impl ScriptActionDispatcher<'_> {
                 self.do_skirmish_wait_for_command_button_available_partial(action)
             }
             ScriptActionType::AiPlayerBuildSupplyCenter => {
-                self.do_ai_player_build_supply_center(action)
+                self.do_ai_player_build_supply_center(action, driver)
             }
-            ScriptActionType::AiPlayerBuildUpgrade => self.do_ai_player_build_upgrade(action),
+            ScriptActionType::AiPlayerBuildUpgrade => {
+                self.do_ai_player_build_upgrade(action, driver)
+            }
             ScriptActionType::AiPlayerBuildTypeNearestTeam => {
-                self.do_ai_player_build_type_nearest_team(action)
+                self.do_ai_player_build_type_nearest_team(action, driver)
             }
             ScriptActionType::IdleAllUnits => self.do_idle_all_units(action),
             ScriptActionType::ResumeSupplyTrucking => self.do_resume_supply_trucking(action),
@@ -1164,7 +1778,15 @@ impl ScriptActionDispatcher<'_> {
                     }
                 }
             }
-            ScriptActionType::SetTrainHeld => self.do_set_train_held(action),
+            ScriptActionType::SetTrainHeld => {
+                let name = self.get_string_param(action, 0)?;
+                let held = self.get_int_param(action, 1)? != 0;
+                if driver.set_named_train_held(&name, held).is_some() {
+                    Ok(ScriptActionResult::Success)
+                } else {
+                    self.do_set_train_held(action)
+                }
+            }
 
             ScriptActionType::NumItems => Ok(ScriptActionResult::Success),
         };

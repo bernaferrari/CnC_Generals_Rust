@@ -1856,7 +1856,6 @@ End
     );
     assert_eq!(carrier_template.contain_module.slots, Some(2));
 
-    crate::game_logic::railed_waypoint_overlay_reset();
     let mut logic = GameLogic::new();
 
     logic

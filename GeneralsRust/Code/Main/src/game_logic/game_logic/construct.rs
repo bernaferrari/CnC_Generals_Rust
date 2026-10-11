@@ -62,6 +62,7 @@ impl GameLogic {
             is_scoring_enabled: true,
             eva_announcements: Default::default(),
             movement_events: Default::default(),
+            construction_events: Default::default(),
             // C++ engine-init order (GameEngine.cpp:468-481): immutable content
             // is admitted before the world. Main constructs no Core AI.
             // Construction is inert (no active-slot write); Main installs
@@ -183,6 +184,8 @@ impl GameLogic {
             tunnel_network: crate::game_logic::host_tunnel_network::HostTunnelNetworkRegistry::new(
             ),
             cave_system: crate::game_logic::host_cave_system::HostCaveSystem::new(),
+            railroad: crate::game_logic::host_railroad::HostRailroadRegistry::default(),
+            railed_waypoints: Vec::new(),
             bridge_behavior:
                 crate::game_logic::host_bridge_behavior::HostBridgeBehaviorRegistry::new(),
             combat_chinook: crate::game_logic::host_combat_chinook::HostCombatChinookRegistry::new(
@@ -561,6 +564,7 @@ impl GameLogic {
             supply_dropoff_events: VecDeque::new(),
             pending_special_abilities: HashMap::new(),
             selected_objects: Vec::new(),
+            selection_changed_frame: 0,
             partition_manager: PartitionManager::new(),
             radar_notifications: RadarNotifications::new(),
             last_radar_kind_time: [-10.0; 3],
@@ -684,6 +688,11 @@ impl GameLogic {
             host_beacons: Vec::new(),
             recent_beacons: Vec::new(),
             script_engine: None,
+            objects_receive_difficulty_bonus: true,
+            session_difficulty: None,
+            owned_script_engine: Some(gamelogic::scripting::engine::ScriptEngine::new().expect("built-in script templates")),
+            script_input_enabled: true,
+            named_unit_history: std::collections::BTreeSet::new(),
             script_event_pump_in_flight: Arc::new(AtomicBool::new(false)),
             script_event_pump_busy_frames: 0,
             loaded_script_lists: Vec::new(),
@@ -789,6 +798,9 @@ impl GameLogic {
         self.drawable_tint_envelopes.clear();
         self.finish_all_building_sounds();
         self.objects.clear();
+        self.named_unit_history.clear();
+        self.objects_receive_difficulty_bonus = true;
+        self.session_difficulty = None;
         self.ambient_sound_retries.clear();
         // C++ WeaponStore::resetWeaponTemplates clears same-template history.
         self.combat_system.reset_historic_bonus();
@@ -882,6 +894,8 @@ impl GameLogic {
         self.preorder_create_reg.clear();
         self.upgrade_die_reg.clear();
         self.tunnel_network.clear();
+        self.railroad_registry_reset();
+        self.railed_waypoints.clear();
         self.combat_chinook.clear();
         self.listening_outpost.clear();
         self.troop_crawler.clear();
@@ -1207,6 +1221,7 @@ impl GameLogic {
         self.clear_victory_observation();
         self.health_events.clear();
         self.movement_events.reset();
+        self.construction_events.reset();
         self.is_scoring_enabled = true;
         self.eva_announcements.reset();
         self.scripts_loaded = false;

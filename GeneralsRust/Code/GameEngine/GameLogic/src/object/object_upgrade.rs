@@ -11,6 +11,7 @@ use crate::upgrade::UpgradeTemplatePlayerExt;
 /// Immutable effect plans carry definitions across the short installed-module borrow.
 /// The executed flag remains solely in that same installed entry.
 enum PreparedUpgrade {
+    Radar(Arc<crate::object::upgrade::radar_upgrade::RadarUpgradeModuleData>),
     SubObjects(Arc<crate::object::upgrade::subobjects_upgrade::SubObjectsUpgradeModuleData>),
     PassengersFire(
         Arc<crate::object::upgrade::passengers_fire_upgrade::PassengersFireUpgradeModuleData>,
@@ -27,6 +28,7 @@ enum PreparedUpgrade {
 impl PreparedUpgrade {
     fn mux(&self) -> &crate::object::upgrade::upgrade_module::UpgradeMuxData {
         match self {
+            Self::Radar(data) => &data.upgrade_mux_data,
             Self::SubObjects(data) => &data.upgrade_mux_data,
             Self::PassengersFire(data) => &data.upgrade_mux_data,
             Self::StatusBits(data) => &data.upgrade_mux_data,
@@ -39,6 +41,28 @@ impl PreparedUpgrade {
 }
 
 impl Object {
+    /// Bounded installed ProductionUpdate operation; its entry stays private.
+    pub(crate) fn queue_upgrade_on_installed_producer_owned(
+        &mut self,
+        name: String,
+        cost: i32,
+        frames: u32,
+        player_id: ObjectID,
+    ) -> Result<(), String> {
+        if self.get_controlling_player_id() != Some(player_id) {
+            return Err("foreign production player".into());
+        }
+        let entry = self
+            .find_module_by_name("ProductionUpdate")
+            .ok_or("missing ProductionUpdate")?;
+        entry.with_module(|module| {
+            module.as_any_mut().downcast_mut::<crate::object::production::production_update_complete::ProductionUpdateCompleteModule>()
+                .map(|production| production.behavior_mut().queue_upgrade_owned(name, cost, frames, player_id))
+        }).ok_or("wrong ProductionUpdate module")??;
+        self.set_model_condition_state(crate::common::MODELCONDITION_ACTIVELY_CONSTRUCTING);
+        Ok(())
+    }
+
     /// Set the disabled/held state for this object
     /// Used by containment modules to disable contained units
     pub fn set_disabled_held(
@@ -395,11 +419,23 @@ impl Object {
     /// Adjust power influence for the controlling player.
     /// Mirrors C++ Object::friend_adjustPowerForPlayer.
     pub fn adjust_power_for_player(&self, enable: bool) {
+        if self.get_template().get_energy_production() == 0 {
+            return;
+        }
+        let player = self.get_controlling_player();
+        self.adjust_power_for_supplied_player(enable, player.as_ref());
+    }
+
+    pub(super) fn adjust_power_for_supplied_player(
+        &self,
+        enable: bool,
+        player: Option<&Arc<RwLock<Player>>>,
+    ) {
         let power = self.get_template().get_energy_production();
         if power == 0 {
             return;
         }
-        let Some(player) = self.get_controlling_player() else {
+        let Some(player) = player else {
             return;
         };
         let Ok(mut player_guard) = player.write() else {
@@ -512,6 +548,29 @@ impl Object {
         self.update_upgrade_modules_from_player();
     }
 
+    /// Object.cpp:4474–4484,2410–2436 with an explicitly admitted player key
+    /// and synchronous owner effect services. The player key is sampled once.
+    pub fn give_upgrade_with_radar(
+        &mut self,
+        upgrade: &UpgradeTemplate,
+        completed_player_upgrades: UpgradeMaskType,
+        radar_grant: &mut dyn FnMut(&mut Object, bool),
+    ) {
+        self.object_upgrades_completed
+            .insert(UpgradeMaskType::from_bits_retain(upgrade.mask().bits()));
+        if self
+            .get_status_bits()
+            .contains(ObjectStatusMaskType::UNDER_CONSTRUCTION)
+            || self.is_destroyed()
+        {
+            return;
+        }
+        self.apply_upgrade_modules_with_radar(
+            completed_player_upgrades | self.object_upgrades_completed,
+            radar_grant,
+        );
+    }
+
     /// Recheck installed modules against completed player and object upgrades.
     /// C++ samples guards and the complete key once before the authored-order
     /// loop; synchronous removals do not change the key seen by later modules.
@@ -566,6 +625,25 @@ impl Object {
     }
 
     pub(super) fn apply_upgrade_modules(&mut self, mask: UpgradeMaskType) {
+        self.apply_upgrade_modules_at(mask, crate::helpers::TheGameLogic::get_frame());
+    }
+
+    /// Explicit clock admission for owner-held upgrade grants.
+    pub fn apply_upgrade_modules_at(&mut self, mask: UpgradeMaskType, frame: UnsignedInt) {
+        self.apply_upgrade_modules_with_radar(mask, &mut |owner, disable_proof| {
+            owner.with_controlling_player_mut(|player| player.add_radar(disable_proof));
+            owner.extend_radar_at(frame);
+        });
+    }
+
+    /// Admission supplied by the driving owner. It runs synchronously after
+    /// upgrade FX/removals and before the exact installed entry is committed.
+    /// The callback supplies that session's Player, clock and audio services.
+    pub fn apply_upgrade_modules_with_radar(
+        &mut self,
+        mask: UpgradeMaskType,
+        radar_grant: &mut dyn FnMut(&mut Object, bool),
+    ) {
         if mask.is_empty() {
             return;
         }
@@ -575,6 +653,9 @@ impl Object {
             let prepared = entry.with_module(|module| {
                 let upgrade = module_upgrade_kind(module)?;
                 match upgrade {
+                    UpgradeModuleKindMut::Radar(upgrade) => {
+                        upgrade.prepare_upgrade(mask).map(PreparedUpgrade::Radar)
+                    }
                     UpgradeModuleKindMut::SubObjects(upgrade) => upgrade
                         .prepare_upgrade(mask)
                         .map(PreparedUpgrade::SubObjects),
@@ -610,6 +691,7 @@ impl Object {
                 prepared.mux().perform_upgrade_fx(self);
                 prepared.mux().process_upgrade_removal(self);
                 match &prepared {
+                    PreparedUpgrade::Radar(data) => radar_grant(self, data.is_disable_proof()),
                     PreparedUpgrade::StatusBits(data) => data.apply_to_object(self),
                     PreparedUpgrade::Armor(data) => data.apply_to_object(self),
                     PreparedUpgrade::MaxHealth(data) => data.apply_to_object(self),
@@ -620,6 +702,9 @@ impl Object {
                 // Commit to the same entry that supplied this plan. Matching
                 // both kinds rejects an unexpected replacement during effects.
                 entry.with_module(|module| match (&prepared, module_upgrade_kind(module)) {
+                    (PreparedUpgrade::Radar(_), Some(UpgradeModuleKindMut::Radar(upgrade))) => {
+                        upgrade.finish_upgrade()
+                    }
                     (
                         PreparedUpgrade::SubObjects(_),
                         Some(UpgradeModuleKindMut::SubObjects(upgrade)),

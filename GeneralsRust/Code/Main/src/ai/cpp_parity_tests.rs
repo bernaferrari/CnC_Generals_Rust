@@ -181,23 +181,26 @@ fn ai_player_update_order_matches_cpp_aiplayer_update() {
     let dispatch = crate::game_logic::harness::rust_fn_body(src, "update_with_ai_data")
         .expect("the direct AIPlayer entrypoint");
     assert!(dispatch.contains("update_with_ai_data_and_team_owner"));
-    let body = crate::game_logic::harness::rust_fn_body(src, "update_with_ai_data_and_team_owner")
-        .expect("the synchronous AIPlayer phase implementation");
-    let econ = body
-        .find("update_economic_management")
-        .expect("doBaseBuilding");
-    let ready = body.find("check_ready_teams").expect("checkReadyTeams");
-    let queued = body.find("check_queued_teams").expect("checkQueuedTeams");
-    let mil = body
-        .find("update_military_management")
-        .expect("doTeamBuilding");
-    let upg = body
-        .find("do_upgrades_and_skills")
-        .expect("doUpgradesAndSkills");
-    let br = body
-        .find("update_bridge_repair")
-        .expect("updateBridgeRepair");
-    assert!(econ < ready && ready < queued && queued < mil && mil < upg && upg < br);
+    let phase = |name| {
+        crate::game_logic::harness::rust_fn_body(src, name)
+            .expect("original AI phase remains reachable")
+    };
+    let body = phase("update_with_ai_data_and_team_owner");
+    let before = body.find("update_before_queued_teams").unwrap();
+    let ready = body.find("check_ready_teams").unwrap();
+    let queued = body.find("check_queued_teams_with_owner").unwrap();
+    let after = body.find("update_after_queued_teams").unwrap();
+    assert!(before < ready && ready < queued && queued < after);
+    assert!(phase("update_before_queued_teams").contains("update_economic_management"));
+    let after = phase("update_after_queued_teams");
+    assert!(
+        after.find("update_military_management").unwrap()
+            < after.find("update_after_military_management").unwrap()
+    );
+    let tail = phase("update_after_military_management");
+    assert!(
+        tail.find("do_upgrades_and_skills").unwrap() < tail.find("update_bridge_repair").unwrap()
+    );
 }
 
 #[test]
@@ -296,15 +299,13 @@ fn aidata_team_resources_to_start_gates_queue() {
 #[test]
 fn select_team_to_build_calls_build_specific_ai_team() {
     let src = include_str!("teams.rs");
-    let i = src
-        .find("/// C++ `AIPlayer::selectTeamToBuild`")
+    let body = crate::game_logic::harness::rust_fn_body(src, "select_team_to_build_with_ai_data")
         .expect("selectTeamToBuild");
-    let window = &src[i..src.len().min(i + 2500)];
     assert!(
-        window.contains("build_specific_ai_team(game_logic, name, false)")
-            && window.contains("arm_team_timer_after_build")
-            && !window.contains("create_team_queue"),
-        "auto selectTeamToBuild must use leftover-right buildSpecificAITeam"
+        body.contains("build_specific_ai_team(game_logic, &name, false)")
+            && body.contains("arm_team_timer_after_build")
+            && !body.contains("create_team_queue"),
+        "auto selection must use the shared buildSpecificAITeam algorithm before arming its timer"
     );
 }
 
@@ -3334,11 +3335,22 @@ fn check_bridges_uses_owned_connectivity_and_broken_bridge_gate() {
         w.contains("game_logic.quick_path_exists")
             && w.contains("find_broken_bridge")
             && w.contains("repair_structure")
-            && w.contains("get_waypoint_by_id")
+            && w.contains("owned_waypoint_hops")
             && !w.contains("host_object_is_bridge")
             && !w.contains("the_ai()"),
         "checkBridges must use driving-world connectivity and findBrokenBridge"
     );
+    let view = include_str!("world_view.rs");
+    let start = view
+        .find("fn owned_waypoint_hops")
+        .expect("owned waypoint traversal");
+    let end = view[start..]
+        .find("pub(super) fn default_host_team_instance_name")
+        .unwrap()
+        + start;
+    let traversal = &view[start..end];
+    assert!(traversal.contains("world_services") && traversal.contains("get_waypoint_by_id"));
+    assert!(!traversal.contains("get_terrain_logic"));
 }
 
 #[test]

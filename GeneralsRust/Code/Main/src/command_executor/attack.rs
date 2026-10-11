@@ -687,7 +687,8 @@ impl<'a> CommandExecutor<'a> {
         radius: f32,
         polygon_name: Option<&str>,
     ) -> CommandResult {
-        let (center, radius, tag) = resolve_attack_area(center, radius, polygon_name);
+        let (center, radius, tag) =
+            resolve_attack_area(self.game_logic, center, radius, polygon_name);
         if !center.x.is_finite() || !center.z.is_finite() {
             return CommandResult::InvalidLocation;
         }
@@ -761,21 +762,19 @@ fn parse_attack_area_persist(tag: Option<&str>) -> Option<(Vec3, f32, Option<Str
 }
 
 fn resolve_attack_area(
+    owner: &GameLogic,
     mut center: Vec3,
     mut radius: f32,
     polygon_name: Option<&str>,
 ) -> (Vec3, f32, String) {
     if let Some(name) = polygon_name.filter(|n| !n.is_empty()) {
-        if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() {
-            if let Some(trigger) = terrain.get_trigger_area_by_name(name) {
-                let c = trigger.get_center_point();
-                center = Vec3::new(c.x, c.z, c.y);
-                let min = trigger.get_bounds_min();
-                let max = trigger.get_bounds_max();
-                let dx = (max.x - min.x).abs() as f32;
-                let dy = (max.y - min.y).abs() as f32;
-                radius = (dx.max(dy) * 0.5).max(1.0);
-            }
+        if let Some((owned_center, _, trigger)) = owner.host_named_guard_area_polygon(name) {
+            center = owned_center;
+            let min = trigger.get_bounds_min();
+            let max = trigger.get_bounds_max();
+            let dx = (max.x - min.x).abs() as f32;
+            let dy = (max.y - min.y).abs() as f32;
+            radius = (dx.max(dy) * 0.5).max(1.0);
         }
     }
     (
@@ -801,6 +800,9 @@ impl crate::game_logic::GameLogic {
     /// (`teamGLA`, Player.cpp). Resolve to whichever form live members
     /// answer to, preferring the literal needle so named squads never widen.
     pub(crate) fn canonical_attack_team_census_name(&self, name: &str) -> String {
+        if name.starts_with("owned:") {
+            return name.to_owned();
+        }
         if !self.host_script_team_census_member_ids(name).is_empty() {
             return name.to_string();
         }
@@ -827,6 +829,24 @@ impl crate::game_logic::GameLogic {
                 }
             })
             .unwrap_or_else(|| format!("team{}", faction.get_name()))
+    }
+
+    /// Session-authored orders retain the resolved Team identity, including
+    /// an empty roster. They must never fall back to a faction-wide census.
+    fn attack_team_member_ids(&self, name: &str) -> Vec<u32> {
+        if let Some(raw) = name.strip_prefix("owned:") {
+            let Ok(id) = raw.parse::<u32>() else {
+                return Vec::new();
+            };
+            return self
+                .team_factory
+                .lock()
+                .ok()
+                .and_then(|factory| factory.find_team_by_id(id))
+                .and_then(|team| team.read().ok().map(|team| team.get_members().to_vec()))
+                .unwrap_or_default();
+        }
+        self.host_script_team_census_member_ids(name)
     }
 
     /// C++ `AIAttackSquadState::chooseVictim` (`AIStates.cpp:5904-5988`) on live
@@ -880,7 +900,7 @@ impl crate::game_logic::GameLogic {
         }
 
         let team_members: HashSet<ObjectId> = self
-            .host_script_team_census_member_ids(enemy_team_name)
+            .attack_team_member_ids(enemy_team_name)
             .into_iter()
             .map(ObjectId)
             .collect();
@@ -953,7 +973,7 @@ impl crate::game_logic::GameLogic {
                 continue;
             }
             let team_members: HashSet<ObjectId> = self
-                .host_script_team_census_member_ids(&team_name)
+                .attack_team_member_ids(&team_name)
                 .into_iter()
                 .map(ObjectId)
                 .collect();
@@ -970,6 +990,15 @@ impl crate::game_logic::GameLogic {
             let from_player = self.attack_team_cmd_from_player(id);
             if let Some(tid) = self.choose_attack_team_victim(id, &team_name, from_player) {
                 jobs.push((id, tid, shots, tag));
+            } else if team_name.starts_with("owned:") {
+                // CPP AttackSquad completes after the inner attack has idled
+                // and no member can be selected. It does not broaden to a
+                // faction or retain an obsolete victim after the team empties.
+                if let Some(unit) = self.host_object_mut(id) {
+                    unit.set_target(None);
+                    unit.set_ai_state(AIState::Idle);
+                    unit.attack_priority_set = None;
+                }
             }
         }
         for (id, tid, shots, tag) in jobs {
@@ -997,11 +1026,15 @@ impl crate::game_logic::GameLogic {
         }
         let team = me.team;
         let polygon = polygon_name.filter(|n| !n.is_empty()).and_then(|name| {
-            gamelogic::terrain::get_terrain_logic()
-                .read()
-                .ok()
-                .and_then(|terrain| terrain.get_trigger_area_by_name(name).cloned())
+            self.host_trigger_world
+                .lock()
+                .expect("owned attack-area polygon")
+                .trigger_area_by_canonical_name(name)
         });
+        // A deleted/missing named polygon never becomes an implicit circle.
+        if polygon_name.is_some_and(|name| !name.is_empty()) && polygon.is_none() {
+            return None;
+        }
         let prio = self.attack_priority_info_for(unit_id);
         let mut best_dist: Option<(ObjectId, f32)> = None;
         let mut best_prio: Option<(ObjectId, i32)> = None;
@@ -1079,6 +1112,8 @@ impl crate::game_logic::GameLogic {
             }
         }
         for (id, tid, tag) in jobs {
+            // Preserve the admitted parent command source (PLAYER or SCRIPT).
+            // This rescan is a continuation, not a new scripted order.
             let _ = self.unit_command_attack_soft(id, tid);
             if let Some(unit) = self.host_object_mut(id) {
                 unit.auto_acquire_when_idle = true;

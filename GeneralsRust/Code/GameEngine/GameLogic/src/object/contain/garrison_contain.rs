@@ -3,6 +3,9 @@
 //! Contain module for structures that can be garrisoned. Provides advanced
 //! containment functionality including healing, garrison points, and combat positioning.
 
+#[path = "garrison_admission.rs"]
+mod admission;
+
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Weak};
 
@@ -212,8 +215,12 @@ impl Default for GarrisonContainModuleData {
 
 impl GarrisonContainModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        self.base.parse_from_ini(ini)?;
-        ini.init_from_ini_with_fields_allow_unknown(self, GARRISON_CONTAIN_FIELDS)
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            super::open_contain::OPEN_CONTAIN_FIELDS,
+            GARRISON_CONTAIN_FIELDS,
+        )
     }
 
     pub fn parse_from_config(&mut self, config: &str) -> Result<(), INIError> {
@@ -527,8 +534,7 @@ impl GarrisonContain {
                     );
                     continue;
                 }
-                if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
-                {
+                if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) {
                     if let Ok(mut contained) = obj.try_write() {
                         contained.set_safe_occlusion_frame(
                             TheGameLogic::get_frame()
@@ -581,47 +587,6 @@ impl GarrisonContain {
         }
 
         Ok(UpdateSleepTime::None)
-    }
-
-    /// Check if this container is valid for the given object
-    pub fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
-        // Garrison has extra checks beyond OpenContain
-        if let Some(false) = self.with_owner_object(|owner| {
-            let Some(body) = owner.get_body_module() else {
-                return true;
-            };
-            let Ok(body_mod) = body.lock() else {
-                return true;
-            };
-            if body_mod.get_health() <= 0.0 {
-                return false;
-            }
-            if body_mod.get_damage_state() == BodyDamageType::ReallyDamaged
-                && !owner.is_kind_of(KindOf::GarrisonableUntilDestroyed)
-            {
-                return false;
-            }
-            true
-        }) {
-            return false;
-        }
-
-        if obj.is_kind_of(KindOf::NoGarrison) {
-            return false;
-        }
-
-        if !self.base.is_valid_container_for(obj, check_capacity) {
-            return false;
-        }
-        if check_capacity {
-            let garrison_max = self.base.get_contain_max();
-            if garrison_max < 0 {
-                return true;
-            }
-            let contain_count = self.base.get_contain_count() as i32;
-            return contain_count < garrison_max;
-        }
-        true
     }
 
     /// Check if this is a garrisonable unit
@@ -709,7 +674,8 @@ impl GarrisonContain {
             return Ok(());
         }
 
-        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
+        let obj = crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
             .ok_or("Contain object not found")?;
         if super::should_cancel_containment_after_booby_trap(
             {
@@ -774,7 +740,8 @@ impl GarrisonContain {
             return Ok(());
         }
 
-        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
+        let obj = crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
             .ok_or("Contain object not found")?;
         let owner_id = self.get_object_id();
         if owner_id != crate::common::INVALID_ID {
@@ -825,8 +792,7 @@ impl GarrisonContain {
         }
         let owner_id = self.get_object_id();
         if owner_id != crate::common::INVALID_ID {
-            if let Some(owner_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(owner_id)
-            {
+            if let Some(owner_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(owner_id) {
                 if let Ok(owner_guard) = owner_arc.try_read() {
                     let pos = *owner_guard.get_position();
                     let layer = owner_guard.get_layer();
@@ -892,7 +858,8 @@ impl GarrisonContain {
         }
 
         let _ = exit_door;
-        let exit_obj = crate::object::registry::OBJECT_REGISTRY.get_object(exit_id)
+        let exit_obj = crate::object::registry::OBJECT_REGISTRY
+            .get_object(exit_id)
             .ok_or("exit object not found")?;
         // C++ removeFromContain defaults exposeStealthUnits = FALSE.
         self.remove_from_contain(exit_id, false)?;
@@ -1093,8 +1060,7 @@ impl GarrisonContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1172,8 +1138,7 @@ impl GarrisonContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1383,8 +1348,7 @@ impl GarrisonContain {
 
         if contain_count > 0 {
             if let Some(&first_id) = contained_ids.first() {
-                if let Some(first) = crate::object::registry::OBJECT_REGISTRY.get_object(first_id)
-                {
+                if let Some(first) = crate::object::registry::OBJECT_REGISTRY.get_object(first_id) {
                     if let Ok(rider) = first.read() {
                         let detected = rider.test_status(ObjectStatusTypes::Detected);
                         let stealth_count = contained_ids
@@ -1695,12 +1659,10 @@ impl GarrisonContain {
             return false;
         }
 
-        let Some(victim) = crate::object::registry::OBJECT_REGISTRY.get_object(victim_id)
-        else {
+        let Some(victim) = crate::object::registry::OBJECT_REGISTRY.get_object(victim_id) else {
             return false;
         };
-        let Some(source) = crate::object::registry::OBJECT_REGISTRY.get_object(source_id)
-        else {
+        let Some(source) = crate::object::registry::OBJECT_REGISTRY.get_object(source_id) else {
             return false;
         };
 
@@ -1750,8 +1712,7 @@ impl GarrisonContain {
             return false;
         }
 
-        let Some(source) = crate::object::registry::OBJECT_REGISTRY.get_object(source_id)
-        else {
+        let Some(source) = crate::object::registry::OBJECT_REGISTRY.get_object(source_id) else {
             return false;
         };
 
@@ -1794,9 +1755,7 @@ impl GarrisonContain {
             .base
             .get_contained_object_ids()
             .iter()
-            .filter_map(|&id| {
-                crate::object::registry::OBJECT_REGISTRY.get_object(id)
-            })
+            .filter_map(|&id| crate::object::registry::OBJECT_REGISTRY.get_object(id))
             .collect();
 
         // Check for objects that fired last frame and create muzzle flash
@@ -1939,8 +1898,7 @@ impl GarrisonContain {
         target_pos: Option<&Coord3D>,
     ) -> GameResult<()> {
         // C++ putObjectAtBestGarrisonPoint: already-placed occupants stay put.
-        if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        {
+        if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) {
             if let Ok(obj_guard) = obj.read() {
                 if self.get_object_garrison_point_index(&obj_guard).is_some() {
                     return Ok(());
@@ -1950,8 +1908,7 @@ impl GarrisonContain {
 
         let mut resolved_target = target_pos.cloned();
         if let Some(tid) = target_id {
-            if let Some(target_obj) = crate::object::registry::OBJECT_REGISTRY.get_object(tid)
-            {
+            if let Some(target_obj) = crate::object::registry::OBJECT_REGISTRY.get_object(tid) {
                 if let Ok(target_guard) = target_obj.read() {
                     resolved_target = Some(*target_guard.get_position());
                 }
@@ -1988,7 +1945,8 @@ impl GarrisonContain {
             return Ok(());
         }
 
-        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
+        let obj = crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
             .ok_or("garrison point object not found")?;
         if point_index >= MAX_GARRISON_POINTS || condition_index >= MAX_GARRISON_POINT_CONDITIONS {
             return Err("Invalid garrison point index".into());
@@ -2108,9 +2066,7 @@ impl GarrisonContain {
             .base
             .get_contained_object_ids()
             .iter()
-            .filter_map(|&id| {
-                crate::object::registry::OBJECT_REGISTRY.get_object(id)
-            })
+            .filter_map(|&id| crate::object::registry::OBJECT_REGISTRY.get_object(id))
             .collect();
 
         for obj in contained_objects {
@@ -2215,9 +2171,7 @@ impl GarrisonContain {
             .base
             .get_contained_object_ids()
             .iter()
-            .filter_map(|&id| {
-                crate::object::registry::OBJECT_REGISTRY.get_object(id)
-            })
+            .filter_map(|&id| crate::object::registry::OBJECT_REGISTRY.get_object(id))
             .collect();
 
         for obj in contained_objects {
@@ -2330,7 +2284,8 @@ impl GarrisonContain {
             let mut found = false;
             for station in &self.station_point_list {
                 if station.occupant_id == Some(object_id) {
-                    if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
+                    if let Some(obj) =
+                        crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
                     {
                         if let Ok(mut guard) = obj.write() {
                             if let Err(err) = guard.set_position(&station.position) {
@@ -2346,8 +2301,7 @@ impl GarrisonContain {
             }
 
             if !found {
-                if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
-                {
+                if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) {
                     if let Ok(contained) = obj.read() {
                         if self.pick_a_station_for_me(&contained) {
                             drop(contained);
@@ -2555,8 +2509,7 @@ impl GarrisonContain {
 
         let contained_ids = self.base.get_contained_object_ids().to_vec();
         for object_id in contained_ids {
-            if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
-            {
+            if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) {
                 if let Err(err) = self.heal_single_object(obj, module_data.frames_for_full_heal) {
                     log::warn!(
                         "GarrisonContain::heal_objects skipped {}: {}",
@@ -2628,8 +2581,7 @@ impl GarrisonContain {
 
         if let Some(pos) = self.with_owner_object(|owner| *owner.get_position()) {
             for object_id in self.base.get_contained_object_ids().to_vec() {
-                if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
-                {
+                if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) {
                     if let Ok(mut contained) = obj.try_write() {
                         if let Err(err) = contained.set_position(&pos) {
                             log::debug!(
@@ -3038,7 +2990,7 @@ impl ContainModuleInterface for GarrisonContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
             return self.is_valid_container_for(&*obj_guard, true);
-            });
+        });
         false
     }
 
@@ -3147,8 +3099,7 @@ impl ContainModuleInterface for GarrisonContain {
         if !self.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
-        else {
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
             return Ok(());
         };
         let valid = other
@@ -3163,6 +3114,15 @@ impl ContainModuleInterface for GarrisonContain {
 
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
         GarrisonContain::is_valid_container_for(self, obj, check_capacity)
+    }
+
+    fn is_valid_container_for_with_owner(
+        &self,
+        obj: &Object,
+        owner: &Object,
+        check_capacity: bool,
+    ) -> bool {
+        self.admits_with_owner(obj, owner, check_capacity)
     }
 
     fn add_to_contain(
@@ -3242,8 +3202,7 @@ impl ContainModuleInterface for GarrisonContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -3259,8 +3218,7 @@ impl ContainModuleInterface for GarrisonContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -3294,7 +3252,7 @@ impl ContainModuleInterface for GarrisonContain {
             let _ = self.release_object(object_id);
             let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |guard| {
                 let _ = guard.attempt_damage(damage_info);
-                });
+            });
         }
         Ok(())
     }
@@ -3304,7 +3262,7 @@ impl ContainModuleInterface for GarrisonContain {
             let _ = self.release_object(object_id);
             let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |guard| {
                 guard.kill(None, None);
-                });
+            });
         }
         Ok(())
     }
@@ -3374,6 +3332,21 @@ impl ContainerInterface for GarrisonContain {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn authored_garrison_block_reads_inherited_and_derived_fields_once() {
+        let mut first = GarrisonContainModuleData::default();
+        let mut next = GarrisonContainModuleData::default();
+        INI::new().with_inline_source(
+            "AllowInsideKindOf = INFANTRY\nMobileGarrison = Yes\nHealObjects = Yes\nEnd\nMobileGarrison = No\nEnd",
+            |ini| { first.parse_from_ini(ini)?; next.parse_from_ini(ini) },
+        ).unwrap();
+        assert_eq!(first.base.allow_inside_kind_of, KindOf::Infantry.cpp_mask());
+        assert!(first.mobile_garrison);
+        assert!(first.do_heal_objects);
+        assert!(!next.mobile_garrison);
+        assert!(!next.do_heal_objects);
+    }
+
     use super::*;
     use crate::common::{DefaultThingTemplate, ObjectStatusMaskType, WeaponBonusConditionFlags};
     use crate::object::drawable::{DrawableExt, DrawableType};

@@ -59,6 +59,9 @@ impl<'a> AiWorldView<'a> {
     pub(super) fn new(source: &'a (impl AiReadSource + ?Sized)) -> Self {
         source.ai_view()
     }
+    pub(super) fn script_engine(&self) -> Option<&'a gamelogic::scripting::engine::ScriptEngine> {
+        self.world.owned_script_engine.as_ref()
+    }
     pub(super) fn host_objects(&self) -> &'a HashMap<ObjectId, Object> {
         self.world.host_objects()
     }
@@ -97,6 +100,21 @@ impl<'a> AiWorldView<'a> {
         id: u32,
     ) -> Option<game_engine::common::rts::player_template::PlayerTemplate> {
         self.world.resolved_player_template(id)
+    }
+    pub(super) fn owned_waypoint_hops(&self, start: u32) -> Vec<gamelogic::common::Coord3D> {
+        let terrain = self
+            .world
+            .world_services
+            .terrain()
+            .read()
+            .expect("owned AI waypoint chain");
+        let mut result = Vec::new();
+        let mut current = terrain.get_waypoint_by_id(start);
+        while let Some(way) = current {
+            result.push(*way.get_location());
+            current = way.get_next();
+        }
+        result
     }
     pub(super) fn default_host_team_instance_name(&self, owner: Option<u32>, team: Team) -> String {
         self.world.default_host_team_instance_name(owner, team)

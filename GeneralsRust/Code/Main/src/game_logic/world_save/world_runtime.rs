@@ -247,7 +247,7 @@ impl GameLogic {
     fn start_new_game_state(&mut self, mode: GameMode) {
         log::info!("Starting new game: {:?}", mode);
         // C++ GameLogic.cpp:1254-1256 TheCampaignManager->SetVictorious(FALSE).
-        clear_live_campaign_victorious_for_new_game();
+        clear_live_campaign_victorious_for_new_game(self);
         self.reset();
         // C++ TheAI already holds AIData.ini EnableRepulsors after GameEngine init.
         // Live GameLogic ctor stays false (TAiData default); apply on the player path.

@@ -316,29 +316,6 @@ fn credit_supplies_defers_under_economy_authority() {
 }
 
 #[test]
-fn construction_sole_tick_requires_coupled_frame() {
-    // Host-only gates (no begin_shadow_coupled_tick) must still advance builds.
-    assert!(
-        !shadow_coupled_tick_active(),
-        "tests start outside coupled engine frame"
-    );
-    // Arm the channel on this instance (hq-e84zk retired the env flag) so
-    // the coupled frame is the only variable: authority on + shadow on must
-    // freeze host construction progress exactly while a coupled writeback
-    // frame is open.
-    let mut logic = GameLogic::new();
-    logic.set_construction_authority(true);
-    assert!(
-        !gameworld_construction_sole_tick_enabled(),
-        "sole-tick freeze requires coupled engine frame"
-    );
-    begin_shadow_coupled_tick();
-    assert!(gameworld_construction_sole_tick_enabled() || !gameworld_shadow_enabled());
-    end_shadow_coupled_tick();
-    assert!(!gameworld_construction_sole_tick_enabled());
-}
-
-#[test]
 fn damage_authority_live_requires_coupled_frame() {
     // Host-only paths (unit tests, gates without engine shadow session) must
     // apply HP/cash/move immediately — defer only on a coupled writeback frame.
@@ -368,7 +345,7 @@ fn damage_authority_live_requires_coupled_frame() {
 
 #[test]
 fn construction_complete_heal_log_sets_full_hp_via_writeback() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_construction_progress_log};
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     logic.set_damage_authority(true);
     assert!(gameworld_damage_authority_enabled());
@@ -406,12 +383,12 @@ fn construction_complete_heal_log_sets_full_hp_via_writeback() {
     shadow.sync_from_host(&logic);
     // Simulate completion residual: log full HP without host mutate.
     logic.health_events.clear_heal();
-    host_construction_progress_log::clear();
+
     {
         let (o, health_events) = logic.host_object_and_health_events_mut(oid).expect("o");
         let full = o.health.maximum;
         health_events.record_heal(oid, full);
-        crate::game_logic::host_construction_progress_log::record(oid, 1.0, false, 0.0);
+
         o.construction_percent = 1.0;
         o.status.under_construction = false;
     }
@@ -428,11 +405,10 @@ fn construction_complete_heal_log_sets_full_hp_via_writeback() {
 }
 
 #[test]
-fn construction_authority_last_writes_percent() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_construction_progress_log};
+fn construction_shadow_reports_disagreement_without_rewriting_percent() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic.set_construction_authority(true);
-    assert!(gameworld_construction_authority_enabled());
+
     let cfg = golden_skirmish_config("ConstAuth");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("PadAuth") {
@@ -450,9 +426,7 @@ fn construction_authority_last_writes_percent() {
         o.status.under_construction = true;
         o.construction_percent = 0.5;
     }
-    host_construction_progress_log::clear();
-    // One progress log as host construction tick would emit under authority.
-    host_construction_progress_log::record(oid, 0.6, true, 0.0);
+
     assert!(
         (logic
             .host_objects()
@@ -465,28 +439,34 @@ fn construction_authority_last_writes_percent() {
     );
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    // Apply progress events as session does, then writeback.
-    let events = host_construction_progress_log::drain();
-    let n = shadow.apply_host_construction_progress_events(&events);
-    assert!(n >= 1);
-    assert!(shadow.writeback_construction_to_host(&mut logic) >= 1);
+    // Projection updates are explicit; deliberate disagreement cannot change the host.
+
+    assert!(shadow.observe_host_construction(&logic) >= 1);
+    let entity = shadow.entity_for_host(oid).unwrap();
+    shadow
+        .world_mut()
+        .world_mut()
+        .entity_mut(entity)
+        .unwrap()
+        .construction_percent = 0.6;
+    assert!(shadow.compare_construction_to_host(&logic) >= 1);
     assert!(
         (logic
             .host_objects()
             .get(&oid)
             .expect("o")
             .construction_percent
-            - 0.6)
+            - 0.5)
             .abs()
             < 1e-5
     );
 }
 
 #[test]
-fn construction_tick_advances_when_rate_logged_without_entity_uc() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_construction_progress_log};
+fn owned_construction_observation_never_advances_simulation_percent() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
-    logic.set_construction_authority(true);
+
     let cfg = golden_skirmish_config("RateOnlyUc");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("PadRateUc") {
@@ -504,26 +484,25 @@ fn construction_tick_advances_when_rate_logged_without_entity_uc() {
         o.status.under_construction = true;
         o.construction_percent = 0.0;
     }
-    host_construction_progress_log::clear();
-    // Rate-only: host construction tick under sole-tick does not stomp percent.
-    host_construction_progress_log::record_rate_only(oid, true, 0.25);
+
+    // Observing current owned state cannot advance a construction timer.
+
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     // Drop UC on the entity to reproduce the live mapping hole.
     assert!(shadow.queue_set_construction_for_host(oid, 0.0, false));
     let _ = shadow.apply_pending();
-    let events = host_construction_progress_log::drain();
-    let _ = shadow.apply_host_construction_progress_events(&events);
-    let n = shadow.tick_construction_progress(1.0);
-    assert!(
-        n >= 1,
-        "positive rate must tick construction even if entity UC is false"
-    );
+
+    let _ = shadow.observe_host_construction(&logic);
     let pct = shadow
         .entity_for_host(oid)
         .and_then(|eid| shadow.world.entity(eid).map(|e| e.construction_percent))
         .unwrap_or(0.0);
-    assert!(pct > 0.2, "rate*dt must advance percent, got {pct}");
+    assert_eq!(
+        pct, 0.0,
+        "shadow rate observation must not advance construction"
+    );
+    assert_eq!(logic.host_object(oid).unwrap().construction_percent, 0.0);
 }
 
 #[test]
@@ -623,7 +602,7 @@ fn exit_delay_remaining_channel_via_production_progress() {
     let _ = shadow.writeback_radar_extend_to_host(&mut logic);
     let _ = shadow.writeback_shock_stun_to_host(&mut logic);
     let _ = crate::game_logic::host_shock_stun_ready_log::drain();
-    let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
+    let _ = shadow.compare_rebuild_producer_to_host(&logic);
     let _ = shadow.writeback_sole_healing_to_host(&mut logic);
     let _ = crate::game_logic::host_sole_healing_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -686,7 +665,7 @@ fn body_damage_state_channel_via_set_body_damage() {
     let _ = shadow.writeback_radar_extend_to_host(&mut logic);
     let _ = shadow.writeback_shock_stun_to_host(&mut logic);
     let _ = crate::game_logic::host_shock_stun_ready_log::drain();
-    let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
+    let _ = shadow.compare_rebuild_producer_to_host(&logic);
     let _ = shadow.writeback_sole_healing_to_host(&mut logic);
     let _ = crate::game_logic::host_sole_healing_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -1085,7 +1064,7 @@ fn shock_stun_channel_via_set_shock_stun() {
     }
     assert!(shadow.writeback_shock_stun_to_host(&mut logic) >= 1);
     let _ = crate::game_logic::host_shock_stun_ready_log::drain();
-    let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
+    let _ = shadow.compare_rebuild_producer_to_host(&logic);
     let _ = shadow.writeback_sole_healing_to_host(&mut logic);
     let _ = crate::game_logic::host_sole_healing_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -1267,7 +1246,7 @@ fn rebuild_producer_channel_via_set_rebuild_producer() {
         o.producer_id = None;
         o.construction_complete_clear_frame = 0;
     }
-    assert!(shadow.writeback_rebuild_producer_to_host(&mut logic) >= 1);
+    assert!(shadow.compare_rebuild_producer_to_host(&logic) >= 1);
     let _ = shadow.writeback_sole_healing_to_host(&mut logic);
     let _ = crate::game_logic::host_sole_healing_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -1279,12 +1258,12 @@ fn rebuild_producer_channel_via_set_rebuild_producer() {
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
     let _ = crate::game_logic::host_hijacker_ready_log::drain();
     let o = logic.host_objects().get(&hole).unwrap();
-    assert!(o.is_rebuild_hole);
-    assert_eq!(o.rebuild_template_name.as_deref(), Some("BldA"));
-    assert_eq!(o.rebuild_ready_frame, 100);
-    assert_eq!(o.rebuild_spawner_id, Some(bld));
-    assert_eq!(o.rebuild_worker_id, Some(worker));
-    assert_eq!(o.rebuild_reconstructing_id, Some(bld));
-    assert_eq!(o.producer_id, Some(hole));
-    assert_eq!(o.construction_complete_clear_frame, 250);
+    assert!(!o.is_rebuild_hole);
+    assert_eq!(o.rebuild_template_name.as_deref(), None);
+    assert_eq!(o.rebuild_ready_frame, 0);
+    assert_eq!(o.rebuild_spawner_id, None);
+    assert_eq!(o.rebuild_worker_id, None);
+    assert_eq!(o.rebuild_reconstructing_id, None);
+    assert_eq!(o.producer_id, None);
+    assert_eq!(o.construction_complete_clear_frame, 0);
 }

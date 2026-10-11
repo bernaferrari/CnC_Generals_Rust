@@ -350,12 +350,14 @@ impl GameLogic {
             target.apply_spy_vision_disabled_until(until_frame);
         }
 
+        self.admit_host_radar_disabled_edges(center_id);
         // 3) Contained hackers DISABLED_HACKED residual.
         for hid in occupants {
             if let Some(h) = self.objects.get_mut(&hid) {
                 h.apply_disabled_hacked(until_frame);
                 hackers = hackers.saturating_add(1);
             }
+            self.admit_host_radar_disabled_edges(hid);
         }
         (centers.max(1), hackers) // at least the primary center counted
     }
@@ -854,6 +856,7 @@ impl GameLogic {
                             paralyzed = paralyzed.saturating_add(1);
                         }
                     }
+                    self.admit_host_radar_disabled_edges(id);
                 }
                 if paralyzed > 0 {
                     self.battle_plans

@@ -2204,7 +2204,11 @@ impl GameLogic {
             .collect();
         for id in ids {
             let wanting = self.objects.values().any(|o| {
-                o.target == Some(id) && matches!(o.ai_state, AIState::Entering | AIState::Docking)
+                o.target == Some(id)
+                    && matches!(
+                        o.ai_state,
+                        AIState::Entering | AIState::Docking | AIState::Exiting
+                    )
             }) || self
                 .objects
                 .get(&id)

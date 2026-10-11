@@ -152,10 +152,24 @@ fn footer_start(bytes: &[u8]) -> SaveLoadResult<Option<usize>> {
 }
 
 pub(crate) fn chunks_from_world(world: &WorldSnapshot) -> SaveLoadResult<PlayerTeamChunks> {
-    let Some(start) = footer_start(&world.lifecycle_tail)? else {
+    chunks_from_lifecycle_tail(&world.lifecycle_tail)
+}
+
+/// The outer Players/teams capsule is appended after every owner continuation.
+/// Validate it before exposing the inner EOF framing to an owner decoder.
+pub(super) fn lifecycle_prefix(bytes: &[u8]) -> SaveLoadResult<&[u8]> {
+    let Some(start) = footer_start(bytes)? else {
+        return Ok(bytes);
+    };
+    chunks_from_lifecycle_tail(bytes)?;
+    Ok(&bytes[..start])
+}
+
+fn chunks_from_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<PlayerTeamChunks> {
+    let Some(start) = footer_start(bytes)? else {
         return Ok(PlayerTeamChunks::default());
     };
-    let encoded = &world.lifecycle_tail[start..world.lifecycle_tail.len() - 8];
+    let encoded = &bytes[start..bytes.len() - 8];
     if encoded.len() > MAX_ENCODED_BYTES {
         return Err(SaveLoadError::Corrupted(
             "Players/teams capsule exceeds 64 MiB".into(),

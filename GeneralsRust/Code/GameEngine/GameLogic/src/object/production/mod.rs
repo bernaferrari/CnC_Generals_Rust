@@ -16,6 +16,7 @@ pub mod queue;
 pub mod railed_transport_dock;
 pub mod rally_point;
 pub mod supply_warehouse_dock;
+pub(crate) mod upgrade_completion;
 
 #[cfg(test)]
 mod tests;

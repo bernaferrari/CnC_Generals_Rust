@@ -207,25 +207,8 @@ impl GameLogic {
                     let _ = self.unit_command_stop(id);
                 }
                 HostScriptIdleRequest::TeamStop { team, disband } => {
-                    let members = self.host_script_team_member_ids(&team);
-                    for id in members {
-                        let _ = self.unit_command_stop(id);
-                    }
-                    if !disband {
-                        continue;
-                    }
-                    let members = self.host_script_team_member_ids(&team);
-                    for id in members {
-                        let Some((owner, faction)) = self
-                            .host_object(id)
-                            .map(|obj| (obj.owner_player_id, obj.team))
-                        else {
-                            continue;
-                        };
-                        let default = self.default_host_team_instance_name(owner, faction);
-                        if let Some(obj) = self.host_object_mut(id) {
-                            obj.team_instance_name = default;
-                        }
+                    if let Err(error) = self.apply_owned_team_stop(&team, None, None, disband) {
+                        log::warn!("Owned team stop failed for {team}: {error}");
                     }
                 }
                 HostScriptIdleRequest::IdleAll { player } => {
@@ -682,34 +665,109 @@ impl GameLogic {
     }
 
     pub(super) fn apply_host_team_partial_command_button_requests(&mut self) {
-        use crate::command_executor::CommandExecutor;
-        use crate::command_system::command_type_from_button_name;
         for req in gamelogic::scripting::take_host_team_partial_command_button_requests() {
-            let mut ids = self.host_script_team_member_ids(&req.team);
-            if ids.is_empty() || command_type_from_button_name(&req.button).is_none() {
+            let _ = self.apply_owned_team_partial_button(
+                &req.team,
+                &req.button,
+                req.percentage,
+                None,
+                None,
+            );
+        }
+    }
+    pub(super) fn owned_partial_button_members(
+        &self,
+        members: &[u32],
+        button: &game_engine::common::ini::ini_command_button::CommandButton,
+        percentage: f32,
+    ) -> Vec<ObjectId> {
+        use gamelogic::object::update::special_power_update::SpecialPowerCommandOption as Options;
+        let options = Options::from_bits_truncate(button.options_bits);
+        let needs_target = options.intersects(
+            Options::NEED_TARGET_ENEMY_OBJECT
+                | Options::NEED_TARGET_NEUTRAL_OBJECT
+                | Options::NEED_TARGET_ALLY_OBJECT
+                | Options::NEED_TARGET_PRISONER
+                | Options::NEED_TARGET_POS,
+        );
+        let mut valid = Vec::new();
+        for &id in members {
+            let Some(object) = self.host_object(ObjectId(id)) else {
                 continue;
-            }
-            let mut num_to_use = ((req.percentage / 100.0) * ids.len() as f32) as i32;
-            if num_to_use <= 0 {
-                continue;
-            }
-            if num_to_use > ids.len() as i32 {
-                num_to_use = ids.len() as i32;
-            }
-            ids.truncate(num_to_use as usize);
-            let pid = self
-                .host_object(ids[0])
-                .and_then(|o| o.owner_player_id)
-                .unwrap_or(0);
-            for id in ids {
-                let _ = CommandExecutor::new(self, pid).execute_do_command_button(
-                    &[id],
-                    &req.button,
-                    None,
-                    None,
-                );
+            };
+            let accepted = if !button.upgrade.is_empty() {
+                object.building_data.as_ref().is_some_and(|production| {
+                    !production
+                        .production_queue
+                        .iter()
+                        .any(|entry| entry.is_upgrade())
+                }) && object.affected_by_object_upgrade(&button.upgrade)
+                    && !object.has_object_upgrade_complete(&button.upgrade)
+            } else if needs_target {
+                false
+            } else {
+                button
+                    .special_power_template
+                    .as_deref()
+                    .and_then(|name| {
+                        object
+                            .thing()
+                            .template
+                            .special_power_modules
+                            .iter()
+                            .find(|module| module.special_power_template.eq_ignore_ascii_case(name))
+                    })
+                    .and_then(|module| module.command_power.as_ref())
+                    .is_some_and(crate::command_system::leftover_special_power_is_no_target)
+            };
+            if accepted {
+                valid.push(object.id);
             }
         }
+        // CPP5793 truncates (despite the commented CEIL label) AFTER validity.
+        let count = ((percentage / 100.0) * valid.len() as f32) as i32;
+        valid.truncate(count.max(0) as usize);
+        valid
+    }
+    pub(super) fn apply_owned_team_partial_button(
+        &mut self,
+        team: &str,
+        name: &str,
+        percentage: f32,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> gamelogic::GameLogicResult<()> {
+        // Definitions are immutable during a match; the catalog guard does not
+        // cross production callbacks or command execution.
+        let Some(button) = game_engine::common::ini::ini_command_button::get_control_bar()
+            .and_then(|catalog| catalog.find_command_button_resolved(name).cloned())
+        else {
+            return Ok(());
+        };
+        self.apply_owned_team_partial_button_definition(
+            team, &button, percentage, calling, condition,
+        )
+    }
+    pub(super) fn apply_owned_team_partial_button_definition(
+        &mut self,
+        team: &str,
+        button: &game_engine::common::ini::ini_command_button::CommandButton,
+        percentage: f32,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
+            return Ok(());
+        };
+        let selected = self.owned_partial_button_members(&members, button, percentage);
+        for id in selected {
+            let Some(owner) = self.host_object(id).and_then(|o| o.owner_player_id) else {
+                continue;
+            };
+            let _ = crate::command_executor::CommandExecutor::new(self, owner)
+                .execute_authored_command_button(&[id], button, None, None);
+        }
+        Ok(())
     }
 
     /// C++ ScriptActions NAMED/TEAM DELETE / KILL / DAMAGE.
@@ -824,6 +882,43 @@ impl GameLogic {
         );
     }
 
+    pub(crate) fn host_script_damage_with_interpreter(
+        &mut self,
+        id: ObjectId,
+        amount: f32,
+        kill: bool,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+    ) {
+        let context = if kill {
+            crate::game_logic::object::DamageHitContext::for_kill()
+        } else {
+            crate::game_logic::object::DamageHitContext::default()
+        }
+        .with_topple_interpreter(interpreter);
+        let amount = if kill {
+            self.host_object(id)
+                .map(|object| {
+                    if object.health.maximum > 0.0 {
+                        object.health.maximum
+                    } else {
+                        object.max_health.max(1.0)
+                    }
+                })
+                .unwrap_or(0.0)
+        } else {
+            amount
+        };
+        self.apply_owned_damage(
+            id,
+            amount,
+            None,
+            crate::game_logic::combat::DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            &context,
+        );
+    }
+
     /// CPP attemptDamage UNRESISTABLE with the original signed amount.
     pub(super) fn host_script_apply_unresistable(&mut self, id: ObjectId, amount: f32) {
         let context = crate::game_logic::object::DamageHitContext::default();
@@ -878,36 +973,8 @@ impl GameLogic {
                     as_team,
                     exact,
                 } => {
-                    let members = self.host_script_team_member_ids(&team);
-                    if members.is_empty() {
-                        continue;
-                    }
-                    let mut sx = 0.0f32;
-                    let mut sy = 0.0f32;
-                    let mut sz = 0.0f32;
-                    let mut n = 0u32;
-                    for id in &members {
-                        if let Some(pos) = self
-                            .host_object(*id)
-                            .filter(|u| u.is_alive())
-                            .map(|u| u.get_position())
-                        {
-                            sx += pos.x;
-                            sy += pos.y;
-                            sz += pos.z;
-                            n += 1;
-                        }
-                    }
-                    if n == 0 {
-                        continue;
-                    }
-                    let inv = 1.0 / n as f32;
-                    let center = glam::Vec3::new(sx * inv, sy * inv, sz * inv);
-                    let Some(path) = self.host_script_waypoint_path_from(&waypoint, center) else {
-                        continue;
-                    };
-                    self.host_script_issue_follow_waypoint_path(
-                        &members, &path, exact, as_team, &waypoint,
+                    let _ = self.apply_owned_team_waypoint_path(
+                        &team, &waypoint, as_team, exact, None, None,
                     );
                 }
             }
@@ -918,64 +985,85 @@ impl GameLogic {
     /// Path label is `label + (enemy mpStartIndex + 1)`.
     pub(super) fn apply_host_skirmish_approach_path_script_requests(&mut self) {
         for req in gamelogic::scripting::take_host_skirmish_approach_path_requests() {
-            let members = self.host_script_team_member_ids(&req.team);
-            if members.is_empty() {
-                continue;
+            let _ = self.apply_owned_skirmish_approach_path(
+                &req.team,
+                &req.path_label,
+                req.as_team,
+                req.follow,
+                None,
+                None,
+            );
+        }
+    }
+    pub(super) fn apply_owned_skirmish_approach_path(
+        &mut self,
+        team: &str,
+        path_label: &str,
+        as_team: bool,
+        follow: bool,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
+            return Ok(());
+        };
+        let members: Vec<ObjectId> = members.into_iter().map(ObjectId).collect();
+        if members.is_empty() {
+            return Ok(());
+        }
+        let mut sx = 0.0f32;
+        let mut sy = 0.0f32;
+        let mut sz = 0.0f32;
+        let mut n = 0u32;
+        for id in &members {
+            if let Some(pos) = self
+                .host_object(*id)
+                .filter(|u| u.is_alive())
+                .map(|u| u.get_position())
+            {
+                sx += pos.x;
+                sy += pos.y;
+                sz += pos.z;
+                n += 1;
             }
-            let mut sx = 0.0f32;
-            let mut sy = 0.0f32;
-            let mut sz = 0.0f32;
-            let mut n = 0u32;
-            for id in &members {
-                if let Some(pos) = self
-                    .host_object(*id)
-                    .filter(|u| u.is_alive())
-                    .map(|u| u.get_position())
-                {
-                    sx += pos.x;
-                    sy += pos.y;
-                    sz += pos.z;
-                    n += 1;
-                }
-            }
-            if n == 0 {
-                continue;
-            }
-            let inv = 1.0 / n as f32;
-            let center = glam::Vec3::new(sx * inv, sy * inv, sz * inv);
-            let mp_index = self.host_skirmish_enemy_mp_index(&members) + 1;
-            let path_label = format!("{}{}", req.path_label, mp_index);
-            let Some(path) = self.host_script_waypoint_path_from(&path_label, center) else {
-                continue;
-            };
-            // C++ ScriptActions.cpp:1702-1704 checkBridges(firstUnit, way).
-            if let Some(&first) = members.first() {
-                if let Some(wid) = self.host_script_closest_waypoint_id(&path_label, center) {
-                    let pid = self
-                        .host_object(first)
-                        .and_then(|o| o.owner_player_id)
-                        .unwrap_or(0);
-                    let mut ai_mgr = std::mem::take(&mut self.ai_manager);
-                    if let Some(ai) = ai_mgr.ai_players.get_mut(&pid) {
-                        let _ = ai.check_bridges(self, first, wid);
-                    }
-                    self.ai_manager = ai_mgr;
-                }
-            }
-            if req.follow {
-                self.host_script_issue_follow_waypoint_path(
-                    &members,
-                    &path,
-                    false,
-                    req.as_team,
-                    &path_label,
-                );
-            } else if let Some(&dest) = path.first() {
-                for id in members {
-                    let _ = self.unit_command_move_to(id, dest);
+        }
+        if n == 0 {
+            return Ok(());
+        }
+        let inv = 1.0 / n as f32;
+        let center = glam::Vec3::new(sx * inv, sy * inv, sz * inv);
+        let mp_index = self.host_skirmish_enemy_mp_index(&members) + 1;
+        let path_label = format!("{}{}", path_label, mp_index);
+        let Some(path) = self.host_script_waypoint_path_from(&path_label, center) else {
+            return Ok(());
+        };
+        // C++ ScriptActions.cpp:1702-1704 checkBridges(firstUnit, way).
+        if let Some(&first) = members.first() {
+            if let Some(wid) = self.host_script_closest_waypoint_id(&path_label, center) {
+                let pid = self
+                    .host_object(first)
+                    .and_then(|o| o.owner_player_id)
+                    .unwrap_or(0);
+                if let Some(mut ai) = self.ai_manager.ai_players.remove(&pid) {
+                    let _ = ai.check_bridges(self, first, wid);
+                    self.ai_manager.ai_players.insert(pid, ai);
                 }
             }
         }
+        if follow {
+            self.host_script_issue_follow_waypoint_path(
+                &members,
+                &path,
+                false,
+                as_team,
+                &path_label,
+            );
+        } else if let Some(&dest) = path.first() {
+            for id in members {
+                let _ = self.unit_command_move_to(id, dest);
+            }
+        }
+        Ok(())
     }
 
     /// C++ `TheScriptEngine->getSkirmishEnemyPlayer()->getMpStartIndex()`.

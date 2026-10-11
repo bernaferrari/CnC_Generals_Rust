@@ -1062,6 +1062,7 @@ enum UpgradeModuleKindMut<'a> {
 impl<'a> UpgradeModuleKindMut<'a> {
     fn can_upgrade(self, mask: UpgradeMaskType) -> bool {
         match self {
+            Self::Radar(module) => module.can_upgrade(mask),
             Self::SubObjects(module) => module.can_upgrade(mask),
             Self::PassengersFire(module) => module.can_upgrade(mask),
             Self::StatusBits(module) => module.can_upgrade(mask),
@@ -1077,6 +1078,7 @@ impl<'a> UpgradeModuleKindMut<'a> {
 
     fn remove_upgrade(self, mask: UpgradeMaskType) {
         match self {
+            Self::Radar(module) => module.remove_upgrade(mask),
             Self::SubObjects(module) => module.remove_upgrade(mask),
             Self::PassengersFire(module) => module.remove_upgrade(mask),
             Self::StatusBits(module) => module.remove_upgrade(mask),
@@ -1102,11 +1104,11 @@ impl<'a> UpgradeModuleKindMut<'a> {
             | Self::Armor(_)
             | Self::MaxHealth(_)
             | Self::ExperienceScalar(_)
-            | Self::WeaponBonus(_) => return None,
+            | Self::WeaponBonus(_)
+            | Self::Radar(_) => return None,
             Self::GrantScience(module) => module,
             Self::CommandSet(module) => module,
             Self::WeaponSet(module) => module,
-            Self::Radar(module) => module,
             Self::PowerPlant(module) => module,
             Self::Stealth(module) => module,
             Self::ModelCondition(module) => module,
@@ -1547,6 +1549,7 @@ struct InstalledUpdateRegistration {
 }
 
 struct ModuleUpdateProxy {
+    completed_upgrade: Option<String>,
     entry: Arc<ModuleEntry>,
     object_id: ObjectID,
     module_name: AsciiString,
@@ -1589,6 +1592,7 @@ impl ModuleUpdateProxy {
                 .unwrap_or(SleepyUpdatePhase::Normal)
         };
         Self {
+            completed_upgrade: None,
             entry,
             object_id,
             module_name,
@@ -1644,6 +1648,31 @@ impl UpdateModuleInterface for ModuleUpdateProxy {
         &mut self,
         context: &mut dyn game_engine::common::thing::update_module::UpdateScheduleContext,
     ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        if let Some(observation) = context.upgrade_production_observation() {
+            let upgraded = self.entry.with_module(|module| {
+                module.as_any_mut()
+                    .downcast_mut::<crate::object::production::production_update_complete::ProductionUpdateCompleteModule>()
+                    .and_then(|production| production.behavior_mut().update_upgrade_owned(context, observation))
+            });
+            if let Some(completed) = upgraded {
+                self.completed_upgrade = completed;
+                return Ok(UpdateSleepTime::None);
+            }
+        }
+        // Radar completion commits under the installed entry borrow, then
+        // publishes the model transition through the driving scheduler owner.
+        let radar_complete = self.entry.with_module(|module| {
+            module
+                .as_any_mut()
+                .downcast_mut::<crate::object::behavior::radar_update::RadarUpdateModule>()
+                .map(|radar| radar.behavior_mut().complete_at(context.frame()))
+        });
+        if let Some(complete) = radar_complete {
+            if complete {
+                context.complete_radar_extension();
+            }
+            return Ok(UpdateSleepTime::None);
+        }
         let sleep = self.entry.with_module(|module| {
             if let Some(update) = module.get_update_module_interface() {
                 Some(
@@ -1661,6 +1690,21 @@ impl UpdateModuleInterface for ModuleUpdateProxy {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
         let sleep = self.entry.with_module(Self::dispatch_update);
         Ok(sleep.unwrap_or_else(|| self.missing_update_sleep()))
+    }
+
+    fn take_completed_upgrade(&mut self) -> Option<String> {
+        self.completed_upgrade.take()
+    }
+
+    fn resume_completed_upgrade(
+        &mut self,
+        context: &mut dyn game_engine::common::thing::update_module::UpdateScheduleContext,
+    ) {
+        self.entry.with_module(|module| {
+            if let Some(production) = module.as_any_mut().downcast_mut::<crate::object::production::production_update_complete::ProductionUpdateCompleteModule>() {
+                production.behavior_mut().resume_upgrade_owned(context);
+            }
+        });
     }
 
     fn get_disabled_types_to_process(&self) -> DisabledMaskType {
@@ -2388,3 +2432,6 @@ mod update_phase_metadata_tests;
 
 #[cfg(test)]
 mod object_upgrade_admission_tests;
+
+#[cfg(test)]
+mod radar_owner_tests;

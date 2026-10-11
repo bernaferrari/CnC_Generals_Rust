@@ -44,15 +44,20 @@ impl PlayerEnergy {
     }
 
     pub fn supply_ratio(&self) -> Real {
-        if TheGameLogic::get_frame() < self.power_sabotaged_till_frame {
+        self.supply_ratio_at(TheGameLogic::get_frame())
+    }
+
+    /// Energy.cpp:51-67, with the driving session clock supplied explicitly.
+    pub fn supply_ratio_at(&self, frame: u32) -> Real {
+        if frame < self.power_sabotaged_till_frame {
             return 0.0;
         }
 
         if self.consumption <= 0 {
-            return self.production() as Real;
+            return self.production as Real;
         }
 
-        (self.production() as Real) / (self.consumption as Real)
+        (self.production as Real) / (self.consumption as Real)
     }
 
     pub fn add_power_production(&mut self, amount: Int) {

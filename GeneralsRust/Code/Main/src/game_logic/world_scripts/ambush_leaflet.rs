@@ -584,6 +584,7 @@ impl GameLogic {
                     continue;
                 }
                 target.apply_disabled_emp(plan.disable_until_frame);
+                self.admit_host_radar_disabled_edges(id);
                 disables = disables.saturating_add(1);
             }
 
@@ -980,8 +981,18 @@ impl GameLogic {
     /// `GameLogic::prepareNewGame` (GameLogicDispatch.cpp:295): after NewGame
     /// the session difficulty is ScriptEngine / MSG_NEW_GAME arg 1, not the
     /// AI-manager default Medium.
+    pub(crate) fn admit_session_difficulty(&mut self, code: i32) {
+        self.session_difficulty = match code {
+            0 => Some(AIDifficulty::Easy),
+            1 => Some(AIDifficulty::Medium),
+            2 => Some(AIDifficulty::Hard),
+            3 => Some(AIDifficulty::Brutal),
+            _ => None,
+        };
+    }
+
     pub fn get_difficulty(&self) -> AIDifficulty {
-        crate::game_logic::host_faction_skirmish_residual::live_host_session_difficulty()
+        self.session_difficulty
             .or_else(|| self.ai_manager.dominant_difficulty())
             .unwrap_or(AIDifficulty::Medium)
     }

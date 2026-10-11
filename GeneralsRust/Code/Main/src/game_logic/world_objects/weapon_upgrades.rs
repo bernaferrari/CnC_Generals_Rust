@@ -339,6 +339,17 @@ impl GameLogic {
         team: Team,
         upgrade_name: &str,
     ) -> u32 {
+        let Some(owner) = self.unique_player_id_for_team(team) else {
+            return 0;
+        };
+        self.apply_radar_research_to_player(owner, upgrade_name)
+    }
+
+    pub(in super::super) fn apply_radar_research_to_player(
+        &mut self,
+        owner: u32,
+        upgrade_name: &str,
+    ) -> u32 {
         use crate::game_logic::host_radar::{UPGRADE_GLA_RADAR, is_radar_provider_template};
         use crate::game_logic::host_structure_economy_residual::UPGRADE_AMERICA_RADAR;
 
@@ -350,11 +361,22 @@ impl GameLogic {
             UPGRADE_AMERICA_RADAR
         };
 
-        let mut n = self.apply_player_unlock_upgrade(team, upgrade_name, canonical);
-        for obj in self.objects.values_mut() {
-            if !upgrade_targets_object(obj, team) || !obj.is_alive() {
-                continue;
-            }
+        let Some(player) = self.players.get_mut(&owner) else {
+            return 0;
+        };
+        player.unlocked_sciences.insert(canonical.to_string());
+        player.unlocked_sciences.insert(upgrade_name.to_string());
+        let mut n = 1u32;
+        let ids: Vec<_> = self
+            .objects
+            .values()
+            .filter(|object| {
+                object.is_alive() && self.player_owner_for_host_object(object) == Some(owner)
+            })
+            .map(|object| object.id)
+            .collect();
+        for id in &ids {
+            let obj = self.objects.get_mut(id).unwrap();
             if !is_radar_provider_template(&obj.template_name)
                 && !obj.is_command_center()
                 && !obj.is_kind_of(KindOf::CommandCenter)
@@ -375,6 +397,9 @@ impl GameLogic {
                 obj.model_condition_bits |= 1u128 << bit;
             }
             n = n.saturating_add(1);
+        }
+        for id in ids {
+            self.admit_host_radar_provider(id);
         }
         n
     }

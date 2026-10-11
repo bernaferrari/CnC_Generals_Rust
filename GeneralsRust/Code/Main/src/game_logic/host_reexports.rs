@@ -421,13 +421,12 @@ pub use super::host_radar_stealth_vision_residual::{
 };
 pub use super::host_railed_transport::{
     RAILED_ARRIVE_DISTANCE, RAILED_INVALID_PATH, RAILED_MAX_WAYPOINT_PATHS,
-    default_railed_current_path, inject_railed_waypoint, railed_waypoint_overlay_reset,
+    default_railed_current_path,
 };
 pub use super::host_railroad::{
     HostConductorState, HostRailroadCar, HostTrainTrack, RAILROAD_SPEED_MAX,
-    RAILROAD_WAIT_AT_STATION_FRAMES, honesty_railroad_residual_ok, inject_railroad_track,
-    is_railroad_carriage_template, is_railroad_locomotive_template, is_railroad_template,
-    railroad_car, railroad_registry_reset, restore_railroad_car,
+    RAILROAD_WAIT_AT_STATION_FRAMES, honesty_railroad_residual_ok, is_railroad_carriage_template,
+    is_railroad_locomotive_template, is_railroad_template,
 };
 
 pub use super::host_bridge_behavior::{

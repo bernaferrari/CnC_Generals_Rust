@@ -21,6 +21,19 @@ impl GameLogic {
             .add_kind_of(KindOf::Vehicle)
             .add_kind_of(KindOf::Selectable)
             .set_health(100.0);
+        if name == crate::game_logic::host_overlord_addons::OVERLORD_PAYLOAD_BUNKER {
+            // ChinaTankOverlordBattleBunker TransportContain: Slots=5,
+            // AllowInsideKindOf=INFANTRY; hull redirection owns this real module.
+            template.contain_module = ContainModuleMetadata {
+                kind: ContainModuleKind::Transport,
+                slots: Some(
+                    crate::game_logic::host_overlord_addons::OVERLORD_BUNKER_INFANTRY_SLOTS,
+                ),
+                admission: ContainAdmission::InfantryOnly,
+                damage_percent_to_units: Some(0.5),
+                ..Default::default()
+            };
+        }
         self.templates.insert(name.to_string(), template);
     }
 
@@ -78,10 +91,16 @@ impl GameLogic {
 
     fn attach_overlord_portable_occupant(&mut self, host_id: ObjectId, occupant_id: ObjectId) {
         if let Some(occ) = self.objects.get_mut(&occupant_id) {
-            occ.set_contained_by(Some(host_id));
+            occ.set_contained_by_enclosing(Some(host_id), false);
+            occ.set_experience_sink(Some(host_id));
+            if occ.template_name == crate::game_logic::host_overlord_addons::OVERLORD_PAYLOAD_BUNKER
+            {
+                occ.passengers_allowed_to_fire = true;
+            }
         }
         if let Some(host) = self.objects.get_mut(&host_id) {
             host.overlord_portable_occupant = Some(occupant_id);
+            host.overlord_redirection_active = host.is_overlord_style_container();
             if let Some(pos) = host.occupants.iter().position(|&id| id == occupant_id) {
                 if pos != 0 {
                     host.occupants.remove(pos);
@@ -99,6 +118,7 @@ impl GameLogic {
             host.occupants.retain(|id| *id != occupant_id);
             if host.overlord_portable_occupant == Some(occupant_id) {
                 host.overlord_portable_occupant = None;
+                host.overlord_redirection_active = false;
             }
         }
         if let Some(occ) = self.objects.get_mut(&occupant_id) {

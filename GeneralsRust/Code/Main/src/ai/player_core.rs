@@ -31,6 +31,7 @@ impl AIPlayer {
             // Seed from player id (stable per slot); base_center updates don't reseed.
             placement_rng: HostRandomState::seeded(player_id.wrapping_add(0xA17A_0001)),
             building_queue: Vec::new(),
+            next_building_visit_token: 1,
             next_building_time: 0.0,
             next_team_queue_time: 0.0,
             next_team_time: 0.0,
@@ -46,6 +47,8 @@ impl AIPlayer {
             current_strategy: AIStrategy::EarlyGame,
             build_phase: AIBuildPhase::BaseConstruction,
             activity_count: 0,
+            next_queue_visit_token: 1,
+            production_condition_states: Default::default(),
             skillset_selector: INVALID_SKILLSET_SELECTION,
             peer_ai_targets: Vec::new(),
             structures_to_repair: Vec::new(),
@@ -332,14 +335,12 @@ impl AIPlayer {
         current_time: f32,
         ai_data: &AiDataView,
     ) {
-        let scripts = gamelogic::scripting::engine::get_script_engine().clone();
         let skirmish = self.leftover_is_skirmish_ai();
         self.update_with_ai_data_and_team_owner(
             game_logic,
             current_time,
             ai_data,
             skirmish,
-            &scripts,
             &mut super::team_lifecycle::notify_installed_team_destroy,
         );
     }
@@ -350,11 +351,23 @@ impl AIPlayer {
         current_time: f32,
         ai_data: &AiDataView,
         skirmish: bool,
-        scripts: &gamelogic::scripting::engine::ScriptEngineHandle,
         notify: &mut super::team_lifecycle::TeamDestroyObserver<'_>,
     ) {
+        if self.update_before_queued_teams(game_logic, current_time, ai_data) {
+            self.check_ready_teams(game_logic, current_time);
+            self.check_queued_teams_with_owner(game_logic, current_time, skirmish, notify);
+            self.update_after_queued_teams(game_logic, current_time, ai_data);
+        }
+    }
+
+    pub(super) fn update_before_queued_teams(
+        &mut self,
+        game_logic: &mut GameLogic,
+        current_time: f32,
+        ai_data: &AiDataView,
+    ) -> bool {
         if !self.is_active {
-            return;
+            return false;
         }
 
         // C++ AISkirmishPlayer::newMap — AIData SideBuildList replaces invented pads.
@@ -369,11 +382,27 @@ impl AIPlayer {
         // doBaseBuilding
         self.update_economic_management_with_ai_data(game_logic, current_time, ai_data);
         // checkReadyTeams — activate ready-queue teams (AIPlayer.cpp:2729-2803)
-        self.check_ready_teams(game_logic, current_time);
-        // checkQueuedTeams — expire / disband / promote (AIPlayer.cpp:2810-2870)
-        self.check_queued_teams_with_owner(game_logic, current_time, skirmish, scripts, notify);
+        // Production manager resumes checkReadyTeams with canonical owners.
+        true
+    }
+
+    pub(super) fn update_after_queued_teams(
+        &mut self,
+        game_logic: &mut GameLogic,
+        current_time: f32,
+        ai_data: &AiDataView,
+    ) {
         // doTeamBuilding
         self.update_military_management_with_ai_data(game_logic, current_time, ai_data);
+        self.update_after_military_management(game_logic, current_time, ai_data);
+    }
+
+    pub(super) fn update_after_military_management(
+        &mut self,
+        game_logic: &mut GameLogic,
+        current_time: f32,
+        ai_data: &AiDataView,
+    ) {
         self.do_upgrades_and_skills_with_ai_data(game_logic, ai_data);
         // updateBridgeRepair — C++ AIPlayer::update never calls checkBridges
         // (scripts do, via leftover findBrokenBridge + clientSafeQuickDoesPathExist).
@@ -529,20 +558,51 @@ impl AIPlayer {
         game_logic: &mut GameLogic,
         ai_data: &AiDataView,
     ) -> bool {
-        let Some(side) = self.side_info_name() else {
-            return false;
-        };
-        let Some(entries) = Self::aidata_side_build_entries(ai_data, side) else {
-            return false;
-        };
-        if entries.is_empty() {
+        if !self.has_skirmish_new_map_definition(ai_data) {
             return false;
         }
-
-        let start_pos = self.destroy_owned_command_center(game_logic);
-        let Some(start_pos) = start_pos.or(Some(self.base_center)) else {
+        let start_pos = self
+            .destroy_owned_command_center(game_logic)
+            .unwrap_or(self.base_center);
+        let Some(pads) = self.prepare_skirmish_new_map(game_logic, ai_data, start_pos) else {
             return false;
         };
+        for (mut building, initially_built) in pads {
+            if initially_built {
+                building.is_built = true;
+                building.object_id = game_logic.create_object_for_player(
+                    &building.template_name,
+                    self.player_id,
+                    building.position,
+                );
+            }
+            self.building_queue.push(building);
+        }
+        self.compute_center_and_radius_of_base_in_view(game_logic);
+        true
+    }
+
+    pub(super) fn has_skirmish_new_map_definition(&self, data: &AiDataView) -> bool {
+        self.side_info_name()
+            .and_then(|side| Self::aidata_side_build_entries(data, side))
+            .is_some_and(|entries| !entries.is_empty())
+    }
+
+    pub(super) fn prepare_skirmish_new_map(
+        &mut self,
+        game_logic: &GameLogic,
+        ai_data: &AiDataView,
+        start_pos: Vec3,
+    ) -> Option<Vec<(AIBuildingInfo, bool)>> {
+        let Some(side) = self.side_info_name() else {
+            return None;
+        };
+        let Some(entries) = Self::aidata_side_build_entries(ai_data, side) else {
+            return None;
+        };
+        if entries.is_empty() {
+            return None;
+        }
 
         let mut list_cc: Option<Vec3> = None;
         let mut marked: Vec<SideBuildPad> = Vec::new();
@@ -556,7 +616,7 @@ impl AIPlayer {
             marked.push(entry);
         }
         let Some(build_pos) = list_cc else {
-            return false;
+            return None;
         };
 
         let rotate = Self::aidata_rotate_skirmish_bases(ai_data);
@@ -597,6 +657,7 @@ impl AIPlayer {
 
         self.building_queue.clear();
         self.reset_base_defense_fan();
+        let mut pads = Vec::new();
         for entry in marked {
             let mut pos = entry.position;
             pos.x -= build_pos.x;
@@ -615,22 +676,12 @@ impl AIPlayer {
             let mut building = AIBuildingInfo::new(entry.template.clone(), pos, rebuilds);
             building.automatic_build = entry.automatically_build;
             building.is_priority = false;
-            if entry.initially_built {
-                // C++ buildStructureNow — do not incrementNumRebuilds on CC.
-                building.is_built = true;
-                if let Some(id) = game_logic.create_object(&entry.template, self.team, pos) {
-                    if let Some(obj) = game_logic.host_object_mut(id) {
-                        obj.owner_player_id = Some(self.player_id);
-                    }
-                    building.object_id = Some(id);
-                }
-            } else {
+            if !entry.initially_built {
                 building.increment_num_rebuilds();
             }
-            self.building_queue.push(building);
+            pads.push((building, entry.initially_built));
         }
-        self.compute_center_and_radius_of_base_in_view(game_logic);
-        true
+        Some(pads)
     }
 
     /// C++ `AIPlayer::computeCenterAndRadiusOfBase`.

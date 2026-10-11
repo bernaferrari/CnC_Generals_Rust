@@ -75,7 +75,9 @@ impl Object {
 
     /// Host EMP disable residual + status channel log.
     pub fn set_status_disabled_emp(&mut self, disabled: bool) {
+        let was_disabled = self.is_disabled();
         self.status.disabled_emp = disabled;
+        self.note_disabled_status_transition(was_disabled);
         crate::game_logic::host_status_log::record_disabled_emp(self.id, disabled);
     }
 
@@ -166,22 +168,30 @@ impl Object {
     }
 
     pub fn set_status_disabled_hacked(&mut self, v: bool) {
+        let was_disabled = self.is_disabled();
         self.status.disabled_hacked = v;
+        self.note_disabled_status_transition(was_disabled);
         crate::game_logic::host_status_log::record_disabled_hacked(self.id, v);
     }
 
     pub fn set_status_disabled_unmanned(&mut self, v: bool) {
+        let was_disabled = self.is_disabled();
         self.status.disabled_unmanned = v;
+        self.note_disabled_status_transition(was_disabled);
         crate::game_logic::host_status_log::record_disabled_unmanned(self.id, v);
     }
 
     pub fn set_status_disabled_paralyzed(&mut self, v: bool) {
+        let was_disabled = self.is_disabled();
         self.status.disabled_paralyzed = v;
+        self.note_disabled_status_transition(was_disabled);
         crate::game_logic::host_status_log::record_disabled_paralyzed(self.id, v);
     }
 
     pub fn set_status_disabled_subdued(&mut self, v: bool) {
+        let was_disabled = self.is_disabled();
         self.status.disabled_subdued = v;
+        self.note_disabled_status_transition(was_disabled);
         crate::game_logic::host_status_log::record_disabled_subdued(self.id, v);
     }
 
@@ -346,19 +356,36 @@ impl Object {
         self.indestructible = v;
     }
 
+    fn note_disabled_status_transition(&mut self, was_disabled: bool) {
+        let disabled = self.is_disabled();
+        if disabled != was_disabled {
+            self.on_disabled_edge(disabled);
+        }
+    }
+
+    pub(crate) fn set_script_disabled_owned(&mut self, disabled: bool) {
+        self.apply_script_status_disabled_side_effects(disabled);
+    }
+
     /// C++ DISABLED_SCRIPT_DISABLED residual.
     pub fn set_status_disabled_script_disabled(&mut self, v: bool) {
+        let was_disabled = self.is_disabled();
         self.status.disabled_script_disabled = v;
+        self.note_disabled_status_transition(was_disabled);
     }
 
     /// C++ DISABLED_SCRIPT_UNDERPOWERED residual.
     pub fn set_status_disabled_script_underpowered(&mut self, v: bool) {
+        let was_disabled = self.is_disabled();
         self.status.disabled_script_underpowered = v;
+        self.note_disabled_status_transition(was_disabled);
     }
 
     /// C++ DISABLED_HELD residual (Battle Bus second life / contain freeze).
     pub fn set_status_disabled_held(&mut self, v: bool) {
+        let was_disabled = self.is_disabled();
         self.status.disabled_held = v;
+        self.note_disabled_status_transition(was_disabled);
     }
 
     /// C++ OBJECT_STATUS_MISSILE_KILLING_SELF residual.
@@ -458,7 +485,6 @@ impl Object {
         crate::game_logic::host_status_log::record_masked(self.id, v);
         if v {
             self.deselect();
-            request_mask_deselect(self.id);
         }
     }
 
@@ -566,11 +592,15 @@ impl Object {
         self.set_status_repulsor(true);
     }
     pub fn set_status_disabled_underpowered(&mut self, v: bool) {
+        let was_disabled = self.is_disabled();
         self.status.disabled_underpowered = v;
+        self.note_disabled_status_transition(was_disabled);
         crate::game_logic::host_status_log::record_disabled_underpowered(self.id, v);
     }
     pub fn set_status_disabled_freefall(&mut self, v: bool) {
+        let was_disabled = self.is_disabled();
         self.status.disabled_freefall = v;
+        self.note_disabled_status_transition(was_disabled);
         crate::game_logic::host_status_log::record_disabled_freefall(self.id, v);
     }
     pub fn set_status_is_carbomb(&mut self, v: bool) {
@@ -1063,6 +1093,7 @@ impl Object {
             AIState::FacingObject => 21,
             AIState::FacingPosition => 22,
             AIState::Panic => 23,
+            AIState::Exiting => 24,
         };
         if !matches!(
             state,
@@ -1199,19 +1230,4 @@ pub fn leftover_object_is_kind_of_hero(id: ObjectId) -> bool {
     gamelogic::object::registry::OBJECT_REGISTRY
         .with_object(id.0, |obj| obj.is_kind_of(gamelogic::common::KindOf::Hero))
         .unwrap_or(false)
-}
-
-thread_local! {
-    static MASK_DESELECTS: std::cell::RefCell<Vec<ObjectId>> =
-        const { std::cell::RefCell::new(Vec::new()) };
-}
-
-/// Queue a live player-list deselect for C++ `maskObject(TRUE)`.
-pub fn request_mask_deselect(id: ObjectId) {
-    MASK_DESELECTS.with(|q| q.borrow_mut().push(id));
-}
-
-/// Drain leftover `maskObject` deselects onto live player selection.
-pub fn drain_mask_deselects() -> Vec<ObjectId> {
-    MASK_DESELECTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }

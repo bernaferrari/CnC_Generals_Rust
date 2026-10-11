@@ -51,6 +51,7 @@ pub struct HostAuthoredBuild {
     pub position: (f32, f32, f32),
     pub num_rebuilds: u32,
     pub initially_built: bool,
+    pub completion: crate::ai::AuthoredStructureCompletion,
 }
 
 impl Default for PlayerMapSideState {
@@ -131,6 +132,8 @@ pub struct Player {
     /// C++ Player::didPlayerPreorder residual (shell/skirmish preorder bonus).
     pub did_preorder: bool,
     pub statistics: PlayerStatistics,
+    /// Canonical per-player Academy state; production observes this match only.
+    pub academy_stats: game_engine::common::rts::academy_stats::AcademyStats,
     /// Frame at which power sabotage expires (0 = not sabotaged).
     /// Matches C++ Player::m_powerSabotagedUntilFrame.
     pub power_sabotaged_till_frame: u32,
@@ -391,6 +394,7 @@ impl Player {
             is_alive: true,
             is_observer: false,
             statistics: PlayerStatistics::default(),
+            academy_stats: game_engine::common::rts::academy_stats::AcademyStats::new(),
             power_sabotaged_till_frame: 0,
             color_rgb: (200, 200, 200),
             color_night_rgb: (200, 200, 200),
@@ -720,7 +724,6 @@ impl Player {
         if disable_proof {
             self.disable_proof_radar_count = self.disable_proof_radar_count.saturating_add(1);
         }
-        crate::game_logic::host_radar_log::record(self.id, self.radar_count, self.radar_disabled);
     }
 
     /// C++ Player::removeRadar (Player.cpp:3154-3172).
@@ -729,25 +732,21 @@ impl Player {
         if disable_proof {
             self.disable_proof_radar_count = (self.disable_proof_radar_count - 1).max(0);
         }
-        crate::game_logic::host_radar_log::record(self.id, self.radar_count, self.radar_disabled);
     }
 
     /// C++ Player::disableRadar (Player.cpp:3175-3188).
     pub fn disable_radar(&mut self) {
         self.radar_disabled = true;
-        crate::game_logic::host_radar_log::record(self.id, self.radar_count, self.radar_disabled);
     }
 
     /// C++ Player::enableRadar (Player.cpp:3191-3203).
     pub fn enable_radar(&mut self) {
         self.radar_disabled = false;
-        crate::game_logic::host_radar_log::record(self.id, self.radar_count, self.radar_disabled);
     }
 
     pub fn set_radar_state(&mut self, radar_count: i32, radar_disabled: bool) {
         self.radar_count = radar_count;
         self.radar_disabled = radar_disabled;
-        crate::game_logic::host_radar_log::record(self.id, self.radar_count, self.radar_disabled);
     }
 
     /// C++ Player::getCashBounty().

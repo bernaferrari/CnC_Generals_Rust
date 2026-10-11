@@ -6,10 +6,9 @@
 //! dock close, and `aiFollowWaypointPath` along the start-waypoint link chain.
 
 use super::ObjectId;
-use crate::game_logic::host_railroad::{HostWaypointSnap, snapshot_terrain_waypoints};
+use crate::game_logic::host_railroad::HostWaypointSnap;
 use crate::game_logic::{AIState, DockKind, GameLogic};
 use glam::Vec3;
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 /// C++ `RailedTransportAIUpdate::MAX_WAYPOINT_PATHS`.
@@ -19,45 +18,26 @@ pub const RAILED_INVALID_PATH: i32 = -1;
 /// C++ arrival threshold in `RailedTransportAIUpdate::update`.
 pub const RAILED_ARRIVE_DISTANCE: f32 = 5.0;
 
-thread_local! {
-    static RAILED_WAYPOINT_OVERLAY: RefCell<Vec<HostWaypointSnap>> =
-        RefCell::new(Vec::new());
-}
-
-pub fn railed_waypoint_overlay_reset() {
-    RAILED_WAYPOINT_OVERLAY.with(|overlay| overlay.borrow_mut().clear());
-}
-
-/// Test / mapless inject of a named ferry waypoint (host XZ plane).
-pub fn inject_railed_waypoint(snap: HostWaypointSnap) {
-    RAILED_WAYPOINT_OVERLAY.with(|overlay| {
-        let mut extra = overlay.borrow_mut();
-        if let Some(existing) = extra
+impl GameLogic {
+    pub fn railed_waypoint_overlay_reset(&mut self) {
+        self.railed_waypoints.clear();
+    }
+    pub fn inject_railed_waypoint(&mut self, waypoint: HostWaypointSnap) {
+        if let Some(existing) = self
+            .railed_waypoints
             .iter_mut()
-            .find(|wp| wp.name.eq_ignore_ascii_case(&snap.name))
+            .find(|item| item.name.eq_ignore_ascii_case(&waypoint.name))
         {
-            *existing = snap;
+            *existing = waypoint;
         } else {
-            extra.push(snap);
+            self.railed_waypoints.push(waypoint);
         }
-    });
-}
-
-fn all_railed_waypoints() -> Vec<HostWaypointSnap> {
-    let mut snaps = snapshot_terrain_waypoints();
-    RAILED_WAYPOINT_OVERLAY.with(|overlay| {
-        for extra in overlay.borrow().iter() {
-            if let Some(existing) = snaps
-                .iter_mut()
-                .find(|wp| wp.name.eq_ignore_ascii_case(&extra.name))
-            {
-                *existing = extra.clone();
-            } else {
-                snaps.push(extra.clone());
-            }
-        }
-    });
-    snaps
+    }
+    fn all_railed_waypoints(&self) -> Vec<HostWaypointSnap> {
+        let mut waypoints = self.owned_railroad_waypoints();
+        waypoints.extend(self.railed_waypoints.iter().cloned());
+        waypoints
+    }
 }
 
 fn waypoint_name_eq(name: &str, expected: &str) -> bool {
@@ -82,8 +62,7 @@ fn walk_link0_positions(snaps: &[HostWaypointSnap], start_id: u32) -> Vec<Vec3> 
     out
 }
 
-fn load_prefix_paths(prefix: &str) -> Vec<(u32, u32)> {
-    let snaps = all_railed_waypoints();
+fn load_prefix_paths(prefix: &str, snaps: &[HostWaypointSnap]) -> Vec<(u32, u32)> {
     let mut paths = vec![(0u32, 0u32); RAILED_MAX_WAYPOINT_PATHS];
     let mut num_paths = 0usize;
     for i in 0..RAILED_MAX_WAYPOINT_PATHS {
@@ -118,7 +97,10 @@ impl GameLogic {
         if loaded {
             (true, paths.to_vec())
         } else {
-            (true, load_prefix_paths(prefix))
+            (
+                true,
+                load_prefix_paths(prefix, &self.all_railed_waypoints()),
+            )
         }
     }
 
@@ -129,7 +111,7 @@ impl GameLogic {
     }
 
     fn follow_railed_waypoint_id(&mut self, id: ObjectId, waypoint_id: u32) -> bool {
-        let snaps = all_railed_waypoints();
+        let snaps = self.all_railed_waypoints();
         let points = walk_link0_positions(&snaps, waypoint_id);
         if points.is_empty() {
             return false;
@@ -160,7 +142,7 @@ impl GameLogic {
         if paths.is_empty() {
             return false;
         }
-        let snaps = all_railed_waypoints();
+        let snaps = self.all_railed_waypoints();
         let mut closest_path = RAILED_INVALID_PATH;
         let mut closest_dist = f32::MAX;
         let mut closest_end_id = None;
@@ -287,7 +269,7 @@ impl GameLogic {
             let Some((_, end_id)) = paths.get(current as usize) else {
                 continue;
             };
-            let snaps = all_railed_waypoints();
+            let snaps = self.all_railed_waypoints();
             let Some(end) = snaps.iter().find(|wp| wp.id == *end_id) else {
                 continue;
             };
@@ -324,21 +306,20 @@ mod tests {
 
     #[test]
     fn execute_railed_transport_follows_start_end_and_closes_dock() {
-        railed_waypoint_overlay_reset();
-        inject_railed_waypoint(HostWaypointSnap {
+        let mut logic = GameLogic::new();
+        logic.inject_railed_waypoint(HostWaypointSnap {
             id: 101,
             name: "ProbeFerryStart01".into(),
             position: Vec3::new(100.0, 0.0, 0.0),
             link0: Some(102),
         });
-        inject_railed_waypoint(HostWaypointSnap {
+        logic.inject_railed_waypoint(HostWaypointSnap {
             id: 102,
             name: "ProbeFerryEnd01".into(),
             position: Vec3::new(200.0, 0.0, 0.0),
             link0: None,
         });
 
-        let mut logic = GameLogic::new();
         logic.templates.insert(
             "ProbeFerry".into(),
             ferry_template("ProbeFerry", "ProbeFerry"),
@@ -358,26 +339,24 @@ mod tests {
             vec![Vec3::new(100.0, 0.0, 0.0), Vec3::new(200.0, 0.0, 0.0)]
         );
         assert!(ferry.ultra_accurate);
-        railed_waypoint_overlay_reset();
     }
 
     #[test]
     fn railed_update_parks_at_nearest_end_then_opens_on_arrival() {
-        railed_waypoint_overlay_reset();
-        inject_railed_waypoint(HostWaypointSnap {
+        let mut logic = GameLogic::new();
+        logic.inject_railed_waypoint(HostWaypointSnap {
             id: 201,
             name: "ParkFerryStart01".into(),
             position: Vec3::new(0.0, 0.0, 0.0),
             link0: Some(202),
         });
-        inject_railed_waypoint(HostWaypointSnap {
+        logic.inject_railed_waypoint(HostWaypointSnap {
             id: 202,
             name: "ParkFerryEnd01".into(),
             position: Vec3::new(10.0, 0.0, 0.0),
             link0: None,
         });
 
-        let mut logic = GameLogic::new();
         logic
             .templates
             .insert("ParkFerry".into(), ferry_template("ParkFerry", "ParkFerry"));
@@ -402,6 +381,5 @@ mod tests {
         logic.update_railed_transports();
         let ferry = logic.host_object(id).expect("dock open");
         assert!(!ferry.railed_in_transit);
-        railed_waypoint_overlay_reset();
     }
 }

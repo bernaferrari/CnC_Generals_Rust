@@ -274,7 +274,7 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
         );
         logic
     };
-    let assert_radar = |logic: &GameLogic| {
+    let assert_radar = |logic: &GameLogic, expected_online_transitions: u32| {
         let owner = logic.get_player(0).expect("provider owner");
         let other = logic
             .get_player(1)
@@ -287,8 +287,8 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
         );
         assert!(!other.has_radar());
         assert_eq!(
-            logic.host_radar.online_transitions, 1,
-            "one actual owner came online"
+            logic.host_radar.online_transitions, expected_online_transitions,
+            "restoring a provider must not invent another online edge"
         );
         assert_eq!(logic.host_radar.offline_transitions, 0);
         let dish = logic
@@ -329,14 +329,14 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
             1.0 / 30.0,
             None,
             Some(1),
-            |logic| assert_radar(logic),
+            |logic| assert_radar(logic, 1),
         );
         assert_eq!(snap.steps_run, 1);
         assert_eq!(snap.frame, expected_frame);
         completed_steps += snap.steps_run;
     }
     assert_eq!(completed_steps, 3);
-    assert_radar(&without_shadow);
+    assert_radar(&without_shadow, 1);
 
     let source = make_world();
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
@@ -348,7 +348,7 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("restore pending radar timer");
-    for mut logic in [source, restored] {
+    for (mut logic, expected_online_transitions) in [(source, 1), (restored, 0)] {
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         let _couple = ShadowCoupleGuard::enter();
@@ -362,14 +362,14 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
                     None,
                     Some(1),
                     |logic| {
-                        assert_radar(logic);
+                        assert_radar(logic, expected_online_transitions);
                         gameworld_shadow::with_active_shadow_mut(|shadow| {
                             gameworld_shadow::eager_apply_all_host_residuals_after_logic(
                                 shadow, logic,
                             );
                         });
                         CnCGameEngine::host_run_gameworld_shadow_after_logic(logic);
-                        assert_radar(logic);
+                        assert_radar(logic, expected_online_transitions);
                     },
                 );
                 assert_eq!(snap.steps_run, 1);
@@ -379,7 +379,7 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
             assert_eq!(completed_steps, 3);
             assert_eq!(logic.get_frame(), 3);
         });
-        assert_radar(&logic);
+        assert_radar(&logic, expected_online_transitions);
     }
 
     // Ordinary production keeps its shadow enabled as an explicitly borrowed
@@ -390,7 +390,7 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
     builder
         .restore_from_snapshot(&snapshot, &mut ordinary_restored)
         .expect("restore ordinary pending radar timer");
-    for mut logic in [ordinary_source, ordinary_restored] {
+    for (mut logic, expected_online_transitions) in [(ordinary_source, 1), (ordinary_restored, 0)] {
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
         let mut completed_steps = 0;
@@ -403,9 +403,9 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
                 Some(1),
                 |logic| {
                     assert!(!gameworld_shadow::shadow_coupled_tick_active());
-                    assert_radar(logic);
+                    assert_radar(logic, expected_online_transitions);
                     gameworld_shadow::run_owned_host_boundary(Some(&mut shadow), logic);
-                    assert_radar(logic);
+                    assert_radar(logic, expected_online_transitions);
                 },
             );
             assert_eq!(snap.steps_run, 1);
@@ -414,6 +414,6 @@ fn production_shadow_boundary_preserves_same_faction_player_radar_ownership_case
         }
         assert_eq!(completed_steps, 3);
         assert_eq!(logic.get_frame(), 3);
-        assert_radar(&logic);
+        assert_radar(&logic, expected_online_transitions);
     }
 }

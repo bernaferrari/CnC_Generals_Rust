@@ -995,7 +995,7 @@ pub(super) fn capture_team_factory_chunk(
                 .collect(),
         });
     }
-    let mut prototypes: Vec<TeamPrototypePersist> = factory
+    let prototypes: Vec<TeamPrototypePersist> = factory
         .list_team_prototypes()
         .into_iter()
         .map(|proto| TeamPrototypePersist {
@@ -1005,7 +1005,6 @@ pub(super) fn capture_team_factory_chunk(
             production_priority: proto.get_production_priority(),
         })
         .collect();
-    prototypes.sort_by(|a, b| a.team_name.cmp(&b.team_name));
     Ok(TeamFactoryChunkPersist {
         persist_roster: true,
         unique_team_id,
@@ -1116,6 +1115,15 @@ pub(super) fn apply_teams_to_leftover(
         updated.set_production_priority(proto_persist.production_priority);
         factory.replace_team_prototype(updated);
     }
+    factory
+        .restore_prototype_admission_order(
+            &persist
+                .prototypes
+                .iter()
+                .map(|prototype| prototype.team_name.clone())
+                .collect::<Vec<_>>(),
+        )
+        .map_err(|error| SaveLoadError::Corrupted(error.to_string()))?;
     for team_persist in &persist.teams {
         let team_arc = if team_persist.members.is_some() {
             Some(

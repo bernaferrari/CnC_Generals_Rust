@@ -49,6 +49,7 @@ impl Default for EntityLifecycleEnvelope {
 pub enum EntityLifecycleCodecError {
     UnexpectedEof { context: &'static str },
     InvalidUtf8,
+    InvalidOwnerComponent { component: &'static str },
 }
 
 impl fmt::Display for EntityLifecycleCodecError {
@@ -58,6 +59,9 @@ impl fmt::Display for EntityLifecycleCodecError {
                 write!(f, "truncated entity lifecycle envelope at {context}")
             }
             Self::InvalidUtf8 => write!(f, "module tag is not valid UTF-8"),
+            Self::InvalidOwnerComponent { component } => {
+                write!(f, "invalid or missing owner context for {component}")
+            }
         }
     }
 }

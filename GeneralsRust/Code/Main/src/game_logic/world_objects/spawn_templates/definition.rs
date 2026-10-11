@@ -183,6 +183,64 @@ impl GameLogic {
         texture_hint: Option<&str>,
     ) -> ThingTemplate {
         let mut template = ThingTemplate::new(template_name);
+        template.radar_upgrade_rules = Some(
+            definition
+                .behavior_modules
+                .iter()
+                .filter(|module| module.class_name.eq_ignore_ascii_case("RadarUpgrade"))
+                .map(crate::game_logic::host_radar::RadarUpgradeRules::from_definition)
+                .collect(),
+        );
+        template.radar_extend_frames = definition
+            .behavior_modules
+            .iter()
+            .find(|module| module.class_name.eq_ignore_ascii_case("RadarUpdate"))
+            .map(|module| {
+                module
+                    .attribute("RadarExtendTime")
+                    .and_then(|value| value.parse::<f32>().ok())
+                    .filter(|time| time.is_finite() && *time >= 0.0)
+                    .map(|milliseconds| (milliseconds * 30.0 / 1000.0) as u32)
+                    .unwrap_or(0)
+            });
+        template.authored_instant_death = Some(
+            definition
+                .behavior_modules
+                .iter()
+                .filter(|module| {
+                    module
+                        .class_name
+                        .eq_ignore_ascii_case("InstantDeathBehavior")
+                })
+                .map(|module| {
+                    let attributes: Vec<_> = module
+                        .attributes
+                        .iter()
+                        .map(|(key, value)| (key.as_str(), value.as_str()))
+                        .collect();
+                    crate::game_logic::host_instant_death::instant_death_ini_from_behavior_attrs(
+                        &attributes,
+                    )
+                })
+                .collect(),
+        );
+        template.authored_slow_death = Some(
+            definition
+                .behavior_modules
+                .iter()
+                .filter(|module| module.class_name.eq_ignore_ascii_case("SlowDeathBehavior"))
+                .map(|module| {
+                    let attributes: Vec<_> = module
+                        .attributes
+                        .iter()
+                        .map(|(key, value)| (key.as_str(), value.as_str()))
+                        .collect();
+                    crate::game_logic::host_slow_death::slow_death_ini_from_behavior_attrs(
+                        &attributes,
+                    )
+                })
+                .collect(),
+        );
         let lower = template_name.to_ascii_lowercase();
         let kind_of = Self::object_definition_attr(definition, "kindof")
             .unwrap_or_default()

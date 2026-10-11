@@ -352,6 +352,27 @@ impl ObjectFactory {
         self.object_registry.get(&object_id)
     }
 
+    /// Check entry using this factory's canonical objects, including a redirected
+    /// Overlord payload. The compatibility registry never selects the child.
+    pub fn can_enter_object(
+        &self,
+        passenger: &Object,
+        target: &Object,
+        source: crate::ai::CommandSourceType,
+        mode: crate::action_manager::CanEnterType,
+    ) -> bool {
+        crate::action_manager::TheActionManager::can_enter_object_with_lookup(
+            passenger,
+            target,
+            source,
+            mode,
+            &|id| {
+                self.get_object(id)
+                    .and_then(GameObjectInstance::get_base_object)
+            },
+        )
+    }
+
     /// Get mutable object by ID
     pub fn get_object_mut(&mut self, object_id: ObjectID) -> Option<&mut GameObjectInstance> {
         self.object_registry.get_mut(&object_id)

@@ -142,6 +142,9 @@ impl GameLogic {
                 ai_state
             };
             match ai_state {
+                AIState::Exiting => {
+                    self.update_owned_passenger_exit(object_id);
+                }
                 AIState::GuardingArea | AIState::GuardingObject => {
                     self.tick_host_guard_states(&[object_id]);
                 }
@@ -760,6 +763,7 @@ impl GameLogic {
                                     veh.set_private_captured(true);
                                 }
                             }
+                            self.admit_host_radar_disabled_edges(container_id);
                             let _ = self.transfer_script_object_name(object_id, container_id);
                             self.unmanned_reclaims = self.unmanned_reclaims.saturating_add(1);
                             self.mark_destroyed_authority_aware(object_id, None);
@@ -774,12 +778,20 @@ impl GameLogic {
                     // ContainModule/owner/capacity authority at arrival.  Dock
                     // deliberately stays on its separate state machine below.
                     let normal_enter = state == AIState::Entering;
+                    let requested_container_id = container_id;
+                    let container_id = if normal_enter {
+                        self.redirected_containment_owner(container_id)
+                    } else {
+                        container_id
+                    };
                     // C++ OpenContain::onCollide ejects foreign riders first,
                     // then isValidContainerFor + addToContain.
                     if normal_enter {
                         self.eject_foreign_occupants_on_enter(container_id, object_id);
                     }
-                    if normal_enter && !self.can_unit_enter_normal_target(object_id, container_id) {
+                    if normal_enter
+                        && !self.can_unit_enter_normal_target(object_id, requested_container_id)
+                    {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_target(None);
                             obj.stop_moving();
@@ -821,8 +833,9 @@ impl GameLogic {
                             container.owner_player_id,
                             container.is_kind_of(KindOf::Structure),
                             container.is_faction_structure(),
-                            container.is_overlord_style_container()
-                                && container.overlord_bunker_slot_capacity() > 0,
+                            container.contained_by.is_some_and(|outer| {
+                                self.redirected_containment_owner(outer) == container_id
+                            }),
                             container.is_battle_bus_style_container(),
                             container.is_technical_style_container(),
                             container.is_combat_cycle_style_container(),
@@ -1143,13 +1156,6 @@ impl GameLogic {
                         obj.set_status_force_attack(false);
                         obj.target = Some(container_id);
                         obj.set_contained_by_enclosing(Some(container_id), enclosing_garrison);
-                        if container_is_overlord_bunker {
-                            // C++ OverlordContain::onContaining ExperienceSinkForRider
-                            // (`OverlordContain.cpp:354-355`, default TRUE). Live
-                            // BattleBunker infantry are the rider analog — bunker
-                            // kills must level the tank, not the occupant.
-                            obj.set_experience_sink(Some(container_id));
-                        }
                         // C++ onContaining snaps enclosing occupants to the building
                         // origin. Fire Base (IsEnclosingContainer=No) stays at stations.
                         if enclosing_garrison || !container_is_structure {
@@ -1195,6 +1201,7 @@ impl GameLogic {
                             obj.deselect();
                         }
                     }
+                    self.admit_object_drawable_deselection(object_id);
                     if container_is_tunnel_network {
                         // Enter counter already incremented in record_enter.
                     } else if container_is_heal_contain {
@@ -1207,7 +1214,7 @@ impl GameLogic {
                                 player.selected_objects.retain(|id| *id != object_id);
                             }
                         }
-                        self.selected_objects.retain(|id| *id != object_id);
+                        self.admit_local_drawable_deselected(object_id);
                     } else if container_is_overlord_bunker {
                         // China Overlord BattleBunker residual load (redirected bunker slots).
                         self.record_overlord_bunker_residual_enter();
@@ -2069,6 +2076,7 @@ impl GameLogic {
                                 if let Some(h) = self.objects.get_mut(&object_id) {
                                     h.begin_hijacker_in_vehicle(special_target_id);
                                 }
+                                self.admit_object_drawable_deselection(object_id);
                                 // C++ ThePartitionManager->unRegisterObject(hijacker).
                                 self.partition_manager.unregister_object(object_id.0);
                             } else {
@@ -2259,6 +2267,7 @@ impl GameLogic {
                                             }
                                         }
                                     }
+                                    self.admit_host_radar_disabled_edges(special_target_id);
                                     self.saboteur.record(kind, cash_stolen);
                                     // C++ TheRadar->tryInfiltrationEvent(other) residual
                                     // (victim local player warning).
@@ -2329,7 +2338,7 @@ impl GameLogic {
                                 if sniped_vehicle {
                                     crate::game_logic::object::record_neutral_vehicle_sniped();
                                 }
-                                self.selected_objects.retain(|id| *id != special_target_id);
+                                self.admit_local_drawable_deselected(special_target_id);
                                 for player in self.players.values_mut() {
                                     player
                                         .selected_objects
@@ -2631,6 +2640,7 @@ impl GameLogic {
                             if let Some(target) = self.objects.get_mut(&special_target_id) {
                                 target.apply_disabled_hacked(until);
                             }
+                            self.admit_host_radar_disabled_edges(special_target_id);
                             let do_fx = self
                                 .hero_abilities
                                 .leftover_channel(object_id)
@@ -3579,7 +3589,16 @@ impl GameLogic {
                             None
                         };
                         (
-                            container.get_position(),
+                            container
+                                .contained_by
+                                .and_then(|outer| {
+                                    (self.redirected_containment_owner(outer) == container_id)
+                                        .then(|| {
+                                            self.host_object(outer).map(|host| host.get_position())
+                                        })
+                                        .flatten()
+                                })
+                                .unwrap_or_else(|| container.get_position()),
                             container.is_alive(),
                             container.contained_units().contains(&object_id),
                             station_pin,
@@ -3618,6 +3637,7 @@ impl GameLogic {
                         obj.stop_moving();
                         obj.set_status_moving(false);
                     }
+                    self.admit_object_drawable_deselection(object_id);
                 }
                 AIState::Idle => {
                     // C++ SupplyTruckStateMachine Idle: isForcedIntoWantingState

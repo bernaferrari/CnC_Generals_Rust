@@ -3,6 +3,8 @@
 //! Order matches `Object` field-group declaration order (not C++ helper-first
 //! xfer order). That declaration order is the inventory contract for this slice.
 
+/// C++ OverlordContain portable child identity and redirection phase.
+pub const TAG_OVERLORD_ADDON: &str = "OverlordAddon";
 /// C++ UpgradeDie residual.
 pub const TAG_UPGRADE_DIE: &str = "UpgradeDie";
 /// C++ SpecialPowerCompletionDie residual.
@@ -199,4 +201,5 @@ pub const INVENTORY_TAGS: &[&str] = &[
     TAG_PHYSICS_BEHAVIOR,
     TAG_RAILROAD,
     TAG_PATH_EXTRA_DISTANCE,
+    TAG_OVERLORD_ADDON,
 ];

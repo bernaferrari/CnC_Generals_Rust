@@ -109,6 +109,7 @@ mod inferno_fire_persist;
 mod jet_ai_persist;
 mod module_runtime_persist;
 mod money_crate_persist;
+mod named_unit_history_persist;
 mod neutron_slow_death_persist;
 mod object_module_xfer_persist;
 mod object_xfer_persist;
@@ -196,3 +197,8 @@ pub use w3d_ghost_save::{
 pub(crate) use world_codec::decode_bincode_world_snapshot;
 
 mod hunt_state_persist;
+
+mod player_academy_persist;
+
+#[cfg(test)]
+mod team_prototype_order_tests;

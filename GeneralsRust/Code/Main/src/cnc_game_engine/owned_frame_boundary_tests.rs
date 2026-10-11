@@ -231,6 +231,15 @@ fn ordinary_boundary_preserves_actual_move_commands_for_presentation_case() {
 
 fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentation_case() {
     let (mut logic, _, mut shadow) = fixture("OwnedFrameBuilder", 100.0);
+    // C++ Energy returns zero production for an unpowered player even when
+    // consumption is zero. Supply a real plant for this full-frame witness.
+    let mut power = ThingTemplate::new("OwnedFramePower");
+    power.add_kind_of(KindOf::Structure);
+    power.energy_production = Some(10);
+    logic.templates.insert(power.name.clone(), power);
+    logic
+        .create_object("OwnedFramePower", Team::USA, Vec3::new(40.0, 0.0, 40.0))
+        .expect("actual power admission");
     let mut template = ThingTemplate::new("OwnedFrameBuilding");
     template.add_kind_of(KindOf::Structure).set_health(500.0);
     template.build_time = 1.0;
@@ -268,10 +277,10 @@ fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentati
     // scaffold; the next actual frame performs completion and its observation.
     advance_owned(&mut logic, Some(&mut shadow));
     assert!(logic.host_object(id).unwrap().status.under_construction);
-    assert!(!crate::game_logic::host_construction_log::has_pending(id));
+    assert!(!logic.construction_events.has_pending(id));
     advance_owned(&mut logic, Some(&mut shadow));
     assert!(!logic.host_object(id).unwrap().status.under_construction);
-    assert!(crate::game_logic::host_construction_log::has_pending(id));
+    assert!(logic.construction_events.has_pending(id));
 
     let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(frame.events.iter().any(|event| matches!(
@@ -281,7 +290,7 @@ fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentati
             template,
         } if *completed == id && template == "OwnedFrameBuilding"
     )));
-    assert!(!crate::game_logic::host_construction_log::has_pending(id));
+    assert!(!logic.construction_events.has_pending(id));
 }
 
 fn ordinary_disabled_producer_resumes_only_after_the_expiry_frame_case() {

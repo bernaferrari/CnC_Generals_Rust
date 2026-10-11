@@ -115,51 +115,27 @@ impl GameLogic {
         max_pos: Vec3,
         add_to_selection: bool,
     ) -> Vec<ObjectId> {
-        if let Some(player) = self.players.get_mut(&player_id) {
-            let mut selected_objects = Vec::new();
-
-            // Clear previous selection if not adding
-            if !add_to_selection {
-                for &old_id in &player.selected_objects {
-                    if let Some(obj) = self.objects.get_mut(&old_id) {
-                        obj.deselect();
-                    }
-                }
-                player.selected_objects.clear();
-            }
-
-            // Find objects in the selection area.
-            // C++ parity: uses bounding-circle intersection with the selection
-            // rectangle, not just center-point containment.  This allows selecting
-            // large objects whose center is outside the box but whose radius
-            // overlaps it.
-            for (id, obj) in &mut self.objects {
-                if obj.owner_player_id == Some(player_id) && obj.is_selectable() {
-                    let pos = obj.get_position();
-                    let r = obj.selection_radius;
-                    // Circle-vs-AABB intersection test.
-                    let closest_x = pos.x.clamp(min_pos.x, max_pos.x);
-                    let closest_z = pos.z.clamp(min_pos.z, max_pos.z);
-                    let dist_sq = (pos.x - closest_x).powi(2) + (pos.z - closest_z).powi(2);
-                    if dist_sq <= r * r {
-                        obj.select();
-                        selected_objects.push(*id);
-                        if !player.selected_objects.contains(id) {
-                            player.selected_objects.push(*id);
-                        }
-                    }
-                }
-            }
-
-            log::trace!(
-                "{} selected {} objects in area",
-                player_id,
-                selected_objects.len()
-            );
-            selected_objects
-        } else {
-            Vec::new()
+        if !self.players.contains_key(&player_id) {
+            return Vec::new();
         }
+        let selected: Vec<_> = self
+            .objects
+            .iter()
+            .filter_map(|(&id, object)| {
+                if object.owner_player_id != Some(player_id) || !object.is_selectable() {
+                    return None;
+                }
+                let position = object.get_position();
+                let closest_x = position.x.clamp(min_pos.x, max_pos.x);
+                let closest_z = position.z.clamp(min_pos.z, max_pos.z);
+                let distance_squared =
+                    (position.x - closest_x).powi(2) + (position.z - closest_z).powi(2);
+                (distance_squared <= object.selection_radius * object.selection_radius)
+                    .then_some(id)
+            })
+            .collect();
+        self.apply_player_drawable_selection(player_id, &selected, !add_to_selection);
+        selected
     }
 
     /// Select a single object by click
@@ -170,7 +146,7 @@ impl GameLogic {
         selection_radius: f32,
         add_to_selection: bool,
     ) -> Option<ObjectId> {
-        if let Some(player) = self.players.get_mut(&player_id) {
+        if let Some(player) = self.players.get(&player_id) {
             let team = player.team;
             // Pure residual acquire: nearest selectable friendly in click radius (3D).
             // Per-object selection_radius expands the pick disk (C++ pick residual).
@@ -217,40 +193,10 @@ impl GameLogic {
                 )
                 .map(|(id, dist, _)| (id, dist));
 
-            if let Some((selected_id, _)) = closest_object {
-                // Clear previous selection if not adding
-                if !add_to_selection {
-                    for &old_id in &player.selected_objects {
-                        if let Some(obj) = self.objects.get_mut(&old_id) {
-                            obj.deselect();
-                        }
-                    }
-                    player.selected_objects.clear();
-                }
-
-                // Select the new object
-                if let Some(obj) = self.objects.get_mut(&selected_id) {
-                    obj.select();
-                    if !player.selected_objects.contains(&selected_id) {
-                        player.selected_objects.push(selected_id);
-                    }
-                }
-
-                log::trace!("{} selected object {}", player_id, selected_id);
-                Some(selected_id)
-            } else {
-                // Clear selection if clicking on empty space and not adding
-                if !add_to_selection {
-                    for &old_id in &player.selected_objects {
-                        if let Some(obj) = self.objects.get_mut(&old_id) {
-                            obj.deselect();
-                        }
-                    }
-                    player.selected_objects.clear();
-                    log::trace!("{} cleared selection", player_id);
-                }
-                None
-            }
+            let selected_id = closest_object.map(|(id, _)| id);
+            let selected: Vec<_> = selected_id.into_iter().collect();
+            self.apply_player_drawable_selection(player_id, &selected, !add_to_selection);
+            selected_id
         } else {
             None
         }
@@ -1482,145 +1428,83 @@ impl GameLogic {
         decoded_map: Option<&super::super::script_loader::ChunkyMap>,
     ) {
         if self.scripts_loaded {
-            return; // Already initialized
+            return;
         }
-
-        // Live C++ path is ScriptEngine + executor (GameLogic.cpp:3600).
-        // Leftover ScriptingEngine / ActionRegistry / Rhai / TriggerSystem is
-        // leftover-only (hq-8ta4n): do not construct a second script brain.
+        if self.owned_script_engine.is_none()
+            && !self.admit_map_script_definitions(map_name, decoded_map)
         {
-            let handler: Arc<dyn ScriptActionHandler> = Arc::new(MissionScriptActionHandler::new(
+            return;
+        }
+        if let Some(engine) = self.owned_script_engine.as_mut() {
+            engine.set_action_handler(Some(Arc::new(MissionScriptActionHandler::new(
                 self.mission_scripts.clone(),
-            ));
-            let _ = gamelogic::scripting::engine::initialize_script_engine();
-            if let Ok(mut live_guard) = gamelogic::scripting::engine::get_script_engine().write() {
-                if let Some(live) = live_guard.as_mut() {
-                    live.set_action_handler(Some(handler));
-                }
-            }
+            ))));
         }
+        self.finish_map_script_foundation();
+    }
 
-        // Freeze the driving engine definitions once for this map load. Canonical
-        // engine lifetime is still migrated separately under hq-r0o8i.
-        let script_templates = gamelogic::scripting::engine::with_script_engine_ref(|engine| {
-            gamelogic::scripting::chunk_codec::ScriptTemplateLookup::from_engine(engine)
-        })
-        .unwrap_or_default();
-        let script_result = match decoded_map {
+    /// Terrain admission provides script definitions before PlayerList::newGame
+    /// creates singleton teams. ScriptEngine::newMap is a separate later phase
+    /// (GameLogic.cpp 1468-1474), so those callbacks can observe earlier callbacks.
+    pub(in super::super) fn admit_map_script_definitions(
+        &mut self,
+        map_name: &str,
+        decoded_map: Option<&super::super::script_loader::ChunkyMap>,
+    ) -> bool {
+        let templates = self
+            .owned_script_engine
+            .as_ref()
+            .map(|engine| {
+                gamelogic::scripting::chunk_codec::ScriptTemplateLookup::from_engine(engine)
+            })
+            .unwrap_or_default();
+        let result = match decoded_map {
             Some(map) => super::super::script_loader::load_map_scripts_from_chunky_with_templates(
-                map,
-                &script_templates,
+                map, &templates,
             ),
-            None => super::super::script_loader::load_map_scripts_with_templates(
-                map_name,
-                &script_templates,
-            ),
+            None => {
+                super::super::script_loader::load_map_scripts_with_templates(map_name, &templates)
+            }
         };
-        match script_result {
-            Ok(Some(result)) => {
-                self.loaded_script_lists = result.script_lists;
-                self.script_source_path = Some(result.source_path);
-                self.scripts_loaded = true;
-                self.script_broadcasts.clear();
-                self.new_script_messages.clear();
-                self.pending_popup_messages.clear();
-                self.pending_view_guardband = None;
-                self.pending_camera_bw_mode = None;
-                self.pending_camera_motion_blur.clear();
-                self.script_skybox_enabled = true;
-                self.script_cameo_flash_count.clear();
-                self.script_named_timers.clear();
-                self.script_named_timer_display_shown = true;
-                self.script_superweapon_display_enabled = true;
-                self.script_superweapon_hidden_objects.clear();
-                self.eva_superweapon_science_hidden.clear();
-
-                // Install decoded per-player lists into the crate ScriptEngine.
-                // Live once-per-frame walk is ScriptEngine::update (C++
-                // GameLogic.cpp:3600), including immediate CALL_SUBROUTINE.
-                let _ = gamelogic::scripting::engine::initialize_script_engine();
-                if let Ok(mut engine_guard) =
-                    gamelogic::scripting::engine::get_script_engine().write()
-                {
-                    if let Some(engine) = engine_guard.as_mut() {
-                        // C++ ScriptEngine::newMap() resets transient script runtime
-                        // then starts the 33-frame FADE_MULTIPLY fade-in from black.
-                        engine.reset();
-                        engine.new_map();
-                        for (idx, list) in self.loaded_script_lists.iter().enumerate() {
-                            let _ = engine
-                                .set_script_list_for_player(idx, Some(Box::new(list.clone())));
-                        }
-                    }
-                }
-
-                log::info!(
-                    "Loaded {} mission scripts for '{}'",
-                    result.total_scripts,
-                    map_name
-                );
+        let result = match result {
+            Ok(result) => result,
+            Err(error) => {
+                log::error!("Failed to decode map scripts for '{}': {}", map_name, error);
+                return false;
             }
-            Ok(None) => {
-                self.loaded_script_lists.clear();
-                self.script_source_path = None;
-                self.scripts_loaded = true;
-                self.script_broadcasts.clear();
-                self.new_script_messages.clear();
-                self.pending_popup_messages.clear();
-                self.pending_view_guardband = None;
-                self.pending_camera_bw_mode = None;
-                self.pending_camera_motion_blur.clear();
-                self.script_skybox_enabled = true;
-                self.script_cameo_flash_count.clear();
-                self.script_named_timers.clear();
-                self.script_named_timer_display_shown = true;
-                self.script_superweapon_display_enabled = true;
-                self.script_superweapon_hidden_objects.clear();
-                self.eva_superweapon_science_hidden.clear();
-
-                // Ensure the legacy ScriptEngine doesn't keep running scripts from a previous map.
-                if let Ok(mut engine_guard) =
-                    gamelogic::scripting::engine::get_script_engine().write()
-                {
-                    if let Some(engine) = engine_guard.as_mut() {
-                        engine.reset();
-                        engine.new_map();
-                    }
-                }
-
-                log::warn!("No mission scripts found for '{}'", map_name);
-            }
-            Err(err) => {
-                log::error!(
-                    "Failed to decode mission scripts for '{}': {}",
-                    map_name,
-                    err
-                );
-                self.script_broadcasts.clear();
-                self.new_script_messages.clear();
-                self.pending_popup_messages.clear();
-                self.pending_view_guardband = None;
-                self.pending_camera_bw_mode = None;
-                self.pending_camera_motion_blur.clear();
-                self.script_skybox_enabled = true;
-                self.script_cameo_flash_count.clear();
-                self.script_named_timers.clear();
-                self.script_named_timer_display_shown = true;
-                self.script_superweapon_display_enabled = true;
-                self.script_superweapon_hidden_objects.clear();
-                self.eva_superweapon_science_hidden.clear();
-
-                // On load failures, clear any previously loaded scripts for safety.
-                if let Ok(mut engine_guard) =
-                    gamelogic::scripting::engine::get_script_engine().write()
-                {
-                    if let Some(engine) = engine_guard.as_mut() {
-                        engine.reset();
-                        engine.new_map();
-                    }
-                }
+        };
+        let Ok(mut engine) = gamelogic::scripting::engine::ScriptEngine::new() else {
+            log::error!("Failed to create map interpreter for '{}'", map_name);
+            return false;
+        };
+        engine.set_action_handler(Some(Arc::new(MissionScriptActionHandler::new(
+            self.mission_scripts.clone(),
+        ))));
+        let (lists, path) = result
+            .map(|result| (result.script_lists, Some(result.source_path)))
+            .unwrap_or_default();
+        for (index, list) in lists.iter().enumerate() {
+            if let Err(error) =
+                engine.set_script_list_for_player(index, Some(Box::new(list.clone())))
+            {
+                log::error!("Failed to admit map script list {}: {:?}", index, error);
+                return false;
             }
         }
+        self.loaded_script_lists = lists;
+        self.script_source_path = path;
+        self.install_owned_script_engine(engine);
+        true
+    }
+
+    pub(in super::super) fn finish_map_script_foundation(&mut self) -> bool {
+        let Some(engine) = self.owned_script_engine.as_mut() else {
+            return false;
+        };
+        engine.new_map();
+        self.objects_receive_difficulty_bonus = true;
+        self.scripts_loaded = true;
+        true
     }
 }
 

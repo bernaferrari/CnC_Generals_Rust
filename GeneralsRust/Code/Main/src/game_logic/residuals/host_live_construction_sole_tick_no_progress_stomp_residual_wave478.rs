@@ -1,23 +1,6 @@
-//! Wave 478 residual peels: under construction sole-tick, host does not
-//! per-frame stomp GW construction percent via progress log.
-//! - host skips full `host_construction_progress_log::record` when sole-tick live
-//! - publishes `record_rate_only` for GW dozer/power rate
-//! - apply_host_construction_progress_events honors `rate_only`
-//! - GW `tick_construction_progress` remains sole percent advance
-//! Never flips shell `playable_claim`.
-//!
-//! Orthogonal to Wave 477 production sole-tick no-stomp peel.
-//! Architecture residual - construction percent last-writer is GameWorld under sole-tick.
-//!
-//! Sources:
-//! - game_logic.rs construction update sole-tick branch
-//! - host_construction_progress_log::record_rate_only
-//! - gameworld_shadow::apply_host_construction_progress_events
-//!
-//! Fail-closed:
-//! - Lifecycle records (start 0.0 / finish 1.0 / sell) still use full `record`
-//! - Host still completes construction when writeback percent reaches 1.0
-//! - Shell `playable_claim` stays false; network deferred
+//! Construction ownership audit. Historical CLI receipt names remain
+//! navigation metadata; source checks require one canonical host writer and
+//! immutable shadow comparisons. Runtime regressions exercise the host phases.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
@@ -26,10 +9,10 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 }
 
 pub const CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_METHOD_NAMES_WAVE478: &[&str] = &[
-    "gameworld_construction_sole_tick_enabled",
+    "host_owns_construction",
     "record_rate_only",
-    "apply_host_construction_progress_events",
-    "tick_construction_progress",
+    "observe_host_construction",
+    "update_construction",
     "rate_only",
     "playable_claim = false",
 ];
@@ -38,7 +21,7 @@ pub const CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_SOURCE_MARKERS_WAVE478: &[&st
     "Wave 478: publish dozer/power rate only",
     "record_rate_only",
     "if ev.rate_only",
-    "tick_construction_progress",
+    "update_construction",
 ];
 
 pub const CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_NAV_STEPS_WAVE478: &[&str] = &[
@@ -98,10 +81,6 @@ fn gl_source() -> &'static str {
     super::GAME_LOGIC_HOST_SRC
 }
 
-fn log_source() -> &'static str {
-    include_str!("../host_construction_progress_log.rs")
-}
-
 fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
 }
@@ -138,15 +117,8 @@ pub fn honesty_construction_sole_tick_no_progress_stomp_method_names_residual_wa
 }
 
 pub fn honesty_construction_sole_tick_no_progress_stomp_source_markers_residual_wave478() -> bool {
-    CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_SOURCE_MARKERS_WAVE478.len() == 4
-        && residual_name_index(
-            CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_SOURCE_MARKERS_WAVE478,
-            "record_rate_only",
-        ) == Some(1)
-        && residual_name_index(
-            CONSTRUCTION_SOLE_TICK_NO_PROGRESS_STOMP_SOURCE_MARKERS_WAVE478,
-            "if ev.rate_only",
-        ) == Some(2)
+    let ok = super::construction_owner_source_contract::host_owns_construction();
+    ok
 }
 
 pub fn honesty_construction_sole_tick_no_progress_stomp_nav_commands_residual_wave478() -> bool {
@@ -167,27 +139,13 @@ pub fn honesty_construction_sole_tick_no_progress_stomp_nav_commands_residual_wa
 }
 
 pub fn simulate_construction_sole_tick_no_progress_stomp_host_source() -> bool {
-    let gl = gl_source();
-    let log = log_source();
-    let ok = gl.contains("gameworld_construction_sole_tick_enabled()")
-        && gl.contains("record_rate_only")
-        && gl.contains("Wave 478: publish dozer/power rate only")
-        && log.contains("pub fn record_rate_only")
-        && log.contains("rate_only: true")
-        && log.contains("rate_only: bool");
+    let ok = super::construction_owner_source_contract::host_owns_construction();
     residual_action_store(ResidualConstructionSoleTickNoProgressStompAction::HostSource);
     ok
 }
 
 pub fn simulate_construction_sole_tick_no_progress_stomp_shadow_source() -> bool {
-    let src = shadow_source();
-    let Some(body) = function_body(src, "fn apply_host_construction_progress_events(") else {
-        return false;
-    };
-    let ok = body.contains("if ev.rate_only")
-        && body.contains("Wave 478")
-        && src.contains("tick_construction_progress")
-        && src.contains("writeback_construction_to_host");
+    let ok = super::construction_owner_source_contract::host_owns_construction();
     residual_action_store(ResidualConstructionSoleTickNoProgressStompAction::ShadowSource);
     ok
 }

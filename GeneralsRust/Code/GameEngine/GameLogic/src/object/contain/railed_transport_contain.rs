@@ -210,8 +210,7 @@ impl ContainModuleInterface for RailedTransportContain {
         if !self.base.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
-        else {
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
             return Ok(());
         };
         let valid = other
@@ -226,6 +225,21 @@ impl ContainModuleInterface for RailedTransportContain {
 
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
         self.base.is_valid_container_for(obj, check_capacity)
+    }
+
+    fn is_valid_container_for_with_owner(
+        &self,
+        obj: &Object,
+        owner: &Object,
+        check_capacity: bool,
+    ) -> bool {
+        // C++ inherits TransportContain admission without an override.
+        ContainModuleInterface::is_valid_container_for_with_owner(
+            &self.base,
+            obj,
+            owner,
+            check_capacity,
+        )
     }
 
     fn add_to_contain(
@@ -268,8 +282,7 @@ impl ContainModuleInterface for RailedTransportContain {
         if !self.get_contained_objects().contains(&object_id) {
             return false;
         }
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) else {
             return false;
         };
         obj.try_read()

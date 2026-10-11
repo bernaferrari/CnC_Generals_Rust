@@ -1,4 +1,4 @@
-//! Persist leftover AIPlayer team queues, build timers, and BuildList remaining rebuilds.
+//! Persist session-owned AI queues, condition caches, and authored construction state.
 //!
 //! C++ `AIPlayer::xfer` (`AI/AIPlayer.cpp:3278-3446`) writes TeamBuildQueue +
 //! TeamReadyQueue `TeamInQueue` snapshots (work orders numRequired/numCompleted),
@@ -11,7 +11,7 @@
 //! as `AIBuildingInfo.rebuild_count`, the clock as `destroyed_at_time`, and the
 //! pad binding as `object_id` / `is_built` / `is_priority`.
 //!
-//! Append a tagged suffix after the historical v9 contain/producer payload
+//! Append an EOF-located owner frame after historical tagged extensions
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 //! Restore writes queues/clocks, remaining rebuild counts, rebuild-delay
 //! timestamps, and pad object bindings; it never re-runs selectTeamToBuild or
@@ -23,7 +23,10 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const AITQ_MAGIC: &[u8; 4] = b"AITQ";
-const AITQ_VERSION: u32 = 5;
+const AITQ_VERSION: u32 = 7;
+const AITQ_VERSION_V6: u32 = 6;
+const FRAME_MAGIC: &[u8; 4] = b"AIQF";
+const AITQ_VERSION_V5: u32 = 5;
 const AITQ_VERSION_V4: u32 = 4;
 const AITQ_VERSION_V3: u32 = 3;
 const AITQ_VERSION_V2: u32 = 2;
@@ -32,6 +35,23 @@ const AITQ_VERSION_V1: u32 = 1;
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct AIPlayerQueuePersistPayload {
     players: Vec<AIPlayerQueuePersist>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AIPlayerQueuePersistPayloadV6 {
+    queues: AIPlayerQueuePersistPayload,
+    // Complete owned pads, including authored callback and supply continuation.
+    buildings: Vec<(u32, Vec<crate::ai::AIBuildingInfo>)>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AIPlayerQueuePersistPayloadV7 {
+    queues: AIPlayerQueuePersistPayload,
+    buildings: Vec<(u32, Vec<crate::ai::AIBuildingInfo>)>,
+    production_conditions: Vec<(
+        u32,
+        std::collections::BTreeMap<String, crate::ai::OwnedProductionConditionState>,
+    )>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -395,6 +415,7 @@ impl AITeamQueuePersist {
 
     pub fn into_live(self) -> AITeamQueue {
         AITeamQueue {
+            visit_token: 0,
             name: self.name,
             team_id: self.team_id,
             work_orders: self
@@ -448,26 +469,44 @@ impl AIWorkOrderPersist {
 
 pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     let payload = capture(game_logic);
-    if payload.players.is_empty() {
-        return;
-    }
+    let payload = AIPlayerQueuePersistPayloadV7 {
+        queues: payload,
+        buildings: game_logic
+            .ai_manager
+            .ai_players
+            .iter()
+            .map(|(&id, ai)| (id, ai.building_queue.clone()))
+            .collect(),
+        production_conditions: game_logic
+            .ai_manager
+            .ai_players
+            .iter()
+            .map(|(&id, ai)| (id, ai.production_condition_states.clone()))
+            .collect(),
+    };
     let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
+    let start = bytes.len();
     bytes.extend_from_slice(AITQ_MAGIC);
     append_u32(bytes, AITQ_VERSION);
     append_u32(bytes, encoded.len() as u32);
     bytes.extend_from_slice(&encoded);
+    let length = bytes.len() - start;
+    append_u32(bytes, 1);
+    append_u32(bytes, length as u32);
+    bytes.extend_from_slice(FRAME_MAGIC);
 }
 
 pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    game_logic.clear_ai_player_queue_persist();
-    let Some(suffix) = find_aitq_suffix(bytes) else {
+    let Some(suffix) = find_aitq_suffix(bytes)? else {
         return Ok(());
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
     if version != AITQ_VERSION
+        && version != AITQ_VERSION_V6
+        && version != AITQ_VERSION_V5
         && version != AITQ_VERSION_V4
         && version != AITQ_VERSION_V3
         && version != AITQ_VERSION_V2
@@ -484,7 +523,74 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
         ));
     }
     let encoded = &rest[..payload_len];
-    let payload = if version == AITQ_VERSION_V1 {
+    let mut buildings = None;
+    let mut conditions = None;
+    let payload = if version == AITQ_VERSION || version == AITQ_VERSION_V6 {
+        let current: AIPlayerQueuePersistPayloadV6 = if version == AITQ_VERSION {
+            let current: AIPlayerQueuePersistPayloadV7 = bincode_legacy::deserialize(encoded)
+                .map_err(|err| {
+                    SaveLoadError::Corrupted(format!("AITQ v7 payload decode: {err}"))
+                })?;
+            let ids: std::collections::HashSet<_> = current
+                .queues
+                .players
+                .iter()
+                .map(|player| player.player_id)
+                .collect();
+            let mut seen = std::collections::HashSet::new();
+            if current.production_conditions.len() != ids.len()
+                || current
+                    .production_conditions
+                    .iter()
+                    .any(|(id, _)| !ids.contains(id) || !seen.insert(*id))
+            {
+                return Err(SaveLoadError::Corrupted(
+                    "invalid AITQ v7 condition owners".into(),
+                ));
+            }
+            conditions = Some(current.production_conditions);
+            AIPlayerQueuePersistPayloadV6 {
+                queues: current.queues,
+                buildings: current.buildings,
+            }
+        } else {
+            bincode_legacy::deserialize(encoded)
+                .map_err(|err| SaveLoadError::Corrupted(format!("AITQ v6 payload decode: {err}")))?
+        };
+        let queue_ids: std::collections::HashSet<_> = current
+            .queues
+            .players
+            .iter()
+            .map(|player| player.player_id)
+            .collect();
+        if queue_ids.len() != current.queues.players.len()
+            || current.buildings.len() != queue_ids.len()
+        {
+            return Err(SaveLoadError::Corrupted(
+                "incomplete AITQ v6 owned pads".into(),
+            ));
+        }
+        let mut ids = std::collections::HashSet::new();
+        for (id, pads) in &current.buildings {
+            if !ids.insert(*id)
+                || !current
+                    .queues
+                    .players
+                    .iter()
+                    .any(|player| player.player_id == *id)
+                || pads.iter().any(|pad| {
+                    !pad.position.is_finite()
+                        || pad.destroyed_at_time.is_some_and(|time| !time.is_finite())
+                })
+            {
+                return Err(SaveLoadError::Corrupted(
+                    "invalid AITQ v6 owned pads".into(),
+                ));
+            }
+        }
+        buildings = Some(current.buildings);
+        current.queues
+    } else if version == AITQ_VERSION_V1 {
         let old: AIPlayerQueuePersistPayloadV1 = bincode_legacy::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("AITQ v1 payload decode: {err}")))?;
         AIPlayerQueuePersistPayload {
@@ -528,7 +634,27 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
         bincode_legacy::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("AITQ payload decode: {err}")))?
     };
+    // Older versions have no continuation evidence for this cache. Clear it
+    // only after every supplied owner row has been decoded and validated.
+    for ai in game_logic.ai_manager.ai_players.values_mut() {
+        ai.production_condition_states.clear();
+    }
+    game_logic.clear_ai_player_queue_persist();
     game_logic.apply_ai_player_queue_persist(payload.players);
+    if let Some(buildings) = buildings {
+        for (id, pads) in buildings {
+            if let Some(ai) = game_logic.ai_manager.ai_players.get_mut(&id) {
+                ai.building_queue = pads;
+            }
+        }
+    }
+    if let Some(conditions) = conditions {
+        for (id, state) in conditions {
+            if let Some(ai) = game_logic.ai_manager.ai_players.get_mut(&id) {
+                ai.production_condition_states = state;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -538,11 +664,80 @@ fn capture(game_logic: &GameLogic) -> AIPlayerQueuePersistPayload {
     }
 }
 
-fn find_aitq_suffix(bytes: &[u8]) -> Option<&[u8]> {
-    bytes
-        .windows(4)
-        .rposition(|window| window == AITQ_MAGIC)
-        .map(|idx| &bytes[idx + 4..])
+/// New snapshots place the AI queue frame immediately before the outer
+/// Academy/construction frames. Payload strings never select a frame.
+pub(super) fn suffix_start(bytes: &[u8]) -> SaveLoadResult<usize> {
+    let end = super::construction_completion_persist::suffix_start(bytes)?;
+    let mut boundary = &bytes[..end];
+    if boundary.ends_with(b"APRO") {
+        boundary = strip_owner_frame(boundary, b"APRO")?.0;
+    }
+    if boundary.ends_with(FRAME_MAGIC) {
+        // The exact framed header and payload length must be valid before
+        // exposing its prefix to another owner's decoder.
+        find_aitq_suffix(bytes)?;
+        Ok(strip_owner_frame(boundary, FRAME_MAGIC)?.0.len())
+    } else {
+        Ok(boundary.len())
+    }
+}
+
+fn find_aitq_suffix(bytes: &[u8]) -> SaveLoadResult<Option<&[u8]>> {
+    let end = super::construction_completion_persist::suffix_start(bytes)?;
+    let mut boundary = &bytes[..end];
+    if boundary.ends_with(b"APRO") {
+        boundary = strip_owner_frame(boundary, b"APRO")?.0;
+    }
+    if boundary.ends_with(FRAME_MAGIC) {
+        let (_, payload) = strip_owner_frame(boundary, FRAME_MAGIC)?;
+        if payload.len() < 12 || !payload.starts_with(AITQ_MAGIC) {
+            return Err(SaveLoadError::Corrupted("invalid AI queue frame".into()));
+        }
+        let length = u32::from_le_bytes(payload[8..12].try_into().unwrap()) as usize;
+        if length.checked_add(12) != Some(payload.len()) {
+            return Err(SaveLoadError::Corrupted(
+                "invalid AI queue frame length".into(),
+            ));
+        }
+        return Ok(Some(&payload[4..]));
+    }
+    // Historical v1-v6 saves lack an EOF locator. Only a recognized version
+    // header is a candidate, and ambiguous headers are rejected rather than
+    // choosing whichever marker occurs last inside a string.
+    let mut found = None;
+    for (index, window) in boundary.windows(4).enumerate() {
+        if window != AITQ_MAGIC {
+            continue;
+        }
+        let Some(version) = boundary.get(index + 4..index + 8) else {
+            continue;
+        };
+        if !(1..=AITQ_VERSION).contains(&u32::from_le_bytes(version.try_into().unwrap())) {
+            continue;
+        }
+        if found.replace(&boundary[index + 4..]).is_some() {
+            return Err(SaveLoadError::Corrupted(
+                "ambiguous historical AITQ headers".into(),
+            ));
+        }
+    }
+    Ok(found)
+}
+
+fn strip_owner_frame<'a>(bytes: &'a [u8], magic: &[u8; 4]) -> SaveLoadResult<(&'a [u8], &'a [u8])> {
+    let invalid =
+        || SaveLoadError::Corrupted(format!("invalid {} footer", String::from_utf8_lossy(magic)));
+    if bytes.len() < 12 || !bytes.ends_with(magic) {
+        return Err(invalid());
+    }
+    let footer = bytes.len() - 12;
+    let version = u32::from_le_bytes(bytes[footer..footer + 4].try_into().unwrap());
+    let length = u32::from_le_bytes(bytes[footer + 4..footer + 8].try_into().unwrap()) as usize;
+    let start = footer.checked_sub(length).ok_or_else(invalid)?;
+    if version != 1 {
+        return Err(invalid());
+    }
+    Ok((&bytes[..start], &bytes[start..footer]))
 }
 
 fn append_u32(out: &mut Vec<u8>, value: u32) {
@@ -585,8 +780,230 @@ mod tests {
     }
 
     #[test]
+    fn framed_queue_restores_authored_pad_callback_and_supply_continuation() {
+        let mut source = china_ai_logic();
+        let ai = source.ai_manager.ai_players.get_mut(&1).unwrap();
+        ai.building_queue.clear();
+        let mut pad =
+            crate::ai::AIBuildingInfo::new("ChinaSupplyCenter".into(), Vec3::new(1.0, 0.0, 3.0), 4);
+        pad.completion = Some(crate::ai::AuthoredStructureCompletion {
+            name: "AuthoredAITQDepot".into(),
+            script: "AttachedAITQSupply".into(),
+            health_percent: 65,
+            unsellable: true,
+        });
+        pad.supply_building = true;
+        pad.current_gatherers = -1;
+        pad.desired_gatherers = 8;
+        ai.building_queue.push(pad);
+        let mut bytes = Vec::new();
+        append_to_lifecycle_tail(&mut bytes, &source);
+        let mut target = china_ai_logic();
+        apply_from_lifecycle_tail(&bytes, &mut target).unwrap();
+        let pad = &target.ai_manager.ai_players[&1].building_queue[0];
+        assert_eq!(pad.template_name, "ChinaSupplyCenter");
+        assert_eq!(pad.position, Vec3::new(1.0, 0.0, 3.0));
+        assert_eq!(
+            pad.completion,
+            source.ai_manager.ai_players[&1].building_queue[0].completion
+        );
+        assert!(pad.supply_building);
+        assert_eq!((pad.current_gatherers, pad.desired_gatherers), (-1, 8));
+    }
+
+    #[test]
+    fn framed_queue_ignores_payload_markers_and_rejects_bad_lengths_transactionally() {
+        let source = china_ai_logic();
+        let mut bytes = b"earlierAITQname".to_vec();
+        append_to_lifecycle_tail(&mut bytes, &source);
+        let frame_end = bytes.len();
+        super::super::player_academy_persist::append_to_lifecycle_tail(&mut bytes, &source);
+        super::super::construction_completion_persist::append_to_lifecycle_tail(
+            &mut bytes, &source,
+        );
+        let mut target = china_ai_logic();
+        apply_from_lifecycle_tail(&bytes, &mut target).unwrap();
+        target
+            .ai_manager
+            .ai_players
+            .get_mut(&1)
+            .unwrap()
+            .next_building_time = 987.0;
+        let before = bincode_legacy::serialize(&capture(&target)).unwrap();
+        bytes[frame_end - 8..frame_end - 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(apply_from_lifecycle_tail(&bytes, &mut target).is_err());
+        assert_eq!(
+            before,
+            bincode_legacy::serialize(&capture(&target)).unwrap()
+        );
+    }
+
+    #[test]
+    fn v7_restores_owned_condition_delay_and_v6_clears_unproven_cache() {
+        let mut source = china_ai_logic();
+        let mut script = gamelogic::scripting::core::Script::new();
+        script.frame_to_evaluate_at = 600;
+        script.delay_evaluation_seconds = 2;
+        source
+            .ai_manager
+            .ai_players
+            .get_mut(&1)
+            .unwrap()
+            .production_condition_states
+            .insert(
+                "CachedTeam".into(),
+                crate::ai::OwnedProductionConditionState {
+                    condition_name: "AITQCondition".into(),
+                    always_false: false,
+                    script: Some(script),
+                },
+            );
+        let mut bytes = Vec::new();
+        append_to_lifecycle_tail(&mut bytes, &source);
+        let mut target = china_ai_logic();
+        apply_from_lifecycle_tail(&bytes, &mut target).unwrap();
+        let state = &target.ai_manager.ai_players[&1].production_condition_states["CachedTeam"];
+        assert_eq!(state.condition_name, "AITQCondition");
+        assert_eq!(state.script.as_ref().unwrap().frame_to_evaluate_at, 600);
+        assert_eq!(state.script.as_ref().unwrap().delay_evaluation_seconds, 2);
+        let v6 = AIPlayerQueuePersistPayloadV6 {
+            queues: capture(&source),
+            buildings: vec![(1, source.ai_manager.ai_players[&1].building_queue.clone())],
+        };
+        let encoded = bincode_legacy::serialize(&v6).unwrap();
+        let mut old = AITQ_MAGIC.to_vec();
+        append_u32(&mut old, AITQ_VERSION_V6);
+        append_u32(&mut old, encoded.len() as u32);
+        old.extend_from_slice(&encoded);
+        apply_from_lifecycle_tail(&old, &mut target).unwrap();
+        assert!(
+            target.ai_manager.ai_players[&1]
+                .production_condition_states
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn invalid_v7_condition_owners_leave_the_live_cache_and_queues_unchanged() {
+        let source = china_ai_logic();
+        for rows in [
+            Vec::new(),
+            vec![(1, Default::default()), (1, Default::default())],
+        ] {
+            let payload = AIPlayerQueuePersistPayloadV7 {
+                queues: capture(&source),
+                buildings: vec![(1, source.ai_manager.ai_players[&1].building_queue.clone())],
+                production_conditions: rows,
+            };
+            let encoded = bincode_legacy::serialize(&payload).unwrap();
+            let mut bytes = AITQ_MAGIC.to_vec();
+            append_u32(&mut bytes, AITQ_VERSION);
+            append_u32(&mut bytes, encoded.len() as u32);
+            bytes.extend_from_slice(&encoded);
+            let mut target = china_ai_logic();
+            target
+                .ai_manager
+                .ai_players
+                .get_mut(&1)
+                .unwrap()
+                .production_condition_states
+                .insert(
+                    "Retained".into(),
+                    crate::ai::OwnedProductionConditionState {
+                        condition_name: "Before".into(),
+                        always_false: true,
+                        script: None,
+                    },
+                );
+            let before = bincode_legacy::serialize(&capture(&target)).unwrap();
+            let cache = bincode_legacy::serialize(
+                &target.ai_manager.ai_players[&1].production_condition_states,
+            )
+            .unwrap();
+            assert!(apply_from_lifecycle_tail(&bytes, &mut target).is_err());
+            assert_eq!(
+                before,
+                bincode_legacy::serialize(&capture(&target)).unwrap()
+            );
+            assert_eq!(
+                cache,
+                bincode_legacy::serialize(
+                    &target.ai_manager.ai_players[&1].production_condition_states
+                )
+                .unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn v6_incomplete_or_duplicate_owner_rows_do_not_mutate_live_state() {
+        let source = china_ai_logic();
+        for duplicate in [false, true] {
+            let mut queues = capture(&source);
+            if duplicate {
+                queues.players.push(queues.players[0].clone());
+            }
+            let payload = AIPlayerQueuePersistPayloadV6 {
+                queues,
+                buildings: if duplicate {
+                    vec![(1, source.ai_manager.ai_players[&1].building_queue.clone())]
+                } else {
+                    Vec::new()
+                },
+            };
+            let encoded = bincode_legacy::serialize(&payload).unwrap();
+            let mut bytes = AITQ_MAGIC.to_vec();
+            append_u32(&mut bytes, AITQ_VERSION_V6);
+            append_u32(&mut bytes, encoded.len() as u32);
+            bytes.extend_from_slice(&encoded);
+            let mut target = china_ai_logic();
+            target
+                .ai_manager
+                .ai_players
+                .get_mut(&1)
+                .unwrap()
+                .next_building_time = 987.0;
+            let before = bincode_legacy::serialize(&capture(&target)).unwrap();
+            let pads = bincode_legacy::serialize(&target.ai_manager.ai_players[&1].building_queue)
+                .unwrap();
+            assert!(apply_from_lifecycle_tail(&bytes, &mut target).is_err());
+            assert_eq!(
+                before,
+                bincode_legacy::serialize(&capture(&target)).unwrap()
+            );
+            assert_eq!(
+                pads,
+                bincode_legacy::serialize(&target.ai_manager.ai_players[&1].building_queue)
+                    .unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn v5_queue_encoding_remains_decodable_without_inventing_metadata() {
+        let source = china_ai_logic();
+        let mut bytes = AITQ_MAGIC.to_vec();
+        append_u32(&mut bytes, AITQ_VERSION_V5);
+        let payload = bincode_legacy::serialize(&capture(&source)).unwrap();
+        append_u32(&mut bytes, payload.len() as u32);
+        bytes.extend_from_slice(&payload);
+        let mut target = china_ai_logic();
+        apply_from_lifecycle_tail(&bytes, &mut target).unwrap();
+        assert_eq!(
+            target.ai_manager.ai_players[&1].next_building_time,
+            source.ai_manager.ai_players[&1].next_building_time
+        );
+        assert!(
+            target.ai_manager.ai_players[&1]
+                .building_queue
+                .iter()
+                .all(|pad| pad.completion.is_none())
+        );
+    }
+
+    #[test]
     fn absent_suffix_is_ignored() {
-        assert!(find_aitq_suffix(b"no-magic-here").is_none());
+        assert!(find_aitq_suffix(b"no-magic-here").unwrap().is_none());
     }
 
     #[test]
@@ -690,7 +1107,9 @@ mod tests {
         let builder = SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
-            find_aitq_suffix(&snapshot.lifecycle_tail).is_some(),
+            find_aitq_suffix(&snapshot.lifecycle_tail)
+                .unwrap()
+                .is_some(),
             "AITQ suffix must be appended when AI queues are live"
         );
 

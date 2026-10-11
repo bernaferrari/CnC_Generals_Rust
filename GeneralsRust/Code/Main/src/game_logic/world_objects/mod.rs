@@ -5,6 +5,7 @@
 
 mod ai_authority;
 mod bridge_body_callbacks;
+mod containment_death;
 mod crates_radar_power;
 mod create_destroy_die;
 mod damage_application;
@@ -16,8 +17,10 @@ mod object_ai_combat;
 mod object_queries;
 mod overlord_addon_damage;
 pub(crate) mod radar_live;
+mod radar_provider_owner;
 mod ready_completions;
 mod resources_income;
+mod selection_owner;
 mod spawn_templates;
 mod support_states;
 mod unit_ai_runtime;

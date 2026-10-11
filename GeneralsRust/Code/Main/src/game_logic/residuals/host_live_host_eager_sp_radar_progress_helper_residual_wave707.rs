@@ -96,10 +96,10 @@ pub fn honesty_host_eager_sp_radar_progress_helper_source_markers_residual_wave7
         && sh.contains("pub fn eager_apply_host_player_progress_after_logic")
         && sh.contains("Wave 707")
         && sh.contains("take_early_special_power_batch")
-        && sh.contains("take_early_radar_batch")
+        && sh.contains("host_radar_snapshot")
         && sh.contains("take_early_player_progress_batch")
         && sh.contains("early_special_power_applied")
-        && sh.contains("early_radar_applied")
+        && sh.contains("let radar_events = logic.host_radar_snapshot()")
         && sh.contains("early_player_progress_applied");
     let eng_ok = eng.contains("eager_apply_all_host_residuals_after_logic")
         && eng.contains("eager_apply_all_host_residuals_after_logic")
@@ -159,7 +159,6 @@ pub fn simulate_live_host_eager_sp_radar_progress_helper_honesty() -> bool {
 mod tests {
     use super::*;
     use crate::game_logic::host_player_progress_log;
-    use crate::game_logic::host_radar_log;
     use crate::game_logic::host_special_power_log;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::gameworld_shadow::{
@@ -210,7 +209,6 @@ mod tests {
         let prev = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
         crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         host_special_power_log::clear();
-        host_radar_log::clear();
         host_player_progress_log::clear();
 
         let mut logic = GameLogic::new();
@@ -219,13 +217,21 @@ mod tests {
             .create_object("EagerSrpUnit", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("spawn");
         host_special_power_log::clear();
-        host_radar_log::clear();
         host_player_progress_log::clear();
         host_special_power_log::record(id, true, 0.0, 60.0, false);
-        host_radar_log::record(0, 1, false);
+        logic.add_player(crate::game_logic::Player::new(
+            0,
+            Team::USA,
+            "Radar owner",
+            true,
+        ));
+        logic
+            .get_player_mut(0)
+            .expect("owner")
+            .set_radar_state(1, false);
         host_player_progress_log::record(0, 1, 0, 0, 0.0);
         assert_eq!(host_special_power_log::len(), 1);
-        assert_eq!(host_radar_log::len(), 1);
+        assert_eq!(logic.host_radar_snapshot().len(), 1);
         assert_eq!(host_player_progress_log::len(), 1);
 
         let mut shadow = GameWorldShadow::new(64);
@@ -246,7 +252,7 @@ mod tests {
         let _ = eager_apply_host_radar_after_logic(&mut shadow, &logic);
         let _ = eager_apply_host_player_progress_after_logic(&mut shadow, &logic);
         assert!(host_special_power_log::drain().is_empty());
-        assert!(host_radar_log::drain().is_empty());
+        assert_eq!(logic.host_radar_snapshot()[0].radar_count, 1);
         assert!(host_player_progress_log::drain().is_empty());
         let _probe = shadow_session_after_host_tick(&mut shadow, &mut logic);
         end_shadow_coupled_tick();

@@ -16,11 +16,22 @@ use gamelogic::world::entities::{EntityLifecycleCodecError, EntityModuleState};
 pub(crate) fn apply_module_states(
     object: &mut Object,
     modules: &[EntityModuleState],
-) -> Result<(), EntityLifecycleCodecError> {
-    for module in modules {
+) -> Result<Option<crate::game_logic::host_railroad::HostRailroadCar>, EntityLifecycleCodecError> {
+    // Validate the owner-bound component before mutating any Object field.
+    let mut railroad = None;
+    for module in modules.iter().filter(|module| module.tag == TAG_RAILROAD) {
+        let residual: RailroadBehaviorResidual = decode_payload(&module.payload)?;
+        if residual.car.object_id != object.id || railroad.is_some() {
+            return Err(EntityLifecycleCodecError::InvalidOwnerComponent {
+                component: "railroad",
+            });
+        }
+        railroad = Some(residual.car);
+    }
+    for module in modules.iter().filter(|module| module.tag != TAG_RAILROAD) {
         apply_one(object, module)?;
     }
-    Ok(())
+    Ok(railroad)
 }
 
 fn apply_one(
@@ -149,8 +160,9 @@ fn apply_one(
             let residual: PhysicsBehaviorResidual = decode_payload(payload)?;
             residual.apply(object);
         }
-        TAG_RAILROAD => {
-            let residual: RailroadBehaviorResidual = decode_payload(payload)?;
+        TAG_OVERLORD_ADDON => {
+            let residual: super::entity_lifecycle_inventory::OverlordAddonResidual =
+                decode_payload(payload)?;
             residual.apply(object);
         }
         TAG_PATH_EXTRA_DISTANCE => {

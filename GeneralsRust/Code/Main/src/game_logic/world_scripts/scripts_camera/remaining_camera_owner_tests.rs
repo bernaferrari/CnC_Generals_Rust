@@ -136,10 +136,10 @@ fn run(world: &mut GameLogic, engine: ScriptEngine) -> ScriptEngine {
     run_with_dt(world, engine, 0.0)
 }
 fn run_with_dt(world: &mut GameLogic, engine: ScriptEngine, dt: f32) -> ScriptEngine {
-    *get_script_engine().write().unwrap() = Some(engine);
+    world.install_owned_script_engine(engine);
     world.scripts_loaded = true;
     world.evaluate_and_execute_scripts(dt);
-    get_script_engine().write().unwrap().take().unwrap()
+    world.owned_script_engine.take().unwrap()
 }
 fn assert_camera_queues_empty(hooks: &MissionScriptHooks) {
     assert!(hooks.drain_camera_moves().is_empty());

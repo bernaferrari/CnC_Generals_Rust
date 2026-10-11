@@ -7,8 +7,8 @@ use super::Object;
 use super::entity_lifecycle_projectiles::ProjectileFlightResiduals;
 use super::entity_lifecycle_residuals::{
     ActiveBodyCrushResidual, CreateObjectDieTransferResidual, EmoticonSurrenderResidual,
-    FireWeaponWhenDeadResidual, PhysicsBehaviorResidual, RailroadBehaviorResidual,
-    SpecialPowerCooldownResidual, WeaponLockResidual,
+    FireWeaponWhenDeadResidual, PhysicsBehaviorResidual, SpecialPowerCooldownResidual,
+    WeaponLockResidual,
 };
 use super::entity_lifecycle_tags::*;
 use crate::game_logic::host_lifetime_update::HostLifetimeUpdateData;
@@ -84,9 +84,12 @@ const INVENTORIED_IN_WINDOW: &[&str] = &[
     "weapon_laser_beam_expires_frame",
 ];
 
-fn present_groups(object: &Object) -> Vec<&'static str> {
+fn present_groups(
+    object: &Object,
+    railroad: Option<&crate::game_logic::host_railroad::HostRailroadCar>,
+) -> Vec<&'static str> {
     let mut out = Vec::new();
-    let pairs: [(&'static str, bool); 63] = [
+    let pairs: [(&'static str, bool); 65] = [
         (TAG_UPGRADE_DIE, object.upgrade_die.is_some()),
         (
             TAG_SPECIAL_POWER_COMPLETION,
@@ -237,7 +240,23 @@ fn present_groups(object: &Object) -> Vec<&'static str> {
             TAG_PHYSICS_BEHAVIOR,
             PhysicsBehaviorResidual::present(object),
         ),
-        (TAG_RAILROAD, RailroadBehaviorResidual::present(object)),
+        (
+            TAG_RAILROAD,
+            railroad.is_some_and(|car| car.object_id == object.id),
+        ),
+        (
+            TAG_PATH_EXTRA_DISTANCE,
+            object.path_extra_distance != 0.0 || object.is_exact_path || object.is_attack_path,
+        ),
+        (
+            TAG_OVERLORD_ADDON,
+            object.has_overlord_gattling_addon
+                || object.has_overlord_propaganda_addon
+                || object.is_helix_transport
+                || object.overlord_bunker_capacity.is_some()
+                || object.overlord_portable_occupant.is_some()
+                || object.overlord_redirection_active,
+        ),
     ];
     for (tag, present) in pairs {
         if present {
@@ -248,8 +267,15 @@ fn present_groups(object: &Object) -> Vec<&'static str> {
 }
 
 fn attach_round_trip(object: &Object) {
-    let envelope = object.entity_lifecycle_envelope();
-    let present = present_groups(object);
+    attach_round_trip_with_railroad(object, None);
+}
+
+fn attach_round_trip_with_railroad(
+    object: &Object,
+    railroad: Option<&crate::game_logic::host_railroad::HostRailroadCar>,
+) {
+    let envelope = object.entity_lifecycle_envelope_with_railroad(railroad);
+    let present = present_groups(object, railroad);
     let emitted: Vec<&str> = envelope
         .module_states
         .iter()
@@ -328,6 +354,29 @@ fn representative_objects_emit_present_groups_in_declaration_order() {
     factory.base_regenerate =
         Some(crate::game_logic::host_base_regenerate::HostBaseRegenerateData::default());
     attach_round_trip(&factory);
+}
+
+#[test]
+fn railroad_inventory_uses_the_driving_session_conductor() {
+    use crate::game_logic::{GameLogic, HostRailroadCar};
+    let mut owner = GameLogic::new();
+    let mut peer = GameLogic::new();
+    let id = ObjectId(7);
+    owner.objects.insert(
+        id,
+        Object::new(ThingTemplate::new("CivilianTrainEngine"), id, Team::USA),
+    );
+    peer.objects.insert(
+        id,
+        Object::new(ThingTemplate::new("CivilianTrainEngine"), id, Team::USA),
+    );
+    owner.restore_railroad_car(HostRailroadCar::new_locomotive(id));
+    let car = owner.railroad_car(id).unwrap();
+    attach_round_trip_with_railroad(owner.host_object(id).unwrap(), Some(&car));
+    attach_round_trip(peer.host_object(id).unwrap());
+    assert!(present_groups(owner.host_object(id).unwrap(), Some(&car)).contains(&TAG_RAILROAD));
+    assert!(!present_groups(peer.host_object(id).unwrap(), None).contains(&TAG_RAILROAD));
+    assert!(peer.railroad_car(id).is_none());
 }
 
 #[test]

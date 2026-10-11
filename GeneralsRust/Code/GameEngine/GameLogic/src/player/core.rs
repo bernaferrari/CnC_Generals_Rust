@@ -300,37 +300,17 @@ impl Player {
         ignore_under_construction: Bool,
         counts: &mut [Int],
     ) {
-        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            counts.fill(0);
-            return;
-        }
         counts.fill(0);
-        let max_templates = templates.len().min(counts.len());
-        if max_templates == 0 {
-            return;
-        }
-
-        for &object_id in &self.owned_objects {
-            let _ =
-                crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |object_guard| {
-                    if ignore_dead && object_guard.is_effectively_dead() {
-                        return;
-                    }
-                    if ignore_under_construction
-                        && object_guard.test_status(ObjectStatusTypes::UnderConstruction)
-                    {
-                        return;
-                    }
-
-                    let obj_template = object_guard.get_template();
-                    for i in 0..max_templates {
-                        if !obj_template.is_equivalent_to(templates[i].as_ref()) {
-                            continue;
-                        }
-                        counts[i] += 1;
-                        break;
-                    }
-                });
+        for &id in &self.owned_objects {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(id, |object| {
+                self.count_object_template(
+                    object,
+                    templates,
+                    ignore_dead,
+                    ignore_under_construction,
+                    counts,
+                );
+            });
         }
     }
 
@@ -392,9 +372,6 @@ impl Player {
     /// C++ Object::setOrRestoreTeam passes `this` to becomingTeamMember rather
     /// than finding the same object again by ID.
     pub(crate) fn add_owned_object_for_object(&mut self, object: &Object) {
-        if dual_world_registry_unavailable() {
-            return;
-        }
         self.add_owned_object_for_object_inner(object.get_id(), object);
     }
 

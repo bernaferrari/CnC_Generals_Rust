@@ -1436,8 +1436,8 @@ impl ScriptEngine {
     pub fn force_unfreeze_time(&mut self) {}
 
     // PARITY_NOTE: C++ ScriptEngine::clearFlag
-    pub fn clear_flag(&mut self, name: &str) {
-        let inner = self.inner.get_mut();
+    pub fn clear_flag(&self, name: &str) {
+        let mut inner = self.lock_inner_mut();
         for j in 0..Self::MAX_PLAYER_COUNT {
             let mod_name = format!("{}{}", name, j);
             for i in 1..inner.num_flags {
@@ -1451,7 +1451,7 @@ impl ScriptEngine {
     }
 
     // PARITY_NOTE: C++ ScriptEngine::clearTeamFlags
-    pub fn clear_team_flags(&mut self) {
+    pub fn clear_team_flags(&self) {
         self.clear_flag("USA Team is Building");
         self.clear_flag("USA Air Team Is Building");
         self.clear_flag("USA Inf Team Is Building");
@@ -1493,6 +1493,34 @@ impl ScriptEngine {
         drop(restore);
     }
 
+    /// CPP runScript with a controller name supplied by the driving session.
+    pub fn run_team_script_with_driver(
+        &self,
+        script_name: &str,
+        team_id: TeamID,
+        player_name: Option<&str>,
+        context: crate::scripting::executor::ScriptContext,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> GameLogicResult<bool> {
+        if script_name.is_empty() || script_name == "<none>" {
+            return Ok(false);
+        }
+        let restore = self.with_inner(|inner| CallingContextRestore {
+            engine: self,
+            calling_team: inner.calling_team,
+            current_player: inner.current_player.clone(),
+        });
+        {
+            let mut inner = self.lock_inner_mut();
+            inner.condition_team = None;
+            inner.calling_team = Some(team_id);
+            inner.current_player = player_name.map(str::to_owned);
+        }
+        let result = self.execute_subroutine_by_name_with_driver(script_name, context, driver);
+        drop(restore);
+        result
+    }
+
     // PARITY_NOTE: C++ ScriptEngine::runObjectScript
     pub fn run_object_script(&mut self, script_name: &str, object_id: ObjectID) {
         if script_name.is_empty() || script_name == "<none>" {
@@ -1511,6 +1539,40 @@ impl ScriptEngine {
             .unwrap_or(false);
 
         self.inner.get_mut().calling_object = saved_calling_object;
+    }
+
+    /// Run an attached object's subroutine against the explicit driving owner.
+    /// Calling-object identity remains visible across immediate nested effects.
+    pub fn run_object_script_with_driver(
+        &self,
+        script_name: &str,
+        object_id: ObjectID,
+        context: crate::scripting::executor::ScriptContext,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> GameLogicResult<bool> {
+        if script_name.is_empty() || script_name == "<none>" {
+            return Ok(false);
+        }
+        struct Restore<'a> {
+            engine: &'a ScriptEngine,
+            saved: Option<ObjectID>,
+        }
+        impl Drop for Restore<'_> {
+            fn drop(&mut self) {
+                self.engine.lock_inner_mut().calling_object = self.saved;
+            }
+        }
+        let saved = {
+            let mut inner = self.lock_inner_mut();
+            let saved = inner.calling_object;
+            inner.calling_object = Some(object_id);
+            saved
+        };
+        let _restore = Restore {
+            engine: self,
+            saved,
+        };
+        self.execute_subroutine_by_name_with_driver(script_name, context, driver)
     }
 
     // PARITY_NOTE: C++ ScriptEngine::evaluateConditions

@@ -3,6 +3,106 @@ use super::*;
 use crate::scripting::engine::{ScriptExecutionDriver, ScriptOwnerQuery};
 
 impl ScriptConditionEvaluator<'_> {
+    pub(crate) fn eval_owned_named_containment(
+        &self,
+        condition: &Condition,
+        driver: &dyn ScriptExecutionDriver,
+    ) -> Result<Option<ScriptConditionResult>, ScriptError> {
+        let kind = condition.get_condition_type();
+        if !matches!(
+            kind,
+            ConditionType::NamedBuildingIsEmpty | ConditionType::NamedHasFreeContainerSlots
+        ) {
+            return Ok(None);
+        }
+        let name = condition
+            .get_parameter(0)
+            .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 0 not found".into()))?
+            .get_string();
+        match driver.named_containment(name, self.context.borrowed_engine().script_object_id()) {
+            ScriptOwnerQuery::Unavailable => Ok(None),
+            ScriptOwnerQuery::Missing => Ok(Some(Self::bool_result(false))),
+            ScriptOwnerQuery::Present(contain) => Ok(Some(Self::bool_result(
+                if kind == ConditionType::NamedBuildingIsEmpty {
+                    contain.count == 0
+                } else {
+                    contain.count < contain.max
+                },
+            ))),
+        }
+    }
+
+    pub(crate) fn eval_owned_named_owner(
+        &self,
+        condition: &Condition,
+        driver: &dyn ScriptExecutionDriver,
+    ) -> Result<Option<ScriptConditionResult>, ScriptError> {
+        if condition.get_condition_type() != ConditionType::NamedOwnedByPlayer {
+            return Ok(None);
+        }
+        let parameter = |index| {
+            condition.get_parameter(index).ok_or_else(|| {
+                ScriptError::ParameterNotFound(format!("Parameter {index} not found"))
+            })
+        };
+        let unit = parameter(0)?.get_string();
+        let player = parameter(1)?.get_string();
+        let engine = self.context.borrowed_engine();
+        let current = engine.get_current_player_name();
+        match driver.named_owned_by_player(
+            unit,
+            player,
+            current.as_deref(),
+            engine.script_object_id(),
+        ) {
+            ScriptOwnerQuery::Unavailable => Ok(None),
+            ScriptOwnerQuery::Missing => Ok(Some(Self::bool_result(false))),
+            ScriptOwnerQuery::Present(value) => Ok(Some(Self::bool_result(value))),
+        }
+    }
+
+    pub(crate) fn eval_owned_named_lifecycle(
+        &self,
+        condition: &Condition,
+        driver: &dyn ScriptExecutionDriver,
+    ) -> Result<Option<ScriptConditionResult>, ScriptError> {
+        let kind = condition.get_condition_type();
+        if !matches!(
+            kind,
+            ConditionType::NamedDestroyed
+                | ConditionType::NamedDying
+                | ConditionType::NamedTotallyDead
+                | ConditionType::NamedNotDestroyed
+                | ConditionType::NamedCreated
+        ) {
+            return Ok(None);
+        }
+        let name = condition
+            .get_parameter(0)
+            .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 0 not found".into()))?
+            .get_string();
+        let state =
+            match driver.named_lifecycle(name, self.context.borrowed_engine().script_object_id()) {
+                ScriptOwnerQuery::Unavailable => return Ok(None),
+                ScriptOwnerQuery::Missing => return Ok(Some(Self::bool_result(false))),
+                ScriptOwnerQuery::Present(state) => state,
+            };
+        let result = match kind {
+            ConditionType::NamedDestroyed => {
+                if state.exists {
+                    state.effectively_dead
+                } else {
+                    state.ever_existed
+                }
+            }
+            ConditionType::NamedDying => state.exists && state.effectively_dead,
+            ConditionType::NamedTotallyDead => !state.exists && state.ever_existed,
+            ConditionType::NamedCreated => state.exists,
+            _ => state.exists && !state.effectively_dead,
+        };
+        Ok(Some(Self::bool_result(result)))
+    }
+
     pub(crate) fn eval_owned_body_census(
         &self,
         condition: &Condition,

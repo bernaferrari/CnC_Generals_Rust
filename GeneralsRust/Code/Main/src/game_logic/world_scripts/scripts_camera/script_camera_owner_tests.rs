@@ -37,10 +37,10 @@ fn authored(zoom: f32, hooks: Arc<MissionScriptHooks>) -> ScriptEngine {
 }
 
 fn walk(world: &mut GameLogic, engine: ScriptEngine) -> ScriptEngine {
-    *get_script_engine().write().unwrap() = Some(engine);
+    world.install_owned_script_engine(engine);
     world.scripts_loaded = true;
     world.evaluate_and_execute_scripts(0.0);
-    get_script_engine().write().unwrap().take().unwrap()
+    world.owned_script_engine.take().unwrap()
 }
 
 #[test]

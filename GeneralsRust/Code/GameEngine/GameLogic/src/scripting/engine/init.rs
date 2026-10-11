@@ -1447,7 +1447,8 @@ mod script_object_context_tests {
                     ScriptNamedCommand::ForceAttack { unit, .. }
                     | ScriptNamedCommand::Hunt { unit }
                     | ScriptNamedCommand::Guard { unit } => unit,
-                    ScriptNamedCommand::FaceObject { .. }
+                    ScriptNamedCommand::Stop { .. }
+                    | ScriptNamedCommand::FaceObject { .. }
                     | ScriptNamedCommand::Enter { .. }
                     | ScriptNamedCommand::Evacuate { .. } => {
                         panic!("unexpected named command: {request:?}");

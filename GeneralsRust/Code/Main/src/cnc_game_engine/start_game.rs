@@ -520,6 +520,7 @@ impl CnCGameEngine {
             skirmish,
             player_template,
             game_info_starting_cash,
+            difficulty_code,
         } = request;
 
         // C++ MSG_NEW_GAME GAME_SHELL is Shell::showShellMap, not a match start.
@@ -598,6 +599,7 @@ impl CnCGameEngine {
                 skirmish,
                 player_template,
                 game_info_starting_cash,
+                difficulty_code,
             },
             interactive_start_from_menu,
             prelude_retry_at: std::time::Instant::now(),
@@ -617,6 +619,7 @@ impl CnCGameEngine {
             skirmish,
             player_template,
             game_info_starting_cash,
+            difficulty_code,
         } = pending.request;
         let interactive_start_from_menu = pending.interactive_start_from_menu;
         let offline_mode = matches!(mode, GameMode::SinglePlayer | GameMode::Skirmish);
@@ -753,6 +756,9 @@ impl CnCGameEngine {
                     self.host_start_new_game_with_faction(mode, faction_team, false);
                 }
             }
+        }
+        if let Some(code) = difficulty_code {
+            self.host_game_logic_mut().admit_session_difficulty(code);
         }
         if mode != GameMode::Skirmish {
             let default_starting_cash = self.default_starting_cash;

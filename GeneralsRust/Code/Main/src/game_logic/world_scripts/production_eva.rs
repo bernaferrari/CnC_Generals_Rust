@@ -1003,6 +1003,11 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&structure_id) else {
             return;
         };
+        if obj.thing().template.radar_upgrade_rules.is_some() {
+            // Authored RadarUpgrade invokes extension exactly once through
+            // the owner admission, with this definition's RadarUpdate duration.
+            return;
+        }
         let is_cc = obj.is_command_center() || obj.is_kind_of(KindOf::CommandCenter);
         if !is_legal_radar_provider(obj.is_alive(), true, is_cc, &obj.template_name) {
             return;
@@ -1081,10 +1086,7 @@ impl GameLogic {
 
     /// C++ Object::updateUpgradeModules — walk the player's completed PLAYER
     /// upgrades onto a building that just left UNDER_CONSTRUCTION.
-    pub(in super::super) fn apply_researched_player_upgrades_to_object(
-        &mut self,
-        structure_id: ObjectId,
-    ) {
+    pub(crate) fn apply_researched_player_upgrades_to_object(&mut self, structure_id: ObjectId) {
         let Some(obj) = self.objects.get(&structure_id) else {
             return;
         };
@@ -1136,6 +1138,23 @@ impl GameLogic {
     pub(crate) fn notify_structure_construction_complete_with_prepared_observer(
         &mut self,
         structure_id: ObjectId,
+        observe_prepared: impl FnMut(&GameLogic, ObjectId),
+    ) {
+        self.finish_structure_construction(structure_id, None, observe_prepared);
+    }
+
+    pub(crate) fn notify_structure_construction_complete_with_interpreter(
+        &mut self,
+        structure_id: ObjectId,
+        interpreter: &gamelogic::scripting::engine::ScriptEngine,
+    ) {
+        self.finish_structure_construction(structure_id, Some(interpreter), |_, _| {});
+    }
+
+    fn finish_structure_construction(
+        &mut self,
+        structure_id: ObjectId,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         mut observe_prepared: impl FnMut(&GameLogic, ObjectId),
     ) {
         if self
@@ -1166,7 +1185,28 @@ impl GameLogic {
         let name = obj.template_name.clone();
         observe_prepared(self, structure_id);
         if let Some((owner, rebuilding)) = owner_and_rebuild {
-            self.complete_owned_structure_player(structure_id, owner, rebuilding);
+            self.complete_owned_structure_player_with_engine(
+                structure_id,
+                owner,
+                rebuilding,
+                interpreter,
+            );
+        }
+        // DozerAIUpdate: owning Academy observes completed Player/AI effects
+        // before any CreateModule callback. Re-resolve after synchronous scripts.
+        if let Some(object) = self.objects.get(&structure_id) {
+            let mask =
+                crate::game_logic::host_radar_stealth_vision_residual::live_object_kind_of_cpp_mask(
+                    object.thing().template.kind_of.iter(),
+                );
+            let tunnel = object.is_tunnel_network;
+            if let Some(owner) = self.player_owner_for_host_object(object) {
+                if let Some(player) = self.players.get_mut(&owner) {
+                    player
+                        .academy_stats
+                        .record_production_at(mask, tunnel, self.frame);
+                }
+            }
         }
         let Some(obj) = self.objects.get_mut(&structure_id) else {
             return;
@@ -1457,6 +1497,7 @@ impl GameLogic {
             o.status.unmanned_owner_team = None;
             o.status.unmanned_owner_player_id = None;
         }
+        self.admit_host_radar_disabled_edges(vehicle_id);
         let ok = self.detonate_car_bomb(vehicle_id);
         if ok {
             self.carbomb_unmanned_detonations = self.carbomb_unmanned_detonations.saturating_add(1);

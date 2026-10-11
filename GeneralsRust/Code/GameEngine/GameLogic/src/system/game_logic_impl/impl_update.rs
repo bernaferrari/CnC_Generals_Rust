@@ -88,6 +88,22 @@ impl GameLogic {
     /// Empty dual-world registry + empty `objects` is therefore a full tick,
     /// not an early `Ok(())`.
     pub fn update(&mut self, frame: u32) -> Result<(), GameLogicError> {
+        self.update_with_optional_upgrade_services(frame, None)
+    }
+
+    pub fn update_with_upgrade_services(
+        &mut self,
+        frame: u32,
+        services: &mut dyn UpgradeCompletionServices,
+    ) -> Result<(), GameLogicError> {
+        self.update_with_optional_upgrade_services(frame, Some(services))
+    }
+
+    fn update_with_optional_upgrade_services(
+        &mut self,
+        frame: u32,
+        mut services: Option<&mut dyn UpgradeCompletionServices>,
+    ) -> Result<(), GameLogicError> {
         self.last_update_was_empty_noop = false;
 
         // Prevent re-entrant calls (C++ line 3552: LatchRestore<Bool> inUpdateLatch)
@@ -279,7 +295,11 @@ impl GameLogic {
         //
         // Process all non-sleepy (every-frame) update modules.
         // These include physics updates that must run at full frame rate.
-        self.process_normal_updates();
+        if let Some(services) = services.as_mut() {
+            self.process_normal_updates_with_upgrade_services(Some(&mut **services));
+        } else {
+            self.process_normal_updates();
+        }
 
         // -----------------------------------------------------------------------
         // Phase 6: Object Update - Sleepy Modules (C++ lines 3697-3738)
@@ -295,7 +315,11 @@ impl GameLogic {
         //   c. Stealth is broken, OBJECT_STATUS_STEALTHED cleared
         //   d. Stealth delay timer starts
         //   e. After delay + weapon stop, stealth reactivates
-        self.process_sleepy_updates(frame);
+        if let Some(services) = services.as_mut() {
+            self.process_sleepy_updates_with_upgrade_services(frame, Some(&mut **services));
+        } else {
+            self.process_sleepy_updates(frame);
+        }
 
         // -----------------------------------------------------------------------
         // Phase 6b: Object-level updates (damage types, projectile objects, stealth)

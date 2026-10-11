@@ -1213,32 +1213,15 @@ fn under_construction_context_uses_presentation_percent() {
 }
 
 #[test]
-fn construction_sole_tick_host_skips_advance() {
-    // Facade split: host construction sole-tick path lives in
-    // game_logic/world_tick/production.rs now (GAME_LOGIC_FACADE_SRC concat
-    // no longer carries it) — final20c-style repoint to the live Wave 478
-    // rate-only publish site.
-    let tick = include_str!("../../game_logic/world_tick/production.rs");
-    assert!(
-        tick.contains("gameworld_construction_sole_tick_enabled()")
-            && tick.contains("record_rate_only")
-            && tick.contains("Wave 478: publish dozer/power rate only"),
-        "host construction under sole-tick must publish rate only (no percent stomp)"
-    );
-    let log = include_str!("../../game_logic/host_construction_progress_log.rs");
-    assert!(
-        log.contains("effective_rate: f32")
-            && log.contains("rate_only: bool")
-            && log.contains("pub fn record_rate_only"),
-        "construction progress log must carry rate_only residual"
-    );
-    let sw = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
-    assert!(
-        sw.contains("fn tick_construction_progress")
-            && sw.contains("tick_construction_progress(")
-            && sw.contains("if ev.rate_only"),
-        "shadow session must sole-tick construction and skip rate-only stomps"
-    );
+fn construction_progress_has_one_host_writer_and_read_only_shadow_observation() {
+    let host = include_str!("../../game_logic/world_tick/production.rs");
+    assert!(host.contains("obj.construction_percent = projected"));
+    assert!(host.contains("if projected >= 1.0"));
+    assert!(!host.contains("gameworld_construction_sole_tick_enabled"));
+    let shadow = include_str!("../../gameworld_shadow/writeback_production.rs");
+    assert!(shadow.contains("pub fn compare_construction_to_host(&self, logic: &GameLogic)"));
+    assert!(!shadow.contains("pub fn tick_construction_progress"));
+    assert!(!shadow.contains("pub fn writeback_construction_to_host"));
 }
 
 #[test]

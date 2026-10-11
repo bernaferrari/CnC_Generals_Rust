@@ -44,28 +44,7 @@ impl GameLogic {
     }
 
     fn admit_disabled_expiry_radar_edges(&mut self, id: ObjectId) {
-        let edges = self
-            .objects
-            .get_mut(&id)
-            .map(Object::take_radar_disabled_edges)
-            .unwrap_or_default();
-        for edge in edges {
-            let Some(player_id) = edge.player_id else {
-                continue;
-            };
-            let Some(player) = self.players.get_mut(&player_id) else {
-                continue;
-            };
-            let had = player.has_radar();
-            if edge.becoming_disabled {
-                player.remove_radar(edge.disable_proof);
-            } else {
-                player.add_radar(edge.disable_proof);
-            }
-            let count = player.radar_count.max(0) as u32;
-            let has = player.has_radar();
-            self.record_disabled_expiry_radar_transition(count, had, has);
-        }
+        self.admit_host_radar_provider(id);
     }
 
     fn admit_expiry_power_state(&mut self, player_id: u32) {
@@ -83,7 +62,7 @@ impl GameLogic {
         }
         let count = player.radar_count.max(0) as u32;
         let has = player.has_radar();
-        self.record_disabled_expiry_radar_transition(count, had, has);
+        self.record_host_radar_transition(player_id, count, had, has);
 
         // Player.cpp:3232-3241 changes only this owner's KINDOF_POWERED objects.
         let powered: Vec<_> = self
@@ -111,20 +90,6 @@ impl GameLogic {
                 object.on_disabled_edge(object.is_disabled());
             }
             self.admit_disabled_expiry_radar_edges(id);
-        }
-    }
-
-    fn record_disabled_expiry_radar_transition(&mut self, count: u32, had: bool, has: bool) {
-        let (online, offline) = self.host_radar.record_player_radar(count, had, has);
-        let sound = if online {
-            Some(crate::game_logic::host_radar::RADAR_ONLINE_AUDIO)
-        } else if offline {
-            Some(crate::game_logic::host_radar::RADAR_OFFLINE_AUDIO)
-        } else {
-            None
-        };
-        if let Some(sound) = sound {
-            self.queue_audio_event(AudioEventRequest::new(sound).with_priority(130));
         }
     }
 }

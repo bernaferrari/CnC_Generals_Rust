@@ -261,6 +261,19 @@ pub struct ThingTemplate {
     /// Authored `VeterancyGainCreate` modules (StartingLevel / ScienceRequired).
     #[serde(default)]
     pub veterancy_gain_creates: Vec<VeterancyGainCreateMetadata>,
+    /// None is a synthesized seed adapter; Some(empty) is authored absence.
+    #[serde(default)]
+    pub radar_upgrade_rules: Option<Vec<crate::game_logic::host_radar::RadarUpgradeRules>>,
+    /// Authored RadarUpdate duration in logic frames (C++ parseDurationReal).
+    #[serde(default)]
+    pub radar_extend_frames: Option<u32>,
+    /// None denotes synthesized content; Some(empty) is authored absence.
+    #[serde(default)]
+    pub authored_instant_death:
+        Option<Vec<crate::game_logic::host_instant_death::HostInstantDeathIni>>,
+    /// Admitted SlowDeath modules; Some(empty) suppresses synthesized peels.
+    #[serde(default)]
+    pub authored_slow_death: Option<Vec<crate::game_logic::host_slow_death::HostSlowDeathIni>>,
     /// Authored `GrantUpgradeCreate` modules (UpgradeToGrant / ExemptStatus).
     #[serde(default)]
     pub grant_upgrade_creates: Vec<GrantUpgradeCreateMetadata>,
@@ -602,6 +615,10 @@ impl ThingTemplate {
             enter_guard: false,
             hijack_guard: false,
             veterancy_gain_creates: Vec::new(),
+            radar_upgrade_rules: None,
+            radar_extend_frames: None,
+            authored_instant_death: None,
+            authored_slow_death: None,
             grant_upgrade_creates: Vec::new(),
             lock_weapon_slot: None,
             has_preorder_create: false,

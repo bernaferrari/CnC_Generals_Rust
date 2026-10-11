@@ -279,7 +279,7 @@ fn parse_delay_exit_in_air(
     Ok(())
 }
 
-const TRANSPORT_CONTAIN_FIELDS: &[FieldParse<TransportContainModuleData>] = &[
+pub(super) const TRANSPORT_CONTAIN_FIELDS: &[FieldParse<TransportContainModuleData>] = &[
     FieldParse {
         token: "Slots",
         parse: parse_slot_capacity,
@@ -436,26 +436,32 @@ impl TransportContain {
     }
 
     fn is_valid_container_for_rider(&self, actual_obj: &Object, check_capacity: bool) -> bool {
-        // Call base validation
-        if !self.base.is_valid_container_for(actual_obj, check_capacity) {
-            return false;
-        }
-
         let Some(owner_arc) = self.get_object() else {
             return false;
         };
         let Ok(owner) = owner_arc.try_read() else {
             return false;
         };
-        let owner_player = owner.get_controlling_player();
-        drop(owner);
-        let actual_player = actual_obj.get_controlling_player();
-        match (owner_player, actual_player) {
-            (Some(ref p1), Some(ref p2)) if !Arc::ptr_eq(p1, p2) => return false,
-            (None, Some(_)) | (Some(_), None) => return false,
-            _ => {}
-        }
+        self.is_valid_container_for_rider_with_owner(actual_obj, &owner, check_capacity)
+    }
 
+    fn is_valid_container_for_rider_with_owner(
+        &self,
+        actual_obj: &Object,
+        owner: &Object,
+        check_capacity: bool,
+    ) -> bool {
+        if !self
+            .base
+            .is_valid_container_for_with_owner(actual_obj, owner, check_capacity)
+        {
+            return false;
+        }
+        // CPP compares the controlling Player identity. IDs retain that identity
+        // without rediscovering either Player through a process-global list.
+        if owner.get_controlling_player_id() != actual_obj.get_controlling_player_id() {
+            return false;
+        }
         // Get transport slot count
         let transport_slot_count = actual_obj.get_transport_slot_count();
 
@@ -1816,6 +1822,25 @@ impl ContainModuleInterface for TransportContain {
 
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
         TransportContain::is_valid_container_for(self, obj, check_capacity)
+    }
+
+    fn is_valid_container_for_with_owner(
+        &self,
+        obj: &Object,
+        owner: &Object,
+        check_capacity: bool,
+    ) -> bool {
+        // Special zero-slot wrappers retain their existing inner-rider
+        // resolution boundary until the caller supplies that third Object.
+        // Even here the owner is the supplied borrow, never rediscovered.
+        if let Some(rider_id) = super::unwrap_special_zero_slot_rider(obj) {
+            return crate::object::registry::OBJECT_REGISTRY
+                .with_object(rider_id, |rider| {
+                    self.is_valid_container_for_rider_with_owner(rider, owner, check_capacity)
+                })
+                .unwrap_or(false);
+        }
+        self.is_valid_container_for_rider_with_owner(obj, owner, check_capacity)
     }
 
     fn add_to_contain(

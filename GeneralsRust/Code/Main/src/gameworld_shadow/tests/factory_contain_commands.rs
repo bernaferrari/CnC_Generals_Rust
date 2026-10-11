@@ -2,8 +2,7 @@
 
 use super::*;
 use crate::game_logic::{
-    BuildingData, BuildingType, KindOf, Team, ThingTemplate, host_construction_progress_log,
-    host_production_progress_log,
+    BuildingData, BuildingType, KindOf, Team, ThingTemplate, host_production_progress_log,
 };
 use gamelogic::world::WorldMutation;
 
@@ -108,13 +107,9 @@ fn production_door_advances_opening_to_waiting_open() {
 }
 
 #[test]
-fn construction_percent_completes_same_frame_and_writeback_matches() {
-    let _env = AuthorityEnvGuard::lock()
-        .set("GENERALS_GAMEWORLD_SHADOW", "1")
-        .couple();
-
+fn construction_observation_does_not_complete_host_or_projection() {
     let mut logic = GameLogic::new();
-    logic.set_construction_authority(true);
+
     let cfg = golden_skirmish_config("P4Ctor");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("P4Ctor") {
@@ -132,25 +127,22 @@ fn construction_percent_completes_same_frame_and_writeback_matches() {
         o.status.under_construction = true;
         o.construction_percent = 0.99;
     }
-    host_construction_progress_log::clear();
-    host_construction_progress_log::record_rate_only(oid, true, 1.0);
+
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     assert!(shadow.queue_set_construction_for_host(oid, 0.99, true));
     let _ = shadow.apply_pending();
-    let _ =
-        shadow.apply_host_construction_progress_events(&host_construction_progress_log::drain());
-    let n = shadow.tick_construction_progress(1.0 / 30.0);
-    assert!(n >= 1);
+    let _ = shadow.observe_host_construction(&logic);
     let eid = shadow.entity_for_host(oid).expect("map");
     let pct = shadow.world().entity(eid).expect("e").construction_percent;
     assert!(
-        (pct - 1.0).abs() < 1e-5,
-        "same-frame completion expected, got {pct}"
+        (pct - 0.99).abs() < 1e-5,
+        "shadow must not complete construction, got {pct}"
     );
-    assert!(shadow.writeback_construction_to_host(&mut logic) >= 1);
+    assert_eq!(shadow.compare_construction_to_host(&logic), 0);
     let host_pct = logic.host_object(oid).expect("h").construction_percent;
-    assert!((host_pct - 1.0).abs() < 1e-5);
+    assert!((host_pct - 0.99).abs() < 1e-5);
+    assert!(logic.host_object(oid).unwrap().status.under_construction);
 }
 
 #[test]

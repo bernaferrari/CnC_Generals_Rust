@@ -284,6 +284,26 @@ impl GameLogic {
     ///
     /// ## C++ Reference: GameLogic::destroyObject() (GameLogic.cpp)
     pub fn destroy_object(&mut self, object_id: ObjectID) {
+        self.destroy_object_with_optional_radar_services(object_id, None);
+    }
+
+    pub fn destroy_object_with_radar_services(
+        &mut self,
+        object_id: ObjectID,
+        players: &crate::player::PlayerList,
+        radar: &mut dyn crate::player::RadarEdgeServices,
+    ) {
+        self.destroy_object_with_optional_radar_services(object_id, Some((players, radar)));
+    }
+
+    fn destroy_object_with_optional_radar_services(
+        &mut self,
+        object_id: ObjectID,
+        radar: Option<(
+            &crate::player::PlayerList,
+            &mut dyn crate::player::RadarEdgeServices,
+        )>,
+    ) {
         if object_id == INVALID_ID {
             return;
         }
@@ -340,7 +360,7 @@ impl GameLogic {
         // obj->onDestroy() then remove WALK_ON_TOP_OF_WALL from the pathfinder
         // and mark the control bar dirty for local special-power objects.
         // Do not split onDestroy across destroyObject / processDestroyList.
-        Object::on_destroy_from_handle(&obj_arc);
+        Object::on_destroy_from_handle_with_radar_services(&obj_arc, radar);
         let (is_wall, has_special_power, is_local) = if let Ok(obj) = obj_arc.read() {
             (
                 obj.is_kind_of(KindOf::WalkOnTopOfWall),

@@ -19,84 +19,18 @@ impl GameLogic {
         map_path: &Path,
         map_bytes: &[u8],
     ) {
-        let sync_started = Instant::now();
-        let mut loader = LogicMapLoader::new();
-        self.runtime_road_segments.clear();
-        self.runtime_water_triggers.clear();
-        log::info!("Legacy runtime sync started for '{}'", map_path.display());
-        if loader.load_runtime_support_from_bytes(map_bytes).is_err() {
-            log::warn!(
-                "Legacy GameLogic map load failed for '{}'",
-                map_path.display()
-            );
-            return;
+        match super::script_loader::ChunkyMap::decode(map_path.to_path_buf(), map_bytes.to_vec()) {
+            Ok(chunky) => {
+                self.sync_legacy_runtime_from_fast_chunky(map_path, &chunky);
+            }
+            Err(error) => {
+                log::error!(
+                    "Map foundation decode failed for '{}': {}",
+                    map_path.display(),
+                    error
+                );
+            }
         }
-        log::info!(
-            "Legacy runtime support parse finished for '{}' in {:.2}s",
-            map_path.display(),
-            sync_started.elapsed().as_secs_f32()
-        );
-
-        let map_data = loader.to_map_data();
-        self.host_trigger_world
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .set_trigger_areas(&map_data.polygon_triggers);
-
-        let terrain_owner = self.world_services.terrain().clone();
-        {
-            let mut terrain = terrain_owner.write().unwrap_or_else(|e| e.into_inner());
-            self.admit_map_bridge_geometry(&mut terrain, map_data);
-            // C++ GameLogic.cpp:1629 TheTerrainLogic->newMap after load.
-            terrain.new_map(false);
-        }
-        self.copy_crate_water_into_host_terrain();
-        log::info!(
-            "Legacy terrain sync finished for '{}' in {:.2}s",
-            map_path.display(),
-            sync_started.elapsed().as_secs_f32()
-        );
-
-        self.sync_legacy_player_list_from_sides();
-        log::info!(
-            "Legacy player-list sync finished for '{}' in {:.2}s",
-            map_path.display(),
-            sync_started.elapsed().as_secs_f32()
-        );
-        self.sync_legacy_team_factory_from_sides();
-        log::info!(
-            "Legacy team-factory sync finished for '{}' in {:.2}s",
-            map_path.display(),
-            sync_started.elapsed().as_secs_f32()
-        );
-
-        let terrain_owner_handle = self.world_services.terrain().clone();
-
-        let waypoint_count = terrain_owner_handle
-            .read()
-            .ok()
-            .map(|terrain| {
-                let mut count = 0usize;
-                let mut current = terrain.get_first_waypoint();
-                while let Some(waypoint) = current {
-                    count += 1;
-                    current = waypoint.get_next();
-                }
-                count
-            })
-            .unwrap_or(0);
-        let team_count = self
-            .team_factory
-            .lock()
-            .map(|factory| factory.get_all_teams().len())
-            .unwrap_or(0);
-
-        log::info!(
-            "Legacy runtime sync complete for '{}': waypoints={}, live_teams={}",
-            map_path.display(),
-            waypoint_count,
-            team_count
-        );
     }
 
     pub(crate) fn sync_legacy_runtime_from_fast_chunky(
@@ -112,7 +46,8 @@ impl GameLogic {
         map_path: &Path,
         chunky: &super::script_loader::ChunkyMap,
         mut report_progress: F,
-    ) where
+    ) -> bool
+    where
         F: FnMut(f32, &str),
     {
         let sync_started = Instant::now();
@@ -323,10 +258,10 @@ impl GameLogic {
         // singleton even though its player/team globals came from this map.
         // Abandoned boot workers can still hold these globals after generation
         // bump; fail-open so load_map returns and host objects still spawn.
-        let script_lists = match super::script_loader::load_map_scripts_from_chunky(chunky) {
-            Ok(Some(result)) => result.script_lists,
-            _ => Vec::new(),
-        };
+        if !self.admit_map_script_definitions(&map_path.to_string_lossy(), Some(chunky)) {
+            return false;
+        }
+        let script_lists = self.loaded_script_lists.clone();
         self.sync_legacy_sides_list_from_dicts(
             &sides_data.side_dicts,
             &sides_data.team_dicts,
@@ -339,19 +274,17 @@ impl GameLogic {
             sync_started.elapsed().as_secs_f32()
         );
         self.sync_legacy_player_list_from_sides();
-        // C++ GameLogic newMap: PlayerList then TeamFactory::initFromSides.
-        // Fast path previously published sides/players and skipped factory init,
-        // so selectTeamToBuild saw an empty getPlayerTeams() list.
-        self.sync_legacy_team_factory_from_sides();
-
-        if !self.players.is_empty() {
-            // GameLogic.cpp:1288+ rebuilds occupied Skirmish dictionaries from
-            // GameInfo after prepareForMP_or_Skirmish. Authored map side indices
-            // must not overwrite this session's already admitted lobby slots.
-            if self.game_mode != GameMode::Skirmish {
-                self.apply_host_players_from_side_dicts(&sides_data.side_dicts, false);
-            }
-            self.stash_side_builds_on_host(&sides_data.side_builds);
+        // Campaign owner identities must exist before singleton admission;
+        // skirmish retains the already admitted lobby slots.
+        if self.game_mode != GameMode::Skirmish {
+            self.apply_host_players_from_side_dicts(&sides_data.side_dicts, false);
+        }
+        self.stash_side_builds_on_host(&sides_data.side_builds);
+        if !self.sync_legacy_team_factory_from_team_dicts(&sides_data.team_dicts) {
+            return false;
+        }
+        if !self.finish_map_script_foundation() {
+            return false;
         }
         self.transfer_side_build_lists_to_players();
 
@@ -384,6 +317,7 @@ impl GameLogic {
             team_count,
             sync_started.elapsed().as_secs_f32()
         );
+        true
     }
 
     pub(in super::super) fn sync_legacy_player_list_from_side_dicts(&self, side_dicts: &[Dict]) {
@@ -814,6 +748,12 @@ impl GameLogic {
                 position: (entry.position.x, entry.position.y, entry.position.z),
                 num_rebuilds: entry.num_rebuilds.max(0) as u32,
                 initially_built: entry.initially_built,
+                completion: crate::ai::AuthoredStructureCompletion {
+                    name: entry.building_name.clone(),
+                    script: entry.script_name.clone().unwrap_or_default(),
+                    health_percent: entry.health.unwrap_or(100),
+                    unsellable: entry.unsellable.unwrap_or(false),
+                },
             });
         }
         for (pid, list) in grouped {
@@ -845,10 +785,9 @@ impl GameLogic {
             for entry in list {
                 let pos = glam::Vec3::new(entry.position.0, entry.position.2, entry.position.1);
                 ai.add_building(&entry.template, pos, entry.num_rebuilds);
-                if entry.initially_built {
-                    if let Some(last) = ai.building_queue.last_mut() {
-                        last.is_built = true;
-                    }
+                if let Some(last) = ai.building_queue.last_mut() {
+                    last.completion = Some(entry.completion);
+                    last.is_built = entry.initially_built;
                 }
             }
         }
@@ -874,37 +813,66 @@ impl GameLogic {
     pub(in super::super) fn sync_legacy_team_factory_from_team_dicts(
         &mut self,
         team_dicts: &[Dict],
-    ) {
-        let Ok(mut team_factory) = self.team_factory.try_lock() else {
-            log::warn!("Skipping per-world TeamFactory sync because its owner is busy");
-            return;
-        };
-        team_factory.reset();
-
+    ) -> bool {
+        if self.owned_script_engine.is_none() {
+            log::error!("Team admission requires this map's script interpreter");
+            return false;
+        }
+        {
+            let Ok(mut factory) = self.team_factory.try_lock() else {
+                return false;
+            };
+            factory.reset();
+        }
         for dict in team_dicts {
-            let team_name =
-                dict.get_ascii_string(game_engine::common::well_known_keys::key_team_name());
-            if team_name.is_empty() {
+            let name = dict.get_ascii_string(game_engine::common::well_known_keys::key_team_name());
+            if name.is_empty() {
                 continue;
             }
-
             let owner =
                 dict.get_ascii_string(game_engine::common::well_known_keys::key_team_owner());
             let singleton =
                 dict.get_bool(game_engine::common::well_known_keys::key_team_is_singleton());
-
-            let _ = team_factory.init_team(
-                team_name.clone().into(),
-                owner.clone().into(),
-                singleton,
-                Some(dict),
-            );
-
-            // C++ TeamFactory::initFromSides only initTeam: prototype plus an
-            // inactive singleton instance. Do not findTeam/createTeam here —
-            // that would make getTeamNamed see empty teams at map load so
-            // TEAM_DESTROYED is true before any units spawn.
+            let controller = self
+                .players
+                .values()
+                .find(|player| player.name == owner)
+                .or_else(|| {
+                    self.players
+                        .values()
+                        .find(|player| player.is_reserved_neutral())
+                })
+                .map(|player| player.id);
+            let effects = {
+                let Ok(mut factory) = self.team_factory.try_lock() else {
+                    return false;
+                };
+                let Some((_, effects)) = factory.init_team_owned_with_effects(
+                    name.clone().into(),
+                    owner.clone().into(),
+                    singleton,
+                    Some(dict),
+                    controller,
+                ) else {
+                    return false;
+                };
+                effects
+            };
+            // createInactiveTeam executes with NULL team before initFromSides
+            // advances to the next definition. The factory is available again
+            // for recursive actions and all session owners remain installed.
+            if self
+                .with_owned_script_engine(|engine, world| {
+                    for script in effects {
+                        world.execute_owned_ai_condition(engine, &script, None);
+                    }
+                })
+                .is_none()
+            {
+                return false;
+            }
         }
+        true
     }
 
     pub(in super::super) fn sync_legacy_team_factory_from_sides(&mut self) {
@@ -921,6 +889,7 @@ impl GameLogic {
                     .map(|team| team.get_dict().clone())
             })
             .collect();
+        drop(sides_guard);
         self.sync_legacy_team_factory_from_team_dicts(&team_dicts);
     }
 
@@ -958,5 +927,195 @@ impl GameLogic {
                 err
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod map_singleton_owner_tests {
+    use super::*;
+    use game_engine::common::well_known_keys::*;
+    use gamelogic::scripting::core::{
+        Parameter, ParameterType, Script, ScriptAction, ScriptActionType, ScriptList,
+    };
+    use gamelogic::scripting::engine::ScriptEngine;
+
+    fn definition(name: &str, callback: &str) -> Dict {
+        let mut dict = Dict::new();
+        dict.set_ascii_string(key_team_name(), name);
+        dict.set_ascii_string(key_team_owner(), "MapOwner");
+        dict.set_bool(key_team_is_singleton(), true);
+        dict.set_ascii_string(key_team_production_condition(), callback);
+        dict.set_bool(key_team_executes_actions_on_create(), true);
+        dict
+    }
+    fn interpreter() -> ScriptEngine {
+        let engine = ScriptEngine::new().unwrap();
+        let mut first = ScriptAction::new(ScriptActionType::SetCounter);
+        first
+            .add_parameter(Parameter::with_string(
+                ParameterType::Counter,
+                "AdmissionOrder".into(),
+            ))
+            .unwrap();
+        first
+            .add_parameter(Parameter::with_int(ParameterType::Int, 10))
+            .unwrap();
+        let mut spawn = ScriptAction::new(ScriptActionType::CreateObject);
+        spawn
+            .add_parameter(Parameter::with_string(
+                ParameterType::ObjectType,
+                "MapCallbackInfantry".into(),
+            ))
+            .unwrap();
+        spawn
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                "SpawnTeam".into(),
+            ))
+            .unwrap();
+        spawn
+            .add_parameter(Parameter::with_coord(
+                ParameterType::Coord3D,
+                gamelogic::scripting::core::Coord3D::new(17.0, 23.0, 0.0),
+            ))
+            .unwrap();
+        spawn
+            .add_parameter(Parameter::with_real(ParameterType::Angle, 0.0))
+            .unwrap();
+        first.next_action = Some(Box::new(spawn));
+        let mut second = ScriptAction::new(ScriptActionType::IncrementCounter);
+        second
+            .add_parameter(Parameter::with_int(ParameterType::Int, 2))
+            .unwrap();
+        second
+            .add_parameter(Parameter::with_string(
+                ParameterType::Counter,
+                "AdmissionOrder".into(),
+            ))
+            .unwrap();
+        let mut list = ScriptList::new();
+        for (name, action) in [("FirstCallback", first), ("SecondCallback", second)] {
+            let mut script = Script::new();
+            script.script_name = name.into();
+            script.is_subroutine = true;
+            script.action = Some(Box::new(action));
+            list.append_script(Box::new(script));
+        }
+        engine
+            .set_script_list_for_player(0, Some(Box::new(list)))
+            .unwrap();
+        engine
+    }
+    fn world() -> GameLogic {
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(1, Team::USA, "MapOwner", false));
+        let mut template = ThingTemplate::new("MapCallbackInfantry");
+        template.add_kind_of(KindOf::Infantry);
+        world.templates.insert(template.name.clone(), template);
+        world.install_owned_script_engine(interpreter());
+        world
+    }
+
+    #[test]
+    fn singleton_callbacks_run_in_admission_order_before_new_map_reset_and_preserve_objects() {
+        let mut owner = world();
+        let mut peer = world();
+        peer.owned_script_engine
+            .as_ref()
+            .unwrap()
+            .set_counter("AdmissionOrder", 91)
+            .unwrap();
+        let mut spawn_definition = Dict::new();
+        spawn_definition.set_ascii_string(key_team_name(), "SpawnTeam");
+        spawn_definition.set_ascii_string(key_team_owner(), "MapOwner");
+        let definitions = [
+            spawn_definition,
+            definition("FirstSingleton", "FirstCallback"),
+            definition("SecondSingleton", "SecondCallback"),
+        ];
+        assert!(owner.sync_legacy_team_factory_from_team_dicts(&definitions));
+        assert_eq!(
+            owner
+                .owned_script_engine
+                .as_ref()
+                .unwrap()
+                .get_counter("AdmissionOrder")
+                .unwrap()
+                .value,
+            12
+        );
+        assert_eq!(owner.objects.len(), 1);
+        let created = owner.objects.keys().next().copied().unwrap();
+        assert_eq!(owner.host_object(created).unwrap().owner_player_id, Some(1));
+        assert_eq!(
+            owner.team_factory.lock().unwrap().prototype_names(),
+            ["SpawnTeam", "FirstSingleton", "SecondSingleton"]
+        );
+
+        assert!(owner.finish_map_script_foundation());
+        assert!(
+            owner
+                .owned_script_engine
+                .as_ref()
+                .unwrap()
+                .get_counter("AdmissionOrder")
+                .is_none()
+        );
+        assert!(
+            owner
+                .owned_script_engine
+                .as_ref()
+                .unwrap()
+                .find_script_clone_by_name("FirstCallback")
+                .is_some()
+        );
+        assert!(owner.host_object(created).is_some());
+        owner
+            .create_object_for_player("MapCallbackInfantry", 1, Vec3::ZERO)
+            .unwrap();
+        assert_eq!(
+            owner.objects.len(),
+            2,
+            "placed objects append after callback-created objects"
+        );
+        assert!(peer.objects.is_empty());
+        assert!(
+            peer.team_factory
+                .lock()
+                .unwrap()
+                .prototype_names()
+                .is_empty()
+        );
+        assert_eq!(
+            peer.owned_script_engine
+                .as_ref()
+                .unwrap()
+                .get_counter("AdmissionOrder")
+                .unwrap()
+                .value,
+            91
+        );
+    }
+
+    #[test]
+    fn map_team_admission_without_owned_interpreter_fails_before_factory_mutation() {
+        let mut owner = world();
+        owner.owned_script_engine = None;
+        assert!(
+            !owner.sync_legacy_team_factory_from_team_dicts(&[definition(
+                "FirstSingleton",
+                "FirstCallback"
+            )])
+        );
+        assert!(
+            owner
+                .team_factory
+                .lock()
+                .unwrap()
+                .prototype_names()
+                .is_empty()
+        );
+        assert!(owner.objects.is_empty());
+        assert!(!owner.finish_map_script_foundation());
     }
 }

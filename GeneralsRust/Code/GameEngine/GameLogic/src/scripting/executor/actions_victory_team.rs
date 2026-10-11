@@ -12,7 +12,10 @@ impl ScriptActionDispatcher<'_> {
     // ============================================================================
 
     /// C++ Reference: ScriptActions::doVictory() ScriptActions.cpp:191-210
-    pub(crate) fn do_victory(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_victory(
+        &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::info!("VICTORY!");
 
         {
@@ -27,9 +30,19 @@ impl ScriptActionDispatcher<'_> {
             engine.close_windows(false);
             engine.close_game_windows();
         });
-        self.do_disable_input()?;
+        self.do_disable_input(driver)?;
         let _ = self.context.with_engine_mut(|engine| {
-            let layout = if engine.should_show_observer_quit_window() {
+            let layout = if match driver.local_player_observer() {
+                crate::scripting::engine::ScriptOwnerQuery::Present(observer) => {
+                    observer || engine.has_shown_mp_local_defeat_window()
+                }
+                crate::scripting::engine::ScriptOwnerQuery::Missing => {
+                    engine.has_shown_mp_local_defeat_window()
+                }
+                crate::scripting::engine::ScriptOwnerQuery::Unavailable => {
+                    engine.should_show_observer_quit_window()
+                }
+            } {
                 "Menus/ObserverQuit.wnd"
             } else {
                 "Menus/Victorious.wnd"
@@ -43,7 +56,10 @@ impl ScriptActionDispatcher<'_> {
     }
 
     /// C++ Reference: ScriptActions::doQuickVictory() ScriptActions.cpp:169-177
-    pub(crate) fn do_quick_victory(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_quick_victory(
+        &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::info!("QUICK VICTORY!");
 
         {
@@ -57,7 +73,7 @@ impl ScriptActionDispatcher<'_> {
             engine.close_windows(false);
             engine.close_game_windows();
         });
-        self.do_disable_input()?;
+        self.do_disable_input(driver)?;
         let _ = self.context.with_engine_mut(|engine| {
             engine.set_campaign_victorious(true);
             engine.start_quick_end_game_timer();
@@ -67,7 +83,10 @@ impl ScriptActionDispatcher<'_> {
     }
 
     /// C++ Reference: ScriptActions::doDefeat() ScriptActions.cpp:215-234
-    pub(crate) fn do_defeat(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_defeat(
+        &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::info!("DEFEAT!");
 
         {
@@ -82,9 +101,19 @@ impl ScriptActionDispatcher<'_> {
             engine.close_windows(false);
             engine.close_game_windows();
         });
-        self.do_disable_input()?;
+        self.do_disable_input(driver)?;
         let _ = self.context.with_engine_mut(|engine| {
-            let layout = if engine.should_show_observer_quit_window() {
+            let layout = if match driver.local_player_observer() {
+                crate::scripting::engine::ScriptOwnerQuery::Present(observer) => {
+                    observer || engine.has_shown_mp_local_defeat_window()
+                }
+                crate::scripting::engine::ScriptOwnerQuery::Missing => {
+                    engine.has_shown_mp_local_defeat_window()
+                }
+                crate::scripting::engine::ScriptOwnerQuery::Unavailable => {
+                    engine.should_show_observer_quit_window()
+                }
+            } {
                 "Menus/ObserverQuit.wnd"
             } else {
                 "Menus/Defeat.wnd"
@@ -98,7 +127,10 @@ impl ScriptActionDispatcher<'_> {
     }
 
     /// C++ Reference: ScriptActions::doLocalDefeat() ScriptActions.cpp:239-252
-    pub(crate) fn do_local_defeat(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_local_defeat(
+        &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::info!("LOCAL DEFEAT (multiplayer)");
 
         // C++ ScriptActions.cpp:241-251: markMPLocalDefeatWindowShown,
@@ -108,7 +140,13 @@ impl ScriptActionDispatcher<'_> {
             engine.set_shown_mp_local_defeat_window(true);
             engine.close_windows(false);
             engine.close_game_windows();
-            if engine.should_show_local_defeat_window() {
+            if match driver.local_player_observer() {
+                crate::scripting::engine::ScriptOwnerQuery::Present(observer) => !observer,
+                crate::scripting::engine::ScriptOwnerQuery::Missing => true,
+                crate::scripting::engine::ScriptOwnerQuery::Unavailable => {
+                    engine.should_show_local_defeat_window()
+                }
+            } {
                 engine.create_win_lose_window("Menus/LocalDefeat.wnd");
             }
             engine.set_campaign_victorious(false);
@@ -1022,11 +1060,7 @@ impl ScriptActionDispatcher<'_> {
 
                 if let Some(ai_arc) = ai_result {
                     if let Ok(mut ai) = ai_arc.lock() {
-                        let params = AiCommandParams::new(
-                            AiCommandType::Idle,
-                            CommandSourceType::FromScript,
-                        );
-                        let _ = ai.execute_command(&params);
+                        issue_borrowed_script_idle(&mut *ai);
                         log::info!("Named unit '{}' stopped (ID: {})", unit_name, object_id);
                     };
                 } else {
@@ -1041,4 +1075,10 @@ impl ScriptActionDispatcher<'_> {
 
         Ok(ScriptActionResult::Success)
     }
+}
+
+/// CPP ScriptActions4519: Idle alone; no Normal locomotor or group mutation.
+pub(super) fn issue_borrowed_script_idle(ai: &mut dyn crate::modules::AIUpdateInterface) {
+    let params = AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
+    let _ = ai.execute_command(&params);
 }

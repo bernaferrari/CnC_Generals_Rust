@@ -1,18 +1,6 @@
-//! Wave 181 residual peels: live GameWorld construction writeback residual
-//! (host construction progress log → shadow apply → sole-tick advance →
-//! writeback; never flips shell `playable_claim`).
-//!
-//! Orthogonal to Wave 180 production writeback residual.
-//! Host residual only — network deferred.
-//!
-//! Sources (architecture migration):
-//! - `apply_host_construction_progress_events`
-//! - `tick_construction_progress` + `writeback_construction_to_host`
-//! - `gameworld_construction_sole_tick_enabled`
-//!
-//! Fail-closed:
-//! - Not full retail dozer build on Lone Eagle in this peel
-//! - Shell `playable_claim` stays false; network deferred
+//! Construction ownership audit. Historical CLI receipt names remain
+//! navigation metadata; source checks require one canonical host writer and
+//! immutable shadow comparisons. Runtime regressions exercise the host phases.
 
 /// Lookup residual name index (exact match).
 pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
@@ -21,10 +9,10 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 
 /// Live construction writeback residual method names.
 pub const LIVE_GAMEWORLD_CONSTRUCTION_WRITEBACK_METHOD_NAMES_WAVE181: &[&str] = &[
-    "apply_host_construction_progress_events",
-    "tick_construction_progress",
-    "writeback_construction_to_host",
-    "gameworld_construction_sole_tick_enabled",
+    "observe_host_construction",
+    "update_construction",
+    "compare_construction_to_host",
+    "host_owns_construction",
     "playable_claim = false",
 ];
 
@@ -49,11 +37,11 @@ pub fn honesty_live_gameworld_construction_writeback_method_names_residual_wave1
     LIVE_GAMEWORLD_CONSTRUCTION_WRITEBACK_METHOD_NAMES_WAVE181.len() == 5
         && residual_name_index(
             LIVE_GAMEWORLD_CONSTRUCTION_WRITEBACK_METHOD_NAMES_WAVE181,
-            "apply_host_construction_progress_events",
+            "observe_host_construction",
         ) == Some(0)
         && residual_name_index(
             LIVE_GAMEWORLD_CONSTRUCTION_WRITEBACK_METHOD_NAMES_WAVE181,
-            "gameworld_construction_sole_tick_enabled",
+            "host_owns_construction",
         ) == Some(3)
         && residual_name_index(
             LIVE_GAMEWORLD_CONSTRUCTION_WRITEBACK_METHOD_NAMES_WAVE181,
@@ -83,141 +71,53 @@ pub fn honesty_live_gameworld_construction_writeback_residual_pack_wave181() -> 
 
 /// Source residual: construction progress channel + tick/writeback APIs.
 pub fn honesty_construction_progress_channel_source() -> bool {
-    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
-    src.contains("pub fn apply_host_construction_progress_events")
-        && src.contains("pub fn tick_construction_progress")
-        && src.contains("pub fn writeback_construction_to_host")
-        && src.contains("pub fn gameworld_construction_sole_tick_enabled")
+    let ok = super::construction_owner_source_contract::host_owns_construction();
+    ok
 }
 
 /// Source residual: construction sole-tick requires coupling + auth + shadow.
 pub fn honesty_construction_sole_tick_requires_coupling_source() -> bool {
-    let src = crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC;
-    let i = match src.find("pub fn gameworld_construction_sole_tick_enabled") {
-        Some(i) => i,
-        None => return false,
-    };
-    let body = &src[i..src.len().min(i + 350)];
-    body.contains("gameworld_construction_authority_enabled")
-        && body.contains("gameworld_shadow_enabled")
-        && body.contains("shadow_coupled_tick_active")
+    let ok = super::construction_owner_source_contract::host_owns_construction();
+    ok
 }
 
 /// Live residual: host construction percent → GameWorld → sole-tick arms → writeback.
 pub fn simulate_live_gameworld_construction_writeback_honesty() -> bool {
-    use crate::game_logic::host_construction_progress_log;
-    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
-    use crate::gameworld_shadow::{
-        GameWorldShadow, begin_shadow_coupled_tick, end_shadow_coupled_tick,
-        ensure_gate_damage_authority, gameworld_construction_authority_enabled,
-        gameworld_construction_sole_tick_enabled, gameworld_shadow_enabled,
-    };
-    use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
-
-    if !honesty_live_gameworld_construction_writeback_residual_pack_wave181() {
-        return false;
-    }
-    if !honesty_construction_progress_channel_source() {
-        return false;
-    }
-    if !honesty_construction_sole_tick_requires_coupling_source() {
-        return false;
-    }
-
-    ensure_gate_damage_authority();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
-    // Authority arm happens on the harness's own instance below (hq-e84zk
-    // context fields; a pre-instance check here would read a stale snapshot).
-
-    host_construction_progress_log::clear();
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+    use crate::gameworld_shadow::GameWorldShadow;
     let mut logic = GameLogic::new();
-    logic.set_construction_authority(true);
-    if !gameworld_construction_authority_enabled() {
-        return false;
-    }
-    let cfg = golden_skirmish_config("LiveConstrWB181");
-    if apply_skirmish_config(&mut logic, &cfg).is_err() {
-        return false;
-    }
-    if !logic.templates.contains_key("LiveConstr181") {
-        let mut t = ThingTemplate::new("LiveConstr181");
-        t.set_health(500.0);
-        t.add_kind_of(KindOf::Structure);
-        t.add_kind_of(KindOf::Selectable);
-        logic.templates.insert("LiveConstr181".into(), t);
-    }
-    let Some(oid) = logic.create_object("LiveConstr181", Team::USA, glam::Vec3::new(6.0, 0.0, 6.0))
-    else {
+    logic.add_player(Player::new(0, Team::USA, "OwnedConstruction", true));
+    let mut template = ThingTemplate::new("LiveConstr181");
+    template.set_health(500.0).add_kind_of(KindOf::Structure);
+    logic.templates.insert(template.name.clone(), template);
+    let Some(id) = logic.create_object_for_player("LiveConstr181", 0, glam::Vec3::ZERO) else {
         return false;
     };
-    {
-        let Some(o) = logic.get_objects_mut().get_mut(&oid) else {
-            return false;
-        };
-        o.construction_percent = 0.25;
-        o.set_status_under_construction(true);
-    }
-
-    host_construction_progress_log::record(oid, 0.25, true, 0.05);
-    let events = host_construction_progress_log::drain();
-    if events.len() != 1 {
-        return false;
-    }
-
+    let object = logic.host_object_mut(id).unwrap();
+    object.construction_percent = 0.25;
+    object.set_status_under_construction(true);
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let Some(eid) = shadow.entity_for_host(oid) else {
+    let Some(entity) = shadow.entity_for_host(id) else {
         return false;
     };
-    // Clear shadow construction so apply path is observable.
-    if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
-        e.construction_percent = 0.0;
-        e.under_construction = false;
-    }
-    let n = shadow.apply_host_construction_progress_events(&events);
-    if n < 1 {
+    let Some(stale) = shadow.world_mut().world_mut().entity_mut(entity) else {
         return false;
-    }
-    {
-        let Some(ent) = shadow.world().entity(eid) else {
-            return false;
-        };
-        if !ent.under_construction {
-            return false;
-        }
-        if (ent.construction_percent - 0.25).abs() > 1e-4 {
-            return false;
-        }
-    }
-
-    // Sole-tick coupling for construction authority.
-    begin_shadow_coupled_tick();
-    let sole = gameworld_construction_sole_tick_enabled();
-    let _ticked = shadow.tick_construction_progress(1.0 / 30.0);
-    let written = shadow.writeback_construction_to_host(&mut logic);
-    end_shadow_coupled_tick();
-
-    if gameworld_shadow_enabled() && !sole {
-        return false;
-    }
-
-    // Host should still be under construction after writeback (or shadow still holds it).
-    let host_uc = logic
-        .get_object(oid)
-        .map(|o| o.status.under_construction || o.construction_percent > 0.0)
-        .unwrap_or(false);
-    let shadow_uc = shadow
-        .world()
-        .entity(eid)
-        .map(|e| e.under_construction || e.construction_percent > 0.0)
-        .unwrap_or(false);
-    if !host_uc && !shadow_uc {
-        return false;
-    }
-    let _ = written;
-
-    true
+    };
+    stale.construction_percent = 1.0;
+    stale.under_construction = false;
+    stale.sold = true;
+    stale.reconstructing = true;
+    stale.unselectable = true;
+    let differences = shadow.compare_construction_to_host(&logic);
+    logic.host_object(id).is_some_and(|object| {
+        differences == 1
+            && object.construction_percent == 0.25
+            && object.status.under_construction
+            && !object.status.sold
+            && !object.status.reconstructing
+            && !object.status.unselectable
+    })
 }
 
 #[cfg(test)]

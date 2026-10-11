@@ -773,10 +773,10 @@ impl Object {
         {
             return false;
         }
-        // China Overlord residual: only containable once BattleBunker residual
-        // capacity is installed (Some(n>0)). Without bunker (Some(0)) reject.
+        // The literal OverlordContain roster has one portable payload slot.
+        // Infantry capacity belongs to that payload's actual contain module.
         if self.is_overlord_style_container() {
-            return self.overlord_bunker_slot_capacity() > 0;
+            return true;
         }
         // GLA Tunnel Network residual: TunnelContain entrance (shared team pool).
         if self.is_tunnel_network_style_container()
@@ -1756,9 +1756,8 @@ impl Object {
         if is_railed_transport {
             return self.max_transport;
         }
-        // Overlord BattleBunker residual: bunker slots only (0 without bunker).
-        if let Some(cap) = self.overlord_bunker_capacity {
-            return cap;
+        if self.is_overlord_style_container() {
+            return crate::game_logic::host_overlord_addons::OVERLORD_CONTAIN_SLOTS;
         }
         if self
             .thing

@@ -48,7 +48,7 @@ thread_local! {
 ///
 /// C++ stores duration fields as frames after `INI::parseDurationUnsignedInt`
 /// (`ceil(msec * 30 / 1000)`). Conversion happens at begin time here.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostSlowDeathIni {
     pub sink_delay_ms: u32,
     pub sink_delay_variance_ms: u32,

@@ -692,6 +692,7 @@ pub(super) struct HostStartRequest {
     pub(super) skirmish: Option<crate::skirmish_config::SkirmishMatchConfig>,
     pub(super) player_template: Option<crate::game_logic::PlayerTemplateIdentity>,
     pub(super) game_info_starting_cash: Option<u32>,
+    pub(super) difficulty_code: Option<i32>,
 }
 
 impl HostStartRequest {
@@ -708,6 +709,7 @@ impl HostStartRequest {
             skirmish,
             player_template: None,
             game_info_starting_cash: None,
+            difficulty_code: None,
         }
     }
 
@@ -725,6 +727,7 @@ impl HostStartRequest {
             skirmish,
             player_template: Some(player_template),
             game_info_starting_cash: None,
+            difficulty_code: None,
         }
     }
 }

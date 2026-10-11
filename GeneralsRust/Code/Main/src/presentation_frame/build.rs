@@ -1871,7 +1871,7 @@ impl PresentationFrame {
             });
         }
         // Drain: freeze this frame's completions into the snapshot (sole consumer).
-        for ev in crate::game_logic::host_construction_log::drain() {
+        for ev in logic.construction_events.drain() {
             events.push(PresentationEvent::ConstructionComplete {
                 id: ev.id,
                 template: ev.template_name,

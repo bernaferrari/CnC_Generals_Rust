@@ -186,12 +186,97 @@ impl ScriptConditionEvaluator<'_> {
 
         let condition_type = condition.get_condition_type();
 
+        if condition_type == ConditionType::NamedSelected {
+            use crate::scripting::engine::ScriptOwnerQuery;
+            let name = self.get_condition_string_param(condition, 0)?;
+            match driver.named_selection(&name) {
+                ScriptOwnerQuery::Present(selection) => {
+                    // CPP1372: multiplayer returns before touching the condition cache.
+                    if selection.multiplayer {
+                        return Ok(bool_result(false));
+                    }
+                    if condition.custom_data == 0
+                        || condition.custom_frame != selection.changed_frame
+                    {
+                        condition.custom_data = if selection.selected { 1 } else { -1 };
+                        condition.custom_frame = selection.changed_frame;
+                    }
+                    return Ok(bool_result(condition.custom_data == 1));
+                }
+                ScriptOwnerQuery::Missing => return Ok(bool_result(false)),
+                ScriptOwnerQuery::Unavailable => {}
+            }
+        }
+
+        if matches!(
+            condition_type,
+            ConditionType::TeamCreated | ConditionType::TeamDestroyed | ConditionType::TeamHasUnits
+        ) {
+            use crate::scripting::engine::ScriptOwnerQuery;
+            // Preserve the raw contextual token until the driving factory resolves it.
+            let name = condition
+                .get_parameter(0)
+                .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 0 not found".into()))?
+                .get_string();
+            let engine = self.context.borrowed_engine();
+            let calling = engine.get_calling_team_id();
+            let contextual = engine.get_condition_team_id();
+            let result = if condition_type == ConditionType::TeamHasUnits {
+                driver.team_has_units(name, calling, contextual)
+            } else {
+                match driver.team_presence(name, calling, contextual) {
+                    ScriptOwnerQuery::Present(presence) => {
+                        ScriptOwnerQuery::Present(if condition_type == ConditionType::TeamCreated {
+                            presence.created
+                        } else {
+                            !presence.has_objects
+                        })
+                    }
+                    ScriptOwnerQuery::Missing => ScriptOwnerQuery::Missing,
+                    ScriptOwnerQuery::Unavailable => ScriptOwnerQuery::Unavailable,
+                }
+            };
+            match result {
+                ScriptOwnerQuery::Present(value) => return Ok(bool_result(value)),
+                ScriptOwnerQuery::Missing => return Ok(bool_result(false)),
+                ScriptOwnerQuery::Unavailable => {}
+            }
+        }
+
         // These edge-triggered events select their player/source owner before
         // standalone token resolution or ambient player/object discovery.
         if let Some(result) = self.eval_player_event(condition, driver)? {
             return Ok(result);
         }
 
+        if let Some(result) = self.eval_owned_special_power(condition, driver)? {
+            return Ok(result);
+        }
+        if let Some(result) = self.eval_owned_waypoint_complete(condition, driver)? {
+            return Ok(result);
+        }
+
+        if let Some(result) = self.eval_owned_skirmish(condition, driver)? {
+            return Ok(result);
+        }
+
+        if let Some(result) = self.eval_owned_player_area(condition, driver)? {
+            return Ok(result);
+        }
+
+        if let Some(result) = self.eval_owned_player_census(condition, driver)? {
+            return Ok(result);
+        }
+
+        if let Some(result) = self.eval_owned_named_containment(condition, driver)? {
+            return Ok(result);
+        }
+        if let Some(result) = self.eval_owned_named_owner(condition, driver)? {
+            return Ok(result);
+        }
+        if let Some(result) = self.eval_owned_named_lifecycle(condition, driver)? {
+            return Ok(result);
+        }
         if let Some(result) = self.eval_owned_body_census(condition, driver)? {
             return Ok(result);
         }
@@ -1161,7 +1246,7 @@ impl ScriptConditionEvaluator<'_> {
         Ok(self.finish_player_lost_object_type(player_index, &object_type, sum_of_objs))
     }
 
-    fn finish_player_lost_object_type(
+    pub(super) fn finish_player_lost_object_type(
         &self,
         player_index: i32,
         object_type: &str,

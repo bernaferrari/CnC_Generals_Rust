@@ -466,6 +466,7 @@ impl GameLogic {
     /// Bind terrain extent into TheRadar (`Radar::newMap`) without touching
     /// sides_list / polygon. Force-reset so a reload does not keep stale blips.
     pub(in super::super) fn host_radar_on_map_loaded(&mut self) {
+        self.rebuild_host_radar_provider_admission();
         self.radar_map.colors.clear();
         self.radar_map.bridges.clear();
         self.radar_map.admit_effective_definitions();
@@ -576,6 +577,7 @@ impl GameLogic {
 
     /// C++ `TheRadar->addObject` from Object ctor / mid-game spawn.
     pub(in super::super) fn host_radar_add_object(&mut self, id: ObjectId) {
+        self.admit_host_radar_provider(id);
         if !self.radar.has_map_extent() {
             if let Some((lo, hi)) =
                 store_radar_map_extent(&mut self.radar_map, self.world_min, self.world_max)

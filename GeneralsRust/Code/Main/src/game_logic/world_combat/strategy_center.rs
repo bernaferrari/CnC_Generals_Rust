@@ -1368,6 +1368,7 @@ impl GameLogic {
                         intended_victim_processed = true;
                     }
                 }
+                self.admit_host_radar_disabled_edges(vid);
             }
         }
         // C++ EMPUpdate.cpp:321-339 leftover near-miss: intended aircraft
@@ -1393,6 +1394,7 @@ impl GameLogic {
                         v.apply_disabled_emp(until);
                         any = true;
                     }
+                    self.admit_host_radar_disabled_edges(victim_id);
                 }
             }
         }

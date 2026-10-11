@@ -25,6 +25,28 @@ pub enum ScriptOwnerQuery<T> {
     Present(T),
 }
 
+/// The three CPP player-area census operations share geometry and ownership,
+/// while retaining their distinct liveness, crate and cache rules.
+pub enum ScriptPlayerAreaQuery<'a> {
+    Templates(&'a [String]),
+    Kind(crate::common::KindOf),
+    Value,
+    Units,
+}
+
+#[derive(Clone, Copy)]
+pub enum ScriptSkirmishCensus {
+    NeutralUnmanned,
+    Garrisoned,
+    Captured,
+}
+
+pub struct ScriptSpecialPowerReadiness {
+    pub template_exists: bool,
+    pub ready: bool,
+    pub next_frame: u32,
+}
+
 /// CPP ScriptConditions1443–1540: the selected player's event-list slot and
 /// optional named source, resolved by the world driving this condition.
 /// INVALID_ID is the wildcard for a condition without a source parameter.
@@ -32,6 +54,14 @@ pub enum ScriptOwnerQuery<T> {
 pub struct ScriptPlayerEventSource {
     pub player_index: usize,
     pub source_object: ObjectID,
+}
+
+/// CPP named unit pointer lifetime, distinct from alive/dead state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScriptNamedLifecycle {
+    pub exists: bool,
+    pub effectively_dead: bool,
+    pub ever_existed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,6 +76,39 @@ pub struct ScriptTeamStatus {
     pub has_group: bool,
     pub idle: bool,
     pub dead: bool,
+}
+
+/// The actual contain interface's counts, independent of Enter admission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScriptContainmentStatus {
+    pub count: u32,
+    pub max: u32,
+}
+
+/// CPP ScriptConditions1994: consider installed roster members in visitation order.
+/// Physically free AI_EXIT objects remain free in the original expression.
+pub fn script_team_is_contained(
+    members: impl IntoIterator<Item = Option<bool>>,
+    all: bool,
+) -> bool {
+    let mut considered = false;
+    for contained in members.into_iter().flatten() {
+        if contained && !all {
+            return true;
+        }
+        if !contained && all {
+            return false;
+        }
+        considered = true;
+    }
+    considered && all
+}
+
+/// CPP getTeamNamed selection and Team::hasAnyObjects, not AIGroup death.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScriptTeamPresence {
+    pub created: bool,
+    pub has_objects: bool,
 }
 
 /// CPP ScriptConditions244–272: the aggregate terrain gate is already
@@ -85,8 +148,36 @@ pub use camera_requests::ScriptCameraRequest;
 
 /// CPP ScriptActions:2243,6210,1250: synchronous player AI effects.
 /// Skillsets remain script-numbered until the receiving owner converts them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ScriptAiPlayerRequest<'a> {
+    BuildUpgrade {
+        player: &'a str,
+        upgrade: &'a str,
+    },
+    BuildNearest {
+        player: &'a str,
+        building: &'a str,
+        team: &'a str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    },
+    BaseDefense {
+        player: &'a str,
+        structure: Option<&'a str>,
+        flank: bool,
+    },
+    BuildTeam {
+        team: &'a str,
+    },
+    RecruitTeam {
+        team: &'a str,
+        radius: f32,
+    },
+    BuildSupplyCenter {
+        player: &'a str,
+        building: &'a str,
+        cash: i32,
+    },
     RepairNamed {
         player: &'a str,
         structure: &'a str,
@@ -109,6 +200,7 @@ pub enum ScriptNamedCommand<'a> {
     FaceObject { unit: &'a str, target: &'a str },
     Hunt { unit: &'a str },
     Guard { unit: &'a str },
+    Stop { unit: &'a str },
     Enter { unit: &'a str, target: &'a str },
     Evacuate { unit: &'a str },
 }
@@ -147,14 +239,185 @@ pub enum ScriptWaterRequest<'a> {
     },
 }
 
+/// Object presentation changes are applied by this script's driving owner.
+#[derive(Debug, Clone, Copy)]
+pub enum ScriptNamedPresentation<'a> {
+    Flash {
+        unit: &'a str,
+        seconds: i32,
+        white: bool,
+    },
+    CustomColor {
+        unit: &'a str,
+        color: u32,
+    },
+}
+
 /// Synchronous effects and live queries of the actual execution owner.
 /// The driver is borrowed for execution only; it is never installed in the
 /// engine, dispatcher context, or a process-wide active slot.
+/// CPP ScriptActions952: the driving interpreter admits an object onto its own team.
+#[derive(Debug, Clone, Copy)]
+pub struct ScriptObjectCreation<'a> {
+    pub template: &'a str,
+    pub team: &'a str,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub angle: f32,
+}
+
+/// Synchronous presentation/native effects of the driving script owner.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ScriptWorldRequest<'a> {
+    Input {
+        enabled: bool,
+    },
+    MovieFullscreen(&'a str),
+    RadarForced(bool),
+    Timer {
+        name: &'a str,
+        text: &'a str,
+        countdown: bool,
+    },
+    Freeze(bool),
+    VisualSpeed(i32),
+    Weather(bool),
+    Music {
+        track: &'a str,
+        fade_out: bool,
+        fade_in: bool,
+    },
+}
+
+/// Synchronous object effects admitted by this script's simulation owner.
+pub enum ScriptObjectEffect<'a> {
+    Sound(&'a crate::scripting::HostScriptObjectSoundRequest),
+    Unmanned(&'a crate::scripting::HostScriptUnmannedRequest),
+    Stealth(&'a crate::scripting::HostScriptStealthEnabledRequest),
+    Radar(&'a crate::scripting::HostScriptRadarEventRequest),
+}
+
+/// Actual UI selection observation; the stamp is produced by selection mutation.
+#[derive(Clone, Copy, Debug)]
+pub struct ScriptSelectionStatus {
+    pub multiplayer: bool,
+    pub changed_frame: u32,
+    pub selected: bool,
+}
+
 pub trait ScriptExecutionDriver {
+    /// CPP4793/4814: missing objects or AI do not start the sequential timer.
+    fn named_frame_command(
+        &mut self,
+        _request: ScriptNamedCommand<'_>,
+        _this_object: Option<ObjectID>,
+    ) -> ScriptOwnerQuery<()> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    fn named_selection(&self, _literal_name: &str) -> ScriptOwnerQuery<ScriptSelectionStatus> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    /// CPP2330 / Team2223,2414: synchronous effects in the supplied match.
+    fn delete_or_kill(
+        &mut self,
+        _request: &crate::scripting::HostScriptKillDeleteDamageRequest,
+        _this_object: Option<ObjectID>,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn kill_player(
+        &mut self,
+        _player: &str,
+        _current: Option<&str>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn object_effect(
+        &mut self,
+        _request: ScriptObjectEffect<'_>,
+        _this_object: Option<ObjectID>,
+        _calling: Option<u32>,
+        _condition: Option<u32>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    /// CPP3978–4020: synchronous cash mutation in this script's player owner.
+    fn money(
+        &mut self,
+        _request: &crate::scripting::HostScriptMoneyRequest,
+        _current_player: Option<&str>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    /// CPP1008/1589 requires the actual contain interface, even at zero capacity.
+    fn named_containment(
+        &self,
+        _unit: &str,
+        _this_object: Option<ObjectID>,
+    ) -> ScriptOwnerQuery<ScriptContainmentStatus> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    /// CPP1217 compares controlling Player identity without an alive gate.
+    fn named_owned_by_player(
+        &self,
+        _unit: &str,
+        _player: &str,
+        _current_player: Option<&str>,
+        _this_object: Option<ObjectID>,
+    ) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    fn named_lifecycle(
+        &self,
+        _name: &str,
+        _this_object: Option<ObjectID>,
+    ) -> ScriptOwnerQuery<ScriptNamedLifecycle> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    /// Supplied match applies existing-object bonuses and records future births.
+    fn set_object_difficulty_bonus(&mut self, _enable: bool) -> Option<()> {
+        None
+    }
+
     fn after_action(&mut self) -> GameLogicResult<()>;
+
+    /// CPP5573: supplied match owns its Player/prototype/instance state walk.
+    fn update_team_states(&mut self, _engine: &ScriptEngine) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn world(&mut self, _request: ScriptWorldRequest<'_>) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn create_object(
+        &mut self,
+        _request: ScriptObjectCreation<'_>,
+        _calling: Option<u32>,
+        _condition: Option<u32>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
 
     /// CPP7785: the driving match owns object-count invalidation timing.
     fn object_count_changed_frame(&self) -> ScriptOwnerQuery<u32> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    /// Original win/lose layout selection observes this session's local player.
+    fn local_player_observer(&self) -> ScriptOwnerQuery<bool> {
         ScriptOwnerQuery::Unavailable
     }
 
@@ -236,6 +499,157 @@ pub trait ScriptExecutionDriver {
         None
     }
 
+    fn named_presentation(
+        &mut self,
+        _request: ScriptNamedPresentation<'_>,
+        _this_object: Option<ObjectID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn team_attack_named(
+        &mut self,
+        _team: &str,
+        _target: &str,
+        _this_object: Option<ObjectID>,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    /// CPP ScriptActions1336 resolves the driving object and qualified polygon.
+    fn named_topple_direction(
+        &mut self,
+        _name: &str,
+        _direction: crate::common::Coord3D,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+    fn named_object_id(
+        &self,
+        _name: &str,
+        _this_object: Option<ObjectID>,
+    ) -> ScriptOwnerQuery<ObjectID> {
+        ScriptOwnerQuery::Unavailable
+    }
+    fn named_superweapon_display(
+        &mut self,
+        _name: &str,
+        _show: bool,
+        _this_object: Option<ObjectID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+    fn team_guard_object(
+        &mut self,
+        _team: &str,
+        _target: &str,
+        _this_object: Option<ObjectID>,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+    fn team_damage(
+        &mut self,
+        _team: &str,
+        _amount: f32,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn team_attack_team(
+        &mut self,
+        _source: &str,
+        _target: &str,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+    /// None follows a single named waypoint; Some(exact) follows its path.
+    fn named_waypoint(
+        &mut self,
+        _unit: &str,
+        _waypoint: &str,
+        _follow: Option<bool>,
+        _this_object: Option<ObjectID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+    fn team_hunt_button(
+        &mut self,
+        _team: &str,
+        _button: &str,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+    fn team_transfer(
+        &mut self,
+        _team: &str,
+        _player: &str,
+        _current_player: Option<&str>,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+    fn sell_everything(
+        &mut self,
+        _player: &str,
+        _current_player: Option<&str>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn team_waypoint_path(
+        &mut self,
+        _team: &str,
+        _path: &str,
+        _as_team: bool,
+        _exact: bool,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn named_attack_area(
+        &mut self,
+        _unit: &str,
+        _area: &str,
+        _current_player: Option<&str>,
+        _this_object: Option<ObjectID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn named_attack_team(
+        &mut self,
+        _unit: &str,
+        _team: &str,
+        _this_object: Option<ObjectID>,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    /// CPP ScriptActions6585 resolves this owner before changing its AI mood.
+    fn named_attitude(
+        &mut self,
+        _unit: &str,
+        _this_object: Option<ObjectID>,
+        _mood: i32,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     fn named_command(
         &mut self,
         _request: ScriptNamedCommand<'_>,
@@ -253,6 +667,26 @@ pub trait ScriptExecutionDriver {
         _team: &str,
         _calling_team: Option<TeamID>,
         _condition_team: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    /// CPP timed Guard and Idle both issue groupIdle, with no disband.
+    fn team_idle(
+        &mut self,
+        _team: &str,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn team_stop(
+        &mut self,
+        _team: &str,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+        _disband: bool,
     ) -> Option<GameLogicResult<()>> {
         None
     }
@@ -328,7 +762,106 @@ pub trait ScriptExecutionDriver {
         ScriptOwnerQuery::Unavailable
     }
 
+    /// CPP ScriptConditions872: BUILT_BY_PLAYER requires a literal definition
+    /// before resolving an ObjectTypes list with the same name.
+    fn literal_template_exists(&self, _name: &str) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    fn team_nearest_button(
+        &mut self,
+        _request: &crate::scripting::HostScriptUseCommandButtonRequest,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn team_partial_button(
+        &mut self,
+        _team: &str,
+        _button: &str,
+        _percentage: f32,
+        _calling: Option<u32>,
+        _condition: Option<u32>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+    fn team_panic(
+        &mut self,
+        _team: &str,
+        _path: &str,
+        _calling: Option<u32>,
+        _condition: Option<u32>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+    fn skirmish_approach_path(
+        &mut self,
+        _team: &str,
+        _path: &str,
+        _as_team: bool,
+        _follow: bool,
+        _calling: Option<u32>,
+        _condition: Option<u32>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+    fn skirmish_special_power_readiness(
+        &self,
+        _player: &str,
+        _power: &str,
+        _current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<ScriptSpecialPowerReadiness> {
+        ScriptOwnerQuery::Unavailable
+    }
+    fn team_waypoint_complete(
+        &self,
+        _team: &str,
+        _path: &str,
+        _calling: Option<u32>,
+        _condition: Option<u32>,
+    ) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    fn skirmish_census(
+        &self,
+        _player: &str,
+        _current_player: Option<&str>,
+        _query: ScriptSkirmishCensus,
+    ) -> ScriptOwnerQuery<i32> {
+        ScriptOwnerQuery::Unavailable
+    }
+    fn player_discovered_by(
+        &self,
+        _player: &str,
+        _viewer: &str,
+        _current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    fn player_area_value(
+        &self,
+        _player: &str,
+        _area: &str,
+        _current_player: Option<&str>,
+        _query: ScriptPlayerAreaQuery<'_>,
+    ) -> ScriptOwnerQuery<(i32, bool)> {
+        ScriptOwnerQuery::Unavailable
+    }
+
     /// CPP Player1874/Team1751: this player's owned non-inert living members.
+    /// Completed read of the driving player's live census; absence is final.
+    fn player_census(
+        &self,
+        _player: &str,
+        _current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<(i32, crate::scripting::HostScriptPlayerCensus)> {
+        ScriptOwnerQuery::Unavailable
+    }
+
     fn player_has_any_objects(
         &self,
         _player: &str,
@@ -398,6 +931,44 @@ pub trait ScriptExecutionDriver {
         None
     }
 
+    /// CPP evaluateTeamIsContained: literal relationships on the selected roster.
+    fn team_contained(
+        &self,
+        _name: &str,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+        _all: bool,
+    ) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    fn set_named_train_held(&mut self, _name: &str, _held: bool) -> Option<()> {
+        None
+    }
+
+    fn set_named_cave_index(&mut self, _name: &str, _index: i32) -> Option<()> {
+        None
+    }
+
+    fn team_presence(
+        &self,
+        _name: &str,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> ScriptOwnerQuery<ScriptTeamPresence> {
+        ScriptOwnerQuery::Unavailable
+    }
+
+    /// CPP HasUnits selects the contextual instance, otherwise all prototype instances.
+    fn team_has_units(
+        &self,
+        _name: &str,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Unavailable
+    }
+
     fn team_status(&self, _id: TeamID) -> ScriptOwnerQuery<ScriptTeamStatus> {
         ScriptOwnerQuery::Unavailable
     }
@@ -448,6 +1019,12 @@ impl<'a> ScriptExecution<'a> {
 
 /// Host-side callbacks for script actions that require integration with the game loop.
 pub trait ScriptActionHandler: Send + Sync {
+    /// Native cinematic teardown for the interpreter driving this request.
+    /// The authoritative input gate has already been changed by its world.
+    fn input_enabled(&self, _enabled: bool) -> GameLogicResult<()> {
+        Ok(())
+    }
+
     fn enable_script(&self, _name: &str, _enabled: bool) -> GameLogicResult<()> {
         Ok(())
     }

@@ -551,9 +551,11 @@ impl GameLogic {
 
     /// C++ Player::getMoney / getEnergy / hasAnyObjects for leftover conditions
     /// when crate `OBJECT_REGISTRY` is empty (live host Player is authoritative).
-    pub(super) fn merge_host_player_census_into_snapshot(&self) {
+    pub(super) fn owned_host_player_census(
+        &self,
+    ) -> std::collections::HashMap<String, gamelogic::scripting::HostScriptPlayerCensus> {
         use crate::game_logic::KindOf;
-        use gamelogic::scripting::{HostScriptPlayerCensus, HostTechBuildingCensus};
+        use gamelogic::scripting::HostScriptPlayerCensus;
 
         let build_facilities = self.build_facility_template_names();
         let mut player_census = std::collections::HashMap::new();
@@ -635,6 +637,13 @@ impl GameLogic {
                 _ => {}
             }
         }
+        player_census
+    }
+
+    pub(super) fn merge_host_player_census_into_snapshot(&self) {
+        use crate::game_logic::KindOf;
+        use gamelogic::scripting::HostTechBuildingCensus;
+        let player_census = self.owned_host_player_census();
         let mut tech_buildings = Vec::new();
         for obj in self.host_objects().values() {
             if !obj.is_kind_of(KindOf::TechBuilding) {
@@ -984,9 +993,9 @@ impl GameLogic {
 
         for req in gamelogic::scripting::take_host_script_held_requests() {
             if let Some(id) = self.host_object_id_by_script_name(&req.unit) {
-                if let Some(obj) = self.objects.get_mut(&id) {
-                    obj.set_status_disabled_held(req.held);
-                }
+                self.with_owned_radar_disabled_operation(id, |object| {
+                    object.set_status_disabled_held(req.held)
+                });
             }
         }
 
@@ -1177,9 +1186,9 @@ impl GameLogic {
             .map(|obj| obj.id)
             .collect();
         for id in ids {
-            if let Some(obj) = self.objects.get_mut(&id) {
-                obj.set_script_disabled(!enable);
-            }
+            self.with_owned_radar_disabled_operation(id, |object| {
+                object.set_script_disabled_owned(!enable)
+            });
         }
     }
 

@@ -1,5 +1,11 @@
 use super::*;
 
+pub(super) enum OwnedTeamSelection {
+    None,
+    Reinforced,
+    New(String),
+}
+
 impl AIPlayer {
     /// Process team production queue
     pub(super) fn process_team_queue(&mut self, game_logic: &mut GameLogic, current_time: f32) {
@@ -378,13 +384,11 @@ impl AIPlayer {
 
     /// C++ `TeamInQueue::disband` (`AIPlayer.cpp:3554-3566`).
     pub(super) fn disband_queued_team(&mut self, game_logic: &mut GameLogic, team: &AITeamQueue) {
-        let scripts = gamelogic::scripting::engine::get_script_engine().clone();
         let skirmish = self.leftover_is_skirmish_ai();
         self.disband_queued_team_with_owner(
             game_logic,
             team,
             skirmish,
-            &scripts,
             &mut super::team_lifecycle::notify_installed_team_destroy,
         );
     }
@@ -394,7 +398,6 @@ impl AIPlayer {
         game_logic: &mut GameLogic,
         team: &AITeamQueue,
         skirmish: bool,
-        scripts: &gamelogic::scripting::engine::ScriptEngineHandle,
         notify: &mut super::team_lifecycle::TeamDestroyObserver<'_>,
     ) {
         let default_name =
@@ -414,7 +417,7 @@ impl AIPlayer {
 
         let Some(src_id) = team.team_id else {
             if skirmish {
-                if let Some(engine) = scripts.write().unwrap_or_else(|e| e.into_inner()).as_mut() {
+                if let Some(engine) = &game_logic.owned_script_engine {
                     engine.clear_team_flags();
                 }
             }
@@ -450,19 +453,11 @@ impl AIPlayer {
             }
         }
         if !self.leftover_prototype_is_singleton(&team.name) {
-            game_logic.delete_ai_team_owned(self, src_id, scripts, notify);
+            game_logic.delete_ai_team_owned(self, src_id, notify);
         }
         if skirmish {
-            if let Some(engine) = scripts.write().unwrap_or_else(|e| e.into_inner()).as_mut() {
+            if let Some(engine) = &game_logic.owned_script_engine {
                 engine.clear_team_flags();
-            }
-        }
-    }
-
-    pub(super) fn clear_leftover_team_flags() {
-        if let Ok(mut eng) = gamelogic::scripting::engine::get_script_engine().write() {
-            if let Some(e) = eng.as_mut() {
-                e.clear_team_flags();
             }
         }
     }
@@ -584,7 +579,8 @@ impl AIPlayer {
             // C++ AIPlayer.cpp:2755-2761 — anyIdle shortcut only when
             // ExecutesActionsOnCreate and ProductionCondition has an Action.
             if any_idle && self.team_ready_queue[i].execute_actions {
-                if self.production_condition_has_action(&self.team_ready_queue[i].name) {
+                if self.production_condition_has_action(&self.team_ready_queue[i].name, game_logic)
+                {
                     all_idle = true;
                 }
             }
@@ -655,13 +651,11 @@ impl AIPlayer {
 
         if team.reinforcement {
             if let Some(obj_id) = team.reinforcement_id {
-                self.join_team_reinforcement_host(game_logic, obj_id, &members);
+                Self::join_team_reinforcement_host(game_logic, obj_id, &members);
             }
         } else {
-            if let Ok(mut eng) = gamelogic::scripting::engine::get_script_engine().write() {
-                if let Some(e) = eng.as_mut() {
-                    e.clear_team_flags();
-                }
+            if let Some(engine) = &game_logic.owned_script_engine {
+                engine.clear_team_flags();
             }
             self.apply_on_create_host_orders(game_logic, &members, &on_create, current_time);
         }
@@ -671,7 +665,6 @@ impl AIPlayer {
     /// C++ `AIUpdateInterface::joinTeam` (`AIUpdate.cpp:2516`) — copy a
     /// teammate's current order. Reinforcements never invent AttackMove.
     pub(super) fn join_team_reinforcement_host(
-        &mut self,
         game_logic: &mut GameLogic,
         obj_id: ObjectId,
         members: &[ObjectId],
@@ -736,7 +729,10 @@ impl AIPlayer {
         if members.is_empty() {
             return;
         }
-        match Self::classify_on_create_script(on_create) {
+        match Self::classify_on_create_script_with_engine(
+            on_create,
+            game_logic.owned_script_engine.as_ref(),
+        ) {
             OnCreateIntent::Hunt => self.hunt_units(game_logic, members),
             OnCreateIntent::HuntWithCommandButton => {
                 self.hunt_units_with_command_button(game_logic, members, on_create)
@@ -747,48 +743,54 @@ impl AIPlayer {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn classify_on_create_script(on_create: &str) -> OnCreateIntent {
+        Self::classify_on_create_script_with_engine(on_create, None)
+    }
+
+    pub(super) fn classify_on_create_script_with_engine(
+        on_create: &str,
+        engine: Option<&gamelogic::scripting::engine::ScriptEngine>,
+    ) -> OnCreateIntent {
         if on_create.is_empty() || on_create == "<none>" {
             return OnCreateIntent::None;
         }
         use gamelogic::scripting::core::ScriptActionType;
-        if let Ok(eng) = gamelogic::scripting::engine::get_script_engine().read() {
-            if let Some(e) = eng.as_ref() {
-                if let Some(script) = e.find_script_clone_by_name(on_create) {
-                    let mut act = script.get_action();
-                    while let Some(a) = act {
-                        match a.get_action_type() {
-                            ScriptActionType::TeamHunt
-                            | ScriptActionType::NamedHunt
-                            | ScriptActionType::PlayerHunt => {
-                                return OnCreateIntent::Hunt;
-                            }
-                            ScriptActionType::TeamHuntWithCommandButton => {
-                                // C++ doTeamHuntWithCommandButton arms
-                                // CommandButtonHuntUpdate, not groupHunt.
-                                return OnCreateIntent::HuntWithCommandButton;
-                            }
-                            ScriptActionType::TeamGuard | ScriptActionType::NamedGuard => {
-                                return OnCreateIntent::Guard;
-                            }
-                            ScriptActionType::TeamGuardArea
-                            | ScriptActionType::TeamGuardPosition
-                            | ScriptActionType::TeamGuardObject
-                            | ScriptActionType::TeamGuardSupplyCenter
-                            | ScriptActionType::TeamGuardInTunnelNetwork => {
-                                // Leftover run_script queues the scripted anchor.
-                                // Do not collapse to guard-at-current-position.
-                                return OnCreateIntent::None;
-                            }
-                            ScriptActionType::TeamAttackArea
-                            | ScriptActionType::TeamAttackTeam
-                            | ScriptActionType::TeamAttackNamed => {
-                                return OnCreateIntent::AttackMove;
-                            }
-                            _ => {}
+        if let Some(e) = engine {
+            if let Some(script) = e.find_script_clone_by_name(on_create) {
+                let mut act = script.get_action();
+                while let Some(a) = act {
+                    match a.get_action_type() {
+                        ScriptActionType::TeamHunt
+                        | ScriptActionType::NamedHunt
+                        | ScriptActionType::PlayerHunt => {
+                            return OnCreateIntent::Hunt;
                         }
-                        act = a.get_next();
+                        ScriptActionType::TeamHuntWithCommandButton => {
+                            // C++ doTeamHuntWithCommandButton arms
+                            // CommandButtonHuntUpdate, not groupHunt.
+                            return OnCreateIntent::HuntWithCommandButton;
+                        }
+                        ScriptActionType::TeamGuard | ScriptActionType::NamedGuard => {
+                            return OnCreateIntent::Guard;
+                        }
+                        ScriptActionType::TeamGuardArea
+                        | ScriptActionType::TeamGuardPosition
+                        | ScriptActionType::TeamGuardObject
+                        | ScriptActionType::TeamGuardSupplyCenter
+                        | ScriptActionType::TeamGuardInTunnelNetwork => {
+                            // Leftover run_script queues the scripted anchor.
+                            // Do not collapse to guard-at-current-position.
+                            return OnCreateIntent::None;
+                        }
+                        ScriptActionType::TeamAttackArea
+                        | ScriptActionType::TeamAttackTeam
+                        | ScriptActionType::TeamAttackNamed => {
+                            return OnCreateIntent::AttackMove;
+                        }
+                        _ => {}
                     }
+                    act = a.get_next();
                 }
             }
         }
@@ -842,7 +844,8 @@ impl AIPlayer {
         units: &[ObjectId],
         on_create: &str,
     ) {
-        let button = Self::on_create_command_button_name(on_create);
+        let button =
+            Self::on_create_command_button_name(on_create, game_logic.owned_script_engine.as_ref());
         for &unit_id in units {
             if game_logic.unit_can_team_hunt_with_command_button(unit_id, button.as_deref()) {
                 let _ = game_logic.start_command_button_hunt_named(unit_id, button.as_deref());
@@ -850,13 +853,12 @@ impl AIPlayer {
         }
     }
 
-    pub(super) fn on_create_command_button_name(on_create: &str) -> Option<String> {
+    pub(super) fn on_create_command_button_name(
+        on_create: &str,
+        engine: Option<&gamelogic::scripting::engine::ScriptEngine>,
+    ) -> Option<String> {
         use gamelogic::scripting::core::ScriptActionType;
-        let engine = gamelogic::scripting::engine::get_script_engine();
-        let Ok(eng) = engine.read() else {
-            return None;
-        };
-        let e = eng.as_ref()?;
+        let e = engine?;
         let script = e.find_script_clone_by_name(on_create)?;
         let mut act = script.get_action();
         while let Some(a) = act {
@@ -888,13 +890,11 @@ impl AIPlayer {
 
     /// C++ `AIPlayer::checkQueuedTeams` (`AIPlayer.cpp:2810-2870`).
     pub(super) fn check_queued_teams(&mut self, game_logic: &mut GameLogic, current_time: f32) {
-        let scripts = gamelogic::scripting::engine::get_script_engine().clone();
         let skirmish = self.leftover_is_skirmish_ai();
         self.check_queued_teams_with_owner(
             game_logic,
             current_time,
             skirmish,
-            &scripts,
             &mut super::team_lifecycle::notify_installed_team_destroy,
         );
     }
@@ -904,7 +904,6 @@ impl AIPlayer {
         game_logic: &mut GameLogic,
         current_time: f32,
         skirmish: bool,
-        scripts: &gamelogic::scripting::engine::ScriptEngineHandle,
         notify: &mut super::team_lifecycle::TeamDestroyObserver<'_>,
     ) {
         let mut i = 0;
@@ -922,7 +921,7 @@ impl AIPlayer {
                     i += 1;
                 }
             } else if let Some(team) = self.team_queue.remove(i) {
-                self.disband_queued_team_with_owner(game_logic, &team, skirmish, scripts, notify);
+                self.disband_queued_team_with_owner(game_logic, &team, skirmish, notify);
                 log::debug!(
                     "AI Player {} disbanded expired team: {}",
                     self.player_id,
@@ -994,18 +993,19 @@ impl AIPlayer {
     }
 
     /// C++ `TheScriptEngine->findScriptByName(m_productionCondition)` + `getAction()`.
-    pub(super) fn production_condition_has_action(&self, team_name: &str) -> bool {
+    pub(super) fn production_condition_has_action(
+        &self,
+        team_name: &str,
+        game_logic: &GameLogic,
+    ) -> bool {
         let cond = self.prototype_production_condition(team_name);
         if cond.is_empty() {
             return false;
         }
-        gamelogic::scripting::engine::get_script_engine()
-            .read()
-            .ok()
-            .and_then(|eng| {
-                eng.as_ref()
-                    .and_then(|e| e.find_script_clone_by_name(&cond))
-            })
+        game_logic
+            .owned_script_engine
+            .as_ref()
+            .and_then(|engine| engine.find_script_clone_by_name(&cond))
             .and_then(|script| script.get_action().cloned())
             .is_some()
     }
@@ -1022,22 +1022,14 @@ impl AIPlayer {
         if cond.is_empty() {
             return;
         }
-        if let Ok(eng) = gamelogic::scripting::engine::get_script_engine().read() {
-            if let Some(e) = eng.as_ref() {
-                if let Some(script) = e.find_script_clone_by_name(&cond) {
-                    if let Some(action) = script.get_action().cloned() {
-                        drop(eng);
-                        if let Ok(mut writer) =
-                            gamelogic::scripting::engine::get_script_engine().write()
-                        {
-                            if let Some(engine) = writer.as_mut() {
-                                game_logic.execute_script_team_actions(engine, &action, team_id);
-                            }
-                        }
-                    }
-                }
+        game_logic.with_owned_script_engine(|engine, world| {
+            if let Some(action) = engine
+                .find_script_clone_by_name(&cond)
+                .and_then(|script| script.get_action().cloned())
+            {
+                world.execute_script_team_actions(engine, &action, team_id);
             }
-        }
+        });
         let idle: Vec<ObjectId> = members
             .iter()
             .copied()
@@ -1260,12 +1252,23 @@ impl AIPlayer {
         game_logic: &mut GameLogic,
         ai_data: &AiDataView,
     ) {
+        let candidates = self.prepare_skillset_sciences(game_logic, ai_data);
+        for name in candidates {
+            Self::purchase_skillset_science(game_logic, self.player_id, &name);
+        }
+    }
+
+    pub(super) fn prepare_skillset_sciences(
+        &mut self,
+        game_logic: &GameLogic,
+        ai_data: &AiDataView,
+    ) -> Vec<String> {
         let points = game_logic
             .get_player(self.player_id)
             .map(|p| p.science_purchase_points)
             .unwrap_or(0);
         if points <= 0 {
-            return;
+            return Vec::new();
         }
         let sets = self.live_side_skillsets_with_ai_data(game_logic, ai_data);
         if self.skillset_selector == INVALID_SKILLSET_SELECTION {
@@ -1291,32 +1294,16 @@ impl AIPlayer {
             }
         }
         let idx = self.skillset_selector.clamp(0, 4) as usize;
-        let candidates = sets[idx].clone();
-        let purchased: Vec<String> = {
-            let Some(player) = game_logic.get_player_mut(self.player_id) else {
-                return;
-            };
-            let mut purchased = Vec::new();
-            for name in candidates {
-                if player.is_capable_of_purchasing_science(&name)
-                    && player.attempt_to_purchase_science(&name)
-                {
-                    log::debug!(
-                        "AI Player {} purchases from SkillSet{} {}",
-                        self.player_id,
-                        idx + 1,
-                        name
-                    );
-                    purchased.push(name);
-                }
-            }
-            purchased
-        };
-        // C++ Player::addScience → onSpecialPowerCreation + setReadyFrame(now)
-        // for modules whose required science matches. Human/script purchase
-        // already calls this; AI skillset buys must too.
-        for name in purchased {
-            game_logic.on_special_power_science_creation(self.player_id, &name);
+        sets[idx].clone()
+    }
+
+    pub(super) fn purchase_skillset_science(world: &mut GameLogic, player: u32, name: &str) {
+        let purchased = world.get_player_mut(player).is_some_and(|owner| {
+            owner.is_capable_of_purchasing_science(name) && owner.attempt_to_purchase_science(name)
+        });
+        // Player::addScience observes each successful purchase immediately.
+        if purchased {
+            world.on_special_power_science_creation(player, name);
         }
     }
 
@@ -1410,12 +1397,25 @@ impl AIPlayer {
         })
     }
 
-    pub(super) fn try_queue_structure_upgrade(&mut self, game_logic: &mut GameLogic) {
+    pub(super) fn try_queue_structure_upgrade(&mut self, world: &mut GameLogic) {
+        for attempt in self.prepare_structure_upgrades(world) {
+            if attempt.execute(world) {
+                self.activity_count = self.activity_count.saturating_add(1);
+                break;
+            }
+        }
+    }
+
+    pub(super) fn prepare_structure_upgrades(
+        &self,
+        game_logic: &GameLogic,
+    ) -> Vec<super::postmilitary_owner::UpgradeAttempt> {
+        let mut attempts = Vec::new();
         let Some(player) = game_logic.get_player(self.player_id) else {
-            return;
+            return attempts;
         };
         if !player.is_alive {
-            return;
+            return attempts;
         }
         let candidates: Vec<&'static str> = self
             .structure_upgrade_candidates()
@@ -1435,7 +1435,7 @@ impl AIPlayer {
                 power: 0,
             };
             let Some(player) = game_logic.get_player(self.player_id) else {
-                return;
+                return attempts;
             };
             // Authored zero cost is a valid upgrade, not a missing definition.
             // Preserve the residual sentinel only for an unknown fallback.
@@ -1447,44 +1447,15 @@ impl AIPlayer {
             else {
                 continue;
             };
-            let Some(player) = game_logic.get_player_mut(self.player_id) else {
-                return;
-            };
-            if !player.queue_upgrade(upgrade_name, &cost, upgrade_type) {
-                continue;
-            }
-            let secs = game_logic.upgrade_research_time_secs(upgrade_name);
-            if !game_logic.unit_command_building_add_upgrade_to_queue(
-                producer_id,
-                upgrade_name,
-                secs,
+            attempts.push(super::postmilitary_owner::UpgradeAttempt {
+                player: self.player_id,
+                team: self.team,
+                name: upgrade_name.into(),
+                producer: producer_id,
                 cost,
-            ) {
-                if let Some(player) = game_logic.get_player_mut(self.player_id) {
-                    let _ = player.cancel_queued_upgrade(upgrade_name, &cost);
-                }
-                continue;
-            }
-            game_logic.record_host_upgrade_queued(
-                self.player_id,
-                self.team,
-                upgrade_name,
-                Some(producer_id),
-            );
-            game_logic.host_upgrades_mut().set_build_cost_paid(
-                upgrade_name,
-                self.player_id,
-                cost.supplies,
-            );
-            let frames = (secs * LOGIC_FRAMES_PER_SECOND).round().max(1.0) as u32;
-            game_logic.host_upgrades_mut().set_resolved_research_frames(
-                upgrade_name,
-                self.player_id,
-                frames,
-            );
-            self.activity_count = self.activity_count.saturating_add(1);
-            return;
+            });
         }
+        attempts
     }
 
     /// Pick candidate team name for the current strategy (same as select_team_to_build).
@@ -1526,6 +1497,31 @@ impl AIPlayer {
             })
     }
 
+    pub(super) fn should_build_new_team_after_owned_conditions(
+        &self,
+        world: &(impl AiReadSource + ?Sized),
+        data: &AiDataView,
+        conditions: &HashMap<String, bool>,
+        candidates: &[(String, i32)],
+    ) -> bool {
+        let view = AiWorldView::new(world);
+        if !view
+            .get_player(self.player_id)
+            .is_none_or(|p| p.can_build_units)
+            || self.team_queue.len() >= 3
+        {
+            return false;
+        }
+        candidates.iter().any(|(name, _)| {
+            self.is_a_good_idea_with_condition(
+                world,
+                name,
+                data,
+                conditions.get(name).copied().unwrap_or(false),
+            )
+        })
+    }
+
     /// C++ `AIPlayer::selectTeamToBuild` — player TeamPrototypes only.
     /// Reinforce returns before the TeamSeconds arm. A new pick then sets
     /// `next_team_time` from TeamSeconds*FPS / wealth rate (no difficulty).
@@ -1544,12 +1540,57 @@ impl AIPlayer {
         current_time: f32,
         ai_data: &AiDataView,
     ) -> bool {
+        let name = match self.prepare_team_selection(game_logic, current_time, ai_data) {
+            OwnedTeamSelection::None => return false,
+            OwnedTeamSelection::Reinforced => return true,
+            OwnedTeamSelection::New(name) => name,
+        };
+        // C++ `buildSpecificAITeam(teamProto, false)` — auto pick is low
+        // priority. Work orders come from TeamPrototype min/max split
+        // (optional max-min, then required min including 0), not invented
+        // max-as-required compositions.
+        if !self.build_specific_ai_team(game_logic, &name, false) {
+            return false;
+        }
+        log::debug!("AI Player {} queued team: {}", self.player_id, name);
+        // C++ arms m_teamTimer only after a new-team pick, never after reinforce.
+        self.arm_team_timer_after_build_with_ai_data(game_logic, current_time, ai_data);
+        true
+    }
+
+    /// The chosen new-team effect runs only after the controller borrow ends.
+    pub(super) fn prepare_team_selection(
+        &mut self,
+        game_logic: &mut GameLogic,
+        current_time: f32,
+        ai_data: &AiDataView,
+    ) -> OwnedTeamSelection {
+        self.prepare_team_selection_with_conditions(game_logic, current_time, ai_data, None, None)
+    }
+
+    pub(super) fn prepare_team_selection_with_conditions(
+        &mut self,
+        game_logic: &mut GameLogic,
+        current_time: f32,
+        ai_data: &AiDataView,
+        conditions: Option<&HashMap<String, bool>>,
+        candidates: Option<Vec<(String, i32)>>,
+    ) -> OwnedTeamSelection {
         const INVALID_PRI: i32 = -99999;
-        let candidates = self.player_team_prototype_candidates();
+        let candidates = candidates.unwrap_or_else(|| self.player_team_prototype_candidates());
         let mut good: Vec<(String, i32)> = Vec::new();
         let mut hi_pri = INVALID_PRI;
         for (name, pri) in candidates {
-            if self.is_a_good_idea_to_build_team_with_ai_data(game_logic, &name, ai_data) {
+            let eligible = match conditions {
+                Some(results) => self.is_a_good_idea_with_condition(
+                    game_logic,
+                    &name,
+                    ai_data,
+                    results.get(&name).copied().unwrap_or(false),
+                ),
+                None => self.is_a_good_idea_to_build_team_with_ai_data(game_logic, &name, ai_data),
+            };
+            if eligible {
                 if pri > hi_pri {
                     hi_pri = pri;
                 }
@@ -1557,10 +1598,10 @@ impl AIPlayer {
             }
         }
         if self.select_team_to_reinforce_with_ai_data(game_logic, hi_pri, current_time, ai_data) {
-            return true;
+            return OwnedTeamSelection::Reinforced;
         }
         if hi_pri == INVALID_PRI {
-            return false;
+            return OwnedTeamSelection::None;
         }
         let hi: Vec<String> = good
             .into_iter()
@@ -1568,25 +1609,14 @@ impl AIPlayer {
             .map(|(n, _)| n)
             .collect();
         if hi.is_empty() {
-            return false;
+            return OwnedTeamSelection::None;
         }
         let which = if hi.len() == 1 {
             0
         } else {
             self.placement_rng.next_int(0, (hi.len() as i32) - 1) as usize
         };
-        let name = &hi[which.min(hi.len() - 1)];
-        // C++ `buildSpecificAITeam(teamProto, false)` — auto pick is low
-        // priority. Work orders come from TeamPrototype min/max split
-        // (optional max-min, then required min including 0), not invented
-        // max-as-required compositions.
-        if !self.build_specific_ai_team(game_logic, name, false) {
-            return false;
-        }
-        log::debug!("AI Player {} queued team: {}", self.player_id, name);
-        // C++ arms m_teamTimer only after a new-team pick, never after reinforce.
-        self.arm_team_timer_after_build_with_ai_data(game_logic, current_time, ai_data);
-        true
+        OwnedTeamSelection::New(hi[which.min(hi.len() - 1)].clone())
     }
 
     /// C++ `selectTeamToBuild` new-pick arm: ready=false, teamTimer =
@@ -1697,17 +1727,32 @@ impl AIPlayer {
         team_name: &str,
         ai_data: &AiDataView,
     ) -> bool {
+        let allowed = self
+            .team_factory
+            .lock()
+            .ok()
+            .and_then(|factory| factory.find_team_prototype(team_name))
+            .is_some_and(|prototype| prototype.evaluate_production_condition());
+        self.is_a_good_idea_with_condition(game_logic, team_name, ai_data, allowed)
+    }
+
+    fn is_a_good_idea_with_condition(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        team_name: &str,
+        ai_data: &AiDataView,
+        allowed: bool,
+    ) -> bool {
+        if !allowed {
+            return false;
+        }
         let game_logic = &AiWorldView::new(game_logic);
-        let factory = &self.team_factory;
-        let Ok(guard) = factory.lock() else {
+        let Ok(guard) = self.team_factory.lock() else {
             return false;
         };
         let Some(proto) = guard.find_team_prototype(team_name) else {
             return false;
         };
-        if !proto.evaluate_production_condition() {
-            return false;
-        }
         let instances = guard.find_team_instances(team_name).len() as i32;
         if instances >= proto.get_max_instances() {
             return false;
@@ -2257,23 +2302,14 @@ impl AIPlayer {
         self.activity_count = self.activity_count.saturating_add(1);
 
         if execute_actions && !production_condition.is_empty() {
-            if let Ok(eng) = gamelogic::scripting::engine::get_script_engine().read() {
-                if let Some(e) = eng.as_ref() {
-                    if let Some(script) = e.find_script_clone_by_name(&production_condition) {
-                        if let Some(action) = script.get_action().cloned() {
-                            drop(eng);
-                            if let Ok(mut writer) =
-                                gamelogic::scripting::engine::get_script_engine().write()
-                            {
-                                if let Some(engine) = writer.as_mut() {
-                                    game_logic
-                                        .execute_script_team_actions(engine, &action, team_id);
-                                }
-                            }
-                        }
-                    }
+            game_logic.with_owned_script_engine(|engine, world| {
+                if let Some(action) = engine
+                    .find_script_clone_by_name(&production_condition)
+                    .and_then(|script| script.get_action().cloned())
+                {
+                    world.execute_script_team_actions(engine, &action, team_id);
                 }
-            }
+            });
         }
         true
     }

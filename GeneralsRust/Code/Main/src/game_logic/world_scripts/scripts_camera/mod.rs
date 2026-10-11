@@ -218,9 +218,12 @@ fn panel_flag_is_indestructible(flag: &str) -> bool {
 }
 
 mod named_commands;
+#[cfg(test)]
+mod named_lifecycle_owner_tests;
 mod nearest_object_move;
 #[cfg(test)]
 mod nearest_object_move_tests;
+mod owned_team_state;
 #[cfg(test)]
 mod prerequisite_owner_tests;
 mod script_action_effects;
@@ -230,6 +233,7 @@ mod script_state;
 mod script_team_actions;
 mod script_unit_actions;
 mod team_guard;
+mod team_stop;
 
 #[cfg(test)]
 mod sequential_actor_tests;
@@ -317,3 +321,73 @@ mod eva_script_owner_tests;
 
 #[cfg(test)]
 mod scoring_owner_tests;
+
+#[cfg(test)]
+mod containment_command_owner_tests;
+
+#[cfg(test)]
+mod named_attack_team_owner_tests;
+
+mod script_ai_build;
+#[cfg(test)]
+mod script_ai_build_owner_tests;
+
+#[cfg(test)]
+mod named_attack_area_owner_tests;
+
+#[cfg(test)]
+mod script_idle_owner_tests;
+
+#[cfg(test)]
+mod player_census_owner_tests;
+
+#[cfg(test)]
+mod owned_runtime_command_tests;
+mod owned_runtime_commands;
+
+#[cfg(test)]
+mod qualified_waypoint_owner_tests;
+
+mod team_attack_named;
+#[cfg(test)]
+mod team_attack_named_forwarding_tests;
+
+#[cfg(test)]
+mod named_entry_condition_owner_tests;
+
+#[cfg(test)]
+mod team_presence_owner_tests;
+
+#[cfg(test)]
+mod named_ownership_condition_tests;
+
+mod containment_observation;
+
+#[cfg(test)]
+mod containment_condition_owner_tests;
+
+#[cfg(test)]
+mod money_owner_tests;
+
+#[cfg(test)]
+mod overlord_containment_owner_tests;
+
+#[cfg(test)]
+mod player_area_owner_tests;
+
+mod script_lifecycle;
+#[cfg(test)]
+mod script_lifecycle_owner_tests;
+
+#[cfg(test)]
+mod team_containment_owner_tests;
+
+#[cfg(test)]
+mod named_frame_command_owner_tests;
+
+#[cfg(test)]
+mod selection_owner_tests;
+
+mod script_nearest_button;
+#[cfg(test)]
+mod script_nearest_button_owner_tests;

@@ -260,50 +260,7 @@ impl PlayerArcExt for Arc<RwLock<Player>> {
         // C++ onUpgradeCompleted fan-out after the lock is released.
         let mut completed_roster: Vec<ObjectID> = Vec::new();
         if let Ok(mut guard) = self.write() {
-            // Create new upgrade instance
-            let upgrade = Upgrade::new(Arc::new(upgrade_template.clone()));
-
-            // Set the status
-            let mut upgrade_mut = upgrade;
-            upgrade_mut.set_status(status);
-
-            // Get the upgrade mask bit for this upgrade
-            let mask_bit = UpgradeMaskType::from_bits_retain(upgrade_template.get_mask().bits());
-            // Update the appropriate mask based on status
-            match status {
-                crate::upgrade::UpgradeStatus::InProduction => {
-                    guard.upgrades_in_progress = guard.upgrades_in_progress | mask_bit;
-                }
-                crate::upgrade::UpgradeStatus::Complete => {
-                    guard.upgrades_completed = guard.upgrades_completed | mask_bit;
-                    // Remove from in-progress if it was there
-                    guard.upgrades_in_progress = guard.upgrades_in_progress & !mask_bit;
-                    // Live leftover add_upgrade notify (host upgrade complete).
-                    guard.academy_stats.record_upgrade(upgrade_template, false);
-                    // Keep PlayerUpgradeManager.active_upgrades in sync: the
-                    // per-object re-check reads that mask (C++ reads the same
-                    // completed mask via Object::updateUpgradeModules).
-                    if let Some(manager) = guard.get_upgrade_manager_mut() {
-                        manager.add_completed_upgrade(
-                            upgrade_template.get_name_key(),
-                            upgrade_template.get_mask(),
-                        );
-                    }
-                    completed_roster = guard.get_all_objects();
-                }
-                crate::upgrade::UpgradeStatus::Invalid => {
-                    // Do nothing for invalid status
-                }
-            }
-
-            // Add to upgrade list if not already present
-            if !guard
-                .upgrade_list
-                .iter()
-                .any(|u| u.get_template().get_name() == upgrade_template.get_name())
-            {
-                guard.upgrade_list.push(upgrade_mut);
-            }
+            completed_roster = guard.record_upgrade_owned(upgrade_template, status);
         }
 
         // C++ Player.cpp:3038 — addUpgrade(COMPLETE) ends with
@@ -408,5 +365,62 @@ fn on_upgrade_completed_fanout(object_ids: Vec<ObjectID>, skip_object_id: Option
             crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |object_guard| {
                 object_guard.update_upgrade_modules_from_player();
             });
+    }
+}
+
+impl Player {
+    /// Commit upgrade state and return the original roster for owned fan-out.
+    /// The caller releases this Player borrow before touching its objects.
+    pub(crate) fn record_upgrade_owned(
+        &mut self,
+        upgrade_template: &UpgradeTemplate,
+        status: crate::upgrade::UpgradeStatus,
+    ) -> Vec<ObjectID> {
+        let mut completed_roster = Vec::new();
+        // Create new upgrade instance
+        let upgrade = Upgrade::new(Arc::new(upgrade_template.clone()));
+
+        // Set the status
+        let mut upgrade_mut = upgrade;
+        upgrade_mut.set_status(status);
+
+        // Get the upgrade mask bit for this upgrade
+        let mask_bit = UpgradeMaskType::from_bits_retain(upgrade_template.get_mask().bits());
+        // Update the appropriate mask based on status
+        match status {
+            crate::upgrade::UpgradeStatus::InProduction => {
+                self.upgrades_in_progress = self.upgrades_in_progress | mask_bit;
+            }
+            crate::upgrade::UpgradeStatus::Complete => {
+                self.upgrades_completed = self.upgrades_completed | mask_bit;
+                // Remove from in-progress if it was there
+                self.upgrades_in_progress = self.upgrades_in_progress & !mask_bit;
+                // Live leftover add_upgrade notify (host upgrade complete).
+                self.academy_stats.record_upgrade(upgrade_template, false);
+                // Keep PlayerUpgradeManager.active_upgrades in sync: the
+                // per-object re-check reads that mask (C++ reads the same
+                // completed mask via Object::updateUpgradeModules).
+                if let Some(manager) = self.get_upgrade_manager_mut() {
+                    manager.add_completed_upgrade(
+                        upgrade_template.get_name_key(),
+                        upgrade_template.get_mask(),
+                    );
+                }
+                completed_roster = self.get_all_objects();
+            }
+            crate::upgrade::UpgradeStatus::Invalid => {
+                // Do nothing for invalid status
+            }
+        }
+
+        // Add to upgrade list if not already present
+        if !self
+            .upgrade_list
+            .iter()
+            .any(|u| u.get_template().get_name() == upgrade_template.get_name())
+        {
+            self.upgrade_list.push(upgrade_mut);
+        }
+        completed_roster
     }
 }

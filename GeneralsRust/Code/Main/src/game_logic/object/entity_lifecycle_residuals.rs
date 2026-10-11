@@ -7,7 +7,7 @@
 use super::Object;
 use crate::command_system::SpecialPowerType;
 use crate::game_logic::ObjectId;
-use crate::game_logic::host_railroad::{HostRailroadCar, railroad_car, restore_railroad_car};
+use crate::game_logic::host_railroad::HostRailroadCar;
 use crate::game_logic::object::WeaponLockType;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
@@ -268,23 +268,6 @@ impl PhysicsBehaviorResidual {
     }
 }
 
-impl RailroadBehaviorResidual {
-    pub(crate) fn present(object: &Object) -> bool {
-        railroad_car(object.id).is_some()
-    }
-
-    pub(crate) fn from_object(object: &Object) -> Self {
-        Self {
-            car: railroad_car(object.id)
-                .unwrap_or_else(|| HostRailroadCar::new_carriage(object.id)),
-        }
-    }
-
-    pub(crate) fn apply(self, _object: &mut Object) {
-        restore_railroad_car(self.car);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -292,10 +275,7 @@ mod tests {
         MC_BIT_STUNNED_FLAILING, host_model_condition_has,
     };
     use crate::game_logic::host_neutron_missile_slow_death::MC_BIT_FRONTCRUSHED;
-    use crate::game_logic::host_railroad::{
-        HostConductorState, HostRailroadCar, railroad_car, railroad_registry_reset,
-        restore_railroad_car,
-    };
+    use crate::game_logic::host_railroad::{HostConductorState, HostRailroadCar};
     use crate::game_logic::object::Object;
     use crate::game_logic::{ObjectId, Team, ThingTemplate};
 
@@ -371,7 +351,6 @@ mod tests {
 
     #[test]
     fn railroad_conductor_round_trip() {
-        railroad_registry_reset();
         let src = test_object();
         let mut car = HostRailroadCar::new_locomotive(src.id);
         car.conductor_state = HostConductorState::WaitAtStation;
@@ -383,9 +362,8 @@ mod tests {
         car.carriages_created = true;
         car.track_data_loaded = true;
         car.held = true;
-        restore_railroad_car(car);
 
-        let envelope = src.entity_lifecycle_envelope();
+        let envelope = src.entity_lifecycle_envelope_with_railroad(Some(&car));
         assert!(
             envelope
                 .module_states
@@ -393,12 +371,11 @@ mod tests {
                 .any(|m| m.tag == super::super::entity_lifecycle_tags::TAG_RAILROAD)
         );
 
-        railroad_registry_reset();
-        assert!(railroad_car(src.id).is_none());
         let mut dst = test_object();
-        dst.entity_apply_lifecycle_envelope(&envelope)
-            .expect("apply");
-        let restored = railroad_car(src.id).expect("restored car");
+        let restored = dst
+            .entity_apply_lifecycle_envelope_with_railroad(&envelope)
+            .expect("apply")
+            .expect("restored car");
         assert_eq!(restored.conductor_state, HostConductorState::WaitAtStation);
         assert!((restored.speed - 2.5).abs() < 1e-6);
         assert!((restored.track_distance - 120.0).abs() < 1e-6);
@@ -406,6 +383,5 @@ mod tests {
         assert_eq!(restored.trailer_id, Some(ObjectId(22)));
         assert!(restored.held);
         assert!(restored.carriages_created);
-        railroad_registry_reset();
     }
 }

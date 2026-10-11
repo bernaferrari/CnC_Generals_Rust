@@ -10,12 +10,20 @@ use gamelogic::world::entities::{
 impl Object {
     /// Inventory residual groups the Main object owns today. Additive only.
     pub fn entity_lifecycle_envelope(&self) -> EntityLifecycleEnvelope {
+        self.entity_lifecycle_envelope_with_railroad(None)
+    }
+
+    /// Capture the driving session's immutable conductor continuation.
+    pub fn entity_lifecycle_envelope_with_railroad(
+        &self,
+        railroad: Option<&crate::game_logic::host_railroad::HostRailroadCar>,
+    ) -> EntityLifecycleEnvelope {
         EntityLifecycleEnvelope {
             version: ENTITY_LIFECYCLE_ENVELOPE_VERSION,
             entity_id: self.id.0,
             destroyed: self.status.destroyed,
             destroyed_at_frame: 0,
-            module_states: collect_module_states(self).unwrap_or_default(),
+            module_states: collect_module_states(self, railroad).unwrap_or_default(),
         }
     }
 
@@ -24,8 +32,28 @@ impl Object {
         &mut self,
         envelope: &EntityLifecycleEnvelope,
     ) -> Result<(), EntityLifecycleCodecError> {
+        if envelope
+            .module_states
+            .iter()
+            .any(|module| module.tag == super::entity_lifecycle_tags::TAG_RAILROAD)
+        {
+            return Err(EntityLifecycleCodecError::InvalidOwnerComponent {
+                component: "railroad",
+            });
+        }
+        self.entity_apply_lifecycle_envelope_with_railroad(envelope)
+            .map(|_| ())
+    }
+
+    /// Decode conductor data without publishing it; the session admits it.
+    pub fn entity_apply_lifecycle_envelope_with_railroad(
+        &mut self,
+        envelope: &EntityLifecycleEnvelope,
+    ) -> Result<Option<crate::game_logic::host_railroad::HostRailroadCar>, EntityLifecycleCodecError>
+    {
+        let railroad = apply_module_states(self, &envelope.module_states)?;
         self.status.destroyed = envelope.destroyed;
-        apply_module_states(self, &envelope.module_states)
+        Ok(railroad)
     }
 }
 
@@ -57,6 +85,13 @@ pub fn decode_lifecycle_snapshot_block(
     }
     let count = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
     let mut rest = &bytes[4..];
+    // Every envelope has at least its four-byte length header. Bound the
+    // declared inventory by available bytes before reserving object storage.
+    if count > rest.len() / 4 {
+        return Err(EntityLifecycleCodecError::UnexpectedEof {
+            context: "snapshot_len",
+        });
+    }
     let mut out = Vec::with_capacity(count);
     for _ in 0..count {
         if rest.len() < 4 {
@@ -214,6 +249,22 @@ mod tests {
     }
 
     #[test]
+    fn impossible_snapshot_count_is_rejected_before_inventory_allocation() {
+        let corrupt = u32::MAX.to_le_bytes();
+        assert!(matches!(
+            decode_lifecycle_snapshot_block(&corrupt),
+            Err(EntityLifecycleCodecError::UnexpectedEof {
+                context: "snapshot_len"
+            })
+        ));
+        let mut truncated = 2u32.to_le_bytes().to_vec();
+        truncated.extend_from_slice(&0u32.to_le_bytes());
+        assert!(decode_lifecycle_snapshot_block(&truncated).is_err());
+        let encoded = encode_lifecycle_snapshot_block(&[test_object().entity_lifecycle_envelope()]);
+        assert_eq!(decode_lifecycle_snapshot_block(&encoded).unwrap().len(), 1);
+    }
+
+    #[test]
     fn save_absence_loads_empty_inventory() {
         assert!(
             decode_lifecycle_snapshot_block(&[])
@@ -233,7 +284,7 @@ mod tests {
         assert_eq!(INVENTORY_TAGS[19], "SlowDeath");
         assert_eq!(INVENTORY_TAGS[49], "FiringTracker");
         assert_eq!(INVENTORY_TAGS[53], "CommandButtonHuntUpdate");
-        assert_eq!(*INVENTORY_TAGS.last().expect("tags"), "PathExtraDistance");
+        assert_eq!(*INVENTORY_TAGS.last().expect("tags"), "OverlordAddon");
     }
 
     #[test]

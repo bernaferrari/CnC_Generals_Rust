@@ -136,7 +136,9 @@ mod construction;
 mod objects;
 pub use objects::*;
 mod economy;
+mod radar;
 pub use economy::*;
+pub use radar::RadarEdgeServices;
 mod production;
 pub use production::*;
 mod relations;
@@ -176,3 +178,5 @@ pub const PLAYER_SRC: &str = concat!(
     include_str!("snapshot.rs"),
     include_str!("template.rs"),
 );
+
+mod object_counts;

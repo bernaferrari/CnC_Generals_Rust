@@ -1476,8 +1476,14 @@ pub struct Object {
 
     /// Toggleable weapon/overcharge state flags
     pub overcharge_enabled: bool,
-    /// Object-local onDisabledEdge callbacks awaiting the driving owner's
-    /// bounded admission. Loading derives radar from final transferred state.
+    /// C++ UpgradeMux executed state for each authored RadarUpgrade, source order.
+    #[serde(default)]
+    pub(crate) radar_upgrade_executed: Vec<bool>,
+    /// Exact outstanding Player contribution per authored module. Disabled grants
+    /// and disabled capture cannot be inferred from the executed flag alone.
+    #[serde(default)]
+    pub(crate) radar_upgrade_contributors: Vec<Vec<u32>>,
+    /// Object-local callbacks awaiting the driving owner's bounded admission.
     #[serde(skip)]
     pub(crate) pending_radar_disabled_edges: Vec<crate::game_logic::host_radar::RadarDisabledEdge>,
 
@@ -2682,6 +2688,10 @@ pub struct Object {
     pub overlord_addon_body_damage_state:
         crate::game_logic::host_enum_table_residual::HostBodyDamageType,
 
+    /// CPP OverlordContain redirection phase, saved independently of occupancy.
+    #[serde(default)]
+    pub overlord_redirection_active: bool,
+
     /// Spawned portable payload object (gattling / speaker / bunker).
     #[serde(default)]
     pub overlord_portable_occupant: Option<ObjectId>,
@@ -3038,6 +3048,9 @@ pub enum AIState {
     /// C++ AI_PANIC: follow authored waypoint links while allowing infantry bounce.
     /// Appended to preserve existing bincode variant indices.
     Panic,
+    /// C++ AI_EXIT: passenger remains contained while its door is unavailable.
+    /// Appended so existing save variant indices retain their meanings.
+    Exiting,
 }
 
 /// C++ `SpecialAbilityUpdate::PackingState` subset for capture abilities.
@@ -3260,8 +3273,7 @@ pub use barrels::WeaponBarrelState;
 mod damage_context;
 pub(in crate::game_logic) use damage_context::DamageHitContext;
 pub use status_bits::{
-    drain_mask_deselects, leftover_object_is_hero, leftover_object_is_kind_of_hero,
-    leftover_object_script_targetable,
+    leftover_object_is_hero, leftover_object_is_kind_of_hero, leftover_object_script_targetable,
 };
 
 pub use jets::{

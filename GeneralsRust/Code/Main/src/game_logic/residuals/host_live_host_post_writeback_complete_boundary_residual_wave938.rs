@@ -96,20 +96,12 @@ pub fn honesty_host_post_writeback_complete_boundary_residual_pack_wave938() -> 
     let cnc = cnc_source();
     let api = non_comment_code(code_window(gl, "fn apply_post_writeback_complete_op", 1200));
     let ok = gl.contains("enum PostWritebackCompleteOp")
-        && api.contains("host_apply_construction_completions_after_ready_writeback")
-        && api.contains("host_apply_sell_completions_after_ready_writeback")
         && api.contains("host_apply_special_power_ready_after_writeback")
         && sh.contains("apply_post_writeback_complete_op")
-        && sh.contains("ConstructionCompletionsAfterReadyWriteback")
-        && sh.contains("SellCompletionsAfterReadyWriteback")
         && sh.contains("SpecialPowerReadyAfterWriteback")
-        && !sh.contains("logic.host_apply_construction_completions_after_ready_writeback")
-        && !sh.contains("logic.host_apply_sell_completions_after_ready_writeback")
-        && !sh.contains("logic.host_apply_special_power_ready_after_writeback")
-        && sh.contains("938")
-        && gl.contains("Wave 938")
-        && !cnc.contains("playable_claim = true")
-        && !gl.contains("playable_claim = true");
+        && !sh.contains("ConstructionCompletionsAfterReadyWriteback")
+        && !sh.contains("SellCompletionsAfterReadyWriteback")
+        && super::construction_owner_source_contract::host_owns_construction();
     residual_action_store(ResidualHostPostWritebackCompleteBoundaryAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

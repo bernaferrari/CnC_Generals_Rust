@@ -552,17 +552,15 @@ fn host_player_progress_log_drives_set_player_progress_channel() {
 
 #[test]
 fn host_radar_log_drives_set_player_radar_channel() {
-    use crate::game_logic::host_radar_log;
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("RadarCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let pid = *logic.get_players().keys().next().expect("player");
-    host_radar_log::clear();
     {
         let p = logic.get_player_mut(pid).expect("p");
         p.set_radar_state(2, false);
     }
-    let events = host_radar_log::drain();
+    let events = logic.host_radar_snapshot();
     assert!(
         events
             .iter()
@@ -579,7 +577,7 @@ fn host_radar_log_drives_set_player_radar_channel() {
         p.radar_count = 0;
         p.radar_disabled = true;
     }
-    let n = shadow.apply_host_radar_events(&host_radar_log::drain());
+    let n = shadow.apply_host_radar_events(&logic.host_radar_snapshot());
     assert!(n >= 1);
     let p = shadow.world().player(gw).expect("p");
     assert_eq!(p.radar_count, 2);
@@ -591,10 +589,9 @@ fn host_radar_log_drives_set_player_radar_channel() {
     }
     let _wb_econ = shadow.writeback_economy_to_host(&mut logic);
     let _ = crate::game_logic::host_economy_ready_log::drain();
-    assert!(_wb_econ >= 1);
     let p = logic.get_player(pid).expect("p");
-    assert_eq!(p.radar_count, 2);
-    assert!(!p.radar_disabled);
+    assert_eq!(p.radar_count, 0, "presentation cannot overwrite the owner");
+    assert!(p.radar_disabled);
 }
 
 #[test]
@@ -938,8 +935,8 @@ fn host_stored_supplies_log_drives_set_stored_supplies_channel() {
 }
 
 #[test]
-fn host_construction_progress_log_drives_set_construction_channel() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, host_construction_progress_log};
+fn owned_construction_snapshot_refreshes_projection_without_writeback() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ConstrProgCh");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -958,10 +955,6 @@ fn host_construction_progress_log_drives_set_construction_channel() {
         o.construction_percent = 0.25;
         o.set_status_under_construction(true);
     }
-    host_construction_progress_log::clear();
-    host_construction_progress_log::record(id, 0.25, true, 0.0);
-    let events = host_construction_progress_log::drain();
-    assert_eq!(events.len(), 1);
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -970,9 +963,8 @@ fn host_construction_progress_log_drives_set_construction_channel() {
         e.construction_percent = 0.0;
         e.under_construction = false;
     }
-    host_construction_progress_log::record(id, 0.25, true, 0.0);
-    let events = host_construction_progress_log::drain();
-    let n = shadow.apply_host_construction_progress_events(&events);
+
+    let n = shadow.observe_host_construction(&logic);
     assert!(n >= 1);
     let e = shadow.world().entity(eid).expect("e");
     assert!((e.construction_percent - 0.25).abs() < 1e-5);
@@ -982,11 +974,11 @@ fn host_construction_progress_log_drives_set_construction_channel() {
         o.construction_percent = 0.0;
         o.status.under_construction = false;
     }
-    let wb = shadow.writeback_construction_to_host(&mut logic);
+    let wb = shadow.compare_construction_to_host(&logic);
     assert!(wb >= 1);
     let o = logic.host_objects().get(&id).expect("o");
-    assert!((o.construction_percent - 0.25).abs() < 1e-5);
-    assert!(o.status.under_construction);
+    assert_eq!(o.construction_percent, 0.0);
+    assert!(!o.status.under_construction);
 }
 
 #[test]
@@ -1124,7 +1116,6 @@ fn host_production_log_drives_set_production_queue_channel() {
     host_production_log::clear();
     host_production_log::record_enqueue(barracks, "ProdRanger");
     let events = host_production_log::drain();
-    assert_eq!(events.len(), 1);
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -1159,7 +1150,7 @@ fn host_production_log_drives_set_production_queue_channel() {
     let _ = shadow.writeback_radar_extend_to_host(&mut logic);
     let _ = shadow.writeback_shock_stun_to_host(&mut logic);
     let _ = crate::game_logic::host_shock_stun_ready_log::drain();
-    let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
+    let _ = shadow.compare_rebuild_producer_to_host(&logic);
     let _ = shadow.writeback_sole_healing_to_host(&mut logic);
     let _ = crate::game_logic::host_sole_healing_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);

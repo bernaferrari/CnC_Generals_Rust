@@ -21,7 +21,7 @@ use crate::modules::{
 };
 use crate::object::{Object, ObjectId};
 use crate::player::Player;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Wave 300 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
@@ -56,8 +56,14 @@ impl Default for OverlordContainModuleData {
 
 impl OverlordContainModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        self.base.parse_from_ini(ini)?;
-        ini.init_from_ini_with_fields_allow_unknown(self, OVERLORD_CONTAIN_FIELDS)
+        ini.init_from_ini_with_ancestor_fields(
+            self,
+            |data| &mut data.base,
+            |data| &mut data.base,
+            super::open_contain::OPEN_CONTAIN_FIELDS,
+            super::transport_contain::TRANSPORT_CONTAIN_FIELDS,
+            OVERLORD_CONTAIN_FIELDS,
+        )
     }
 
     pub fn parse_from_config(&mut self, config: &str) -> Result<(), INIError> {
@@ -267,8 +273,7 @@ impl OverlordContain {
         let rider_id = self.base.base.get_contained_object_ids().first().copied();
         self.deactivate_redirected_contain()?;
         if let Some(rider_id) = rider_id {
-            if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
-            {
+            if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) {
                 if let Ok(mut rider_guard) = rider.try_write() {
                     rider_guard.kill(None, None);
                 }
@@ -321,8 +326,7 @@ impl OverlordContain {
         // Need to capture our specific rider. He will then kick passengers out if he is a Transport
         if let Some(new_owner_arc) = new_owner {
             if let Some(&rider_id) = self.base.base.get_contained_object_ids().first() {
-                if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
-                {
+                if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) {
                     let Ok(mut rider_guard) = rider.try_write() else {
                         return Ok(());
                     };
@@ -353,8 +357,7 @@ impl OverlordContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -494,8 +497,7 @@ impl OverlordContain {
             let Ok(mut guard) = redirected.try_lock() else {
                 return Err("Overlord redirected contain lock busy".into());
             };
-            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-            else {
+            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
                 return Err("Overlord contain object not found".into());
             };
             let Ok(obj_guard) = obj.try_read() else {
@@ -513,8 +515,7 @@ impl OverlordContain {
             let Ok(mut guard) = redirected.try_lock() else {
                 return Err("Overlord redirected contain lock busy".into());
             };
-            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-            else {
+            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
                 return Err("Overlord contain object not found".into());
             };
             let Ok(obj_guard) = obj.try_read() else {
@@ -667,8 +668,7 @@ impl OverlordContain {
         }
 
         for &item_id in self.base.base.get_contained_object_ids() {
-            if let Some(item) = crate::object::registry::OBJECT_REGISTRY.get_object(item_id)
-            {
+            if let Some(item) = crate::object::registry::OBJECT_REGISTRY.get_object(item_id) {
                 let drawable = {
                     let Ok(item_guard) = item.try_read() else {
                         continue;
@@ -793,8 +793,7 @@ impl OverlordContain {
         // be handled on my death.
         if new_state != BodyDamageType::Rubble && self.base.base.get_contain_count() == 1 {
             if let Some(&rider_id) = self.base.base.get_contained_object_ids().first() {
-                if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
-                {
+                if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) {
                     let Ok(rider_guard) = rider.try_read() else {
                         return Err("Overlord rider lock busy".into());
                     };
@@ -836,8 +835,7 @@ impl OverlordContain {
 
         // Get the first rider
         if let Some(&rider_id) = self.base.base.get_contained_object_ids().first() {
-            if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
-            {
+            if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) {
                 if let Ok(rider_guard) = rider.try_read() {
                     return rider_guard.get_contain();
                 }
@@ -855,8 +853,7 @@ impl OverlordContain {
         let Some(&rider_id) = self.base.base.get_contained_object_ids().first() else {
             return Ok(None);
         };
-        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
-        else {
+        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) else {
             return Ok(None);
         };
         let Ok(rider_guard) = rider.try_read() else {
@@ -945,7 +942,7 @@ impl ContainModuleInterface for OverlordContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
             return self.is_valid_container_for(&*obj_guard, true);
-            });
+        });
         false
     }
 
@@ -979,11 +976,7 @@ impl ContainModuleInterface for OverlordContain {
 
     fn get_max_capacity(&self) -> usize {
         let max = self.get_contain_max();
-        if max < 0 {
-            usize::MAX
-        } else {
-            max as usize
-        }
+        if max < 0 { usize::MAX } else { max as usize }
     }
 
     fn get_container_pips_to_show(&self) -> (i32, i32, bool) {
@@ -1049,8 +1042,7 @@ impl ContainModuleInterface for OverlordContain {
         if !self.base.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
-        else {
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
             return Ok(());
         };
         let valid = other
@@ -1065,6 +1057,25 @@ impl ContainModuleInterface for OverlordContain {
 
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
         OverlordContain::is_valid_container_for(self, obj, check_capacity)
+    }
+
+    fn admission_target(&self) -> crate::modules::ContainAdmissionTarget {
+        if self.redirection_activated {
+            if let Some(&id) = self.base.base.get_contained_object_ids().first() {
+                return crate::modules::ContainAdmissionTarget::ActiveFirstChild(id);
+            }
+        }
+        crate::modules::ContainAdmissionTarget::LiteralOwner
+    }
+
+    fn is_valid_container_for_with_owner(
+        &self,
+        obj: &Object,
+        owner: &Object,
+        check_capacity: bool,
+    ) -> bool {
+        self.base
+            .is_valid_container_for_with_owner(obj, owner, check_capacity)
     }
 
     fn add_to_contain(
@@ -1100,8 +1111,7 @@ impl ContainModuleInterface for OverlordContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1126,8 +1136,7 @@ impl ContainModuleInterface for OverlordContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1256,6 +1265,26 @@ impl ContainerInterface for OverlordContain {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn authored_overlord_block_reads_inherited_and_derived_fields_once() {
+        let mut first = OverlordContainModuleData::default();
+        let mut next = OverlordContainModuleData::default();
+        INI::new().with_inline_source(
+            "AllowInsideKindOf = INFANTRY\nSlots = 3\nPayloadTemplateName = AuthoredBunker\nExperienceSinkForRider = No\nEnd\nSlots = 7\nEnd",
+            |ini| { first.parse_from_ini(ini)?; next.parse_from_ini(ini) },
+        ).unwrap();
+        assert_eq!(
+            first.base.base.allow_inside_kind_of,
+            KindOf::Infantry.cpp_mask()
+        );
+        assert_eq!(first.base.slot_capacity, 3);
+        assert_eq!(first.payload_template_names, ["AuthoredBunker"]);
+        assert!(!first.experience_sink_for_rider);
+        assert_eq!(next.base.slot_capacity, 7);
+        assert!(next.payload_template_names.is_empty());
+        assert!(next.experience_sink_for_rider);
+    }
+
     use super::*;
     use game_engine::common::system::{XferBlockSize, XferMode, XferStatus};
     use std::io;

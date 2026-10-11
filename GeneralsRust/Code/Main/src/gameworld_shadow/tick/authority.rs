@@ -184,24 +184,11 @@ pub fn gameworld_fire_spawn_authority_live() -> bool {
 }
 
 /// Opt-in GameWorld construction last-writer. Default **off**.
-pub fn gameworld_construction_authority_enabled() -> bool {
-    current_gameworld_authority().construction
-}
 
 /// Construction progress last-writer only while shadow can sole-tick percent.
 #[inline]
-pub fn gameworld_construction_authority_live() -> bool {
-    gameworld_construction_authority_enabled()
-        && gameworld_shadow_enabled()
-        && shadow_coupled_tick_active()
-}
 
 /// Host skips construction percent advance only when authority AND shadow session run.
-pub fn gameworld_construction_sole_tick_enabled() -> bool {
-    gameworld_construction_authority_enabled()
-        && gameworld_shadow_enabled()
-        && shadow_coupled_tick_active()
-}
 
 /// Opt-in GameWorld special-power last-writer. Default **off**.
 pub fn gameworld_special_power_authority_enabled() -> bool {

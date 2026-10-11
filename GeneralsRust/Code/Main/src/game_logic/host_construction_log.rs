@@ -1,7 +1,7 @@
-//! Frame-local host structure construction-complete log for presentation/shadow.
-
+//! Ordered construction completion output owned by the driving match.
+//! Gameplay completion happens immediately; this FIFO only freezes its
+//! presentation receipts. Save/load never replays already-presented events.
 use super::ObjectId;
-use std::cell::RefCell;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostConstructionEvent {
@@ -9,35 +9,27 @@ pub struct HostConstructionEvent {
     pub template_name: String,
 }
 
-thread_local! {
-    static LOG: RefCell<Vec<HostConstructionEvent>> = RefCell::new(Vec::new());
+#[derive(Debug, Default)]
+pub(crate) struct ConstructionEvents {
+    pending: Vec<HostConstructionEvent>,
 }
-
-pub fn record(id: ObjectId, template_name: impl Into<String>) {
-    LOG.with(|log| {
-        log.borrow_mut().push(HostConstructionEvent {
+impl ConstructionEvents {
+    pub(crate) fn record(&mut self, id: ObjectId, template_name: impl Into<String>) {
+        self.pending.push(HostConstructionEvent {
             id,
             template_name: template_name.into(),
         });
-    });
-}
-
-pub fn has_pending(object: ObjectId) -> bool {
-    LOG.with(|log| log.borrow().iter().any(|e| e.id == object))
-}
-
-pub fn drain() -> Vec<HostConstructionEvent> {
-    LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
-}
-
-pub fn clear() {
-    LOG.with(|log| log.borrow_mut().clear());
-}
-
-pub fn snapshot() -> Vec<HostConstructionEvent> {
-    LOG.with(|log| log.borrow().clone())
-}
-
-pub fn len() -> usize {
-    LOG.with(|log| log.borrow().len())
+    }
+    pub(crate) fn pending(&self) -> &[HostConstructionEvent] {
+        &self.pending
+    }
+    pub(crate) fn has_pending(&self, object: ObjectId) -> bool {
+        self.pending.iter().any(|event| event.id == object)
+    }
+    pub(crate) fn drain(&mut self) -> Vec<HostConstructionEvent> {
+        std::mem::take(&mut self.pending)
+    }
+    pub(crate) fn reset(&mut self) {
+        self.pending.clear();
+    }
 }

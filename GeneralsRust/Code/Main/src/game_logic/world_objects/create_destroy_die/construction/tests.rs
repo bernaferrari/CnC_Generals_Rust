@@ -335,3 +335,273 @@ fn structure_player_completion_replaces_only_its_owned_footprint() {
             .is_static_blocked(foreign_cell)
     );
 }
+
+fn attached_completion_engine() -> gamelogic::scripting::engine::ScriptEngine {
+    use gamelogic::scripting::core::{
+        Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+        ScriptActionType, ScriptList,
+    };
+    let mut condition = OrCondition::new();
+    condition.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    let mut outer = Script::new();
+    outer.script_name = "AuthoredCompletion".into();
+    outer.is_subroutine = true;
+    outer.is_one_shot = false;
+    outer.condition = Some(Box::new(condition.clone()));
+    let mut call = ScriptAction::new(ScriptActionType::CallSubroutine);
+    call.add_parameter(Parameter::with_string(
+        ParameterType::Script,
+        "NestedCompletion".into(),
+    ))
+    .unwrap();
+    outer.action = Some(Box::new(call));
+    let mut nested = Script::new();
+    nested.script_name = "NestedCompletion".into();
+    nested.is_subroutine = true;
+    nested.is_one_shot = false;
+    nested.condition = Some(Box::new(condition));
+    let mut text = ScriptAction::new(ScriptActionType::DisplayText);
+    text.add_parameter(Parameter::with_string(
+        ParameterType::TextString,
+        "attached:done".into(),
+    ))
+    .unwrap();
+    nested.action = Some(Box::new(text));
+    let mut list = ScriptList::new();
+    list.append_script(Box::new(outer));
+    list.append_script(Box::new(nested));
+    let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+    engine
+        .set_script_list_for_player(0, Some(Box::new(list)))
+        .unwrap();
+    engine
+}
+
+#[test]
+fn authored_ai_completion_applies_metadata_and_nested_script_to_its_owner() {
+    let (mut first, builder) = construction_world(1000, 7);
+    first.templates.get_mut("OwnedScaffold").unwrap().dock_kind =
+        crate::game_logic::DockKind::SupplyCenter;
+    let (mut foreign, foreign_builder) = construction_world(2000, 11);
+    let make = |world: &mut GameLogic, builder| {
+        world
+            .create_dozer_scaffold(
+                "OwnedScaffold",
+                0,
+                builder,
+                Vec3::ZERO,
+                0.0,
+                Resources {
+                    supplies: 300,
+                    power: 0,
+                },
+            )
+            .unwrap()
+    };
+    let id = make(&mut first, builder);
+    let foreign_id = make(&mut foreign, foreign_builder);
+    assert_eq!(id, foreign_id);
+    prime_ai_completion(&mut first, id);
+    prime_ai_completion(&mut foreign, foreign_id);
+    first.install_owned_script_engine(attached_completion_engine());
+    foreign.install_owned_script_engine(attached_completion_engine());
+    first
+        .ai_manager
+        .ai_players
+        .get_mut(&0)
+        .unwrap()
+        .building_queue[0]
+        .completion = Some(crate::ai::AuthoredStructureCompletion {
+        name: "AuthoredStructure".into(),
+        script: "AuthoredCompletion".into(),
+        health_percent: 25,
+        unsellable: true,
+    });
+    first.frame = 9000;
+    first.notify_structure_construction_complete(id);
+    let object = first.host_object(id).unwrap();
+    assert_eq!(object.name, "AuthoredStructure");
+    assert_eq!(object.health.current, 225.0);
+    assert!(object.is_script_unsellable());
+    assert!(!object.status.under_construction);
+    assert_eq!(first.new_script_messages, ["Transmission: attached:done"]);
+    assert!(
+        first.owned_script_engine.is_some(),
+        "interpreter remains callback visible"
+    );
+    assert!(
+        crate::game_logic::host_preorder_create::has_preorder_model_bit(
+            object.model_condition_bits
+        )
+    );
+    let pad = &first.ai_manager.ai_players[&0].building_queue[0];
+    assert!(pad.supply_building);
+    assert_eq!(pad.current_gatherers, -1);
+    assert!(pad.desired_gatherers >= 1);
+    assert!(
+        !foreign
+            .host_object(foreign_id)
+            .unwrap()
+            .is_script_unsellable()
+    );
+    assert_eq!(foreign.host_object(foreign_id).unwrap().health.current, 1.0);
+    assert!(foreign.new_script_messages.is_empty());
+    assert_eq!(foreign.ai_manager.ai_players[&0].next_building_time, 700.0);
+    first.notify_structure_construction_complete(id);
+    assert_eq!(
+        first.new_script_messages.len(),
+        1,
+        "completion must not replay attachment"
+    );
+}
+
+#[test]
+fn ordinary_completion_records_canonical_academy_exactly_once() {
+    let (mut world, builder) = construction_world(1000, 7);
+    world
+        .templates
+        .get_mut("OwnedScaffold")
+        .unwrap()
+        .add_kind_of(KindOf::FSSupplyCenter)
+        .add_kind_of(KindOf::FSBarracks);
+    let id = world
+        .create_dozer_scaffold(
+            "OwnedScaffold",
+            0,
+            builder,
+            Vec3::ZERO,
+            0.0,
+            Resources {
+                supplies: 300,
+                power: 0,
+            },
+        )
+        .unwrap();
+    world.frame = 9000;
+    assert!(
+        !world
+            .get_player(0)
+            .unwrap()
+            .academy_stats
+            .had_a_supply_center()
+    );
+    world.notify_structure_construction_complete(id);
+    assert!(
+        world
+            .get_player(0)
+            .unwrap()
+            .academy_stats
+            .had_a_supply_center()
+    );
+    let expected = world.get_player(0).unwrap().academy_stats.serialize();
+    world.notify_structure_construction_complete(id);
+    assert_eq!(
+        world.get_player(0).unwrap().academy_stats.serialize(),
+        expected
+    );
+}
+
+#[test]
+fn completion_callback_executes_attachment_with_already_borrowed_interpreter() {
+    let (mut world, builder) = construction_world(1000, 7);
+    let id = world
+        .create_dozer_scaffold(
+            "OwnedScaffold",
+            0,
+            builder,
+            Vec3::ZERO,
+            0.0,
+            Resources {
+                supplies: 300,
+                power: 0,
+            },
+        )
+        .unwrap();
+    prime_ai_completion(&mut world, id);
+    world.install_owned_script_engine(attached_completion_engine());
+    world
+        .ai_manager
+        .ai_players
+        .get_mut(&0)
+        .unwrap()
+        .building_queue[0]
+        .completion = Some(crate::ai::AuthoredStructureCompletion {
+        name: "BorrowedCompletion".into(),
+        script: "AuthoredCompletion".into(),
+        health_percent: 75,
+        unsellable: true,
+    });
+    world
+        .with_owned_script_engine(|engine, world| {
+            assert!(world.owned_script_engine.is_none());
+            world.notify_structure_construction_complete_with_interpreter(id, engine);
+            assert_eq!(world.new_script_messages, ["Transmission: attached:done"]);
+            assert_eq!(world.host_object(id).unwrap().health.current, 675.0);
+        })
+        .unwrap();
+    assert!(world.owned_script_engine.is_some());
+    world.notify_structure_construction_complete(id);
+    assert_eq!(world.new_script_messages.len(), 1);
+}
+
+#[test]
+fn rebuilt_structure_callback_rebinds_only_exact_owned_hole_successor() {
+    let (mut world, builder) = construction_world(1000, 7);
+    let structure = world
+        .create_dozer_scaffold(
+            "OwnedScaffold",
+            0,
+            builder,
+            Vec3::ZERO,
+            0.0,
+            Resources {
+                supplies: 300,
+                power: 0,
+            },
+        )
+        .unwrap();
+    let hole = world
+        .create_object_for_player("OwnedDozer", 0, Vec3::ZERO)
+        .unwrap();
+    let unrelated_hole = world
+        .create_object_for_player("OwnedDozer", 0, Vec3::ZERO)
+        .unwrap();
+    world.host_object_mut(hole).unwrap().is_rebuild_hole = true;
+    world
+        .host_object_mut(hole)
+        .unwrap()
+        .rebuild_reconstructing_id = Some(structure);
+    world
+        .host_object_mut(unrelated_hole)
+        .unwrap()
+        .is_rebuild_hole = true;
+    prime_ai_completion(&mut world, structure);
+    let ai = world.ai_manager.ai_players.get_mut(&0).unwrap();
+    let mut unrelated = ai.building_queue[0].clone();
+    unrelated.object_id = Some(unrelated_hole);
+    ai.building_queue[0].object_id = Some(hole);
+    ai.building_queue[0].completion = Some(crate::ai::AuthoredStructureCompletion {
+        name: "MustNotApply".into(),
+        script: "AuthoredCompletion".into(),
+        health_percent: 25,
+        unsellable: true,
+    });
+    ai.building_queue.insert(0, unrelated);
+    world.install_owned_script_engine(attached_completion_engine());
+    world.notify_owned_ai_structure_produced(structure);
+    let ai = &world.ai_manager.ai_players[&0];
+    assert_eq!(ai.building_queue[0].object_id, Some(unrelated_hole));
+    assert_eq!(ai.building_queue[1].object_id, Some(structure));
+    assert_eq!(ai.next_building_time, 0.0);
+    assert_eq!(ai.next_team_queue_time, 0.0);
+    assert_ne!(world.host_object(structure).unwrap().name, "MustNotApply");
+    assert_eq!(world.host_object(structure).unwrap().health.current, 1.0);
+    assert!(
+        world
+            .host_object(structure)
+            .unwrap()
+            .status
+            .under_construction
+    );
+    assert!(world.new_script_messages.is_empty());
+}

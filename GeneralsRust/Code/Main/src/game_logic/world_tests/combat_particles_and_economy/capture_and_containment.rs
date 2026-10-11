@@ -2526,10 +2526,11 @@ fn overlord_bunker_residual_without_bunker_rejects_enter() {
     );
     assert_eq!(overlord.overlord_bunker_slot_capacity(), 0);
     assert!(
-        !overlord.can_contain(),
-        "Overlord without BattleBunker residual must not accept enter"
+        overlord.can_contain(),
+        "unupgraded Overlord retains its literal portable payload interface"
     );
-    assert_eq!(overlord.transport_capacity(), 0);
+    assert_eq!(overlord.transport_capacity(), 1);
+    assert!(!game_logic.can_unit_enter_normal_target(infantry_id, overlord_id));
 
     game_logic.queue_command(GameCommand {
         command_type: CommandType::Enter {
@@ -2564,6 +2565,11 @@ fn overlord_bunker_residual_enter_sets_docked_state_and_capacity() {
     ensure_test_infantry_template(&mut game_logic);
     // C++ ChinaTankOverlordBattleBunker TransportContain Slots = 5.
     let overlord_id = create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(5));
+    let payload_id = game_logic
+        .host_object(overlord_id)
+        .unwrap()
+        .overlord_portable_occupant
+        .unwrap();
     let infantry_id = game_logic
         .create_object("TestInfantry", Team::China, Vec3::new(2.0, 0.0, 0.0))
         .expect("infantry");
@@ -2573,8 +2579,15 @@ fn overlord_bunker_residual_enter_sets_docked_state_and_capacity() {
         overlord.can_contain() && overlord.overlord_bunker_slot_capacity() == 5,
         "BattleBunker residual must expose 5 infantry slots"
     );
-    assert_eq!(overlord.transport_capacity(), 5);
-    assert_eq!(overlord.transport_count(), 0);
+    assert_eq!(overlord.transport_capacity(), 1);
+    assert_eq!(
+        game_logic
+            .host_object(payload_id)
+            .unwrap()
+            .transport_capacity(),
+        5
+    );
+    assert_eq!(overlord.transport_count(), 1);
 
     game_logic.queue_command(GameCommand {
         command_type: CommandType::Enter {
@@ -2600,7 +2613,11 @@ fn overlord_bunker_residual_enter_sets_docked_state_and_capacity() {
 
     let overlord = game_logic.host_object(overlord_id).expect("overlord after");
     assert!(
-        overlord.contained_units().contains(&infantry_id),
+        game_logic
+            .host_object(payload_id)
+            .unwrap()
+            .contained_units()
+            .contains(&infantry_id),
         "Overlord bunker residual must list loaded infantry"
     );
     assert_eq!(overlord.transport_count(), 1);
@@ -2612,7 +2629,7 @@ fn overlord_bunker_residual_enter_sets_docked_state_and_capacity() {
         AIState::Docked,
         "infantry must be Docked after Overlord bunker residual load"
     );
-    assert_eq!(infantry.contained_by, Some(overlord_id));
+    assert_eq!(infantry.contained_by, Some(payload_id));
     assert!(!infantry.can_move(), "loaded units cannot move freely");
     assert_eq!(game_logic.overlord_bunker_residual_enters(), 1);
     assert_eq!(
@@ -2628,13 +2645,18 @@ fn overlord_bunker_residual_enter_sets_docked_state_and_capacity() {
 }
 
 #[test]
-fn overlord_bunker_enter_sets_rider_experience_sink_to_tank() {
+fn overlord_bunker_payload_sink_does_not_transfer_ordinary_infantry_experience() {
     use crate::command_system::{CommandType, GameCommand};
 
     let mut game_logic = GameLogic::new();
     ensure_test_player_for_team(&mut game_logic, Team::China);
     ensure_test_infantry_template(&mut game_logic);
     let overlord_id = create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(5));
+    let payload_id = game_logic
+        .host_object(overlord_id)
+        .unwrap()
+        .overlord_portable_occupant
+        .unwrap();
     let infantry_id = game_logic
         .create_object("TestInfantry", Team::China, Vec3::new(2.0, 0.0, 0.0))
         .expect("infantry");
@@ -2658,21 +2680,43 @@ fn overlord_bunker_enter_sets_rider_experience_sink_to_tank() {
 
     let infantry = game_logic.host_object(infantry_id).expect("rider");
     assert_eq!(
-        infantry.experience_sink,
-        Some(overlord_id),
-        "Overlord onContaining must setExperienceSink to the tank"
+        infantry.experience_sink, None,
+        "TransportContain infantry do not inherit the outer payload experience sink"
     );
 
+    game_logic
+        .host_object_mut(infantry_id)
+        .unwrap()
+        .template_mut()
+        .is_trainable = true;
     game_logic.award_experience(infantry_id, 40.0);
     let infantry = game_logic.host_object(infantry_id).expect("rider after xp");
     let overlord = game_logic.host_object(overlord_id).expect("tank after xp");
     assert_eq!(
-        infantry.experience.current, 0.0,
-        "bunker occupant must forward kill XP"
+        infantry.experience.current, 40.0,
+        "ordinary bunker infantry retain their kill XP"
     );
     assert_eq!(
-        overlord.experience.current, 40.0,
-        "tank must receive the rider sink forward"
+        overlord.experience.current, 0.0,
+        "tank receives payload XP, not ordinary infantry XP"
+    );
+    assert_eq!(
+        game_logic.host_object(payload_id).unwrap().experience_sink,
+        Some(overlord_id)
+    );
+    game_logic
+        .host_object_mut(payload_id)
+        .unwrap()
+        .template_mut()
+        .is_trainable = true;
+    game_logic.award_experience(payload_id, 20.0);
+    assert_eq!(
+        game_logic
+            .host_object(overlord_id)
+            .unwrap()
+            .experience
+            .current,
+        20.0
     );
 }
 
@@ -2684,6 +2728,11 @@ fn overlord_bunker_residual_load_two_unload_both_free() {
     ensure_test_player_for_team(&mut game_logic, Team::China);
     ensure_test_infantry_template(&mut game_logic);
     let overlord_id = create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(5));
+    let payload_id = game_logic
+        .host_object(overlord_id)
+        .unwrap()
+        .overlord_portable_occupant
+        .unwrap();
 
     let unit_a = game_logic
         .create_object("TestInfantry", Team::China, Vec3::new(1.0, 0.0, 0.0))
@@ -2716,17 +2765,32 @@ fn overlord_bunker_residual_load_two_unload_both_free() {
         .host_object(overlord_id)
         .expect("overlord loaded");
     assert!(
-        overlord.contained_units().contains(&unit_a)
-            && overlord.contained_units().contains(&unit_b),
+        game_logic
+            .host_object(payload_id)
+            .unwrap()
+            .contained_units()
+            .contains(&unit_a)
+            && game_logic
+                .host_object(payload_id)
+                .unwrap()
+                .contained_units()
+                .contains(&unit_b),
         "both infantry must be loaded into Overlord bunker residual"
     );
-    assert_eq!(overlord.transport_count(), 2);
+    assert_eq!(overlord.transport_count(), 1);
+    assert_eq!(
+        game_logic
+            .host_object(payload_id)
+            .unwrap()
+            .transport_count(),
+        2
+    );
     assert_eq!(game_logic.overlord_bunker_residual_enters(), 2);
 
     for unit_id in [unit_a, unit_b] {
         let unit = game_logic.host_object(unit_id).expect("loaded unit");
         assert_eq!(unit.ai_state, AIState::Docked);
-        assert_eq!(unit.contained_by, Some(overlord_id));
+        assert_eq!(unit.contained_by, Some(payload_id));
         assert!(!unit.can_move());
     }
 
@@ -2743,10 +2807,14 @@ fn overlord_bunker_residual_load_two_unload_both_free() {
 
     let overlord = game_logic.host_object(overlord_id).expect("overlord empty");
     assert!(
-        overlord.contained_units().is_empty(),
+        game_logic
+            .host_object(payload_id)
+            .unwrap()
+            .contained_units()
+            .is_empty(),
         "evacuate must clear all Overlord bunker residual occupants"
     );
-    assert_eq!(overlord.transport_count(), 0);
+    assert_eq!(overlord.transport_count(), 1);
 
     for unit_id in [unit_a, unit_b] {
         let unit = game_logic.host_object(unit_id).expect("freed unit");
@@ -2788,6 +2856,11 @@ fn overlord_bunker_residual_capacity_full_rejects_enter() {
     ensure_test_player_for_team(&mut game_logic, Team::China);
     ensure_test_infantry_template(&mut game_logic);
     let overlord_id = create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(1));
+    let payload_id = game_logic
+        .host_object(overlord_id)
+        .unwrap()
+        .overlord_portable_occupant
+        .unwrap();
 
     let first_id = game_logic
         .create_object("TestInfantry", Team::China, Vec3::new(1.0, 0.0, 0.0))
@@ -2800,7 +2873,7 @@ fn overlord_bunker_residual_capacity_full_rejects_enter() {
     game_logic.update_ai(&[first_id, overlord_id], 1.0 / 30.0);
     assert!(
         game_logic
-            .host_object(overlord_id)
+            .host_object(payload_id)
             .unwrap()
             .contained_units()
             .contains(&first_id)
@@ -2831,7 +2904,7 @@ fn overlord_bunker_residual_capacity_full_rejects_enter() {
     assert_ne!(second.target, Some(overlord_id));
     assert_eq!(
         game_logic
-            .host_object(overlord_id)
+            .host_object(payload_id)
             .unwrap()
             .transport_count(),
         1
@@ -2845,6 +2918,11 @@ fn overlord_bunker_residual_rejects_vehicle_enter() {
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
     let overlord_id = create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(5));
+    let payload_id = game_logic
+        .host_object(overlord_id)
+        .unwrap()
+        .overlord_portable_occupant
+        .unwrap();
     let tank_id = game_logic
         .create_object("TestTank", Team::China, Vec3::new(2.0, 0.0, 0.0))
         .expect("tank");
@@ -2870,7 +2948,7 @@ fn overlord_bunker_residual_rejects_vehicle_enter() {
     assert_eq!(game_logic.overlord_bunker_residual_enters(), 0);
     assert!(
         game_logic
-            .host_object(overlord_id)
+            .host_object(payload_id)
             .unwrap()
             .contained_units()
             .is_empty()

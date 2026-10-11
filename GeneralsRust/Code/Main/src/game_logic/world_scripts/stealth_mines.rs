@@ -1484,6 +1484,7 @@ impl GameLogic {
                 }
                 obj.record_host_vision_camo();
             }
+            self.admit_object_drawable_deselection(id);
         }
         self.drain_hidden_drawable_selection();
         self.drain_masked_object_selection();
@@ -2578,6 +2579,7 @@ impl GameLogic {
             }
         }
 
+        self.drain_masked_object_selection();
         for (id, n) in detonate {
             let pos = self
                 .objects
@@ -2589,6 +2591,7 @@ impl GameLogic {
                     break;
                 }
             }
+            self.admit_object_drawable_deselection(id);
             // C++ onDamage after the loop: regen pads at 0 HP restore MIN_HEALTH.
             if let Some(obj) = self.objects.get_mut(&id) {
                 if let Some(md) = obj.mine_data.as_mut() {
@@ -3164,6 +3167,7 @@ impl GameLogic {
                 obj.set_status_masked(false);
             }
         }
+        self.admit_object_drawable_deselection(mine_id);
         let (damage, radius, kind, mine_team, producer) = {
             let obj = self.objects.get(&mine_id).unwrap();
             let md = obj.mine_data.as_ref().unwrap();
@@ -3229,6 +3233,7 @@ impl GameLogic {
             }
         }
 
+        self.admit_object_drawable_deselection(mine_id);
         self.mine_residual_clears = self.mine_residual_clears.saturating_add(1);
 
         self.queue_audio_event(
@@ -3652,6 +3657,7 @@ impl GameLogic {
                         victim.set_status_disabled_unmanned(true);
                         victim.team = Team::Neutral;
                     }
+                    self.admit_host_radar_disabled_edges(vid);
                 }
             }
         }

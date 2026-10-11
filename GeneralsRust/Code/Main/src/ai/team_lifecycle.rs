@@ -2,7 +2,6 @@
 //! Main owns the objects and controllers; Core supplies only team metadata.
 
 use super::*;
-use gamelogic::scripting::engine::ScriptEngineHandle;
 
 pub(super) type TeamDestroyObserver<'a> = dyn FnMut(&mut AIPlayer, &mut GameLogic, u32, &str) + 'a;
 
@@ -33,8 +32,38 @@ impl GameLogic {
         &mut self,
         actor: &mut AIPlayer,
         id: u32,
-        scripts: &ScriptEngineHandle,
         notify: &mut TeamDestroyObserver<'_>,
+    ) -> bool {
+        self.delete_ai_team_with_observer(id, |world, name| notify(actor, world, id, name))
+    }
+
+    pub(super) fn delete_canonical_ai_team(&mut self, id: u32) -> bool {
+        self.delete_ai_team_with_observer(id, |world, name| {
+            for ai in world.ai_manager.ai_players.values_mut() {
+                ai.ai_pre_team_destroy(Some(id), name);
+            }
+        })
+    }
+
+    pub(crate) fn delete_canonical_ai_team_with_interpreter(
+        &mut self,
+        id: u32,
+        engine: &gamelogic::scripting::engine::ScriptEngine,
+    ) -> bool {
+        self.delete_ai_team_with_observer(id, |world, name| {
+            // The frame interpreter is borrowed by its driver, so it is not
+            // discoverable through world's detached Option during this phase.
+            engine.notify_of_team_destruction(id);
+            for ai in world.ai_manager.ai_players.values_mut() {
+                ai.ai_pre_team_destroy(Some(id), name);
+            }
+        })
+    }
+
+    fn delete_ai_team_with_observer(
+        &mut self,
+        id: u32,
+        notify: impl FnOnce(&mut Self, &str),
     ) -> bool {
         let deletion = self
             .team_factory
@@ -56,11 +85,11 @@ impl GameLogic {
         }
         // The engine is resolved once by the caller. Its process lifetime is
         // still a documented application seam; deletion cannot choose one.
-        if let Some(engine) = scripts.write().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        if let Some(engine) = &self.owned_script_engine {
             engine.notify_of_team_destruction(id);
         }
         // C++ numeric PlayerList order, before Object::setTeam(NULL).
-        notify(actor, self, id, deletion.name());
+        notify(self, deletion.name());
         for member in deletion.members() {
             if let Some(object) = self.host_object_mut(ObjectId(*member)) {
                 if object

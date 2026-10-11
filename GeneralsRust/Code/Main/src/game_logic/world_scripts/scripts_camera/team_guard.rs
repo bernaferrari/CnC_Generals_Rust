@@ -113,6 +113,22 @@ impl GameLogic {
         Ok(())
     }
 
+    /// CPP ScriptActions timed Guard dispatches groupIdle, not GuardPosition.
+    pub(super) fn apply_owned_team_idle(
+        &mut self,
+        team: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> gamelogic::GameLogicResult<()> {
+        let Some((_id, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
+            return Ok(());
+        };
+        for member in members {
+            self.apply_owned_script_idle(ObjectId(member));
+        }
+        Ok(())
+    }
+
     pub(super) fn apply_owned_team_sequential(
         &mut self,
         raw_team: &str,
@@ -144,7 +160,7 @@ impl GameLogic {
 
     pub(crate) fn execute_script_team_actions(
         &mut self,
-        engine: &mut gamelogic::scripting::engine::ScriptEngine,
+        engine: &gamelogic::scripting::engine::ScriptEngine,
         action: &gamelogic::scripting::core::ScriptAction,
         team_id: Option<u32>,
     ) {
@@ -152,7 +168,9 @@ impl GameLogic {
             action,
             team_id,
             gamelogic::scripting::executor::ScriptContext::at_frame(self.frame),
-            &mut super::script_execution_driver::HostScriptExecutionDriver::new(self),
+            &mut super::script_execution_driver::HostScriptExecutionDriver::with_interpreter(
+                self, engine,
+            ),
         );
     }
 }

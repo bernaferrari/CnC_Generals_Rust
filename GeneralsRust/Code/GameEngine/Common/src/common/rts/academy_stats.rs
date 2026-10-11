@@ -11,8 +11,8 @@ use crate::common::time;
 
 use super::handles::{CommandSetHandle, FrameNumber, PlayerHandle, ThingTemplateHandle};
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 static LOCAL_PLAYER_MINES: AtomicU32 = AtomicU32::new(0);
 static NEUTRAL_VEHICLES_SNIPED: AtomicU32 = AtomicU32::new(0);
@@ -146,7 +146,7 @@ impl AcademyClassificationType {
 ///
 /// Tracks various player behaviors and provides advice for improvement.
 /// Organizes advice into three tiers: basic, intermediate, and advanced.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AcademyStats {
     /// Player this stats tracker belongs to
     player: PlayerHandle,
@@ -415,7 +415,7 @@ impl AcademyStats {
                 if let Some(world) = crate::common::rts::player::get_player_object_world() {
                     for id in world.object_ids_for_player(self.player.value() as i32) {
                         if let Some(snap) = world.snapshot(id) {
-                            self.record_production(snap.kind_of as u64, snap.has_contain);
+                            self.record_production(snap.kind_of, snap.has_contain);
                         }
                     }
                 }
@@ -468,47 +468,32 @@ impl AcademyStats {
     ///
     /// Note: Original C++ takes Object* and checks isKindOf() and getContain().
     /// We simplify by accepting pre-computed flags since Object system isn't available yet.
-    pub fn record_production(&mut self, kindof_flags: u64, has_tunnel_contain: bool) {
-        self.mark_event();
-        let now = time::frame();
+    pub fn record_production(&mut self, kindof_flags: u128, has_tunnel_contain: bool) {
+        self.record_production_at(kindof_flags, has_tunnel_contain, time::frame());
+    }
 
-        // KINDOF flag constants (these should match C++ KINDOF definitions)
-        const KINDOF_FS_SUPPLY_CENTER: u64 = 1 << 0;
-        const KINDOF_DOZER: u64 = 1 << 1;
-        const KINDOF_INFANTRY: u64 = 1 << 2;
-        const KINDOF_VEHICLE: u64 = 1 << 3;
-        const KINDOF_HARVESTER: u64 = 1 << 4;
-        const KINDOF_HERO: u64 = 1 << 5;
-        const KINDOF_FS_STRATEGY_CENTER: u64 = 1 << 6;
-        const KINDOF_MONEY_HACKER: u64 = 1 << 7;
-        const KINDOF_FS_BLACK_MARKET: u64 = 1 << 8;
-        const KINDOF_FS_SUPPLY_DROPZONE: u64 = 1 << 9;
-        const KINDOF_FS_BARRACKS: u64 = 1 << 10;
-        const KINDOF_FS_WARFACTORY: u64 = 1 << 11;
-        const KINDOF_FS_ADVANCED_TECH: u64 = 1 << 12;
-        const KINDOF_DISGUISER: u64 = 1 << 13;
-
+    /// Record production against the driving session's frame, retaining retail
+    /// KindOf bit positions above bit 63. No ambient clock or object lookup.
+    pub fn record_production_at(&mut self, kindof_flags: u128, has_tunnel_contain: bool, now: u32) {
+        use crate::common::system::kind_of::KindOfMask as K;
+        self.last_event_frame = now;
         // C++ lines 346-351: Track supply centers built
-        if (kindof_flags & KINDOF_FS_SUPPLY_CENTER) != 0 {
+        if (kindof_flags & K::FS_SUPPLY_CENTER.bits()) != 0 {
             self.supply_centers_built += 1;
         }
 
         // C++ lines 353-357: Track dozers/workers built
-        if (kindof_flags & KINDOF_DOZER) != 0 {
+        if (kindof_flags & K::DOZER.bits()) != 0 {
             self.peons_built += 1;
         }
 
         // C++ lines 359-376: Track military unit production idle time
-        if ((kindof_flags & KINDOF_INFANTRY) != 0 || (kindof_flags & KINDOF_VEHICLE) != 0)
-            && (kindof_flags & KINDOF_DOZER) == 0
-            && (kindof_flags & KINDOF_HARVESTER) == 0
+        if ((kindof_flags & K::INFANTRY.bits()) != 0 || (kindof_flags & K::VEHICLE.bits()) != 0)
+            && (kindof_flags & K::DOZER.bits()) == 0
+            && (kindof_flags & K::HARVESTER.bits()) == 0
         {
             // How long has it been since we built our last unit?
-            let idle_frames = if self.last_unit_built_frame > 0 {
-                now - self.last_unit_built_frame
-            } else {
-                0
-            };
+            let idle_frames = now.wrapping_sub(self.last_unit_built_frame);
 
             // If it was longer than our max time, record it
             if idle_frames > self.idle_building_units_max_frames {
@@ -520,17 +505,17 @@ impl AcademyStats {
         }
 
         // C++ lines 378-382: Track extra gatherers built
-        if (kindof_flags & KINDOF_HARVESTER) != 0 {
+        if (kindof_flags & K::HARVESTER.bits()) != 0 {
             self.gatherers_built += 1;
         }
 
         // C++ lines 384-388: Track heroes built
-        if (kindof_flags & KINDOF_HERO) != 0 {
+        if (kindof_flags & K::HERO.bits()) != 0 {
             self.heroes_built += 1;
         }
 
         // C++ lines 390-394: Track strategy center
-        if (kindof_flags & KINDOF_FS_STRATEGY_CENTER) != 0 {
+        if (kindof_flags & K::FS_STRATEGY_CENTER.bits()) != 0 {
             self.had_a_strategy_center = true;
         }
 
@@ -540,36 +525,36 @@ impl AcademyStats {
         }
 
         // C++ lines 402-406: Track secondary income buildings
-        if (kindof_flags & KINDOF_MONEY_HACKER) != 0
-            || (kindof_flags & KINDOF_FS_BLACK_MARKET) != 0
-            || (kindof_flags & KINDOF_FS_SUPPLY_DROPZONE) != 0
+        if (kindof_flags & K::MONEY_HACKER.bits()) != 0
+            || (kindof_flags & K::FS_BLACK_MARKET.bits()) != 0
+            || (kindof_flags & K::FS_SUPPLY_DROPZONE.bits()) != 0
         {
             self.secondary_income_units_built += 1;
         }
 
         // C++ lines 408-415: Track barracks built within 5 minutes
-        if (kindof_flags & KINDOF_FS_BARRACKS) != 0 {
-            if time::frame() <= 300 * LOGICFRAMES_PER_SECOND {
+        if (kindof_flags & K::FS_BARRACKS.bits()) != 0 {
+            if now <= 300 * LOGICFRAMES_PER_SECOND {
                 self.built_barracks_within_five_minutes = true;
             }
         }
 
         // C++ lines 417-424: Track war factory built within 10 minutes
-        if (kindof_flags & KINDOF_FS_WARFACTORY) != 0 {
-            if time::frame() <= 600 * LOGICFRAMES_PER_SECOND {
+        if (kindof_flags & K::FS_WARFACTORY.bits()) != 0 {
+            if now <= 600 * LOGICFRAMES_PER_SECOND {
                 self.built_war_factory_within_ten_minutes = true;
             }
         }
 
         // C++ lines 426-433: Track tech structure built within 15 minutes
-        if (kindof_flags & KINDOF_FS_ADVANCED_TECH) != 0 {
-            if time::frame() <= 900 * LOGICFRAMES_PER_SECOND {
+        if (kindof_flags & K::FS_ADVANCED_TECH.bits()) != 0 {
+            if now <= 900 * LOGICFRAMES_PER_SECOND {
                 self.built_tech_structure_within_fifteen_minutes = true;
             }
         }
 
         // C++ lines 435-439: Track disguisable vehicles
-        if (kindof_flags & KINDOF_DISGUISER) != 0 {
+        if (kindof_flags & K::DISGUISER.bits()) != 0 {
             self.disguisable_vehicles_built += 1;
         }
     }
@@ -1428,20 +1413,52 @@ mod tests {
         let mut stats = AcademyStats::new();
 
         // Supply center
-        const KINDOF_FS_SUPPLY_CENTER: u64 = 1 << 0;
+        let KINDOF_FS_SUPPLY_CENTER =
+            crate::common::system::kind_of::KindOfMask::FS_SUPPLY_CENTER.bits();
         stats.record_production(KINDOF_FS_SUPPLY_CENTER, false);
         assert_eq!(stats.supply_centers_built, 1);
         assert!(stats.had_a_supply_center());
 
         // Dozer
-        const KINDOF_DOZER: u64 = 1 << 1;
+        let KINDOF_DOZER = crate::common::system::kind_of::KindOfMask::DOZER.bits();
         stats.record_production(KINDOF_DOZER, false);
         assert_eq!(stats.peons_built, 1);
 
         // Hero
-        const KINDOF_HERO: u64 = 1 << 5;
+        let KINDOF_HERO = crate::common::system::kind_of::KindOfMask::HERO.bits();
         stats.record_production(KINDOF_HERO, false);
         assert_eq!(stats.heroes_built, 1);
+    }
+
+    #[test]
+    fn production_uses_retail_high_bits_and_explicit_frame() {
+        use crate::common::system::kind_of::KindOfMask as K;
+        let mut stats = AcademyStats::new();
+        stats.record_production_at(
+            K::FS_SUPPLY_CENTER.bits()
+                | K::DOZER.bits()
+                | K::FS_BARRACKS.bits()
+                | K::DISGUISER.bits(),
+            false,
+            9000,
+        );
+        assert_eq!(stats.supply_centers_built, 1);
+        assert_eq!(stats.peons_built, 1);
+        assert_eq!(stats.disguisable_vehicles_built, 1);
+        assert!(stats.built_barracks_within_five_minutes);
+        assert!(!stats.had_a_tunnel_network);
+        stats.record_production_at(K::INFANTRY.bits(), true, 9100);
+        assert!(stats.had_a_tunnel_network);
+        assert_eq!(stats.idle_building_units_max_frames, 9100);
+        assert_eq!(stats.last_unit_built_frame, 9100);
+        let mut late = AcademyStats::new();
+        late.record_production_at(K::FS_BARRACKS.bits(), false, 9001);
+        assert!(!late.built_barracks_within_five_minutes);
+        let mut restored = AcademyStats::new();
+        restored.deserialize(&stats.serialize());
+        restored.record_production_at(K::INFANTRY.bits(), false, 9200);
+        stats.record_production_at(K::INFANTRY.bits(), false, 9200);
+        assert_eq!(restored.serialize(), stats.serialize());
     }
 
     #[test]

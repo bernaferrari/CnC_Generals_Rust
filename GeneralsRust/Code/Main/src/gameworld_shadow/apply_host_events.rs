@@ -1143,28 +1143,24 @@ impl GameWorldShadow {
         updated
     }
 
-    /// Apply construction progress log as SetConstruction mutations.
-    pub fn apply_host_construction_progress_events(
-        &mut self,
-        events: &[crate::game_logic::host_construction_progress_log::HostConstructionProgressEvent],
-    ) -> usize {
-        let mut n = 0usize;
-        for ev in events {
-            self.construction_rate_by_host
-                .insert(ev.object.0, ev.effective_rate);
-            // Wave 478: sole-tick rate-only events must not stomp GW construction percent.
-            if ev.rate_only {
-                n += 1;
+    /// Observe construction from the driving session without changing simulation state.
+    pub fn observe_host_construction(&mut self, logic: &crate::game_logic::GameLogic) -> usize {
+        let mut observed = 0;
+        for (&host, &entity) in &self.host_to_entity {
+            let (Some(object), Some(projection)) = (
+                logic.host_object(ObjectId(host)),
+                self.world.world_mut().entity_mut(entity),
+            ) else {
                 continue;
-            }
-            if self.queue_set_construction_for_host(ev.object, ev.percent, ev.under_construction) {
-                n += 1;
-            }
+            };
+            projection.construction_percent = object.construction_percent;
+            projection.under_construction = object.status.under_construction;
+            projection.sold = object.status.sold;
+            projection.reconstructing = object.status.reconstructing;
+            projection.unselectable = object.status.unselectable;
+            observed += 1;
         }
-        if n > 0 {
-            let _ = self.apply_pending();
-        }
-        n
+        observed
     }
 
     /// Queue SetTransform for a mapped host object (move-command channel).

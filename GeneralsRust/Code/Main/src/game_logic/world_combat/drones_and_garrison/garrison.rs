@@ -312,6 +312,7 @@ impl GameLogic {
                 occupant.set_status_moving(false);
                 occupant.set_ai_state(AIState::Garrisoned);
             }
+            self.admit_object_drawable_deselection(occupant_id);
             self.apply_garrison_contain_on_enter(container_id, occupant_id);
             self.stamp_player_who_entered(container_id, occupant_id);
             // C++ OpenContain::addToContain doLoadSound (once per frame).
@@ -682,6 +683,7 @@ impl GameLogic {
         unit_id: ObjectId,
         container_id: ObjectId,
     ) {
+        let container_id = self.redirected_containment_owner(container_id);
         let unit_pos = self.objects.get(&unit_id).map(|u| u.get_position());
         let Some(container) = self.objects.get(&container_id) else {
             return;
@@ -757,8 +759,8 @@ impl GameLogic {
                 disposition == 1 || disposition == 2
             });
             if !side_dump {
-                if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() {
-                    start.y = terrain.get_ground_height(start.x, start.z, None);
+                if let Some(height) = self.terrain_height_at(start) {
+                    start.y = height;
                 }
             }
         }

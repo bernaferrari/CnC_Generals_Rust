@@ -21,6 +21,47 @@ use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
 impl<'a> CommandExecutor<'a> {
+    /// Dispatch a supplied effective definition without interpreting its name.
+    /// C++ Object::doCommandButton dispatches the authored GUI command; the
+    /// special-power module resolves the exact authored template on each object.
+    pub(crate) fn execute_authored_command_button(
+        &mut self,
+        units: &[ObjectId],
+        definition: &game_engine::common::ini::ini_command_button::CommandButton,
+        location: Option<Vec3>,
+        target: Option<ObjectId>,
+    ) -> CommandResult {
+        if definition.command.eq_ignore_ascii_case("STOP") {
+            return self.execute_stop(units);
+        }
+        if !definition.command.eq_ignore_ascii_case("SPECIAL_POWER") {
+            return CommandResult::InvalidCommand;
+        }
+        let Some(template) = definition.special_power_template.as_deref() else {
+            return CommandResult::InvalidCommand;
+        };
+        let target = target
+            .map(PowerTarget::Object)
+            .or_else(|| location.map(PowerTarget::Location))
+            .unwrap_or(PowerTarget::None);
+        let mut result = CommandResult::InvalidCommand;
+        for &id in units {
+            let power = self.game_logic.host_object(id).and_then(|object| {
+                object
+                    .thing()
+                    .template
+                    .special_power_modules
+                    .iter()
+                    .find(|module| module.special_power_template == template)
+                    .and_then(|module| module.command_power.clone())
+            });
+            if let Some(power) = power {
+                result = self.execute_special_power(&[id], &power, &target);
+            }
+        }
+        result
+    }
+
     /// C++ AIGroup::groupDoCommandButtonUsingWaypoints residual.
     pub(crate) fn execute_do_command_button_using_waypoints(
         &mut self,

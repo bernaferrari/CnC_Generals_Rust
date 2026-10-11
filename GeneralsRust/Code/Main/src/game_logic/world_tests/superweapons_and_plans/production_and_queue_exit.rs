@@ -354,8 +354,7 @@ fn host_construction_completes_when_sole_tick_unmapped() {
         // Opt this instance into construction authority (retired env
         // channel); with shadow on + coupled frame this makes the sole-tick
         // gate observable.
-        game_logic.set_construction_authority(true);
-        assert!(crate::gameworld_shadow::gameworld_construction_sole_tick_enabled());
+
         ensure_test_infantry_template(&mut game_logic);
         if let Some(t) = game_logic.templates.get_mut("TestBarracks") {
             t.build_time = 1.0;

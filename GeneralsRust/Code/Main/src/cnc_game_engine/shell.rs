@@ -1902,6 +1902,7 @@ impl CnCGameEngine {
                         game_info_starting_cash = Some(replay_cash);
                     }
                     game_logic.start_new_game(startup_mode);
+                    Self::admit_startup_difficulty(&mut game_logic, startup_new_game);
                     game_logic.admit_new_game_starting_cash(game_info_starting_cash, default_starting_cash);
 
                     let mut loaded_map_name = None;

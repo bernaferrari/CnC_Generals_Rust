@@ -241,12 +241,9 @@ pub(super) fn evaluate(
         gameworld_authority_matrix_live_wave179_ok: simulate_gameworld_authority_matrix_honesty(),
         ai_fire_construction_authority_env_ok: {
             use crate::gameworld_shadow::{
-                gameworld_ai_attack_authority_enabled, gameworld_construction_authority_enabled,
-                gameworld_fire_spawn_authority_enabled,
+                gameworld_ai_attack_authority_enabled, gameworld_fire_spawn_authority_enabled,
             };
-            gameworld_ai_attack_authority_enabled()
-                && gameworld_construction_authority_enabled()
-                && gameworld_fire_spawn_authority_enabled()
+            gameworld_ai_attack_authority_enabled() && gameworld_fire_spawn_authority_enabled()
         },
         live_gameworld_production_writeback_method_names_wave180_ok:
             honesty_live_gameworld_production_writeback_method_names_residual_wave180(),

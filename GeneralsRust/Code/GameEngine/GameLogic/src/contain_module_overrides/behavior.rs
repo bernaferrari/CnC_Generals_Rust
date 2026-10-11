@@ -235,13 +235,34 @@ active_behavior_factories!(
     PropagandaTowerBehavior,
     "PropagandaTowerBehavior"
 );
-active_behavior_factories!(
-    radar_update_data_factory,
-    radar_update_module_factory,
-    RadarUpdateModuleData,
-    RadarUpdate,
-    "RadarUpdate"
-);
+pub(super) fn radar_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = RadarUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!("Failed to parse RadarUpdate data: {err}");
+        }
+    }
+    Box::new(data)
+}
+
+pub(super) fn radar_update_module_factory(
+    _thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data = cloned_module_data::<RadarUpdateModuleData>("RadarUpdate", &module_data);
+    Box::new(
+        crate::object::behavior::radar_update::RadarUpdateModule::new(
+            RadarUpdate::from_config(
+                module_data
+                    .get_radar_update_config()
+                    .expect("RadarUpdate rules"),
+            ),
+            &AsciiString::from("RadarUpdate"),
+            data,
+        ),
+    )
+}
+
 active_behavior_factories!(
     spectre_gunship_deployment_update_data_factory,
     spectre_gunship_deployment_update_module_factory,

@@ -116,4 +116,46 @@ impl INI {
             }
         }
     }
+
+    /// Read one block through a three-level C++ MultiIniFieldParse hierarchy.
+    /// Ancestor tables have precedence, and all fields share the same End.
+    pub fn init_from_ini_with_ancestor_fields<T, B, A>(
+        &mut self,
+        target: &mut T,
+        base: fn(&mut T) -> &mut B,
+        ancestor: fn(&mut B) -> &mut A,
+        ancestor_fields: &[FieldParse<A>],
+        base_fields: &[FieldParse<B>],
+        fields: &[FieldParse<T>],
+    ) -> INIResult<()> {
+        loop {
+            self.read_line()?;
+            let line = self.buffer.clone();
+            if let Some((key, tokens)) = parse_field_line(&line) {
+                if key.eq_ignore_ascii_case("End") {
+                    return Ok(());
+                }
+                if let Some(field) = ancestor_fields
+                    .iter()
+                    .find(|f| f.token.eq_ignore_ascii_case(key))
+                {
+                    (field.parse)(self, ancestor(base(target)), &tokens)?;
+                } else if let Some(field) = base_fields
+                    .iter()
+                    .find(|f| f.token.eq_ignore_ascii_case(key))
+                {
+                    (field.parse)(self, base(target), &tokens)?;
+                } else if let Some(field) =
+                    fields.iter().find(|f| f.token.eq_ignore_ascii_case(key))
+                {
+                    (field.parse)(self, target, &tokens)?;
+                } else {
+                    return Err(INIError::UnknownToken);
+                }
+            }
+            if self.end_of_file {
+                return Err(INIError::EndOfFile);
+            }
+        }
+    }
 }

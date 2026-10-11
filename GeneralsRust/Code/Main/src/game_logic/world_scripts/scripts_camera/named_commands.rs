@@ -77,7 +77,7 @@ impl GameLogic {
 
     /// The bounded onExit phase shared by commands that clear the current
     /// AI machine. It borrows only the canonical object, with no registry lookup.
-    fn clear_owned_named_ai_goal(unit: &mut Object) {
+    pub(super) fn clear_owned_named_ai_goal(unit: &mut Object) {
         if unit.hunting || matches!(unit.ai_state, AIState::Patrolling) {
             unit.release_weapon_lock(WeaponLockType::LockedTemporarily);
         }
@@ -220,12 +220,109 @@ impl GameLogic {
         self.return_guard_to_post(id);
     }
 
+    /// CPP privateEvacuate(FALSE) orders AI_EXIT in contained-list order;
+    /// onEnter notifies the container synchronously, while its update waits
+    /// for landing and doors before removing the passenger.
+    fn order_owned_script_passengers_to_exit(&mut self, container_id: ObjectId) {
+        let Some(container) = self.host_object(container_id) else {
+            return;
+        };
+        if container.is_subdued_disabled() {
+            return;
+        }
+        let passengers = container.contained_units();
+        for passenger in passengers {
+            if passenger == container_id
+                || !self.host_object(passenger).is_some_and(|p| {
+                    p.has_ai_update_interface()
+                        && p.is_alive()
+                        && !p.status.effectively_dead
+                        && p.contained_by == Some(container_id)
+                })
+            {
+                continue;
+            }
+            self.drop_jet_targeters_on_attack_exit(passenger);
+            self.clear_unit_movement_path(passenger);
+            let object = self.host_object_mut(passenger).expect("resolved passenger");
+            Self::clear_owned_named_ai_goal(object);
+            object.set_target(Some(container_id));
+            object.last_command_source =
+                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
+            object.set_ai_state(AIState::Exiting);
+            // ChinookAIUpdate::onObjectWantsToEnterOrExit makes idle flight
+            // seek a landing place. No passenger is removed by this command.
+            if let Some(ai) = self
+                .host_object_mut(container_id)
+                .and_then(|c| c.chinook_ai.as_mut())
+            {
+                ai.wanting_enter_or_exit = true;
+            }
+        }
+    }
+
+    /// CPP AIExitState::update. The goal and passenger are resolved from this
+    /// instance each time, so deletion/replacement cannot select another world.
+    pub(crate) fn update_owned_passenger_exit(&mut self, passenger: ObjectId) {
+        let Some(object) = self.host_object(passenger) else {
+            return;
+        };
+        let Some(container_id) = object.target.filter(|id| *id != passenger) else {
+            self.apply_owned_script_idle(passenger);
+            return;
+        };
+        let can_rappel = object.is_kind_of(KindOf::Infantry);
+        let Some(container) = self.host_object(container_id) else {
+            self.apply_owned_script_idle(passenger);
+            return;
+        };
+        // A malformed or stale restored relationship must not eject a rider
+        // from a different container or manufacture a passenger at this one.
+        if object.contained_by != Some(container_id)
+            || !container.contained_units().contains(&passenger)
+            || !container.can_contain()
+        {
+            self.apply_owned_script_idle(passenger);
+            return;
+        }
+        if container.is_subdued_disabled()
+            || container.is_transport_exit_busy(self.frame)
+            || container.chinook_ai.as_ref().is_some_and(|ai| {
+                ai.ai_free_to_exit(can_rappel)
+                    == crate::game_logic::host_combat_chinook::HostChinookFreeToExit::WaitToExit
+            })
+        {
+            return;
+        }
+        if container.is_garrison_contain() {
+            self.host_object_mut(container_id)
+                .unwrap()
+                .remove_occupant(passenger);
+            self.garrison_exit_occupant_via_door(passenger, container_id);
+        } else {
+            self.unit_command_exit_via_open_contain(passenger, container_id);
+        }
+        if self
+            .host_object(passenger)
+            .is_some_and(|p| p.ai_state == AIState::Exiting)
+        {
+            self.apply_owned_script_idle(passenger);
+        }
+    }
+
     pub(super) fn apply_owned_named_script_command(
         &mut self,
         request: ScriptNamedCommand<'_>,
         this_object: Option<ObjectId>,
     ) {
         match request {
+            ScriptNamedCommand::Stop { unit } => {
+                if let Some(id) = self.owned_named_script_object(unit, this_object) {
+                    // CPP4519 Idle alone: retain group and current locomotor.
+                    self.apply_owned_script_idle(id);
+                }
+                return;
+            }
             ScriptNamedCommand::Hunt { unit } => {
                 self.apply_owned_named_hunt(unit, this_object);
                 return;
@@ -257,7 +354,9 @@ impl GameLogic {
                     .unwrap()
                     .set_formation(0, glam::Vec2::ZERO);
                 self.apply_unit_locomotor_set(id, "normal");
-                if !self.owned_named_ai_command_admitted(id) {
+                if !self.owned_named_ai_command_admitted(id)
+                    || !self.can_unit_enter_script_target(id, target)
+                {
                     return;
                 }
                 self.host_object_mut(id).unwrap().last_command_source =
@@ -293,9 +392,7 @@ impl GameLogic {
                     .unwrap()
                     .set_formation(0, glam::Vec2::ZERO);
                 self.apply_unit_locomotor_set(id, "normal");
-                self.host_object_mut(id).unwrap().last_command_source =
-                    crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
-                self.evacuate_container_now(id, false);
+                self.order_owned_script_passengers_to_exit(id);
                 return;
             }
             _ => {}
@@ -304,6 +401,7 @@ impl GameLogic {
             ScriptNamedCommand::ForceAttack { unit, target }
             | ScriptNamedCommand::FaceObject { unit, target } => (unit, target),
             ScriptNamedCommand::Hunt { .. }
+            | ScriptNamedCommand::Stop { .. }
             | ScriptNamedCommand::Guard { .. }
             | ScriptNamedCommand::Enter { .. }
             | ScriptNamedCommand::Evacuate { .. } => {
@@ -342,6 +440,7 @@ impl GameLogic {
         self.apply_unit_locomotor_set(id, "normal");
         match request {
             ScriptNamedCommand::Hunt { .. }
+            | ScriptNamedCommand::Stop { .. }
             | ScriptNamedCommand::Guard { .. }
             | ScriptNamedCommand::Enter { .. }
             | ScriptNamedCommand::Evacuate { .. } => {

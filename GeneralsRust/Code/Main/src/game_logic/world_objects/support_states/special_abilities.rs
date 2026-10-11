@@ -1983,6 +1983,7 @@ impl GameLogic {
                 rider.set_status_moving(false);
                 rider.set_status_attacking(false);
             }
+            self.admit_object_drawable_deselection(rider_id);
             return true;
         }
 
@@ -2039,6 +2040,7 @@ impl GameLogic {
                     previous.set_rider_change_veterancy_level(bike_veterancy);
                 }
             }
+            self.admit_object_drawable_deselection(previous_rider_id);
             if let Some(container) = self.objects.get_mut(&container_id) {
                 clear_rider_change_runtime_state(container, Some(&previous_metadata));
                 if previous_has_controller {
@@ -2094,6 +2096,7 @@ impl GameLogic {
             rider.deselect();
         }
 
+        self.admit_object_drawable_deselection(rider_id);
         // This is a visual/weapon mirror only.  It receives the parsed RiderN
         // ordinal, never the incoming rider's template spelling; the generic
         // `refresh_combat_cycle_rider_weapon` is intentionally not called.
@@ -2112,6 +2115,9 @@ impl GameLogic {
             }
         }
         if let Some(player_id) = plan.incoming_selection_player {
+            if self.is_local_selection_player(player_id) {
+                self.admit_local_drawable_selected(container_id);
+            }
             // C++ sends MSG_CREATE_SELECTED_GROUP(false, bike) before
             // TransportContain automatically deselects the rider.  Mirror
             // both the per-object bits above and the authoritative local
@@ -2224,6 +2230,10 @@ impl GameLogic {
                 .get(&container_id)
                 .and_then(|container| container.owner_player_id)
             {
+                self.admit_local_drawable_deselected(container_id);
+                if self.is_local_selection_player(player_id) {
+                    self.admit_local_drawable_selected(rider_id);
+                }
                 if let Some(player) = self.players.get_mut(&player_id) {
                     player.selected_objects.retain(|id| *id != container_id);
                     if !player.selected_objects.contains(&rider_id) {
@@ -2707,6 +2717,7 @@ impl GameLogic {
             self.begin_hacker_disable_building_packing(object_id, target_id, metadata.pack_time_ms);
             return;
         }
+        self.admit_host_radar_disabled_edges(target_id);
         let do_fx = *self
             .hero_abilities
             .disable_fx_toggle

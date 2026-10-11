@@ -475,141 +475,28 @@ impl GameWorldShadow {
         updated
     }
 
-    pub fn writeback_rebuild_producer_to_host(&mut self, logic: &mut GameLogic) -> usize {
-        let mut updated = 0usize;
-        let host_frame = logic.get_frame();
-        use gamelogic::world::WorldMutation;
-        // Wave 740: (hole_hid, ready_frame, template, pos, orient, owner, health)
-        let mut sole_ready_intents: Vec<(u32, u32, String, [f32; 3], f32, Option<PlayerId>, f32)> =
-            Vec::new();
-        for (&hid, &eid) in &self.host_to_entity {
-            let Some(ent) = self.world.entity(eid) else {
-                continue;
-            };
-            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
-                continue;
-            };
-            // Wave 759: under coupled tick, host log pending = mid-frame authority.
-            if shadow_coupled_tick_active()
-                && crate::game_logic::host_rebuild_producer_log::has_pending(ObjectId(hid))
-            {
-                continue;
-            }
-            let host_tpl = obj.rebuild_template_name.clone().unwrap_or_default();
-            let changed = obj.is_rebuild_hole != ent.is_rebuild_hole
-                || host_tpl != ent.rebuild_template_name
-                || obj.rebuild_ready_frame != ent.rebuild_ready_frame
-                || obj.rebuild_spawner_id.map(|id| id.0) != ent.rebuild_spawner_id
-                || obj.rebuild_worker_id.map(|id| id.0) != ent.rebuild_worker_id
-                || obj.rebuild_reconstructing_id.map(|id| id.0) != ent.rebuild_reconstructing_id
-                || obj.producer_id.map(|id| id.0) != ent.producer_id
-                || obj.construction_complete_clear_frame != ent.construction_complete_clear_frame;
-            if changed {
-                obj.is_rebuild_hole = ent.is_rebuild_hole;
-                obj.rebuild_template_name = if ent.rebuild_template_name.is_empty() {
-                    None
-                } else {
-                    Some(ent.rebuild_template_name.clone())
+    /// Observe rebuild disagreement without changing the canonical host.
+    pub fn compare_rebuild_producer_to_host(&self, logic: &GameLogic) -> usize {
+        self.host_to_entity
+            .iter()
+            .filter(|(hid, eid)| {
+                let (Some(ent), Some(obj)) =
+                    (self.world.entity(**eid), logic.host_object(ObjectId(**hid)))
+                else {
+                    return false;
                 };
-                obj.rebuild_ready_frame = ent.rebuild_ready_frame;
-                obj.rebuild_spawner_id = ent.rebuild_spawner_id.map(ObjectId);
-                obj.rebuild_worker_id = ent.rebuild_worker_id.map(ObjectId);
-                obj.rebuild_reconstructing_id = ent.rebuild_reconstructing_id.map(ObjectId);
-                obj.producer_id = ent.producer_id.map(ObjectId);
-                obj.construction_complete_clear_frame = ent.construction_complete_clear_frame;
-                updated += 1;
-            }
-            // Wave 620: GameWorld sole-tick rebuild-ready residual —
-            // hole ready when ready_frame reached and not already reconstructing.
-            // Record every coupled frame (not only when fields dirty) so host can drain.
-            if crate::gameworld_shadow::gameworld_construction_sole_tick_enabled() {
-                let ready_frame = obj.rebuild_ready_frame;
-                if obj.is_rebuild_hole
-                    && obj.rebuild_reconstructing_id.is_none()
-                    && ready_frame > 0
-                    && host_frame >= ready_frame
-                {
-                    // Wave 740: collect intent; entity pre-spawn after loop.
-                    let p = ent.transform.position;
-                    let tpl = if !ent.rebuild_template_name.is_empty() {
-                        ent.rebuild_template_name.clone()
-                    } else {
-                        obj.rebuild_template_name.clone().unwrap_or_default()
-                    };
-                    if !tpl.is_empty() {
-                        sole_ready_intents.push((
-                            hid,
-                            ready_frame,
-                            tpl,
-                            [p.x, p.y, p.z],
-                            ent.transform.orientation,
-                            ent.owner,
-                            obj.health.maximum.max(1.0),
-                        ));
-                    } else {
-                        crate::game_logic::host_rebuild_ready_log::record(
-                            ObjectId(hid),
-                            ready_frame,
-                        );
-                    }
-                }
-                // Wave 626: construction-complete clear deadline elapsed residual.
-                let clear_at = obj.construction_complete_clear_frame;
-                if clear_at > 0 && host_frame >= clear_at {
-                    crate::game_logic::host_construction_complete_clear_ready_log::record(
-                        ObjectId(hid),
-                        clear_at,
-                    );
-                }
-            }
-        }
-        // Wave 740: entity-first worker + reconstruct pre-spawn under construction sole-tick.
-        for (hid, ready_frame, template, spawn_pos, orientation, owner, health) in
-            sole_ready_intents
-        {
-            // Worker entity. C++ FactionBuilding.ini WorkerObjectName = GLAInfantryWorker.
-            self.world.queue_mutation(WorldMutation::Spawn {
-                template: "GLAInfantryWorker".to_string(),
-                owner,
-                position: spawn_pos,
-                health: 100.0_f32.max(1.0),
-            });
-            let _ = self.world.apply_pending_mutations();
-            let worker_raw = self.world.take_last_spawned_entity().map(|eid| eid.get());
-            // Reconstructing structure entity.
-            self.world.queue_mutation(WorldMutation::Spawn {
-                template: template.clone(),
-                owner,
-                position: spawn_pos,
-                health,
-            });
-            let _ = self.world.apply_pending_mutations();
-            let rebuild_raw = self.world.take_last_spawned_entity().map(|eid| eid.get());
-            // Stamp orientation on entities when present.
-            if let Some(raw) = worker_raw {
-                use gamelogic::world::entities::EntityId;
-                if let Some(e) = self.world.world_mut().entity_mut(EntityId::from_raw(raw)) {
-                    e.transform.orientation = orientation;
-                }
-            }
-            if let Some(raw) = rebuild_raw {
-                use gamelogic::world::entities::EntityId;
-                if let Some(e) = self.world.world_mut().entity_mut(EntityId::from_raw(raw)) {
-                    e.transform.orientation = orientation;
-                    e.construction_percent = 0.0;
-                }
-            }
-            crate::game_logic::host_rebuild_ready_log::record_with_entities(
-                ObjectId(hid),
-                ready_frame,
-                worker_raw,
-                rebuild_raw,
-                Some(spawn_pos),
-                orientation,
-                template,
-            );
-        }
-        updated
+                obj.is_rebuild_hole != ent.is_rebuild_hole
+                    || obj.rebuild_template_name.as_deref().unwrap_or("")
+                        != ent.rebuild_template_name
+                    || obj.rebuild_ready_frame != ent.rebuild_ready_frame
+                    || obj.rebuild_spawner_id.map(|id| id.0) != ent.rebuild_spawner_id
+                    || obj.rebuild_worker_id.map(|id| id.0) != ent.rebuild_worker_id
+                    || obj.rebuild_reconstructing_id.map(|id| id.0) != ent.rebuild_reconstructing_id
+                    || obj.producer_id.map(|id| id.0) != ent.producer_id
+                    || obj.construction_complete_clear_frame
+                        != ent.construction_complete_clear_frame
+            })
+            .count()
     }
 
     pub fn writeback_sole_healing_to_host(&self, logic: &mut GameLogic) -> usize {
@@ -852,123 +739,24 @@ impl GameWorldShadow {
 
     /// Under CONSTRUCTION_AUTHORITY: advance entity construction_percent by rate*dt.
     /// Host completes when writeback reaches 1.0 (or sell finish).
-    pub fn tick_construction_progress(&mut self, dt: f32) -> usize {
-        // GameWorld advances whenever construction authority is on. Host sole-tick
-        // freeze is a separate coupled-frame gate (`gameworld_construction_sole_tick_enabled`).
-        if !gameworld_construction_authority_enabled() {
-            return 0;
-        }
-        use gamelogic::world::WorldMutation;
-        let mut n = 0usize;
-        let mut updates: Vec<(gamelogic::world::entities::EntityId, f32, bool)> = Vec::new();
-        let host_ids: Vec<(u32, gamelogic::world::entities::EntityId)> = self
-            .host_to_entity
-            .iter()
-            .map(|(&hid, &eid)| (hid, eid))
-            .collect();
-        for (hid, eid) in host_ids {
-            let Some(ent) = self.world.entity(eid) else {
-                continue;
-            };
-            let rate = self
-                .construction_rate_by_host
-                .get(&hid)
-                .copied()
-                .unwrap_or(0.0);
-            if rate.abs() < 1e-12 {
-                continue;
-            }
-            // Positive rate is host "this object is being built" even if the
-            // entity UC bit was never stamped (rate-only progress events skip
-            // SetConstruction). Without this, barracks stay unfinished forever.
-            // Do not keep mutating already-complete buildings every frame.
-            if rate > 0.0 && ent.construction_percent + 1e-6 >= 1.0 && !ent.under_construction {
-                continue;
-            }
-            let mut pct = ent.construction_percent.max(0.0);
-            let uc = ent.under_construction || rate > 0.0;
-            if rate > 0.0 {
-                pct = (pct + rate * dt).min(1.0);
-            } else if rate < 0.0 {
-                pct = (pct + rate * dt).max(-1.0);
-            } else {
-                continue;
-            }
-            if (pct - ent.construction_percent).abs() > 1e-8 {
-                n += 1;
-                updates.push((eid, pct, uc));
-            }
-        }
-        for (eid, pct, uc) in updates {
-            self.world.queue_mutation(WorldMutation::SetConstruction {
-                target: eid,
-                percent: pct,
-                under_construction: uc,
-            });
-        }
-        if n > 0 {
-            let _ = self.world.apply_pending_mutations();
-        }
-        n
-    }
 
-    pub fn writeback_construction_to_host(&self, logic: &mut GameLogic) -> usize {
-        // Construction/sell/rebuild residual only.
-        // Combat status, AI state, contain, supplies, veterancy, and special-power
-        // last-writer residuals use dedicated writebacks in the shadow session.
-        let mut updated = 0usize;
-        for (&hid, &eid) in &self.host_to_entity {
-            let Some(ent) = self.world.entity(eid) else {
-                continue;
-            };
-            let Some(obj) = /* Wave 946 */ logic.host_object_mut(ObjectId(hid)) else {
-                continue;
-            };
-            // Wave 758: under coupled tick, host log pending = mid-frame authority.
-            if shadow_coupled_tick_active()
-                && crate::game_logic::host_construction_log::has_pending(ObjectId(hid))
-            {
-                continue;
-            }
-            let mut dirty = false;
-            // Sell deconstruction uses negative percent (finish <= -0.5); do not floor at 0.
-            let pct = ent.construction_percent.clamp(-1.0, 1.0);
-            if (obj.construction_percent - pct).abs() > 1e-5 {
-                obj.construction_percent = pct;
-                dirty = true;
-            }
-            if obj.status.under_construction != ent.under_construction {
-                obj.status.under_construction = ent.under_construction;
-                dirty = true;
-            }
-            if obj.status.sold != ent.sold {
-                obj.status.sold = ent.sold;
-                dirty = true;
-            }
-            if obj.status.reconstructing != ent.reconstructing {
-                obj.status.reconstructing = ent.reconstructing;
-                dirty = true;
-            }
-            if obj.status.unselectable != ent.unselectable {
-                obj.status.unselectable = ent.unselectable;
-                dirty = true;
-            }
-            // Wave 617: GameWorld sole-tick construction-ready residual —
-            // finished builds (percent>=1, still under_construction) for host complete.
-            // Wave 619: sell-finish ready residual (sold + percent <= -0.5).
-            if crate::gameworld_shadow::gameworld_construction_sole_tick_enabled() {
-                if obj.status.under_construction && pct + 1e-6 >= 1.0 {
-                    crate::game_logic::host_construction_ready_log::record(ObjectId(hid), pct);
-                }
-                // SELL_FINISH_CONSTRUCTION_PERCENT_RESIDUAL = -0.5
-                if obj.status.sold && pct <= -0.5 + 1e-6 {
-                    crate::game_logic::host_sell_ready_log::record(ObjectId(hid), pct);
-                }
-            }
-            if dirty {
-                updated += 1;
-            }
-        }
-        updated
+    /// Construction, sale and rebuild fields belong to the host. A shadow
+    /// comparison must never reconcile its stale copy back into that owner.
+    pub fn compare_construction_to_host(&self, logic: &GameLogic) -> usize {
+        self.host_to_entity
+            .iter()
+            .filter(|(hid, eid)| {
+                let (Some(ent), Some(obj)) =
+                    (self.world.entity(**eid), logic.host_object(ObjectId(**hid)))
+                else {
+                    return false;
+                };
+                (obj.construction_percent - ent.construction_percent).abs() > 1e-5
+                    || obj.status.under_construction != ent.under_construction
+                    || obj.status.sold != ent.sold
+                    || obj.status.reconstructing != ent.reconstructing
+                    || obj.status.unselectable != ent.unselectable
+            })
+            .count()
     }
 }

@@ -439,10 +439,6 @@ pub enum ProductionAuthorityResult {
 /// Wave 938: post-writeback sole-tick complete authority (construction/sell/SP).
 #[derive(Debug, Clone, Copy)]
 pub enum PostWritebackCompleteOp {
-    /// Wave 715: construction complete after GW construction writeback.
-    ConstructionCompletionsAfterReadyWriteback,
-    /// Wave 716: sell finish after GW construction/sell writeback.
-    SellCompletionsAfterReadyWriteback,
     /// Wave 717: special-power ready EVA after GW SP writeback.
     SpecialPowerReadyAfterWriteback,
 }
@@ -468,7 +464,6 @@ pub enum ReadyLogDrainOp {
     DeathType,
     RadarExtend,
     ShockStun,
-    ConstructionCompleteClear,
     SoleHealing,
     AiMood,
     Owner,

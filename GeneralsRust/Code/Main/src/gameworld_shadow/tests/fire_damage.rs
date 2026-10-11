@@ -434,7 +434,7 @@ fn death_type_channel_via_set_death_type() {
     let _ = shadow.writeback_radar_extend_to_host(&mut logic);
     let _ = shadow.writeback_shock_stun_to_host(&mut logic);
     let _ = crate::game_logic::host_shock_stun_ready_log::drain();
-    let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
+    let _ = shadow.compare_rebuild_producer_to_host(&logic);
     let _ = shadow.writeback_sole_healing_to_host(&mut logic);
     let _ = crate::game_logic::host_sole_healing_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -490,7 +490,7 @@ fn radar_extend_channel_via_set_radar_extend() {
     assert!(shadow.writeback_radar_extend_to_host(&mut logic) >= 1);
     let _ = shadow.writeback_shock_stun_to_host(&mut logic);
     let _ = crate::game_logic::host_shock_stun_ready_log::drain();
-    let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
+    let _ = shadow.compare_rebuild_producer_to_host(&logic);
     let _ = shadow.writeback_sole_healing_to_host(&mut logic);
     let _ = crate::game_logic::host_sole_healing_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -795,8 +795,7 @@ fn host_damage_log_feeds_shadow_mutation_channel() {
 }
 
 #[test]
-fn host_construction_log_maps_completed_structure_in_shadow() {
-    crate::game_logic::host_construction_log::clear();
+fn owned_construction_events_map_completed_structure_without_consuming_output() {
     crate::game_logic::host_spawn_log::clear();
     let mut logic = GameLogic::new();
     let mut t = ThingTemplate::new("USA_Barracks");
@@ -809,9 +808,9 @@ fn host_construction_log_maps_completed_structure_in_shadow() {
     // Simulate host recording construction complete without pre-sync map.
     let mut shadow = GameWorldShadow::new(64);
     // Do not sync first — apply construction should map via spawn residual.
-    crate::game_logic::host_construction_log::record(id, "USA_Barracks");
-    let events = crate::game_logic::host_construction_log::drain();
-    let n = shadow.apply_host_construction_events(&events, &logic);
+    logic.construction_events.record(id, "USA_Barracks");
+    let events = logic.construction_events.pending();
+    let n = shadow.apply_host_construction_events(events, &logic);
     assert!(n >= 1, "construction apply mapped {n}");
     assert!(
         shadow.entity_for_host(id).is_some(),
@@ -827,7 +826,6 @@ fn dozer_construction_ai_state_decision_authority_source() {
         "update_construction",
         "update_rebuild_holes",
         "try_auto_resume_construction_residual",
-        "process_destroy_list",
     ] {
         let last = last_rust_fn_body(src, fn_name).unwrap_or_else(|| panic!("missing {fn_name}"));
         let first = rust_fn_body(src, fn_name).unwrap_or(last);
@@ -841,6 +839,11 @@ fn dozer_construction_ai_state_decision_authority_source() {
         });
         assert!(ok, "{fn_name} must honor AI decision authority");
     }
+    // Containment scatter moved to the original onDie observation point.
+    let contain = include_str!("../../game_logic/world_objects/containment_death.rs");
+    assert!(contain.contains("host_ai_decision_log::record_set_state"));
+    let physical = rust_fn_body(src, "process_destroy_list").expect("physical removal");
+    assert!(!physical.contains("apply_transport_death_scatter"));
 }
 
 #[test]
@@ -1167,7 +1170,6 @@ fn private_stop_and_clear_target_decision_authority_source() {
     );
     for fn_name in [
         "private_stop",
-        "process_destroy_list",
         "on_capture_tunnel_network_residual",
         "on_capture_kick_passengers",
         "check_building_damage_states",
@@ -1181,6 +1183,9 @@ fn private_stop_and_clear_target_decision_authority_source() {
             "{fn_name} must clear combat targets via StopAttack decision channel"
         );
     }
+    let contain = include_str!("../../game_logic/world_objects/containment_death.rs");
+    let scatter = rust_fn_body(contain, "apply_transport_death_scatter").expect("onDie scatter");
+    assert!(scatter.contains("unit.target = None") && scatter.contains("record_set_state"));
 }
 
 #[test]

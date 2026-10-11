@@ -124,7 +124,7 @@ impl RadarUpgrade {
 
         // Find the radar update module of this object and extend radar.
         // Matches C++ RadarUpgrade.cpp lines 114-117.
-        let _ = object.with_radar_update_interface(|radar| radar.extend_radar());
+        object.extend_radar_at(crate::helpers::TheGameLogic::get_frame());
     }
 
     /// Handle module deletion

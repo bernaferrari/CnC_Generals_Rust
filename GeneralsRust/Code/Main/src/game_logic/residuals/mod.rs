@@ -993,3 +993,5 @@ pub mod host_thing_factory_module_xfer_residual;
 pub mod host_timing_shell_residual;
 pub mod host_under_construction_residual_wave148;
 pub mod host_window_video_residual_wave154;
+
+mod construction_owner_source_contract;

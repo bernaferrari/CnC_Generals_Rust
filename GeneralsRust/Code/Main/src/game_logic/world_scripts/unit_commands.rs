@@ -194,6 +194,28 @@ impl GameLogic {
     /// Stop the current attack, then queue a path. A refused path stays refused.
     pub fn unit_command_move_to(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
         self.stamp_player_command_source(id);
+        self.unit_command_move_owned(id, destination, true)
+    }
+
+    /// ScriptActions::doNamedMoveTo uses an unclipped CMD_FROM_SCRIPT goal.
+    pub(crate) fn unit_command_script_move_to(
+        &mut self,
+        id: ObjectId,
+        destination: glam::Vec3,
+    ) -> bool {
+        if let Some(object) = self.objects.get_mut(&id) {
+            object.last_command_source =
+                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
+        }
+        self.unit_command_move_owned(id, destination, false)
+    }
+
+    fn unit_command_move_owned(
+        &mut self,
+        id: ObjectId,
+        destination: glam::Vec3,
+        from_player: bool,
+    ) -> bool {
         if !self.unit_can_move(id) {
             return false;
         }
@@ -205,7 +227,11 @@ impl GameLogic {
         }
         self.stop_attack_clearing_jet_targeter(id);
         let _ = self.note_move_to_request_path(id);
-        let destination = self.clip_player_goal(id, destination);
+        let destination = if from_player {
+            self.clip_player_goal(id, destination)
+        } else {
+            destination
+        };
         let ok = self.assign_unit_path(id, destination, &[]);
         if ok {
             if let Some(unit) = self.objects.get_mut(&id) {
@@ -305,6 +331,24 @@ impl GameLogic {
     /// Wave 230/232: attack target (records host attack log).
     pub fn unit_command_attack(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
         self.stamp_player_command_source(id);
+        self.unit_command_attack_with_source(id, target_id, true)
+    }
+
+    /// SCRIPT uses the same owned attack algorithm without player shroud gates.
+    pub(crate) fn unit_command_script_attack(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
+        if let Some(unit) = self.host_object_mut(id) {
+            unit.last_command_source =
+                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
+        }
+        self.unit_command_attack_with_source(id, target_id, false)
+    }
+
+    fn unit_command_attack_with_source(
+        &mut self,
+        id: ObjectId,
+        target_id: ObjectId,
+        from_player: bool,
+    ) -> bool {
         if self.note_hacker_ai_command(
             id,
             crate::game_logic::host_hacker_income::PendingHackerCommand::Attack(target_id),
@@ -320,7 +364,7 @@ impl GameLogic {
                 id,
                 target_id,
                 AbleToAttackType::NewTarget,
-                true,
+                from_player,
             ),
             CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
         ) {
@@ -605,6 +649,22 @@ impl GameLogic {
 
     pub fn unit_command_guard_object(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
         self.stamp_player_command_source(id);
+        self.unit_command_guard_object_owned(id, target_id)
+    }
+
+    pub(crate) fn unit_command_script_guard_object(
+        &mut self,
+        id: ObjectId,
+        target_id: ObjectId,
+    ) -> bool {
+        if let Some(object) = self.objects.get_mut(&id) {
+            object.last_command_source =
+                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
+        }
+        self.unit_command_guard_object_owned(id, target_id)
+    }
+
+    fn unit_command_guard_object_owned(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
         if self.note_hacker_ai_command(
             id,
             crate::game_logic::host_hacker_income::PendingHackerCommand::Stop,
@@ -638,6 +698,29 @@ impl GameLogic {
         max_shots: i32,
     ) -> bool {
         self.stamp_player_command_source(id);
+        self.unit_command_attack_move_owned(id, destination, max_shots)
+    }
+
+    /// Same movement algorithm for SCRIPT, without converting it to PLAYER.
+    pub(crate) fn unit_command_script_attack_move_to(
+        &mut self,
+        id: ObjectId,
+        destination: glam::Vec3,
+    ) -> bool {
+        if let Some(unit) = self.host_object_mut(id) {
+            unit.last_command_source =
+                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
+            unit.set_movement_goal_object(None);
+        }
+        self.unit_command_attack_move_owned(id, destination, -1)
+    }
+
+    fn unit_command_attack_move_owned(
+        &mut self,
+        id: ObjectId,
+        destination: glam::Vec3,
+        max_shots: i32,
+    ) -> bool {
         if self.unit_sleep_mood_blocks_ai_command(id) {
             return false;
         }
@@ -961,6 +1044,7 @@ impl GameLogic {
         } else {
             return false;
         }
+        self.apply_player_drawable_selection(player_id, &[id], false);
         self.client_visible_contained_flash_as_selected(id);
         true
     }
@@ -976,6 +1060,13 @@ impl GameLogic {
             obj.flash_as_selected();
         } else {
             return false;
+        }
+        if let Some(player_id) = self
+            .objects
+            .get(&id)
+            .and_then(|object| object.owner_player_id)
+        {
+            self.apply_player_drawable_selection(player_id, &[id], false);
         }
         self.client_visible_contained_flash_as_selected(id);
         true
@@ -1808,6 +1899,7 @@ impl GameLogic {
                 p.set_destination(dest, &mut self.movement_events.writer(self.frame));
                 p.set_status_disabled_held(true);
             }
+            self.admit_host_radar_disabled_edges(pid);
         }
         if let Some(c) = self.objects.get_mut(&ferry_id) {
             c.dock_active_docker = Some(first);

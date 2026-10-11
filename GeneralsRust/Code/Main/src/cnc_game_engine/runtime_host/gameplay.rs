@@ -827,23 +827,8 @@ impl CnCGameEngine {
                 .map(|s| (*s).to_string())
                 .unwrap_or(requested);
             if let Some(pid) = producer {
-                // Percent==1 with UC still set is a stuck host complete
-                // (unmapped sole-tick hole). Flush via the same ready-log
-                // helper the writeback path uses — not force_complete cheat.
-                if let Some((pct, uc)) = self.game_logic.host_authoritative_construction(pid) {
-                    if uc && pct + 1e-6 >= 1.0 {
-                        crate::game_logic::host_construction_ready_log::record(pid, 1.0);
-                        self.game_logic.apply_post_writeback_complete_op(
-                            crate::game_logic::PostWritebackCompleteOp::ConstructionCompletionsAfterReadyWriteback,
-                        );
-                    } else if uc && pct + 1e-6 < 1.0 {
-                        // Presentation freeze can show a barracks as done while
-                        // host/GW is still building. Fail-closed so smoke retries
-                        // (train_fail_no_ready_barracks) instead of enqueue-fail.
-                        self.runtime_host_last_gameplay_cmd = "train_fail_no_ready_barracks".into();
-                        return;
-                    }
-                }
+                // Canonical construction completes in the host's construction phase.
+                // Training cannot flush a shadow readiness receipt or finish a scaffold.
                 let host_ready = self
                     .game_logic
                     .host_object(pid)

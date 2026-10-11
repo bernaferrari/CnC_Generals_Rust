@@ -1,5 +1,7 @@
 //! Behavior suite extracted from the original test module.
 use super::*;
+use crate::scripting::engine::ScriptOwnerQuery;
+use crate::team::TeamID;
 
 #[test]
 fn executor_named_attack_named_selects_borrowed_driver() {
@@ -69,377 +71,387 @@ fn executor_named_attack_named_selects_borrowed_driver() {
 
 #[test]
 fn executor_team_attack_team_dispatches_attack_team() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
-
-    get_object_manager().write().unwrap().reset();
-    get_team_factory().lock().unwrap().reset();
-
-    {
-        let mut factory = get_team_factory().lock().unwrap();
-        factory.init_team(
-            AsciiString::from("ExecutorAttackers"),
-            AsciiString::default(),
-            false,
-            None,
-        );
-        factory.init_team(
-            AsciiString::from("ExecutorVictims"),
-            AsciiString::default(),
-            false,
-            None,
-        );
-        factory
-            .create_team("ExecutorAttackers")
-            .expect("attacker team should be created");
-        factory
-            .create_team("ExecutorVictims")
-            .expect("victim team should be created");
-    }
-
-    let commands = Arc::new(Mutex::new(Vec::new()));
-    let locomotors = Arc::new(Mutex::new(Vec::new()));
-    let attacker_id = 8460;
-    let attacker = crate::object_manager::GameObjectInstance::new(
-        attacker_id,
-        None,
-        None,
-        ObjectCreationFlags::new(),
-    )
-    .expect("test attacker instance");
-
-    {
-        let instance = &attacker;
-        instance
-            .base()
-            .write()
-            .unwrap()
-            .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
-                commands: Arc::clone(&commands),
-                locomotors: Arc::clone(&locomotors),
-            }))));
-    }
-
-    let attacker_id = attacker.get_id();
-    get_object_manager()
-        .write()
-        .unwrap()
-        .register_object_instance(attacker, Coord3D::new(14.0, 4.0, 0.0))
-        .unwrap();
-    {
-        let factory = get_team_factory();
-        let mut factory_guard = factory.lock().unwrap();
-        factory_guard
-            .find_team("ExecutorAttackers")
-            .unwrap()
-            .write()
-            .unwrap()
-            .add_member(attacker_id);
-    }
-
+    // This checks explicit dispatcher admission; real C++ effect and peer-world
+    // isolation assertions live in Main::owned_runtime_command_tests.
+    let engine = ScriptEngine::new().unwrap();
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(47));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::TeamAttackTeam);
     action
         .add_parameter(Parameter::with_string(
-            ParameterType::Team,
-            "ExecutorAttackers".to_string(),
+            ParameterType::Unit,
+            "SourceTeam".into(),
         ))
         .unwrap();
     action
         .add_parameter(Parameter::with_string(
-            ParameterType::Team,
-            "ExecutorVictims".to_string(),
+            ParameterType::Unit,
+            "TargetTeam".into(),
         ))
         .unwrap();
-
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
-    dispatcher.do_team_attack_team(&action).unwrap();
-
-    assert_eq!(locomotors.lock().unwrap().len(), 0);
+    let mut owner = ExplicitCommandIngress::default();
     assert_eq!(
-        *commands.lock().unwrap(),
+        dispatcher
+            .execute_action_with_driver(&action, &mut owner)
+            .unwrap(),
+        ScriptActionResult::Success
+    );
+    assert_eq!(
+        owner.calls,
         vec![(
-            AiCommandType::AttackTeam,
-            None,
-            Some("ExecutorVictims".to_string()),
-            -1,
-            CommandSourceType::FromScript,
+            "TeamAttackTeam".into(),
+            "SourceTeam".into(),
+            Some("TargetTeam".into())
         )]
     );
+    owner.reject = true;
+    assert!(matches!(
+        dispatcher.execute_action_with_driver(&action, &mut owner),
+        Err(ScriptError::ExecutionFailed(_))
+    ));
 }
 
 #[test]
 fn executor_named_attack_area_leaves_group_and_selects_normal_locomotor() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
-
-    get_object_manager().write().unwrap().reset();
-    get_named_object_tracker().clear().unwrap();
-    get_terrain_logic().write().unwrap().reset();
-
-    get_terrain_logic().write().unwrap().add_trigger_area(
-        crate::polygon_trigger::PolygonTrigger::new(
-            8470,
-            AsciiString::from("ExecutorAttackArea"),
-            vec![
-                crate::common::ICoord3D::new(0, 0, 0),
-                crate::common::ICoord3D::new(20, 0, 0),
-                crate::common::ICoord3D::new(20, 20, 0),
-                crate::common::ICoord3D::new(0, 20, 0),
-            ],
-        ),
-    );
-
-    let commands = Arc::new(Mutex::new(Vec::new()));
-    let locomotors = Arc::new(Mutex::new(Vec::new()));
-    let attacker_id = 8471;
-    let attacker = crate::object_manager::GameObjectInstance::new(
-        attacker_id,
-        None,
-        None,
-        ObjectCreationFlags::new(),
-    )
-    .expect("test attacker instance");
-
-    {
-        let __base_arc = attacker.base();
-        let mut base = __base_arc.write().unwrap();
-        base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
-            commands: Arc::clone(&commands),
-            locomotors: Arc::clone(&locomotors),
-        }))));
-        base.enter_group(&crate::ai::AIGroup::new(92));
-        assert_eq!(base.get_group_id(), Some(92));
+    #[derive(Debug, Default)]
+    struct OwnedAi {
+        normal: bool,
+        command: Option<AiCommandParams>,
     }
-
-    let attacker_id = attacker.get_id();
-    get_object_manager()
-        .write()
-        .unwrap()
-        .register_object_instance(attacker, Coord3D::new(4.0, 4.0, 0.0))
-        .unwrap();
-    get_named_object_tracker()
-        .register_named_object("ExecutorAreaAttacker".to_string(), attacker_id)
-        .unwrap();
-
+    impl AIUpdateInterface for OwnedAi {
+        fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+        fn is_moving(&self) -> bool {
+            false
+        }
+        fn is_idle(&self) -> bool {
+            true
+        }
+        fn set_movement_target(&mut self, _: &Coord3D) -> Result<(), String> {
+            Ok(())
+        }
+        fn choose_locomotor_set(
+            &mut self,
+            set: LocomotorSetType,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            self.normal = set == LocomotorSetType::Normal;
+            Ok(())
+        }
+        fn execute_command(
+            &mut self,
+            params: &AiCommandParams,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            assert!(self.normal, "CPP selects Normal before issuing AttackArea");
+            self.command = Some(params.clone());
+            Ok(())
+        }
+    }
+    struct Owner {
+        object: crate::object::Object,
+        ai: OwnedAi,
+        trigger: crate::polygon_trigger::PolygonTrigger,
+    }
+    impl ScriptExecutionDriver for Owner {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            Ok(())
+        }
+        fn named_attack_area(
+            &mut self,
+            unit: &str,
+            area: &str,
+            _: Option<&str>,
+            _: Option<ObjectID>,
+        ) -> Option<GameLogicResult<()>> {
+            if unit == "ExecutorAreaAttacker" && area == "ExecutorAttackArea" {
+                self.object.leave_group();
+                crate::scripting::executor::actions_named::issue_borrowed_named_attack_area(
+                    &mut self.ai,
+                    Coord3D::new(10.0, 10.0, 0.0),
+                    self.trigger.get_id(),
+                );
+            }
+            Some(Ok(()))
+        }
+    }
+    fn make_owner() -> Owner {
+        let mut object = crate::object::Object::new_raw(
+            Arc::new(crate::common::DefaultThingTemplate::new(
+                "AreaAttacker".into(),
+            )),
+            8471,
+            crate::common::ObjectStatusMaskType::NONE,
+            None,
+        );
+        object.enter_group(&crate::ai::AIGroup::new(92));
+        Owner {
+            object,
+            ai: OwnedAi::default(),
+            trigger: crate::polygon_trigger::PolygonTrigger::new(
+                8470,
+                "ExecutorAttackArea".into(),
+                vec![
+                    crate::common::ICoord3D::new(0, 0, 0),
+                    crate::common::ICoord3D::new(20, 0, 0),
+                    crate::common::ICoord3D::new(20, 20, 0),
+                    crate::common::ICoord3D::new(0, 20, 0),
+                ],
+            ),
+        }
+    }
+    let mut owner = make_owner();
+    let foreign = make_owner();
+    let engine = ScriptEngine::new().unwrap();
+    let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &state);
     let mut action = ScriptAction::new(ScriptActionType::NamedAttackArea);
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Unit,
-            "ExecutorAreaAttacker".to_string(),
+            "ExecutorAreaAttacker".into(),
         ))
         .unwrap();
     action
         .add_parameter(Parameter::with_string(
             ParameterType::TriggerArea,
-            "ExecutorAttackArea".to_string(),
+            "MissingArea".into(),
         ))
         .unwrap();
-
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
-    dispatcher.do_named_attack_area(&action).unwrap();
-
-    assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
-    assert_eq!(
-        commands.lock().unwrap()[0],
-        (
-            AiCommandType::AttackArea,
-            None,
-            None,
-            0,
-            CommandSourceType::FromScript,
-        )
-    );
-    assert_eq!(
-        get_object_manager()
-            .read()
-            .unwrap()
-            .with_object(attacker_id, |o| o
-                .base()
-                .read()
-                .ok()
-                .and_then(|b| b.get_group_id()))
-            .flatten(),
-        None
-    );
+    dispatcher
+        .execute_action_with_driver(&action, &mut owner)
+        .unwrap();
+    assert_eq!(owner.object.get_group_id(), Some(92));
+    assert!(owner.ai.command.is_none());
+    action.parameters[1] = Some(Parameter::with_string(
+        ParameterType::TriggerArea,
+        "ExecutorAttackArea".into(),
+    ));
+    dispatcher
+        .execute_action_with_driver(&action, &mut owner)
+        .unwrap();
+    assert_eq!(owner.object.get_group_id(), None);
+    let command = owner.ai.command.unwrap();
+    assert_eq!(command.cmd, AiCommandType::AttackArea);
+    assert_eq!(command.cmd_source, CommandSourceType::FromScript);
+    assert_eq!(command.polygon, Some(8470));
+    assert_eq!(command.pos, Coord3D::new(10.0, 10.0, 0.0));
+    assert_eq!(foreign.object.get_group_id(), Some(92));
+    assert!(foreign.ai.command.is_none());
 }
 
 #[test]
 fn executor_named_attack_team_validates_team_and_sets_max_shots() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
-
-    get_object_manager().write().unwrap().reset();
-    get_named_object_tracker().clear().unwrap();
-    get_team_factory().lock().unwrap().reset();
-
-    {
-        let mut factory = get_team_factory().lock().unwrap();
-        factory.init_team(
-            AsciiString::from("ExecutorTargetTeam"),
-            AsciiString::default(),
-            false,
+    #[derive(Debug, Default)]
+    struct OwnedAi {
+        commands: Vec<(
+            AiCommandType,
+            Option<ObjectID>,
+            Option<String>,
+            i32,
+            CommandSourceType,
+        )>,
+        locomotors: Vec<LocomotorSetType>,
+    }
+    impl AIUpdateInterface for OwnedAi {
+        fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+        fn is_moving(&self) -> bool {
+            false
+        }
+        fn is_idle(&self) -> bool {
+            true
+        }
+        fn set_movement_target(&mut self, _target: &Coord3D) -> Result<(), String> {
+            Ok(())
+        }
+        fn choose_locomotor_set(
+            &mut self,
+            set: LocomotorSetType,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            self.locomotors.push(set);
+            Ok(())
+        }
+        fn execute_command(
+            &mut self,
+            command: &AiCommandParams,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            self.commands.push((
+                command.cmd,
+                command.obj,
+                command.team.clone(),
+                command.int_value,
+                command.cmd_source,
+            ));
+            Ok(())
+        }
+    }
+    struct AttackOwner {
+        factory: crate::team::TeamFactory,
+        object: crate::object::Object,
+        ai: OwnedAi,
+    }
+    impl ScriptExecutionDriver for AttackOwner {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            Ok(())
+        }
+        fn named_attack_team(
+            &mut self,
+            unit: &str,
+            team: &str,
+            _this: Option<ObjectID>,
+            _calling: Option<crate::team::TeamID>,
+            _condition: Option<crate::team::TeamID>,
+        ) -> Option<GameLogicResult<()>> {
+            if unit == "ExecutorTeamAttacker" && !self.factory.find_team_instances(team).is_empty()
+            {
+                self.object.leave_group();
+                crate::scripting::executor::actions_named::issue_borrowed_named_attack_team(
+                    &mut self.ai,
+                    team,
+                );
+            }
+            Some(Ok(()))
+        }
+    }
+    fn make_owner() -> AttackOwner {
+        let template = Arc::new(crate::common::DefaultThingTemplate::new(
+            "LocalTeamAttacker".into(),
+        ));
+        let mut object = crate::object::Object::new_raw(
+            template,
+            8480,
+            crate::common::ObjectStatusMaskType::NONE,
             None,
         );
-        factory
-            .create_team("ExecutorTargetTeam")
-            .expect("target team should be created");
+        object.enter_group(&crate::ai::AIGroup::new(93));
+        AttackOwner {
+            factory: crate::team::TeamFactory::new(),
+            object,
+            ai: OwnedAi::default(),
+        }
     }
-
-    let commands = Arc::new(Mutex::new(Vec::new()));
-    let locomotors = Arc::new(Mutex::new(Vec::new()));
-    let attacker_id = 8480;
-    let attacker = crate::object_manager::GameObjectInstance::new(
-        attacker_id,
-        None,
-        None,
-        ObjectCreationFlags::new(),
-    )
-    .expect("test attacker instance");
-
-    {
-        let __base_arc = attacker.base();
-        let mut base = __base_arc.write().unwrap();
-        base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
-            commands: Arc::clone(&commands),
-            locomotors: Arc::clone(&locomotors),
-        }))));
-        base.enter_group(&crate::ai::AIGroup::new(93));
-        assert_eq!(base.get_group_id(), Some(93));
-    }
-
-    let attacker_id = attacker.get_id();
-    get_object_manager()
-        .write()
-        .unwrap()
-        .register_object_instance(attacker, Coord3D::new(8.0, 4.0, 0.0))
-        .unwrap();
-    get_named_object_tracker()
-        .register_named_object("ExecutorTeamAttacker".to_string(), attacker_id)
-        .unwrap();
-
+    let engine = ScriptEngine::new().unwrap();
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
+    let mut owner = make_owner();
+    let foreign = make_owner();
     let mut action = ScriptAction::new(ScriptActionType::NamedAttackTeam);
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Unit,
-            "ExecutorTeamAttacker".to_string(),
+            "ExecutorTeamAttacker".into(),
         ))
         .unwrap();
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Team,
-            "ExecutorTargetTeam".to_string(),
+            "ExecutorTargetTeam".into(),
         ))
         .unwrap();
-
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
-    dispatcher.do_named_attack_team(&action).unwrap();
-
-    assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
+    dispatcher
+        .execute_action_with_driver(&action, &mut owner)
+        .unwrap();
+    assert!(owner.ai.commands.is_empty());
+    assert_eq!(owner.object.get_group_id(), Some(93));
+    owner.factory.init_team(
+        "ExecutorTargetTeam".into(),
+        AsciiString::default(),
+        false,
+        None,
+    );
+    owner.factory.create_team("ExecutorTargetTeam").unwrap();
+    dispatcher
+        .execute_action_with_driver(&action, &mut owner)
+        .unwrap();
+    assert_eq!(owner.ai.locomotors, vec![LocomotorSetType::Normal]);
     assert_eq!(
-        *commands.lock().unwrap(),
+        owner.ai.commands,
         vec![(
             AiCommandType::AttackTeam,
             None,
-            Some("ExecutorTargetTeam".to_string()),
+            Some("ExecutorTargetTeam".into()),
             -1,
-            CommandSourceType::FromScript,
+            CommandSourceType::FromScript
         )]
     );
-    assert_eq!(
-        get_object_manager()
-            .read()
-            .unwrap()
-            .with_object(attacker_id, |o| o
-                .base()
-                .read()
-                .ok()
-                .and_then(|b| b.get_group_id()))
-            .flatten(),
-        None
-    );
+    assert_eq!(owner.object.get_group_id(), None);
+    assert_eq!(foreign.object.get_group_id(), Some(93));
+    assert!(foreign.ai.commands.is_empty());
 }
 
 #[test]
 fn executor_team_attack_named_ignores_stale_target_tracker_id() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
-
-    get_object_manager().write().unwrap().reset();
-    get_named_object_tracker().clear().unwrap();
-    get_team_factory().lock().unwrap().reset();
-
-    {
-        let mut factory = get_team_factory().lock().unwrap();
-        factory.init_team(
-            AsciiString::from("ExecutorSourceTeam"),
-            AsciiString::default(),
-            false,
-            None,
-        );
-        factory
-            .create_team("ExecutorSourceTeam")
-            .expect("source team should be created");
+    struct AttackOwner {
+        factory: crate::team::TeamFactory,
+        named: HashMap<String, ObjectID>,
+        objects: HashMap<ObjectID, crate::object::Object>,
+        commands: Vec<AiCommandParams>,
     }
-
-    let commands = Arc::new(Mutex::new(Vec::new()));
-    let locomotors = Arc::new(Mutex::new(Vec::new()));
-    let member_id = 8490;
-    let member = crate::object_manager::GameObjectInstance::new(
-        member_id,
-        None,
-        None,
-        ObjectCreationFlags::new(),
-    )
-    .expect("test team member instance");
-
-    {
-        let instance = &member;
-        instance
-            .base()
-            .write()
-            .unwrap()
-            .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
-                commands: Arc::clone(&commands),
-                locomotors: Arc::clone(&locomotors),
-            }))));
+    impl ScriptExecutionDriver for AttackOwner {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            Ok(())
+        }
+        fn team_attack_named(
+            &mut self,
+            team: &str,
+            target: &str,
+            _this: Option<ObjectID>,
+            _calling: Option<crate::team::TeamID>,
+            _condition: Option<crate::team::TeamID>,
+        ) -> Option<GameLogicResult<()>> {
+            let Some(_team) = self.factory.find_team_instances(team).into_iter().next() else {
+                return Some(Ok(()));
+            };
+            let Some(target) = self.named.get(target).copied() else {
+                return Some(Ok(()));
+            };
+            // A stale local named tracker is not a live target. Admission
+            // cannot issue a group command or select a foreign same-ID object.
+            if !self.objects.contains_key(&target) {
+                return Some(Ok(()));
+            }
+            let mut command =
+                AiCommandParams::new(AiCommandType::AttackObject, CommandSourceType::FromScript);
+            command.obj = Some(target);
+            command.int_value = -1;
+            self.commands.push(command);
+            Some(Ok(()))
+        }
     }
-
-    get_object_manager()
-        .write()
-        .unwrap()
-        .register_object_instance(member, Coord3D::new(8.0, 8.0, 0.0))
-        .unwrap();
-    get_team_factory()
-        .lock()
-        .unwrap()
-        .find_team("ExecutorSourceTeam")
-        .unwrap()
-        .write()
-        .unwrap()
-        .add_member(member_id);
-    get_named_object_tracker()
-        .register_named_object("MissingExecutorVictim".to_string(), 8491)
-        .unwrap();
-
+    let mut owner = AttackOwner {
+        factory: crate::team::TeamFactory::new(),
+        named: HashMap::from([("MissingExecutorVictim".into(), 8491)]),
+        objects: HashMap::new(),
+        commands: Vec::new(),
+    };
+    owner.factory.init_team(
+        "ExecutorSourceTeam".into(),
+        AsciiString::default(),
+        false,
+        None,
+    );
+    owner.factory.create_team("ExecutorSourceTeam").unwrap();
+    let engine = ScriptEngine::new().unwrap();
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::TeamAttackNamed);
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Team,
-            "ExecutorSourceTeam".to_string(),
+            "ExecutorSourceTeam".into(),
         ))
         .unwrap();
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Unit,
-            "MissingExecutorVictim".to_string(),
+            "MissingExecutorVictim".into(),
         ))
         .unwrap();
-
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
-    dispatcher.do_team_attack_named(&action).unwrap();
-
-    assert!(commands.lock().unwrap().is_empty());
-    assert!(locomotors.lock().unwrap().is_empty());
+    dispatcher
+        .execute_action_with_driver(&action, &mut owner)
+        .unwrap();
+    assert!(owner.commands.is_empty());
 }
 
 struct NamedHuntOwner {
@@ -544,66 +556,129 @@ fn default_named_hunt_driver_leaves_standalone_adapter_available() {
 
 #[test]
 fn executor_named_stop_dispatches_direct_ai_without_player_owner() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
-
-    get_object_manager().write().unwrap().reset();
-    get_named_object_tracker().clear().unwrap();
-
-    let commands = Arc::new(Mutex::new(Vec::new()));
-    let locomotors = Arc::new(Mutex::new(Vec::new()));
-    let stopper_id = 8496;
-    let stopper = crate::object_manager::GameObjectInstance::new(
-        stopper_id,
-        None,
-        None,
-        ObjectCreationFlags::new(),
-    )
-    .expect("test stopper instance");
-
-    {
-        let instance = &stopper;
-        instance
-            .base()
-            .write()
-            .unwrap()
-            .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
-                commands: Arc::clone(&commands),
-                locomotors: Arc::clone(&locomotors),
-            }))));
-    }
-
-    get_object_manager()
-        .write()
-        .unwrap()
-        .register_object_instance(stopper, Coord3D::new(13.0, 6.0, 0.0))
-        .unwrap();
-    get_named_object_tracker()
-        .register_named_object("ExecutorStopper".to_string(), stopper_id)
-        .unwrap();
-
+    let engine = ScriptEngine::new().unwrap();
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
+    let mut owner = BorrowedIdleOwner::new();
+    let peer = BorrowedIdleOwner::new();
     let mut action = ScriptAction::new(ScriptActionType::NamedStop);
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Unit,
-            "ExecutorStopper".to_string(),
+            "OwnedIdleUnit".into(),
         ))
         .unwrap();
-
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
-    dispatcher.do_named_stop(&action).unwrap();
-
-    assert!(locomotors.lock().unwrap().is_empty());
     assert_eq!(
-        *commands.lock().unwrap(),
-        vec![(
-            AiCommandType::Idle,
-            None,
-            None,
-            0,
-            CommandSourceType::FromScript,
-        )]
+        dispatcher
+            .execute_action_with_driver(&action, &mut owner)
+            .unwrap(),
+        ScriptActionResult::Success
     );
+    owner.assert_script_idle();
+    assert_eq!(
+        owner.object.get_group_id(),
+        Some(92),
+        "Idle retains the AI group"
+    );
+    assert!(peer.ai.command.is_none());
+}
+
+/// Command contract for the same bounded helper used by the standalone adapter.
+/// Actual movement/target behavior is asserted by Main's script_idle_owner_tests.
+#[derive(Debug, Default)]
+struct BorrowedIdleAi {
+    command: Option<AiCommandParams>,
+    locomotor_calls: usize,
+}
+impl AIUpdateInterface for BorrowedIdleAi {
+    fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+    fn is_moving(&self) -> bool {
+        false
+    }
+    fn is_idle(&self) -> bool {
+        true
+    }
+    fn set_movement_target(&mut self, _: &Coord3D) -> Result<(), String> {
+        Ok(())
+    }
+    fn choose_locomotor_set(
+        &mut self,
+        _: LocomotorSetType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.locomotor_calls += 1;
+        Ok(())
+    }
+    fn execute_command(
+        &mut self,
+        command: &AiCommandParams,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.command = Some(command.clone());
+        Ok(())
+    }
+}
+struct BorrowedIdleOwner {
+    object: crate::object::Object,
+    ai: BorrowedIdleAi,
+}
+impl BorrowedIdleOwner {
+    fn new() -> Self {
+        let mut object = crate::object::Object::new_raw(
+            Arc::new(crate::common::DefaultThingTemplate::new("IdleUnit".into())),
+            8496,
+            crate::common::ObjectStatusMaskType::NONE,
+            None,
+        );
+        object.enter_group(&crate::ai::AIGroup::new(92));
+        Self {
+            object,
+            ai: BorrowedIdleAi::default(),
+        }
+    }
+    fn assert_script_idle(&self) {
+        let command = self
+            .ai
+            .command
+            .as_ref()
+            .expect("actual bounded Idle command");
+        assert_eq!(command.cmd, AiCommandType::Idle);
+        assert_eq!(command.cmd_source, CommandSourceType::FromScript);
+        assert_eq!(self.ai.locomotor_calls, 0);
+    }
+}
+impl ScriptExecutionDriver for BorrowedIdleOwner {
+    fn after_action(&mut self) -> GameLogicResult<()> {
+        Ok(())
+    }
+    fn named_command(
+        &mut self,
+        command: crate::scripting::engine::ScriptNamedCommand<'_>,
+        _: Option<ObjectID>,
+    ) -> Option<GameLogicResult<()>> {
+        let crate::scripting::engine::ScriptNamedCommand::Stop { unit } = command else {
+            return None;
+        };
+        if unit == "OwnedIdleUnit" {
+            crate::scripting::executor::actions_victory_team::issue_borrowed_script_idle(
+                &mut self.ai,
+            );
+        }
+        Some(Ok(()))
+    }
+    fn team_idle(
+        &mut self,
+        team: &str,
+        _: Option<crate::team::TeamID>,
+        _: Option<crate::team::TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        if team == "OwnedIdleTeam" {
+            crate::scripting::executor::actions_victory_team::issue_borrowed_script_idle(
+                &mut self.ai,
+            );
+        }
+        Some(Ok(()))
+    }
 }
 
 struct NamedGuardOwner {
@@ -708,422 +783,259 @@ fn default_named_guard_driver_leaves_standalone_adapter_available() {
 
 #[test]
 fn executor_team_guard_for_framecount_dispatches_idle_like_cxx_switch() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
-
-    get_object_manager().write().unwrap().reset();
-    get_team_factory().lock().unwrap().reset();
-
-    {
-        let mut factory = get_team_factory().lock().unwrap();
-        factory.init_team(
-            AsciiString::from("ExecutorTimedGuardTeam"),
-            AsciiString::default(),
-            false,
-            None,
+    let engine = ScriptEngine::new().unwrap();
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
+    for kind in [
+        ScriptActionType::TeamGuardForFramecount,
+        ScriptActionType::TeamIdleForFramecount,
+    ] {
+        let mut owner = BorrowedIdleOwner::new();
+        let mut action = ScriptAction::new(kind);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                "OwnedIdleTeam".into(),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_int(ParameterType::Int, 7))
+            .unwrap();
+        assert_eq!(
+            dispatcher
+                .execute_action_with_driver(&action, &mut owner)
+                .unwrap(),
+            ScriptActionResult::Pending(7.0)
         );
-        factory
-            .create_team("ExecutorTimedGuardTeam")
-            .expect("timed guard team should be created");
+        owner.assert_script_idle();
+        assert_eq!(owner.object.get_group_id(), Some(92));
+        action.parameters[1] = Some(Parameter::with_int(ParameterType::Int, 0));
+        assert_eq!(
+            dispatcher
+                .execute_action_with_driver(&action, &mut owner)
+                .unwrap(),
+            ScriptActionResult::Success
+        );
     }
-
-    let commands = Arc::new(Mutex::new(Vec::new()));
-    let locomotors = Arc::new(Mutex::new(Vec::new()));
-    let member_id = 8515;
-    let member = crate::object_manager::GameObjectInstance::new(
-        member_id,
-        None,
-        None,
-        ObjectCreationFlags::new(),
-    )
-    .expect("test timed guard team member instance");
-
-    {
-        let instance = &member;
-        instance
-            .base()
-            .write()
-            .unwrap()
-            .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
-                commands: Arc::clone(&commands),
-                locomotors: Arc::clone(&locomotors),
-            }))));
-    }
-
-    get_object_manager()
-        .write()
-        .unwrap()
-        .register_object_instance(member, Coord3D::new(10.0, 12.0, 0.0))
-        .unwrap();
-    get_team_factory()
-        .lock()
-        .unwrap()
-        .find_team("ExecutorTimedGuardTeam")
-        .unwrap()
-        .write()
-        .unwrap()
-        .add_member(member_id);
-
-    let mut action = ScriptAction::new(ScriptActionType::TeamGuardForFramecount);
-    action
-        .add_parameter(Parameter::with_string(
-            ParameterType::Team,
-            "ExecutorTimedGuardTeam".to_string(),
-        ))
-        .unwrap();
-    action
-        .add_parameter(Parameter::with_int(ParameterType::Int, 7))
-        .unwrap();
-
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
-    let result = dispatcher.execute_action(&action).unwrap();
-
-    assert_eq!(result, ScriptActionResult::Pending(7.0));
-    assert!(locomotors.lock().unwrap().is_empty());
-    assert_eq!(
-        *commands.lock().unwrap(),
-        vec![(
-            AiCommandType::Idle,
-            None,
-            None,
-            0,
-            CommandSourceType::FromScript,
-        )]
-    );
 }
 
 #[test]
 fn executor_team_guard_object_ignores_stale_target_tracker_id() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
-
-    get_object_manager().write().unwrap().reset();
-    get_named_object_tracker().clear().unwrap();
-    get_team_factory().lock().unwrap().reset();
-
-    {
-        let mut factory = get_team_factory().lock().unwrap();
-        factory.init_team(
-            AsciiString::from("ExecutorObjectGuardTeam"),
-            AsciiString::default(),
-            false,
-            None,
-        );
-        factory
-            .create_team("ExecutorObjectGuardTeam")
-            .expect("object guard team should be created");
-    }
-
-    let commands = Arc::new(Mutex::new(Vec::new()));
-    let locomotors = Arc::new(Mutex::new(Vec::new()));
-    let member_id = 8520;
-    let member = crate::object_manager::GameObjectInstance::new(
-        member_id,
-        None,
-        None,
-        ObjectCreationFlags::new(),
-    )
-    .expect("test object guard team member instance");
-
-    {
-        let instance = &member;
-        instance
-            .base()
-            .write()
-            .unwrap()
-            .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
-                commands: Arc::clone(&commands),
-                locomotors: Arc::clone(&locomotors),
-            }))));
-    }
-
-    get_object_manager()
-        .write()
-        .unwrap()
-        .register_object_instance(member, Coord3D::new(11.0, 11.0, 0.0))
-        .unwrap();
-    get_team_factory()
-        .lock()
-        .unwrap()
-        .find_team("ExecutorObjectGuardTeam")
-        .unwrap()
-        .write()
-        .unwrap()
-        .add_member(member_id);
-    get_named_object_tracker()
-        .register_named_object("MissingGuardTarget".to_string(), 8521)
-        .unwrap();
-
+    // The dispatcher selects a borrowed owner even for authoritative absence.
+    // Main accepts the actual guard/health effects in owned_runtime_command_tests.
+    let engine = ScriptEngine::new().unwrap();
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(47));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::TeamGuardObject);
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Team,
-            "ExecutorObjectGuardTeam".to_string(),
+            "OwnedTeam".into(),
         ))
         .unwrap();
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Unit,
-            "MissingGuardTarget".to_string(),
+            "MissingTarget".into(),
         ))
         .unwrap();
-
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
-    dispatcher.do_team_guard_object(&action).unwrap();
-
-    assert!(commands.lock().unwrap().is_empty());
-    assert!(locomotors.lock().unwrap().is_empty());
+    let mut owner = ExplicitCommandIngress::default();
+    assert_eq!(
+        dispatcher
+            .execute_action_with_driver(&action, &mut owner)
+            .unwrap(),
+        ScriptActionResult::Success
+    );
+    assert_eq!(owner.calls.len(), 1);
+    owner.reject = true;
+    assert!(matches!(
+        dispatcher.execute_action_with_driver(&action, &mut owner),
+        Err(ScriptError::ExecutionFailed(_))
+    ));
 }
 
 #[test]
-fn executor_team_stop_and_disband_marks_members_recruitable_and_merges_default_team() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
-
-    get_object_manager().write().unwrap().reset();
-    get_team_factory().lock().unwrap().reset();
-    player_list().write().unwrap().clear();
-
-    {
-        let mut factory = get_team_factory().lock().unwrap();
-        factory.init_team(
-            AsciiString::from("ExecutorDisbandSource"),
-            AsciiString::default(),
-            false,
-            None,
-        );
-        factory.init_team(
-            AsciiString::from("ExecutorDefaultTeam"),
-            AsciiString::default(),
-            false,
-            None,
-        );
-        factory
-            .create_team("ExecutorDisbandSource")
-            .expect("source team should be created");
-        factory
-            .create_team("ExecutorDefaultTeam")
-            .expect("default team should be created");
+fn executor_team_stop_and_disband_missing_local_team_cannot_select_same_id_peer() {
+    // Full stop/recruit/merge identity assertions live on Main's real owner:
+    // team_stop_disband_stops_then_recruits_and_merges_actual_owned_rosters.
+    // Core covers authoritative absence without globally constructing an Object.
+    struct Owner {
+        factory: crate::team::TeamFactory,
+        object: crate::object::Object,
     }
-
-    let default_team = get_team_factory()
-        .lock()
-        .unwrap()
-        .find_team("ExecutorDefaultTeam")
-        .expect("default team exists");
-    let source_team = get_team_factory()
-        .lock()
-        .unwrap()
-        .find_team("ExecutorDisbandSource")
-        .expect("source team exists");
-
-    let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
-    player
-        .write()
-        .unwrap()
-        .set_default_team(Some(default_team.clone()));
-    player_list().write().unwrap().add_player(player);
-    source_team
-        .write()
-        .unwrap()
-        .set_controlling_player_id(Some(0));
-
-    let commands = Arc::new(Mutex::new(Vec::new()));
-    let recruitable = Arc::new(Mutex::new(Vec::new()));
-    let member_id = 8530;
-    let member = crate::object_manager::GameObjectInstance::new(
-        member_id,
-        None,
-        None,
-        ObjectCreationFlags::new(),
-    )
-    .expect("test member instance");
-    {
-        let instance = &member;
-        instance
-            .base()
-            .write()
-            .unwrap()
-            .set_ai_update_interface(Some(Arc::new(Mutex::new(RecruitableRecordingAi {
-                commands: Arc::clone(&commands),
-                recruitable: Arc::clone(&recruitable),
-            }))));
+    impl ScriptExecutionDriver for Owner {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            Ok(())
+        }
+        fn team_stop(
+            &mut self,
+            team: &str,
+            _calling: Option<crate::team::TeamID>,
+            _condition: Option<crate::team::TeamID>,
+            _disband: bool,
+        ) -> Option<GameLogicResult<()>> {
+            assert!(
+                self.factory.find_team_instances(team).is_empty(),
+                "only this owner is searched"
+            );
+            Some(Ok(()))
+        }
     }
-
-    get_object_manager()
-        .write()
-        .unwrap()
-        .register_object_instance(member, Coord3D::new(15.0, 15.0, 0.0))
-        .unwrap();
-    source_team.write().unwrap().add_member(member_id);
-
+    fn owner() -> Owner {
+        Owner {
+            factory: crate::team::TeamFactory::new(),
+            object: crate::object::Object::new_raw(
+                Arc::new(crate::common::DefaultThingTemplate::new(
+                    "StopDisbandUnit".into(),
+                )),
+                8530,
+                crate::common::ObjectStatusMaskType::NONE,
+                None,
+            ),
+        }
+    }
+    let mut local = owner();
+    let mut peer = owner();
+    peer.factory.init_team(
+        "ExecutorDisbandSource".into(),
+        AsciiString::default(),
+        false,
+        None,
+    );
+    let source = peer.factory.create_team("ExecutorDisbandSource").unwrap();
+    source.write().unwrap().add_member(peer.object.get_id());
+    assert_eq!(local.object.get_id(), peer.object.get_id());
+    let engine = ScriptEngine::new().unwrap();
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::TeamStopAndDisband);
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Team,
-            "ExecutorDisbandSource".to_string(),
+            "ExecutorDisbandSource".into(),
         ))
         .unwrap();
-
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
-    dispatcher.do_team_stop_and_disband(&action).unwrap();
-
-    assert_eq!(
-        *commands.lock().unwrap(),
-        vec![(
-            AiCommandType::Idle,
-            None,
-            None,
-            0,
-            CommandSourceType::FromScript,
-        )]
+    dispatcher
+        .execute_action_with_driver(&action, &mut local)
+        .unwrap();
+    assert!(source.read().unwrap().has_member(peer.object.get_id()));
+    assert!(
+        local
+            .factory
+            .find_team_instances("ExecutorDisbandSource")
+            .is_empty()
     );
-    assert_eq!(*recruitable.lock().unwrap(), vec![true]);
-    assert!(default_team.read().unwrap().has_member(member_id));
-    assert!(!source_team.read().unwrap().has_member(member_id));
-    let team_ok = get_object_manager()
-        .read()
-        .unwrap()
-        .with_object(member_id, |o| {
-            o.base()
-                .read()
-                .ok()
-                .and_then(|b| b.get_team())
-                .map(|t| Arc::ptr_eq(&t, &default_team))
-                .unwrap_or(false)
-        })
-        .unwrap_or(false);
-    assert!(team_ok);
 }
 
 #[test]
 fn executor_team_execute_sequential_script_requires_script_before_idle() {
-    get_object_manager().write().unwrap().reset();
-    get_team_factory().lock().unwrap().reset();
-
-    let engine = ScriptEngine::new().expect("script engine");
-    {}
-
-    {
-        let mut factory = get_team_factory().lock().unwrap();
-        factory.init_team(
-            AsciiString::from("ExecutorSequentialTeam"),
-            AsciiString::default(),
-            false,
-            None,
-        );
-        factory
-            .create_team("ExecutorSequentialTeam")
-            .expect("team should be created");
+    struct Owner;
+    impl ScriptExecutionDriver for Owner {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            Ok(())
+        }
+        fn team_sequential(
+            &mut self,
+            _: &str,
+            _: Option<crate::team::TeamID>,
+            _: Option<crate::team::TeamID>,
+            _: Option<(crate::scripting::core::Script, i32)>,
+            _: &ScriptEngine,
+        ) -> Option<GameLogicResult<()>> {
+            panic!("CPP missing-script lookup returns before any Idle owner callback")
+        }
     }
-
-    let commands = Arc::new(Mutex::new(Vec::new()));
-    let locomotors = Arc::new(Mutex::new(Vec::new()));
-    let member_id = 8540;
-    let member = crate::object_manager::GameObjectInstance::new(
-        member_id,
-        None,
-        None,
-        ObjectCreationFlags::new(),
-    )
-    .expect("test member instance");
-    {
-        let instance = &member;
-        instance
-            .base()
-            .write()
-            .unwrap()
-            .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
-                commands: Arc::clone(&commands),
-                locomotors: Arc::clone(&locomotors),
-            }))));
-    }
-
-    get_object_manager()
-        .write()
-        .unwrap()
-        .register_object_instance(member, Coord3D::new(16.0, 16.0, 0.0))
-        .unwrap();
-    get_team_factory()
-        .lock()
-        .unwrap()
-        .find_team("ExecutorSequentialTeam")
-        .unwrap()
-        .write()
-        .unwrap()
-        .add_member(member_id);
-
+    let engine = ScriptEngine::new().unwrap();
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::TeamExecuteSequentialScript);
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Team,
-            "ExecutorSequentialTeam".to_string(),
+            "OwnedIdleTeam".into(),
         ))
         .unwrap();
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Script,
-            "MissingSequentialScript".to_string(),
+            "MissingSequentialScript".into(),
         ))
         .unwrap();
-
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-    let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
-    dispatcher
-        .do_team_execute_sequential_script(&action)
-        .unwrap();
-
-    assert!(
-        commands.lock().unwrap().is_empty(),
-        "C++ doTeamStartSequentialScript returns before groupIdle when the script cannot be resolved"
+    assert_eq!(
+        dispatcher
+            .execute_action_with_driver(&action, &mut Owner)
+            .unwrap(),
+        ScriptActionResult::Success
     );
-    assert!(locomotors.lock().unwrap().is_empty());
+    assert!(!engine.has_active_sequential_script_for_team(1));
 }
 
 #[test]
 fn executor_team_stop_sequential_script_requires_live_team() {
-    get_team_factory().lock().unwrap().reset();
-
-    let engine = ScriptEngine::new().expect("script engine");
-    {
-        let mut missing_team_script = SequentialScript::new();
-        missing_team_script.team_to_exec_on = Some(1);
-        engine.append_sequential_script(missing_team_script);
+    struct SequentialOwner {
+        factory: crate::team::TeamFactory,
     }
-
+    impl ScriptExecutionDriver for SequentialOwner {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            Ok(())
+        }
+        fn team_sequential(
+            &mut self,
+            name: &str,
+            _calling: Option<crate::team::TeamID>,
+            _condition: Option<crate::team::TeamID>,
+            script: Option<(Script, i32)>,
+            engine: &ScriptEngine,
+        ) -> Option<GameLogicResult<()>> {
+            assert!(
+                script.is_none(),
+                "this action stops rather than starts a script"
+            );
+            let team = self.factory.find_team_instances(name).into_iter().next();
+            if let Some(team) = team {
+                engine.remove_all_sequential_scripts_for_team(team.read().unwrap().get_id());
+            }
+            Some(Ok(()))
+        }
+    }
+    let engine = ScriptEngine::new().expect("script engine");
+    let foreign_engine = ScriptEngine::new().expect("foreign script engine");
+    for owner in [&engine, &foreign_engine] {
+        let mut sequential = SequentialScript::new();
+        sequential.team_to_exec_on = Some(1);
+        owner.append_sequential_script(sequential);
+    }
+    let mut owner = SequentialOwner {
+        factory: crate::team::TeamFactory::new(),
+    };
     let mut action = ScriptAction::new(ScriptActionType::TeamStopSequentialScript);
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Team,
-            "MissingSequentialTeam".to_string(),
+            "MissingSequentialTeam".into(),
         ))
         .unwrap();
-
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-    let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
-    dispatcher.do_team_stop_sequential_script(&action).unwrap();
-
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
+    dispatcher
+        .execute_action_with_driver(&action, &mut owner)
+        .unwrap();
     assert!(
         engine.has_active_sequential_script_for_team(1),
-        "C++ doTeamStopSequentialScript returns before removal when the team cannot be resolved"
+        "missing actual team returns before removal"
     );
-
-    {
-        let mut factory = get_team_factory().lock().unwrap();
-        factory.init_team(
-            AsciiString::from("MissingSequentialTeam"),
-            AsciiString::default(),
-            false,
-            None,
-        );
-        factory
-            .create_team("MissingSequentialTeam")
-            .expect("team should be created");
-    }
-
-    dispatcher.do_team_stop_sequential_script(&action).unwrap();
-
+    owner.factory.init_team(
+        "MissingSequentialTeam".into(),
+        AsciiString::default(),
+        false,
+        None,
+    );
+    owner.factory.create_team("MissingSequentialTeam").unwrap();
+    dispatcher
+        .execute_action_with_driver(&action, &mut owner)
+        .unwrap();
     assert!(!engine.has_active_sequential_script_for_team(1));
+    assert!(foreign_engine.has_active_sequential_script_for_team(1));
 }
 
 #[test]
@@ -1172,20 +1084,61 @@ fn condition_mission_attempts_ignores_parameters_like_cxx_stub() {
     );
 }
 
+struct PlayerCensusOwner {
+    literal_templates: Vec<String>,
+    rows: HashMap<String, (i32, crate::scripting::HostScriptPlayerCensus)>,
+}
+impl ScriptExecutionDriver for PlayerCensusOwner {
+    fn literal_template_exists(&self, name: &str) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Present(
+            self.literal_templates
+                .iter()
+                .any(|template| template == name),
+        )
+    }
+    fn after_action(&mut self) -> GameLogicResult<()> {
+        Ok(())
+    }
+    fn player_census(
+        &self,
+        name: &str,
+        _current: Option<&str>,
+    ) -> ScriptOwnerQuery<(i32, crate::scripting::HostScriptPlayerCensus)> {
+        self.rows
+            .get(&name.to_ascii_lowercase())
+            .cloned()
+            .map(ScriptOwnerQuery::Present)
+            .unwrap_or(ScriptOwnerQuery::Missing)
+    }
+    fn player_has_any_objects(&self, name: &str, _current: Option<&str>) -> ScriptOwnerQuery<bool> {
+        self.rows
+            .get(&name.to_ascii_lowercase())
+            .map(|(_, census)| ScriptOwnerQuery::Present(census.has_any_objects))
+            .unwrap_or(ScriptOwnerQuery::Missing)
+    }
+}
+
 #[test]
 fn condition_player_has_credits_compares_threshold_to_player_money_like_cxx() {
     let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
 
     // C++ ScriptEngine.cpp:4414-4416 template [INT, COMPARISON, SIDE]
     // ScriptConditions.cpp:952-966 compares credits param to countMoney().
-    player_list().write().unwrap().clear();
-    let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
-    {
-        let mut player_guard = player.write().unwrap();
-        player_guard.set_display_name("CreditsExecutorPlayer");
-        player_guard.get_money_mut().set_money(1000);
-    }
-    player_list().write().unwrap().add_player(player);
+    let mut player = crate::player::Player::new(0);
+    player.get_money_mut().set_money(1000);
+    let mut owner = PlayerCensusOwner {
+        literal_templates: vec!["AmericaWarFactory".into()],
+        rows: HashMap::from([(
+            "creditsexecutorplayer".into(),
+            (
+                0,
+                crate::scripting::HostScriptPlayerCensus {
+                    money: player.get_money().get_money(),
+                    ..Default::default()
+                },
+            ),
+        )]),
+    };
 
     let mut condition = Condition::new(ConditionType::PlayerHasCredits);
     condition
@@ -1205,7 +1158,9 @@ fn condition_player_has_credits_compares_threshold_to_player_money_like_cxx() {
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
 
     assert_eq!(
-        evaluator.evaluate_condition(&mut condition).unwrap(),
+        evaluator
+            .evaluate_condition_with_driver(&mut condition, &mut owner)
+            .unwrap(),
         ScriptConditionResult::True,
         "C++ evaluates threshold < player's credits, not player's credits < threshold"
     );
@@ -1224,7 +1179,9 @@ fn condition_player_has_credits_compares_threshold_to_player_money_like_cxx() {
         ))
         .unwrap();
     assert_eq!(
-        evaluator.evaluate_condition(&mut missing).unwrap(),
+        evaluator
+            .evaluate_condition_with_driver(&mut missing, &mut owner)
+            .unwrap(),
         ScriptConditionResult::False,
         "C++ evaluatePlayerHasCredits returns false when playerFromParam fails"
     );
@@ -1232,28 +1189,11 @@ fn condition_player_has_credits_compares_threshold_to_player_money_like_cxx() {
 
 #[test]
 fn player_conditions_use_host_census_instead_of_stale_leftover_player() {
-    // Live host OBJECT_REGISTRY is empty; leftover Player money/energy/objects
-    // are unsynced. C++ ScriptConditions read the same Player as the HUD.
-    let _test_lock = crate::test_sync::lock();
-    let engine = ScriptEngine::new().expect("census engine");
-    engine.with_active_for_test(assert_live_player_census_conditions);
-}
-
-fn assert_live_player_census_conditions() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
-
-    crate::object::registry::OBJECT_REGISTRY.clear();
-    crate::scripting::clear_host_script_query_snapshot();
-    player_list().write().unwrap().clear();
-
-    let leftover = Arc::new(RwLock::new(crate::player::Player::new(0)));
-    {
-        let mut player_guard = leftover.write().unwrap();
-        player_guard.set_display_name("PlyrAmerica");
-        player_guard.get_money_mut().set_money(0);
-    }
-    player_list().write().unwrap().add_player(leftover);
-
+    let dispatch_engine = ScriptEngine::new().unwrap();
+    // The contradictory peer is never published, so only the driving census
+    // can answer these conditions even when player identities coincide.
+    let peer = crate::player::Player::new(0);
+    assert_eq!(peer.get_money().get_money(), 0);
     let mut snap = crate::scripting::HostScriptQuerySnapshot::default();
     let mut template_counts = std::collections::HashMap::new();
     template_counts.insert("americawarfactory".into(), 1);
@@ -1277,7 +1217,14 @@ fn assert_live_player_census_conditions() {
             ..Default::default()
         },
     );
-    crate::scripting::set_host_script_query_snapshot(snap);
+    let mut owner = PlayerCensusOwner {
+        literal_templates: vec!["AmericaWarFactory".into()],
+        rows: snap
+            .player_census
+            .into_iter()
+            .map(|(name, census)| (name, (0, census)))
+            .collect(),
+    };
 
     let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
@@ -1296,7 +1243,9 @@ fn assert_live_player_census_conditions() {
         ))
         .unwrap();
     assert_eq!(
-        evaluator.evaluate_condition(&mut credits).unwrap(),
+        evaluator
+            .evaluate_condition_with_driver(&mut credits, &mut owner)
+            .unwrap(),
         ScriptConditionResult::True,
         "PLAYER_HAS_CREDITS must compare against host money, not leftover 0"
     );
@@ -1309,7 +1258,9 @@ fn assert_live_player_census_conditions() {
         ))
         .unwrap();
     assert_eq!(
-        evaluator.evaluate_condition(&mut power).unwrap(),
+        evaluator
+            .evaluate_condition_with_driver(&mut power, &mut owner)
+            .unwrap(),
         ScriptConditionResult::False,
         "PLAYER_HAS_POWER is false when host consumption exceeds production"
     );
@@ -1322,7 +1273,9 @@ fn assert_live_player_census_conditions() {
         ))
         .unwrap();
     assert_eq!(
-        evaluator.evaluate_condition(&mut no_power).unwrap(),
+        evaluator
+            .evaluate_condition_with_driver(&mut no_power, &mut owner)
+            .unwrap(),
         ScriptConditionResult::True,
         "PLAYER_HAS_NO_POWER is the inverse of host hasSufficientPower"
     );
@@ -1335,7 +1288,9 @@ fn assert_live_player_census_conditions() {
         ))
         .unwrap();
     assert_eq!(
-        evaluator.evaluate_condition(&mut destroyed).unwrap(),
+        evaluator
+            .evaluate_condition_with_driver(&mut destroyed, &mut owner)
+            .unwrap(),
         ScriptConditionResult::False,
         "PLAYER_ALL_DESTROYED is false while the host player still has objects"
     );
@@ -1348,7 +1303,9 @@ fn assert_live_player_census_conditions() {
         ))
         .unwrap();
     assert_eq!(
-        evaluator.evaluate_condition(&mut facilities).unwrap(),
+        evaluator
+            .evaluate_condition_with_driver(&mut facilities, &mut owner)
+            .unwrap(),
         ScriptConditionResult::False,
         "PLAYER_ALL_BUILDFACILITIES_DESTROYED is false while a factory remains"
     );
@@ -1362,7 +1319,9 @@ fn assert_live_player_census_conditions() {
     few.add_parameter(Parameter::with_int(ParameterType::Int, 2))
         .unwrap();
     assert_eq!(
-        evaluator.evaluate_condition(&mut few).unwrap(),
+        evaluator
+            .evaluate_condition_with_driver(&mut few, &mut owner)
+            .unwrap(),
         ScriptConditionResult::False,
         "N_OR_FEWER_BUILDINGS 2 is false when host has 3 structures"
     );
@@ -1378,7 +1337,9 @@ fn assert_live_player_census_conditions() {
         .add_parameter(Parameter::with_int(ParameterType::Int, 3))
         .unwrap();
     assert_eq!(
-        evaluator.evaluate_condition(&mut enough).unwrap(),
+        evaluator
+            .evaluate_condition_with_driver(&mut enough, &mut owner)
+            .unwrap(),
         ScriptConditionResult::True,
         "N_OR_FEWER_BUILDINGS 3 is true when host has 3 structures"
     );
@@ -1397,7 +1358,9 @@ fn assert_live_player_census_conditions() {
         ))
         .unwrap();
     assert_eq!(
-        evaluator.evaluate_condition(&mut built).unwrap(),
+        evaluator
+            .evaluate_condition_with_driver(&mut built, &mut owner)
+            .unwrap(),
         ScriptConditionResult::True,
         "BUILT_BY_PLAYER must see host War Factory census, not leftover 0"
     );
@@ -1422,7 +1385,9 @@ fn assert_live_player_census_conditions() {
         ))
         .unwrap();
     assert_eq!(
-        evaluator.evaluate_condition(&mut has_rangers).unwrap(),
+        evaluator
+            .evaluate_condition_with_driver(&mut has_rangers, &mut owner)
+            .unwrap(),
         ScriptConditionResult::True,
         "HAS_OBJECT_COMPARISON > 0 Rangers must use host census"
     );
@@ -1447,7 +1412,9 @@ fn assert_live_player_census_conditions() {
         ))
         .unwrap();
     assert_eq!(
-        evaluator.evaluate_condition(&mut few_cc).unwrap(),
+        evaluator
+            .evaluate_condition_with_driver(&mut few_cc, &mut owner)
+            .unwrap(),
         ScriptConditionResult::False,
         "HAS fewer than 1 Command Center is false while host CC stands"
     );
@@ -1464,7 +1431,9 @@ fn assert_live_player_census_conditions() {
     ))
     .unwrap();
     assert_eq!(
-        evaluator.evaluate_condition(&mut lost).unwrap(),
+        evaluator
+            .evaluate_condition_with_driver(&mut lost, &mut owner)
+            .unwrap(),
         ScriptConditionResult::False,
         "LOST first census sample stores ignoreDead count and is not yet lost"
     );
@@ -1480,16 +1449,44 @@ fn assert_live_player_census_conditions() {
                 ..Default::default()
             },
         );
-        crate::scripting::set_host_script_query_snapshot(snap);
+        owner.rows = snap
+            .player_census
+            .into_iter()
+            .map(|(name, census)| (name, (0, census)))
+            .collect();
     }
     assert_eq!(
-        evaluator.evaluate_condition(&mut lost).unwrap(),
+        evaluator
+            .evaluate_condition_with_driver(&mut lost, &mut owner)
+            .unwrap(),
         ScriptConditionResult::True,
         "LOST fires when ignoreDead census drops vs ScriptEngine cache"
     );
 
-    crate::scripting::clear_host_script_query_snapshot();
-    player_list().write().unwrap().clear();
+    assert_eq!(peer.get_money().get_money(), 0);
+}
+
+// Owner ingress contracts; Main named_lifecycle_owner_tests exercises actual
+// object death/removal, name history and save continuation.
+struct NamedLifetimeOwner {
+    name: &'static str,
+    state: crate::scripting::engine::ScriptNamedLifecycle,
+}
+impl ScriptExecutionDriver for NamedLifetimeOwner {
+    fn after_action(&mut self) -> GameLogicResult<()> {
+        Ok(())
+    }
+    fn named_lifecycle(
+        &self,
+        name: &str,
+        _this_object: Option<u32>,
+    ) -> ScriptOwnerQuery<crate::scripting::engine::ScriptNamedLifecycle> {
+        if name == self.name {
+            ScriptOwnerQuery::Present(self.state)
+        } else {
+            ScriptOwnerQuery::Missing
+        }
+    }
 }
 
 #[test]
@@ -1497,10 +1494,14 @@ fn named_destroyed_false_if_name_never_existed_like_cxx() {
     let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
 
     // C++ ScriptConditions::evaluateNamedUnitDestroyed (ScriptConditions.cpp:274-286)
-    let _test_lock = crate::test_sync::lock();
-    crate::object::registry::OBJECT_REGISTRY.clear();
-    get_named_object_tracker().clear().unwrap();
-    crate::scripting::clear_host_script_query_snapshot();
+    let mut owner = NamedLifetimeOwner {
+        name: "NeverSpawnedHero",
+        state: crate::scripting::engine::ScriptNamedLifecycle {
+            exists: false,
+            effectively_dead: false,
+            ever_existed: false,
+        },
+    };
 
     let mut condition = Condition::new(ConditionType::NamedDestroyed);
     condition
@@ -1512,7 +1513,9 @@ fn named_destroyed_false_if_name_never_existed_like_cxx() {
     let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     assert_eq!(
-        evaluator.evaluate_condition(&mut condition).unwrap(),
+        evaluator
+            .evaluate_condition_with_driver(&mut condition, &mut owner)
+            .unwrap(),
         ScriptConditionResult::False,
         "C++ evaluateNamedUnitDestroyed returns false when the name never existed"
     );
@@ -1524,18 +1527,14 @@ fn named_destroyed_and_dying_use_effectively_dead_while_object_exists_like_cxx()
 
     // C++ ScriptConditions.cpp:274-318 — existing unit uses isEffectivelyDead();
     // NAMED_DYING is false once the object is gone.
-    let _test_lock = crate::test_sync::lock();
-    crate::object::registry::OBJECT_REGISTRY.clear();
-    get_named_object_tracker().clear().unwrap();
-
-    const ID: u32 = 0x5C01_D571;
-    let obj = Arc::new(RwLock::new(crate::object::Object::new_test(ID, 100.0)));
-    obj.write().unwrap().set_effectively_dead(true);
-    crate::object::registry::OBJECT_REGISTRY.register_object(ID, &obj);
-    get_named_object_tracker()
-        .register_named_object("DyingHero".to_string(), ID)
-        .unwrap();
-
+    let mut owner = NamedLifetimeOwner {
+        name: "DyingHero",
+        state: crate::scripting::engine::ScriptNamedLifecycle {
+            exists: true,
+            effectively_dead: true,
+            ever_existed: true,
+        },
+    };
     let mut destroyed = Condition::new(ConditionType::NamedDestroyed);
     destroyed
         .add_parameter(Parameter::with_string(
@@ -1554,322 +1553,279 @@ fn named_destroyed_and_dying_use_effectively_dead_while_object_exists_like_cxx()
     let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&dispatch_engine, &evaluator_state);
     assert_eq!(
-        evaluator.evaluate_condition(&mut destroyed).unwrap(),
+        evaluator
+            .evaluate_condition_with_driver(&mut destroyed, &mut owner)
+            .unwrap(),
         ScriptConditionResult::True,
         "C++ evaluateNamedUnitDestroyed uses isEffectivelyDead while the object exists"
     );
     assert_eq!(
-        evaluator.evaluate_condition(&mut dying).unwrap(),
+        evaluator
+            .evaluate_condition_with_driver(&mut dying, &mut owner)
+            .unwrap(),
         ScriptConditionResult::True,
         "C++ evaluateNamedUnitDying is isEffectivelyDead while the object exists"
     );
 
-    crate::object::registry::OBJECT_REGISTRY.unregister_object(ID);
-    drop(obj);
-    get_named_object_tracker().unregister_object(ID).unwrap();
+    owner.state.exists = false;
+    owner.state.effectively_dead = false;
 
     assert_eq!(
-        evaluator.evaluate_condition(&mut dying).unwrap(),
+        evaluator
+            .evaluate_condition_with_driver(&mut dying, &mut owner)
+            .unwrap(),
         ScriptConditionResult::False,
         "C++ evaluateNamedUnitDying is false once the object is gone"
     );
-    get_named_object_tracker().clear().unwrap();
+}
+
+struct VictoryOwner<'a> {
+    engine: &'a ScriptEngine,
+    input_enabled: bool,
+    observer: bool,
+    input_callbacks: usize,
+}
+impl crate::scripting::engine::ScriptExecutionDriver for VictoryOwner<'_> {
+    fn after_action(&mut self) -> GameLogicResult<()> {
+        Ok(())
+    }
+    fn local_player_observer(&self) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Present(self.observer)
+    }
+    fn world(
+        &mut self,
+        request: crate::scripting::engine::ScriptWorldRequest<'_>,
+    ) -> Option<GameLogicResult<()>> {
+        let crate::scripting::engine::ScriptWorldRequest::Input { enabled } = request else {
+            panic!("unexpected victory request: {request:?}");
+        };
+        self.input_enabled = enabled;
+        self.input_callbacks += 1;
+        // Input admission may immediately reenter this same interpreter.
+        assert_eq!(self.engine.get_counter("VictoryReentry").unwrap().value, 3);
+        assert!(
+            !self.engine.is_game_ending(),
+            "input is disabled before the end-game timer starts"
+        );
+        Some(Ok(()))
+    }
+}
+
+fn run_owned_victory_action(kind: ScriptActionType, observer: bool, already_defeated: bool) {
+    let engine = ScriptEngine::new().unwrap();
+    let peer = ScriptEngine::new().unwrap();
+    engine.set_counter("VictoryReentry", 3).unwrap();
+    peer.set_counter("VictoryReentry", 9).unwrap();
+    engine.set_campaign_victorious(true);
+    engine.set_shown_mp_local_defeat_window(already_defeated);
+    engine.close_windows(false);
+    let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut evaluator = ScriptConditionEvaluator::new(&engine, &state);
+    let mut counter = Condition::new(ConditionType::Counter);
+    counter
+        .add_parameter(Parameter::with_string(
+            ParameterType::Counter,
+            "VictoryReentry".into(),
+        ))
+        .unwrap();
+    counter
+        .add_parameter(Parameter::with_int(
+            ParameterType::Comparison,
+            ComparisonType::Equal as i32,
+        ))
+        .unwrap();
+    counter
+        .add_parameter(Parameter::with_int(ParameterType::Int, 3))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut counter).unwrap(),
+        ScriptConditionResult::True
+    );
+    let mut owner = VictoryOwner {
+        engine: &engine,
+        input_enabled: true,
+        observer,
+        input_callbacks: 0,
+    };
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &state);
+    assert_eq!(
+        dispatcher
+            .execute_action_with_driver(&ScriptAction::new(kind), &mut owner)
+            .unwrap(),
+        ScriptActionResult::Success
+    );
+    let local = kind == ScriptActionType::Localdefeat;
+    assert_eq!(owner.input_enabled, local);
+    assert_eq!(owner.input_callbacks, usize::from(!local));
+    assert_eq!(
+        engine.is_campaign_victorious(),
+        kind == ScriptActionType::Victory
+    );
+    let expected = if local {
+        if observer {
+            None
+        } else {
+            Some("Menus/LocalDefeat.wnd")
+        }
+    } else if observer || already_defeated {
+        Some("Menus/ObserverQuit.wnd")
+    } else if kind == ScriptActionType::Victory {
+        Some("Menus/Victorious.wnd")
+    } else {
+        Some("Menus/Defeat.wnd")
+    };
+    assert_eq!(engine.current_win_lose_window().as_deref(), expected);
+    assert_eq!(engine.is_game_ending(), !local);
+    assert_eq!(
+        engine.has_shown_mp_local_defeat_window(),
+        local || already_defeated
+    );
+    assert_eq!(peer.get_counter("VictoryReentry").unwrap().value, 9);
+    assert!(!peer.is_game_ending());
+    assert_eq!(peer.current_win_lose_window(), None);
 }
 
 #[test]
-fn active_script_counter_and_victory_reenter_without_relocking_the_global_engine() {
-    let _test_lock = crate::test_sync::lock();
-    initialize_script_engine().expect("script engine should initialize");
-
-    let prior_input = TheGameLogic::is_input_enabled();
-    let prior_victory = TheVictoryConditions::is_local_allied_victory();
-    TheVictoryConditions::set_local_allied_victory(false);
-
-    let completed = with_script_engine_mut(|engine| {
-        // `with_script_engine_mut` holds the global engine lock and
-        // installs the active scoped engine.  The two calls below must
-        // use that active engine immediately; re-locking the global
-        // handle here would self-deadlock during a normal script update.
-        engine
-            .set_counter("ActiveExecutorCounterReentry", 3)
-            .expect("counter should be allocated");
-
-        let mut counter = Condition::new(ConditionType::Counter);
-        counter
-            .add_parameter(Parameter::with_string(
-                ParameterType::Counter,
-                "ActiveExecutorCounterReentry".to_string(),
-            ))
-            .expect("counter parameter");
-        counter
-            .add_parameter(Parameter::with_int(
-                ParameterType::Comparison,
-                ComparisonType::Equal as i32,
-            ))
-            .expect("comparison parameter");
-        counter
-            .add_parameter(Parameter::with_int(ParameterType::Int, 3))
-            .expect("value parameter");
-
-        let evaluator_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-        let mut evaluator = ScriptConditionEvaluator::new(&engine, &evaluator_state);
-        assert_eq!(
-            evaluator.evaluate_condition(&mut counter).unwrap(),
-            ScriptConditionResult::True
-        );
-
-        let victory = ScriptAction::new(ScriptActionType::Victory);
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
-        assert_eq!(
-            dispatcher.execute_action(&victory).unwrap(),
-            ScriptActionResult::Success
-        );
-        assert!(engine.is_game_ending());
-        assert!(
-            engine.is_campaign_victorious(),
-            "C++ ScriptActions.cpp:208 TheCampaignManager->SetVictorious(TRUE)"
-        );
-    });
-
-    assert_eq!(completed, Some(()));
-    assert!(
-        !TheGameLogic::is_input_enabled(),
-        "C++ Victory disables local input before starting the end-game timer"
-    );
-    assert!(
-        !TheVictoryConditions::is_local_allied_victory(),
-        "C++ doVictory does not touch TheVictoryConditions"
-    );
-
-    TheGameLogic::set_input_enabled(prior_input);
-    TheVictoryConditions::set_local_allied_victory(prior_victory);
-
-    with_script_engine_mut(|engine| engine.set_campaign_victorious(false));
+fn active_script_counter_and_victory_reenter_the_borrowed_engine() {
+    run_owned_victory_action(ScriptActionType::Victory, false, false);
 }
-
 #[test]
 fn do_defeat_clears_campaign_victorious_flag() {
-    // C++ ScriptActions.cpp:231-232 TheCampaignManager->SetVictorious(FALSE)
-    let _test_lock = crate::test_sync::lock();
-    initialize_script_engine().expect("script engine should initialize");
-    let prior_input = TheGameLogic::is_input_enabled();
-    TheGameLogic::set_input_enabled(true);
-
-    let completed = with_script_engine_mut(|engine| {
-        engine.set_campaign_victorious(true);
-        let defeat = ScriptAction::new(ScriptActionType::Defeat);
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
-        assert_eq!(
-            dispatcher.execute_action(&defeat).unwrap(),
-            ScriptActionResult::Success
-        );
-        assert!(!engine.is_campaign_victorious());
-        assert!(engine.is_game_ending());
-    });
-    assert_eq!(completed, Some(()));
-    TheGameLogic::set_input_enabled(prior_input);
+    run_owned_victory_action(ScriptActionType::Defeat, true, false);
 }
-
 #[test]
 fn do_victory_creates_victorious_window_layout() {
-    // C++ ScriptActions.cpp:196-209 winCreateFromScript("Menus/Victorious.wnd")
-    let _test_lock = crate::test_sync::lock();
-    initialize_script_engine().expect("script engine should initialize");
-    let prior_input = TheGameLogic::is_input_enabled();
-    TheGameLogic::set_input_enabled(true);
-
-    let completed = with_script_engine_mut(|engine| {
-        engine.set_shown_mp_local_defeat_window(false);
-        engine.close_windows(false);
-        let victory = ScriptAction::new(ScriptActionType::Victory);
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
-        assert_eq!(
-            dispatcher.execute_action(&victory).unwrap(),
-            ScriptActionResult::Success
-        );
-        assert_eq!(
-            engine.current_win_lose_window().as_deref(),
-            Some("Menus/Victorious.wnd")
-        );
-        assert!(engine.is_game_ending());
-    });
-    assert_eq!(completed, Some(()));
-    TheGameLogic::set_input_enabled(prior_input);
+    run_owned_victory_action(ScriptActionType::Victory, false, false);
+    run_owned_victory_action(ScriptActionType::Victory, false, true);
 }
-
 #[test]
 fn do_defeat_creates_defeat_window_layout() {
-    // C++ ScriptActions.cpp:220-229 winCreateFromScript("Menus/Defeat.wnd")
-    let _test_lock = crate::test_sync::lock();
-    initialize_script_engine().expect("script engine should initialize");
-    let prior_input = TheGameLogic::is_input_enabled();
-    TheGameLogic::set_input_enabled(true);
-
-    let completed = with_script_engine_mut(|engine| {
-        engine.set_shown_mp_local_defeat_window(false);
-        engine.close_windows(false);
-        let defeat = ScriptAction::new(ScriptActionType::Defeat);
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
-        assert_eq!(
-            dispatcher.execute_action(&defeat).unwrap(),
-            ScriptActionResult::Success
-        );
-        assert_eq!(
-            engine.current_win_lose_window().as_deref(),
-            Some("Menus/Defeat.wnd")
-        );
-    });
-    assert_eq!(completed, Some(()));
-    TheGameLogic::set_input_enabled(prior_input);
+    run_owned_victory_action(ScriptActionType::Defeat, false, false);
 }
-
 #[test]
 fn do_local_defeat_creates_local_defeat_window_layout() {
-    // C++ ScriptActions.cpp:244-247 winCreateFromScript("Menus/LocalDefeat.wnd")
-    let _test_lock = crate::test_sync::lock();
-    initialize_script_engine().expect("script engine should initialize");
-
-    let completed = with_script_engine_mut(|engine| {
-        engine.set_shown_mp_local_defeat_window(false);
-        engine.close_windows(false);
-        let local_defeat = ScriptAction::new(ScriptActionType::Localdefeat);
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
-        assert_eq!(
-            dispatcher.execute_action(&local_defeat).unwrap(),
-            ScriptActionResult::Success
-        );
-        assert_eq!(
-            engine.current_win_lose_window().as_deref(),
-            Some("Menus/LocalDefeat.wnd")
-        );
-        assert!(engine.has_shown_mp_local_defeat_window());
-    });
-    assert_eq!(completed, Some(()));
+    run_owned_victory_action(ScriptActionType::Localdefeat, false, false);
+    run_owned_victory_action(ScriptActionType::Localdefeat, true, false);
 }
 
 #[test]
 fn active_world_actions_clone_the_handler_before_host_callback_reentry() {
-    let _test_lock = crate::test_sync::lock();
-    initialize_script_engine().expect("script engine should initialize");
-
-    let calls = Arc::new(Mutex::new(Vec::new()));
-    let previous_handler = {
-        let global = get_script_engine();
-        let mut global = global.write().expect("script engine global lock");
-        let engine = global.as_mut().expect("script engine should initialize");
-        let previous = engine.action_handler();
-        engine.set_action_handler(Some(Arc::new(ReentrantWorldActionHandler {
-            calls: Arc::clone(&calls),
-        })));
-        previous
+    let engine = ScriptEngine::new().unwrap();
+    let peer = ScriptEngine::new().unwrap();
+    peer.set_counter("WorldHandlerImmediateReentry", 9).unwrap();
+    let mut owner = BorrowedWorldOwner {
+        engine: &engine,
+        calls: Vec::new(),
     };
 
-    let completed = with_script_engine_mut(|engine| {
-        engine
-            .set_counter("WorldHandlerImmediateReentry", 0)
-            .expect("reentry counter");
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
+    engine
+        .set_counter("WorldHandlerImmediateReentry", 0)
+        .expect("reentry counter");
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
 
-        let mut fullscreen_movie = ScriptAction::new(ScriptActionType::MoviePlayFullscreen);
-        fullscreen_movie
-            .add_parameter(Parameter::with_string(
-                ParameterType::Movie,
-                "campaign_intro.bik".to_string(),
-            ))
-            .expect("movie parameter");
-        assert_eq!(
-            dispatcher
-                .execute_action(&fullscreen_movie)
-                .expect("movie action"),
-            ScriptActionResult::Success
-        );
-
-        assert_eq!(
-            dispatcher
-                .execute_action(&ScriptAction::new(ScriptActionType::RadarForceEnable))
-                .expect("radar action"),
-            ScriptActionResult::Success
-        );
-
-        let mut timer = ScriptAction::new(ScriptActionType::DisplayCountdownTimer);
-        timer
-            .add_parameter(Parameter::with_string(
-                ParameterType::Counter,
-                "CampaignTimer".to_string(),
-            ))
-            .expect("timer name parameter");
-        timer
-            .add_parameter(Parameter::with_string(
-                ParameterType::LocalizedText,
-                "GUI:Countdown".to_string(),
-            ))
-            .expect("timer text parameter");
-        assert_eq!(
-            dispatcher.execute_action(&timer).expect("timer action"),
-            ScriptActionResult::Success
-        );
-
-        assert_eq!(
-            dispatcher
-                .execute_action(&ScriptAction::new(ScriptActionType::FreezeTime))
-                .expect("freeze action"),
-            ScriptActionResult::Success
-        );
-        assert_eq!(
-            dispatcher
-                .execute_action(&ScriptAction::new(ScriptActionType::UnfreezeTime))
-                .expect("unfreeze action"),
-            ScriptActionResult::Success
-        );
-
-        let mut visual_speed = ScriptAction::new(ScriptActionType::SetVisualSpeedMultiplier);
-        visual_speed
-            .add_parameter(Parameter::with_int(ParameterType::Int, 2))
-            .expect("visual speed parameter");
-        assert_eq!(
-            dispatcher
-                .execute_action(&visual_speed)
-                .expect("visual speed action"),
-            ScriptActionResult::Success
-        );
-
-        let mut weather = ScriptAction::new(ScriptActionType::ShowWeather);
-        weather
-            .add_parameter(Parameter::with_int(ParameterType::Boolean, 0))
-            .expect("weather parameter");
-        assert_eq!(
-            dispatcher.execute_action(&weather).expect("weather action"),
-            ScriptActionResult::Success
-        );
-
-        assert_eq!(
-            engine
-                .get_counter("WorldHandlerImmediateReentry")
-                .expect("reentry counter should remain allocated")
-                .value,
-            7,
-            "each host callback re-enters before its script action returns"
-        );
-    });
-
-    {
-        let global = get_script_engine();
-        let mut global = global.write().expect("script engine global lock");
-        global
-            .as_mut()
-            .expect("script engine should initialize")
-            .set_action_handler(previous_handler);
-    }
-
-    assert_eq!(completed, Some(()));
+    let mut fullscreen_movie = ScriptAction::new(ScriptActionType::MoviePlayFullscreen);
+    fullscreen_movie
+        .add_parameter(Parameter::with_string(
+            ParameterType::Movie,
+            "campaign_intro.bik".to_string(),
+        ))
+        .expect("movie parameter");
     assert_eq!(
-        *calls.lock().unwrap(),
+        dispatcher
+            .execute_action_with_driver(&fullscreen_movie, &mut owner)
+            .expect("movie action"),
+        ScriptActionResult::Success
+    );
+
+    assert_eq!(
+        dispatcher
+            .execute_action_with_driver(
+                &ScriptAction::new(ScriptActionType::RadarForceEnable),
+                &mut owner
+            )
+            .expect("radar action"),
+        ScriptActionResult::Success
+    );
+
+    let mut timer = ScriptAction::new(ScriptActionType::DisplayCountdownTimer);
+    timer
+        .add_parameter(Parameter::with_string(
+            ParameterType::Counter,
+            "CampaignTimer".to_string(),
+        ))
+        .expect("timer name parameter");
+    timer
+        .add_parameter(Parameter::with_string(
+            ParameterType::LocalizedText,
+            "GUI:Countdown".to_string(),
+        ))
+        .expect("timer text parameter");
+    assert_eq!(
+        dispatcher
+            .execute_action_with_driver(&timer, &mut owner)
+            .expect("timer action"),
+        ScriptActionResult::Success
+    );
+
+    assert_eq!(
+        dispatcher
+            .execute_action_with_driver(
+                &ScriptAction::new(ScriptActionType::FreezeTime),
+                &mut owner
+            )
+            .expect("freeze action"),
+        ScriptActionResult::Success
+    );
+    assert_eq!(
+        dispatcher
+            .execute_action_with_driver(
+                &ScriptAction::new(ScriptActionType::UnfreezeTime),
+                &mut owner
+            )
+            .expect("unfreeze action"),
+        ScriptActionResult::Success
+    );
+
+    let mut visual_speed = ScriptAction::new(ScriptActionType::SetVisualSpeedMultiplier);
+    visual_speed
+        .add_parameter(Parameter::with_int(ParameterType::Int, 2))
+        .expect("visual speed parameter");
+    assert_eq!(
+        dispatcher
+            .execute_action_with_driver(&visual_speed, &mut owner)
+            .expect("visual speed action"),
+        ScriptActionResult::Success
+    );
+
+    let mut weather = ScriptAction::new(ScriptActionType::ShowWeather);
+    weather
+        .add_parameter(Parameter::with_int(ParameterType::Boolean, 0))
+        .expect("weather parameter");
+    assert_eq!(
+        dispatcher
+            .execute_action_with_driver(&weather, &mut owner)
+            .expect("weather action"),
+        ScriptActionResult::Success
+    );
+
+    assert_eq!(
+        engine
+            .get_counter("WorldHandlerImmediateReentry")
+            .expect("reentry counter should remain allocated")
+            .value,
+        7,
+        "each host callback re-enters before its script action returns"
+    );
+    assert_eq!(
+        peer.get_counter("WorldHandlerImmediateReentry")
+            .unwrap()
+            .value,
+        9
+    );
+
+    assert_eq!(
+        owner.calls,
         vec![
             "movie:campaign_intro.bik",
             "radar:true",
@@ -1884,81 +1840,72 @@ fn active_world_actions_clone_the_handler_before_host_callback_reentry() {
 
 #[test]
 fn active_player_display_actions_clone_handler_before_reentry() {
-    let _test_lock = crate::test_sync::lock();
-    initialize_script_engine().expect("script engine should initialize");
-
-    let calls = Arc::new(Mutex::new(Vec::new()));
-    let previous_handler = {
-        let global = get_script_engine();
-        let mut global = global.write().expect("script engine global lock");
-        let engine = global.as_mut().expect("script engine should initialize");
-        let previous = engine.action_handler();
-        engine.set_action_handler(Some(Arc::new(ReentrantWorldActionHandler {
-            calls: Arc::clone(&calls),
-        })));
-        previous
+    let engine = ScriptEngine::new().unwrap();
+    let peer = ScriptEngine::new().unwrap();
+    peer.set_counter("WorldHandlerImmediateReentry", 9).unwrap();
+    let mut owner = BorrowedWorldOwner {
+        engine: &engine,
+        calls: Vec::new(),
     };
 
-    let completed = with_script_engine_mut(|engine| {
-        engine
-            .set_counter("WorldHandlerImmediateReentry", 0)
-            .expect("reentry counter");
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
+    engine
+        .set_counter("WorldHandlerImmediateReentry", 0)
+        .expect("reentry counter");
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
 
-        let mut display = ScriptAction::new(ScriptActionType::DisplayText);
-        display
-            .add_parameter(Parameter::with_string(
-                ParameterType::LocalizedText,
-                "GUI:CampaignMessage".to_string(),
-            ))
-            .expect("display text parameter");
-        assert_eq!(
-            dispatcher.execute_action(&display).expect("display action"),
-            ScriptActionResult::Success
-        );
-
-        let mut music = ScriptAction::new(ScriptActionType::MusicSetTrack);
-        music
-            .add_parameter(Parameter::with_string(
-                ParameterType::Music,
-                "CampaignCombat".to_string(),
-            ))
-            .expect("music parameter");
-        music
-            .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
-            .expect("fade out parameter");
-        music
-            .add_parameter(Parameter::with_int(ParameterType::Boolean, 0))
-            .expect("fade in parameter");
-        assert_eq!(
-            dispatcher.execute_action(&music).expect("music action"),
-            ScriptActionResult::Success
-        );
-
-        assert_eq!(engine.get_current_track_name(), "CampaignCombat");
-        assert_eq!(
-            engine
-                .get_counter("WorldHandlerImmediateReentry")
-                .expect("reentry counter should remain allocated")
-                .value,
-            2,
-            "each callback re-enters before its script action returns"
-        );
-    });
-
-    {
-        let global = get_script_engine();
-        let mut global = global.write().expect("script engine global lock");
-        global
-            .as_mut()
-            .expect("script engine should initialize")
-            .set_action_handler(previous_handler);
-    }
-
-    assert_eq!(completed, Some(()));
+    let mut display = ScriptAction::new(ScriptActionType::DisplayText);
+    display
+        .add_parameter(Parameter::with_string(
+            ParameterType::LocalizedText,
+            "GUI:CampaignMessage".to_string(),
+        ))
+        .expect("display text parameter");
     assert_eq!(
-        *calls.lock().unwrap(),
+        dispatcher
+            .execute_action_with_driver(&display, &mut owner)
+            .expect("display action"),
+        ScriptActionResult::Success
+    );
+
+    let mut music = ScriptAction::new(ScriptActionType::MusicSetTrack);
+    music
+        .add_parameter(Parameter::with_string(
+            ParameterType::Music,
+            "CampaignCombat".to_string(),
+        ))
+        .expect("music parameter");
+    music
+        .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
+        .expect("fade out parameter");
+    music
+        .add_parameter(Parameter::with_int(ParameterType::Boolean, 0))
+        .expect("fade in parameter");
+    assert_eq!(
+        dispatcher
+            .execute_action_with_driver(&music, &mut owner)
+            .expect("music action"),
+        ScriptActionResult::Success
+    );
+
+    assert_eq!(engine.get_current_track_name(), "CampaignCombat");
+    assert_eq!(
+        engine
+            .get_counter("WorldHandlerImmediateReentry")
+            .expect("reentry counter should remain allocated")
+            .value,
+        2,
+        "each callback re-enters before its script action returns"
+    );
+    assert_eq!(
+        peer.get_counter("WorldHandlerImmediateReentry")
+            .unwrap()
+            .value,
+        9
+    );
+
+    assert_eq!(
+        owner.calls,
         vec![
             "text:GUI:CampaignMessage",
             "music:CampaignCombat:true:false",
@@ -1968,98 +1915,75 @@ fn active_player_display_actions_clone_handler_before_reentry() {
 
 #[test]
 fn active_camera_actions_snapshot_handler_and_mutate_fade_without_relocking() {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let module = module_path!();
-        let prefix = concat!(env!("CARGO_CRATE_NAME"), "::");
-        let test = format!(
-            "{}::active_camera_actions_snapshot_handler_and_mutate_fade_without_relocking",
-            module.strip_prefix(prefix).unwrap_or(module)
-        );
-        if matches!(
-            crate::test_process::run_bounded(&test, "GENERALS_EXECUTOR_CAMERA_FRAME_CHILD"),
-            crate::test_process::TestProcess::ParentVerified
-        ) {
-            return;
+    use crate::scripting::engine::ScriptCameraRequest;
+    struct Owner<'a> {
+        engine: &'a ScriptEngine,
+        calls: Vec<String>,
+    }
+    impl ScriptExecutionDriver for Owner<'_> {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            Ok(())
+        }
+        fn camera(&mut self, request: ScriptCameraRequest<'_>) -> Option<GameLogicResult<()>> {
+            let ScriptCameraRequest::Zoom {
+                zoom,
+                seconds,
+                ease_in_seconds,
+                ease_out_seconds,
+            } = request
+            else {
+                panic!("unexpected camera request")
+            };
+            self.calls.push(format!(
+                "zoom:{zoom}:{seconds}:{ease_in_seconds}:{ease_out_seconds}"
+            ));
+            Some(self.engine.increment_counter("ImmediateCameraReentry", 1))
         }
     }
-    let _test_lock = crate::test_sync::lock();
-    initialize_script_engine().expect("script engine should initialize");
-
-    let calls = Arc::new(Mutex::new(Vec::new()));
-    let previous_handler = {
-        let global = get_script_engine();
-        let mut global = global.write().expect("script engine global lock");
-        let engine = global.as_mut().expect("script engine should initialize");
-        let previous = engine.action_handler();
-        engine.set_action_handler(Some(Arc::new(ReentrantWorldActionHandler {
-            calls: Arc::clone(&calls),
-        })));
-        previous
+    let engine = ScriptEngine::new().unwrap();
+    let peer = ScriptEngine::new().unwrap();
+    engine.set_counter("ImmediateCameraReentry", 0).unwrap();
+    peer.set_counter("ImmediateCameraReentry", 9).unwrap();
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(47));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
+    let mut owner = Owner {
+        engine: &engine,
+        calls: Vec::new(),
     };
-
-    let completed = with_script_engine_mut(|engine| {
-        // An explicit fixture frame must not acquire an unrelated GameLogic
-        // clock while the global ScriptEngine is held. Object teardown takes
-        // these locks in the opposite order when publishing its count change.
-        let _foreign_clock = crate::system::game_logic::get_game_logic()
-            .lock()
-            .expect("foreign logic clock witness");
-        engine
-            .set_counter("WorldHandlerImmediateReentry", 0)
-            .expect("reentry counter");
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
-
-        let mut zoom = ScriptAction::new(ScriptActionType::ZoomCamera);
-        for value in [25.0, 1.5, 0.25, 0.5] {
-            zoom.add_parameter(Parameter::with_real(ParameterType::Real, value))
-                .expect("zoom parameter");
-        }
-        assert_eq!(
-            dispatcher.execute_action(&zoom).expect("zoom action"),
-            ScriptActionResult::Success
-        );
-
-        let mut fade = ScriptAction::new(ScriptActionType::CameraFadeAdd);
-        for value in [0.2, 0.8] {
-            fade.add_parameter(Parameter::with_real(ParameterType::Real, value))
-                .expect("fade level parameter");
-        }
-        for value in [0, 3, 2] {
-            fade.add_parameter(Parameter::with_int(ParameterType::Int, value))
-                .expect("fade frame parameter");
-        }
-        assert_eq!(
-            dispatcher.execute_action(&fade).expect("fade action"),
-            ScriptActionResult::Success
-        );
-        assert_eq!(engine.get_fade(), TFade::Add);
-        assert!(
-            (engine.get_fade_value() - 0.8).abs() < f32::EPSILON,
-            "C++ advances a zero-increase fade immediately into its hold value"
-        );
-        assert_eq!(
-            engine
-                .get_counter("WorldHandlerImmediateReentry")
-                .expect("reentry counter should remain allocated")
-                .value,
-            1,
-            "the host camera callback must re-enter before its action returns"
-        );
-    });
-
-    {
-        let global = get_script_engine();
-        let mut global = global.write().expect("script engine global lock");
-        global
-            .as_mut()
-            .expect("script engine should initialize")
-            .set_action_handler(previous_handler);
+    let mut zoom = ScriptAction::new(ScriptActionType::ZoomCamera);
+    for value in [25.0, 1.5, 0.25, 0.5] {
+        zoom.add_parameter(Parameter::with_real(ParameterType::Real, value))
+            .unwrap();
     }
-
-    assert_eq!(completed, Some(()));
-    assert_eq!(*calls.lock().unwrap(), vec!["zoom:25:1.5:0.25:0.5"]);
+    assert_eq!(
+        dispatcher
+            .execute_action_with_driver(&zoom, &mut owner)
+            .unwrap(),
+        ScriptActionResult::Success
+    );
+    assert_eq!(
+        engine.get_counter("ImmediateCameraReentry").unwrap().value,
+        1
+    );
+    let mut fade = ScriptAction::new(ScriptActionType::CameraFadeAdd);
+    for value in [0.2, 0.8] {
+        fade.add_parameter(Parameter::with_real(ParameterType::Real, value))
+            .unwrap();
+    }
+    for value in [0, 3, 2] {
+        fade.add_parameter(Parameter::with_int(ParameterType::Int, value))
+            .unwrap();
+    }
+    assert_eq!(
+        dispatcher
+            .execute_action_with_driver(&fade, &mut owner)
+            .unwrap(),
+        ScriptActionResult::Success
+    );
+    assert_eq!(engine.get_fade(), TFade::Add);
+    assert!((engine.get_fade_value() - 0.8).abs() < f32::EPSILON);
+    assert_eq!(owner.calls, vec!["zoom:25:1.5:0.25:0.5"]);
+    assert_eq!(peer.get_counter("ImmediateCameraReentry").unwrap().value, 9);
 }
 
 #[test]
@@ -2255,147 +2179,174 @@ fn active_skirmish_prerequisite_condition_reads_the_live_object_type_list() {
 
 #[test]
 fn active_named_actions_do_not_relock_the_engine_or_hold_host_callbacks() {
-    let _test_lock = crate::test_sync::lock();
-    initialize_script_engine().expect("script engine should initialize");
-
-    const OBJECT_ID: ObjectID = 86_220;
-    const OBJECT_NAME: &str = "ActiveNamedActionObject";
-    get_named_object_tracker()
-        .register_named_object(OBJECT_NAME.to_string(), OBJECT_ID)
-        .expect("named object registration");
-    let mut named_object = crate::object::Object::new_test(OBJECT_ID, 100.0);
+    struct Owner<'a> {
+        engine: &'a ScriptEngine,
+        object: crate::object::Object,
+        calls: Vec<String>,
+    }
+    impl ScriptExecutionDriver for Owner<'_> {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            Ok(())
+        }
+        fn named_object_id(&self, name: &str, _: Option<ObjectID>) -> ScriptOwnerQuery<ObjectID> {
+            if name == self.object.get_name().as_str() {
+                ScriptOwnerQuery::Present(self.object.get_id())
+            } else {
+                ScriptOwnerQuery::Missing
+            }
+        }
+        fn named_superweapon_display(
+            &mut self,
+            name: &str,
+            show: bool,
+            _: Option<ObjectID>,
+        ) -> Option<GameLogicResult<()>> {
+            assert_eq!(name, self.object.get_name().as_str());
+            self.calls.push(format!(
+                "{}-superweapon:{}",
+                if show { "show" } else { "hide" },
+                self.object.get_id()
+            ));
+            Some(
+                self.engine
+                    .increment_counter("WorldHandlerImmediateReentry", 1),
+            )
+        }
+        fn named_topple_direction(
+            &mut self,
+            name: &str,
+            direction: Coord3D,
+        ) -> Option<GameLogicResult<()>> {
+            self.engine.set_topple_direction(name, Some(direction));
+            Some(Ok(()))
+        }
+    }
+    const OBJECT_ID: ObjectID = 86220;
+    const OBJECT_NAME: &str = "OwnedNamedActionObject";
+    let engine = ScriptEngine::new().unwrap();
+    let peer = ScriptEngine::new().unwrap();
+    let mut named_object = crate::object::Object::new_raw(
+        Arc::new(crate::common::DefaultThingTemplate::new(
+            "OwnedNamedAction".into(),
+        )),
+        OBJECT_ID,
+        crate::common::ObjectStatusMaskType::NONE,
+        None,
+    );
     named_object.set_name(AsciiString::from(OBJECT_NAME));
-
-    let calls = Arc::new(Mutex::new(Vec::new()));
-    let previous_handler = {
-        let global = get_script_engine();
-        let mut global = global.write().expect("script engine global lock");
-        let engine = global.as_mut().expect("script engine should initialize");
-        let previous = engine.action_handler();
-        engine.set_action_handler(Some(Arc::new(ReentrantWorldActionHandler {
-            calls: Arc::clone(&calls),
-        })));
-        previous
+    let mut owner = Owner {
+        engine: &engine,
+        object: named_object,
+        calls: Vec::new(),
     };
 
-    let completed = with_script_engine_mut(|engine| {
-        engine
-            .set_counter("WorldHandlerImmediateReentry", 0)
-            .expect("reentry counter");
+    engine
+        .set_counter("WorldHandlerImmediateReentry", 0)
+        .expect("reentry counter");
 
-        let mut script_to_run = Script::new();
-        script_to_run.script_name = "ActiveNamedSequentialTarget".to_string();
-        let mut list = ScriptList::new();
-        list.append_script(Box::new(script_to_run));
-        engine
-            .set_script_list_for_player(0, Some(Box::new(list)))
-            .expect("sequential target script list");
+    let mut script_to_run = Script::new();
+    script_to_run.script_name = "ActiveNamedSequentialTarget".to_string();
+    let mut list = ScriptList::new();
+    list.append_script(Box::new(script_to_run));
+    engine
+        .set_script_list_for_player(0, Some(Box::new(list)))
+        .expect("sequential target script list");
 
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
 
-        for action_type in [
-            ScriptActionType::NamedHideSpecialPowerDisplay,
-            ScriptActionType::NamedShowSpecialPowerDisplay,
-        ] {
-            let mut action = ScriptAction::new(action_type);
-            action
-                .add_parameter(Parameter::with_string(
-                    ParameterType::Unit,
-                    OBJECT_NAME.to_string(),
-                ))
-                .expect("named display object parameter");
-            assert_eq!(
-                dispatcher
-                    .execute_action(&action)
-                    .expect("named display action"),
-                ScriptActionResult::Success
-            );
-        }
-
-        let mut topple = ScriptAction::new(ScriptActionType::NamedSetToppleDirection);
-        topple
+    for action_type in [
+        ScriptActionType::NamedHideSpecialPowerDisplay,
+        ScriptActionType::NamedShowSpecialPowerDisplay,
+    ] {
+        let mut action = ScriptAction::new(action_type);
+        action
             .add_parameter(Parameter::with_string(
                 ParameterType::Unit,
                 OBJECT_NAME.to_string(),
             ))
-            .expect("topple object parameter");
-        topple
-            .add_parameter(Parameter::with_coord(
-                ParameterType::Coord3D,
-                crate::scripting::core::Coord3D::new(3.0, 4.0, 0.0),
-            ))
-            .expect("topple direction parameter");
-        assert_eq!(
-            dispatcher.execute_action(&topple).expect("topple action"),
-            ScriptActionResult::Success
-        );
-        let mut adjusted = Coord3D::new(0.0, 0.0, 0.0);
-        engine.adjust_topple_direction(&named_object, &mut adjusted);
-        assert!((adjusted.x - 0.6).abs() < f32::EPSILON);
-        assert!((adjusted.y - 0.8).abs() < f32::EPSILON);
-        assert_eq!(adjusted.z, 0.0);
-
-        let mut start = ScriptAction::new(ScriptActionType::UnitExecuteSequentialScript);
-        start
-            .add_parameter(Parameter::with_string(
-                ParameterType::Unit,
-                OBJECT_NAME.to_string(),
-            ))
-            .expect("sequential object parameter");
-        start
-            .add_parameter(Parameter::with_string(
-                ParameterType::Script,
-                "ActiveNamedSequentialTarget".to_string(),
-            ))
-            .expect("sequential target parameter");
+            .expect("named display object parameter");
         assert_eq!(
             dispatcher
-                .execute_action(&start)
-                .expect("start sequential action"),
+                .execute_action_with_driver(&action, &mut owner)
+                .expect("named display action"),
             ScriptActionResult::Success
         );
-        assert!(engine.has_active_sequential_script_for_object(OBJECT_ID));
+    }
 
-        let mut stop = ScriptAction::new(ScriptActionType::UnitStopSequentialScript);
-        stop.add_parameter(Parameter::with_string(
+    let mut topple = ScriptAction::new(ScriptActionType::NamedSetToppleDirection);
+    topple
+        .add_parameter(Parameter::with_string(
             ParameterType::Unit,
             OBJECT_NAME.to_string(),
         ))
-        .expect("stop sequential object parameter");
-        assert_eq!(
-            dispatcher
-                .execute_action(&stop)
-                .expect("stop sequential action"),
-            ScriptActionResult::Success
-        );
-        assert!(!engine.has_active_sequential_script_for_object(OBJECT_ID));
-
-        assert_eq!(
-            engine
-                .get_counter("WorldHandlerImmediateReentry")
-                .expect("reentry counter remains allocated")
-                .value,
-            2,
-            "both host display callbacks re-enter before their script action returns"
-        );
-    });
-
-    {
-        let global = get_script_engine();
-        let mut global = global.write().expect("script engine global lock");
-        global
-            .as_mut()
-            .expect("script engine should initialize")
-            .set_action_handler(previous_handler);
-    }
-    get_named_object_tracker()
-        .unregister_object(OBJECT_ID)
-        .expect("named object cleanup");
-
-    assert_eq!(completed, Some(()));
+        .expect("topple object parameter");
+    topple
+        .add_parameter(Parameter::with_coord(
+            ParameterType::Coord3D,
+            crate::scripting::core::Coord3D::new(3.0, 4.0, 0.0),
+        ))
+        .expect("topple direction parameter");
     assert_eq!(
-        *calls.lock().unwrap(),
+        dispatcher
+            .execute_action_with_driver(&topple, &mut owner)
+            .expect("topple action"),
+        ScriptActionResult::Success
+    );
+    let mut adjusted = Coord3D::new(0.0, 0.0, 0.0);
+    engine.adjust_topple_direction(&owner.object, &mut adjusted);
+    assert!((adjusted.x - 0.6).abs() < f32::EPSILON);
+    assert!((adjusted.y - 0.8).abs() < f32::EPSILON);
+    assert_eq!(adjusted.z, 0.0);
+
+    let mut start = ScriptAction::new(ScriptActionType::UnitExecuteSequentialScript);
+    start
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            OBJECT_NAME.to_string(),
+        ))
+        .expect("sequential object parameter");
+    start
+        .add_parameter(Parameter::with_string(
+            ParameterType::Script,
+            "ActiveNamedSequentialTarget".to_string(),
+        ))
+        .expect("sequential target parameter");
+    assert_eq!(
+        dispatcher
+            .execute_action_with_driver(&start, &mut owner)
+            .expect("start sequential action"),
+        ScriptActionResult::Success
+    );
+    assert!(engine.has_active_sequential_script_for_object(OBJECT_ID));
+
+    let mut stop = ScriptAction::new(ScriptActionType::UnitStopSequentialScript);
+    stop.add_parameter(Parameter::with_string(
+        ParameterType::Unit,
+        OBJECT_NAME.to_string(),
+    ))
+    .expect("stop sequential object parameter");
+    assert_eq!(
+        dispatcher
+            .execute_action_with_driver(&stop, &mut owner)
+            .expect("stop sequential action"),
+        ScriptActionResult::Success
+    );
+    assert!(!engine.has_active_sequential_script_for_object(OBJECT_ID));
+
+    assert_eq!(
+        engine
+            .get_counter("WorldHandlerImmediateReentry")
+            .expect("reentry counter remains allocated")
+            .value,
+        2,
+        "both host display callbacks re-enter before their script action returns"
+    );
+    assert!(!peer.has_active_sequential_script_for_object(OBJECT_ID));
+    assert!(peer.topple_direction_for_name(OBJECT_NAME).is_none());
+
+    assert_eq!(
+        owner.calls,
         vec![
             format!("hide-superweapon:{OBJECT_ID}"),
             format!("show-superweapon:{OBJECT_ID}"),
@@ -2405,93 +2356,102 @@ fn active_named_actions_do_not_relock_the_engine_or_hold_host_callbacks() {
 
 #[test]
 fn active_team_sequential_actions_keep_cxx_lookup_idle_append_order() {
-    let _test_lock = crate::test_sync::lock();
-    initialize_script_engine().expect("script engine should initialize");
-
-    const TEAM_NAME: &str = "ActiveTeamSequentialActions";
-    get_team_factory().lock().unwrap().reset();
-    {
-        let mut factory = get_team_factory().lock().unwrap();
-        factory.init_team(
-            AsciiString::from(TEAM_NAME),
-            AsciiString::default(),
-            false,
-            None,
-        );
-        factory
-            .create_team(TEAM_NAME)
-            .expect("team should be created");
+    struct Owner {
+        factory: crate::team::TeamFactory,
+        ai: BorrowedIdleAi,
     }
-
-    let completed = with_script_engine_mut(|engine| {
-        let mut script_to_run = Script::new();
-        script_to_run.script_name = "ActiveTeamSequentialTarget".to_string();
-        let mut list = ScriptList::new();
-        list.append_script(Box::new(script_to_run));
-        engine
-            .set_script_list_for_player(0, Some(Box::new(list)))
-            .expect("sequential target script list");
-
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
-        let mut start = ScriptAction::new(ScriptActionType::TeamExecuteSequentialScript);
-        start
+    impl ScriptExecutionDriver for Owner {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            Ok(())
+        }
+        fn team_sequential(
+            &mut self,
+            name: &str,
+            _: Option<TeamID>,
+            _: Option<TeamID>,
+            script: Option<(Script, i32)>,
+            engine: &ScriptEngine,
+        ) -> Option<GameLogicResult<()>> {
+            let team = self
+                .factory
+                .find_team_instances(name)
+                .into_iter()
+                .next()
+                .unwrap();
+            let id = team.read().unwrap().get_id();
+            if let Some((script, loops)) = script {
+                assert!(!engine.has_active_sequential_script_for_team(id));
+                crate::scripting::executor::actions_victory_team::issue_borrowed_script_idle(
+                    &mut self.ai,
+                );
+                assert_eq!(self.ai.command.as_ref().unwrap().cmd, AiCommandType::Idle);
+                let mut sequential = SequentialScript::new();
+                sequential.team_to_exec_on = Some(id);
+                sequential.script_to_execute_sequentially = Some(Box::new(script));
+                sequential.times_to_loop = loops;
+                engine.append_sequential_script(sequential);
+            } else {
+                engine.remove_all_sequential_scripts_for_team(id);
+            }
+            Some(Ok(()))
+        }
+    }
+    let engine = ScriptEngine::new().unwrap();
+    let peer = ScriptEngine::new().unwrap();
+    let mut sequential = SequentialScript::new();
+    sequential.team_to_exec_on = Some(1);
+    peer.append_sequential_script(sequential);
+    let mut owner = Owner {
+        factory: crate::team::TeamFactory::new(),
+        ai: BorrowedIdleAi::default(),
+    };
+    owner.factory.init_team(
+        "OwnedSequentialTeam".into(),
+        AsciiString::default(),
+        false,
+        None,
+    );
+    owner.factory.create_team("OwnedSequentialTeam").unwrap();
+    let mut script = Script::new();
+    script.script_name = "OwnedSequentialTarget".into();
+    let mut list = ScriptList::new();
+    list.append_script(Box::new(script));
+    engine
+        .set_script_list_for_player(0, Some(Box::new(list)))
+        .unwrap();
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
+    for kind in [
+        ScriptActionType::TeamExecuteSequentialScript,
+        ScriptActionType::TeamStopSequentialScript,
+    ] {
+        let mut action = ScriptAction::new(kind);
+        action
             .add_parameter(Parameter::with_string(
                 ParameterType::Team,
-                TEAM_NAME.to_string(),
+                "OwnedSequentialTeam".into(),
             ))
-            .expect("team parameter");
-        start
-            .add_parameter(Parameter::with_string(
-                ParameterType::Script,
-                "ActiveTeamSequentialTarget".to_string(),
-            ))
-            .expect("target script parameter");
+            .unwrap();
+        if kind == ScriptActionType::TeamExecuteSequentialScript {
+            action
+                .add_parameter(Parameter::with_string(
+                    ParameterType::Script,
+                    "OwnedSequentialTarget".into(),
+                ))
+                .unwrap();
+        }
         assert_eq!(
             dispatcher
-                .execute_action(&start)
-                .expect("start sequential action"),
+                .execute_action_with_driver(&action, &mut owner)
+                .unwrap(),
             ScriptActionResult::Success
         );
-        assert!(
-            engine.has_active_sequential_script_for_team(
-                get_team_factory()
-                    .lock()
-                    .unwrap()
-                    .find_team_instances(TEAM_NAME)[0]
-                    .read()
-                    .unwrap()
-                    .get_id()
-            )
-        );
-
-        let mut stop = ScriptAction::new(ScriptActionType::TeamStopSequentialScript);
-        stop.add_parameter(Parameter::with_string(
-            ParameterType::Team,
-            TEAM_NAME.to_string(),
-        ))
-        .expect("team parameter");
         assert_eq!(
-            dispatcher
-                .execute_action(&stop)
-                .expect("stop sequential action"),
-            ScriptActionResult::Success
+            engine.has_active_sequential_script_for_team(1),
+            kind == ScriptActionType::TeamExecuteSequentialScript
         );
-        assert!(
-            !engine.has_active_sequential_script_for_team(
-                get_team_factory()
-                    .lock()
-                    .unwrap()
-                    .find_team_instances(TEAM_NAME)[0]
-                    .read()
-                    .unwrap()
-                    .get_id()
-            )
-        );
-    });
-
-    get_team_factory().lock().unwrap().reset();
-    assert_eq!(completed, Some(()));
+        assert!(peer.has_active_sequential_script_for_team(1));
+    }
 }
 
 #[test]
@@ -2568,636 +2528,513 @@ fn active_script_special_power_and_upgrade_events_are_immediate_and_one_shot_lik
 
 #[test]
 fn team_hunt_with_command_button_invokes_hunt_update() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
-
-    get_object_manager().write().unwrap().reset();
-    get_team_factory().lock().unwrap().reset();
-
-    const TEAM_NAME: &str = "HuntWithCommandTeam";
-    const BUTTON_NAME: &str = "Command_DummyHuntFireWeapon";
-    const COMMAND_SET: &str = "HuntWithCommandTestSet";
-    const HUNTER_ID: ObjectID = 8801;
-
-    crate::control_bar::install_test_command_button(
-        crate::command_button::CommandButton::new(8801, BUTTON_NAME.to_string(), String::new(), 0)
-            .with_command_type(CommandType::DoAttackObject),
-        COMMAND_SET,
-        0,
-    )
-    .expect("dummy hunt command button");
-
-    {
-        let mut factory = get_team_factory().lock().unwrap();
-        factory.init_team(
-            AsciiString::from(TEAM_NAME),
-            AsciiString::default(),
-            false,
-            None,
-        );
-        factory
-            .create_team(TEAM_NAME)
-            .expect("hunt team should be created");
-    }
-
-    let recorded = Arc::new(Mutex::new(Vec::new()));
-    let commands = Arc::new(Mutex::new(Vec::new()));
-    let locomotors = Arc::new(Mutex::new(Vec::new()));
-    let hunter = crate::object_manager::GameObjectInstance::new(
-        HUNTER_ID,
-        None,
-        None,
-        ObjectCreationFlags::new(),
-    )
-    .expect("test hunter instance");
-
-    {
-        let __base_arc = hunter.base();
-        let mut base = __base_arc.write().unwrap();
-        base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
-            commands: Arc::clone(&commands),
-            locomotors: Arc::clone(&locomotors),
-        }))));
-        base.set_command_set_string_override(&AsciiString::from(COMMAND_SET));
-        let data = Arc::new(
-                crate::object::update::command_button_hunt_update::CommandButtonHuntUpdateModuleData::default(),
-            );
-        base.install_update_module(
-            "CommandButtonHuntUpdate",
-            Box::new(RecordingHuntModule {
-                recorded: Arc::clone(&recorded),
-                data: Arc::clone(&data),
-            }),
-            data,
-        );
-    }
-
-    get_object_manager()
-        .write()
-        .unwrap()
-        .register_object_instance(hunter, Coord3D::new(8.0, 4.0, 0.0))
-        .unwrap();
-    {
-        let factory = get_team_factory();
-        let mut factory_guard = factory.lock().unwrap();
-        factory_guard
-            .find_team(TEAM_NAME)
-            .unwrap()
-            .write()
-            .unwrap()
-            .add_member(HUNTER_ID);
-    }
-
+    // This checks explicit dispatcher admission; real C++ effect and peer-world
+    // isolation assertions live in Main::owned_runtime_command_tests.
+    let engine = ScriptEngine::new().unwrap();
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(47));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::TeamHuntWithCommandButton);
     action
         .add_parameter(Parameter::with_string(
-            ParameterType::Team,
-            TEAM_NAME.to_string(),
+            ParameterType::Unit,
+            "HuntTeam".into(),
         ))
         .unwrap();
     action
         .add_parameter(Parameter::with_string(
-            ParameterType::CommandbuttonAllAbilities,
-            BUTTON_NAME.to_string(),
+            ParameterType::Unit,
+            "Command_OwnedFireWeapon".into(),
         ))
         .unwrap();
-
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
-    let result = dispatcher
-        .execute_action(&action)
-        .expect("TEAM_HUNT_WITH_COMMAND_BUTTON should succeed");
-    assert_eq!(result, ScriptActionResult::Success);
+    let mut owner = ExplicitCommandIngress::default();
     assert_eq!(
-        *recorded.lock().unwrap(),
-        vec![BUTTON_NAME.to_string()],
-        "C++ calls CommandButtonHuntUpdate::setCommandButton(ability) on each valid team member"
+        dispatcher
+            .execute_action_with_driver(&action, &mut owner)
+            .unwrap(),
+        ScriptActionResult::Success
     );
-
-    get_object_manager().write().unwrap().reset();
-    get_team_factory().lock().unwrap().reset();
+    assert_eq!(
+        owner.calls,
+        vec![(
+            "TeamHuntWithCommandButton".into(),
+            "HuntTeam".into(),
+            Some("Command_OwnedFireWeapon".into())
+        )]
+    );
+    owner.reject = true;
+    assert!(matches!(
+        dispatcher.execute_action_with_driver(&action, &mut owner),
+        Err(ScriptError::ExecutionFailed(_))
+    ));
 }
 
 #[test]
 fn active_team_build_actions_fail_closed_without_a_prototype_controller() {
-    let _test_lock = crate::test_sync::lock();
-    initialize_script_engine().expect("script engine should initialize");
-
-    const TEAM_NAME: &str = "UnownedActiveBuildTeam";
-    get_team_factory().lock().unwrap().reset();
-    get_team_factory().lock().unwrap().init_team(
-        AsciiString::from(TEAM_NAME),
+    use crate::scripting::engine::ScriptAiPlayerRequest;
+    struct Owner {
+        factory: crate::team::TeamFactory,
+    }
+    impl ScriptExecutionDriver for Owner {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            Ok(())
+        }
+        fn ai_player(&mut self, request: ScriptAiPlayerRequest<'_>) -> Option<GameLogicResult<()>> {
+            let name = match request {
+                ScriptAiPlayerRequest::BuildTeam { team }
+                | ScriptAiPlayerRequest::RecruitTeam { team, .. } => team,
+                _ => panic!("unexpected AI action"),
+            };
+            let prototype = self.factory.find_team_prototype(name).unwrap();
+            assert!(prototype.get_owner_name().is_empty());
+            // An actual ownerless prototype cannot choose a player or acquire
+            // another session's AI manager. Main tests accept positive AI effects.
+            Some(Ok(()))
+        }
+    }
+    let engine = ScriptEngine::new().unwrap();
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
+    let mut owner = Owner {
+        factory: crate::team::TeamFactory::new(),
+    };
+    owner.factory.init_team(
+        "OwnerlessPrototype".into(),
         AsciiString::default(),
         false,
         None,
     );
-
-    let completed = with_script_engine_mut(|engine| {
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
-
-        let mut build = ScriptAction::new(ScriptActionType::BuildTeam);
-        build
+    for kind in [ScriptActionType::BuildTeam, ScriptActionType::RecruitTeam] {
+        let mut action = ScriptAction::new(kind);
+        action
             .add_parameter(Parameter::with_string(
                 ParameterType::Team,
-                TEAM_NAME.to_string(),
+                "OwnerlessPrototype".into(),
             ))
-            .expect("team parameter");
+            .unwrap();
+        if kind == ScriptActionType::RecruitTeam {
+            action
+                .add_parameter(Parameter::with_real(ParameterType::Real, 120.0))
+                .unwrap();
+        }
         assert_eq!(
-            dispatcher.execute_action(&build).expect("build action"),
+            dispatcher
+                .execute_action_with_driver(&action, &mut owner)
+                .unwrap(),
             ScriptActionResult::Success
         );
-
-        let mut recruit = ScriptAction::new(ScriptActionType::RecruitTeam);
-        recruit
-            .add_parameter(Parameter::with_string(
-                ParameterType::Team,
-                TEAM_NAME.to_string(),
-            ))
-            .expect("team parameter");
-        recruit
-            .add_parameter(Parameter::with_real(ParameterType::Real, 120.0))
-            .expect("recruit radius parameter");
-        assert_eq!(
-            dispatcher.execute_action(&recruit).expect("recruit action"),
-            ScriptActionResult::Success
-        );
-    });
-
-    get_team_factory().lock().unwrap().reset();
-    assert_eq!(completed, Some(()));
+    }
 }
 
 #[test]
-fn build_and_recruit_team_queue_host_when_dual_world_empty() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
-
-    let _test_lock = crate::test_sync::lock();
-    crate::object::registry::OBJECT_REGISTRY.clear();
-    let _ = take_host_build_team_requests();
-    let _ = take_host_recruit_team_requests();
-    initialize_script_engine().expect("script engine should initialize");
-
-    const TEAM_NAME: &str = "HostBuildTeam";
-    const OWNER: &str = "PlyrAmerica";
-    get_team_factory().lock().unwrap().reset();
-    get_team_factory().lock().unwrap().init_team(
-        AsciiString::from(TEAM_NAME),
-        AsciiString::from(OWNER),
-        false,
-        None,
-    );
-
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
-    let mut build = ScriptAction::new(ScriptActionType::BuildTeam);
-    build
-        .add_parameter(Parameter::with_string(
-            ParameterType::Team,
-            TEAM_NAME.to_string(),
-        ))
-        .expect("team parameter");
+fn build_and_recruit_team_select_borrowed_driver_with_exact_payloads() {
+    use crate::scripting::engine::{ScriptAiPlayerRequest, ScriptExecutionDriver};
+    #[derive(Default)]
+    struct Admission {
+        calls: Vec<(String, Option<f32>)>,
+    }
+    impl ScriptExecutionDriver for Admission {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            Ok(())
+        }
+        fn ai_player(&mut self, request: ScriptAiPlayerRequest<'_>) -> Option<GameLogicResult<()>> {
+            match request {
+                ScriptAiPlayerRequest::BuildTeam { team } => self.calls.push((team.into(), None)),
+                ScriptAiPlayerRequest::RecruitTeam { team, radius } => {
+                    self.calls.push((team.into(), Some(radius)))
+                }
+                _ => panic!("unexpected request: {request:?}"),
+            }
+            Some(Ok(()))
+        }
+    }
+    let engine = ScriptEngine::new().unwrap();
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
+    let mut admission = Admission::default();
+    for kind in [ScriptActionType::BuildTeam, ScriptActionType::RecruitTeam] {
+        let mut action = ScriptAction::new(kind);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                "HostBuildTeam".into(),
+            ))
+            .unwrap();
+        if kind == ScriptActionType::RecruitTeam {
+            action
+                .add_parameter(Parameter::with_real(ParameterType::Real, 250.0))
+                .unwrap();
+        }
+        assert_eq!(
+            dispatcher
+                .execute_action_with_driver(&action, &mut admission)
+                .unwrap(),
+            ScriptActionResult::Success
+        );
+    }
+    // This is an ingress contract; real AI queue/recruit/build effects are
+    // exercised by Main's script_ai_build_owner_tests through its actual driver.
     assert_eq!(
-        dispatcher.execute_action(&build).expect("build action"),
-        ScriptActionResult::Success
+        admission.calls,
+        [
+            ("HostBuildTeam".into(), None),
+            ("HostBuildTeam".into(), Some(250.0))
+        ]
     );
-    assert_eq!(
-        take_host_build_team_requests(),
-        vec![(OWNER.to_string(), TEAM_NAME.to_string())]
-    );
-
-    let mut recruit = ScriptAction::new(ScriptActionType::RecruitTeam);
-    recruit
-        .add_parameter(Parameter::with_string(
-            ParameterType::Team,
-            TEAM_NAME.to_string(),
-        ))
-        .expect("team parameter");
-    recruit
-        .add_parameter(Parameter::with_real(ParameterType::Real, 250.0))
-        .expect("recruit radius parameter");
-    assert_eq!(
-        dispatcher.execute_action(&recruit).expect("recruit action"),
-        ScriptActionResult::Success
-    );
-    assert_eq!(
-        take_host_recruit_team_requests(),
-        vec![(OWNER.to_string(), TEAM_NAME.to_string(), 250.0)]
-    );
-
-    get_team_factory().lock().unwrap().reset();
 }
 
 #[test]
 fn team_transfer_to_player_reassigns_team_controller_without_capture() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
-
-    get_object_manager().write().unwrap().reset();
-    get_team_factory().lock().unwrap().reset();
-    player_list().write().unwrap().clear();
-
-    const TEAM_NAME: &str = "ExecutorTransferTeam";
-    const SRC_PLAYER: &str = "ExecutorTransferSrc";
-    const DST_PLAYER: &str = "ExecutorTransferDst";
-    const MEMBER_ID: ObjectID = 8701;
-
-    let src_player = Arc::new(RwLock::new(crate::player::Player::new(0)));
-    src_player.write().unwrap().set_display_name(SRC_PLAYER);
-    let dst_player = Arc::new(RwLock::new(crate::player::Player::new(1)));
-    dst_player.write().unwrap().set_display_name(DST_PLAYER);
-    {
-        let mut list = player_list().write().unwrap();
-        list.add_player(src_player);
-        list.add_player(dst_player);
-    }
-
-    let team = {
-        let mut factory = get_team_factory().lock().unwrap();
-        factory.init_team(
-            AsciiString::from(TEAM_NAME),
-            AsciiString::from(SRC_PLAYER),
-            false,
-            None,
-        );
-        factory
-            .create_team(TEAM_NAME)
-            .expect("transfer team should be created")
-    };
-
-    let member = crate::object_manager::GameObjectInstance::new(
-        MEMBER_ID,
-        None,
-        None,
-        ObjectCreationFlags::new(),
-    )
-    .expect("transfer team member");
-    get_object_manager()
-        .write()
-        .unwrap()
-        .register_object_instance(member, Coord3D::new(3.0, 4.0, 0.0))
-        .unwrap();
-    // Registry must be non-empty or Team::set_controlling_player_id no-ops.
-    team.write().unwrap().set_controlling_player_id(Some(0));
-    team.write().unwrap().add_member(MEMBER_ID);
-    assert_eq!(team.read().unwrap().get_controlling_player_id(), Some(0));
-
+    // This checks explicit dispatcher admission; real C++ effect and peer-world
+    // isolation assertions live in Main::owned_runtime_command_tests.
+    let engine = ScriptEngine::new().unwrap();
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(47));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::TeamTransferToPlayer);
     action
         .add_parameter(Parameter::with_string(
-            ParameterType::Team,
-            TEAM_NAME.to_string(),
+            ParameterType::Unit,
+            "TransferTeam".into(),
         ))
         .unwrap();
     action
         .add_parameter(Parameter::with_string(
-            ParameterType::Side,
-            DST_PLAYER.to_string(),
+            ParameterType::Unit,
+            "TransferPlayer".into(),
         ))
         .unwrap();
-
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
-    let result = dispatcher
-        .execute_action(&action)
-        .expect("TEAM_TRANSFER_TO_PLAYER should succeed");
-    assert_eq!(result, ScriptActionResult::Success);
+    let mut owner = ExplicitCommandIngress::default();
     assert_eq!(
-        team.read().unwrap().get_controlling_player_id(),
-        Some(1),
-        "C++ Team::setControllingPlayer reassigns the team, not individual captures"
+        dispatcher
+            .execute_action_with_driver(&action, &mut owner)
+            .unwrap(),
+        ScriptActionResult::Success
     );
     assert_eq!(
-        team.read().unwrap().get_members(),
-        &[MEMBER_ID],
-        "members stay on the same team after TEAM_TRANSFER_TO_PLAYER"
+        owner.calls,
+        vec![(
+            "TeamTransferToPlayer".into(),
+            "TransferTeam".into(),
+            Some("TransferPlayer".into())
+        )]
     );
-
-    get_object_manager().write().unwrap().reset();
-    get_team_factory().lock().unwrap().reset();
-    player_list().write().unwrap().clear();
+    owner.reject = true;
+    assert!(matches!(
+        dispatcher.execute_action_with_driver(&action, &mut owner),
+        Err(ScriptError::ExecutionFailed(_))
+    ));
 }
 
 #[test]
 fn player_sell_everything_sells_faction_structures_like_cxx() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
-
-    get_object_manager().write().unwrap().reset();
-    player_list().write().unwrap().clear();
-    game_engine::common::system::build_assistant::init_build_assistant();
-
-    const PLAYER_NAME: &str = "ExecutorSellPlayer";
-    const FACTORY_ID: ObjectID = 8710;
-    const CC_ID: ObjectID = 8711;
-    const UNIT_ID: ObjectID = 8712;
-    let _registered = RegisteredScriptObjects(vec![FACTORY_ID, CC_ID, UNIT_ID]);
-
-    let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
-    player.write().unwrap().set_display_name(PLAYER_NAME);
-    player_list().write().unwrap().add_player(player.clone());
-
-    let mut factory_template =
-        crate::common::DefaultThingTemplate::new("ExecutorFactionFactory".to_string());
-    factory_template.add_kind_of(crate::common::KindOf::FSWarfactory);
-    let mut factory = crate::object::Object::new_test(FACTORY_ID, 100.0);
-    factory.set_template_for_test(Arc::new(factory_template));
-    TheGameLogic::register_object(Arc::new(RwLock::new(factory)))
-        .expect("register faction factory");
-
-    let mut cc_template =
-        crate::common::DefaultThingTemplate::new("ExecutorCommandCenter".to_string());
-    cc_template.add_kind_of(crate::common::KindOf::CommandCenter);
-    let mut command_center = crate::object::Object::new_test(CC_ID, 100.0);
-    command_center.set_template_for_test(Arc::new(cc_template));
-    TheGameLogic::register_object(Arc::new(RwLock::new(command_center)))
-        .expect("register command center");
-
-    let unit = crate::object::Object::new_test(UNIT_ID, 100.0);
-    TheGameLogic::register_object(Arc::new(RwLock::new(unit))).expect("register unit");
-
-    {
-        let mut player_guard = player.write().unwrap();
-        player_guard.add_owned_object(FACTORY_ID);
-        player_guard.add_owned_object(CC_ID);
-        player_guard.add_owned_object(UNIT_ID);
-    }
-
+    // This checks explicit dispatcher admission; real C++ effect and peer-world
+    // isolation assertions live in Main::owned_runtime_command_tests.
+    let engine = ScriptEngine::new().unwrap();
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(47));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::PlayerSellEverything);
     action
         .add_parameter(Parameter::with_string(
-            ParameterType::Side,
-            PLAYER_NAME.to_string(),
+            ParameterType::Unit,
+            "SellPlayer".into(),
         ))
         .unwrap();
-
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
-    let result = dispatcher
-        .execute_action(&action)
-        .expect("PLAYER_SELL_EVERYTHING should succeed");
-    assert_eq!(result, ScriptActionResult::Success);
-
-    let assistant = game_engine::common::system::build_assistant::get_build_assistant()
-        .expect("build assistant");
-    let sold: Vec<ObjectID> = assistant
-        .get_sell_list()
-        .iter()
-        .map(|info| info.id)
-        .collect();
-    assert!(
-        sold.contains(&FACTORY_ID),
-        "C++ sellBuildings sells faction structures: {sold:?}"
+    let mut owner = ExplicitCommandIngress::default();
+    assert_eq!(
+        dispatcher
+            .execute_action_with_driver(&action, &mut owner)
+            .unwrap(),
+        ScriptActionResult::Success
     );
-    assert!(
-        sold.contains(&CC_ID),
-        "C++ sellBuildings also sells command centers: {sold:?}"
+    assert_eq!(
+        owner.calls,
+        vec![("PlayerSellEverything".into(), "SellPlayer".into(), None)]
     );
-    assert!(
-        !sold.contains(&UNIT_ID),
-        "non-faction units must not be sold: {sold:?}"
-    );
-
-    get_object_manager().write().unwrap().reset();
-    player_list().write().unwrap().clear();
+    owner.reject = true;
+    assert!(matches!(
+        dispatcher.execute_action_with_driver(&action, &mut owner),
+        Err(ScriptError::ExecutionFailed(_))
+    ));
 }
 
 #[test]
 fn damage_members_of_team_applies_unresistable_damage() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
-
-    get_object_manager().write().unwrap().reset();
-
-    const TEAM_NAME: &str = "ExecutorDamageTeam";
-    const MEMBER_ID: ObjectID = 8720;
-    let _registered = RegisteredScriptObjects(vec![MEMBER_ID]);
-
-    let team = {
-        let mut factory = get_team_factory().lock().unwrap_or_else(|e| e.into_inner());
-        factory.reset();
-        factory.init_team(
-            AsciiString::from(TEAM_NAME),
-            AsciiString::default(),
-            false,
-            None,
-        );
-        factory
-            .create_team(TEAM_NAME)
-            .expect("damage team should be created")
-    };
-
-    let member = crate::object::Object::new_test(MEMBER_ID, 100.0);
-    let member_arc = Arc::new(RwLock::new(member));
-    TheGameLogic::register_object(member_arc.clone()).expect("register damage member");
-    team.write().unwrap().add_member(MEMBER_ID);
-
+    // The dispatcher selects a borrowed owner even for authoritative absence.
+    // Main accepts the actual guard/health effects in owned_runtime_command_tests.
+    let engine = ScriptEngine::new().unwrap();
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(47));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::DamageMembersOfTeam);
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Team,
-            TEAM_NAME.to_string(),
+            "OwnedTeam".into(),
         ))
         .unwrap();
     action
         .add_parameter(Parameter::with_real(ParameterType::Real, 25.0))
         .unwrap();
-
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
-    let result = dispatcher
-        .execute_action(&action)
-        .expect("DAMAGE_MEMBERS_OF_TEAM should succeed");
-    assert_eq!(result, ScriptActionResult::Success);
+    let mut owner = ExplicitCommandIngress::default();
     assert_eq!(
-        member_arc.read().unwrap().get_health(),
-        75.0,
-        "C++ Team::damageTeamMembers applies DAMAGE_UNRESISTABLE of the given amount"
+        dispatcher
+            .execute_action_with_driver(&action, &mut owner)
+            .unwrap(),
+        ScriptActionResult::Success
     );
-
-    get_object_manager().write().unwrap().reset();
-    get_team_factory()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .reset();
+    assert_eq!(owner.calls.len(), 1);
+    owner.reject = true;
+    assert!(matches!(
+        dispatcher.execute_action_with_driver(&action, &mut owner),
+        Err(ScriptError::ExecutionFailed(_))
+    ));
 }
 
 #[test]
 fn move_named_unit_to_leaves_group_and_dispatches_ai_move() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
-
-    get_object_manager().write().unwrap().reset();
-    get_named_object_tracker().clear().unwrap();
-    get_terrain_logic().write().unwrap().reset();
-
-    let mut map_data = crate::system::map_loader::MapData::new();
-    map_data.width = 4;
-    map_data.height = 4;
-    map_data.heightmap = vec![0; 16];
-    map_data
-        .waypoints
-        .push(crate::system::map_loader::MapWaypoint {
-            id: 9101,
-            name: "ExecutorMoveWp".to_string(),
-            location: crate::system::map_loader::Coord3D::new(50.0, 60.0, 0.0),
-            path_label1: String::new(),
-            path_label2: String::new(),
-            path_label3: String::new(),
-            bi_directional: false,
-        });
-    get_terrain_logic().write().unwrap().load_map_data(map_data);
-    let waypoint_pos = *get_terrain_logic()
-        .read()
-        .unwrap()
-        .get_waypoint_by_name(&AsciiString::from("ExecutorMoveWp"))
-        .expect("loaded MOVE_NAMED_UNIT_TO waypoint")
-        .get_location();
-
-    let commands = Arc::new(Mutex::new(Vec::new()));
-    let locomotors = Arc::new(Mutex::new(Vec::new()));
-    let cleared = Arc::new(Mutex::new(0u32));
-    const UNIT_ID: ObjectID = 8730;
-    let unit = crate::object_manager::GameObjectInstance::new(
-        UNIT_ID,
-        None,
-        None,
-        ObjectCreationFlags::new(),
-    )
-    .expect("named move unit");
-    {
-        let __base_arc = unit.base();
-        let mut base = __base_arc.write().unwrap();
-        base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingMoveAi {
-            commands: Arc::clone(&commands),
-            locomotors: Arc::clone(&locomotors),
-            cleared: Arc::clone(&cleared),
-            attitudes: Arc::new(Mutex::new(Vec::new())),
-        }))));
-        base.enter_group(&crate::ai::AIGroup::new(93));
-        assert_eq!(base.get_group_id(), Some(93));
-    }
-
-    get_object_manager()
-        .write()
-        .unwrap()
-        .register_object_instance(unit, Coord3D::new(4.0, 5.0, 0.0))
-        .unwrap();
-    get_named_object_tracker()
-        .register_named_object("ExecutorMover".to_string(), UNIT_ID)
-        .unwrap();
-
+    // This checks explicit dispatcher admission; real C++ effect and peer-world
+    // isolation assertions live in Main::owned_runtime_command_tests.
+    let engine = ScriptEngine::new().unwrap();
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(47));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::MoveNamedUnitTo);
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Unit,
-            "ExecutorMover".to_string(),
+            "NamedMover".into(),
         ))
         .unwrap();
     action
         .add_parameter(Parameter::with_string(
-            ParameterType::Waypoint,
-            "ExecutorMoveWp".to_string(),
+            ParameterType::Unit,
+            "OwnedWaypoint".into(),
         ))
         .unwrap();
-
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
-    let result = dispatcher
-        .execute_action(&action)
-        .expect("MOVE_NAMED_UNIT_TO should succeed");
-    assert_eq!(result, ScriptActionResult::Success);
-    // C++ ScriptActions.cpp:433 doNamedMoveToWaypoint clears the queue first.
-    assert_eq!(*cleared.lock().unwrap(), 1);
-    assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
+    let mut owner = ExplicitCommandIngress::default();
     assert_eq!(
-        *commands.lock().unwrap(),
+        dispatcher
+            .execute_action_with_driver(&action, &mut owner)
+            .unwrap(),
+        ScriptActionResult::Success
+    );
+    assert_eq!(
+        owner.calls,
         vec![(
-            AiCommandType::MoveToPosition,
-            waypoint_pos,
-            CommandSourceType::FromScript,
+            "MoveNamedUnitTo".into(),
+            "NamedMover".into(),
+            Some("OwnedWaypoint".into())
         )]
     );
-    assert_eq!(
-        get_object_manager()
-            .read()
-            .unwrap()
-            .with_object(UNIT_ID, |o| o
-                .base()
-                .read()
-                .ok()
-                .and_then(|b| b.get_group_id()))
-            .flatten(),
-        None
-    );
-
-    get_object_manager().write().unwrap().reset();
-    get_named_object_tracker().clear().unwrap();
-    get_terrain_logic().write().unwrap().reset();
+    owner.reject = true;
+    assert!(matches!(
+        dispatcher.execute_action_with_driver(&action, &mut owner),
+        Err(ScriptError::ExecutionFailed(_))
+    ));
 }
 
 #[test]
 fn named_follow_waypoints_leaves_group_and_selects_normal_loco() {
-    let dispatch_engine = crate::scripting::engine::ScriptEngine::new().expect("script engine");
-
-    // C++ ScriptActions.cpp:1621-1623 doNamedFollowWaypoints.
-    get_object_manager().write().unwrap().reset();
-    get_named_object_tracker().clear().unwrap();
-    get_terrain_logic().write().unwrap().reset();
-
-    let mut map_data = crate::system::map_loader::MapData::new();
-    map_data.width = 4;
-    map_data.height = 4;
-    map_data.heightmap = vec![0; 16];
-    map_data
-        .waypoints
-        .push(crate::system::map_loader::MapWaypoint {
-            id: 9201,
-            name: "FollowWp".to_string(),
-            location: crate::system::map_loader::Coord3D::new(80.0, 90.0, 0.0),
-            path_label1: "FollowPath".to_string(),
-            path_label2: String::new(),
-            path_label3: String::new(),
-            bi_directional: false,
-        });
-    get_terrain_logic().write().unwrap().load_map_data(map_data);
-
-    const UNIT_ID: ObjectID = 8740;
-    let (commands, locomotors, _, _) =
-        install_recording_named_unit(UNIT_ID, "FollowUnit", Some(94));
-
+    // This checks explicit dispatcher admission; real C++ effect and peer-world
+    // isolation assertions live in Main::owned_runtime_command_tests.
+    let engine = ScriptEngine::new().unwrap();
+    let context = std::cell::RefCell::new(ScriptContext::at_frame(47));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &context);
     let mut action = ScriptAction::new(ScriptActionType::NamedFollowWaypoints);
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Unit,
-            "FollowUnit".to_string(),
+            "NamedFollower".into(),
         ))
         .unwrap();
     action
         .add_parameter(Parameter::with_string(
-            ParameterType::WaypointPath,
-            "FollowPath".to_string(),
+            ParameterType::Unit,
+            "OwnedPath".into(),
         ))
         .unwrap();
-
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-    let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
-    dispatcher.do_named_follow_waypoints(&action).unwrap();
-
-    assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
+    let mut owner = ExplicitCommandIngress::default();
     assert_eq!(
-        commands.lock().unwrap()[0].0,
-        AiCommandType::FollowWaypointPath
+        dispatcher
+            .execute_action_with_driver(&action, &mut owner)
+            .unwrap(),
+        ScriptActionResult::Success
     );
     assert_eq!(
-        get_object_manager()
-            .read()
-            .unwrap()
-            .with_object(UNIT_ID, |o| o
-                .base()
-                .read()
-                .ok()
-                .and_then(|b| b.get_group_id()))
-            .flatten(),
-        None
+        owner.calls,
+        vec![(
+            "NamedFollowWaypoints".into(),
+            "NamedFollower".into(),
+            Some("OwnedPath".into())
+        )]
     );
+    owner.reject = true;
+    assert!(matches!(
+        dispatcher.execute_action_with_driver(&action, &mut owner),
+        Err(ScriptError::ExecutionFailed(_))
+    ));
+}
 
-    get_object_manager().write().unwrap().reset();
-    get_named_object_tracker().clear().unwrap();
-    get_terrain_logic().write().unwrap().reset();
+/// Payload-only contract owner. Gameplay effects are accepted against Main's
+/// real owned objects, teams, terrain and sell list, not this recorder.
+#[derive(Default)]
+struct ExplicitCommandIngress {
+    calls: Vec<(String, String, Option<String>)>,
+    reject: bool,
+}
+impl ExplicitCommandIngress {
+    fn admit(
+        &mut self,
+        kind: &str,
+        first: &str,
+        second: Option<&str>,
+    ) -> Option<GameLogicResult<()>> {
+        self.calls
+            .push((kind.into(), first.into(), second.map(str::to_owned)));
+        Some(if self.reject {
+            Err(GameLogicError::ModuleError(
+                "explicit command rejected".into(),
+            ))
+        } else {
+            Ok(())
+        })
+    }
+}
+impl crate::scripting::engine::ScriptExecutionDriver for ExplicitCommandIngress {
+    fn team_guard_object(
+        &mut self,
+        team: &str,
+        target: &str,
+        object: Option<ObjectID>,
+        calling: Option<TeamID>,
+        condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        assert_eq!((object, calling, condition), (None, None, None));
+        self.admit("TeamGuardObject", team, Some(target))
+    }
+    fn team_damage(
+        &mut self,
+        team: &str,
+        amount: f32,
+        calling: Option<TeamID>,
+        condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        assert_eq!((calling, condition), (None, None));
+        assert_eq!(amount, 25.0);
+        self.admit("DamageMembersOfTeam", team, None)
+    }
+
+    fn after_action(&mut self) -> GameLogicResult<()> {
+        Ok(())
+    }
+    fn team_attack_team(
+        &mut self,
+        source: &str,
+        target: &str,
+        calling: Option<TeamID>,
+        condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        assert_eq!((calling, condition), (None, None));
+        self.admit("TeamAttackTeam", source, Some(target))
+    }
+    fn named_waypoint(
+        &mut self,
+        unit: &str,
+        waypoint: &str,
+        follow: Option<bool>,
+        object: Option<ObjectID>,
+    ) -> Option<GameLogicResult<()>> {
+        assert_eq!(object, None);
+        assert_ne!(follow, Some(true));
+        self.admit(
+            if follow.is_some() {
+                "NamedFollowWaypoints"
+            } else {
+                "MoveNamedUnitTo"
+            },
+            unit,
+            Some(waypoint),
+        )
+    }
+    fn team_hunt_button(
+        &mut self,
+        team: &str,
+        button: &str,
+        calling: Option<TeamID>,
+        condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        assert_eq!((calling, condition), (None, None));
+        self.admit("TeamHuntWithCommandButton", team, Some(button))
+    }
+    fn team_transfer(
+        &mut self,
+        team: &str,
+        player: &str,
+        current: Option<&str>,
+        calling: Option<TeamID>,
+        condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        assert_eq!(current, None);
+        assert_eq!((calling, condition), (None, None));
+        self.admit("TeamTransferToPlayer", team, Some(player))
+    }
+    fn sell_everything(
+        &mut self,
+        player: &str,
+        current: Option<&str>,
+    ) -> Option<GameLogicResult<()>> {
+        assert_eq!(current, None);
+        self.admit("PlayerSellEverything", player, None)
+    }
+}
+
+struct BorrowedWorldOwner<'a> {
+    engine: &'a ScriptEngine,
+    calls: Vec<String>,
+}
+impl BorrowedWorldOwner<'_> {
+    fn record(&mut self, call: String) -> Option<GameLogicResult<()>> {
+        self.calls.push(call);
+        Some(
+            self.engine
+                .increment_counter("WorldHandlerImmediateReentry", 1),
+        )
+    }
+}
+impl ScriptExecutionDriver for BorrowedWorldOwner<'_> {
+    fn after_action(&mut self) -> GameLogicResult<()> {
+        Ok(())
+    }
+    fn world(
+        &mut self,
+        request: crate::scripting::engine::ScriptWorldRequest<'_>,
+    ) -> Option<GameLogicResult<()>> {
+        use crate::scripting::engine::ScriptWorldRequest;
+        let call = match request {
+            ScriptWorldRequest::MovieFullscreen(name) => format!("movie:{name}"),
+            ScriptWorldRequest::RadarForced(forced) => format!("radar:{forced}"),
+            ScriptWorldRequest::Timer {
+                name,
+                text,
+                countdown,
+            } => format!("timer:{name}:{text}:{countdown}"),
+            ScriptWorldRequest::Freeze(true) => "freeze".into(),
+            ScriptWorldRequest::Freeze(false) => "unfreeze".into(),
+            ScriptWorldRequest::VisualSpeed(multiplier) => format!("speed:{multiplier}"),
+            ScriptWorldRequest::Weather(visible) => format!("weather:{visible}"),
+            ScriptWorldRequest::Music {
+                track,
+                fade_out,
+                fade_in,
+            } => format!("music:{track}:{fade_out}:{fade_in}"),
+            ScriptWorldRequest::Input { .. } => panic!("unexpected input effect"),
+        };
+        self.record(call)
+    }
+    fn display(
+        &mut self,
+        request: crate::scripting::engine::ScriptDisplayRequest<'_>,
+    ) -> Option<GameLogicResult<()>> {
+        let crate::scripting::engine::ScriptDisplayRequest::Text(text) = request else {
+            panic!("unexpected display effect")
+        };
+        self.record(format!("text:{text}"))
+    }
 }

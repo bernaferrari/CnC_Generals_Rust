@@ -143,7 +143,7 @@ impl GameLogic {
             // Native AI_PANIC owns its waypoint continuation in the
             // pre-locomotor phase; this autonomous command chooser must not
             // synthesize a competing command.
-            AIState::Panic => None,
+            AIState::Panic | AIState::Exiting => None,
 
             AIState::Patrolling => {
                 // C++ AIHuntState::update — map-wide seek-and-destroy.

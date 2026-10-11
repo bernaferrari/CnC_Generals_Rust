@@ -32,10 +32,25 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_skirmish_follow_approach_path(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         let waypoint_path_label = self.get_string_param(action, 1)?;
         let as_team = self.get_int_param(action, 2)? != 0;
+        let engine = self.context.borrowed_engine();
+        if let Some(result) = driver.skirmish_approach_path(
+            &team_name,
+            &waypoint_path_label,
+            as_team,
+            true,
+            engine.get_calling_team_id(),
+            engine.get_condition_team_id(),
+        ) {
+            if let Err(error) = result {
+                log::warn!("Owned approach path failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         log::debug!(
             "Skirmish team '{}' following approach path '{}' as_team={}",
             team_name,
@@ -112,9 +127,24 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_skirmish_move_to_approach_path(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         let waypoint_path_label = self.get_string_param(action, 1)?;
+        let engine = self.context.borrowed_engine();
+        if let Some(result) = driver.skirmish_approach_path(
+            &team_name,
+            &waypoint_path_label,
+            false,
+            false,
+            engine.get_calling_team_id(),
+            engine.get_condition_team_id(),
+        ) {
+            if let Err(error) = result {
+                log::warn!("Owned approach path failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         log::debug!(
             "Skirmish team '{}' moving to approach path '{}'",
             team_name,
@@ -167,9 +197,22 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_skirmish_build_base_defense_front(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         if action.num_parms > 0 {
             let _ = self.get_string_param(action, 0);
+        }
+        if let Some(result) = driver.ai_player(
+            crate::scripting::engine::ScriptAiPlayerRequest::BaseDefense {
+                player: &self.current_script_player_name(),
+                structure: None,
+                flank: false,
+            },
+        ) {
+            if let Err(error) = result {
+                log::warn!("Owned AI action failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
         }
         log::debug!("Skirmish building base defense front");
         if dual_world_registry_unavailable() {
@@ -191,9 +234,22 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_skirmish_build_base_defense_flank(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         if action.num_parms > 0 {
             let _ = self.get_string_param(action, 0);
+        }
+        if let Some(result) = driver.ai_player(
+            crate::scripting::engine::ScriptAiPlayerRequest::BaseDefense {
+                player: &self.current_script_player_name(),
+                structure: None,
+                flank: true,
+            },
+        ) {
+            if let Err(error) = result {
+                log::warn!("Owned AI action failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
         }
         log::debug!("Skirmish building base defense flank");
         if dual_world_registry_unavailable() {
@@ -215,8 +271,21 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_skirmish_build_structure_front(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let structure_type = self.get_string_param(action, 0)?;
+        if let Some(result) = driver.ai_player(
+            crate::scripting::engine::ScriptAiPlayerRequest::BaseDefense {
+                player: &self.current_script_player_name(),
+                structure: Some(structure_type.as_str()),
+                flank: false,
+            },
+        ) {
+            if let Err(error) = result {
+                log::warn!("Owned AI action failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         log::debug!("Skirmish building structure front '{}'", structure_type);
         if dual_world_registry_unavailable() {
             super::request_host_skirmish_base_defense(
@@ -238,8 +307,21 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_skirmish_build_structure_flank(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let structure_type = self.get_string_param(action, 0)?;
+        if let Some(result) = driver.ai_player(
+            crate::scripting::engine::ScriptAiPlayerRequest::BaseDefense {
+                player: &self.current_script_player_name(),
+                structure: Some(structure_type.as_str()),
+                flank: true,
+            },
+        ) {
+            if let Err(error) = result {
+                log::warn!("Owned AI action failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         log::debug!("Skirmish building structure flank '{}'", structure_type);
         if dual_world_registry_unavailable() {
             super::request_host_skirmish_base_defense(
@@ -737,10 +819,24 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_ai_player_build_supply_center(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.get_string_param(action, 0)?;
         let building_type = self.get_string_param(action, 1)?;
         let cash = self.get_int_param(action, 2)?;
+        if let Some(result) = driver.ai_player(
+            crate::scripting::engine::ScriptAiPlayerRequest::BuildSupplyCenter {
+                player: &player_name,
+                building: &building_type,
+                cash,
+            },
+        ) {
+            if let Err(error) = result {
+                log::warn!("Owned scripted supply-center build failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
+
         log::debug!(
             "AI player '{}' building supply center '{}' with cash {}",
             player_name,
@@ -763,9 +859,21 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_ai_player_build_upgrade(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.get_string_param(action, 0)?;
         let upgrade_name = self.get_string_param(action, 1)?;
+        if let Some(result) = driver.ai_player(
+            crate::scripting::engine::ScriptAiPlayerRequest::BuildUpgrade {
+                player: &player_name,
+                upgrade: &upgrade_name,
+            },
+        ) {
+            if let Err(error) = result {
+                log::warn!("Owned AI action failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         log::debug!(
             "AI player '{}' building upgrade '{}'",
             player_name,
@@ -786,10 +894,26 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_ai_player_build_type_nearest_team(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.get_string_param(action, 0)?;
         let build_type = self.get_string_param(action, 1)?;
         let team_name = self.get_string_param(action, 2)?;
+        let engine = self.context.borrowed_engine();
+        if let Some(result) = driver.ai_player(
+            crate::scripting::engine::ScriptAiPlayerRequest::BuildNearest {
+                player: &player_name,
+                building: &build_type,
+                team: &team_name,
+                calling: engine.get_calling_team_id(),
+                condition: engine.get_condition_team_id(),
+            },
+        ) {
+            if let Err(error) = result {
+                log::warn!("Owned AI action failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         log::debug!(
             "AI player '{}' building '{}' nearest team '{}'",
             player_name,

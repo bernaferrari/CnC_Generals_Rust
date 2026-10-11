@@ -12,6 +12,15 @@ impl GameLogic {
         if let Some(player) = self.get_player_mut(player_id) {
             player.add_completed_upgrade_with_definition(name, definition.as_deref());
         }
+        let ids: Vec<_> = self
+            .objects
+            .values()
+            .filter(|object| self.player_owner_for_host_object(object) == Some(player_id))
+            .map(|object| object.id)
+            .collect();
+        for id in ids {
+            self.admit_host_radar_provider(id);
+        }
     }
 
     pub(crate) fn upgrade_template(&self, name: &str) -> Option<Arc<UpgradeTemplate>> {

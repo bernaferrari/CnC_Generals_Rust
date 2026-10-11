@@ -99,7 +99,7 @@ pub fn honesty_host_writeback_skip_pending_remaining_logs_source_markers_residua
         "writeback_health_to_host",
         "writeback_contain_to_host",
         "writeback_owner_to_host",
-        "writeback_construction_to_host",
+        "compare_construction_to_host",
         "writeback_command_set_to_host",
         "writeback_radar_extend_to_host",
         "writeback_death_type_to_host",

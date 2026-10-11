@@ -2783,21 +2783,11 @@ fn live_attack_move_keeps_the_building_ignore() {
 }
 
 #[test]
-fn sole_tick_completion_walks_the_dozer_off_the_pad() {
-    use crate::game_logic::{KindOf, Player, ThingTemplate, host_construction_ready_log};
-    use crate::gameworld_shadow::{
-        begin_shadow_coupled_tick, end_shadow_coupled_tick,
-        gameworld_construction_sole_tick_enabled,
-    };
-
-    let _guard = crate::gameworld_shadow::authority_env_lock();
-    let prev_sh = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    host_construction_ready_log::clear();
-
+fn owned_construction_completion_walks_the_dozer_off_the_pad() {
+    use crate::game_logic::{KindOf, Player, ThingTemplate};
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
-    logic.set_construction_authority(true);
+
     let mut pad = ThingTemplate::new("SolePad");
     pad.add_kind_of(KindOf::Structure).set_health(1_000.0);
     logic.templates.insert("SolePad".into(), pad);
@@ -2833,11 +2823,7 @@ fn sole_tick_completion_walks_the_dozer_off_the_pad() {
         obj.waiting_for_path = false;
     }
 
-    begin_shadow_coupled_tick();
-    assert!(gameworld_construction_sole_tick_enabled());
-    host_construction_ready_log::record(pad_id, 1.0);
-    logic.host_apply_construction_completions_after_ready_writeback();
-    end_shadow_coupled_tick();
+    logic.update_construction(&[pad_id, dozer], 1.0 / 30.0);
 
     let building_pos = logic.host_object(pad_id).expect("pad").get_position();
     let end_dock = crate::game_logic::host_repair::dozer_end_dock_position(action, building_pos);
@@ -2869,11 +2855,6 @@ fn sole_tick_completion_walks_the_dozer_off_the_pad() {
         unit.movement.target_position,
         unit.movement.path
     );
-
-    match prev_sh {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-    }
 }
 
 #[test]

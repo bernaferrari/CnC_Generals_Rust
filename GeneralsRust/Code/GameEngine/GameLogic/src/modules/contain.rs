@@ -13,6 +13,55 @@ pub enum ContainWant {
     WantsNeither,
 }
 
+/// The literal owner or its active first payload supplies admission state.
+/// Resolution belongs to the driving store, after releasing the module borrow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContainAdmissionTarget {
+    LiteralOwner,
+    ActiveFirstChild(ObjectID),
+}
+
+/// Evaluate admission against exact store-selected objects. Missing payload or
+/// payload contain falls back to the literal owner's algorithm, as in C++.
+pub fn contain_admission_with_lookup(
+    contain: &Arc<Mutex<dyn ContainModuleInterface>>,
+    passenger: &Object,
+    owner: &Object,
+    check_capacity: bool,
+    lookup: &dyn Fn(ObjectID) -> Option<Arc<RwLock<Object>>>,
+) -> bool {
+    let target = match contain.lock() {
+        Ok(module) => module.admission_target(),
+        Err(_) => return false,
+    };
+    if let ContainAdmissionTarget::ActiveFirstChild(id) = target {
+        // A corrupt self-reference must not reborrow an already held object.
+        if id == owner.get_id() || id == passenger.get_id() {
+            return false;
+        }
+        if let Some(child) = lookup(id) {
+            let Ok(child) = child.read() else {
+                return false;
+            };
+            if child.get_id() != id || child.get_contained_by() != Some(owner.get_id()) {
+                return false;
+            }
+            if let Some(child_contain) = child.get_contain() {
+                return child_contain
+                    .lock()
+                    .map(|module| {
+                        module.is_valid_container_for_with_owner(passenger, &child, check_capacity)
+                    })
+                    .unwrap_or(false);
+            }
+        }
+    }
+    contain
+        .lock()
+        .map(|module| module.is_valid_container_for_with_owner(passenger, owner, check_capacity))
+        .unwrap_or(false)
+}
+
 pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     fn can_contain(&self, object_id: ObjectID) -> bool;
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String>;
@@ -152,6 +201,10 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         // Default implementation - always allow
         let _ = (obj, check_capacity);
         true
+    }
+
+    fn admission_target(&self) -> ContainAdmissionTarget {
+        ContainAdmissionTarget::LiteralOwner
     }
 
     /// Admission when the caller already borrows this container's owning Object.

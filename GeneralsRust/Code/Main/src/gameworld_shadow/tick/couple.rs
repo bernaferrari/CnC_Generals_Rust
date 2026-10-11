@@ -250,43 +250,6 @@ pub fn bind_host_to_existing_entity(
 /// Wave 742: if a coupled shadow tick is live under construction authority, pre-spawn
 /// a rebuild-hole entity and return its raw id for host ObjectId bind (entity-first).
 /// Fail-closed: returns None when shadow is not coupled / disabled.
-pub fn spawn_rebuild_hole_entity_if_coupled(
-    template: &str,
-    position: [f32; 3],
-    orientation: f32,
-    health: f32,
-    max_health: f32,
-) -> Option<u32> {
-    if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
-        return None;
-    }
-    if !gameworld_construction_authority_enabled() {
-        return None;
-    }
-    with_coupled_shadow_slot(|shadow| {
-        use gamelogic::world::WorldMutation;
-        use gamelogic::world::entities::EntityId;
-        shadow.world.queue_mutation(WorldMutation::Spawn {
-            template: template.to_string(),
-            owner: None,
-            position,
-            health: health.max(1.0),
-        });
-        let _ = shadow.world.apply_pending_mutations();
-        let raw = shadow
-            .world
-            .take_last_spawned_entity()
-            .map(|eid| eid.get())?;
-        if let Some(e) = shadow.world.world_mut().entity_mut(EntityId::from_raw(raw)) {
-            e.transform.orientation = orientation;
-            e.max_health = max_health.max(1.0);
-            e.is_rebuild_hole = true;
-            e.construction_percent = 1.0;
-        }
-        Some(raw)
-    })
-    .flatten()
-}
 
 pub fn eager_map_host_spawn_if_coupled(
     logic: &GameLogic,

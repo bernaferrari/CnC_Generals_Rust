@@ -1,21 +1,6 @@
-//! Wave 481 residual peels: under construction sole-tick, sell deconstruction
-//! does not host-advance construction percent each frame.
-//! - `update_sell_list` publishes negative `record_rate_only` under sole-tick
-//! - host finish/sold-model uses writeback percent
-//! - GW `tick_construction_progress` advances sell via negative rate
-//! Never flips shell `playable_claim`.
-//!
-//! Orthogonal to Wave 478 build sole-tick rate-only peel.
-//! Architecture residual - sell percent last-writer is GameWorld under sole-tick.
-//!
-//! Sources:
-//! - game_logic.rs update_sell_list sole-tick branch
-//! - host_construction_progress_log::record_rate_only
-//! - gameworld_shadow::tick_construction_progress negative rate path
-//!
-//! Fail-closed:
-//! - Non-sole path still decrements host percent per frame
-//! - Shell `playable_claim` stays false; network deferred
+//! Construction ownership audit. Historical CLI receipt names remain
+//! navigation metadata; source checks require one canonical host writer and
+//! immutable shadow comparisons. Runtime regressions exercise the host phases.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
@@ -25,10 +10,10 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 
 pub const SELL_DECONSTRUCTION_SOLE_TICK_NO_STOMP_METHOD_NAMES_WAVE481: &[&str] = &[
     "update_sell_list",
-    "gameworld_construction_sole_tick_enabled",
+    "host_owns_construction",
     "record_rate_only",
     "SELL_CONSTRUCTION_DECREMENT_RESIDUAL",
-    "tick_construction_progress",
+    "update_construction",
     "playable_claim = false",
 ];
 
@@ -133,15 +118,8 @@ pub fn honesty_sell_deconstruction_sole_tick_no_stomp_method_names_residual_wave
 }
 
 pub fn honesty_sell_deconstruction_sole_tick_no_stomp_source_markers_residual_wave481() -> bool {
-    SELL_DECONSTRUCTION_SOLE_TICK_NO_STOMP_SOURCE_MARKERS_WAVE481.len() == 4
-        && residual_name_index(
-            SELL_DECONSTRUCTION_SOLE_TICK_NO_STOMP_SOURCE_MARKERS_WAVE481,
-            "Wave 481: GW sole-ticks sell percent via negative rate",
-        ) == Some(0)
-        && residual_name_index(
-            SELL_DECONSTRUCTION_SOLE_TICK_NO_STOMP_SOURCE_MARKERS_WAVE481,
-            "sole && previous <= 0.0",
-        ) == Some(3)
+    let ok = super::construction_owner_source_contract::host_owns_construction();
+    ok
 }
 
 pub fn honesty_sell_deconstruction_sole_tick_no_stomp_nav_commands_residual_wave481() -> bool {
@@ -162,31 +140,13 @@ pub fn honesty_sell_deconstruction_sole_tick_no_stomp_nav_commands_residual_wave
 }
 
 pub fn simulate_sell_deconstruction_sole_tick_no_stomp_host_source() -> bool {
-    let gl = gl_source();
-    let Some(body) = function_body(&gl, "pub(crate) fn update_sell_list(")
-        .or_else(|| function_body(&gl, "fn update_sell_list("))
-    else {
-        return false;
-    };
-    let ok = body.contains("Wave 481: GW sole-ticks sell percent via negative rate")
-        && body.contains("record_rate_only")
-        && body.contains("gameworld_construction_sole_tick_enabled")
-        && body.contains("SELL_CONSTRUCTION_DECREMENT_RESIDUAL")
-        && body.contains("sole && previous <= 0.0");
+    let ok = super::construction_owner_source_contract::host_owns_construction();
     residual_action_store(ResidualSellDeconstructionSoleTickNoStompAction::HostSource);
     ok
 }
 
 pub fn simulate_sell_deconstruction_sole_tick_no_stomp_shadow_source() -> bool {
-    let src = shadow_source();
-    let Some(body) = function_body(src, "fn tick_construction_progress(") else {
-        return false;
-    };
-    // 2026-08-15: sell is negative rate (writeback_production.rs:889).
-    let ok = (body.contains("rate >= 0.0") || body.contains("rate < 0.0"))
-        && (body.contains("Sell path") || body.contains("rate < 0.0"))
-        && src.contains("fn writeback_construction_to_host")
-        && src.contains("tick_construction_progress");
+    let ok = super::construction_owner_source_contract::host_owns_construction();
     residual_action_store(ResidualSellDeconstructionSoleTickNoStompAction::ShadowSource);
     ok
 }

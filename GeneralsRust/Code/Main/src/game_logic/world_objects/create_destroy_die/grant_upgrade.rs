@@ -80,7 +80,13 @@ impl GameLogic {
                 None => {}
             }
         }
-        if radar_upgrade {
+        self.admit_host_radar_provider(object_id);
+        if radar_upgrade
+            && self
+                .objects
+                .get(&object_id)
+                .is_some_and(|object| object.thing().template.radar_upgrade_rules.is_none())
+        {
             // C++ GrantUpgradeCreate → updateUpgradeModules → RadarUpgrade::extendRadar
             self.maybe_start_radar_extend(object_id);
         }

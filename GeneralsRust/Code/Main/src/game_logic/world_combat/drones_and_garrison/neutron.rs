@@ -377,8 +377,9 @@ impl GameLogic {
         // C++ deselectObject(PLAYERMASK_ALL): drop unmanned husks from every
         // selection roster so they cannot keep player/AI orders.
         if !unmanned_ids.is_empty() {
-            self.selected_objects
-                .retain(|sid| !unmanned_ids.contains(sid));
+            for &id in &unmanned_ids {
+                self.admit_local_drawable_deselected(id);
+            }
             for player in self.players.values_mut() {
                 player
                     .selected_objects

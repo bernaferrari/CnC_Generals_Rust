@@ -20,6 +20,7 @@ pub struct GameLogic {
     /// Ordered movement observations and completed frame output for this match.
     pub(crate) eva_announcements: crate::game_logic::host_eva_log::HostEvaAnnouncements,
     pub(crate) movement_events: crate::game_logic::movement_events::MovementEvents,
+    pub(crate) construction_events: crate::game_logic::host_construction_log::ConstructionEvents,
 
     /// Ordered health transport and presentation receipts for this world.
     pub(crate) health_events: crate::game_logic::HostHealthEvents,
@@ -330,6 +331,8 @@ pub struct GameLogic {
 
     /// C++ CaveSystem + CaveContain shared CaveIndex tracker.
     pub(super) cave_system: crate::game_logic::host_cave_system::HostCaveSystem,
+    pub(crate) railroad: crate::game_logic::host_railroad::HostRailroadRegistry,
+    pub(crate) railed_waypoints: Vec<crate::game_logic::host_railroad::HostWaypointSnap>,
 
     /// C++ BridgeBehavior scaffolding + rubble restamp/splat.
     pub(crate) bridge_behavior: crate::game_logic::host_bridge_behavior::HostBridgeBehaviorRegistry,
@@ -1142,7 +1145,9 @@ pub struct GameLogic {
     pub(super) pending_special_abilities: HashMap<ObjectId, PendingSpecialAbility>,
 
     /// Currently selected objects (used by UI)
+    /// Native local drawable selection; replicated player command lists are separate.
     pub selected_objects: Vec<ObjectId>,
+    pub(crate) selection_changed_frame: u32,
 
     pub(super) partition_manager: PartitionManager,
     pub(super) radar_notifications: RadarNotifications,
@@ -1345,6 +1350,16 @@ pub struct GameLogic {
     pub(super) recent_beacons: Vec<Vec3>,
     /// Leftover ScriptingEngine second brain (hq-8ta4n). Always None on live host.
     pub(super) script_engine: Option<Arc<ScriptingEngine>>,
+    /// Session-owned movable interpreter; execution passes a bounded borrowed
+    /// interpreter explicitly to callbacks instead of publishing an active slot.
+    pub(crate) owned_script_engine: Option<gamelogic::scripting::engine::ScriptEngine>,
+    /// Canonical birth policy; the Core interpreter tail is its save transport.
+    pub(crate) objects_receive_difficulty_bonus: bool,
+    pub(crate) session_difficulty: Option<crate::ai::AIDifficulty>,
+    /// Script input admission belongs to this session; presentation teardown
+    /// is delivered separately to the driving interpreter's native service.
+    pub(crate) script_input_enabled: bool,
+    pub(crate) named_unit_history: std::collections::BTreeSet<String>,
     pub(super) script_event_pump_in_flight: Arc<AtomicBool>,
     pub(super) script_event_pump_busy_frames: u32,
     pub(super) loaded_script_lists: Vec<ScriptList>,
@@ -1442,4 +1457,14 @@ pub struct RuntimeWeatherState {
     pub duration_remaining: f32,
     pub next_change_time: f32,
     pub visible: bool,
+}
+
+impl GameLogic {
+    pub(crate) fn set_script_input_enabled(&mut self, enabled: bool) {
+        self.script_input_enabled = enabled;
+    }
+
+    pub(crate) fn script_input_enabled(&self) -> bool {
+        self.script_input_enabled
+    }
 }

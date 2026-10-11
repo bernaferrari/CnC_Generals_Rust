@@ -281,6 +281,13 @@ impl GameLogic {
         else {
             return false;
         };
+        self.enable_owned_object_sound(id, enable)
+    }
+
+    pub(crate) fn enable_owned_object_sound(&mut self, id: ObjectId, enable: bool) -> bool {
+        if !self.objects.contains_key(&id) {
+            return false;
+        }
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.ambient_sound_enabled_from_script = enable;
         }

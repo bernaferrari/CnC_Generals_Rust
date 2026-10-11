@@ -20,6 +20,37 @@ pub(crate) struct FireWeaponWhenDamagedBundle {
     pub pending_weapon: Option<String>,
 }
 
+/// C++ OverlordContain::xfer portable object and active redirection phase.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct OverlordAddonResidual {
+    pub gattling: bool,
+    pub propaganda: bool,
+    pub helix_transport: bool,
+    pub bunker_capacity: Option<usize>,
+    pub redirection_active: bool,
+    pub portable_occupant: Option<crate::game_logic::ObjectId>,
+}
+impl OverlordAddonResidual {
+    fn from_object(object: &Object) -> Self {
+        Self {
+            gattling: object.has_overlord_gattling_addon,
+            propaganda: object.has_overlord_propaganda_addon,
+            helix_transport: object.is_helix_transport,
+            bunker_capacity: object.overlord_bunker_capacity,
+            redirection_active: object.overlord_redirection_active,
+            portable_occupant: object.overlord_portable_occupant,
+        }
+    }
+    pub(crate) fn apply(self, object: &mut Object) {
+        object.has_overlord_gattling_addon = self.gattling;
+        object.has_overlord_propaganda_addon = self.propaganda;
+        object.is_helix_transport = self.helix_transport;
+        object.overlord_bunker_capacity = self.bunker_capacity;
+        object.overlord_redirection_active = self.redirection_active;
+        object.overlord_portable_occupant = self.portable_occupant;
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct PathFollowResidual {
     pub(crate) path_extra_distance: f32,
@@ -132,6 +163,7 @@ impl FiringTrackerResidual {
 
 pub(crate) fn collect_module_states(
     object: &Object,
+    railroad: Option<&crate::game_logic::host_railroad::HostRailroadCar>,
 ) -> Result<Vec<EntityModuleState>, EntityLifecycleCodecError> {
     let mut out = Vec::new();
     push_opt(&mut out, TAG_UPGRADE_DIE, &object.upgrade_die)?;
@@ -346,12 +378,19 @@ pub(crate) fn collect_module_states(
         PhysicsBehaviorResidual::present(object),
         &PhysicsBehaviorResidual::from_object(object),
     )?;
-    push_present(
-        &mut out,
-        TAG_RAILROAD,
-        RailroadBehaviorResidual::present(object),
-        &RailroadBehaviorResidual::from_object(object),
-    )?;
+    if let Some(car) = railroad {
+        if car.object_id != object.id {
+            return Err(EntityLifecycleCodecError::InvalidOwnerComponent {
+                component: "railroad",
+            });
+        }
+        push_present(
+            &mut out,
+            TAG_RAILROAD,
+            true,
+            &RailroadBehaviorResidual { car: car.clone() },
+        )?;
+    }
     push_present(
         &mut out,
         TAG_PATH_EXTRA_DISTANCE,
@@ -361,6 +400,17 @@ pub(crate) fn collect_module_states(
             is_exact_path: object.is_exact_path,
             is_attack_path: object.is_attack_path,
         },
+    )?;
+    push_present(
+        &mut out,
+        TAG_OVERLORD_ADDON,
+        object.has_overlord_gattling_addon
+            || object.has_overlord_propaganda_addon
+            || object.is_helix_transport
+            || object.overlord_bunker_capacity.is_some()
+            || object.overlord_portable_occupant.is_some()
+            || object.overlord_redirection_active,
+        &OverlordAddonResidual::from_object(object),
     )?;
     Ok(out)
 }

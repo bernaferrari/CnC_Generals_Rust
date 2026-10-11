@@ -1,6 +1,4 @@
-//! Frame-local host player radar log for GameWorld SetPlayerRadar parity.
-
-use std::cell::RefCell;
+//! Immutable observation of one session's canonical player radar state.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HostRadarEvent {
@@ -9,28 +7,15 @@ pub struct HostRadarEvent {
     pub radar_disabled: bool,
 }
 
-thread_local! {
-    static LOG: RefCell<Vec<HostRadarEvent>> = RefCell::new(Vec::new());
-}
-
-pub fn record(player_id: u32, radar_count: i32, radar_disabled: bool) {
-    LOG.with(|log| {
-        log.borrow_mut().push(HostRadarEvent {
-            player_id,
-            radar_count,
-            radar_disabled,
-        });
-    });
-}
-
-pub fn drain() -> Vec<HostRadarEvent> {
-    LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
-}
-
-pub fn clear() {
-    LOG.with(|log| log.borrow_mut().clear());
-}
-
-pub fn len() -> usize {
-    LOG.with(|log| log.borrow().len())
+impl crate::game_logic::GameLogic {
+    pub(crate) fn host_radar_snapshot(&self) -> Vec<HostRadarEvent> {
+        self.get_players()
+            .values()
+            .map(|player| HostRadarEvent {
+                player_id: player.id,
+                radar_count: player.radar_count,
+                radar_disabled: player.radar_disabled,
+            })
+            .collect()
+    }
 }

@@ -1,6 +1,6 @@
-//! Wave 716: sole-tick sell finish runs after GW sell-ready writeback
-//! in the same coupled tick (not deferred to the next host `update_sell_list`).
-//! Mirrors construction Wave 715. Never flips `playable_claim`.
+//! Construction ownership audit. Historical CLI receipt names remain
+//! navigation metadata; source checks require one canonical host writer and
+//! immutable shadow comparisons. Runtime regressions exercise the host phases.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 static RESIDUAL_OK: AtomicBool = AtomicBool::new(false);
@@ -12,9 +12,9 @@ pub const LIVE_HOST_SELL_SAME_FRAME_READY_COMPLETE_METHOD_NAMES_WAVE716: &[&str]
     "host_apply_sell_completions_after_ready_writeback",
     "apply_post_writeback_complete_op",
     "SellCompletionsAfterReadyWriteback",
-    "gameworld_construction_sole_tick_enabled",
+    "host_owns_construction",
     "host_sell_ready_log",
-    "writeback_construction_to_host",
+    "compare_construction_to_host",
     "Wave 716",
     "playable_claim = false",
 ];
@@ -75,45 +75,16 @@ pub fn honesty_host_sell_same_frame_ready_complete_method_names_residual_wave716
     let names = LIVE_HOST_SELL_SAME_FRAME_READY_COMPLETE_METHOD_NAMES_WAVE716;
     let ok = residual_name_index(names, "host_apply_sell_completions_after_ready_writeback")
         .is_some()
-        && residual_name_index(names, "gameworld_construction_sole_tick_enabled").is_some()
+        && residual_name_index(names, "host_owns_construction").is_some()
         && residual_name_index(names, "host_sell_ready_log").is_some()
-        && residual_name_index(names, "writeback_construction_to_host").is_some()
+        && residual_name_index(names, "compare_construction_to_host").is_some()
         && residual_name_index(names, "Wave 716").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
     residual_action_store(ResidualHostSellSameFrameReadyCompleteAction::MethodNames);
     ok
 }
 pub fn honesty_host_sell_same_frame_ready_complete_source_markers_residual_wave716() -> bool {
-    let gl = gl_source();
-    let sh = shadow_source();
-    let gl_ok = gl.contains("host_apply_sell_completions_after_ready_writeback")
-        && gl.contains("Wave 716")
-        && gl.contains("Empty mid-update ready set under sole");
-    let no_mid_drain = {
-        match gl.find("fn update_sell_list") {
-            Some(start) => {
-                let end = (start + 2000).min(gl.len());
-                let chunk = &gl[start..end];
-                !chunk.contains("host_sell_ready_log::drain()")
-            }
-            None => false,
-        }
-    };
-    let sh_ok = (sh.contains("host_apply_sell_completions_after_ready_writeback")
-        || sh.contains("SellCompletionsAfterReadyWriteback")
-        || sh.contains("apply_post_writeback_complete_op"))
-        && sh.contains("Wave 716");
-    let order_ok = match (
-        sh.find("ConstructionCompletionsAfterReadyWriteback")
-            .or_else(|| sh.find("host_apply_construction_completions_after_ready_writeback")),
-        sh.find("SellCompletionsAfterReadyWriteback")
-            .or_else(|| sh.find("host_apply_sell_completions_after_ready_writeback"))
-            .or_else(|| sh.find("apply_post_writeback_complete_op")),
-    ) {
-        (Some(c), Some(s)) => s > c && s - c < 800,
-        _ => false,
-    };
-    let ok = gl_ok && no_mid_drain && sh_ok && order_ok && !gl.contains("playable_claim = true");
+    let ok = super::construction_owner_source_contract::host_owns_construction();
     residual_action_store(ResidualHostSellSameFrameReadyCompleteAction::SourceMarkers);
     ok
 }
@@ -133,15 +104,12 @@ pub fn honesty_host_sell_same_frame_ready_complete_nav_commands_residual_wave716
     ok
 }
 pub fn simulate_host_sell_same_frame_ready_complete_collect_source() -> bool {
-    let ok = gl_source().contains("host_apply_sell_completions_after_ready_writeback")
-        && (shadow_source().contains("host_apply_sell_completions_after_ready_writeback")
-            || shadow_source().contains("SellCompletionsAfterReadyWriteback")
-            || shadow_source().contains("apply_post_writeback_complete_op"));
+    let ok = super::construction_owner_source_contract::host_owns_construction();
     residual_action_store(ResidualHostSellSameFrameReadyCompleteAction::CollectSource);
     ok
 }
 pub fn simulate_host_sell_same_frame_ready_complete_dispatch_source() -> bool {
-    let ok = gl_source().contains("Wave 716") && shadow_source().contains("Wave 716");
+    let ok = super::construction_owner_source_contract::host_owns_construction();
     residual_action_store(ResidualHostSellSameFrameReadyCompleteAction::DispatchSource);
     ok
 }
@@ -166,10 +134,6 @@ mod tests {
     use super::*;
     use crate::game_logic::host_sell_ready_log;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate};
-    use crate::gameworld_shadow::{
-        begin_shadow_coupled_tick, end_shadow_coupled_tick,
-        gameworld_construction_sole_tick_enabled,
-    };
     use glam::Vec3;
 
     fn ensure_template(logic: &mut GameLogic, name: &str, cost: u32) {
@@ -208,47 +172,37 @@ mod tests {
     }
 
     #[test]
-    fn sole_tick_post_writeback_finishes_sell() {
-        let _guard = crate::gameworld_shadow::authority_env_lock();
-        let prev_sh = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-        host_sell_ready_log::clear();
-
+    fn owned_sell_phase_finishes_without_ready_writeback() {
         let mut logic = GameLogic::new();
-        logic.set_construction_authority(true);
-        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        logic.add_player(Player::new(0, Team::USA, "OwnedSeller", true));
         ensure_template(&mut logic, "SfSellPad", 1000);
         let id = logic
-            .create_object("SfSellPad", Team::USA, Vec3::new(5.0, 0.0, 5.0))
-            .expect("structure");
-        {
-            let obj = logic.get_objects_mut().get_mut(&id).expect("obj");
-            obj.status.sold = true;
-            obj.construction_percent = -0.5;
-            obj.set_status_under_construction(false);
+            .create_object_for_player("SfSellPad", 0, Vec3::ZERO)
+            .unwrap();
+        assert!(logic.start_sell_object(id));
+        // The actual sell list retains its admission frame. Advance through
+        // the CPP scaffold delay and decrement phase, never a shadow-ready log.
+        // CPP BuildAssistant: 45-frame scaffold delay followed by 1/90
+        // per-frame decrement until -0.5, including the final float boundary.
+        for frame in 0..=179 {
+            logic.set_current_frame(frame);
+            logic.update_sell_list();
+            if frame == 44 {
+                // CPP startSell sets 99.9%, retained through frame44.
+                assert_eq!(logic.host_object(id).unwrap().construction_percent, 0.999);
+            }
+            if frame == 178 {
+                assert!(
+                    logic.host_object(id).is_some(),
+                    "sell must retain the final scaffold frame"
+                );
+            }
+            logic.process_destroy_list();
+            if logic.host_object(id).is_none() {
+                break;
+            }
         }
-
-        begin_shadow_coupled_tick();
-        assert!(gameworld_construction_sole_tick_enabled());
-        logic.host_apply_sell_completions_after_ready_writeback();
-        assert!(
-            logic.get_object(id).is_some(),
-            "empty ready must not finish sell"
-        );
-
-        host_sell_ready_log::record(id, -0.5);
-        logic.host_apply_sell_completions_after_ready_writeback();
-        logic.process_destroy_list();
-        assert!(
-            logic.get_object(id).is_none(),
-            "ready path must destroy sold structure"
-        );
-        end_shadow_coupled_tick();
-        let _ = ObjectId;
-
-        match prev_sh {
-            Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-            None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-        }
+        assert!(logic.host_object(id).is_none());
+        assert!(logic.sell_list_for_snapshot().is_empty());
     }
 }

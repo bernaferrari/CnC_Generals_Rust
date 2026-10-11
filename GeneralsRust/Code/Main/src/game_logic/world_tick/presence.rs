@@ -183,6 +183,14 @@ impl GameLogic {
     /// evacuate containers, Neutral-transfer KINDOF_TECH_BUILDING, kill army
     /// (including beacons), then wipe money unless single-player computer.
     pub(crate) fn kill_player_for_victory(&mut self, player_id: u32) {
+        self.kill_player_with_interpreter(player_id, None);
+    }
+
+    pub(crate) fn kill_player_with_interpreter(
+        &mut self,
+        player_id: u32,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+    ) {
         let player_team = self.players.get(&player_id).map(|p| p.team);
         let unique_team = player_team.and_then(|team| {
             let mut found = None;
@@ -246,12 +254,10 @@ impl GameLogic {
             }
             // C++ Team::killTeam keeps beacons in the kill list (effectively-dead
             // exception) and kill()s them. Do not name-sniff skip.
-            let _ = self.apply_owned_kill(
-                id,
-                crate::game_logic::combat::DamageType::Unresistable,
-                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
-            );
+            self.host_script_damage_with_interpreter(id, 0.0, true, interpreter);
         }
+
+        self.clear_player_drawable_selection(player_id);
 
         // C++ Player.cpp:2055-2063 — SP PLAYER_COMPUTER resurrect before cash wipe.
         if self.should_resurrect_sp_computer_player(player_id) {

@@ -273,6 +273,20 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             };
 
+            // OverlordContain redirects the contain interface itself. Keep the
+            // outer selection gates, then unload the actual child roster.
+            let selected_id = if selected_obj.can_contain() {
+                if selected_obj.is_subdued_disabled() || !selected_obj.is_alive() {
+                    continue;
+                }
+                self.game_logic.redirected_containment_owner(selected_id)
+            } else {
+                selected_id
+            };
+            let Some(selected_obj) = self.game_logic.host_object(selected_id) else {
+                continue;
+            };
+
             if selected_obj.can_contain() {
                 if occupant_selected {
                     continue;
@@ -557,7 +571,17 @@ impl<'a> CommandExecutor<'a> {
                 let cid = unit.contained_by.or(container_id);
                 let container = cid.and_then(|id| self.game_logic.host_object(id));
                 let is_overlord = container
-                    .map(|c| c.is_overlord_style_container())
+                    .map(|c| {
+                        c.is_overlord_style_container()
+                            || c.contained_by.is_some_and(|outer| {
+                                self.game_logic.host_object(outer).is_some_and(|hull| {
+                                    hull.is_overlord_style_container()
+                                        && hull.overlord_portable_occupant == cid
+                                        && self.game_logic.redirected_containment_owner(outer)
+                                            == c.id
+                                })
+                            })
+                    })
                     .unwrap_or(false);
                 let is_battle_bus = container
                     .map(|c| c.is_battle_bus_style_container())
@@ -583,7 +607,7 @@ impl<'a> CommandExecutor<'a> {
                     .map(|c| {
                         c.can_contain()
                             && !c.is_garrison_contain()
-                            && !c.is_overlord_style_container()
+                            && !is_overlord
                             && !c.is_battle_bus_style_container()
                             && !c.is_technical_style_container()
                             && !c.is_combat_chinook_style_container()

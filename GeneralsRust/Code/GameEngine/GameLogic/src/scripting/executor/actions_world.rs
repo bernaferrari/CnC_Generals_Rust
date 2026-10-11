@@ -269,9 +269,18 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_movie_play_fullscreen(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let movie_name = self.get_string_param(action, 0)?;
         log::info!("Playing fullscreen movie '{}'", movie_name);
+        if let Some(result) =
+            driver.world(crate::scripting::engine::ScriptWorldRequest::MovieFullscreen(&movie_name))
+        {
+            if let Err(error) = result {
+                log::warn!("Script world effect failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.movie_play_fullscreen(&movie_name) {
                 log::warn!(
@@ -329,8 +338,19 @@ impl ScriptActionDispatcher<'_> {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_radar_force_enable(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_radar_force_enable(
+        &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Force enabling radar");
+        if let Some(result) = driver.world(
+            crate::scripting::engine::ScriptWorldRequest::RadarForced(true),
+        ) {
+            if let Err(error) = result {
+                log::warn!("Script world effect failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         if let Ok(mut radar) = get_radar_system().write() {
             radar.force_on(true);
         }
@@ -345,8 +365,19 @@ impl ScriptActionDispatcher<'_> {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_radar_revert_to_normal(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_radar_revert_to_normal(
+        &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Reverting radar to normal");
+        if let Some(result) = driver.world(
+            crate::scripting::engine::ScriptWorldRequest::RadarForced(false),
+        ) {
+            if let Err(error) = result {
+                log::warn!("Script world effect failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         if let Ok(mut radar) = get_radar_system().write() {
             radar.force_on(false);
         }
@@ -694,6 +725,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_display_countdown_timer(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let timer_name = self.get_string_param(action, 0)?;
         let timer_text = self.get_string_param(action, 1)?;
@@ -703,6 +735,16 @@ impl ScriptActionDispatcher<'_> {
             timer_text
         );
 
+        if let Some(result) = driver.world(crate::scripting::engine::ScriptWorldRequest::Timer {
+            name: &timer_name,
+            text: &timer_text,
+            countdown: true,
+        }) {
+            if let Err(error) = result {
+                log::warn!("Script world effect failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.add_named_timer(&timer_name, &timer_text, true) {
                 log::warn!("Script action handler add_named_timer failed: {}", err);
@@ -989,11 +1031,22 @@ impl ScriptActionDispatcher<'_> {
     // TIME CONTROL ACTION IMPLEMENTATIONS
     // ============================================================================
 
-    pub(crate) fn do_freeze_time(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_freeze_time(
+        &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Freezing time");
         let _ = self
             .context
             .with_engine_mut(|script_engine| script_engine.do_freeze_time());
+        if let Some(result) =
+            driver.world(crate::scripting::engine::ScriptWorldRequest::Freeze(true))
+        {
+            if let Err(error) = result {
+                log::warn!("Script world effect failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.freeze_time() {
                 log::warn!("Script action handler freeze_time failed: {}", err);
@@ -1002,11 +1055,22 @@ impl ScriptActionDispatcher<'_> {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_unfreeze_time(&mut self) -> Result<ScriptActionResult, ScriptError> {
+    pub(crate) fn do_unfreeze_time(
+        &mut self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Unfreezing time");
         let _ = self
             .context
             .with_engine_mut(|script_engine| script_engine.do_unfreeze_time());
+        if let Some(result) =
+            driver.world(crate::scripting::engine::ScriptWorldRequest::Freeze(false))
+        {
+            if let Err(error) = result {
+                log::warn!("Script world effect failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.unfreeze_time() {
                 log::warn!("Script action handler unfreeze_time failed: {}", err);
@@ -1018,9 +1082,18 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_set_visual_speed_multiplier(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let multiplier = self.get_int_param(action, 0)?;
         log::debug!("Setting visual speed multiplier to {}", multiplier);
+        if let Some(result) = driver.world(
+            crate::scripting::engine::ScriptWorldRequest::VisualSpeed(multiplier),
+        ) {
+            if let Err(error) = result {
+                log::warn!("Script world effect failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.set_visual_speed_multiplier(multiplier) {
                 log::warn!(
@@ -1172,10 +1245,19 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_show_weather(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let show_weather = self.get_bool_param_optional(action, 0).unwrap_or(true);
         log::debug!("Setting weather visibility to {}", show_weather);
 
+        if let Some(result) = driver.world(crate::scripting::engine::ScriptWorldRequest::Weather(
+            show_weather,
+        )) {
+            if let Err(error) = result {
+                log::warn!("Script world effect failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.set_weather_visible(show_weather) {
                 log::warn!("Script action handler set_weather_visible failed: {}", err);

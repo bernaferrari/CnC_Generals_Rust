@@ -22,7 +22,25 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, world: &GameLogic) {
     bytes.extend_from_slice(MAGIC);
 }
 
+/// Locate the outer, EOF-framed admission suffix without interpreting earlier
+/// markers. Inner owner suffixes end exactly at this boundary.
+pub(super) fn suffix_start(bytes: &[u8]) -> SaveLoadResult<usize> {
+    let bytes = super::player_team_chunks::lifecycle_prefix(bytes)?;
+    if !bytes.ends_with(MAGIC) {
+        return Ok(bytes.len());
+    }
+    if bytes.len() < 16 {
+        return Err(SaveLoadError::Corrupted("invalid CPAD footer".into()));
+    }
+    let footer = bytes.len() - 12;
+    let length = u32::from_le_bytes(bytes[footer + 4..footer + 8].try_into().unwrap()) as usize;
+    footer
+        .checked_sub(length)
+        .ok_or_else(|| SaveLoadError::Corrupted("invalid CPAD length".into()))
+}
+
 pub fn apply_from_lifecycle_tail(bytes: &[u8], world: &mut GameLogic) -> SaveLoadResult<()> {
+    let bytes = super::player_team_chunks::lifecycle_prefix(bytes)?;
     if !bytes.ends_with(MAGIC) {
         // Historical saves do not prove admission. Never infer it from
         // transient factory percent or invoke completion while loading.

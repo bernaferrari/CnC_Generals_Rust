@@ -264,6 +264,7 @@ impl GameLogic {
                 continue;
             }
             target.apply_disabled_emp(until);
+            self.admit_host_radar_disabled_edges(id);
             disables = disables.saturating_add(1);
             spark_ids.push(id);
         }

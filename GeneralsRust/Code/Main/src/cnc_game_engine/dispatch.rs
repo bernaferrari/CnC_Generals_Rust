@@ -170,6 +170,15 @@ impl CnCGameEngine {
         Ok(messages)
     }
 
+    pub(super) fn admit_startup_difficulty(
+        world: &mut crate::game_logic::GameLogic,
+        dispatch: Option<StartupNewGameDispatch>,
+    ) {
+        if let Some(dispatch) = dispatch {
+            world.admit_session_difficulty(dispatch.difficulty_code);
+        }
+    }
+
     pub(super) fn apply_startup_new_game_dispatch(
         dispatch: StartupNewGameDispatch,
     ) -> Option<String> {
@@ -177,9 +186,6 @@ impl CnCGameEngine {
         let mut global = game_engine::common::global_data::write();
 
         gamelogic::helpers::TheScriptEngine::set_global_difficulty(dispatch.difficulty_code);
-        crate::game_logic::host_faction_skirmish_residual::set_live_host_session_difficulty(
-            dispatch.difficulty_code,
-        );
         gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(
             dispatch.rank_points,
         );
@@ -545,6 +551,7 @@ impl CnCGameEngine {
             }
         };
         request.game_info_starting_cash = game_info_starting_cash;
+        request.difficulty_code = Some(dispatch.difficulty_code);
         self.record_last_new_game_identity(LastNewGameIdentity {
             dispatch,
             player_template: request.player_template.clone(),
@@ -669,6 +676,7 @@ impl CnCGameEngine {
             None => HostStartRequest::without_player_template(mode, faction, map, skirmish),
         };
         request.game_info_starting_cash = game_info_starting_cash;
+        request.difficulty_code = Some(dispatch.difficulty_code);
         self.record_last_new_game_identity(LastNewGameIdentity {
             dispatch,
             player_template: request.player_template.clone(),

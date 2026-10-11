@@ -4,17 +4,43 @@ use gamelogic::common::Relationship;
 use gamelogic::scripting::engine::{
     ScriptAiPlayerRequest, ScriptBridgeStatus, ScriptCameraRequest, ScriptDisplayRequest,
     ScriptExecutionDriver, ScriptNamedCommand, ScriptObjectStatus, ScriptOwnerQuery,
-    ScriptPlayerEventSource, ScriptSightingFilter, ScriptTeamStatus, ScriptWaterRequest,
+    ScriptPlayerAreaQuery, ScriptPlayerEventSource, ScriptSightingFilter, ScriptSkirmishCensus,
+    ScriptSpecialPowerReadiness, ScriptTeamPresence, ScriptTeamStatus, ScriptWaterRequest,
 };
 use std::sync::{Arc, RwLock};
 
 pub(super) struct HostScriptExecutionDriver<'a> {
     world: &'a mut GameLogic,
+    interpreter: Option<&'a gamelogic::scripting::engine::ScriptEngine>,
 }
 
 impl<'a> HostScriptExecutionDriver<'a> {
     pub(super) fn new(world: &'a mut GameLogic) -> Self {
-        Self { world }
+        Self {
+            world,
+            interpreter: None,
+        }
+    }
+
+    pub(super) fn with_interpreter(
+        world: &'a mut GameLogic,
+        interpreter: &'a gamelogic::scripting::engine::ScriptEngine,
+    ) -> Self {
+        Self {
+            world,
+            interpreter: Some(interpreter),
+        }
+    }
+
+    /// Callback delivery while the interpreter is already borrowed by a frame
+    /// or AI script walk uses that exact interpreter, never a missing field.
+    pub(crate) fn complete_structure(&mut self, object: ObjectId) {
+        if let Some(engine) = self.interpreter {
+            self.world
+                .notify_structure_construction_complete_with_interpreter(object, engine);
+        } else {
+            self.world.notify_structure_construction_complete(object);
+        }
     }
 
     fn player_script_name(player: &Player) -> &str {
@@ -161,6 +187,847 @@ impl HostScriptExecutionDriver<'_> {
 }
 
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+    fn delete_or_kill(
+        &mut self,
+        request: &gamelogic::scripting::HostScriptKillDeleteDamageRequest,
+        this_object: Option<u32>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(self.world.apply_owned_script_lifecycle(
+            request,
+            this_object.map(ObjectId),
+            calling,
+            condition,
+            self.interpreter,
+        ))
+    }
+
+    fn kill_player(
+        &mut self,
+        player: &str,
+        current: Option<&str>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        if let Some(id) = self.script_player_id(player, current) {
+            self.world
+                .kill_player_with_interpreter(id, self.interpreter);
+        }
+        Some(Ok(()))
+    }
+
+    fn named_frame_command(
+        &mut self,
+        request: ScriptNamedCommand<'_>,
+        this_object: Option<u32>,
+    ) -> ScriptOwnerQuery<()> {
+        let unit = match request {
+            ScriptNamedCommand::Stop { unit } | ScriptNamedCommand::Guard { unit } => unit,
+            _ => return ScriptOwnerQuery::Missing,
+        };
+        let Some(id) = self
+            .world
+            .owned_named_script_object(unit, this_object.map(ObjectId))
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        if !self
+            .world
+            .host_object(id)
+            .is_some_and(|object| object.has_ai_update_interface())
+        {
+            return ScriptOwnerQuery::Missing;
+        }
+        match request {
+            ScriptNamedCommand::Stop { .. } => self.world.apply_owned_script_idle(id),
+            ScriptNamedCommand::Guard { .. } => {
+                // CPP4793 differs from NamedGuard: no leaveGroup.
+                let position = self.world.host_object(id).unwrap().get_position();
+                self.world.apply_unit_locomotor_set(id, "normal");
+                self.world.apply_owned_script_guard_position(id, position);
+            }
+            _ => unreachable!(),
+        }
+        ScriptOwnerQuery::Present(())
+    }
+
+    fn money(
+        &mut self,
+        request: &gamelogic::scripting::HostScriptMoneyRequest,
+        current_player: Option<&str>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        use gamelogic::scripting::HostScriptMoneyRequest;
+        let (player, amount) = match request {
+            HostScriptMoneyRequest::Set { player, amount }
+            | HostScriptMoneyRequest::Give { player, amount } => (player, *amount),
+        };
+        if let Some(id) = self.script_player_id(player, current_player) {
+            match request {
+                HostScriptMoneyRequest::Set { .. } => {
+                    self.world.host_script_set_player_money(id, amount);
+                }
+                HostScriptMoneyRequest::Give { .. } => {
+                    self.world.host_script_give_player_money(id, amount);
+                }
+            }
+        }
+        Some(Ok(()))
+    }
+
+    fn object_effect(
+        &mut self,
+        request: gamelogic::scripting::engine::ScriptObjectEffect<'_>,
+        this_object: Option<u32>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        use gamelogic::scripting::engine::ScriptObjectEffect;
+        use gamelogic::scripting::{
+            HostScriptObjectSoundRequest as Sound, HostScriptRadarEventRequest as Radar,
+            HostScriptStealthEnabledRequest as Stealth, HostScriptUnmannedRequest as Unmanned,
+        };
+        let named = |world: &GameLogic, name: &str| {
+            world.owned_named_script_object(name, this_object.map(ObjectId))
+        };
+        let members = |world: &GameLogic, name: &str| -> gamelogic::GameLogicResult<Vec<u32>> {
+            Ok(world
+                .resolve_owned_script_team(name, calling, condition)?
+                .map(|(_, ids)| ids)
+                .unwrap_or_default())
+        };
+        let result = (|| -> gamelogic::GameLogicResult<()> {
+            match request {
+                ScriptObjectEffect::Sound(Sound::PlayNamed { sound, unit }) => {
+                    if let Some(id) = named(self.world, unit) {
+                        // The native audio service is a real external boundary;
+                        // identity is selected only from the driving simulation.
+                        if let Some(audio) = gamelogic::helpers::TheAudio::get() {
+                            let mut event = gamelogic::common::audio::AudioEventRts::new(sound);
+                            event.set_object_id(id.0);
+                            event.set_is_logical_audio(true);
+                            audio.add_audio_event(&event);
+                        }
+                    }
+                }
+                ScriptObjectEffect::Sound(Sound::Enable { unit, enable }) => {
+                    if let Some(id) = named(self.world, unit) {
+                        self.world.enable_owned_object_sound(id, *enable);
+                    }
+                }
+                ScriptObjectEffect::Unmanned(request) => {
+                    let ids = match request {
+                        Unmanned::Named { unit } => {
+                            named(self.world, unit).into_iter().map(|id| id.0).collect()
+                        }
+                        Unmanned::Team { team } => members(self.world, team)?,
+                        Unmanned::DeleteAll => self
+                            .world
+                            .host_objects()
+                            .values()
+                            .filter(|o| o.status.disabled_unmanned && !o.status.destroyed)
+                            .map(|o| o.id.0)
+                            .collect(),
+                    };
+                    for id in ids {
+                        if matches!(request, Unmanned::DeleteAll) {
+                            self.world.destroy_object(ObjectId(id));
+                        } else {
+                            self.world.host_script_set_unmanned(ObjectId(id));
+                        }
+                    }
+                }
+                ScriptObjectEffect::Stealth(request) => {
+                    let (ids, enabled) = match request {
+                        Stealth::Named { unit, enabled } => (
+                            named(self.world, unit).into_iter().map(|id| id.0).collect(),
+                            *enabled,
+                        ),
+                        Stealth::Team { team, enabled } => (members(self.world, team)?, *enabled),
+                    };
+                    for id in ids {
+                        self.world
+                            .host_script_set_stealth_enabled(ObjectId(id), enabled);
+                    }
+                }
+                ScriptObjectEffect::Radar(request) => {
+                    let (position, kind) = match request {
+                        Radar::Object { unit, event_type } => (
+                            named(self.world, unit)
+                                .and_then(|id| self.world.host_object(id))
+                                .map(|o| o.get_position()),
+                            *event_type,
+                        ),
+                        Radar::Team { team, event_type } => (
+                            members(self.world, team)?.into_iter().find_map(|id| {
+                                self.world
+                                    .host_object(ObjectId(id))
+                                    .filter(|o| o.is_alive() && !o.status.destroyed)
+                                    .map(|o| o.get_position())
+                            }),
+                            *event_type,
+                        ),
+                    };
+                    if let Some(position) = position {
+                        self.world.host_create_radar_event(
+                            position,
+                            GameLogic::host_script_radar_event_type(kind),
+                        );
+                    }
+                }
+            }
+            Ok(())
+        })();
+        Some(result)
+    }
+
+    fn named_containment(
+        &self,
+        unit: &str,
+        this_object: Option<u32>,
+    ) -> ScriptOwnerQuery<gamelogic::scripting::engine::ScriptContainmentStatus> {
+        let Some(id) = self
+            .world
+            .owned_named_script_object(unit, this_object.map(ObjectId))
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        self.world
+            .owned_script_containment(id)
+            .map(ScriptOwnerQuery::Present)
+            .unwrap_or(ScriptOwnerQuery::Missing)
+    }
+
+    fn named_owned_by_player(
+        &self,
+        unit: &str,
+        player: &str,
+        current_player: Option<&str>,
+        this_object: Option<u32>,
+    ) -> ScriptOwnerQuery<bool> {
+        let Some(player) = self.script_player_id(player, current_player) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let Some(object) = self
+            .world
+            .owned_named_script_object(unit, this_object.map(ObjectId))
+            .and_then(|id| self.world.host_object(id))
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        ScriptOwnerQuery::Present(object.owner_player_id == Some(player))
+    }
+
+    fn named_lifecycle(
+        &self,
+        name: &str,
+        this_object: Option<u32>,
+    ) -> ScriptOwnerQuery<gamelogic::scripting::engine::ScriptNamedLifecycle> {
+        let object = self
+            .world
+            .owned_named_script_object(name, this_object.map(ObjectId))
+            .and_then(|id| self.world.host_object(id));
+        ScriptOwnerQuery::Present(gamelogic::scripting::engine::ScriptNamedLifecycle {
+            exists: object.is_some(),
+            effectively_dead: object.is_some_and(|object| object.status.effectively_dead),
+            ever_existed: object.is_some() || self.world.named_unit_history.contains(name),
+        })
+    }
+
+    fn set_object_difficulty_bonus(&mut self, enable: bool) -> Option<()> {
+        self.world.set_owned_object_difficulty_bonus(enable);
+        Some(())
+    }
+
+    fn update_team_states(
+        &mut self,
+        engine: &gamelogic::scripting::engine::ScriptEngine,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(self.world.update_owned_script_team_states(engine))
+    }
+
+    fn local_player_observer(&self) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Present(
+            self.world
+                .get_players()
+                .values()
+                .find(|player| player.is_local)
+                .is_some_and(|player| player.is_observer),
+        )
+    }
+
+    fn create_object(
+        &mut self,
+        request: gamelogic::scripting::engine::ScriptObjectCreation<'_>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(self.world.apply_owned_script_create_object(
+            request,
+            calling,
+            condition,
+            self.interpreter,
+        ))
+    }
+
+    fn named_presentation(
+        &mut self,
+        request: gamelogic::scripting::engine::ScriptNamedPresentation<'_>,
+        this_object: Option<gamelogic::common::ObjectID>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        use gamelogic::scripting::engine::ScriptNamedPresentation;
+        let name = match request {
+            ScriptNamedPresentation::Flash { unit, .. }
+            | ScriptNamedPresentation::CustomColor { unit, .. } => unit,
+        };
+        let Some(id) = self
+            .world
+            .owned_named_script_object(name, this_object.map(ObjectId))
+        else {
+            return Some(Ok(()));
+        };
+        match request {
+            ScriptNamedPresentation::Flash { seconds, white, .. } => {
+                let color = self.world.host_script_flash_color(id, white);
+                if let Some(object) = self.world.host_object_mut(id) {
+                    object.set_script_flash(seconds, color);
+                }
+            }
+            ScriptNamedPresentation::CustomColor { color, .. } => {
+                if let Some(object) = self.world.host_object_mut(id) {
+                    object.set_custom_indicator_color_raw(color);
+                }
+            }
+        }
+        Some(Ok(()))
+    }
+
+    fn team_attack_named(
+        &mut self,
+        team: &str,
+        target: &str,
+        this_object: Option<gamelogic::common::ObjectID>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(self.world.apply_owned_team_attack_named(
+            team,
+            target,
+            this_object.map(ObjectId),
+            calling,
+            condition,
+        ))
+    }
+
+    fn named_topple_direction(
+        &mut self,
+        name: &str,
+        direction: gamelogic::common::Coord3D,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        if let Some(engine) = self.interpreter.or(self.world.owned_script_engine.as_ref()) {
+            engine.set_topple_direction(name, Some(direction));
+        }
+        Some(Ok(()))
+    }
+    fn named_object_id(&self, name: &str, this_object: Option<u32>) -> ScriptOwnerQuery<u32> {
+        self.world
+            .owned_named_script_object(name, this_object.map(ObjectId))
+            .map_or(ScriptOwnerQuery::Missing, |id| {
+                ScriptOwnerQuery::Present(id.0)
+            })
+    }
+    fn named_superweapon_display(
+        &mut self,
+        name: &str,
+        show: bool,
+        this_object: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        let Some(id) = self
+            .world
+            .owned_named_script_object(name, this_object.map(ObjectId))
+        else {
+            return Some(Ok(()));
+        };
+        let mutation = if show {
+            crate::game_logic::mission_scripts::SuperweaponObjectDisplayMutation::Show {
+                object_id: id.0,
+            }
+        } else {
+            crate::game_logic::mission_scripts::SuperweaponObjectDisplayMutation::Hide {
+                object_id: id.0,
+            }
+        };
+        self.world
+            .mission_scripts
+            .push_superweapon_object_display_mutation(mutation);
+        Some(Ok(()))
+    }
+    fn team_guard_object(
+        &mut self,
+        team: &str,
+        target: &str,
+        this_object: Option<u32>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(self.world.apply_owned_team_guard_object(
+            team,
+            target,
+            this_object.map(ObjectId),
+            calling,
+            condition,
+        ))
+    }
+    fn team_damage(
+        &mut self,
+        team: &str,
+        amount: f32,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(
+            self.world
+                .apply_owned_team_damage(team, amount, calling, condition, self.interpreter),
+        )
+    }
+    fn team_attack_team(
+        &mut self,
+        source: &str,
+        target: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(
+            self.world
+                .apply_owned_team_attack_team(source, target, calling, condition),
+        )
+    }
+    fn named_waypoint(
+        &mut self,
+        unit: &str,
+        waypoint: &str,
+        follow: Option<bool>,
+        this_object: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        self.world
+            .apply_owned_named_waypoint(unit, waypoint, follow, this_object.map(ObjectId));
+        Some(Ok(()))
+    }
+    fn team_hunt_button(
+        &mut self,
+        team: &str,
+        button: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(
+            self.world
+                .apply_owned_team_hunt_button(team, button, calling, condition),
+        )
+    }
+    fn team_transfer(
+        &mut self,
+        team: &str,
+        player: &str,
+        current_player: Option<&str>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        let Some(player) = self.script_player_id(player, current_player) else {
+            return Some(Ok(()));
+        };
+        Some(
+            self.world
+                .apply_owned_team_transfer(team, player, calling, condition),
+        )
+    }
+    fn sell_everything(
+        &mut self,
+        player: &str,
+        current_player: Option<&str>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        if let Some(player) = self.script_player_id(player, current_player) {
+            self.world.apply_owned_sell_everything(player);
+        }
+        Some(Ok(()))
+    }
+
+    fn team_waypoint_path(
+        &mut self,
+        team: &str,
+        path: &str,
+        as_team: bool,
+        exact: bool,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(
+            self.world
+                .apply_owned_team_waypoint_path(team, path, as_team, exact, calling, condition),
+        )
+    }
+
+    fn named_attack_area(
+        &mut self,
+        unit: &str,
+        area: &str,
+        current_player: Option<&str>,
+        this_object: Option<gamelogic::common::ObjectID>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        let Some(area) = self.qualified_area(area, current_player) else {
+            return Some(Ok(()));
+        };
+        self.world
+            .apply_owned_named_attack_area(unit, &area, this_object.map(ObjectId));
+        Some(Ok(()))
+    }
+
+    fn named_attack_team(
+        &mut self,
+        unit: &str,
+        team: &str,
+        this_object: Option<gamelogic::common::ObjectID>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(self.world.apply_owned_named_attack_team(
+            unit,
+            team,
+            this_object.map(ObjectId),
+            calling,
+            condition,
+        ))
+    }
+
+    fn team_nearest_button(
+        &mut self,
+        request: &gamelogic::scripting::HostScriptUseCommandButtonRequest,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(
+            self.world
+                .apply_owned_team_nearest_button(request, calling, condition),
+        )
+    }
+
+    fn team_partial_button(
+        &mut self,
+        team: &str,
+        button: &str,
+        percentage: f32,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(
+            self.world
+                .apply_owned_team_partial_button(team, button, percentage, calling, condition),
+        )
+    }
+    fn team_panic(
+        &mut self,
+        team: &str,
+        path: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(
+            self.world
+                .apply_owned_team_panic(team, path, calling, condition),
+        )
+    }
+    fn skirmish_approach_path(
+        &mut self,
+        team: &str,
+        path: &str,
+        as_team: bool,
+        follow: bool,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(
+            self.world.apply_owned_skirmish_approach_path(
+                team, path, as_team, follow, calling, condition,
+            ),
+        )
+    }
+    fn team_waypoint_complete(
+        &self,
+        team: &str,
+        path: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> ScriptOwnerQuery<bool> {
+        let Some((_, members)) = self
+            .world
+            .resolve_owned_script_team(team, calling, condition)
+            .expect("owned completed waypoint team")
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        ScriptOwnerQuery::Present(
+            members
+                .into_iter()
+                .filter_map(|id| self.world.host_object(ObjectId(id)))
+                .any(|object| {
+                    object.has_ai_update_interface()
+                        && object
+                            .completed_waypoint_labels
+                            .iter()
+                            .any(|label| label == path)
+                }),
+        )
+    }
+    fn skirmish_special_power_readiness(
+        &self,
+        player: &str,
+        power_name: &str,
+        current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<ScriptSpecialPowerReadiness> {
+        let Some(owner) = self.script_player_id(player, current_player) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let template_exists = self.world.templates.values().any(|template| {
+            template.special_power_modules.iter().any(|module| {
+                module
+                    .special_power_template
+                    .eq_ignore_ascii_case(power_name)
+            })
+        })
+            || game_engine::common::rts::special_power::get_special_power_store()
+                .find_template(power_name)
+                .is_some();
+        let mut state = ScriptSpecialPowerReadiness {
+            template_exists,
+            ready: false,
+            next_frame: self.world.frame.wrapping_add(300),
+        };
+        for object in self
+            .world
+            .host_objects()
+            .values()
+            .filter(|object| object.owner_player_id == Some(owner))
+        {
+            if object.status.under_construction || object.is_disabled() {
+                continue;
+            }
+            if let Some(module) =
+                object
+                    .thing()
+                    .template
+                    .special_power_modules
+                    .iter()
+                    .find(|module| {
+                        module
+                            .special_power_template
+                            .eq_ignore_ascii_case(power_name)
+                    })
+            {
+                if module.required_science.as_deref().is_some_and(|science| {
+                    !self
+                        .world
+                        .get_player(owner)
+                        .unwrap()
+                        .has_unlocked_science(science)
+                }) {
+                    continue;
+                }
+                let Some(power) = module.command_power.as_ref() else {
+                    continue;
+                };
+                if self.world.is_special_power_ready_for(object.id, power) {
+                    state.ready = true;
+                    return ScriptOwnerQuery::Present(state);
+                }
+                let seconds = if module.shared_n_sync {
+                    self.world
+                        .get_player(owner)
+                        .unwrap()
+                        .shared_special_power_remaining(power)
+                } else {
+                    object
+                        .special_power_cooldowns
+                        .get(power)
+                        .copied()
+                        .unwrap_or(0.0)
+                };
+                let ready_frame = self
+                    .world
+                    .frame
+                    .wrapping_add((seconds.max(0.0) * 30.0) as u32);
+                state.next_frame = state.next_frame.min(ready_frame);
+            }
+        }
+        ScriptOwnerQuery::Present(state)
+    }
+
+    fn skirmish_census(
+        &self,
+        player: &str,
+        current_player: Option<&str>,
+        query: ScriptSkirmishCensus,
+    ) -> ScriptOwnerQuery<i32> {
+        let owner = match query {
+            ScriptSkirmishCensus::NeutralUnmanned => self
+                .world
+                .get_players()
+                .values()
+                .find(|player| player.team == Team::Neutral)
+                .map(|player| player.id),
+            _ => self.script_player_id(player, current_player),
+        };
+        let Some(owner) = owner else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let count = self
+            .world
+            .host_objects()
+            .values()
+            .filter(|object| {
+                object.owner_player_id == Some(owner)
+                    || (matches!(query, ScriptSkirmishCensus::NeutralUnmanned)
+                        && object.owner_player_id.is_none()
+                        && object.team == Team::Neutral)
+            })
+            .filter(|object| match query {
+                ScriptSkirmishCensus::NeutralUnmanned => object.status.disabled_unmanned,
+                ScriptSkirmishCensus::Garrisoned => {
+                    object.is_garrison_contain() && !object.contained_units().is_empty()
+                }
+                ScriptSkirmishCensus::Captured => object.status.private_captured,
+            })
+            .count() as i32;
+        ScriptOwnerQuery::Present(count)
+    }
+    fn player_discovered_by(
+        &self,
+        player: &str,
+        viewer: &str,
+        current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<bool> {
+        let (Some(owner), Some(viewer)) = (
+            self.script_player_id(player, current_player),
+            self.script_player_id(viewer, current_player),
+        ) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let shroud = self
+            .world
+            .world_services
+            .shroud()
+            .lock()
+            .expect("owned player discovery visibility");
+        let found = self
+            .world
+            .host_objects()
+            .values()
+            .filter(|object| object.owner_player_id == Some(owner))
+            .any(|object| {
+                matches!(
+                    shroud.get_host_object_shroud_status(viewer, object.id.0),
+                    Some(
+                        gamelogic::common::ObjectShroudStatus::Clear
+                            | gamelogic::common::ObjectShroudStatus::PartialClear
+                    )
+                )
+            });
+        ScriptOwnerQuery::Present(found)
+    }
+
+    fn player_area_value(
+        &self,
+        player: &str,
+        area: &str,
+        current_player: Option<&str>,
+        query: ScriptPlayerAreaQuery<'_>,
+    ) -> ScriptOwnerQuery<(i32, bool)> {
+        let Some(owner) = self.script_player_id(player, current_player) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let Some(area) = self.qualified_area(area, current_player) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let geometry = self
+            .world
+            .host_trigger_world
+            .lock()
+            .expect("owned player polygon census");
+        let Some(trigger) = geometry.trigger_area_by_canonical_name(&area) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let mut value = 0i32;
+        let mut changed = false;
+        for object in self
+            .world
+            .host_objects()
+            .values()
+            .filter(|object| object.owner_player_id == Some(owner))
+        {
+            changed |= geometry.did_enter_or_exit(object.id.0, self.world.frame);
+            let position = object.get_position();
+            let point = gamelogic::common::ICoord3D::new(
+                position.x as i32,
+                position.z as i32,
+                position.y as i32,
+            );
+            if !trigger.point_in_trigger_int(&point) {
+                continue;
+            }
+            let dead = Self::status(object).effectively_dead;
+            let inert = object.is_kind_of(KindOf::Inert);
+            let contribution = match &query {
+                ScriptPlayerAreaQuery::Templates(names) => {
+                    if (!dead && !inert || object.is_kind_of(KindOf::Crate))
+                        && names
+                            .iter()
+                            .any(|name| object.template_name.eq_ignore_ascii_case(name))
+                    {
+                        1
+                    } else {
+                        0
+                    }
+                }
+                ScriptPlayerAreaQuery::Kind(kind) => {
+                    let mask = crate::game_logic::host_radar_stealth_vision_residual::live_object_kind_of_cpp_mask(object.thing().template.kind_of.iter());
+                    let matches = gamelogic::common::kind_of_indices(*kind)
+                        .iter()
+                        .any(|index| mask & (1u128 << index) != 0);
+                    if !dead && !inert && matches { 1 } else { 0 }
+                }
+                ScriptPlayerAreaQuery::Units => {
+                    if !dead && !inert && !object.is_kind_of(KindOf::Projectile) {
+                        1
+                    } else {
+                        0
+                    }
+                }
+                ScriptPlayerAreaQuery::Value => {
+                    if !dead && !inert {
+                        object.thing().template.build_cost.supplies as i32
+                    } else {
+                        0
+                    }
+                }
+            };
+            value = value.wrapping_add(contribution);
+        }
+        ScriptOwnerQuery::Present((value, changed))
+    }
+
+    fn named_selection(
+        &self,
+        literal_name: &str,
+    ) -> ScriptOwnerQuery<gamelogic::scripting::engine::ScriptSelectionStatus> {
+        ScriptOwnerQuery::Present(gamelogic::scripting::engine::ScriptSelectionStatus {
+            multiplayer: self.world.isInMultiplayerGame(),
+            changed_frame: self.world.selection_changed_frame,
+            selected: self.world.selected_objects.iter().any(|id| {
+                self.world
+                    .objects
+                    .get(id)
+                    .is_some_and(|object| object.name == literal_name)
+            }),
+        })
+    }
+
     fn named_inside_area(
         &self,
         unit: &str,
@@ -393,6 +1260,28 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         )
     }
 
+    fn team_idle(
+        &mut self,
+        team: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(self.world.apply_owned_team_idle(team, calling, condition))
+    }
+
+    fn team_stop(
+        &mut self,
+        team: &str,
+        calling: Option<gamelogic::team::TeamID>,
+        condition: Option<gamelogic::team::TeamID>,
+        disband: bool,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        Some(
+            self.world
+                .apply_owned_team_stop(team, calling, condition, disband),
+        )
+    }
+
     fn team_attitude(
         &mut self,
         team: &str,
@@ -444,6 +1333,33 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             self.world
                 .apply_owned_nearest_object_move(request, &trigger),
         )
+    }
+
+    fn named_attitude(
+        &mut self,
+        unit: &str,
+        this_object: Option<gamelogic::common::ObjectID>,
+        mood: i32,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        let Some(id) = self
+            .world
+            .owned_named_script_object(unit, this_object.map(ObjectId))
+        else {
+            return Some(Ok(()));
+        };
+        let attitude = match mood {
+            -2 => -2,
+            -1 => -1,
+            1 => 1,
+            2 => 2,
+            _ => 0,
+        };
+        if let Some(object) = self.world.host_object_mut(id) {
+            if object.has_ai_update_interface() {
+                object.set_ai_attitude_i8(attitude);
+            }
+        }
+        Some(Ok(()))
     }
 
     fn named_command(
@@ -563,7 +1479,12 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             .find(|object| !object.name.is_empty() && object.name.eq_ignore_ascii_case(name))
             .map(|object| object.id);
         if let Some(id) = id {
-            self.world.host_script_apply_unresistable(id, amount as f32);
+            self.world.host_script_damage_with_interpreter(
+                id,
+                amount as f32,
+                false,
+                self.interpreter,
+            );
         }
         Some(Ok(()))
     }
@@ -577,6 +1498,44 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         request: ScriptAiPlayerRequest<'_>,
     ) -> Option<gamelogic::GameLogicResult<()>> {
         match request {
+            ScriptAiPlayerRequest::BuildUpgrade { player, upgrade } => {
+                if let Some(id) = self.world.host_player_id_for_script_token(player) {
+                    self.world.build_owned_script_ai_upgrade(id, upgrade);
+                }
+            }
+            ScriptAiPlayerRequest::BuildNearest {
+                player,
+                building,
+                team,
+                calling,
+                condition,
+            } => {
+                self.world
+                    .apply_owned_script_build_nearest(player, building, team, calling, condition);
+            }
+            ScriptAiPlayerRequest::BaseDefense {
+                player,
+                structure,
+                flank,
+            } => {
+                self.world
+                    .apply_owned_script_base_defense(player, structure, flank);
+            }
+            ScriptAiPlayerRequest::BuildTeam { team } => {
+                self.world
+                    .apply_owned_script_team_build(team, None, self.interpreter)
+            }
+            ScriptAiPlayerRequest::RecruitTeam { team, radius } => self
+                .world
+                .apply_owned_script_team_build(team, Some(radius), self.interpreter),
+            ScriptAiPlayerRequest::BuildSupplyCenter {
+                player,
+                building,
+                cash,
+            } => {
+                self.world
+                    .apply_owned_script_supply_build(player, building, cash);
+            }
             ScriptAiPlayerRequest::RepairNamed { player, structure } => {
                 self.world.apply_owned_script_ai_repair(player, structure);
             }
@@ -604,6 +1563,49 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 
     fn camera_movement_finished(&mut self) -> Option<bool> {
         Some(self.world.mission_scripts.is_camera_movement_finished())
+    }
+
+    fn world(
+        &mut self,
+        request: gamelogic::scripting::engine::ScriptWorldRequest<'_>,
+    ) -> Option<gamelogic::GameLogicResult<()>> {
+        use gamelogic::scripting::engine::ScriptWorldRequest;
+        let handler = self
+            .interpreter
+            .or(self.world.owned_script_engine.as_ref())
+            .and_then(|engine| engine.action_handler());
+        match request {
+            ScriptWorldRequest::Input { enabled } => self.world.set_script_input_enabled(enabled),
+            ScriptWorldRequest::RadarForced(forced) => self.world.set_radar_forced(forced),
+            _ => {}
+        }
+        // Clone the explicit interpreter's external service adapter before
+        // callbacks. No engine/store borrow survives a synchronous reentry.
+        Some(if let Some(handler) = handler {
+            match request {
+                ScriptWorldRequest::Input { enabled } => handler.input_enabled(enabled),
+                ScriptWorldRequest::MovieFullscreen(name) => handler.movie_play_fullscreen(name),
+                ScriptWorldRequest::RadarForced(forced) => handler.set_radar_forced(forced),
+                ScriptWorldRequest::Timer {
+                    name,
+                    text,
+                    countdown,
+                } => handler.add_named_timer(name, text, countdown),
+                ScriptWorldRequest::Freeze(true) => handler.freeze_time(),
+                ScriptWorldRequest::Freeze(false) => handler.unfreeze_time(),
+                ScriptWorldRequest::VisualSpeed(multiplier) => {
+                    handler.set_visual_speed_multiplier(multiplier)
+                }
+                ScriptWorldRequest::Weather(visible) => handler.set_weather_visible(visible),
+                ScriptWorldRequest::Music {
+                    track,
+                    fade_out,
+                    fade_in,
+                } => handler.music_set_track(track, fade_out, fade_in),
+            }
+        } else {
+            Ok(())
+        })
     }
 
     fn camera(
@@ -648,6 +1650,15 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         Ok(())
     }
 
+    fn literal_template_exists(&self, name: &str) -> ScriptOwnerQuery<bool> {
+        ScriptOwnerQuery::Present(
+            self.world
+                .templates
+                .values()
+                .any(|template| template.name == name),
+        )
+    }
+
     fn unit_health_percent(&self, name: &str, this_object: Option<u32>) -> ScriptOwnerQuery<i32> {
         let Some(object) = self
             .world
@@ -665,6 +1676,27 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             ((object.health.current * 100.0 + object.initial_health / 2.0) / object.initial_health)
                 as i32,
         )
+    }
+
+    fn player_census(
+        &self,
+        player: &str,
+        current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<(i32, gamelogic::scripting::HostScriptPlayerCensus)> {
+        let Some(id) = self.script_player_id(player, current_player) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let Some(player) = self.world.players.get(&id) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        match self
+            .world
+            .owned_host_player_census()
+            .remove(&player.name.trim().to_ascii_lowercase())
+        {
+            Some(census) => ScriptOwnerQuery::Present((id as i32, census)),
+            None => ScriptOwnerQuery::Missing,
+        }
     }
 
     fn player_has_any_objects(
@@ -768,6 +1800,123 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         )
     }
 
+    fn team_contained(
+        &self,
+        name: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+        all: bool,
+    ) -> ScriptOwnerQuery<bool> {
+        let Some((_, members)) = self
+            .world
+            .resolve_owned_script_team(name, calling, condition)
+            .expect("owned team containment selection")
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        ScriptOwnerQuery::Present(gamelogic::scripting::engine::script_team_is_contained(
+            members.into_iter().map(|id| {
+                self.world
+                    .host_object(ObjectId(id))
+                    .map(|object| object.contained_by.is_some())
+            }),
+            all,
+        ))
+    }
+
+    fn set_named_train_held(&mut self, name: &str, held: bool) -> Option<()> {
+        if let Some(id) = self.world.host_object_id_by_script_name(name) {
+            self.world.set_railroad_held(id, held);
+        }
+        Some(())
+    }
+
+    fn set_named_cave_index(&mut self, name: &str, index: i32) -> Option<()> {
+        self.world.set_named_cave_index(name, index);
+        Some(())
+    }
+    fn team_presence(
+        &self,
+        name: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> ScriptOwnerQuery<ScriptTeamPresence> {
+        let Some((id, members)) = self
+            .world
+            .resolve_owned_script_team(name, calling, condition)
+            .expect("owned team presence selection")
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let Some(team) = self.owned_team(id) else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let created = team.read().expect("owned team creation phase").is_created();
+        let has_objects = members.into_iter().any(|id| {
+            self.world.host_object(ObjectId(id)).is_some_and(|object| {
+                !Self::status(object).effectively_dead
+                    && !object.is_kind_of(KindOf::Projectile)
+                    && !object.is_kind_of(KindOf::Inert)
+                    && !object.is_kind_of(KindOf::Mine)
+            })
+        });
+        ScriptOwnerQuery::Present(ScriptTeamPresence {
+            created,
+            has_objects,
+        })
+    }
+
+    fn team_has_units(
+        &self,
+        name: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> ScriptOwnerQuery<bool> {
+        let contextual = name == gamelogic::scripting::core::THIS_TEAM
+            || calling.or(condition).is_some_and(|id| {
+                self.owned_team(id).is_some_and(|team| {
+                    team.read().expect("owned unit context").get_name().as_str() == name
+                })
+            });
+        let ids = if contextual {
+            match self
+                .world
+                .resolve_owned_script_team(name, calling, condition)
+                .expect("owned unit team selection")
+            {
+                Some((id, _)) => vec![id],
+                None => return ScriptOwnerQuery::Missing,
+            }
+        } else {
+            match self.team_instances(name) {
+                ScriptOwnerQuery::Present(ids) => ids,
+                ScriptOwnerQuery::Missing => return ScriptOwnerQuery::Missing,
+                ScriptOwnerQuery::Unavailable => unreachable!("Main owns its team factory"),
+            }
+        };
+        for id in ids {
+            let Some(team) = self.owned_team(id) else {
+                continue;
+            };
+            let members = team
+                .read()
+                .expect("owned team unit roster")
+                .get_members()
+                .to_vec();
+            if members.into_iter().any(|id| {
+                self.world.host_object(ObjectId(id)).is_some_and(|object| {
+                    !Self::status(object).effectively_dead
+                        && !object.is_kind_of(KindOf::Structure)
+                        && !object.is_kind_of(KindOf::Projectile)
+                        && !object.is_kind_of(KindOf::Mine)
+                })
+            }) {
+                return ScriptOwnerQuery::Present(true);
+            }
+        }
+        ScriptOwnerQuery::Present(false)
+    }
+
     fn team_status(&self, id: u32) -> ScriptOwnerQuery<ScriptTeamStatus> {
         let Some(team) = self.owned_team(id) else {
             return ScriptOwnerQuery::Missing;
@@ -868,3 +2017,82 @@ impl GameLogic {
         )
     }
 }
+
+impl GameLogic {
+    pub(crate) fn install_owned_script_engine(
+        &mut self,
+        engine: gamelogic::scripting::engine::ScriptEngine,
+    ) {
+        self.objects_receive_difficulty_bonus =
+            engine.get_objects_should_receive_difficulty_bonus();
+        self.owned_script_engine = Some(engine);
+    }
+    /// Move the Send interpreter into one bounded owner operation. Drop restores
+    /// it even on unwinding; callbacks receive the actual borrowed interpreter.
+    pub(crate) fn with_owned_script_engine<R>(
+        &mut self,
+        operation: impl FnOnce(&gamelogic::scripting::engine::ScriptEngine, &mut GameLogic) -> R,
+    ) -> Option<R> {
+        struct Owner<'a> {
+            world: &'a mut GameLogic,
+            engine: Option<gamelogic::scripting::engine::ScriptEngine>,
+        }
+        impl Drop for Owner<'_> {
+            fn drop(&mut self) {
+                self.world.owned_script_engine = self.engine.take();
+            }
+        }
+        let engine = self.owned_script_engine.take()?;
+        let mut owner = Owner {
+            world: self,
+            engine: Some(engine),
+        };
+        Some(operation(owner.engine.as_ref().unwrap(), owner.world))
+    }
+    pub(crate) fn run_object_script_with_interpreter(
+        &mut self,
+        engine: &gamelogic::scripting::engine::ScriptEngine,
+        name: &str,
+        object: ObjectId,
+    ) {
+        let context = gamelogic::scripting::executor::ScriptContext::at_frame(self.frame);
+        if let Err(error) = engine.run_object_script_with_driver(
+            name,
+            object.0,
+            context,
+            &mut HostScriptExecutionDriver::with_interpreter(self, engine),
+        ) {
+            log::error!("attached object script failed: {error}");
+        }
+    }
+    pub(crate) fn run_owned_object_script(&mut self, name: &str, object: ObjectId) {
+        if name.is_empty() || name == "<none>" {
+            return;
+        }
+        assert!(
+            self.owned_script_engine.is_some(),
+            "a borrowed interpreter must be supplied explicitly for attached callbacks"
+        );
+        self.with_owned_script_engine(|engine, world| {
+            world.run_object_script_with_interpreter(engine, name, object)
+        });
+    }
+}
+
+impl GameLogic {
+    pub(crate) fn evaluate_owned_script_conditions(
+        &mut self,
+        engine: &gamelogic::scripting::engine::ScriptEngine,
+        script: &mut gamelogic::scripting::core::Script,
+        player_name: Option<&str>,
+    ) -> bool {
+        let mut context = gamelogic::scripting::executor::ScriptContext::at_frame(self.frame);
+        context.host_trigger_world = self.host_trigger_world.clone();
+        let mut driver = HostScriptExecutionDriver::with_interpreter(self, engine);
+        engine.evaluate_conditions_with_driver(script, None, player_name, context, &mut driver)
+    }
+}
+
+#[cfg(test)]
+#[path = "object_effect_owner_tests.rs"]
+mod object_effect_owner_tests;

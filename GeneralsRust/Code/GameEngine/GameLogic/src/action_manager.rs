@@ -1154,6 +1154,19 @@ impl TheActionManager {
             return false;
         }
 
+        Self::can_enter_object_with_lookup(obj, object_to_enter, command_source, mode, &|id| {
+            OBJECT_REGISTRY.get_object(id)
+        })
+    }
+
+    /// Admission through the driving factory's exact object identities.
+    pub fn can_enter_object_with_lookup(
+        obj: &Object,
+        object_to_enter: &Object,
+        command_source: CommandSourceType,
+        mode: CanEnterType,
+        lookup: &dyn Fn(ObjectID) -> Option<Arc<RwLock<Object>>>,
+    ) -> bool {
         if obj.get_id() == object_to_enter.get_id() {
             return false;
         }
@@ -1246,6 +1259,38 @@ impl TheActionManager {
         let Some(contain) = object_to_enter.get_contain() else {
             return false;
         };
+        let admission_target = match contain.lock() {
+            Ok(module) => module.admission_target(),
+            Err(_) => return false,
+        };
+        let child = match admission_target {
+            crate::modules::ContainAdmissionTarget::LiteralOwner => None,
+            crate::modules::ContainAdmissionTarget::ActiveFirstChild(id) => {
+                if id == object_to_enter.get_id() || id == obj.get_id() {
+                    return false;
+                }
+                lookup(id)
+            }
+        };
+        let child_owner = match child.as_ref() {
+            Some(child) => match child.read() {
+                Ok(child) => {
+                    if child.get_contained_by() != Some(object_to_enter.get_id()) {
+                        return false;
+                    }
+                    Some(child)
+                }
+                Err(_) => return false,
+            },
+            None => None,
+        };
+        let redirected = child_owner.as_ref().and_then(|child| child.get_contain());
+        let admission_owner = if redirected.is_some() {
+            child_owner.as_deref().unwrap()
+        } else {
+            object_to_enter
+        };
+        let contain = redirected.unwrap_or(contain);
         let Ok(contain_guard) = contain.lock() else {
             return false;
         };
@@ -1292,7 +1337,7 @@ impl TheActionManager {
 
             if !contain_guard.is_valid_container_for_with_owner(
                 obj,
-                object_to_enter,
+                admission_owner,
                 check_capacity,
             ) {
                 return false;

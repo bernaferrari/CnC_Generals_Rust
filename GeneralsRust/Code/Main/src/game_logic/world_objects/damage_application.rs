@@ -125,6 +125,8 @@ impl GameLogic {
         let hp_lost = (before_hp - victim.health.current).max(0.0);
         let victim_position = victim.get_position();
         let victim_team = victim.team;
+        self.admit_object_drawable_deselection(victim_id);
+        self.admit_host_radar_disabled_edges(victim_id);
         let bridge_callbacks = application.bridge_callbacks();
         if let Some(callbacks) = bridge_callbacks {
             self.complete_owned_bridge_body_callbacks(callbacks);
@@ -152,7 +154,11 @@ impl GameLogic {
             }
             let killer_team = killer_team_override
                 .or_else(|| source_id.and_then(|id| self.objects.get(&id).map(|obj| obj.team)));
-            self.mark_object_for_destruction(victim_id, killer_team);
+            self.mark_object_for_destruction_with_topple(
+                victim_id,
+                killer_team,
+                context.topple_interpreter(),
+            );
         }
         let source = application
             .source_id()
@@ -165,6 +171,8 @@ impl GameLogic {
             .get_mut(&victim_id)
             .expect("damage victim remains installed until destroy-list cleanup");
         let after_fx = application.dispatch_damage_fx(victim, source.as_ref());
+        self.admit_object_drawable_deselection(victim_id);
+        self.admit_host_radar_disabled_edges(victim_id);
         if after_fx.had_active_body() {
             after_damage_fx(self, victim_id);
         }
@@ -173,8 +181,11 @@ impl GameLogic {
             .objects
             .get_mut(&victim_id)
             .expect("post-FX victim remains installed until destroy-list cleanup");
+        let destroyed = after_fx.finish(victim, source.as_ref(), enable_repulsors);
+        self.admit_object_drawable_deselection(victim_id);
+        self.admit_host_radar_disabled_edges(victim_id);
         Some(OwnedDamageResult {
-            destroyed: after_fx.finish(victim, source.as_ref(), enable_repulsors),
+            destroyed,
             hp_lost,
             victim_position,
             victim_team,

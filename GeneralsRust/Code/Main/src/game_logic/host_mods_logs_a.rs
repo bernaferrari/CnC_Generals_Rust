@@ -111,17 +111,8 @@ pub mod host_command_set_log;
 #[path = "host_command_set_ready_log.rs"]
 pub mod host_command_set_ready_log;
 
-#[path = "host_construction_complete_clear_ready_log.rs"]
-pub mod host_construction_complete_clear_ready_log;
-
 #[path = "host_construction_log.rs"]
 pub mod host_construction_log;
-
-#[path = "host_construction_progress_log.rs"]
-pub mod host_construction_progress_log;
-
-#[path = "host_construction_ready_log.rs"]
-pub mod host_construction_ready_log;
 
 #[path = "host_contain_capacity_log.rs"]
 pub mod host_contain_capacity_log;

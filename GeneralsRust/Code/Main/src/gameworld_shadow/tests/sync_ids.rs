@@ -1016,7 +1016,7 @@ fn writeback_production_and_rally_to_host() {
     let _ = shadow.writeback_radar_extend_to_host(&mut logic);
     let _ = shadow.writeback_shock_stun_to_host(&mut logic);
     let _ = crate::game_logic::host_shock_stun_ready_log::drain();
-    let _ = shadow.writeback_rebuild_producer_to_host(&mut logic);
+    let _ = shadow.compare_rebuild_producer_to_host(&logic);
     let _ = shadow.writeback_sole_healing_to_host(&mut logic);
     let _ = crate::game_logic::host_sole_healing_ready_log::drain();
     let _ = shadow.writeback_hijacker_to_host(&mut logic);
@@ -1399,16 +1399,9 @@ fn queue_exit_sole_tick_releases_one_then_waits_exact_nine_frames() {
 }
 
 #[test]
-fn construction_authority_sole_ticks_percent() {
-    let _env_guard = authority_env_lock();
-
-    let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    // Tick path is authority-gated; sole-tick freeze is host-side (coupled frame).
+fn construction_progress_observation_does_not_tick_host_or_shadow() {
     let mut logic = GameLogic::new();
-    logic.set_construction_authority(true);
-    assert!(gameworld_construction_authority_enabled());
-    use crate::game_logic::host_construction_progress_log::{self};
+
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     {
         let mut t = ThingTemplate::new("SoleTickBuild");
@@ -1423,28 +1416,22 @@ fn construction_authority_sole_ticks_percent() {
         o.construction_percent = 0.0;
         o.set_status_under_construction(true);
     }
-    host_construction_progress_log::record(oid, 0.0, true, 0.25);
+
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let events = host_construction_progress_log::drain();
-    assert!(shadow.apply_host_construction_progress_events(&events) >= 1);
-    let n = shadow.tick_construction_progress(2.0);
-    assert!(n >= 1, "sole-tick must advance construction");
+
+    assert!(shadow.observe_host_construction(&logic) >= 1);
     let eid = *shadow.host_to_entity.get(&oid.0).expect("map");
     let ent = shadow.world().entity(eid).expect("ent");
     // 0 + 0.25*2 = 0.5
     assert!(
-        (ent.construction_percent - 0.5).abs() < 1e-4,
+        ent.construction_percent == 0.0,
         "got {}",
         ent.construction_percent
     );
-    assert!(shadow.writeback_construction_to_host(&mut logic) >= 1);
+    assert_eq!(shadow.compare_construction_to_host(&logic), 0);
     let obj = logic.host_object(oid).expect("obj");
-    assert!((obj.construction_percent - 0.5).abs() < 1e-4);
-    match prev_s {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-    }
+    assert_eq!(obj.construction_percent, 0.0);
 }
 
 #[test]
@@ -1545,7 +1532,7 @@ fn shared_special_power_sole_ticks_player_cds() {
 }
 
 #[test]
-fn writeback_construction_percent_to_host() {
+fn construction_shadow_disagreement_cannot_mutate_live_host() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("ConstrWb");
@@ -1570,7 +1557,7 @@ fn writeback_construction_percent_to_host() {
     {
         let e = shadow.world_mut().world_mut().entity_mut(eid).expect("e");
         e.construction_percent = 0.85;
-        e.under_construction = true;
+        e.under_construction = false;
         e.sold = true;
         e.reconstructing = true;
         e.unselectable = true;
@@ -1578,14 +1565,14 @@ fn writeback_construction_percent_to_host() {
         e.stealthed = true;
         e.selected = true;
     }
-    let n = shadow.writeback_construction_to_host(&mut logic);
+    let n = shadow.compare_construction_to_host(&logic);
     assert!(n >= 1);
     let obj = logic.host_objects().get(&id).expect("o");
-    assert!((obj.construction_percent - 0.85).abs() < 1e-5);
+    assert!((obj.construction_percent - 0.2).abs() < 1e-5);
     assert!(obj.status.under_construction);
-    assert!(obj.status.sold);
-    assert!(obj.status.reconstructing);
-    assert!(obj.status.unselectable);
+    assert!(!obj.status.sold);
+    assert!(!obj.status.reconstructing);
+    assert!(!obj.status.unselectable);
     // Construction writeback must not touch combat-status residual.
     assert!(!obj.status.stealthed);
     assert!(!obj.status.selected);
@@ -1606,8 +1593,47 @@ fn writeback_construction_percent_to_host() {
         e.construction_percent = 1.0;
         e.under_construction = false;
     }
-    let _ = shadow.writeback_construction_to_host(&mut logic);
+    let _ = shadow.compare_construction_to_host(&logic);
     let obj = logic.host_objects().get(&id).expect("o");
-    assert!((obj.construction_percent - 1.0).abs() < 1e-5);
-    assert!(!obj.status.under_construction);
+    assert!((obj.construction_percent - 0.2).abs() < 1e-5);
+    assert!(obj.status.under_construction);
+}
+
+#[test]
+fn construction_observation_uses_the_supplied_world_even_with_same_id_peer() {
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    fn world(percent: f32) -> (GameLogic, crate::game_logic::ObjectId) {
+        let mut logic = GameLogic::new();
+        let mut template = ThingTemplate::new("OwnedObservationPad");
+        template.add_kind_of(KindOf::Structure);
+        logic
+            .templates
+            .insert("OwnedObservationPad".into(), template);
+        let id = logic
+            .create_object("OwnedObservationPad", Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        let object = logic.host_object_mut(id).unwrap();
+        object.construction_percent = percent;
+        object.status.under_construction = true;
+        (logic, id)
+    }
+    let (owner, id) = world(0.25);
+    let (mut peer, peer_id) = world(0.75);
+    assert_eq!(id, peer_id);
+    let mut projection = GameWorldShadow::new(64);
+    projection.sync_from_host(&owner);
+    peer.host_object_mut(peer_id).unwrap().construction_percent = 0.9;
+    assert!(projection.observe_host_construction(&owner) >= 1);
+    let entity = projection.entity_for_host(id).unwrap();
+    assert_eq!(
+        projection
+            .world()
+            .entity(entity)
+            .unwrap()
+            .construction_percent,
+        0.25
+    );
+    assert_eq!(owner.host_object(id).unwrap().construction_percent, 0.25);
+    assert_eq!(peer.host_object(peer_id).unwrap().construction_percent, 0.9);
+    assert_eq!(projection.compare_construction_to_host(&owner), 0);
 }

@@ -60,6 +60,9 @@ impl GameLogic {
             return;
         }
         player_ids.sort_unstable();
+        let any_local = player_ids
+            .iter()
+            .any(|id| self.is_local_selection_player(*id));
 
         let mut accepted: Vec<ObjectId> = Vec::new();
         for &object_id in &object_ids {
@@ -97,6 +100,9 @@ impl GameLogic {
                 if let Some(obj) = self.objects.get_mut(&old_id) {
                     obj.deselect();
                 }
+                if any_local {
+                    self.admit_local_drawable_deselected(old_id);
+                }
             }
         }
 
@@ -106,13 +112,12 @@ impl GameLogic {
                 // C++ Drawable::flashAsSelected residual on select / create-team.
                 obj.flash_as_selected();
             }
+            if any_local {
+                self.admit_local_drawable_selected(object_id);
+            }
             // C++ Drawable::onSelected → contain->clientVisibleContainedFlashAsSelected.
             self.client_visible_contained_flash_as_selected(object_id);
         }
-
-        let any_local = player_ids
-            .iter()
-            .any(|&id| self.players.get(&id).map(|p| p.is_local).unwrap_or(false));
 
         for &pid in &player_ids {
             if let Some(player) = self.players.get_mut(&pid) {
@@ -147,6 +152,7 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.deselect();
         }
+        self.admit_local_drawable_deselected(id);
         for player in self.players.values_mut() {
             player.selected_objects.retain(|&x| x != id);
         }
@@ -167,7 +173,15 @@ impl GameLogic {
 
     /// Drain leftover `maskObject` deselect onto live player selection.
     pub fn drain_masked_object_selection(&mut self) {
-        for id in crate::game_logic::object::drain_mask_deselects() {
+        // Object-local mask changes already clear the drawable bit. Admit
+        // only this session's actual selection, never another world's TLS log.
+        let removed: Vec<_> = self
+            .selected_objects
+            .iter()
+            .copied()
+            .filter(|id| self.objects.get(id).is_none_or(|object| !object.selected))
+            .collect();
+        for id in removed {
             self.deselect_drawable(id);
         }
     }
@@ -437,12 +451,6 @@ impl GameLogic {
     #[inline]
     pub fn apply_post_writeback_complete_op(&mut self, op: PostWritebackCompleteOp) {
         match op {
-            PostWritebackCompleteOp::ConstructionCompletionsAfterReadyWriteback => {
-                self.host_apply_construction_completions_after_ready_writeback();
-            }
-            PostWritebackCompleteOp::SellCompletionsAfterReadyWriteback => {
-                self.host_apply_sell_completions_after_ready_writeback();
-            }
             PostWritebackCompleteOp::SpecialPowerReadyAfterWriteback => {
                 self.host_apply_special_power_ready_after_writeback();
             }
@@ -471,9 +479,7 @@ impl GameLogic {
             ReadyLogDrainOp::DeathType => self.host_apply_death_type_ready_completions(),
             ReadyLogDrainOp::RadarExtend => self.host_apply_radar_extend_ready_completions(),
             ReadyLogDrainOp::ShockStun => self.host_apply_shock_stun_ready_completions(),
-            ReadyLogDrainOp::ConstructionCompleteClear => {
-                self.host_apply_construction_complete_clear_ready_completions()
-            }
+
             ReadyLogDrainOp::SoleHealing => self.host_apply_sole_healing_ready_completions(),
             ReadyLogDrainOp::AiMood => self.host_apply_ai_mood_ready_completions(),
             ReadyLogDrainOp::Owner => self.host_apply_owner_ready_completions(),
@@ -1181,7 +1187,9 @@ impl GameLogic {
         id: ObjectId,
         f: impl FnOnce(&mut crate::game_logic::object::Object) -> R,
     ) -> Option<R> {
-        self.objects.get_mut(&id).map(f)
+        let result = self.objects.get_mut(&id).map(f);
+        self.admit_object_drawable_deselection(id);
+        result
     }
 
     /// Current ammo on the receiving world's canonical primary weapon.
@@ -1347,6 +1355,11 @@ impl GameLogic {
     pub fn host_objects_mut(
         &mut self,
     ) -> &mut std::collections::HashMap<ObjectId, crate::game_logic::object::Object> {
+        self.named_unit_history.extend(
+            self.objects
+                .values()
+                .filter_map(|object| (!object.name.is_empty()).then(|| object.name.clone())),
+        );
         self.objects.map_mut()
     }
 
@@ -1356,7 +1369,28 @@ impl GameLogic {
         &mut self,
         id: ObjectId,
     ) -> Option<&mut crate::game_logic::object::Object> {
+        if let Some(object) = self.objects.get(&id) {
+            if !object.name.is_empty() {
+                self.named_unit_history.insert(object.name.clone());
+            }
+        }
         self.objects.get_mut(&id)
+    }
+
+    pub(crate) fn set_host_object_name(&mut self, id: ObjectId, name: &str) -> bool {
+        if name.is_empty() {
+            return false;
+        }
+        let Some(object) = self.objects.get_mut(&id) else {
+            return false;
+        };
+        if !object.name.is_empty() {
+            self.named_unit_history.insert(object.name.clone());
+        }
+        self.named_unit_history.insert(name.to_owned());
+        object.name = name.to_owned();
+        object.record_host_identity();
+        true
     }
 
     /// Set an admitted object's immediate movement goal and record the change

@@ -652,10 +652,24 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_team_partial_use_command_button(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let percentage = self.get_real_param(action, 0)?;
         let team_name = self.get_string_param(action, 1)?;
         let command_button_name = self.get_string_param(action, 2)?;
+        let engine = self.context.borrowed_engine();
+        if let Some(result) = driver.team_partial_button(
+            &team_name,
+            &command_button_name,
+            percentage,
+            engine.get_calling_team_id(),
+            engine.get_condition_team_id(),
+        ) {
+            if let Err(error) = result {
+                log::warn!("Owned partial button failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         log::debug!(
             "Team '{}' partial use command '{}' at {}%",
             team_name,

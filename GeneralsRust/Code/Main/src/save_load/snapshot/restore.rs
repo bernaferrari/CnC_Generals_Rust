@@ -883,6 +883,7 @@ impl SnapshotBuilder {
                 is_observer: false,
                 did_preorder: false,
                 statistics,
+                academy_stats: game_engine::common::rts::academy_stats::AcademyStats::new(),
                 power_sabotaged_till_frame: 0,
                 color_rgb: (200, 200, 200),
                 color_night_rgb: (200, 200, 200),

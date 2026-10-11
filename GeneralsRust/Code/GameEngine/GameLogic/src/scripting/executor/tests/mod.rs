@@ -517,3 +517,204 @@ mod borrowed_engine_tests;
 mod public_dispatch_callback_tests;
 
 mod team_guard_driver_tests;
+
+mod borrowed_presentation_owner;
+
+/// Locally owned Core objects and polygon used by player-area fixtures.
+/// Never installs an object registry, trigger snapshot, player slot or test lock.
+struct OwnedAreaCensus {
+    objects: Vec<(String, crate::object::Object)>,
+    trigger: crate::polygon_trigger::PolygonTrigger,
+}
+impl OwnedAreaCensus {
+    fn new(objects: Vec<(String, crate::object::Object)>) -> Self {
+        Self {
+            objects,
+            trigger: crate::polygon_trigger::PolygonTrigger::new(
+                901,
+                "HoldZone".into(),
+                vec![
+                    crate::common::ICoord3D::new(0, 0, 0),
+                    crate::common::ICoord3D::new(20, 0, 0),
+                    crate::common::ICoord3D::new(20, 20, 0),
+                    crate::common::ICoord3D::new(0, 20, 0),
+                ],
+            ),
+        }
+    }
+}
+impl crate::scripting::engine::ScriptExecutionDriver for OwnedAreaCensus {
+    fn after_action(&mut self) -> GameLogicResult<()> {
+        Ok(())
+    }
+    fn object_count_changed_frame(&self) -> crate::scripting::engine::ScriptOwnerQuery<u32> {
+        crate::scripting::engine::ScriptOwnerQuery::Present(0)
+    }
+    fn player_area_value(
+        &self,
+        player: &str,
+        area: &str,
+        _: Option<&str>,
+        query: crate::scripting::engine::ScriptPlayerAreaQuery<'_>,
+    ) -> crate::scripting::engine::ScriptOwnerQuery<(i32, bool)> {
+        use crate::scripting::engine::{ScriptOwnerQuery, ScriptPlayerAreaQuery};
+        if area != "HoldZone" || !self.objects.iter().any(|(owner, _)| owner == player) {
+            return ScriptOwnerQuery::Missing;
+        }
+        let mut value = 0i32;
+        for (_, object) in self.objects.iter().filter(|(owner, _)| owner == player) {
+            let position = object.get_position();
+            if !self
+                .trigger
+                .point_in_trigger_int(&crate::common::ICoord3D::new(
+                    position.x as i32,
+                    position.y as i32,
+                    position.z as i32,
+                ))
+            {
+                continue;
+            }
+            let inert = object.is_kind_of(crate::common::KindOf::Inert);
+            let dead = object.is_effectively_dead();
+            let contribution = match &query {
+                ScriptPlayerAreaQuery::Templates(names) => {
+                    if (!dead && !inert || object.is_kind_of(crate::common::KindOf::Crate))
+                        && names.iter().any(|name| name == object.get_template_name())
+                    {
+                        1
+                    } else {
+                        0
+                    }
+                }
+                ScriptPlayerAreaQuery::Kind(kind) => {
+                    if !dead && !inert && object.is_kind_of(*kind) {
+                        1
+                    } else {
+                        0
+                    }
+                }
+                ScriptPlayerAreaQuery::Units => {
+                    if !dead && !inert && !object.is_kind_of(crate::common::KindOf::Projectile) {
+                        1
+                    } else {
+                        0
+                    }
+                }
+                ScriptPlayerAreaQuery::Value => {
+                    if !dead && !inert {
+                        object.get_template().get_build_cost()
+                    } else {
+                        0
+                    }
+                }
+            };
+            value = value.wrapping_add(contribution);
+        }
+        ScriptOwnerQuery::Present((value, false))
+    }
+}
+fn owned_area_unit(
+    id: u32,
+    owner: &str,
+    name: &str,
+    x: f32,
+    y: f32,
+    kinds: &[&str],
+) -> (String, crate::object::Object) {
+    let mut template = crate::common::DefaultThingTemplate::new(name.into());
+    for name in kinds {
+        if let Some(kind) = parse_kind_of(name) {
+            template.add_kind_of(kind);
+        }
+    }
+    let mut object = crate::object::Object::new_raw(
+        std::sync::Arc::new(template),
+        id,
+        crate::common::ObjectStatusMaskType::none(),
+        None,
+    );
+    let mut geometry = object.get_geometry_info().clone();
+    geometry.position = crate::common::Coord3D::new(x, y, 0.0);
+    object.set_geometry_info(geometry);
+    (owner.into(), object)
+}
+
+mod borrowed_selection_owner;
+
+mod borrowed_order_owner;
+
+#[derive(Default)]
+struct OwnedAiActions {
+    effects: Vec<(String, Vec<String>)>,
+}
+impl ScriptExecutionDriver for OwnedAiActions {
+    fn after_action(&mut self) -> GameLogicResult<()> {
+        Ok(())
+    }
+    fn ai_player(
+        &mut self,
+        request: crate::scripting::engine::ScriptAiPlayerRequest<'_>,
+    ) -> Option<GameLogicResult<()>> {
+        use crate::scripting::engine::ScriptAiPlayerRequest::*;
+        let effect = match request {
+            BuildSupplyCenter {
+                player,
+                building,
+                cash,
+            } => (
+                "supply".into(),
+                vec![player.into(), building.into(), cash.to_string()],
+            ),
+            BuildUpgrade { player, upgrade } => {
+                ("upgrade".into(), vec![player.into(), upgrade.into()])
+            }
+            BuildNearest {
+                player,
+                building,
+                team,
+                ..
+            } => (
+                "nearest".into(),
+                vec![player.into(), building.into(), team.into()],
+            ),
+            BaseDefense {
+                player,
+                structure,
+                flank,
+            } => (
+                "defense".into(),
+                vec![
+                    player.into(),
+                    structure.unwrap_or("").into(),
+                    flank.to_string(),
+                ],
+            ),
+            SetTeamDelay { player, seconds } => {
+                ("delay".into(), vec![player.into(), seconds.to_string()])
+            }
+            _ => return None,
+        };
+        self.effects.push(effect);
+        Some(Ok(()))
+    }
+    fn skirmish_approach_path(
+        &mut self,
+        team: &str,
+        path: &str,
+        as_team: bool,
+        follow: bool,
+        _: Option<u32>,
+        _: Option<u32>,
+    ) -> Option<GameLogicResult<()>> {
+        self.effects.push((
+            "approach".into(),
+            vec![
+                team.into(),
+                path.into(),
+                as_team.to_string(),
+                follow.to_string(),
+            ],
+        ));
+        Some(Ok(()))
+    }
+}

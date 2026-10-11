@@ -164,9 +164,6 @@ impl SnapshotBuilder {
                     &mut bytes, game_logic,
                 );
                 super::super::object_xfer_persist::append_to_lifecycle_tail(&mut bytes, game_logic);
-                super::super::ai_player_queue_persist::append_to_lifecycle_tail(
-                    &mut bytes, game_logic,
-                );
                 super::super::inferno_fire_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
                 );
@@ -191,8 +188,18 @@ impl SnapshotBuilder {
                     &mut bytes, game_logic,
                 );
 
+                super::super::named_unit_history_persist::append_to_lifecycle_tail(
+                    &mut bytes, game_logic,
+                );
+                super::super::ai_player_queue_persist::append_to_lifecycle_tail(
+                    &mut bytes, game_logic,
+                );
+
                 // Framed completion footer is last; its parser never scans
                 // arbitrary object/template payload bytes for a marker.
+                super::super::player_academy_persist::append_to_lifecycle_tail(
+                    &mut bytes, game_logic,
+                );
                 super::super::construction_completion_persist::append_to_lifecycle_tail(
                     &mut bytes, game_logic,
                 );
@@ -289,6 +296,7 @@ impl SnapshotBuilder {
         // Replacement starts a new runtime output identity. Detached production
         // candidates own this state, so rejection cannot consume live receipts.
         game_logic.movement_events.reset();
+        game_logic.construction_events.reset();
         game_logic.eva_announcements.reset();
         log::info!(
             "Restoring world from snapshot: {} objects, {} players",
@@ -554,6 +562,10 @@ impl SnapshotBuilder {
             &snapshot.lifecycle_tail,
             game_logic,
         )?;
+        super::super::player_academy_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
         super::super::construction_completion_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,
@@ -565,6 +577,10 @@ impl SnapshotBuilder {
         // OXOB's active Guard deadline must agree with the immutable nested
         // continuation; neither record may silently repair a conflicting save.
         super::super::guard_state_persist::validate_after_lifecycle_tail(snapshot, game_logic)?;
+        super::super::named_unit_history_persist::apply_from_lifecycle_tail(
+            &snapshot.lifecycle_tail,
+            game_logic,
+        )?;
         super::super::ai_player_queue_persist::apply_from_lifecycle_tail(
             &snapshot.lifecycle_tail,
             game_logic,
@@ -637,6 +653,9 @@ impl SnapshotBuilder {
         // Saved destinations and paths are canonical state, not fresh movement
         // cues. Discard only this receiver's transient restore observations.
         game_logic.movement_events.clear();
+        // Player's saved counts are canonical. Reconstruct only the derived
+        // lifecycle admission map before a resumed capture/delete can observe it.
+        game_logic.rebuild_host_radar_provider_admission();
         log::info!("World restoration complete");
         Ok(())
     }

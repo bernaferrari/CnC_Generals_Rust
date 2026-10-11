@@ -3662,3 +3662,7 @@ mod tests {
         witness_door_exit_callbacks(true, 93013, 93014);
     }
 }
+
+#[cfg(test)]
+#[path = "open_contain/overlord_admission_owner_tests.rs"]
+mod overlord_admission_owner_tests;

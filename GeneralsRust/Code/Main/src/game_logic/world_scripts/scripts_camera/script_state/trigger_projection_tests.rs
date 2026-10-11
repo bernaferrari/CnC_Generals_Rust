@@ -102,7 +102,7 @@ fn install_condition(world: &mut GameLogic, unit: &str, kind: ConditionType) {
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();
-    *get_script_engine().write().unwrap() = Some(engine);
+    world.install_owned_script_engine(engine);
     world.scripts_loaded = true;
 }
 
@@ -119,12 +119,15 @@ fn check_update(world: &mut GameLogic, unit: &str, kind: ConditionType, expected
         before + 1,
         "ordinary early script phase must run"
     );
-    let actual = with_script_engine_ref(|engine| {
-        engine
-            .get_flag("ProjectedCondition")
-            .is_some_and(|flag| flag.value)
-    })
-    .unwrap();
+    let actual = world
+        .owned_script_engine
+        .as_ref()
+        .map(|engine| {
+            engine
+                .get_flag("ProjectedCondition")
+                .is_some_and(|flag| flag.value)
+        })
+        .unwrap();
     assert_eq!(
         actual, expected,
         "authored native condition on driving Main owner"

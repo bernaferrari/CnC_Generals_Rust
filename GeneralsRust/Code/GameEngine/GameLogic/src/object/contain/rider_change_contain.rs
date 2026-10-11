@@ -79,8 +79,14 @@ impl Default for RiderChangeContainModuleData {
 
 impl RiderChangeContainModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        self.base.parse_from_ini(ini)?;
-        ini.init_from_ini_with_fields_allow_unknown(self, RIDER_CHANGE_FIELDS)
+        ini.init_from_ini_with_ancestor_fields(
+            self,
+            |data| &mut data.base,
+            |data| &mut data.base,
+            super::open_contain::OPEN_CONTAIN_FIELDS,
+            super::transport_contain::TRANSPORT_CONTAIN_FIELDS,
+            RIDER_CHANGE_FIELDS,
+        )
     }
 
     pub fn parse_from_config(&mut self, config: &str) -> Result<(), INIError> {
@@ -351,7 +357,7 @@ fn transfer_veterancy(from: &Arc<RwLock<Object>>, to: &Arc<RwLock<Object>>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::DefaultThingTemplate;
+    use crate::common::{DefaultThingTemplate, KindOf};
     use crate::messages::{
         MSG_CREATE_SELECTED_GROUP, MSG_REMOVE_FROM_SELECTED_GROUP, MessageArgument, drain_messages,
     };
@@ -361,6 +367,65 @@ mod tests {
     use crate::team::Team;
     use game_engine::common::system::{XferBlockSize, XferMode, XferStatus};
     use std::io;
+
+    #[test]
+    fn authored_rider_block_reads_all_inherited_fields_once() {
+        let mut first = RiderChangeContainModuleData::default();
+        let mut next = RiderChangeContainModuleData::default();
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "AllowInsideKindOf = INFANTRY\nSlots = 3\nRider1 = BorrowedBikeRider RIDER1 WEAPON_RIDER1 STATUS_RIDER1 RiderCommands SET_NORMAL\nEnd\nSlots = 7\nEnd",
+            |ini| {
+                first.parse_from_ini(ini)?;
+                next.parse_from_ini(ini)
+            },
+        ).unwrap();
+        assert_eq!(
+            first.base.base.allow_inside_kind_of,
+            KindOf::Infantry.cpp_mask()
+        );
+        assert_eq!(first.base.slot_capacity, 3);
+        assert_eq!(first.riders[0].template_name, "BorrowedBikeRider");
+        assert_eq!(first.riders[0].command_set.as_str(), "RiderCommands");
+        assert_eq!(
+            next.base.slot_capacity, 7,
+            "derived parse must stop at its own End"
+        );
+        assert!(next.riders[0].template_name.is_empty());
+    }
+
+    #[test]
+    fn borrowed_rider_admission_preserves_scuttle_and_replacement_gates() {
+        let mut template = DefaultThingTemplate::new("BorrowedBikeRider".into());
+        template.add_kind_of(KindOf::Infantry);
+        template.parse_object_fields_from_ini(&HashMap::from([(
+            "TransportSlotCount".into(),
+            "1".into(),
+        )]));
+        let rider = Object::new_raw(Arc::new(template), 9790, ObjectStatusMaskType::NONE, None);
+        let owner = Object::new_raw(
+            Arc::new(DefaultThingTemplate::new("BorrowedBike".into())),
+            9791,
+            ObjectStatusMaskType::NONE,
+            None,
+        );
+        let mut data = RiderChangeContainModuleData::default();
+        data.riders[0].template_name = "BorrowedBikeRider".into();
+        let mut contain = RiderChangeContain::new(Weak::new(), &data).unwrap();
+        assert!(ContainModuleInterface::is_valid_container_for_with_owner(
+            &contain, &rider, &owner, true
+        ));
+        contain.scuttled_on_frame = 1;
+        assert!(!ContainModuleInterface::is_valid_container_for_with_owner(
+            &contain, &rider, &owner, false
+        ));
+        contain.scuttled_on_frame = 0;
+        data.riders[0].template_name = "DifferentRider".into();
+        contain.module_data = data;
+        assert!(!ContainModuleInterface::is_valid_container_for_with_owner(
+            &contain, &rider, &owner, false
+        ));
+    }
 
     struct RecordingXfer {
         bytes: Vec<u8>,
@@ -1062,8 +1127,7 @@ mod tests {
         );
         let mut rider_tracker = Box::new(crate::common::ExperienceTracker::new(97021));
         let mut bike_tracker = Box::new(crate::common::ExperienceTracker::new(97022));
-        rider_tracker
-            .set_veterancy_level(crate::common::VeterancyLevel::Veteran);
+        rider_tracker.set_veterancy_level(crate::common::VeterancyLevel::Veteran);
         rider.write().expect("rider write").experience_tracker = Some(rider_tracker);
         bike.write().expect("bike write").experience_tracker = Some(bike_tracker);
 
@@ -1085,7 +1149,8 @@ mod tests {
         // Rider resets to Regular via setExperienceAndLevel(0, FALSE) — side
         // effects clear the Veteran weapon-set flag on demotion too.
         assert_eq!(
-            rider.read()
+            rider
+                .read()
                 .expect("rider read")
                 .with_experience_tracker(|t| t.get_veterancy_level()),
             Some(crate::common::VeterancyLevel::Regular)
@@ -1107,8 +1172,7 @@ mod tests {
         reset_players();
         let object = owned_object("NontrainableExperienceReset", 97023, 0);
         let mut tracker = Box::new(crate::common::ExperienceTracker::new(97023));
-        tracker
-            .set_veterancy_level(crate::common::VeterancyLevel::Veteran);
+        tracker.set_veterancy_level(crate::common::VeterancyLevel::Veteran);
         object.write().expect("object write").experience_tracker = Some(tracker);
 
         assert!(
@@ -1118,7 +1182,10 @@ mod tests {
                 .set_experience_and_level_with_side_effects(0, false)
         );
         assert_eq!(
-            object.read().expect("object read").with_experience_tracker(|t| t.get_veterancy_level()),
+            object
+                .read()
+                .expect("object read")
+                .with_experience_tracker(|t| t.get_veterancy_level()),
             Some(crate::common::VeterancyLevel::Veteran),
             "CPP setExperienceAndLevel returns without mutation when IsTrainable is false"
         );
@@ -1154,7 +1221,10 @@ mod tests {
                 .set_experience_and_level_with_side_effects(0, false)
         );
         assert_eq!(
-            target.read().expect("target read").with_experience_tracker(|t| t.get_veterancy_level()),
+            target
+                .read()
+                .expect("target read")
+                .with_experience_tracker(|t| t.get_veterancy_level()),
             Some(crate::common::VeterancyLevel::Regular),
             "CPP forwards the reset to the sink Object and applies its level change"
         );
@@ -1166,7 +1236,10 @@ mod tests {
             "sink Object receives onVeterancyLevelChanged on demotion"
         );
         assert_eq!(
-            source.read().expect("source read").with_experience_tracker(|t| t.get_veterancy_level()),
+            source
+                .read()
+                .expect("source read")
+                .with_experience_tracker(|t| t.get_veterancy_level()),
             Some(crate::common::VeterancyLevel::Regular),
             "the forwarding source tracker is not mutated"
         );
@@ -1199,7 +1272,10 @@ mod tests {
                 .set_experience_and_level_with_side_effects(0, false)
         );
         assert_eq!(
-            source.read().expect("source read").with_experience_tracker(|t| t.get_veterancy_level()),
+            source
+                .read()
+                .expect("source read")
+                .with_experience_tracker(|t| t.get_veterancy_level()),
             Some(crate::common::VeterancyLevel::Regular),
             "CPP falls through to local reset when the sink object no longer exists"
         );
@@ -1275,6 +1351,10 @@ impl RiderChangeContain {
             return false;
         }
 
+        self.matches_available_rider(rider)
+    }
+
+    fn matches_available_rider(&self, rider: &Object) -> bool {
         if self.scuttled_on_frame != 0 {
             return false;
         }
@@ -1304,7 +1384,8 @@ impl RiderChangeContain {
             return Ok(());
         }
 
-        let rider = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
+        let rider = crate::object::registry::OBJECT_REGISTRY
+            .get_object(rider_id)
             .ok_or("Rider object not found")?;
 
         let Ok(rider_guard) = rider.try_read() else {
@@ -1356,8 +1437,7 @@ impl RiderChangeContain {
             return Ok(());
         }
 
-        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
-        else {
+        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) else {
             return Ok(());
         };
 
@@ -1432,8 +1512,7 @@ impl RiderChangeContain {
             return Ok(());
         }
 
-        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1585,8 +1664,7 @@ impl RiderChangeContain {
             return;
         }
 
-        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
-        else {
+        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) else {
             return;
         };
         let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
@@ -1658,8 +1736,7 @@ impl RiderChangeContain {
             return false;
         }
 
-        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
-        else {
+        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) else {
             return false;
         };
         let owner_has_drawable = (if self.object_id == crate::common::INVALID_ID {
@@ -1683,8 +1760,7 @@ impl RiderChangeContain {
             return Ok(());
         }
 
-        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1878,7 +1954,7 @@ impl ContainModuleInterface for RiderChangeContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
             return self.is_valid_container_for(&*obj_guard, true);
-            });
+        });
         false
     }
 
@@ -1969,8 +2045,7 @@ impl ContainModuleInterface for RiderChangeContain {
         if !self.base.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
-        else {
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
             return Ok(());
         };
         let valid = other
@@ -1985,6 +2060,17 @@ impl ContainModuleInterface for RiderChangeContain {
 
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
         RiderChangeContain::is_valid_container_for(self, obj, check_capacity)
+    }
+
+    fn is_valid_container_for_with_owner(
+        &self,
+        obj: &Object,
+        owner: &Object,
+        _check_capacity: bool,
+    ) -> bool {
+        // CPP137 deliberately ignores capacity because entry replaces the rider.
+        ContainModuleInterface::is_valid_container_for_with_owner(&self.base, obj, owner, false)
+            && self.matches_available_rider(obj)
     }
 
     fn add_to_contain(

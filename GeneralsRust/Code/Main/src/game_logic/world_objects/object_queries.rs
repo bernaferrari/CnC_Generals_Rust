@@ -1005,6 +1005,15 @@ impl GameLogic {
         unit_id: ObjectId,
         target_id: ObjectId,
     ) -> Option<usize> {
+        let raw_target = target_id;
+        let target_id = self.redirected_containment_owner(target_id);
+        if raw_target == target_id
+            && self
+                .host_object(raw_target)
+                .is_some_and(|object| object.is_overlord_style_container())
+        {
+            return None;
+        }
         if unit_id == target_id {
             return None;
         }
@@ -1145,6 +1154,25 @@ impl GameLogic {
     /// handled by the specialized executor path before this generic container
     /// check.  Dock uses a different command path entirely.
     pub fn can_unit_enter_normal_target(&self, unit_id: ObjectId, target_id: ObjectId) -> bool {
+        self.can_unit_enter_target_with_capacity(unit_id, target_id, true, false)
+    }
+
+    /// SCRIPT privateEnter asks DONT_CHECK_CAPACITY and bypasses display shroud.
+    pub(crate) fn can_unit_enter_script_target(
+        &self,
+        unit_id: ObjectId,
+        target_id: ObjectId,
+    ) -> bool {
+        self.can_unit_enter_target_with_capacity(unit_id, target_id, false, true)
+    }
+
+    fn can_unit_enter_target_with_capacity(
+        &self,
+        unit_id: ObjectId,
+        target_id: ObjectId,
+        check_capacity: bool,
+        from_script: bool,
+    ) -> bool {
         if unit_id == target_id {
             return false;
         }
@@ -1156,9 +1184,35 @@ impl GameLogic {
         };
 
         // C++ ActionManager.cpp:519-521 — leftover can_enter_object.
-        if self.is_object_shrouded_for_action(unit, target) {
+        if !from_script && self.is_object_shrouded_for_action(unit, target) {
             return false;
         }
+
+        // Admission still observes the requested outer object. Redirection
+        // changes the contain interface, not the ActionManager target gates.
+        if !target.is_alive()
+            || target.status.under_construction
+            || target.status.sold
+            || target.is_subdued_disabled()
+            || target.status.effectively_dead
+        {
+            return false;
+        }
+        let raw_target = target_id;
+        let target_id = self.redirected_containment_owner(target_id);
+        if raw_target == target_id
+            && self
+                .host_object(raw_target)
+                .is_some_and(|object| object.is_overlord_style_container())
+        {
+            return false;
+        }
+        if unit_id == target_id {
+            return false;
+        }
+        let Some(target) = self.host_object(target_id) else {
+            return false;
+        };
 
         // C++ GarrisonContain::isValidContainerFor — health <= 0 or
         // BODY_REALLYDAMAGED unless KINDOF_GARRISONABLE_UNTIL_DESTROYED.
@@ -1177,7 +1231,10 @@ impl GameLogic {
             || target.is_kind_of(KindOf::IgnoredInGui)
             || unit.is_kind_of(KindOf::Structure)
             || unit.is_kind_of(KindOf::Immobile)
-            || unit.transport_slot_count() == 0
+            || ((check_capacity || target.normal_enter_uses_transport_slots())
+                && unit.transport_slot_count() == 0)
+            || unit.is_kind_of(KindOf::MobNexus)
+            || target.status.effectively_dead
             || !target.can_contain()
             || !target.supports_normal_enter()
         {
@@ -1293,7 +1350,7 @@ impl GameLogic {
                 return false;
             }
         }
-        if skip_capacity_for_stealth_garrison {
+        if !check_capacity || skip_capacity_for_stealth_garrison {
             return true;
         }
 
@@ -1375,6 +1432,7 @@ impl GameLogic {
         self.visual_world_epoch = self.visual_world_epoch.wrapping_add(1).max(1);
         self.finish_all_building_sounds();
         self.objects.clear();
+        self.named_unit_history.clear();
         // Playback/retry deadlines are transient; restored IDs start fresh.
         self.ambient_sound_retries.clear();
         self.next_object_id = ObjectId(1);
@@ -1737,12 +1795,18 @@ impl GameLogic {
     /// Wave 242: extend selection without exposing `&mut Player`.
     #[inline]
     pub fn player_extend_selection(&mut self, id: u32, units: &[ObjectId]) {
-        let Some(p) = self.players.get_mut(&id) else {
+        let Some(player) = self.players.get_mut(&id) else {
             return;
         };
+        let local = player.is_local;
         for unit in units {
-            if !p.selected_objects.contains(unit) {
-                p.selected_objects.push(*unit);
+            if !player.selected_objects.contains(unit) {
+                player.selected_objects.push(*unit);
+            }
+        }
+        if local {
+            for &unit in units {
+                self.admit_local_drawable_selected(unit);
             }
         }
     }
@@ -2942,8 +3006,14 @@ impl GameLogic {
                         }
                     }
                     // Immediate remove — same spirit as C++ destroy-before-create.
+                    self.remove_host_radar_provider(object_id);
                     self.host_radar_remove_object(object_id);
                     self.finish_building_sound(object_id);
+                    if let Some(object) = self.objects.get(&object_id) {
+                        if !object.name.is_empty() {
+                            self.named_unit_history.insert(object.name.clone());
+                        }
+                    }
                     let _removed = self.objects.remove(&object_id);
                     if let Some(new_id) = self.create_object(&replacement, team, pos) {
                         if let Some(obj) = self.objects.get_mut(&new_id) {
@@ -2956,9 +3026,14 @@ impl GameLogic {
                 }
             }
         }
+        self.admit_host_radar_provider(object_id);
         // C++ RadarUpgrade::upgradeImplementation → RadarUpdate::extendRadar.
-        if crate::game_logic::host_upgrades::HostUpgradeKind::from_name(upgrade)
-            == crate::game_logic::host_upgrades::HostUpgradeKind::Radar
+        if self
+            .objects
+            .get(&object_id)
+            .is_some_and(|object| object.thing().template.radar_upgrade_rules.is_none())
+            && crate::game_logic::host_upgrades::HostUpgradeKind::from_name(upgrade)
+                == crate::game_logic::host_upgrades::HostUpgradeKind::Radar
         {
             self.maybe_start_radar_extend(object_id);
         }

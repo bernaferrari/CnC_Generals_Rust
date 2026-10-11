@@ -1231,6 +1231,7 @@ impl XferData for AIState {
             AIState::FacingObject => 21,
             AIState::FacingPosition => 22,
             AIState::Panic => 23,
+            AIState::Exiting => 24,
         };
         xfer.xfer_u32(&mut value)?;
         *self = match value {
@@ -1258,6 +1259,7 @@ impl XferData for AIState {
             21 => AIState::FacingObject,
             22 => AIState::FacingPosition,
             23 => AIState::Panic,
+            24 => AIState::Exiting,
             other => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid AIState value in object snapshot: {}",

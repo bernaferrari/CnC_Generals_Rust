@@ -8,18 +8,6 @@ use gamelogic::scripting::core::{
 };
 use gamelogic::scripting::engine::{ScriptEngine, SequentialScript, get_script_engine};
 use gamelogic::system::map_loader::{MapData, MapWaypoint};
-use gamelogic::terrain::TerrainLogic;
-
-struct TerrainRestore(Option<TerrainLogic>);
-
-impl Drop for TerrainRestore {
-    fn drop(&mut self) {
-        if let Some(previous) = self.0.take() {
-            *gamelogic::terrain::get_terrain_logic().write().unwrap() = previous;
-        }
-    }
-}
-
 fn set_flag(name: &str) -> Box<ScriptAction> {
     let mut action = ScriptAction::new(ScriptActionType::SetFlag);
     action
@@ -31,11 +19,13 @@ fn set_flag(name: &str) -> Box<ScriptAction> {
     Box::new(action)
 }
 
-fn flag(name: &str) -> bool {
-    gamelogic::scripting::engine::with_script_engine_ref(|engine| {
-        engine.get_flag(name).is_some_and(|flag| flag.value)
-    })
-    .unwrap()
+fn flag(world: &GameLogic, name: &str) -> bool {
+    world
+        .owned_script_engine
+        .as_ref()
+        .unwrap()
+        .get_flag(name)
+        .is_some_and(|flag| flag.value)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -114,14 +104,13 @@ fn normal_runtime_sequential_actor_move_pauses_and_idle_resumes_same_tick() {
                 path_label3: String::new(),
                 bi_directional: false,
             });
-            let mut terrain = TerrainLogic::new();
-            terrain.load_map_data(map);
-            let _terrain = TerrainRestore(Some(std::mem::replace(
-                &mut *gamelogic::terrain::get_terrain_logic().write().unwrap(),
-                terrain,
-            )));
-
             let mut world = GameLogic::new();
+            world
+                .world_services
+                .terrain()
+                .write()
+                .unwrap()
+                .load_map_data(map);
             world.add_player(Player::new(0, Team::USA, "SeqPlayer", true));
             let mut template = ThingTemplate::new("SequentialInfantry");
             template.add_kind_of(KindOf::Infantry).set_health(80.0);
@@ -166,11 +155,11 @@ fn normal_runtime_sequential_actor_move_pauses_and_idle_resumes_same_tick() {
                 world.mission_scripts.clone(),
             ))));
             engine.append_sequential_script(sequence);
-            *get_script_engine().write().unwrap() = Some(engine);
+            world.install_owned_script_engine(engine);
             world.scripts_loaded = true;
 
             world.evaluate_and_execute_scripts(0.0);
-            assert!(flag("SeqBefore"));
+            assert!(flag(&world, "SeqBefore"));
             assert_eq!(
                 world.host_object(actor).unwrap().ai_state,
                 AIState::Moving,
@@ -181,13 +170,12 @@ fn normal_runtime_sequential_actor_move_pauses_and_idle_resumes_same_tick() {
                 Some(glam::Vec3::new(60.0, 0.0, 0.0))
             );
             assert!(
-                !flag("SeqAfter"),
+                !flag(&world, "SeqAfter"),
                 "MOVE must pause the chain using live post-action idle"
             );
             assert_eq!(
-                get_script_engine()
-                    .read()
-                    .unwrap()
+                world
+                    .owned_script_engine
                     .as_ref()
                     .unwrap()
                     .snapshot_sequential_scripts()
@@ -196,20 +184,19 @@ fn normal_runtime_sequential_actor_move_pauses_and_idle_resumes_same_tick() {
             );
 
             world.evaluate_and_execute_scripts(0.0);
-            assert!(!flag("SeqAfter"), "moving actor stays paused");
+            assert!(!flag(&world, "SeqAfter"), "moving actor stays paused");
             assert!(world.unit_command_stop(actor));
             assert_eq!(world.host_object(actor).unwrap().ai_state, AIState::Idle);
             let frame = world.frame;
             world.evaluate_and_execute_scripts(0.0);
             assert_eq!(world.frame, frame);
             assert!(
-                flag("SeqAfter"),
+                flag(&world, "SeqAfter"),
                 "actual idle resumes SET_FLAG in the same tick"
             );
             assert_eq!(
-                get_script_engine()
-                    .read()
-                    .unwrap()
+                world
+                    .owned_script_engine
                     .as_ref()
                     .unwrap()
                     .snapshot_sequential_scripts()

@@ -1020,11 +1020,12 @@ impl CnCGameEngine {
     pub(in crate::cnc_game_engine) fn lookat_input_enabled(&self) -> bool {
         #[cfg(feature = "game_client")]
         {
-            game_client::helpers::TheInGameUI::get_input_enabled()
+            self.game_logic.script_input_enabled()
+                && game_client::helpers::TheInGameUI::get_input_enabled()
         }
         #[cfg(not(feature = "game_client"))]
         {
-            true
+            self.game_logic.script_input_enabled()
         }
     }
 

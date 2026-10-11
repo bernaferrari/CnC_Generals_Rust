@@ -1,20 +1,10 @@
 use std::sync::Arc;
 
 use crate::common::{Bool, LegacyModuleData, ObjectID, UpgradeMaskType};
-use crate::modules::UpgradeModuleInterface;
-use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::upgrade::upgrade_module::{
-    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
-};
+use crate::object::upgrade::upgrade_module::{UpgradeMuxData, mux_can_upgrade};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, RadarUpgradeConfig};
-
-/// Wave 448: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
 
 /// Module data describing the radar upgrade.
 #[derive(Debug, Clone)]
@@ -120,7 +110,6 @@ impl Snapshotable for RadarUpgradeModuleData {
 pub struct RadarUpgrade {
     module_name_key: NameKeyType,
     data: Arc<RadarUpgradeModuleData>,
-    object_id: ObjectID,
     applied: bool,
 }
 
@@ -128,12 +117,11 @@ impl RadarUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
         data: Arc<RadarUpgradeModuleData>,
-        object_id: ObjectID,
+        _object_id: ObjectID,
     ) -> Self {
         Self {
             module_name_key,
             data,
-            object_id,
             applied: false,
         }
     }
@@ -162,33 +150,24 @@ impl RadarUpgrade {
         ))
     }
 
-    fn apply_radar_upgrade(&mut self) -> Result<(), String> {
-        // Wave 448: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
+    pub(crate) fn prepare_upgrade(
+        &self,
+        mask: UpgradeMaskType,
+    ) -> Option<Arc<RadarUpgradeModuleData>> {
+        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, mask)
+            .then(|| Arc::clone(&self.data))
+    }
 
-        let disable_proof = self.data.is_disable_proof();
-        let object_id = self.object_id;
-        match OBJECT_REGISTRY.with_object_mut(self.object_id, |object_guard| {
-            object_guard.with_controlling_player_mut(|player_guard| {
-                player_guard.add_radar(disable_proof);
-            });
+    pub(crate) fn finish_upgrade(&mut self) {
+        self.applied = true;
+    }
 
-            if let Some(radar_module) = object_guard.find_update_module("RadarUpdate") {
-                radar_module.with_module(|module| {
-                    if let Some(radar_update) = module.get_radar_update_interface() {
-                        radar_update.extend_radar();
-                    }
-                });
-            }
-        }) {
-            Some(()) => Ok(()),
-            None => Err(format!(
-                "RadarUpgrade could not find object {} in registry",
-                object_id
-            )),
-        }
+    pub(crate) fn enabled_applied_radar_proof(&self, disabled: bool) -> Option<bool> {
+        (self.applied && !disabled).then(|| self.data.is_disable_proof())
+    }
+
+    pub(crate) fn set_applied_owned(&mut self, applied: bool) {
+        self.applied = applied;
     }
 
     // Removing the upgrade does nothing; cleanup happens on delete/capture.
@@ -234,25 +213,12 @@ impl Snapshotable for RadarUpgrade {
     }
 }
 
-impl UpgradeModuleInterface for RadarUpgrade {
-    fn can_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
+impl RadarUpgrade {
+    pub(crate) fn can_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
         mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
     }
 
-    fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
-        if self.applied {
-            return false;
-        }
-        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
-        if self.apply_radar_upgrade().is_ok() {
-            self.applied = true;
-            true
-        } else {
-            false
-        }
-    }
-
-    fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
+    pub(crate) fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
         // C++ doesn't remove radar; resetUpgrade only clears executed.
         let _ = crate::object::upgrade::upgrade_module::mux_reset_upgrade(
             &self.data.upgrade_mux_data,
@@ -261,7 +227,7 @@ impl UpgradeModuleInterface for RadarUpgrade {
         );
     }
 
-    fn on_delete(&mut self, object: &mut crate::object::Object) {
+    pub(crate) fn on_delete(&mut self, object: &mut crate::object::Object) {
         if !self.applied || object.is_disabled() {
             return;
         }
@@ -273,7 +239,7 @@ impl UpgradeModuleInterface for RadarUpgrade {
         self.applied = false;
     }
 
-    fn on_capture(
+    pub(crate) fn on_capture(
         &mut self,
         object: &mut crate::object::Object,
         old_owner: Option<&Arc<std::sync::RwLock<crate::player::Player>>>,
@@ -345,7 +311,6 @@ mod tests {
             RadarUpgrade::from_module_data(0xBEEF, Arc::new(data), 42).expect("radar config");
 
         assert_eq!(module.module_name_key, 0xBEEF);
-        assert_eq!(module.object_id, 42);
         assert!(module.is_disable_proof());
         assert_eq!(module.get_module_tag_name_key(), 0xCAFE);
     }

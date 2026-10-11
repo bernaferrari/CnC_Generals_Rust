@@ -38,6 +38,7 @@ impl super::super::GameLogic {
                     us.ai_state = AIState::Garrisoned;
                     us.status.moving = false;
                 }
+                self.admit_object_drawable_deselection(self_id);
             }
         }
         if crate_other {

@@ -42,9 +42,16 @@ fn release_destroy_container(owner: &mut DeleteOwner<'_>) {
 }
 
 fn notify_deleted_module(module: &mut dyn engine_module::Module, owner: &mut DeleteOwner<'_>) {
-    if let Some(upgrade) = super::module_upgrade_kind(module).and_then(|kind| kind.into_interface())
-    {
-        owner.with_mut(|object| upgrade.on_delete(object));
+    match super::module_upgrade_kind(module) {
+        Some(super::UpgradeModuleKindMut::Radar(upgrade)) => {
+            owner.with_mut(|object| upgrade.on_delete(object));
+        }
+        Some(kind) => {
+            if let Some(upgrade) = kind.into_interface() {
+                owner.with_mut(|object| upgrade.on_delete(object));
+            }
+        }
+        None => {}
     }
     if let Some(battle_plan) = module
         .as_any_mut()
@@ -100,12 +107,7 @@ impl Object {
         // set_team runs on the still-unshared object: registration below is
         // what publishes the id, so the previous uniquely-owned write guard
         // spelled a lock that protected nothing.
-        let mut obj = Self::new_raw(
-            thing_template.clone(),
-            object_id,
-            object_status_mask,
-            team.clone(),
-        );
+        let mut obj = Self::new_raw(thing_template.clone(), object_id, object_status_mask, None);
         obj.set_team(team)?;
 
         // THREAD: register_object below publishes this handle by id through
@@ -138,6 +140,11 @@ impl Object {
         object_status_mask: ObjectStatusMaskType,
         team: Option<Arc<RwLock<Team>>>,
     ) -> Self {
+        // Detached construction retains the explicit identity without admitting
+        // membership, publishing an object, or running team transfer callbacks.
+        let team_id = team
+            .as_ref()
+            .and_then(|team| team.read().ok().map(|team| team.get_id()));
         Self {
             id: object_id,
             producer_id: INVALID_ID,
@@ -248,8 +255,8 @@ impl Object {
             health_box_offset: Coord3D::new(0.0, 0.0, 0.0),
             i_pos: ICoord3D::ZERO,
 
-            team_id: None,
-            team_pin: None,
+            team_id,
+            team_pin: team,
             original_team_name: AsciiString::new(),
             indicator_color: Color::default(),
 
@@ -442,6 +449,16 @@ impl Object {
     /// GameLogic owns this canonical handle. Preserve C++ synchronous onDelete
     /// order while allowing each callback to borrow the still-admitted owner.
     pub(crate) fn on_destroy_from_handle(handle: &Arc<RwLock<Object>>) {
+        Self::on_destroy_from_handle_with_radar_services(handle, None);
+    }
+
+    pub(crate) fn on_destroy_from_handle_with_radar_services(
+        handle: &Arc<RwLock<Object>>,
+        mut radar: Option<(
+            &crate::player::PlayerList,
+            &mut dyn crate::player::RadarEdgeServices,
+        )>,
+    ) {
         {
             let Ok(mut object) = handle.write() else {
                 return;
@@ -458,6 +475,44 @@ impl Object {
             return;
         };
         for entry in modules {
+            if let Some((players, radar)) = radar.as_mut() {
+                let disabled = owner
+                    .with_mut(|object| object.is_disabled())
+                    .unwrap_or(true);
+                let prepared = entry.with_module(|module| {
+                    super::module_upgrade_kind(module).and_then(|kind| match kind {
+                        super::UpgradeModuleKindMut::Radar(upgrade) => {
+                            Some(upgrade.enabled_applied_radar_proof(disabled))
+                        }
+                        _ => None,
+                    })
+                });
+                if let Some(proof) = prepared {
+                    if let Some(proof) = proof {
+                        let controller = owner
+                            .with_mut(|object| object.get_controlling_player_id())
+                            .flatten();
+                        if let Some(player) =
+                            controller.and_then(|id| players.get_player(id as PlayerIndex))
+                        {
+                            player
+                                .write()
+                                .expect("deleted radar owner poisoned")
+                                .remove_radar_owned(proof, &mut **radar);
+                        }
+                        // CPP commits executed=false even when there is no player.
+                        entry.with_module(|module| {
+                            if let Some(super::UpgradeModuleKindMut::Radar(upgrade)) =
+                                super::module_upgrade_kind(module)
+                            {
+                                upgrade.set_applied_owned(false);
+                            }
+                        });
+                    }
+                    // RadarUpgrade has no extra Module::onDelete body.
+                    continue;
+                }
+            }
             entry.with_module(|module| notify_deleted_module(module, &mut owner));
         }
         owner.with_mut(|object| object.handle_partition_cell_maintenance());
@@ -674,6 +729,11 @@ impl Object {
 
     // Team management
     pub fn get_team(&self) -> Option<Arc<RwLock<Team>>> {
+        // An admitted team is an identity, not a request to find another
+        // session's team with the same serialized id.
+        if let Some(team) = &self.team_pin {
+            return Some(Arc::clone(team));
+        }
         if let Some(id) = self.team_id {
             if let Ok(factory) = crate::team::get_team_factory().lock() {
                 if let Some(team) = factory.find_team_by_id(id) {
@@ -821,8 +881,71 @@ impl Object {
         team: Option<Arc<RwLock<Team>>>,
         restoring: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.set_or_restore_team_with_radar_services(team, restoring, None, None)
+    }
+
+    pub fn set_team_with_player_list_and_radar(
+        &mut self,
+        team: Option<Arc<RwLock<Team>>>,
+        players: &crate::player::PlayerList,
+        radar: &mut dyn crate::player::RadarEdgeServices,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let resolved = if let Some(team) = team {
+            let inactive = team
+                .read()
+                .ok()
+                .and_then(|team| team.get_controlling_player_id())
+                .and_then(|id| players.get_player(id as PlayerIndex))
+                .is_some_and(|player| {
+                    !player
+                        .read()
+                        .expect("capture player poisoned")
+                        .is_player_active()
+                });
+            if inactive {
+                players.get_neutral_player().and_then(|player| {
+                    player
+                        .read()
+                        .ok()
+                        .and_then(|player| player.get_default_team())
+                })
+            } else {
+                Some(team)
+            }
+        } else {
+            None
+        };
+        self.set_or_restore_team_with_radar_services(
+            resolved.clone(),
+            false,
+            Some(players),
+            Some(radar),
+        )?;
+        self.original_team_name = resolved
+            .as_ref()
+            .and_then(|team| team.read().ok().map(|team| team.get_name().clone()))
+            .unwrap_or_else(AsciiString::new);
+        Ok(())
+    }
+
+    fn set_or_restore_team_with_radar_services(
+        &mut self,
+        team: Option<Arc<RwLock<Team>>>,
+        restoring: bool,
+        players: Option<&crate::player::PlayerList>,
+        radar: Option<&mut dyn crate::player::RadarEdgeServices>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let old_team = self.get_team();
         let old_team_id = self.get_team_id();
+        // CPP Object.cpp:830 compares pointer identity, not serialized IDs.
+        let same_team = match (&old_team, &team) {
+            (Some(old), Some(new)) => Arc::ptr_eq(old, new),
+            (None, None) => true,
+            _ => false,
+        };
+        if same_team {
+            return Ok(());
+        }
 
         let old_player_id = old_team
             .as_ref()
@@ -833,41 +956,25 @@ impl Object {
             .and_then(|team_ref| team_ref.read().ok())
             .and_then(|team_guard| team_guard.get_controlling_player_id());
         if old_player_id != incoming_player_id {
-            self.adjust_power_for_player(false);
+            if let Some(players) = players {
+                self.adjust_power_for_supplied_player(
+                    false,
+                    old_player_id.and_then(|id| players.get_player(id as PlayerIndex)),
+                );
+            } else {
+                self.adjust_power_for_player(false);
+            }
         }
 
-        // Store ID when factory-resolvable; keep pin only as unregistered fallback.
-        match &team {
-            Some(team_ref) => {
-                let id = team_ref.read().ok().map(|g| g.get_id());
-                self.team_id = id;
-                let factory_has = id
-                    .and_then(|tid| {
-                        crate::team::get_team_factory()
-                            .lock()
-                            .ok()
-                            .and_then(|f| f.find_team_by_id(tid))
-                    })
-                    .is_some();
-                self.team_pin = if factory_has {
-                    None
-                } else {
-                    Some(Arc::clone(team_ref))
-                };
-            }
-            None => {
-                self.team_id = None;
-                self.team_pin = None;
-            }
-        }
+        // Keep the exact admitted team. ID-only restored objects may resolve
+        // through their restore boundary until they are explicitly rebound.
+        self.team_id = team
+            .as_ref()
+            .and_then(|team| team.read().ok().map(|team| team.get_id()));
+        self.team_pin = team;
 
         let new_team = self.get_team();
         let new_team_id = self.get_team_id();
-
-        // C++ parity: Object::setOrRestoreTeam() is a no-op if team hasn't changed.
-        if old_team_id == new_team_id {
-            return Ok(());
-        }
 
         let new_player_id = new_team
             .as_ref()
@@ -875,31 +982,42 @@ impl Object {
             .and_then(|team_guard| team_guard.get_controlling_player_id());
 
         if old_player_id != new_player_id {
-            let Ok(list_guard) = player_list().read() else {
-                return Ok(());
+            let (old_player, new_player) = if let Some(players) = players {
+                (
+                    old_player_id.and_then(|id| players.get_player(id as PlayerIndex).cloned()),
+                    new_player_id.and_then(|id| players.get_player(id as PlayerIndex).cloned()),
+                )
+            } else {
+                let Ok(players) = player_list().read() else {
+                    return Ok(());
+                };
+                (
+                    old_player_id.and_then(|id| players.get_player(id as PlayerIndex).cloned()),
+                    new_player_id.and_then(|id| players.get_player(id as PlayerIndex).cloned()),
+                )
             };
-            if let Some(old_id) = old_player_id {
-                if let Some(player_arc) = list_guard.get_player(old_id as PlayerIndex).cloned() {
-                    if let Ok(mut player_guard) = player_arc.write() {
-                        if self.modules_ready && player_guard.get_num_battle_plans_active() > 0 {
-                            player_guard.remove_battle_plan_bonuses_for_object(self);
-                        }
-                        player_guard.remove_owned_object_for_object(self);
-                    }
+            if let Some(player) = old_player {
+                let mut player = player.write().expect("capture old player poisoned");
+                if self.modules_ready && player.get_num_battle_plans_active() > 0 {
+                    player.remove_battle_plan_bonuses_for_object(self);
+                }
+                player.remove_owned_object_for_object(self);
+            }
+            if let Some(player) = new_player {
+                let mut player = player.write().expect("capture new player poisoned");
+                player.add_owned_object_for_object(self);
+                if self.modules_ready && player.get_num_battle_plans_active() > 0 {
+                    player.apply_battle_plan_bonuses_for_object(self);
                 }
             }
-            if let Some(new_id) = new_player_id {
-                if let Some(player_arc) = list_guard.get_player(new_id as PlayerIndex).cloned() {
-                    if let Ok(mut player_guard) = player_arc.write() {
-                        player_guard.add_owned_object_for_object(self);
-                        if self.modules_ready && player_guard.get_num_battle_plans_active() > 0 {
-                            player_guard.apply_battle_plan_bonuses_for_object(self);
-                        }
-                    }
-                }
+            if let Some(players) = players {
+                self.adjust_power_for_supplied_player(
+                    true,
+                    new_player_id.and_then(|id| players.get_player(id as PlayerIndex)),
+                );
+            } else {
+                self.adjust_power_for_player(true);
             }
-            drop(list_guard);
-            self.adjust_power_for_player(true);
             self.notify_team_switch_side_effects(
                 old_player_id.map(|id| id as i32),
                 new_player_id.map(|id| id as i32),
@@ -909,7 +1027,7 @@ impl Object {
         // Keep per-team member lists in sync with object team ownership.
         // Use non-blocking team locks to avoid lock inversion with callers that already
         // hold team write locks while changing object ownership.
-        if old_team_id != new_team_id {
+        {
             if let Some(old_team_ref) = old_team {
                 if let Ok(mut old_team_guard) = old_team_ref.try_write() {
                     old_team_guard.remove_member(self.id);
@@ -926,26 +1044,26 @@ impl Object {
         // initial-capture-bonus lookup; owners are cloned out so no guard is
         // held while the callbacks run. `award_initial_capture_bonus_if_needed`
         // treats `None` as "no new owner", matching the previous skip.
-        let (old_owner, new_owner, capture_bonus_player) = match player_list().read() {
-            Ok(list_guard) => {
-                let lookup = |id: Option<UnsignedInt>| {
-                    id.and_then(|id| list_guard.get_player(id as PlayerIndex).cloned())
-                };
-                (
-                    lookup(old_player_id),
-                    lookup(new_player_id),
-                    if !restoring {
-                        lookup(new_player_id)
-                    } else {
-                        None
-                    },
-                )
-            }
-            Err(_) => (None, None, None),
+        let lookup = |players: &crate::player::PlayerList, id: Option<UnsignedInt>| {
+            id.and_then(|id| players.get_player(id as PlayerIndex).cloned())
         };
-
+        let (old_owner, new_owner) = if let Some(players) = players {
+            (
+                lookup(players, old_player_id),
+                lookup(players, new_player_id),
+            )
+        } else {
+            match player_list().read() {
+                Ok(players) => (
+                    lookup(&players, old_player_id),
+                    lookup(&players, new_player_id),
+                ),
+                Err(_) => (None, None),
+            }
+        };
+        let capture_bonus_player = if restoring { None } else { new_owner.clone() };
         if old_team_id.is_some() && new_team_id.is_some() && !restoring {
-            self.on_capture(old_owner, new_owner);
+            self.on_capture_with_radar_services(old_owner, new_owner, radar);
         }
 
         if !restoring {

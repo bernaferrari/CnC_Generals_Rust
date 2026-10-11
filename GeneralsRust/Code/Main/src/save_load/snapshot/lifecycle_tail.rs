@@ -1,7 +1,7 @@
 //! v9 world-tail codec for the Entity lifecycle envelope + contain/producer links.
 
 use crate::game_logic::object::{decode_lifecycle_snapshot_block, encode_lifecycle_snapshot_block};
-use crate::game_logic::{GameLogic, ObjectId, railroad_registry_reset};
+use crate::game_logic::{GameLogic, ObjectId};
 use crate::gameworld_shadow::GameWorldShadow;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use gamelogic::world::entities::EntityId;
@@ -67,6 +67,13 @@ pub fn decode_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<LifecycleTail> {
         });
     }
     let contain_count = take_u32(&mut rest)? as usize;
+    // Each fixed-width link requires four u32 fields. Validate the input
+    // budget before allocation, including untrusted u32::MAX counts.
+    if contain_count > rest.len() / 16 {
+        return Err(SaveLoadError::Corrupted(
+            "lifecycle contain links truncated".into(),
+        ));
+    }
     let mut contain_links = Vec::with_capacity(contain_count);
     for _ in 0..contain_count {
         contain_links.push(ContainLink {
@@ -81,6 +88,11 @@ pub fn decode_lifecycle_tail(bytes: &[u8]) -> SaveLoadResult<LifecycleTail> {
     } else {
         take_u32(&mut rest)? as usize
     };
+    if producer_count > rest.len() / 16 {
+        return Err(SaveLoadError::Corrupted(
+            "lifecycle producer links truncated".into(),
+        ));
+    }
     let mut producer_links = Vec::with_capacity(producer_count);
     for _ in 0..producer_count {
         producer_links.push(ProducerLink {
@@ -128,7 +140,9 @@ pub fn capture_lifecycle_tail(game_logic: &GameLogic) -> LifecycleTail {
             })
     };
     for object in game_logic.host_objects().values() {
-        tail.envelopes.push(object.entity_lifecycle_envelope());
+        tail.envelopes.push(
+            object.entity_lifecycle_envelope_with_railroad(game_logic.railroad.get(object.id)),
+        );
         let entity_generation = generation_for(object.id);
         for occupant in &object.occupants {
             tail.contain_links.push(ContainLink {
@@ -160,21 +174,85 @@ pub fn apply_lifecycle_tail_to_host(
     tail: &LifecycleTail,
     game_logic: &mut GameLogic,
 ) -> SaveLoadResult<()> {
-    railroad_registry_reset();
+    // Decode the affected component candidates before replacing either owner.
+    // A malformed train continuation cannot clear the running world's cars.
+    let mut candidates = Vec::new();
+    let mut railroad = crate::game_logic::host_railroad::HostRailroadRegistry::default();
     for envelope in &tail.envelopes {
         let id = ObjectId(envelope.entity_id);
-        if let Some(object) = game_logic.host_objects_mut().get_mut(&id) {
-            object
-                .entity_apply_lifecycle_envelope(envelope)
+        if let Some(object) = game_logic.host_objects().get(&id) {
+            let mut candidate = object.clone();
+            if let Some(car) = candidate
+                .entity_apply_lifecycle_envelope_with_railroad(envelope)
                 .map_err(|err| {
                     SaveLoadError::Corrupted(format!(
                         "apply envelope {}: {err}",
                         envelope.entity_id
                     ))
-                })?;
+                })?
+            {
+                railroad.restore_car(car);
+            }
+            candidates.push((id, candidate));
         }
     }
+    validate_overlord_containment_candidates(tail, game_logic, &candidates)?;
+    for (id, object) in candidates {
+        game_logic.objects.insert(id, object);
+    }
+    game_logic.railroad = railroad;
     apply_host_contain_producer_fixup(tail, game_logic);
+    Ok(())
+}
+
+/// Validate secondary payload identity against this candidate session before
+/// any object or conductor is replaced. Saved links are admitted at the same
+/// commit boundary, so they can restore an otherwise detached live roster.
+fn validate_overlord_containment_candidates(
+    tail: &LifecycleTail,
+    game_logic: &GameLogic,
+    candidates: &[(ObjectId, crate::game_logic::Object)],
+) -> SaveLoadResult<()> {
+    let object = |id: ObjectId| {
+        candidates
+            .iter()
+            .rev()
+            .find(|(candidate_id, _)| *candidate_id == id)
+            .map(|(_, candidate)| candidate)
+            .or_else(|| game_logic.host_object(id))
+    };
+    for id in game_logic.host_objects().keys().copied() {
+        let owner = object(id).expect("existing candidate owner");
+        if !owner.overlord_redirection_active {
+            // Inactive-but-installed payload is an original onDie phase.
+            continue;
+        }
+        let valid = owner
+            .overlord_portable_occupant
+            .filter(|child_id| *child_id != id)
+            .and_then(|child_id| object(child_id).map(|child| (child_id, child)))
+            .is_some_and(|(child_id, child)| {
+                let saved_owner = tail
+                    .contain_links
+                    .iter()
+                    .rev()
+                    .find(|link| link.occupant_id == child_id.0)
+                    .map(|link| ObjectId(link.container_id));
+                let effective_owner = saved_owner.or(child.contained_by);
+                let literal_member = owner.contained_units().contains(&child_id)
+                    || tail
+                        .contain_links
+                        .iter()
+                        .any(|link| link.container_id == id.0 && link.occupant_id == child_id.0);
+                effective_owner == Some(id) && literal_member
+            });
+        if !valid {
+            return Err(SaveLoadError::Corrupted(format!(
+                "active Overlord {} has invalid portable containment owner",
+                id.0
+            )));
+        }
+    }
     Ok(())
 }
 
@@ -316,6 +394,45 @@ mod tests {
     use super::*;
 
     #[test]
+    fn corrupt_link_counts_reject_before_allocation_and_preserve_receiver() {
+        use crate::game_logic::{HostRailroadCar, Object, Team, ThingTemplate};
+        let mut owner = GameLogic::new();
+        let mut object = Object::new(
+            ThingTemplate::new("OwnedCountSentinel"),
+            ObjectId(7),
+            Team::USA,
+        );
+        object.producer_id = Some(ObjectId(8));
+        object.occupants.push(ObjectId(9));
+        owner.objects.insert(ObjectId(7), object);
+        let mut car = HostRailroadCar::new_carriage(ObjectId(7));
+        car.speed = 7.0;
+        owner.restore_railroad_car(car);
+        let contain = [0u32, u32::MAX]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect::<Vec<_>>();
+        let producer = [0u32, 0, u32::MAX]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect::<Vec<_>>();
+        let envelope = u32::MAX.to_le_bytes();
+        for bytes in [&contain[..], &producer[..], &envelope[..]] {
+            let result = decode_lifecycle_tail(bytes)
+                .and_then(|tail| apply_lifecycle_tail_to_host(&tail, &mut owner));
+            assert!(matches!(result, Err(SaveLoadError::Corrupted(_))));
+            let object = owner.host_object(ObjectId(7)).unwrap();
+            assert_eq!(object.producer_id, Some(ObjectId(8)));
+            assert_eq!(object.occupants, vec![ObjectId(9)]);
+            assert_eq!(owner.railroad_car(ObjectId(7)).unwrap().speed, 7.0);
+        }
+        assert_eq!(
+            decode_lifecycle_tail(&encode_lifecycle_tail(&LifecycleTail::default())).unwrap(),
+            LifecycleTail::default()
+        );
+    }
+
+    #[test]
     fn empty_bytes_decode_as_empty_tail() {
         let tail = decode_lifecycle_tail(&[]).expect("empty");
         assert!(tail.envelopes.is_empty());
@@ -345,47 +462,37 @@ mod tests {
     }
 
     #[test]
-    fn apply_tail_resets_stale_railroad_then_restores_envelope() {
-        use crate::game_logic::{
-            HostConductorState, HostRailroadCar, ObjectId, railroad_car, railroad_registry_reset,
-            restore_railroad_car,
-        };
-
-        railroad_registry_reset();
-        let mut leftover = HostRailroadCar::new_locomotive(ObjectId(99));
-        leftover.speed = 9.0;
-        restore_railroad_car(leftover);
-        assert!(railroad_car(ObjectId(99)).is_some());
-
-        apply_lifecycle_tail_to_host(&LifecycleTail::default(), &mut GameLogic::new())
-            .expect("empty tail");
-        assert!(
-            railroad_car(ObjectId(99)).is_none(),
-            "stale railroad registry must not survive load"
-        );
-
+    fn apply_tail_resets_only_driving_railroad_and_restores_saved_conductor() {
+        use crate::game_logic::{HostConductorState, HostRailroadCar};
+        let mut owner = GameLogic::new();
+        let mut peer = GameLogic::new();
+        let mut stale = HostRailroadCar::new_carriage(ObjectId(99));
+        stale.speed = 9.0;
+        owner.restore_railroad_car(stale.clone());
+        peer.restore_railroad_car(stale);
+        apply_lifecycle_tail_to_host(&LifecycleTail::default(), &mut owner).unwrap();
+        assert!(owner.railroad_car(ObjectId(99)).is_none());
+        assert_eq!(peer.railroad_car(ObjectId(99)).unwrap().speed, 9.0);
         let mut car = HostRailroadCar::new_locomotive(ObjectId(7));
         car.conductor_state = HostConductorState::WaitAtStation;
         car.track_distance = 55.0;
         car.wait_at_station_timer = 12;
         car.held = true;
-        let mut object = crate::game_logic::Object::new(
+        let object = crate::game_logic::Object::new(
             crate::game_logic::ThingTemplate::new("CivilianTrainEngine"),
             ObjectId(7),
             crate::game_logic::Team::USA,
         );
-        restore_railroad_car(car);
-        let envelope = object.entity_lifecycle_envelope();
-        railroad_registry_reset();
-        object
-            .entity_apply_lifecycle_envelope(&envelope)
-            .expect("apply");
-        let restored = railroad_car(ObjectId(7)).expect("restored");
+        owner.objects.insert(ObjectId(7), object);
+        owner.restore_railroad_car(car);
+        let tail = capture_lifecycle_tail(&owner);
+        apply_lifecycle_tail_to_host(&tail, &mut owner).unwrap();
+        let restored = owner.railroad_car(ObjectId(7)).unwrap();
         assert_eq!(restored.conductor_state, HostConductorState::WaitAtStation);
-        assert!((restored.track_distance - 55.0).abs() < 1e-6);
+        assert_eq!(restored.track_distance, 55.0);
         assert_eq!(restored.wait_at_station_timer, 12);
         assert!(restored.held);
-        railroad_registry_reset();
+        assert_eq!(peer.railroad_car(ObjectId(99)).unwrap().speed, 9.0);
     }
 
     #[test]

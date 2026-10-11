@@ -35,6 +35,66 @@ pub struct RadarDisabledEdge {
     pub player_id: Option<u32>,
     pub becoming_disabled: bool,
     pub disable_proof: bool,
+    pub module_index: usize,
+}
+
+/// Immutable authored RadarUpgrade/UpgradeMux data, in behavior-module order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RadarUpgradeRules {
+    pub triggered_by: Vec<String>,
+    pub conflicts_with: Vec<String>,
+    pub removes_upgrades: Vec<String>,
+    pub fx_list: Option<String>,
+    pub requires_all: bool,
+    pub disable_proof: bool,
+    pub valid: bool,
+}
+
+impl RadarUpgradeRules {
+    pub fn from_definition(module: &crate::assets::ini_parser::BehaviorModuleDefinition) -> Self {
+        fn names(value: Option<&str>) -> Vec<String> {
+            value
+                .unwrap_or_default()
+                .split_whitespace()
+                .filter(|name| !name.eq_ignore_ascii_case("NONE"))
+                .map(str::to_owned)
+                .collect()
+        }
+        fn boolean(value: Option<&str>) -> Option<bool> {
+            match value.map(str::trim) {
+                None => Some(false),
+                Some(value) if value.eq_ignore_ascii_case("yes") => Some(true),
+                Some(value) if value.eq_ignore_ascii_case("no") => Some(false),
+                _ => None,
+            }
+        }
+        let all = boolean(module.attribute("RequiresAllTriggers"));
+        let proof = boolean(module.attribute("DisableProof"));
+        Self {
+            triggered_by: names(module.attribute("TriggeredBy")),
+            conflicts_with: names(module.attribute("ConflictsWith")),
+            removes_upgrades: names(module.attribute("RemovesUpgrades")),
+            fx_list: module
+                .attribute("FXListUpgrade")
+                .map(str::trim)
+                .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("NONE"))
+                .map(str::to_owned),
+            requires_all: all.unwrap_or(false),
+            disable_proof: proof.unwrap_or(false),
+            valid: all.is_some() && proof.is_some(),
+        }
+    }
+
+    pub fn would_upgrade(&self, mut has: impl FnMut(&str) -> bool) -> bool {
+        self.valid
+            && !self.triggered_by.is_empty()
+            && !self.conflicts_with.iter().any(|name| has(name))
+            && if self.requires_all {
+                self.triggered_by.iter().all(|name| has(name))
+            } else {
+                self.triggered_by.iter().any(|name| has(name))
+            }
+    }
 }
 
 /// Logic frames per second (host fixed step).
@@ -215,6 +275,10 @@ pub fn is_legal_radar_provider(
 /// Host residual honesty + radar-online bookkeeping.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostRadarRegistry {
+    #[serde(skip)]
+    pub(crate) providers: std::collections::HashMap<super::ObjectId, Vec<Vec<(u32, bool)>>>,
+    #[serde(skip)]
+    pub(crate) client_quiet: bool,
     /// Times a player transitioned from no-radar → has-radar.
     pub online_transitions: u32,
     /// Times a player transitioned from has-radar → no-radar.

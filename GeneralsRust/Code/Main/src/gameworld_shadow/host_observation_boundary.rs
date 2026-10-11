@@ -71,7 +71,6 @@ fn freeze_host_observations(logic: &mut GameLogic) {
     let _ = crate::game_logic::host_building_type_log::drain();
     let _ = crate::game_logic::host_combat_attack_log::drain();
     let _ = crate::game_logic::host_command_set_log::drain();
-    let _ = crate::game_logic::host_construction_progress_log::drain();
     let _ = crate::game_logic::host_contain_capacity_log::drain();
     let _ = crate::game_logic::host_contain_log::drain();
     let _ = crate::game_logic::host_continuous_fire_log::drain();
@@ -113,7 +112,6 @@ fn freeze_host_observations(logic: &mut GameLogic) {
     let _ = crate::game_logic::host_production_progress_log::drain();
     let _ = crate::game_logic::host_projectile_log::drain();
     let _ = crate::game_logic::host_radar_extend_log::drain();
-    let _ = crate::game_logic::host_radar_log::drain();
     let _ = crate::game_logic::host_rally_log::drain();
     let _ = crate::game_logic::host_rebuild_producer_log::drain();
     let _ = crate::game_logic::host_repulsor_log::drain();

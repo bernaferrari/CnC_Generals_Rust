@@ -558,11 +558,9 @@ impl GameLogic {
                 next = script.get_next();
             }
         }
-        if let Ok(mut engine_guard) = gamelogic::scripting::engine::get_script_engine().write() {
-            if let Some(engine) = engine_guard.as_mut() {
-                for (idx, list) in self.loaded_script_lists.iter().enumerate() {
-                    let _ = engine.set_script_list_for_player(idx, Some(Box::new(list.clone())));
-                }
+        if let Some(engine) = &self.owned_script_engine {
+            for (idx, list) in self.loaded_script_lists.iter().enumerate() {
+                let _ = engine.set_script_list_for_player(idx, Some(Box::new(list.clone())));
             }
         }
     }

@@ -20,8 +20,30 @@ pub type UpdateModulePtr = Arc<RwLock<dyn UpdateModuleInterface>>;
 
 /// Synchronous access to the driving match's update schedule only.
 /// This borrow cannot escape an update or discover another active world.
+/// Copied inputs for the selected object-upgrade production route.
+#[derive(Debug, Clone, Copy)]
+pub struct UpgradeProductionObservation {
+    pub owner_sold: bool,
+    pub handicap_time_multiplier: f32,
+    pub energy_supply_ratio: f32,
+}
+
 pub trait UpdateScheduleContext {
     fn frame(&self) -> u32;
+    fn upgrade_production_observation(&self) -> Option<UpgradeProductionObservation> {
+        None
+    }
+    fn change_owner_model_conditions(&mut self, _clear: u128, _set: u128) -> bool {
+        false
+    }
+
+    /// Apply RadarUpdate's completed model transition to this registration's
+    /// exact owner after releasing its installed module borrow.
+    /// Scheduling-only contexts have no presentation owner.
+    fn complete_radar_extension(&mut self) -> bool {
+        false
+    }
+
     fn awaken(&mut self, module: &UpdateModulePtr, wake_frame: u32);
     fn unregister(&mut self, module: &UpdateModulePtr);
 }
@@ -222,6 +244,13 @@ pub trait UpdateModuleInterface: Send + Sync {
     ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
         Ok(self.update_simple())
     }
+
+    /// A bounded production continuation taken after the installed entry borrow.
+    /// The scheduler releases this interface borrow before running effects.
+    fn take_completed_upgrade(&mut self) -> Option<String> {
+        None
+    }
+    fn resume_completed_upgrade(&mut self, _context: &mut dyn UpdateScheduleContext) {}
 
     /// Simplified update hook most modules implement
     fn update_simple(&mut self) -> UpdateSleepTime {

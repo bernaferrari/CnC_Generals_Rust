@@ -7,172 +7,6 @@ use super::super::*;
 #[path = "transport_movement_owner_tests.rs"]
 mod transport_movement_owner_tests;
 
-/// C++ `OpenContain::getDamagePercentageToUnits` — INI `DamagePercentToUnits`
-/// via `parsePercentToReal` (`100%` → `1.0`). Live `building_data` is never
-/// populated, so resolve authored retail percents by container kind.
-fn damage_percent_to_units_from_ini(obj: &Object) -> f32 {
-    let authored = obj
-        .building_data
-        .as_ref()
-        .map(|bd| bd.damage_percent_to_units)
-        .unwrap_or(0.0);
-    if authored > 0.0 {
-        return authored;
-    }
-    if obj.is_humvee_style_container() {
-        return crate::game_logic::host_humvee::HUMVEE_DAMAGE_PERCENT_TO_UNITS / 100.0;
-    }
-    if obj.is_battle_bus_style_container() {
-        return crate::game_logic::host_battle_bus::BATTLE_BUS_DAMAGE_PERCENT_TO_UNITS / 100.0;
-    }
-    if obj.is_combat_chinook_style_container() {
-        return crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_DAMAGE_PERCENT_TO_UNITS
-            / 100.0;
-    }
-    if obj.is_technical_style_container() {
-        return crate::game_logic::host_technical::TECHNICAL_DAMAGE_PERCENT_TO_UNITS / 100.0;
-    }
-    if obj.is_troop_crawler_style_container() {
-        return crate::game_logic::host_troop_crawler::TROOP_CRAWLER_DAMAGE_PERCENT_TO_UNITS
-            / 100.0;
-    }
-    if obj.is_listening_outpost_style_container() {
-        return crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_DAMAGE_PERCENT_TO_UNITS
-            / 100.0;
-    }
-    if obj.is_overlord_style_container() || obj.is_helix_transport {
-        return crate::game_logic::host_overlord_addons::OVERLORD_CONTAIN_DAMAGE_PERCENT_TO_UNITS;
-    }
-    if crate::game_logic::host_heal::is_ambulance_healer(&obj.template_name) {
-        return crate::game_logic::host_heal::AMBULANCE_TRANSPORT_DAMAGE_PERCENT_TO_UNITS;
-    }
-    if obj.template_name.to_ascii_lowercase().contains("firebase") {
-        // Retail AmericaFireBase DamagePercentToUnits 100% (parsePercentToReal).
-        return 1.0;
-    }
-    // C++ OpenContainModuleData default DamagePercentToUnits.
-    0.0
-}
-
-/// C++ TransportContain (and subclasses) override `killRidersWhoAreNotFreeToExit`.
-/// OpenContain / Garrison / Tunnel / Cave do not.
-fn transport_contain_kills_unfree_riders(obj: &Object) -> bool {
-    use crate::game_logic::ContainModuleKind;
-    matches!(
-        obj.thing().template.contain_module.kind,
-        ContainModuleKind::Transport | ContainModuleKind::RailedTransport
-    ) || obj.is_overlord_style_container()
-        || obj.is_helix_transport
-        || obj.is_battle_bus_transport
-        || obj.is_technical_transport
-        || obj.is_humvee_transport
-        || obj.is_troop_crawler_transport
-        || obj.is_combat_chinook_transport
-        || obj.is_listening_outpost_transport
-}
-
-/// C++ `TransportContain::onRemoving` when the hull is effectively dead:
-/// leftover `OpenContain::scatterToNearbyPosition` — place at wreck, face the
-/// ring angle, `aiMoveToPosition` toward a 1.0–1.5× bounding-radius dest.
-fn apply_transport_death_scatter(
-    unit: &mut Object,
-    container_id: ObjectId,
-    container_pos: glam::Vec3,
-    bounding_radius: f32,
-    movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
-) -> glam::Vec3 {
-    let leftover = gamelogic::object::contain::open_contain::leftover_scatter_to_nearby_position(
-        container_pos.x,
-        container_pos.z,
-        container_pos.y,
-        bounding_radius,
-        Some(container_pos.y),
-    );
-    let dest = glam::Vec3::new(leftover.dest_x, leftover.dest_z, leftover.dest_y);
-    unit.stop_moving();
-    unit.target = None;
-    unit.set_contained_by(None);
-    unit.set_position(container_pos);
-    unit.set_orientation(leftover.orientation);
-    unit.set_ai_state(AIState::Moving);
-    unit.status.moving = true;
-    // Pathfinder ignore for the queued move. Physics still skips the wreck
-    // through ignore_collisions_with; scatter does not start a collision timer.
-    unit.ignored_obstacle_id = Some(container_id);
-    unit.ignore_collisions_with = Some(container_id);
-    // TransportContain.cpp:389–393 scatters before wakeUpAndAttemptToTarget.
-    // The move makes the rider active, so AIUpdate.cpp:4430 preserves its
-    // mood deadline and jitter flag even when ResetMoodCheckTimeOnExit is true.
-    if crate::gameworld_shadow::gameworld_movement_authority_live() {
-        movement_events.record(
-            unit.id,
-            Some([container_pos.x, container_pos.y, container_pos.z]),
-        );
-        unit.record_host_movement();
-    }
-    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-        crate::game_logic::host_ai_decision_log::record_set_state(unit.id, 1);
-    }
-    unit.set_status_attacking(false);
-    dest
-}
-
-/// C++ `Pathfinder::validMovementTerrain` at the hull (AIPathfind.cpp:4763-4783).
-fn valid_rider_movement_terrain(
-    grid: &crate::game_logic::PathfindingGrid,
-    surfaces: u32,
-    world_pos: glam::Vec3,
-) -> bool {
-    use crate::game_logic::locomotor_bootstrap::valid_locomotor_surfaces_for_cell_type;
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
-    let cell = grid.world_to_grid(world_pos);
-    if !grid.is_valid_pos(cell) {
-        return false;
-    }
-    let ty = grid.cell_type(cell);
-    if matches!(
-        ty,
-        PathfindCellType::Obstacle | PathfindCellType::Impassable
-    ) {
-        return true;
-    }
-    (surfaces & valid_locomotor_surfaces_for_cell_type(ty)) != 0
-}
-
-/// C++ `TransportContain::isSpecificRiderFreeToExit` (TransportContain.cpp:536-567).
-fn is_specific_rider_free_to_exit(
-    container: &Object,
-    rider: &Object,
-    grid: &crate::game_logic::PathfindingGrid,
-) -> bool {
-    if let Some(ai) = container.chinook_ai.as_ref() {
-        let can_rappel =
-            crate::game_logic::host_combat_chinook::HostChinookAI::passenger_kind_can_rappel(
-                rider.is_kind_of(KindOf::Infantry),
-            );
-        if ai.ai_free_to_exit(can_rappel)
-            != crate::game_logic::host_combat_chinook::HostChinookFreeToExit::FreeToExit
-        {
-            return false;
-        }
-    }
-    let airborne = container.is_kind_of(KindOf::Aircraft)
-        || container.status.airborne_target
-        || (container.locomotor_surfaces & crate::game_logic::object::LOCO_SURFACE_AIR) != 0;
-    if airborne {
-        return true;
-    }
-    let surfaces = if rider.locomotor_surfaces != 0 {
-        rider.locomotor_surfaces
-    } else {
-        Object::default_locomotor_surfaces_for_template(&rider.thing().template)
-    };
-    if surfaces == 0 {
-        return false;
-    }
-    valid_rider_movement_terrain(grid, surfaces, container.get_position())
-}
-
 impl GameLogic {
     /// Wave 912: true when destroy queue or destroy-ready residual has work.
     #[inline]
@@ -361,6 +195,7 @@ impl GameLogic {
                     let exit_at = obj.contained_by.unwrap_or(event.id);
                     let _ = self.exit_cave_unit(event.id, exit_at);
                 }
+                self.remove_host_radar_provider(event.id);
                 self.host_radar_remove_object(event.id);
                 crate::game_logic::host_destroy_log::record(event.id);
                 // Wave 681: mid-frame GameWorld Destroy while coupled shadow tick is live.
@@ -429,255 +264,8 @@ impl GameLogic {
                 // C++ death audio is DamageFX + FXList Sound nuggets (Wave 535 particles).
                 // Never invent UnitDie / BuildingDie / UnitDieBurned.
 
-                let eject_origin = obj.get_position();
-
-                // C++ OpenContain::onDie: processDamageToContained(getDamagePercentageToUnits()).
-                let damage_pct = damage_percent_to_units_from_ini(&obj);
-
-                // C++ ParachuteContain::onDie: airborne chute → FreeFallDamage riders.
-                let is_america_parachute = obj.template_name.eq_ignore_ascii_case(
-                    crate::game_logic::host_car_bomb::HIJACKER_PARACHUTE_NAME,
-                );
-                let chute_airborne = is_america_parachute
-                    && crate::game_logic::host_usa_pilot::should_apply_parachute_free_fall_damage(
-                        obj.is_parachuting() || is_america_parachute,
-                        eject_origin.y,
-                    );
-
-                // `RiderChangeContain::onRemoving` destroys its hidden rider
-                // when the bike is effectively dead; it must not fall through
-                // OpenContain's ordinary eject-to-world behavior.  Queue the
-                // contained body for the existing destruction authority after
-                // clearing its containment link, so no snapshot frame can
-                // retain an orphan rider inside a removed bike.
-                let rider_change_payload = obj.thing().template.contain_module.kind
-                    == crate::game_logic::ContainModuleKind::RiderChange;
-                // C++ TunnelContain::onDie (TunnelContain.cpp:326) overrides
-                // OpenContain::onDie — no occupant eject; shared pool stays.
-                let is_tunnel = obj.is_tunnel_network_style_container()
-                    || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                        &obj.template_name,
-                    );
-                let is_cave = obj.is_cave_style_container();
-
-                if rider_change_payload {
-                    for contained_id in obj.contained_units() {
-                        if let Some(unit) = self.objects.get_mut(&contained_id) {
-                            unit.set_contained_by(None);
-                            unit.set_target(None);
-                            unit.stop_moving();
-                            unit.set_status_moving(false);
-                            unit.set_status_attacking(false);
-                            unit.status.destroyed = true;
-                        }
-                        if let Some(player_id) =
-                            self.tunnel_network.player_holding_unit(contained_id)
-                        {
-                            let _ =
-                                self.tunnel_network
-                                    .record_exit(player_id, contained_id, event.id);
-                        }
-                        self.mark_object_for_destruction(contained_id, event.killer);
-                    }
-                } else if chute_airborne {
-                    let riders = obj.contained_units();
-                    for rid in riders {
-                        if let Some(player_id) = self.tunnel_network.player_holding_unit(rid) {
-                            let _ = self.tunnel_network.record_exit(player_id, rid, event.id);
-                        }
-                        let _ = self.apply_rider_free_fall_damage(rid, eject_origin);
-                    }
-                    self.car_bomb.record_airborne_parachute_free_fall();
-                } else if is_cave {
-                    // C++ CaveContain::onDie — CaveSystem cave-in, no OpenContain eject.
-                    let idx = obj.cave_index;
-                    let remaining: Vec<ObjectId> = self
-                        .objects
-                        .values()
-                        .filter(|o| {
-                            o.is_alive()
-                                && !o.status.sold
-                                && o.is_cave_style_container()
-                                && o.cave_index == idx
-                                && o.id != event.id
-                        })
-                        .map(|o| o.id)
-                        .collect();
-                    let outcome = self.cave_system.on_cave_destroyed(event.id, &remaining);
-                    if outcome.cave_in {
-                        for uid in outcome.cave_in_units {
-                            if let Some(unit) = self.objects.get_mut(&uid) {
-                                unit.set_contained_by(None);
-                                unit.set_target(None);
-                                unit.stop_moving();
-                                unit.set_status_moving(false);
-                                unit.set_status_attacking(false);
-                                unit.status.destroyed = true;
-                                unit.health.current = 0.0;
-                            }
-                            self.mark_object_for_destruction(uid, event.killer);
-                        }
-                    } else if let Some(valid) = outcome.remapped_to {
-                        let pool = self.cave_system.contained_for_index(idx);
-                        for uid in pool {
-                            if let Some(unit) = self.objects.get_mut(&uid) {
-                                if unit.contained_by == Some(event.id) {
-                                    unit.set_contained_by(Some(valid));
-                                }
-                            }
-                        }
-                    }
-                } else if is_tunnel {
-                    // Registered TunnelContain callbacks ran while the object
-                    // was installed; physical removal never replays them.
-                } else {
-                    // C++ OpenContain::onDie: processDamageToContained then
-                    // killRidersWhoAreNotFreeToExit then removeAllContained.
-                    let kill_unfree = transport_contain_kills_unfree_riders(&obj);
-                    let scatter_on_death = kill_unfree;
-                    let scatter_radius = {
-                        let geom = &obj.thing().template.geometry_info;
-                        if geom.authored {
-                            geom.bounding_circle_radius()
-                        } else {
-                            obj.selection_radius.max(obj.thing().geometry.radius)
-                        }
-                    };
-                    let container_template = obj.template_name.clone();
-                    for (i, contained_id) in obj.contained_units().into_iter().enumerate() {
-                        let free_to_exit = !kill_unfree
-                            || self.objects.get(&contained_id).is_some_and(|unit| {
-                                is_specific_rider_free_to_exit(
-                                    &obj,
-                                    unit,
-                                    &self.pathfinding_system.grid,
-                                )
-                            });
-                        if let Some(unit) = self.objects.get_mut(&contained_id) {
-                            // C++ OpenContain::processDamageToContained:
-                            // UNRESISTABLE, BURNED default, source = container,
-                            // then kill() if percent == 1.0 and still alive.
-                            if damage_pct > 0.0 {
-                                let dmg = unit.max_health * damage_pct;
-                                let destroyed = unit
-                                    .take_damage_from_typed_death_with_repulsor_policy(
-                                        dmg,
-                                        Some(event.id),
-                                        crate::game_logic::combat::DamageType::Unresistable,
-                                        crate::game_logic::host_usa_pilot::HostDeathType::Burned,
-                                        &mut self.health_events,
-                                        &self.enable_repulsors,
-                                    );
-                                let flame_proof_kill = !destroyed
-                                    && !unit.status.destroyed
-                                    && (damage_pct - 1.0).abs() < f32::EPSILON;
-                                if flame_proof_kill {
-                                    let _ = unit.take_damage_from_immediate_with_repulsor_policy(
-                                        crate::game_logic::host_partition_collision_physics_residual::PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL,
-                                        Some(event.id),
-                                     &mut self.health_events, &self.enable_repulsors,);
-                                    unit.status.destroyed = true;
-                                }
-                                if destroyed || flame_proof_kill || unit.status.destroyed {
-                                    unit.status.destroyed = true;
-                                    if let Some(player_id) =
-                                        self.tunnel_network.player_holding_unit(contained_id)
-                                    {
-                                        let _ = self.tunnel_network.record_exit(
-                                            player_id,
-                                            contained_id,
-                                            event.id,
-                                        );
-                                    }
-                                    self.mark_object_for_destruction(contained_id, event.killer);
-                                    continue;
-                                }
-                            }
-
-                            if !free_to_exit {
-                                // C++ TransportContain::killRidersWhoAreNotFreeToExit
-                                // — default DestroyRidersWhoAreNotFreeToExit is false → kill().
-                                let _ = unit.take_damage_from_immediate_with_repulsor_policy(
-                                    crate::game_logic::host_partition_collision_physics_residual::PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL,
-                                    Some(event.id),
-                                 &mut self.health_events, &self.enable_repulsors,);
-                                unit.status.destroyed = true;
-                                unit.set_contained_by(None);
-                                if let Some(player_id) =
-                                    self.tunnel_network.player_holding_unit(contained_id)
-                                {
-                                    let _ = self.tunnel_network.record_exit(
-                                        player_id,
-                                        contained_id,
-                                        event.id,
-                                    );
-                                }
-                                self.mark_object_for_destruction(contained_id, event.killer);
-                                continue;
-                            }
-                            let rider_template = unit.template_name.clone();
-                            let scatter_dest = if scatter_on_death {
-                                Some(apply_transport_death_scatter(
-                                    unit,
-                                    event.id,
-                                    eject_origin,
-                                    scatter_radius,
-                                    &mut self.movement_events.writer(self.frame),
-                                ))
-                            } else {
-                                let angle =
-                                    (contained_id.0 as f32 + i as f32 * 1.11).sin().atan2(1.0)
-                                        + i as f32 * 0.73;
-                                let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * 8.0;
-                                unit.stop_moving();
-                                unit.set_position(eject_origin + offset);
-                                if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                                    let p = eject_origin + offset;
-                                    self.movement_events.record(
-                                        self.frame,
-                                        unit.id,
-                                        Some([p.x, p.y, p.z]),
-                                    );
-                                    unit.record_host_movement();
-                                }
-                                unit.set_target(None);
-                                unit.set_contained_by(None);
-                                unit.set_ai_state(AIState::Idle);
-                                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                                    crate::game_logic::host_ai_decision_log::record_stop_attack(
-                                        contained_id,
-                                    );
-                                    crate::game_logic::host_ai_decision_log::record_set_state(
-                                        contained_id,
-                                        0,
-                                    );
-                                }
-                                unit.set_status_moving(false);
-                                unit.set_status_attacking(false);
-                                None
-                            };
-                            drop(unit);
-                            if let Some(dest) = scatter_dest {
-                                self.path_approach_with_state_ignoring(
-                                    contained_id,
-                                    dest,
-                                    AIState::Moving,
-                                    Some(event.id),
-                                );
-                                if let Some(unit) = self.objects.get_mut(&contained_id) {
-                                    unit.ignored_obstacle_id = Some(event.id);
-                                }
-                            }
-                            // C++ OpenContain::onRemoving template SoundExit + SoundFalling.
-                            self.play_container_removing_template_sounds_named(
-                                &container_template,
-                                event.id,
-                                &rider_template,
-                                contained_id,
-                            );
-                        }
-                    }
-                }
+                // Containment onDie completed while this object was installed.
+                // Physical removal never replays passenger damage or teardown.
 
                 // GLA Toxin Tractor death residual: ToxinShellWeapon → SmallPoisonField.
                 // Fail-closed: not full FireWeaponWhenDead anthrax matrix / FX list.
@@ -1512,6 +1100,14 @@ mod tests {
         logic.templates.insert("TestAmphibTransport".into(), t);
         let mut p = ThingTemplate::new("TestInfantry");
         p.add_kind_of(KindOf::Infantry).set_health(100.0);
+        p.set_authored_ai_update_interface(Some(true));
+        p.authored_locomotor_sets =
+            Some(
+                vec![crate::game_logic::host_upgrade_module_residuals::AuthoredLocomotorSet {
+            kind: crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Normal,
+            members: vec!["BasicHumanLocomotor".into()],
+        }],
+            );
         logic.templates.insert("TestInfantry".into(), p);
 
         let transport = logic
@@ -1604,7 +1200,9 @@ mod tests {
         );
         assert!(!r.status.destroyed);
         assert!(r.contained_by.is_none());
-        assert_eq!(r.ai_state, crate::game_logic::AIState::Moving);
+        // TransportContain.cpp389-393 scatters, then wakes the surviving rider
+        // to target; the installed aggressive exit phase admits attack-move.
+        assert_eq!(r.ai_state, crate::game_logic::AIState::AttackMoving);
         assert_eq!(r.ignored_obstacle_id, Some(transport));
         assert_eq!(r.ignore_collisions_with, Some(transport));
         let pos = r.get_position();

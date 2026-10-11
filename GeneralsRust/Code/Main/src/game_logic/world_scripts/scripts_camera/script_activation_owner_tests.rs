@@ -42,7 +42,7 @@ fn install(world: &mut GameLogic, list: ScriptList) {
     engine
         .set_script_list_for_player(0, Some(Box::new(list.clone())))
         .unwrap();
-    *get_script_engine().write().unwrap() = Some(engine);
+    world.install_owned_script_engine(engine);
     world.loaded_script_lists = vec![list];
     world.scripts_loaded = true;
 }

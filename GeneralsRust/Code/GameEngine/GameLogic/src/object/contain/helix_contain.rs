@@ -51,8 +51,14 @@ impl Default for HelixContainModuleData {
 
 impl HelixContainModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        self.base.parse_from_ini(ini)?;
-        ini.init_from_ini_with_fields_allow_unknown(self, HELIX_CONTAIN_FIELDS)
+        ini.init_from_ini_with_ancestor_fields(
+            self,
+            |data| &mut data.base,
+            |data| &mut data.base,
+            super::open_contain::OPEN_CONTAIN_FIELDS,
+            super::transport_contain::TRANSPORT_CONTAIN_FIELDS,
+            HELIX_CONTAIN_FIELDS,
+        )
     }
 
     pub fn parse_from_config(&mut self, config: &str) -> Result<(), INIError> {
@@ -262,8 +268,7 @@ impl HelixContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -314,8 +319,7 @@ impl HelixContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -342,7 +346,8 @@ impl HelixContain {
 
         if new_state != BodyDamageType::Rubble {
             if let Some(portable_id) = self.portable_structure_id() {
-                if let Some(portable) = crate::object::registry::OBJECT_REGISTRY.get_object(portable_id)
+                if let Some(portable) =
+                    crate::object::registry::OBJECT_REGISTRY.get_object(portable_id)
                 {
                     let Ok(portable_guard) = portable.try_read() else {
                         return Err("Helix portable lock busy".into());
@@ -377,7 +382,8 @@ impl HelixContain {
 
         // Update portable structure position to follow Helix (matches C++ lines 101-105)
         if let Some(_portable_id) = self.portable_structure_id {
-            if let Some(portable_obj) = crate::object::registry::OBJECT_REGISTRY.get_object(_portable_id)
+            if let Some(portable_obj) =
+                crate::object::registry::OBJECT_REGISTRY.get_object(_portable_id)
             {
                 if let Some((owner_pos, owner_orient)) =
                     self.with_owner_object(|owner| (*owner.get_position(), owner.get_orientation()))
@@ -416,7 +422,8 @@ impl HelixContain {
             return Ok(());
         }
 
-        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
+        let obj = crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
             .ok_or("Helix contain object not found")?;
 
         let Ok(guard) = obj.try_read() else {
@@ -501,7 +508,8 @@ impl HelixContain {
             return Ok(());
         }
 
-        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
+        let obj = crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
             .ok_or("Helix contain object not found")?;
 
         let Ok(guard) = obj.try_read() else {
@@ -544,8 +552,7 @@ impl HelixContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -693,8 +700,7 @@ impl HelixContain {
         {
             fire_pos.z += 8.0;
             for rider_id in self.base.base.get_contained_object_ids().to_vec() {
-                if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
-                {
+                if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) {
                     if let Ok(mut rider_guard) = rider.write() {
                         if let Err(err) = rider_guard.set_position(&fire_pos) {
                             log::warn!(
@@ -882,7 +888,7 @@ impl ContainModuleInterface for HelixContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
             return self.is_valid_container_for(&*obj_guard, true);
-            });
+        });
         false
     }
 
@@ -983,8 +989,7 @@ impl ContainModuleInterface for HelixContain {
         if !self.base.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
-        else {
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
             return Ok(());
         };
         let valid = other
@@ -1003,6 +1008,26 @@ impl ContainModuleInterface for HelixContain {
 
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
         HelixContain::is_valid_container_for(self, obj, check_capacity)
+    }
+
+    fn is_valid_container_for_with_owner(
+        &self,
+        obj: &Object,
+        owner: &Object,
+        check_capacity: bool,
+    ) -> bool {
+        // CPP281 preserves the portable-payload shortcut before Transport checks.
+        if obj.is_kind_of(crate::common::KindOf::PortableStructure)
+            && self.portable_structure_id.is_none()
+        {
+            return true;
+        }
+        ContainModuleInterface::is_valid_container_for_with_owner(
+            &self.base,
+            obj,
+            owner,
+            check_capacity,
+        )
     }
 
     fn is_heal_contain(&self) -> bool {
@@ -1069,8 +1094,7 @@ impl ContainModuleInterface for HelixContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1090,8 +1114,7 @@ impl ContainModuleInterface for HelixContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 

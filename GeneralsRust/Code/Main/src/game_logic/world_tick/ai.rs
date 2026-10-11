@@ -905,6 +905,7 @@ impl GameLogic {
                     d.set_status_disabled_unmanned(true);
                     d.set_ai_state(AIState::Idle);
                 }
+                self.admit_host_radar_disabled_edges(drone_id);
                 continue;
             }
             let Some((mpos, master_hp_pct, master_dest, master_team, master_level, victim_pos)) =
@@ -1066,6 +1067,7 @@ impl GameLogic {
                 if let Some(child) = self.objects.get_mut(&child_id) {
                     child.apply_disabled_hacked(until);
                 }
+                self.admit_host_radar_disabled_edges(child_id);
             }
         }
     }

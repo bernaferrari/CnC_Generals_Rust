@@ -64,7 +64,7 @@ impl GameLogic {
     /// Resolve the entry waypoint and the C++ AIFollowWaypointPath lookahead
     /// distance before mutating the unit. Terrain waypoint coordinates use
     /// XY; host Object coordinates use XZ.
-    pub(super) fn host_panic_waypoint_from(
+    pub(crate) fn host_panic_waypoint_from(
         &self,
         path_label: &str,
         from: glam::Vec3,
@@ -101,7 +101,7 @@ impl GameLogic {
     }
 
     /// C++ `ScriptActions::doTeamPanic` → `AIUpdateInterface::aiPanic`.
-    pub(super) fn host_start_panic(
+    pub(crate) fn host_start_panic(
         &mut self,
         id: ObjectId,
         waypoint_id: u32,

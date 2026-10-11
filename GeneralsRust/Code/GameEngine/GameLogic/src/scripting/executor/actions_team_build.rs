@@ -13,9 +13,20 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_build_team(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Building team '{}'", team_name);
+        if let Some(result) =
+            driver.ai_player(crate::scripting::engine::ScriptAiPlayerRequest::BuildTeam {
+                team: &team_name,
+            })
+        {
+            if let Err(error) = result {
+                log::warn!("Owned scripted team build failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
 
         // C++ ScriptActions::doBuildTeam uses only
         // `findTeamPrototype(teamName)->getControllingPlayer()`.  A live team
@@ -53,10 +64,22 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_recruit_team(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         let recruit_radius = self.get_real_param(action, 1)?;
         log::debug!("Recruiting team '{}' radius {}", team_name, recruit_radius);
+        if let Some(result) = driver.ai_player(
+            crate::scripting::engine::ScriptAiPlayerRequest::RecruitTeam {
+                team: &team_name,
+                radius: recruit_radius,
+            },
+        ) {
+            if let Err(error) = result {
+                log::warn!("Owned scripted team recruitment failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
 
         // C++ ScriptActions::doRecruitTeam has the same prototype-controller
         // requirement as doBuildTeam.  Missing ownership is a no-op.
@@ -926,9 +949,22 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_team_panic(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         let waypoint_path_label = self.get_string_param(action, 1)?;
+        let engine = self.context.borrowed_engine();
+        if let Some(result) = driver.team_panic(
+            &team_name,
+            &waypoint_path_label,
+            engine.get_calling_team_id(),
+            engine.get_condition_team_id(),
+        ) {
+            if let Err(error) = result {
+                log::warn!("Owned team panic failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         if super::dual_world_registry_unavailable() {
             super::request_host_team_loco_set(&team_name, "panic", Some(&waypoint_path_label));
             return Ok(ScriptActionResult::Success);

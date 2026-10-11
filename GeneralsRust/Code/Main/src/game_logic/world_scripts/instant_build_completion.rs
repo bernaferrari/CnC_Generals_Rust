@@ -90,6 +90,16 @@ impl GameLogic {
         owner: u32,
         rebuilding: bool,
     ) {
+        self.complete_owned_structure_player_with_engine(structure, owner, rebuilding, None);
+    }
+
+    pub(crate) fn complete_owned_structure_player_with_engine(
+        &mut self,
+        structure: ObjectId,
+        owner: u32,
+        rebuilding: bool,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+    ) {
         let Some(object) = self.host_object(structure) else {
             return;
         };
@@ -125,7 +135,7 @@ impl GameLogic {
         self.admit_completed_structure_power(owner);
         // The AI owner callback follows power admission; CreateModules are
         // invoked by BuildAssistant only after this entire Player callback.
-        self.notify_owned_ai_structure_produced(structure);
+        self.notify_owned_ai_structure_produced_with_engine(structure, interpreter);
         self.try_eva_superweapon_detected_for_source(structure);
     }
 }

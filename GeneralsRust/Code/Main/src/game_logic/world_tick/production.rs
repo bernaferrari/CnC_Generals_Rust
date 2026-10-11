@@ -25,7 +25,7 @@ impl GameLogic {
         }
     }
 
-    pub(in super::super) fn update_construction(&mut self, object_ids: &[ObjectId], dt: f32) {
+    pub(crate) fn update_construction(&mut self, object_ids: &[ObjectId], dt: f32) {
         // C++ parity: calcTimeToBuild applies the same power penalty to dozer
         // construction as to production queue speed.
         let player_power_factor = self.compute_player_power_factors();
@@ -111,14 +111,6 @@ impl GameLogic {
         let mut radar_extend_done: Vec<ObjectId> = Vec::new();
         let mut start_build_loops: Vec<(ObjectId, String, Vec3)> = Vec::new();
         let mut stop_build_loops: Vec<ObjectId> = Vec::new();
-        // Wave 617: under sole-tick, GameWorld writeback records ready structures;
-        // host applies completion after writeback same frame (Wave 715; not mid-update drain).
-        let construction_sole = crate::gameworld_shadow::gameworld_construction_sole_tick_enabled();
-        // Empty mid-update ready set: sole completes only via post-writeback helper (Wave 715).
-        // Non-sole completes via projected percent (may_complete=true).
-        // Unmapped sole-tick also uses projected (no writeback entity).
-        let ready_structures: std::collections::HashSet<ObjectId> =
-            std::collections::HashSet::new();
         let mut rejected_builders: Vec<ObjectId> = Vec::new();
         let mut arrived_moving: Vec<ObjectId> = Vec::new();
         for &id in object_ids {
@@ -206,51 +198,13 @@ impl GameLogic {
                         30.0 / final_frames.max(1) as f32
                     };
                     let effective_rate = base_rate * dozer_count as f32;
-                    // Under CONSTRUCTION_AUTHORITY + shadow, GameWorld sole-ticks percent
-                    // using effective_rate; host only completes when writeback hits 1.0
-                    // (Wave 617: readiness gated by host_construction_ready_log).
-                    // Prior freeze without rate residual stalled builds — rate is logged.
-                    let sole = crate::gameworld_shadow::gameworld_construction_sole_tick_enabled();
-                    let gw_mapped = crate::gameworld_shadow::coupled_host_mapped(id);
-                    // Sole-tick only when this object is actually in GameWorld.
-                    // Unmapped barracks (eager spawn miss) must keep host-advancing
-                    // *and storing* percent or they stay at 0 forever
-                    // (train_fail_no_ready_barracks).
-                    let projected = if sole && gw_mapped {
-                        obj.construction_percent
-                    } else {
-                        (obj.construction_percent + effective_rate * dt).min(1.0)
-                    };
-                    if !sole || !gw_mapped {
-                        // Host-owned percent: no coupled entity, or sole-tick off.
-                        obj.construction_percent = projected;
-                        crate::game_logic::host_construction_progress_log::record(
-                            id,
-                            projected,
-                            obj.status.under_construction,
-                            effective_rate,
-                        );
-                    } else {
-                        // Wave 478: publish dozer/power rate only — no percent stomp.
-                        crate::game_logic::host_construction_progress_log::record_rate_only(
-                            id,
-                            obj.status.under_construction,
-                            effective_rate,
-                        );
-                    }
+                    let projected = (obj.construction_percent + effective_rate * dt).min(1.0);
+                    obj.construction_percent = projected;
 
-                    // Wave 617/713: mapped sole-tick completes only via ready-log.
-                    // Unmapped objects never appear in writeback, so host must
-                    // complete them when projected hits 1.0.
-                    let may_complete = if construction_sole && gw_mapped {
-                        ready_structures.contains(&id)
-                    } else {
-                        true
-                    };
                     // C++ DozerAIUpdate.cpp:526 then :536 — increment health first,
                     // then complete. Completion itself never writes max health, so
                     // scaffold damage taken during build persists.
-                    if !(construction_sole && gw_mapped) && actively_built {
+                    if actively_built {
                         let frames = final_frames.max(1) as f32;
                         let per_frame = obj.health.maximum / frames;
                         let logic_frames = (dt * 30.0).max(0.0);
@@ -264,22 +218,18 @@ impl GameLogic {
                                 .record_applied_heal(id, obj.health.current);
                         }
                     }
-                    if may_complete && projected >= 1.0 {
+                    if projected >= 1.0 {
                         obj.construction_percent = 1.0;
                         obj.set_status_under_construction(false);
                         obj.clear_under_construction_model_conditions();
-                        crate::game_logic::host_construction_progress_log::record(
-                            id, 1.0, false, 0.0,
-                        );
-                        crate::game_logic::host_construction_log::record(
-                            id,
-                            obj.template_name.clone(),
-                        );
+
+                        self.construction_events
+                            .record(id, obj.template_name.clone());
                         completed_structures.push(id);
                         stop_build_loops.push(id);
                     }
 
-                    if !(may_complete && projected >= 1.0) && actively_built {
+                    if projected < 1.0 && actively_built {
                         start_build_loops.push((id, site_template, build_pos));
                     }
                 }
@@ -302,11 +252,10 @@ impl GameLogic {
                 let _ = obj.tick_production_door(self.frame);
                 // Wave 626: under construction sole-tick, GW ready-log owns clear
                 // residual; host tick still advances non-sole path.
-                if !crate::gameworld_shadow::gameworld_construction_sole_tick_enabled() {
-                    if obj.tick_construction_complete_clear(self.frame) {
-                        self.construction_complete_clears =
-                            self.construction_complete_clears.saturating_add(1);
-                    }
+
+                if obj.tick_construction_complete_clear(self.frame) {
+                    self.construction_complete_clears =
+                        self.construction_complete_clears.saturating_add(1);
                 }
             }
         }
@@ -653,139 +602,6 @@ impl GameLogic {
                 .is_some_and(|obj| obj.is_alive())
             {
                 self.try_eva_superweapon_ready_for_source(ev.object);
-            }
-        }
-    }
-
-    pub(crate) fn host_apply_construction_completions_after_ready_writeback(&mut self) {
-        if !crate::gameworld_shadow::gameworld_construction_sole_tick_enabled() {
-            return;
-        }
-        let ready: Vec<ObjectId> = crate::game_logic::host_construction_ready_log::drain()
-            .into_iter()
-            .map(|ev| ev.structure)
-            .collect();
-        if ready.is_empty() {
-            return;
-        }
-        let mut completed_structures: Vec<ObjectId> = Vec::new();
-        for id in ready {
-            let Some(obj) = self.objects.get_mut(&id) else {
-                continue;
-            };
-            // Writeback may already have percent=1.0 while under_construction remains set.
-            if !(obj.status.under_construction || obj.construction_percent + 1e-6 >= 1.0) {
-                continue;
-            }
-            obj.construction_percent = 1.0;
-            obj.set_status_under_construction(false);
-            obj.clear_under_construction_model_conditions();
-            // C++ DozerAIUpdate.cpp:538-561: complete does not set health.
-            // Persist scaffold HP (damage authority writeback already owns it).
-            self.health_events
-                .record_applied_heal(id, obj.health.current);
-            crate::game_logic::host_construction_progress_log::record(id, 1.0, false, 0.0);
-            crate::game_logic::host_construction_log::record(id, obj.template_name.clone());
-            completed_structures.push(id);
-        }
-        for &completed_id in &completed_structures {
-            self.finish_building_sound(completed_id);
-            self.notify_structure_construction_complete(completed_id);
-            let building_pos = self.objects.get(&completed_id).map(|o| o.get_position());
-            let mut end_moves: Vec<(ObjectId, glam::Vec3)> = Vec::new();
-            let mut finished_builders: Vec<ObjectId> = Vec::new();
-            for obj in self.objects.values_mut() {
-                let slot = obj.dozer_task_build_target;
-                let constructing = obj.is_alive()
-                    && obj.ai_state == AIState::Constructing
-                    && (slot == Some(completed_id) || obj.target == Some(completed_id));
-                let approaching = obj.is_alive()
-                    && slot == Some(completed_id)
-                    && matches!(obj.ai_state, AIState::Moving | AIState::Idle);
-                if !(constructing || approaching) {
-                    continue;
-                }
-                let oid = obj.id;
-                if constructing {
-                    let dozer_pos = obj.get_position();
-                    let stored_action = obj.dozer_dock_action;
-                    obj.target = None;
-                    obj.target_location = None;
-                    obj.record_host_target_location();
-                    obj.set_status_force_attack(false);
-                    obj.set_status_attacking(false);
-                    if let Some(bpos) = building_pos {
-                        end_moves.push((
-                            oid,
-                            crate::game_logic::host_repair::dozer_complete_end_dock(
-                                stored_action,
-                                dozer_pos,
-                                bpos,
-                            ),
-                        ));
-                    } else {
-                        obj.stop_moving();
-                        if obj.ai_state != AIState::Idle {
-                            obj.set_ai_state(AIState::Idle);
-                        }
-                        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                            crate::game_logic::host_ai_decision_log::record_set_state(oid, 0);
-                        }
-                    }
-                } else {
-                    let radius = obj.selection_radius;
-                    let on_dock_walk =
-                        obj.dozer_dock_action
-                            .is_some_and(|dock| match obj.movement.path.last() {
-                                Some(end) => {
-                                    crate::game_logic::host_repair::dozer_within_action_dock(
-                                        *end, radius, dock,
-                                    )
-                                }
-                                None => crate::game_logic::host_repair::dozer_within_action_dock(
-                                    obj.get_position(),
-                                    radius,
-                                    dock,
-                                ),
-                            });
-                    if on_dock_walk {
-                        if obj.target == Some(completed_id) {
-                            obj.target = None;
-                            obj.target_location = None;
-                            obj.record_host_target_location();
-                            obj.set_status_force_attack(false);
-                            obj.set_status_attacking(false);
-                        }
-                        obj.stop_moving();
-                    }
-                }
-                finished_builders.push(oid);
-            }
-            // Same order as the host completion path: seal the footprint,
-            // then leave while ignoring that building.
-            self.block_structure_object_path(completed_id);
-            for (oid, mut end) in end_moves {
-                self.adjust_to_possible_destination(oid, &mut end);
-                self.path_approach_with_state_ignoring(
-                    oid,
-                    end,
-                    AIState::Moving,
-                    Some(completed_id),
-                );
-                if let Some(unit) = self.objects.get_mut(&oid) {
-                    if !unit.movement.path.is_empty() {
-                        unit.is_attack_path = false;
-                    }
-                }
-            }
-            self.release_finished_builders(&finished_builders);
-        }
-        if !completed_structures.is_empty() {
-            // Wave 828: under coupled shadow, ACTIVELY_CONSTRUCTING bit owned by GW expire.
-            if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-                && crate::gameworld_shadow::shadow_coupled_tick_active())
-            {
-                self.update_actively_constructing_model_conditions();
             }
         }
     }
@@ -1305,8 +1121,25 @@ impl GameLogic {
         &mut self,
         upgrade_completions: Vec<(Team, String, ObjectId)>,
     ) {
-        // Wave 608: host production complete/spawn apply residual.
-        // Wave 595: host upgrade production completion residual.
+        self.apply_upgrade_completions_on_owner(None, upgrade_completions);
+    }
+
+    /// The borrowed interpreter comes from the driving operation, never an
+    /// active/global slot. Ordinary updates keep the owner's engine installed
+    /// so upgrade effects that create objects can run their attached callbacks.
+    pub(crate) fn host_apply_upgrade_production_completions_with_interpreter(
+        &mut self,
+        engine: &gamelogic::scripting::engine::ScriptEngine,
+        upgrade_completions: Vec<(Team, String, ObjectId)>,
+    ) {
+        self.apply_upgrade_completions_on_owner(Some(engine), upgrade_completions);
+    }
+
+    fn apply_upgrade_completions_on_owner(
+        &mut self,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        upgrade_completions: Vec<(Team, String, ObjectId)>,
+    ) {
         for (team, upgrade_name, producer_id) in upgrade_completions {
             // Production completion carries its producer ObjectId, which in
             // turn carries the authoritative PlayerId.  Resolve it before the
@@ -1339,6 +1172,12 @@ impl GameLogic {
                     .get(&pid)
                     .map(|p| p.has_unlocked_upgrade(&upgrade_name))
                     .unwrap_or(false);
+                // CPP ProductionUpdate.cpp879-925: edge precedes addUpgrade /
+                // giveUpgrade, including an already-recorded completion.
+                interpreter
+                    .or(self.owned_script_engine.as_ref())
+                    .expect("research completion requires its driving interpreter")
+                    .notify_of_completed_upgrade(pid as usize, &upgrade_name, producer_id.0);
                 let upgrade_type = self.upgrade_type(&upgrade_name);
                 let definition = self.upgrade_template(&upgrade_name);
                 if let Some(player) = self.players.get_mut(&pid) {
@@ -1352,18 +1191,6 @@ impl GameLogic {
                 }
                 if !already {
                     self.apply_host_upgrade_complete(team, pid, &upgrade_name);
-                    // C++ ProductionUpdate.cpp:881-885 TheScriptEngine->notifyOfCompletedUpgrade
-                    if let Ok(mut engine_guard) =
-                        gamelogic::scripting::engine::get_script_engine().write()
-                    {
-                        if let Some(engine) = engine_guard.as_mut() {
-                            engine.notify_of_completed_upgrade(
-                                pid as usize,
-                                upgrade_name.as_str(),
-                                producer_id.0,
-                            );
-                        }
-                    }
                 }
             }
         }
@@ -1395,58 +1222,13 @@ impl GameLogic {
     /// (default). Incomplete harnesses may set
     /// GENERALS_RUNTIME_HOST_REBUILD_SPAWN_WITHOUT_GW_BIND=1.
     /// playable_claim stays false.
-    pub(in super::super) fn host_spawn_rebuild_bound_object(
+    pub(in super::super) fn host_spawn_rebuild_object(
         &mut self,
         template: &str,
         team: Team,
         owner_player_id: Option<u32>,
         spawn_pos: Vec3,
-        gw_entity_raw: Option<u32>,
     ) -> Option<ObjectId> {
-        if crate::gameworld_shadow::gameworld_construction_sole_tick_enabled() {
-            if let Some(raw) = gw_entity_raw {
-                crate::gameworld_shadow::set_next_host_spawn_bind_entity(raw);
-                let preferred = ObjectId(raw);
-                if raw != 0 && !self.objects.contains_key(&preferred) {
-                    let saved_next = self.next_object_id;
-                    self.next_object_id = preferred;
-                    let spawned = self.create_object_for_owner_or_team(
-                        template,
-                        team,
-                        owner_player_id,
-                        spawn_pos,
-                    );
-                    let after = self.next_object_id.0;
-                    self.next_object_id = ObjectId(saved_next.0.max(after));
-                    if spawned.is_some() {
-                        return spawned;
-                    }
-                    self.next_object_id = saved_next;
-                }
-                // Bind present: allocate host id and map to pre-spawned entity.
-                return self.create_object_for_owner_or_team(
-                    template,
-                    team,
-                    owner_player_id,
-                    spawn_pos,
-                );
-            }
-            let allow_without_bind =
-                std::env::var_os("GENERALS_RUNTIME_HOST_REBUILD_SPAWN_WITHOUT_GW_BIND")
-                    .is_some_and(|v| {
-                        let s = v.to_string_lossy();
-                        !(s.is_empty()
-                            || s == "0"
-                            || s.eq_ignore_ascii_case("false")
-                            || s.eq_ignore_ascii_case("no"))
-                    });
-            if !allow_without_bind {
-                log::debug!(
-                    "Wave 741: construction sole-tick rebuild spawn denied without GW entity bind (template={template})"
-                );
-                return None;
-            }
-        }
         self.create_object_for_owner_or_team(template, team, owner_player_id, spawn_pos)
     }
 

@@ -55,6 +55,8 @@ include!("ids.rs");
 include!("team_struct.rs");
 include!("team_identity.rs");
 include!("team_state.rs");
+mod state_owned;
+pub use state_owned::{TeamStateObservation, TeamStateStep};
 include!("team_members.rs");
 include!("team_areas.rs");
 include!("team_actions.rs");
@@ -82,5 +84,9 @@ pub const TEAM_SRC: &str = concat!(
     include_str!("team_identity.rs"),
     include_str!("team_members.rs"),
     include_str!("team_state.rs"),
+    include_str!("state_owned.rs"),
     include_str!("team_struct.rs"),
 );
+
+#[cfg(test)]
+mod prototype_owner_order_tests;

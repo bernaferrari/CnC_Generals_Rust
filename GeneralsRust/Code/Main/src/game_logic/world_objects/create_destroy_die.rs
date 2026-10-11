@@ -1243,6 +1243,46 @@ impl GameLogic {
         position: Vec3,
         creation_purpose: FactoryCreationPurpose,
     ) -> Option<ObjectId> {
+        self.create_object_with_initial_team(
+            template_name,
+            team,
+            owner_player_id,
+            position,
+            creation_purpose,
+            None,
+        )
+    }
+
+    /// ScriptActions952 passes the concrete team into newObject, before onCreate.
+    pub(crate) fn create_object_on_owned_script_team(
+        &mut self,
+        template: &str,
+        controller: u32,
+        team_name: &str,
+        position: Vec3,
+    ) -> Option<ObjectId> {
+        let faction = self.players.get(&controller)?.team;
+        let id = self.create_object_with_initial_team(
+            template,
+            faction,
+            Some(controller),
+            position,
+            FactoryCreationPurpose::AtCreation,
+            Some(team_name),
+        )?;
+        self.apply_cash_bounty_on_object_created(id);
+        Some(id)
+    }
+
+    fn create_object_with_initial_team(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        position: Vec3,
+        creation_purpose: FactoryCreationPurpose,
+        initial_team: Option<&str>,
+    ) -> Option<ObjectId> {
         if owner_player_id.is_some_and(|player_id| {
             self.players.get(&player_id).map(|player| player.team) != Some(team)
         }) {
@@ -1320,6 +1360,9 @@ impl GameLogic {
                 Object::new_with_initial_status(template, id, team, self.frame, initial_status);
             object.attach_host_trigger_world(&self.host_trigger_world);
             object.owner_player_id = owner_player_id;
+            if let Some(team_name) = initial_team {
+                object.team_instance_name = team_name.to_owned();
+            }
             if object.team_instance_name.is_empty() {
                 object.team_instance_name =
                     self.default_host_team_instance_name(owner_player_id, team);
@@ -2713,19 +2756,15 @@ impl GameLogic {
     /// C++ `Object::init` / `friend_applyDifficultyBonusesForObject` consults
     /// `TheScriptEngine->getObjectsShouldReceiveDifficultyBonus`.
     pub(in super::super) fn apply_difficulty_bonuses_for_object(&mut self, object_id: ObjectId) {
-        self.apply_or_strip_difficulty_bonuses_for_object(object_id, true);
+        if self.objects_receive_difficulty_bonus {
+            self.apply_or_strip_difficulty_bonuses_for_object(object_id, true);
+        }
     }
 
-    pub(in super::super) fn objects_should_receive_difficulty_bonus_from_script() -> bool {
-        gamelogic::scripting::engine::get_script_engine()
-            .read()
-            .ok()
-            .and_then(|guard| {
-                guard
-                    .as_ref()
-                    .map(|engine| engine.get_objects_should_receive_difficulty_bonus())
-            })
-            .unwrap_or(true)
+    pub(crate) fn set_owned_object_difficulty_bonus(&mut self, enable: bool) {
+        // CPP walks existing objects before recording the future birth policy.
+        self.apply_or_strip_difficulty_bonuses_for_all_objects(enable);
+        self.objects_receive_difficulty_bonus = enable;
     }
 
     /// C++ `Object::setReceivingDifficultyBonus` + `friend_applyDifficultyBonusesForObject`.
@@ -2735,9 +2774,6 @@ impl GameLogic {
         apply: bool,
     ) {
         if self.game_mode != GameMode::SinglePlayer {
-            return;
-        }
-        if apply && !Self::objects_should_receive_difficulty_bonus_from_script() {
             return;
         }
         let owner_player_id = match self.objects.get(&object_id) {
@@ -2756,9 +2792,7 @@ impl GameLogic {
             .and_then(|player_id| self.players.get(&player_id))
             .map(|player| player.is_local)
             .unwrap_or(false);
-        let difficulty =
-            crate::game_logic::host_faction_skirmish_residual::live_host_session_difficulty()
-                .unwrap_or_else(|| self.get_difficulty());
+        let difficulty = self.get_difficulty();
         let type_idx = if is_human { 0 } else { 1 };
         let diff_idx = match difficulty {
             crate::ai::AIDifficulty::Easy => 0,

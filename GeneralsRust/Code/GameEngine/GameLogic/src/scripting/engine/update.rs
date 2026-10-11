@@ -155,11 +155,15 @@ impl ScriptEngine {
         // Evaluate scripts for each player/side, matching C++ `ScriptEngine::update()`.
         self.execute_side_scripts(execution)?;
 
-        // C++ ScriptEngine.cpp:5573-5575 ThePlayerList->updateTeamStates()
-        if let Ok(mut team_factory) = crate::team::get_team_factory().lock() {
-            team_factory.update();
+        // C++5573: team callbacks run after sides and before UI clearing/sequentials.
+        if let Some(result) = execution.driver.update_team_states(self) {
+            result?;
+        } else {
+            if let Ok(mut team_factory) = crate::team::get_team_factory().lock() {
+                team_factory.update();
+            }
+            crate::team::flush_pending_team_script_events();
         }
-        crate::team::flush_pending_team_script_events();
 
         // Clear UI interaction flags (C++: m_uiInteractions.clear()).
         self.lock_inner_mut().ui_interactions.clear();

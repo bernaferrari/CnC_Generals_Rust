@@ -549,15 +549,6 @@ impl GameLogic {
         if !container.is_garrison_contain() {
             return false;
         }
-        let container_name = container.name.clone();
-        if let Some(disp) = gamelogic::object::contain::named_evac_disposition(&container_name) {
-            if let Some(c) = self.objects.get_mut(&container_id) {
-                c.set_garrison_evac_disposition(disp as u8);
-            }
-        }
-        let Some(container) = self.objects.get(&container_id) else {
-            return false;
-        };
         let evac = container.garrison_evac_disposition();
         let enclosing = container.is_enclosing_garrison_container();
         let geom = container.thing().template.geometry_info;
@@ -677,6 +668,24 @@ impl GameLogic {
     /// C++ move-to-and-evacuate arrival residual: dump all occupants near container.
     /// When `and_exit`, mark the transport sold/destroyed after unload (script exit residual).
     pub fn evacuate_container_now(&mut self, container_id: ObjectId, and_exit: bool) -> bool {
+        let effective = self.redirected_containment_owner(container_id);
+        if effective != container_id {
+            if !self
+                .host_object(container_id)
+                .is_some_and(|outer| outer.is_alive() && !outer.is_subdued_disabled())
+            {
+                return false;
+            }
+            let evacuated =
+                self.evacuate_transport(effective, false, TransportEvacuationMode::Command);
+            let empty = self
+                .host_object(effective)
+                .is_some_and(|object| object.contained_units().is_empty());
+            if and_exit && empty {
+                self.mark_object_for_destruction(container_id, None);
+            }
+            return evacuated;
+        }
         self.evacuate_transport(container_id, and_exit, TransportEvacuationMode::Command)
     }
 
@@ -1007,7 +1016,13 @@ impl GameLogic {
                 // Leftover CaveContain::onRemoving: record_exit + LastEmpty team revert.
                 let _ = self.exit_cave_unit(*pid, container_id);
             }
-            if container_is_combat_chinook {
+            if self
+                .host_object(container_id)
+                .and_then(|child| child.contained_by)
+                .is_some_and(|outer| self.redirected_containment_owner(outer) == container_id)
+            {
+                self.record_overlord_bunker_residual_exit();
+            } else if container_is_combat_chinook {
                 // Hull-specific channel mirrors the load arm (update.rs:1442);
                 // a Combat Chinook unload is not a generic transport unload.
                 self.record_combat_chinook_residual_unload();
@@ -1385,6 +1400,7 @@ impl GameLogic {
             obj.set_status_moving(false);
             obj.deselect();
         }
+        self.admit_object_drawable_deselection(pid);
         self.record_garrison_residual_enter();
         self.apply_garrison_contain_on_enter(bldg_id, pid);
         // C++ OpenContain::addToContain doLoadSound.

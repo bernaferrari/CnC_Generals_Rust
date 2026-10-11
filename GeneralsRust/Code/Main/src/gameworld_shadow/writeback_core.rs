@@ -79,7 +79,7 @@ impl GameWorldShadow {
             let mut dirty = false;
             let mut supplies_changed = false;
             let mut power_changed = false;
-            let mut radar_changed = false;
+            let radar_changed = false;
             let mut alive_changed = false;
             if player.resources.supplies != pd.supplies {
                 player.resources.supplies = pd.supplies;
@@ -116,16 +116,8 @@ impl GameWorldShadow {
                 Team::Neutral => None,
             };
             let slot_owns_player_state = pd.team == slot_owning_faction;
-            if slot_owns_player_state && player.radar_count != pd.radar_count {
-                player.radar_count = pd.radar_count;
-                dirty = true;
-                radar_changed = true;
-            }
-            if slot_owns_player_state && player.radar_disabled != pd.radar_disabled {
-                player.radar_disabled = pd.radar_disabled;
-                dirty = true;
-                radar_changed = true;
-            }
+            // Radar is a read-only session observation. A presentation slot
+            // must never repair or overwrite the canonical player's counts.
             if slot_owns_player_state && player.is_alive != pd.is_alive {
                 player.is_alive = pd.is_alive;
                 dirty = true;

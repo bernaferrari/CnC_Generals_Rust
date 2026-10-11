@@ -16,10 +16,24 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_set_money(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
+        let player_name = self.get_string_param(action, 0)?;
         let money_amount = self.get_int_param(action, 1)?;
+        let request = crate::scripting::HostScriptMoneyRequest::Set {
+            player: player_name.clone(),
+            amount: money_amount,
+        };
+        let current_player = self
+            .context
+            .with_engine_ref(|engine| engine.get_current_player_name())
+            .flatten();
+        if let Some(result) = driver.money(&request, current_player.as_deref()) {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+            return Ok(ScriptActionResult::Success);
+        }
 
+        let player_name = self.resolve_player_name_token(&player_name);
         log::info!("Setting player '{}' money to {}", player_name, money_amount);
 
         // Get player by name and set money
@@ -48,10 +62,24 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_give_money(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
+        let player_name = self.get_string_param(action, 0)?;
         let money_amount = self.get_int_param(action, 1)?;
+        let request = crate::scripting::HostScriptMoneyRequest::Give {
+            player: player_name.clone(),
+            amount: money_amount,
+        };
+        let current_player = self
+            .context
+            .with_engine_ref(|engine| engine.get_current_player_name())
+            .flatten();
+        if let Some(result) = driver.money(&request, current_player.as_deref()) {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+            return Ok(ScriptActionResult::Success);
+        }
 
+        let player_name = self.resolve_player_name_token(&player_name);
         log::info!("Giving player '{}' {} money", player_name, money_amount);
 
         // Get player by name and add money (can be negative)
@@ -565,6 +593,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_music_track_change(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let track_name = self.get_string_param(action, 0)?;
         let fade_out = self.get_bool_param_optional(action, 1).unwrap_or(true);
@@ -577,6 +606,18 @@ impl ScriptActionDispatcher<'_> {
             fade_in
         );
 
+        if let Some(result) = driver.world(crate::scripting::engine::ScriptWorldRequest::Music {
+            track: &track_name,
+            fade_out,
+            fade_in,
+        }) {
+            if let Err(error) = result {
+                log::warn!("Script music effect failed: {error}");
+            }
+            self.context
+                .with_engine_mut(|engine| engine.set_current_track_name(track_name.clone()));
+            return Ok(ScriptActionResult::Success);
+        }
         if let Some(handler) = self.current_script_action_handler() {
             if let Err(err) = handler.music_set_track(&track_name, fade_out, fade_in) {
                 log::warn!("Script action handler music_set_track failed: {}", err);

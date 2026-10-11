@@ -11,11 +11,11 @@
 //! dish snapped back to idle on load.
 //!
 //! Append a Rust-only tagged suffix after the contain/producer payload.
-//! OXFR v3 preserves Object-owned retained death status and KeepObject runtime
+//! OXFR v4 adds per-module RadarUpgrade executed state and preserves Object-owned retained death status and KeepObject runtime
 //! separately from the existing functional onDie latch. C++ Object::xfer
 //! persists object/private status and ActiveBody::xfer persists BODY_RUBBLE;
 //! KeepObjectDie::xfer adds no custom retained fields. These are Rust runtime
-//! records, not new C++ wire fields. Versions 1 and 2 are rejected on restore.
+//! records, not new C++ wire fields. Versions 1–3 are rejected on restore.
 //! The current WorldSnapshot body/version remains unchanged.
 
 use crate::game_logic::host_battle_bus::HostBattleBusBodyData;
@@ -27,7 +27,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const OXFR_MAGIC: &[u8; 4] = b"OXFR";
-const OXFR_VERSION: u32 = 3;
+const OXFR_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectModuleXferPersistPayload {
@@ -93,6 +93,8 @@ struct SlowDeathPersist {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct RadarPersist {
+    executed: Vec<bool>,
+    contributors: Vec<Vec<u32>>,
     object_id: u32,
     radar_extend_done_frame: u32,
     radar_extend_complete: bool,
@@ -143,7 +145,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     }
     let payload: ObjectModuleXferPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
         .map_err(|err| SaveLoadError::Corrupted(format!("OXFR payload decode: {err}")))?;
-    apply_payload(game_logic, payload);
+    apply_payload(game_logic, payload)?;
     Ok(())
 }
 
@@ -223,11 +225,14 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
             });
         }
 
-        if object.radar_active
+        if !object.radar_upgrade_executed.is_empty()
+            || object.radar_active
             || object.radar_extend_complete
             || object.radar_extend_done_frame != 0
         {
             radar.push(RadarPersist {
+                executed: object.radar_upgrade_executed.clone(),
+                contributors: object.radar_upgrade_contributors.clone(),
                 object_id: id.0,
                 radar_extend_done_frame: object.radar_extend_done_frame,
                 radar_extend_complete: object.radar_extend_complete,
@@ -246,7 +251,10 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
     }
 }
 
-fn apply_payload(game_logic: &mut GameLogic, payload: ObjectModuleXferPersistPayload) {
+fn apply_payload(
+    game_logic: &mut GameLogic,
+    payload: ObjectModuleXferPersistPayload,
+) -> SaveLoadResult<()> {
     for entry in payload.stun {
         if let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) {
             object.shock_stun_frames = entry.shock_stun_frames;
@@ -276,6 +284,31 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectModuleXferPersistPay
     }
     for entry in payload.radar {
         if let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) {
+            if !entry.executed.is_empty()
+                && object
+                    .thing()
+                    .template
+                    .radar_upgrade_rules
+                    .as_ref()
+                    .is_none_or(|rules| rules.len() != entry.executed.len())
+            {
+                return Err(crate::save_load::SaveLoadError::Corrupted(
+                    "RadarUpgrade executed-state count disagrees with authored modules".into(),
+                ));
+            }
+            if entry.contributors.len() != entry.executed.len()
+                || entry
+                    .contributors
+                    .iter()
+                    .enumerate()
+                    .any(|(index, owner)| !owner.is_empty() && !entry.executed[index])
+            {
+                return Err(SaveLoadError::Corrupted(
+                    "RadarUpgrade contribution state disagrees with executed modules".into(),
+                ));
+            }
+            object.radar_upgrade_executed = entry.executed;
+            object.radar_upgrade_contributors = entry.contributors;
             object.radar_extend_done_frame = entry.radar_extend_done_frame;
             object.radar_extend_complete = entry.radar_extend_complete;
             object.radar_active = entry.radar_active;
@@ -307,6 +340,7 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectModuleXferPersistPay
             }
         }
     }
+    Ok(())
 }
 
 fn apply_stun_bits(object: &mut crate::game_logic::Object) {

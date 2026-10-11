@@ -965,17 +965,9 @@ impl GameLogic {
                 );
                 n = n.saturating_add(1);
             }
-            if ev.radar_changed {
-                if let Some(player) = self.players.get_mut(&ev.player_id) {
-                    // Re-record radar residual for presentation without
-                    // re-applying absolute values (already writeback-synced).
-                    crate::game_logic::host_radar_log::record(
-                        player.id,
-                        player.radar_count,
-                        player.radar_disabled,
-                    );
-                    n = n.saturating_add(1);
-                }
+            if ev.radar_changed && self.players.contains_key(&ev.player_id) {
+                // The presentation boundary observes the current owner snapshot.
+                n = n.saturating_add(1);
             }
             let _ = (ev.alive_changed, ev.previous_alive, ev.is_alive);
             let _ = (
@@ -1081,28 +1073,6 @@ impl GameLogic {
                 continue;
             };
             if obj.apply_production_door_phase_residual(ev.new_phase) {
-                n = n.saturating_add(1);
-            }
-        }
-        n
-    }
-
-    pub fn host_apply_construction_complete_clear_ready_completions(&mut self) -> usize {
-        // Wave 626: under construction sole-tick, GameWorld writeback records
-        // producers whose CONSTRUCTION_COMPLETE clear deadline elapsed; host clears
-        // the model bit and counts residual.
-        if !crate::gameworld_shadow::gameworld_construction_sole_tick_enabled() {
-            return 0;
-        }
-        let events = crate::game_logic::host_construction_complete_clear_ready_log::drain();
-        let mut n = 0usize;
-        for ev in events {
-            let Some(obj) = self.objects.get_mut(&ev.producer) else {
-                continue;
-            };
-            if obj.apply_construction_complete_clear_residual() {
-                self.construction_complete_clears =
-                    self.construction_complete_clears.saturating_add(1);
                 n = n.saturating_add(1);
             }
         }

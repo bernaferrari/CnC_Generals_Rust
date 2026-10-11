@@ -344,3 +344,61 @@ fn this_object_identity_and_prepared_binding_admission_are_explicit() {
         ScriptOwnerQuery::Unavailable
     );
 }
+
+#[test]
+fn actual_research_completion_notifies_only_its_owned_interpreter_and_named_producer() {
+    let (mut owner, id) = world();
+    let (mut peer, peer_id) = world();
+    assert_eq!(id, peer_id);
+    owner.install_owned_script_engine(engine(condition(
+        ConditionType::PlayerBuiltUpgradeFromNamed,
+        PLAYER,
+        EVENT,
+        Some(SOURCE),
+    )));
+    peer.install_owned_script_engine(engine(condition(
+        ConditionType::PlayerBuiltUpgradeFromNamed,
+        PLAYER,
+        EVENT,
+        Some(SOURCE),
+    )));
+    owner.host_apply_upgrade_production_completions(vec![(Team::USA, EVENT.into(), id)]);
+    assert!(owner.get_player(1).unwrap().has_unlocked_upgrade(EVENT));
+    assert!(!peer.get_player(1).unwrap().has_unlocked_upgrade(EVENT));
+    assert_eq!(
+        peer.with_owned_script_engine(|engine, world| tick(engine, world)),
+        Some(0)
+    );
+    assert_eq!(
+        owner.with_owned_script_engine(|engine, world| tick(engine, world)),
+        Some(1)
+    );
+    assert_eq!(
+        owner.with_owned_script_engine(|engine, world| tick(engine, world)),
+        Some(1)
+    );
+}
+
+#[test]
+fn research_completion_uses_supplied_interpreter_during_bounded_owner_operation() {
+    let (mut owner, id) = world();
+    owner.install_owned_script_engine(engine(condition(
+        ConditionType::PlayerBuiltUpgradeFromNamed,
+        PLAYER,
+        EVENT,
+        Some(SOURCE),
+    )));
+    owner
+        .with_owned_script_engine(|engine, world| {
+            assert!(world.owned_script_engine.is_none());
+            world.host_apply_upgrade_production_completions_with_interpreter(
+                engine,
+                vec![(Team::USA, EVENT.into(), id)],
+            );
+            assert!(world.get_player(1).unwrap().has_unlocked_upgrade(EVENT));
+            assert!(engine.is_upgrade_complete(1, EVENT, false, id.0));
+            assert_eq!(tick(engine, world), 1);
+            assert!(!engine.is_upgrade_complete(1, EVENT, false, id.0));
+        })
+        .unwrap();
+}

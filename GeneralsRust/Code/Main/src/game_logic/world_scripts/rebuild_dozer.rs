@@ -116,6 +116,7 @@ impl GameLogic {
             if let Some(veh) = self.objects.get_mut(&vehicle_id) {
                 let _ = veh.apply_pilot_recrew(inf_team, inf_owner_player_id, inf_level);
             }
+            self.admit_host_radar_disabled_edges(vehicle_id);
             let _ = self.transfer_script_object_name(infantry_id, vehicle_id);
             self.destroy_object(infantry_id);
             self.process_destroy_list();
@@ -139,6 +140,7 @@ impl GameLogic {
                 veh.set_private_captured(true);
             }
         }
+        self.admit_host_radar_disabled_edges(vehicle_id);
         let _ = self.transfer_script_object_name(infantry_id, vehicle_id);
         self.destroy_object(infantry_id);
         // C++ destroyObject is immediate for collision reclaim residual path.
@@ -249,6 +251,7 @@ impl GameLogic {
                 if let Some(unit) = self.objects.get_mut(&uid) {
                     unit.set_contained_by(Some(valid));
                 }
+                self.admit_object_drawable_deselection(uid);
                 // C++ Object::onContainedBy restamps m_containedByFrame.
                 self.tunnel_network
                     .stamp_contained_by_frame(uid, self.frame);
@@ -288,6 +291,7 @@ impl GameLogic {
             obj.handle_partition_cell_maintenance();
         }
         if old_team == new_team {
+            self.capture_authored_radar_provider(object_id);
             return;
         }
         // Capture has already changed this object's owner by the time the
@@ -302,8 +306,13 @@ impl GameLogic {
         // C++ Object::defect → ParkingPlaceBehavior::defectAllParkedUnits
         // (SpecialAbilityUpdate.cpp:1442). Only on capture, not a per-tick walk.
         self.defect_all_parked_units(object_id);
+        self.capture_authored_radar_provider(object_id);
 
         // Deselect from all players (C++ TheGameLogic->deselectObject residual).
+        if let Some(object) = self.objects.get_mut(&object_id) {
+            object.deselect();
+        }
+        self.admit_local_drawable_deselected(object_id);
         for player in self.players.values_mut() {
             let before = player.selected_objects.len();
             player.selected_objects.retain(|&id| id != object_id);
@@ -744,7 +753,7 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&object_id) {
             // C++ setConstructionPercent(99.9f) on 0..100 scale → host 0.999
             obj.construction_percent = 0.999;
-            crate::game_logic::host_construction_progress_log::record(object_id, 0.999, false, 0.0);
+
             obj.set_status_sold(true);
             obj.set_status_unselectable(true);
             obj.set_status_under_construction(false);
@@ -760,6 +769,7 @@ impl GameLogic {
         for p in self.players.values_mut() {
             p.selected_objects.retain(|&id| id != object_id);
         }
+        self.admit_local_drawable_deselected(object_id);
         self.sell_list.insert(
             0,
             ObjectSellInfo {
@@ -815,12 +825,6 @@ impl GameLogic {
         let frame = self.frame;
         let mut finished: Vec<ObjectId> = Vec::new();
         let mut still: Vec<ObjectSellInfo> = Vec::with_capacity(self.sell_list.len());
-        // Wave 619: under construction sole-tick, GameWorld writeback records sell-ready
-        // structures (pct <= -0.5); host finishes after writeback same frame (Wave 716).
-        let construction_sole = crate::gameworld_shadow::gameworld_construction_sole_tick_enabled();
-        // Empty mid-update ready set under sole: finish only via post-writeback helper.
-        // Non-sole finishes via projected percent (may_finish without ready membership).
-        let ready_sells: std::collections::HashSet<ObjectId> = std::collections::HashSet::new();
         for entry in std::mem::take(&mut self.sell_list) {
             let Some(obj) = self.objects.get_mut(&entry.id) else {
                 // Object gone by other means.
@@ -832,49 +836,23 @@ impl GameLogic {
             let elapsed = frame.saturating_sub(entry.sell_frame);
             if elapsed >= FRAMES_TO_ALLOW_SCAFFOLD_RESIDUAL {
                 let previous = obj.construction_percent;
-                let sole = crate::gameworld_shadow::gameworld_construction_sole_tick_enabled();
-                // Allow percent to fall through SELL_FINISH (-0.5); do not floor at -0.01
-                // (that made finish unreachable and stalled multi-frame sell forever).
-                let projected = if sole {
-                    // Wave 481: GW sole-ticks sell percent via negative rate; host uses writeback.
-                    previous
-                } else {
-                    previous - SELL_CONSTRUCTION_DECREMENT_RESIDUAL
-                };
-                if !sole {
-                    obj.construction_percent = projected;
-                    crate::game_logic::host_construction_progress_log::record(
-                        entry.id, projected, false, 0.0,
-                    );
-                } else {
-                    // Negative fraction/sec so tick_construction_progress advances sell.
-                    let rate =
-                        -SELL_CONSTRUCTION_DECREMENT_RESIDUAL / LOGIC_FRAME_TIMESTEP.max(1e-6);
-                    crate::game_logic::host_construction_progress_log::record_rate_only(
-                        entry.id, false, rate,
-                    );
-                }
+                let projected = previous - SELL_CONSTRUCTION_DECREMENT_RESIDUAL;
+                obj.construction_percent = projected;
+
                 // Cross from positive to <= 0 → MODELCONDITION_SOLD.
                 // Under sole-tick, projected == writeback previous; fire when writeback already ≤ 0.
-                if (previous > 0.0 && projected <= 0.0) || (sole && previous <= 0.0) {
+                if (previous > 0.0 && projected <= 0.0) {
                     obj.apply_sold_model_condition();
                 }
                 if projected <= SELL_FINISH_CONSTRUCTION_PERCENT_RESIDUAL {
                     // Wave 619: under sole-tick, only finish IDs GW recorded ready.
-                    if !construction_sole || ready_sells.contains(&entry.id) {
-                        finished.push(entry.id);
-                    } else {
-                        still.push(entry);
-                    }
-                } else {
-                    still.push(entry);
-                }
-            } else if obj.construction_percent <= SELL_FINISH_CONSTRUCTION_PERCENT_RESIDUAL {
-                if !construction_sole || ready_sells.contains(&entry.id) {
+
                     finished.push(entry.id);
                 } else {
                     still.push(entry);
                 }
+            } else if obj.construction_percent <= SELL_FINISH_CONSTRUCTION_PERCENT_RESIDUAL {
+                finished.push(entry.id);
             } else {
                 still.push(entry);
             }
@@ -910,50 +888,6 @@ impl GameLogic {
 
     /// Wave 716: after GW construction writeback records sell-ready structures,
     /// host applies refund/destroy in the same coupled tick (not next frame).
-    pub(crate) fn host_apply_sell_completions_after_ready_writeback(&mut self) {
-        if !crate::gameworld_shadow::gameworld_construction_sole_tick_enabled() {
-            return;
-        }
-        let ready: std::collections::HashSet<ObjectId> =
-            crate::game_logic::host_sell_ready_log::drain()
-                .into_iter()
-                .map(|ev| ev.structure)
-                .collect();
-        if ready.is_empty() {
-            return;
-        }
-        // Drop finished entries from sell_list residual.
-        self.sell_list.retain(|entry| !ready.contains(&entry.id));
-        for id in ready {
-            let Some(obj) = self.objects.get(&id) else {
-                continue;
-            };
-            if !obj.is_alive() {
-                continue;
-            }
-            // Writeback already pushed percent <= SELL_FINISH while sold.
-            if !obj.status.sold
-                && obj.construction_percent > SELL_FINISH_CONSTRUCTION_PERCENT_RESIDUAL + 1e-6
-            {
-                continue;
-            }
-            let team = obj.team;
-            let owner_player_id = self.player_owner_for_host_object(obj);
-            let refund = self.sell_refund_for_object(obj, owner_player_id);
-            if refund > 0 {
-                if let Some(player_id) = owner_player_id {
-                    if let Some(player) = self.get_player_mut(player_id) {
-                        player.apply_supply_gain(refund);
-                    }
-                }
-            }
-            self.cancel_all_production(id);
-            self.destroy_object(id);
-            self.sell_process_finishes = self.sell_process_finishes.saturating_add(1);
-            let msg = crate::localization::localize("hud.sell.complete", "Structure sold");
-            self.queue_radar_message_for_team(team, msg);
-        }
-    }
 
     /// C++ `BuildAssistant::update`: a non-zero Object INI `RefundValue`
     /// overrides the ordinary `calcCostToBuild(player) * SellPercentage`
@@ -1925,23 +1859,7 @@ impl GameLogic {
             .map(|t| t.max_health)
             .unwrap_or(hole_max_health)
             .min(hole_max_health);
-        // Wave 742: under construction sole-tick, pre-spawn hole entity on coupled
-        // shadow and bind host ObjectId (entity-first). Non-sole / no-shadow falls
-        // back to host create_object. Missing bind under sole is fail-closed via
-        // host_spawn_rebuild_bound_object (Wave 741) unless opt-in.
-        let gw_raw = if crate::gameworld_shadow::gameworld_construction_sole_tick_enabled() {
-            crate::gameworld_shadow::spawn_rebuild_hole_entity_if_coupled(
-                &hole_name,
-                [pos.x, pos.y, pos.z],
-                orient,
-                hole_initial_health,
-                hole_max_health,
-            )
-        } else {
-            None
-        };
-        let hole_id =
-            self.host_spawn_rebuild_bound_object(&hole_name, team, owner_player_id, pos, gw_raw)?;
+        let hole_id = self.host_spawn_rebuild_object(&hole_name, team, owner_player_id, pos)?;
         if let Some(h) = self.objects.get_mut(&hole_id) {
             // A rebuild hole is a continuation of the destroyed building, not
             // a new team-level object.  Preserve exact ownership for the
@@ -1951,12 +1869,9 @@ impl GameLogic {
             h.set_status_under_construction(false);
             // Defer percent only when shadow sole-ticks construction; host-only
             // must set percent immediately or rebuild holes stay incomplete forever.
-            if crate::gameworld_shadow::gameworld_construction_authority_live() {
-                crate::game_logic::host_construction_progress_log::record(hole_id, 1.0, false, 0.0);
-            } else {
-                h.construction_percent = 1.0;
-                crate::game_logic::host_construction_progress_log::record(hole_id, 1.0, false, 0.0);
-            }
+
+            h.construction_percent = 1.0;
+
             // This is initial state, before the hole can take damage. Match
             // setMaxHealth's max and clipped current HP on both host and shadow.
             h.set_body_max_health(hole_max_health);
@@ -2006,23 +1921,6 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
         let mut holes_to_remove: Vec<ObjectId> = Vec::new();
-        // Wave 620: under construction sole-tick, GameWorld writeback records
-        // rebuild-ready holes; host only starts worker/building for those IDs.
-        let construction_sole = crate::gameworld_shadow::gameworld_construction_sole_tick_enabled();
-        // Wave 740: keep full ready events (GW entity-first worker/rebuild raws).
-        let ready_by_hole: std::collections::HashMap<
-            ObjectId,
-            crate::game_logic::host_rebuild_ready_log::HostRebuildReadyEvent,
-        > = if construction_sole {
-            crate::game_logic::host_rebuild_ready_log::drain()
-                .into_iter()
-                .map(|ev| (ev.hole, ev))
-                .collect()
-        } else {
-            std::collections::HashMap::new()
-        };
-        let ready_holes: std::collections::HashSet<ObjectId> =
-            ready_by_hole.keys().copied().collect();
         for hole_id in ids {
             // Hole health regen residual (always while hole alive).
             if let Some(h) = self.objects.get_mut(&hole_id) {
@@ -2147,10 +2045,6 @@ impl GameLogic {
             if h.rebuild_ready_frame == 0 || now < h.rebuild_ready_frame {
                 continue;
             }
-            // Wave 620: under sole-tick, only start rebuild for IDs GW recorded ready.
-            if construction_sole && !ready_holes.contains(&hole_id) {
-                continue;
-            }
             let team = h.team;
             let owner_player_id = self.player_owner_for_host_object(h);
             let pos = h.get_position();
@@ -2169,20 +2063,11 @@ impl GameLogic {
                 self.templates
                     .insert(REBUILD_HOLE_WORKER_TEMPLATE.to_string(), wt);
             }
-            // Wave 740: under construction sole-tick, bind host ObjectIds to
-            // GameWorld pre-spawned worker + reconstruct entities when present.
-            let ready_ev = ready_by_hole.get(&hole_id);
-            // Wave 740: prefer GW spawn pose residual when writeback provided one.
-            let pos = ready_ev
-                .and_then(|e| e.spawn_pos)
-                .map(|p| Vec3::new(p[0], p[1], p[2]))
-                .unwrap_or(pos);
-            let worker_id = self.host_spawn_rebuild_bound_object(
+            let worker_id = self.host_spawn_rebuild_object(
                 REBUILD_HOLE_WORKER_TEMPLATE,
                 team,
                 owner_player_id,
                 pos,
-                ready_ev.and_then(|e| e.worker_entity_raw),
             );
             let Some(worker_id) = worker_id else {
                 continue;
@@ -2191,9 +2076,6 @@ impl GameLogic {
                 w.set_team_and_owner(team, owner_player_id);
                 w.set_status_unselectable(true);
                 w.set_status_masked(false);
-                if let Some(ev) = ready_ev {
-                    w.set_orientation(ev.orientation);
-                }
             }
             self.set_ai_state_decision_aware(worker_id, AIState::Constructing);
             self.rebuild_hole_workers = self.rebuild_hole_workers.saturating_add(1);
@@ -2253,6 +2135,7 @@ impl GameLogic {
                     h.set_status_masked(true);
                     h.set_status_unselectable(true);
                 }
+                self.admit_object_drawable_deselection(hole_id);
                 let n = self.transfer_attack(hole_id, rid);
                 if n > 0 {
                     self.rebuild_hole_attack_transfers =
@@ -2264,13 +2147,9 @@ impl GameLogic {
 
             // Spawn reconstructing building (C++ ai->construct residual).
             // Wave 740: entity-first bind when GW pre-spawned the structure.
-            let Some(new_id) = self.host_spawn_rebuild_bound_object(
-                &rebuild_name,
-                team,
-                owner_player_id,
-                pos,
-                ready_ev.and_then(|e| e.rebuild_entity_raw),
-            ) else {
+            let Some(new_id) =
+                self.host_spawn_rebuild_object(&rebuild_name, team, owner_player_id, pos)
+            else {
                 self.destroy_object(worker_id);
                 continue;
             };
@@ -2279,16 +2158,9 @@ impl GameLogic {
                 o.set_orientation(orient);
                 o.set_status_under_construction(true);
                 o.set_status_reconstructing(true);
-                if crate::gameworld_shadow::gameworld_construction_authority_live() {
-                    crate::game_logic::host_construction_progress_log::record(
-                        new_id, 0.0, true, 0.0,
-                    );
-                } else {
-                    o.construction_percent = 0.0;
-                    crate::game_logic::host_construction_progress_log::record(
-                        new_id, 0.0, true, 0.0,
-                    );
-                }
+
+                o.construction_percent = 0.0;
+
                 o.set_under_construction_model_conditions(true);
                 // C++ DozerAIUpdate::construct starts at 1 HP (DozerAIUpdate.cpp:1708).
                 Self::write_object_health_authority_aware(o, 1.0, &mut self.health_events);
@@ -2339,6 +2211,7 @@ impl GameLogic {
                 h.set_status_masked(true);
                 h.set_status_unselectable(true);
             }
+            self.admit_object_drawable_deselection(hole_id);
             // C++ transferAttack(hole, reconstructing) residual.
             let n = self.transfer_attack(hole_id, new_id);
             if n > 0 {

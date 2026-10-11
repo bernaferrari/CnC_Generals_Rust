@@ -257,24 +257,8 @@ impl ScriptActionDispatcher<'_> {
                         obj_guard.leave_group();
                     }
                     if let Ok(mut ai) = ai_arc.lock() {
-                        let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                        issue_borrowed_named_attack_area(&mut *ai, area_center, trigger_id);
                     }
-
-                    let mut params = AiCommandParams::new(
-                        AiCommandType::AttackArea,
-                        CommandSourceType::FromScript,
-                    );
-                    params.pos = area_center;
-                    params.polygon = Some(trigger_id);
-                    let _ = ai_arc.lock().ok().map(|mut ai| {
-                        let _ = ai.execute_command(&params);
-                        log::info!(
-                            "Named unit '{}' attack area '{}' command issued (ID: {})",
-                            unit_name,
-                            area_name,
-                            object_id
-                        );
-                    });
                 } else {
                     log::warn!("Named unit '{}' has no AI update interface", unit_name);
                 }
@@ -329,24 +313,8 @@ impl ScriptActionDispatcher<'_> {
                         obj_guard.leave_group();
                     }
                     if let Ok(mut ai) = ai_arc.lock() {
-                        let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                        issue_borrowed_named_attack_team(&mut *ai, &team_name);
                     }
-
-                    let mut params = AiCommandParams::new(
-                        AiCommandType::AttackTeam,
-                        CommandSourceType::FromScript,
-                    );
-                    params.team = Some(team_name.clone());
-                    params.int_value = -1; // NO_MAX_SHOTS_LIMIT
-                    let _ = ai_arc.lock().ok().map(|mut ai| {
-                        let _ = ai.execute_command(&params);
-                        log::info!(
-                            "Named unit '{}' attack team '{}' command issued (ID: {})",
-                            unit_name,
-                            team_name,
-                            object_id
-                        );
-                    });
                 } else {
                     log::warn!("Named unit '{}' has no AI update interface", unit_name);
                 }
@@ -441,7 +409,7 @@ impl ScriptActionDispatcher<'_> {
                     .and_then(|obj| obj.get_ai_update_interface());
                 if let Some(ai_arc) = ai_result {
                     if let Ok(mut ai) = ai_arc.lock() {
-                        if let Err(err) = ai.set_attitude(attitude) {
+                        if let Err(err) = issue_borrowed_named_attitude(&mut *ai, attitude) {
                             log::debug!(
                                 "ScriptActions::do_named_set_attitude failed for object {}: {}",
                                 object_id,
@@ -838,10 +806,21 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_named_hide_special_power_display(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         log::debug!("Hiding special power display for '{}'", unit_name);
 
+        let this_object = self
+            .context
+            .with_engine_ref(|engine| engine.script_object_id())
+            .flatten();
+        if let Some(result) = driver.named_superweapon_display(&unit_name, false, this_object) {
+            if let Err(error) = result {
+                log::warn!("Named display effect failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) {
             // Copy the host callback out of the active engine before calling
@@ -866,10 +845,21 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_named_show_special_power_display(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         log::debug!("Showing special power display for '{}'", unit_name);
 
+        let this_object = self
+            .context
+            .with_engine_ref(|engine| engine.script_object_id())
+            .flatten();
+        if let Some(result) = driver.named_superweapon_display(&unit_name, true, this_object) {
+            if let Err(error) = result {
+                log::warn!("Named display effect failed: {error}");
+            }
+            return Ok(ScriptActionResult::Success);
+        }
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) {
             // Copy the host callback out of the active engine before calling
@@ -1545,10 +1535,15 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_named_set_topple_direction(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let dir = self.get_coord_param(action, 1)?;
         let direction = crate::common::Coord3D::new(dir.x, dir.y, dir.z);
+        if let Some(result) = driver.named_topple_direction(&unit_name, direction) {
+            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+            return Ok(ScriptActionResult::Success);
+        }
         let _ = self.context.with_engine_mut(|engine| {
             engine.set_topple_direction(&unit_name, Some(direction));
         });
@@ -1591,12 +1586,7 @@ impl ScriptActionDispatcher<'_> {
         let unit_name = self.get_string_param(action, 0)?;
         let color_raw = self.get_int_param(action, 1)? as u32;
         // C++ Color.h GameMakeColor: (a<<24)|(r<<16)|(g<<8)|b
-        let color = crate::common::Color::new(
-            ((color_raw >> 16) & 0xFF) as u8,
-            ((color_raw >> 8) & 0xFF) as u8,
-            (color_raw & 0xFF) as u8,
-            ((color_raw >> 24) & 0xFF) as u8,
-        );
+        let color = super::script_indicator_color(color_raw);
         log::debug!(
             "Setting custom color for '{}': 0x{:08X}",
             unit_name,
@@ -1996,6 +1986,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_unit_execute_sequential_script(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let script_name = self.get_string_param(action, 1)?;
@@ -2005,13 +1996,25 @@ impl ScriptActionDispatcher<'_> {
             script_name
         );
 
-        let tracker = get_named_object_tracker();
-        let object_id = match tracker.get_object_id(&unit_name) {
-            Ok(Some(id)) => id,
-            _ => match crate::scripting::host_script_named_unit_id(&unit_name) {
-                Some(id) => id,
-                None => return Ok(ScriptActionResult::Success),
-            },
+        let this_object = self
+            .context
+            .with_engine_ref(|engine| engine.script_object_id())
+            .flatten();
+        let object_id = match driver.named_object_id(&unit_name, this_object) {
+            crate::scripting::engine::ScriptOwnerQuery::Present(id) => id,
+            crate::scripting::engine::ScriptOwnerQuery::Missing => {
+                return Ok(ScriptActionResult::Success);
+            }
+            crate::scripting::engine::ScriptOwnerQuery::Unavailable => {
+                let tracker = get_named_object_tracker();
+                match tracker.get_object_id(&unit_name) {
+                    Ok(Some(id)) => id,
+                    _ => match crate::scripting::host_script_named_unit_id(&unit_name) {
+                        Some(id) => id,
+                        None => return Ok(ScriptActionResult::Success),
+                    },
+                }
+            }
         };
 
         let _ = self.context.with_engine_mut(|engine| {
@@ -2032,6 +2035,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_unit_execute_sequential_script_looping(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let script_name = self.get_string_param(action, 1)?;
@@ -2043,13 +2047,25 @@ impl ScriptActionDispatcher<'_> {
             loop_val
         );
 
-        let tracker = get_named_object_tracker();
-        let object_id = match tracker.get_object_id(&unit_name) {
-            Ok(Some(id)) => id,
-            _ => match crate::scripting::host_script_named_unit_id(&unit_name) {
-                Some(id) => id,
-                None => return Ok(ScriptActionResult::Success),
-            },
+        let this_object = self
+            .context
+            .with_engine_ref(|engine| engine.script_object_id())
+            .flatten();
+        let object_id = match driver.named_object_id(&unit_name, this_object) {
+            crate::scripting::engine::ScriptOwnerQuery::Present(id) => id,
+            crate::scripting::engine::ScriptOwnerQuery::Missing => {
+                return Ok(ScriptActionResult::Success);
+            }
+            crate::scripting::engine::ScriptOwnerQuery::Unavailable => {
+                let tracker = get_named_object_tracker();
+                match tracker.get_object_id(&unit_name) {
+                    Ok(Some(id)) => id,
+                    _ => match crate::scripting::host_script_named_unit_id(&unit_name) {
+                        Some(id) => id,
+                        None => return Ok(ScriptActionResult::Success),
+                    },
+                }
+            }
         };
 
         let _ = self.context.with_engine_mut(|engine| {
@@ -2070,17 +2086,30 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_unit_stop_sequential_script(
         &mut self,
         action: &ScriptAction,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         log::debug!("Unit '{}' stopping sequential script", unit_name);
 
-        let tracker = get_named_object_tracker();
-        let object_id = match tracker.get_object_id(&unit_name) {
-            Ok(Some(id)) => id,
-            _ => match crate::scripting::host_script_named_unit_id(&unit_name) {
-                Some(id) => id,
-                None => return Ok(ScriptActionResult::Success),
-            },
+        let this_object = self
+            .context
+            .with_engine_ref(|engine| engine.script_object_id())
+            .flatten();
+        let object_id = match driver.named_object_id(&unit_name, this_object) {
+            crate::scripting::engine::ScriptOwnerQuery::Present(id) => id,
+            crate::scripting::engine::ScriptOwnerQuery::Missing => {
+                return Ok(ScriptActionResult::Success);
+            }
+            crate::scripting::engine::ScriptOwnerQuery::Unavailable => {
+                let tracker = get_named_object_tracker();
+                match tracker.get_object_id(&unit_name) {
+                    Ok(Some(id)) => id,
+                    _ => match crate::scripting::host_script_named_unit_id(&unit_name) {
+                        Some(id) => id,
+                        None => return Ok(ScriptActionResult::Success),
+                    },
+                }
+            }
         };
 
         let _ = self.context.with_engine_mut(|engine| {
@@ -2470,4 +2499,38 @@ impl ScriptActionDispatcher<'_> {
         let _ = self.create_unit_on_team_at_waypoint(None, &object_type, &team_name, &waypoint)?;
         Ok(ScriptActionResult::Success)
     }
+}
+
+/// CPP ScriptActions::doNamedAttackTeam, after target resolution and leaveGroup.
+/// The caller supplies its actual AI; this phase never discovers an Object.
+pub(super) fn issue_borrowed_named_attack_team(
+    ai: &mut dyn crate::modules::AIUpdateInterface,
+    team_name: &str,
+) {
+    let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+    let mut params = AiCommandParams::new(AiCommandType::AttackTeam, CommandSourceType::FromScript);
+    params.team = Some(team_name.to_owned());
+    params.int_value = -1;
+    let _ = ai.execute_command(&params);
+}
+
+/// Same AI modifier used by the standalone adapter and borrowed driving owner.
+pub(super) fn issue_borrowed_named_attitude(
+    ai: &mut dyn crate::modules::AIUpdateInterface,
+    attitude: crate::modules::AIAttitudeType,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ai.set_attitude(attitude)
+}
+
+/// CPP leaveGroup precedes this bounded Normal/AttackArea AI operation.
+pub(super) fn issue_borrowed_named_attack_area(
+    ai: &mut dyn crate::modules::AIUpdateInterface,
+    center: Coord3D,
+    trigger_id: crate::polygon_trigger::PolygonTriggerId,
+) {
+    let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+    let mut params = AiCommandParams::new(AiCommandType::AttackArea, CommandSourceType::FromScript);
+    params.pos = center;
+    params.polygon = Some(trigger_id);
+    let _ = ai.execute_command(&params);
 }

@@ -90,9 +90,41 @@ impl AIManager {
     /// owned by the same manager before and after the synchronous pass.
     pub(crate) fn update_owned(game_logic: &mut GameLogic, current_time: f32) {
         let ai_data = AiDataView::from_world(game_logic);
-        let mut players = std::mem::take(&mut game_logic.ai_manager.ai_players);
-        Self::update_players(&mut players, game_logic, current_time, &ai_data);
-        game_logic.ai_manager.ai_players = players;
+        let ids: Vec<_> = game_logic.ai_manager.ai_players.keys().copied().collect();
+        let destroyed = game_logic.take_ai_team_destroy_notifications();
+        for ai in game_logic.ai_manager.ai_players.values_mut() {
+            for (id, name) in &destroyed {
+                ai.ai_pre_team_destroy(Some(*id), name);
+            }
+        }
+        for id in ids {
+            game_logic.initialize_owned_skirmish_ai(id, &ai_data);
+            let peers = game_logic
+                .ai_manager
+                .ai_players
+                .iter()
+                .map(|(&id, ai)| (id, ai.enemy_player_id))
+                .collect();
+            let Some(mut ai) = game_logic.ai_manager.ai_players.remove(&id) else {
+                continue;
+            };
+            let active = ai.is_active;
+            if active {
+                ai.peer_ai_targets = peers;
+                ai.last_update_time = current_time;
+                ai.update_enemy_assessment(game_logic, current_time);
+                ai.purge_destroyed_or_wiped_queued_teams(game_logic);
+            }
+            game_logic.ai_manager.ai_players.insert(id, ai);
+            if !active {
+                continue;
+            }
+            game_logic.update_owned_ai_economy(id, current_time, &ai_data);
+            game_logic.check_owned_ai_ready_teams(id);
+            game_logic.check_owned_ai_queued_teams(id, current_time);
+            game_logic.update_owned_ai_military(id, current_time, &ai_data);
+            game_logic.update_owned_ai_postmilitary(id, current_time, &ai_data);
+        }
     }
 
     fn update_players(
@@ -111,7 +143,6 @@ impl AIManager {
             .map(|(&id, ai)| (id, ai.enemy_player_id))
             .collect();
         let destroyed = game_logic.take_ai_team_destroy_notifications();
-        let scripts = gamelogic::scripting::engine::get_script_engine().clone();
         let mut ordered: Vec<_> = players.values_mut().collect();
         for slot in 0..ordered.len() {
             let (before, remaining) = ordered.split_at_mut(slot);
@@ -137,7 +168,6 @@ impl AIManager {
                 current_time,
                 ai_data,
                 skirmish,
-                &scripts,
                 &mut notify,
             );
             // C++ getCurrentEnemy observes earlier slots after their update,

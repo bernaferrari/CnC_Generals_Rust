@@ -57,13 +57,13 @@ impl GameLogic {
                         player_id,
                         creator_id
                     );
-                    let _ = gamelogic::scripting::engine::with_script_engine_mut(|engine| {
+                    if let Some(engine) = &self.owned_script_engine {
                         engine.notify_of_completed_special_power(
                             player_id as usize,
                             special_power_name,
                             creator_id,
                         );
-                    });
+                    }
                 }
 
                 ScriptEvent::AllianceStateChanged { player_id, state } => {
@@ -79,18 +79,8 @@ impl GameLogic {
         // Leftover ScriptingEngine event queue / process_events is leftover-only
         // (hq-8ta4n). Live host conditions/actions walk ScriptEngine::update.
         // C++ GameLogic.cpp:3600 — one TheScriptEngine->UPDATE() per logic frame.
-        // Take the engine out of the global RwLock for the duration of update().
-        // std::sync::RwLock is not re-entrant: holding write() across update()
-        // deadlocks when MUSIC_SET_TRACK / MOVE_CAMERA_TO call
-        // get_script_engine().read() (hang after "named cache populated").
-        let taken = match gamelogic::scripting::engine::get_script_engine().write() {
-            Ok(mut guard) => guard.take(),
-            Err(_) => {
-                log::error!("ScriptEngine::update failed: lock poisoned");
-                None
-            }
-        };
-        if let Some(engine) = taken {
+        // The interpreter remains owned and callback-visible throughout the walk.
+        self.with_owned_script_engine(|engine, world| {
             let context = gamelogic::scripting::executor::ScriptContext {
                 game_logic_id: 0,
                 object_manager_id: 0,
@@ -100,18 +90,16 @@ impl GameLogic {
                 audio_system_id: 0,
                 partition_manager_id: 0,
                 special_powers_id: 0,
-                current_frame: self.frame,
+                current_frame: world.frame,
                 suppress_new_windows: false,
-                host_trigger_world: Arc::clone(&self.host_trigger_world),
+                host_trigger_world: Arc::clone(&world.host_trigger_world),
             };
-            let mut driver = script_execution_driver::HostScriptExecutionDriver::new(self);
+            let mut driver =
+                script_execution_driver::HostScriptExecutionDriver::with_interpreter(world, engine);
             if let Err(err) = engine.update_with_driver(context, &mut driver) {
                 log::error!("ScriptEngine::update failed: {err}");
             }
-            if let Ok(mut guard) = gamelogic::scripting::engine::get_script_engine().write() {
-                *guard = Some(engine);
-            }
-        }
+        });
         // Flush requests queued outside the action walk as well.
         self.apply_script_action_requests();
 

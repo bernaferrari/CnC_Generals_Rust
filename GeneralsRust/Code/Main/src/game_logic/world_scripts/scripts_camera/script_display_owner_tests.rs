@@ -56,10 +56,10 @@ fn authored_engine(text: &str, retained_hooks: Arc<MissionScriptHooks>) -> Scrip
 }
 
 fn walk(world: &mut GameLogic, engine: ScriptEngine) -> ScriptEngine {
-    *get_script_engine().write().unwrap() = Some(engine);
+    world.install_owned_script_engine(engine);
     world.scripts_loaded = true;
     world.evaluate_and_execute_scripts(0.0);
-    get_script_engine().write().unwrap().take().unwrap()
+    world.owned_script_engine.take().unwrap()
 }
 
 #[test]
@@ -213,4 +213,76 @@ fn actual_main_nested_display_flushes_before_the_next_instruction_without_a_hand
             assert!(driver.world.mission_scripts.drain_messages().is_empty());
         },
     );
+}
+
+#[test]
+fn named_presentation_actions_mutate_only_the_borrowed_same_id_world() {
+    use gamelogic::scripting::executor::ScriptContext;
+    fn session() -> (GameLogic, ObjectId) {
+        let mut world = GameLogic::new();
+        let mut template = ThingTemplate::new("OwnedPresentationUnit");
+        template.set_health(100.0);
+        world
+            .templates
+            .insert("OwnedPresentationUnit".into(), template);
+        let id = world
+            .create_object("OwnedPresentationUnit", Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        world.host_object_mut(id).unwrap().name = "SameNamedUnit".into();
+        (world, id)
+    }
+    let (mut first, id) = session();
+    let (second, peer) = session();
+    assert_eq!(id, peer);
+    let engine = ScriptEngine::new().unwrap();
+    let mut flash = ScriptAction::new(ScriptActionType::NamedFlashWhite);
+    flash
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "SameNamedUnit".into(),
+        ))
+        .unwrap();
+    flash
+        .add_parameter(Parameter::with_int(ParameterType::Int, 2))
+        .unwrap();
+    engine.friend_execute_action_with_driver(
+        &flash,
+        None,
+        ScriptContext::at_frame(0),
+        &mut HostScriptExecutionDriver::new(&mut first),
+    );
+    assert_eq!(first.host_object(id).unwrap().flash_count, 4);
+    assert_eq!(second.host_object(peer).unwrap().flash_count, 0);
+    let mut color = ScriptAction::new(ScriptActionType::NamedCustomColor);
+    color
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "SameNamedUnit".into(),
+        ))
+        .unwrap();
+    color
+        .add_parameter(Parameter::with_int(ParameterType::Color, -65536))
+        .unwrap();
+    engine.friend_execute_action_with_driver(
+        &color,
+        None,
+        ScriptContext::at_frame(0),
+        &mut HostScriptExecutionDriver::new(&mut first),
+    );
+    assert_eq!(
+        first.host_object(id).unwrap().custom_indicator_color,
+        Some(0xffff0000)
+    );
+    assert_eq!(
+        second.host_object(peer).unwrap().custom_indicator_color,
+        None
+    );
+    color.parameters[1] = Some(Parameter::with_int(ParameterType::Color, 0));
+    engine.friend_execute_action_with_driver(
+        &color,
+        None,
+        ScriptContext::at_frame(0),
+        &mut HostScriptExecutionDriver::new(&mut first),
+    );
+    assert_eq!(first.host_object(id).unwrap().custom_indicator_color, None);
 }

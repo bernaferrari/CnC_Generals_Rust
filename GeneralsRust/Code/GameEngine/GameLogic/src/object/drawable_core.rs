@@ -451,12 +451,6 @@ impl Drawable {
         if let Some(envelope) = self.color_tint_envelope.as_mut() {
             envelope.play(peak, attack_frames, decay_frames, sustain_at_peak);
         }
-        self.flash_color = rgb;
-        self.flash_count = if decay_frames == 0 {
-            0
-        } else {
-            decay_frames as i32
-        };
         self.clear_drawable_status(TINT_COLOR_LOCKED);
     }
 

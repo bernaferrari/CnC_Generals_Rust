@@ -102,7 +102,7 @@ fn install(world: &mut GameLogic, mut actions: Vec<Box<ScriptAction>>, nested: b
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();
-    *get_script_engine().write().unwrap() = Some(engine);
+    world.install_owned_script_engine(engine);
     world.scripts_loaded = true;
 }
 

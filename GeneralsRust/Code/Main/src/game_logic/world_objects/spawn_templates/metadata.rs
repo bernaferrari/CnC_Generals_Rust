@@ -666,6 +666,34 @@ impl GameLogic {
                 let candidate = ContainModuleMetadata {
                     kind,
                     slots,
+                    damage_percent_to_units: Some(
+                        module
+                            .attribute("DamagePercentToUnits")
+                            .and_then(|value| {
+                                value
+                                    .split(';')
+                                    .next()
+                                    .unwrap_or("")
+                                    .trim()
+                                    .trim_end_matches('%')
+                                    .parse::<f32>()
+                                    .ok()
+                            })
+                            .filter(|value| value.is_finite())
+                            .map(|percent| percent / 100.0)
+                            .unwrap_or(0.0),
+                    ),
+                    destroy_riders_who_are_not_free_to_exit: module
+                        .attribute("DestroyRidersWhoAreNotFreeToExit")
+                        .and_then(parse_bool)
+                        .unwrap_or(false),
+                    death_rules: Some(ContainDeathRules::from_attributes(
+                        &module
+                            .attributes
+                            .iter()
+                            .map(|(key, value)| (key.as_str(), value.as_str()))
+                            .collect::<Vec<_>>(),
+                    )),
                     admission: parse_admission(module),
                     allow_allies_inside: module
                         .attribute("AllowAlliesInside")

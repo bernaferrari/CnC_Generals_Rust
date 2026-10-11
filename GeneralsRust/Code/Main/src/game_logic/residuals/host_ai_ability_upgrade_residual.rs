@@ -111,6 +111,7 @@ pub fn host_ai_state_cpp_enum_name(state: &AIState) -> &'static str {
         AIState::FacingObject => "AI_FACE_OBJECT",
         AIState::FacingPosition => "AI_FACE_POSITION",
         AIState::Panic => "AI_PANIC",
+        AIState::Exiting => "AI_EXIT",
     }
 }
 

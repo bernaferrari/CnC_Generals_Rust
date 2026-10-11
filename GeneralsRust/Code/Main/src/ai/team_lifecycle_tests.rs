@@ -136,7 +136,7 @@ fn deletion_notifies_scripts_and_owned_players_before_members_and_metadata() {
             *gamelogic::scripting::engine::get_script_engine()
                 .write()
                 .unwrap() = Some(script_engine(id));
-            let scripts = ScriptEngineHandle::from_engine(script_engine(id));
+            world.install_owned_script_engine(script_engine(id));
             let mut actor = controller(&world, 1, id, unit, false);
             world
                 .ai_manager
@@ -159,9 +159,8 @@ fn deletion_notifies_scripts_and_owned_players_before_members_and_metadata() {
                               deleted,
                               name: &str| {
                 assert!(
-                    !scripts
-                        .read()
-                        .unwrap()
+                    !owner
+                        .owned_script_engine
                         .as_ref()
                         .unwrap()
                         .has_active_sequential_script_for_team(deleted)
@@ -196,7 +195,7 @@ fn deletion_notifies_scripts_and_owned_players_before_members_and_metadata() {
                 );
                 called = true;
             };
-            assert!(world.delete_ai_team_owned(&mut actor, id, &scripts, &mut notify));
+            assert!(world.delete_ai_team_owned(&mut actor, id, &mut notify));
             assert_eq!(
                 foreign.read().unwrap().get_team_id(),
                 Some(id),
@@ -260,9 +259,7 @@ fn actual_ai_disband_purges_preceding_current_and_following_borrowed_players() {
             let (second, other_id, other_unit) = owner_world(false);
             let foreign = install_foreign(id, unit);
             let before = foreign_controller_bytes();
-            *gamelogic::scripting::engine::get_script_engine()
-                .write()
-                .unwrap() = Some(script_engine(id));
+            world.install_owned_script_engine(script_engine(id));
             let unrelated = world
                 .team_factory
                 .lock()
@@ -350,9 +347,8 @@ fn actual_ai_disband_purges_preceding_current_and_following_borrowed_players() {
             assert!(default.read().unwrap().get_members().contains(&unit.0));
             drop(factory);
             assert!(
-                !gamelogic::scripting::engine::get_script_engine()
-                    .read()
-                    .unwrap()
+                !world
+                    .owned_script_engine
                     .as_ref()
                     .unwrap()
                     .has_active_sequential_script_for_team(id)
@@ -384,16 +380,12 @@ fn singleton_disband_transfers_members_without_destruction_callbacks() {
         "singleton_disband_transfers_members_without_destruction_callbacks",
         || {
             let (mut world, id, unit) = owner_world(true);
-            let scripts = ScriptEngineHandle::from_engine(script_engine(id));
+            world.install_owned_script_engine(script_engine(id));
             let mut actor = controller(&world, 1, id, unit, false);
             let queue = actor.team_queue.front().unwrap().clone();
-            actor.disband_queued_team_with_owner(
-                &mut world,
-                &queue,
-                false,
-                &scripts,
-                &mut |_, _, _, _| panic!("singleton was not deleted"),
-            );
+            actor.disband_queued_team_with_owner(&mut world, &queue, false, &mut |_, _, _, _| {
+                panic!("singleton was not deleted")
+            });
             assert!(
                 world
                     .team_factory
@@ -407,9 +399,8 @@ fn singleton_disband_transfers_members_without_destruction_callbacks() {
                 "teamTeamOwner"
             );
             assert!(
-                scripts
-                    .read()
-                    .unwrap()
+                world
+                    .owned_script_engine
                     .as_ref()
                     .unwrap()
                     .has_active_sequential_script_for_team(id)

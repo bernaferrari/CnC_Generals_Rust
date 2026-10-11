@@ -51,7 +51,6 @@ impl GameWorldShadow {
             horde_player_rel: HashMap::new(),
 
             production_power_factor_by_host: HashMap::new(),
-            construction_rate_by_host: HashMap::new(),
             special_power_frozen_by_host: HashMap::new(),
             map_min_x: 0.0,
             map_min_z: 0.0,
@@ -171,6 +170,7 @@ impl GameWorldShadow {
             A::FacingObject => 21,
             A::FacingPosition => 22,
             A::Panic => 23,
+            A::Exiting => 24,
         }
     }
 
@@ -200,6 +200,7 @@ impl GameWorldShadow {
             21 => A::FacingObject,
             22 => A::FacingPosition,
             23 => A::Panic,
+            24 => A::Exiting,
             _ => A::Idle,
         }
     }
@@ -301,8 +302,7 @@ impl GameWorldShadow {
             if let Some(&eid) = self.host_to_entity.get(&oid.0) {
                 if let Some(e) = self.world.world_mut().entity_mut(eid) {
                     let skip_sole_channels =
-                        crate::gameworld_shadow::gameworld_construction_sole_tick_enabled()
-                            || crate::gameworld_shadow::gameworld_production_sole_tick_enabled()
+                        crate::gameworld_shadow::gameworld_production_sole_tick_enabled()
                             || crate::gameworld_shadow::gameworld_damage_authority_live();
                     if write_health && !skip_sole_channels {
                         e.health = health;
@@ -1851,8 +1851,6 @@ impl GameWorldShadow {
                 .target
                 .and_then(|tid| self.host_to_entity.get(&tid.0).copied());
             if let Some(e) = self.world.world_mut().entity_mut(eid) {
-                let skip_construction =
-                    crate::gameworld_shadow::gameworld_construction_sole_tick_enabled();
                 let skip_production =
                     crate::gameworld_shadow::gameworld_production_sole_tick_enabled();
                 e.attack_target = at;
@@ -1860,10 +1858,10 @@ impl GameWorldShadow {
                 e.max_health = obj.max_health.max(obj.health.current).max(1.0);
                 e.selected = obj.selected;
                 e.destroyed = obj.status.destroyed;
-                if !skip_construction {
-                    e.construction_percent = obj.construction_percent.clamp(-1.0, 1.0);
-                    e.under_construction = obj.status.under_construction;
-                }
+
+                e.construction_percent = obj.construction_percent.clamp(-1.0, 1.0);
+                e.under_construction = obj.status.under_construction;
+
                 e.team_ordinal = Self::host_team_ordinal(obj.team);
                 e.selection_radius = obj.selection_radius.max(5.0);
                 e.crusher_level = obj.crusher_level;

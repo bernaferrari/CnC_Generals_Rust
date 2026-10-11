@@ -1505,10 +1505,15 @@ mod actions_team_command;
 mod actions_team_relations;
 mod actions_victory_team;
 mod actions_world;
+mod borrowed_presentation;
 mod dispatch;
+pub(crate) use borrowed_presentation::{apply_script_drawable_flash, script_indicator_color};
 mod eval_basic;
 mod eval_named;
 mod eval_owned_body_census;
+mod eval_owned_player_area;
+mod eval_owned_player_census;
+mod eval_owned_skirmish;
 mod eval_player_events;
 mod eval_skirmish;
 
@@ -1535,6 +1540,8 @@ pub const EXECUTOR_SRC: &str = concat!(
     include_str!("dispatch.rs"),
     include_str!("eval_basic.rs"),
     include_str!("eval_owned_body_census.rs"),
+    include_str!("eval_owned_player_area.rs"),
+    include_str!("eval_owned_skirmish.rs"),
     include_str!("eval_named.rs"),
     include_str!("eval_player_events.rs"),
     include_str!("eval_skirmish.rs"),

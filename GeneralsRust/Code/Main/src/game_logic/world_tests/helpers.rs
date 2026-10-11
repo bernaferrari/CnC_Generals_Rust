@@ -300,6 +300,21 @@ pub(super) fn create_test_overlord(
         // Mark overlord-style residual; slots=None means no bunker installed.
         obj.overlord_bunker_capacity = Some(bunker_slots.unwrap_or(0));
     }
+    if let Some(slots) = bunker_slots {
+        let name = crate::game_logic::host_overlord_addons::OVERLORD_PAYLOAD_BUNKER;
+        let mut payload = ThingTemplate::new(name);
+        payload.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        payload.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Transport,
+            slots: Some(slots),
+            admission: ContainAdmission::InfantryOnly,
+            ..Default::default()
+        };
+        game_logic.templates.insert(name.into(), payload);
+        game_logic
+            .ensure_overlord_portable_addon_occupant(id)
+            .expect("physical test bunker");
+    }
     id
 }
 

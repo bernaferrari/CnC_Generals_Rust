@@ -295,3 +295,334 @@ fn authored_transport_wrapper_restores_inherited_rally_to_installed_runtime() {
         Some(rally)
     );
 }
+
+#[test]
+fn authored_transport_admission_uses_borrowed_same_id_owner_without_registry() {
+    if !child(concat!(
+        module_path!(),
+        "::authored_transport_admission_uses_borrowed_same_id_owner_without_registry"
+    )) {
+        return;
+    }
+    let first = Installed::new(
+        "BorrowedTransportFirst",
+        "TransportContain",
+        "Slots = 1\n AllowInsideKindOf = INFANTRY",
+    );
+    let second = Installed::new(
+        "BorrowedTransportSecond",
+        "TransportContain",
+        "Slots = 0\n AllowInsideKindOf = INFANTRY",
+    );
+    {
+        let mut factory = get_thing_factory().unwrap();
+        assert_eq!(factory.as_mut().unwrap().load_ini_text("Object BorrowedPassenger\n KindOf = INFANTRY\n TransportSlotCount = 1\nEnd\nObject BorrowedWrongRider\n KindOf = VEHICLE\n TransportSlotCount = 1\nEnd\n"),2);
+    }
+    let passenger = Object::new_raw(
+        TheThingFactory::find_template("BorrowedPassenger").unwrap(),
+        ID + 1,
+        ObjectStatusMaskType::NONE,
+        None,
+    );
+    let wrong = Object::new_raw(
+        TheThingFactory::find_template("BorrowedWrongRider").unwrap(),
+        ID + 2,
+        ObjectStatusMaskType::NONE,
+        None,
+    );
+    let mut foreign_team = crate::team::Team::new("ForeignBorrowedRider".into(), 900);
+    foreign_team.set_controlling_player_id(Some(42));
+    let foreign_team = Arc::new(RwLock::new(foreign_team));
+    let foreign = Object::new_raw(
+        TheThingFactory::find_template("BorrowedPassenger").unwrap(),
+        ID + 3,
+        ObjectStatusMaskType::NONE,
+        Some(Arc::clone(&foreign_team)),
+    );
+    assert_eq!(foreign.get_controlling_player_id(), Some(42));
+    assert!(
+        foreign_team.read().unwrap().get_members().is_empty(),
+        "detached construction does not admit membership"
+    );
+    assert!(
+        crate::object::registry::OBJECT_REGISTRY
+            .get_object(ID + 3)
+            .is_none()
+    );
+    let ambient_team = crate::team::get_team_factory()
+        .lock()
+        .unwrap()
+        .create_team_on_prototype_with_id(
+            &crate::team::TeamPrototype::new("AmbientSameId".into()),
+            900,
+        )
+        .unwrap();
+    ambient_team
+        .write()
+        .unwrap()
+        .set_controlling_player_id(Some(99));
+    assert!(Arc::ptr_eq(&foreign.get_team().unwrap(), &foreign_team));
+    assert_eq!(
+        foreign.get_controlling_player_id(),
+        Some(42),
+        "ambient same-ID team cannot replace admitted identity"
+    );
+    let before_first = first.save();
+    let before_second = second.save();
+    // Holding the actual owner used to force derived TransportContain back
+    // through a missing/borrowed ambient object and reject this positive.
+    let owner = first.owner.read().unwrap();
+    let contain = first.contain.lock().unwrap();
+    assert!(contain.is_valid_container_for_with_owner(&passenger, &owner, true));
+    assert!(!contain.is_valid_container_for_with_owner(&wrong, &owner, true));
+    assert!(!contain.is_valid_container_for_with_owner(&foreign, &owner, false));
+    drop(contain);
+    drop(owner);
+    let owner = second.owner.read().unwrap();
+    assert!(
+        !second
+            .contain
+            .lock()
+            .unwrap()
+            .is_valid_container_for_with_owner(&passenger, &owner, true)
+    );
+    assert!(
+        second
+            .contain
+            .lock()
+            .unwrap()
+            .is_valid_container_for_with_owner(&passenger, &owner, false)
+    );
+    drop(owner);
+    assert_eq!(first.save(), before_first);
+    assert_eq!(second.save(), before_second);
+    assert!(
+        crate::object::registry::OBJECT_REGISTRY
+            .get_object(ID)
+            .is_none()
+    );
+}
+
+#[test]
+fn authored_helix_and_rider_admission_use_exact_borrowed_owner() {
+    if !child(concat!(
+        module_path!(),
+        "::authored_helix_and_rider_admission_use_exact_borrowed_owner"
+    )) {
+        return;
+    }
+    let helix = Installed::new(
+        "OwnedHelixAdmission",
+        "HelixContain",
+        "Slots = 1\n AllowInsideKindOf = INFANTRY",
+    );
+    let helix_full = Installed::new(
+        "OwnedHelixNoSlots",
+        "HelixContain",
+        "Slots = 0\n AllowInsideKindOf = INFANTRY",
+    );
+    let bike = Installed::new(
+        "OwnedBikeAdmission",
+        "RiderChangeContain",
+        "Slots = 0\n AllowInsideKindOf = INFANTRY\n Rider1 = OwnedBikeRider RIDER1 WEAPON_RIDER1 STATUS_RIDER1 RiderCommands SET_NORMAL",
+    );
+    {
+        let mut factory = get_thing_factory().unwrap();
+        assert_eq!(factory.as_mut().unwrap().load_ini_text(
+            "Object OwnedBikeRider\n KindOf = INFANTRY\n TransportSlotCount = 1\nEnd\nObject OwnedOtherRider\n KindOf = INFANTRY\n TransportSlotCount = 1\nEnd\nObject OwnedPortablePayload\n KindOf = PORTABLE_STRUCTURE\n TransportSlotCount = 0\nEnd\n"), 3);
+    }
+    let rider = Object::new_raw(
+        TheThingFactory::find_template("OwnedBikeRider").unwrap(),
+        ID + 1,
+        ObjectStatusMaskType::NONE,
+        None,
+    );
+    let other = Object::new_raw(
+        TheThingFactory::find_template("OwnedOtherRider").unwrap(),
+        ID + 2,
+        ObjectStatusMaskType::NONE,
+        None,
+    );
+    let portable = Object::new_raw(
+        TheThingFactory::find_template("OwnedPortablePayload").unwrap(),
+        ID + 3,
+        ObjectStatusMaskType::NONE,
+        None,
+    );
+    let mut foreign_team = crate::team::Team::new("ForeignRider".into(), 911);
+    foreign_team.set_controlling_player_id(Some(42));
+    let foreign = Object::new_raw(
+        TheThingFactory::find_template("OwnedBikeRider").unwrap(),
+        ID + 4,
+        ObjectStatusMaskType::NONE,
+        Some(Arc::new(RwLock::new(foreign_team))),
+    );
+    let before = [helix.save(), helix_full.save(), bike.save()];
+    // The outer write borrow makes rediscovery impossible. Admission receives
+    // this exact owner through the factory-installed interface instead.
+    let owner = helix.owner.write().unwrap();
+    assert!(
+        helix
+            .contain
+            .lock()
+            .unwrap()
+            .is_valid_container_for_with_owner(&rider, &owner, true)
+    );
+    assert!(
+        !helix
+            .contain
+            .lock()
+            .unwrap()
+            .is_valid_container_for_with_owner(&foreign, &owner, false)
+    );
+    drop(owner);
+    let owner = helix_full.owner.write().unwrap();
+    assert!(
+        !helix_full
+            .contain
+            .lock()
+            .unwrap()
+            .is_valid_container_for_with_owner(&rider, &owner, true)
+    );
+    assert!(
+        helix_full
+            .contain
+            .lock()
+            .unwrap()
+            .is_valid_container_for_with_owner(&rider, &owner, false)
+    );
+    assert!(
+        helix_full
+            .contain
+            .lock()
+            .unwrap()
+            .is_valid_container_for_with_owner(&portable, &owner, true),
+        "CPP portable first payload bypasses ordinary transport gates"
+    );
+    drop(owner);
+    let owner = bike.owner.write().unwrap();
+    assert!(
+        bike.contain
+            .lock()
+            .unwrap()
+            .is_valid_container_for_with_owner(&rider, &owner, true),
+        "CPP replacement deliberately ignores capacity"
+    );
+    assert!(
+        !bike
+            .contain
+            .lock()
+            .unwrap()
+            .is_valid_container_for_with_owner(&other, &owner, false)
+    );
+    assert!(
+        !bike
+            .contain
+            .lock()
+            .unwrap()
+            .is_valid_container_for_with_owner(&foreign, &owner, false)
+    );
+    drop(owner);
+    assert_eq!([helix.save(), helix_full.save(), bike.save()], before);
+    assert!(
+        crate::object::registry::OBJECT_REGISTRY
+            .get_object(ID)
+            .is_none()
+    );
+}
+
+#[test]
+fn authored_railed_and_internet_admission_use_borrowed_container() {
+    if !child(concat!(
+        module_path!(),
+        "::authored_railed_and_internet_admission_use_borrowed_container"
+    )) {
+        return;
+    }
+    for (index, module) in ["RailedTransportContain", "InternetHackContain"]
+        .into_iter()
+        .enumerate()
+    {
+        let owner = Installed::new(
+            &format!("BorrowedDerived{index}"),
+            module,
+            "Slots = 1\n AllowInsideKindOf = INFANTRY",
+        );
+        let full = Installed::new(
+            &format!("BorrowedDerivedFull{index}"),
+            module,
+            "Slots = 0\n AllowInsideKindOf = INFANTRY",
+        );
+        let passenger_name = format!("BorrowedDerivedPassenger{index}");
+        let wrong_name = format!("BorrowedDerivedWrong{index}");
+        {
+            let mut factory = get_thing_factory().unwrap();
+            assert_eq!(factory.as_mut().unwrap().load_ini_text(&format!("Object {passenger_name}\n KindOf = INFANTRY\n TransportSlotCount = 1\nEnd\nObject {wrong_name}\n KindOf = VEHICLE\n TransportSlotCount = 1\nEnd\n")), 2);
+        }
+        let passenger = Object::new_raw(
+            TheThingFactory::find_template(&passenger_name).unwrap(),
+            ID + 1,
+            ObjectStatusMaskType::NONE,
+            None,
+        );
+        let wrong = Object::new_raw(
+            TheThingFactory::find_template(&wrong_name).unwrap(),
+            ID + 2,
+            ObjectStatusMaskType::NONE,
+            None,
+        );
+        let mut foreign_team = crate::team::Team::new("DerivedForeign".into(), 1200);
+        foreign_team.set_controlling_player_id_for_owned_members(Some(42));
+        let foreign = Object::new_raw(
+            TheThingFactory::find_template(&passenger_name).unwrap(),
+            ID + 3,
+            ObjectStatusMaskType::NONE,
+            Some(Arc::new(RwLock::new(foreign_team))),
+        );
+        let before = [owner.save(), full.save()];
+        let guard = owner.owner.write().unwrap();
+        assert!(
+            owner
+                .contain
+                .lock()
+                .unwrap()
+                .is_valid_container_for_with_owner(&passenger, &guard, true)
+        );
+        assert!(
+            !owner
+                .contain
+                .lock()
+                .unwrap()
+                .is_valid_container_for_with_owner(&wrong, &guard, false)
+        );
+        assert!(
+            !owner
+                .contain
+                .lock()
+                .unwrap()
+                .is_valid_container_for_with_owner(&foreign, &guard, false)
+        );
+        drop(guard);
+        let guard = full.owner.write().unwrap();
+        assert!(
+            !full
+                .contain
+                .lock()
+                .unwrap()
+                .is_valid_container_for_with_owner(&passenger, &guard, true)
+        );
+        assert!(
+            full.contain
+                .lock()
+                .unwrap()
+                .is_valid_container_for_with_owner(&passenger, &guard, false)
+        );
+        drop(guard);
+        assert_eq!([owner.save(), full.save()], before);
+    }
+    assert!(
+        crate::object::registry::OBJECT_REGISTRY
+            .get_object(ID)
+            .is_none()
+    );
+}

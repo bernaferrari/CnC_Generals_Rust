@@ -36,6 +36,7 @@ fn dual_world_registry_unavailable() -> bool {
 }
 
 mod attack_priorities;
+mod condition_queries;
 mod template_labels;
 mod template_metadata;
 mod template_names;
@@ -66,6 +67,7 @@ pub const SCRIPT_ENGINE_SRC: &str = concat!(
     include_str!("init.rs"),
     include_str!("leftover.rs"),
     include_str!("named_trackers.rs"),
+    include_str!("condition_queries.rs"),
     include_str!("types.rs"),
     include_str!("camera_requests.rs"),
     include_str!("update.rs"),
@@ -73,3 +75,6 @@ pub const SCRIPT_ENGINE_SRC: &str = concat!(
 
 #[cfg(test)]
 mod condition_cursor_tests;
+
+#[cfg(test)]
+mod condition_query_tests;

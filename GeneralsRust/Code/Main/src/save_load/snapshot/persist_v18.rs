@@ -439,8 +439,8 @@ fn capture_persist_v18_impl(
         ids
     };
 
-    if let Some((counters, flags, sequential, named_reveals, tail)) =
-        gamelogic::scripting::engine::with_script_engine_ref(|engine| {
+    if let Some((counters, flags, sequential, named_reveals, mut tail)) =
+        game_logic.owned_script_engine.as_ref().map(|engine| {
             let (counters, flags) = engine.snapshot_named_trackers();
             (
                 counters,
@@ -486,6 +486,13 @@ fn capture_persist_v18_impl(
                 },
             )
             .collect();
+        tail.objects_should_receive_difficulty_bonus = game_logic.objects_receive_difficulty_bonus;
+        tail.game_difficulty = match game_logic.get_difficulty() {
+            crate::ai::AIDifficulty::Easy => 0,
+            crate::ai::AIDifficulty::Medium => 1,
+            crate::ai::AIDifficulty::Hard => 2,
+            crate::ai::AIDifficulty::Brutal => 3,
+        };
         persist.script_engine_tail = Some(tail);
     }
 
@@ -790,7 +797,17 @@ pub fn restore_persist_v18(
             )
         })
         .collect();
-    let _ = gamelogic::scripting::engine::with_script_engine_mut(|engine| {
+    game_logic.admit_session_difficulty(
+        persist
+            .script_engine_tail
+            .as_ref()
+            .map_or(1, |tail| tail.game_difficulty),
+    );
+    game_logic.objects_receive_difficulty_bonus = persist
+        .script_engine_tail
+        .as_ref()
+        .map_or(true, |tail| tail.objects_should_receive_difficulty_bonus);
+    if let Some(engine) = &game_logic.owned_script_engine {
         let _ = engine.restore_named_trackers(&counters, &flags);
         engine.restore_sequential_scripts(&sequential);
         engine.restore_named_reveals(&named_reveals);
@@ -798,7 +815,7 @@ pub fn restore_persist_v18(
             engine.restore_xfer_tail(tail);
         }
         engine.reapply_named_map_reveals();
-    });
+    }
 
     game_logic.restore_script_actives(
         &persist

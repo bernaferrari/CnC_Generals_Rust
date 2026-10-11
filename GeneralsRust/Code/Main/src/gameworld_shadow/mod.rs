@@ -73,9 +73,6 @@ pub struct GameWorldShadow {
 
     /// Last host energy shortfall residual per producer host id (sole-tick).
     production_power_factor_by_host: HashMap<u32, f32>,
-    /// Last host construction effective_rate residual per host object id.
-    construction_rate_by_host: HashMap<u32, f32>,
-    /// Host isDisabled/pauseCountdown freeze residual for SP sole-tick.
     special_power_frozen_by_host: HashMap<u32, bool>,
     /// Host world XZ extent for DeliverPayload HeadOffMap / isOffMap.
     map_min_x: f32,

@@ -93,7 +93,7 @@ pub fn eager_apply_all_host_residuals_after_logic(
         let _ = eager_apply_host_production_after_logic(shadow, logic);
         let _ = eager_apply_host_production_progress_after_logic(shadow, logic);
         let _ = eager_apply_host_construction_after_logic(shadow, logic);
-        let _ = eager_apply_host_construction_progress_after_logic(shadow, logic);
+        let _ = eager_observe_host_construction_after_logic(shadow, logic);
         let _ = eager_apply_host_combat_attack_after_logic(shadow, logic);
         let _ = eager_apply_host_projectile_after_logic(shadow, logic);
         let _ = eager_apply_host_destroy_after_logic(shadow, logic);

@@ -7,6 +7,10 @@
 #[derive(Debug)]
 pub struct TeamFactory {
     prototypes: HashMap<String, Arc<TeamPrototype>>,
+    /// CPP Player::addTeamToList appends definitions; map keys and IDs are lookup only.
+    prototype_order: Vec<String>,
+    /// Presence admits an exact session controller, including explicit absence.
+    prototype_controllers: HashMap<String, Option<u32>>,
     teams: HashMap<TeamID, Arc<RwLock<Team>>>,
     /// CPP TeamInstanceList admission order; IDs do not encode list position.
     instance_order: Vec<TeamID>,
@@ -46,6 +50,8 @@ impl TeamFactory {
     pub fn new() -> Self {
         Self {
             prototypes: HashMap::new(),
+            prototype_order: Vec::new(),
+            prototype_controllers: HashMap::new(),
             teams: HashMap::new(),
             instance_order: Vec::new(),
             unique_team_prototype_id: 1,
@@ -60,6 +66,8 @@ impl TeamFactory {
     pub fn init(&mut self) {
         self.unlink_prototypes_from_owning_players();
         self.prototypes.clear();
+        self.prototype_order.clear();
+        self.prototype_controllers.clear();
         self.teams.clear();
         self.instance_order.clear();
         self.unique_team_prototype_id = 1;
@@ -73,6 +81,8 @@ impl TeamFactory {
     pub fn reset(&mut self) {
         self.unlink_prototypes_from_owning_players();
         self.prototypes.clear();
+        self.prototype_order.clear();
+        self.prototype_controllers.clear();
         self.teams.clear();
         self.instance_order.clear();
         self.unique_team_prototype_id = 1;
@@ -177,6 +187,27 @@ impl TeamFactory {
         }
     }
 
+    /// CPP TeamPrototype1038: query the first eligible empty instance again
+    /// after every synchronous deletion. Default identity is supplied by Player.
+    pub fn empty_active_team_for_prototype(
+        &self,
+        prototype: &str,
+        default_team: Option<TeamID>,
+    ) -> Option<TeamID> {
+        if self.find_team_prototype(prototype)?.is_singleton() {
+            return None;
+        }
+        self.find_team_instances(prototype)
+            .into_iter()
+            .find_map(|team| {
+                let team = team.read().ok()?;
+                (team.is_active()
+                    && team.get_members().is_empty()
+                    && Some(team.get_id()) != default_team)
+                    .then(|| team.get_id())
+            })
+    }
+
     /// Initialize a team from configuration
     pub fn init_team(
         &mut self,
@@ -184,6 +215,52 @@ impl TeamFactory {
         owner: AsciiString,
         is_singleton: Bool,
         dict: Option<&Dict>,
+    ) -> Option<Arc<TeamPrototype>> {
+        self.init_team_with_controller(name, owner, is_singleton, dict, None, None)
+    }
+
+    /// Map/session admission never publishes to the compatibility PlayerList.
+    pub fn init_team_owned(
+        &mut self,
+        name: AsciiString,
+        owner: AsciiString,
+        is_singleton: Bool,
+        dict: Option<&Dict>,
+        controller: Option<u32>,
+    ) -> Option<Arc<TeamPrototype>> {
+        self.init_team_with_controller(name, owner, is_singleton, dict, Some(controller), None)
+    }
+
+    /// CPP initTeam singleton creation executes its null-team action before
+    /// admitting the next definition. The caller owns that interpreter phase.
+    pub fn init_team_owned_with_effects(
+        &mut self,
+        name: AsciiString,
+        owner: AsciiString,
+        is_singleton: Bool,
+        dict: Option<&Dict>,
+        controller: Option<u32>,
+    ) -> Option<(Arc<TeamPrototype>, Vec<String>)> {
+        let mut effects = Vec::new();
+        let prototype = self.init_team_with_controller(
+            name,
+            owner,
+            is_singleton,
+            dict,
+            Some(controller),
+            Some(&mut effects),
+        )?;
+        Some((prototype, effects))
+    }
+
+    fn init_team_with_controller(
+        &mut self,
+        name: AsciiString,
+        owner: AsciiString,
+        is_singleton: Bool,
+        dict: Option<&Dict>,
+        controller: Option<Option<u32>>,
+        owned_effects: Option<&mut Vec<String>>,
     ) -> Option<Arc<TeamPrototype>> {
         let mut prototype = TeamPrototype::new(name.clone());
         prototype.set_id(self.unique_team_prototype_id);
@@ -410,11 +487,24 @@ impl TeamFactory {
         self.unique_team_prototype_id += 1;
 
         let prototype = Arc::new(prototype);
+        if !self.prototypes.contains_key(name.as_str()) {
+            self.prototype_order.push(name.to_string());
+        }
         self.prototypes.insert(name.to_string(), prototype.clone());
-        // C++ TeamPrototype ctor: owningPlayer->addTeamToList(this).
-        self.bind_prototype_to_owning_player(&prototype);
+        if let Some(controller) = controller {
+            self.prototype_controllers
+                .insert(name.to_string(), controller);
+        } else {
+            self.prototype_controllers.remove(name.as_str());
+            // Standalone C++ compatibility adapter only.
+            self.bind_prototype_to_owning_player(&prototype);
+        }
         if is_singleton {
-            let _ = self.create_inactive_team(name.as_str());
+            if let Some(effects) = owned_effects {
+                let _ = self.create_inactive_team_collecting_effects(name.as_str(), effects);
+            } else {
+                let _ = self.create_inactive_team(name.as_str());
+            }
         }
         Some(prototype)
     }
@@ -490,7 +580,7 @@ impl TeamFactory {
 
     /// Script team prototype names declared on the map (C++ TeamFactory prototypes).
     pub fn prototype_names(&self) -> Vec<String> {
-        self.prototypes.keys().cloned().collect()
+        self.prototype_order.clone()
     }
 
     /// Find team prototype by ID
@@ -504,7 +594,48 @@ impl TeamFactory {
     }
 
     pub fn list_team_prototypes(&self) -> Vec<Arc<TeamPrototype>> {
-        self.prototypes.values().cloned().collect()
+        self.list_team_prototypes_in_admission_order()
+    }
+
+    pub fn list_team_prototypes_in_admission_order(&self) -> Vec<Arc<TeamPrototype>> {
+        self.prototype_order
+            .iter()
+            .filter_map(|name| self.prototypes.get(name).cloned())
+            .collect()
+    }
+
+    /// Exact admitted controller identity, in original player-list visitation order.
+    pub fn owned_team_prototypes_for_controller(&self, controller: u32) -> Vec<Arc<TeamPrototype>> {
+        self.list_team_prototypes_in_admission_order()
+            .into_iter()
+            .filter(|prototype| {
+                self.prototype_controllers
+                    .get(prototype.get_name().as_str())
+                    == Some(&Some(controller))
+            })
+            .collect()
+    }
+
+    /// Restore the saved visitation sequence after validating every identity.
+    /// Definitions not included in an older partial capsule retain their order.
+    pub fn restore_prototype_admission_order(&mut self, names: &[String]) -> GameLogicResult<()> {
+        let mut seen = HashSet::new();
+        for name in names {
+            if !self.prototypes.contains_key(name) || !seen.insert(name.clone()) {
+                return Err(GameLogicError::Configuration(format!(
+                    "Invalid saved team prototype order entry {name}"
+                )));
+            }
+        }
+        let mut order = names.to_vec();
+        order.extend(
+            self.prototype_order
+                .iter()
+                .filter(|name| !seen.contains(*name))
+                .cloned(),
+        );
+        self.prototype_order = order;
+        Ok(())
     }
 
     /// Snapshot hook: next team instance ID allocator value.
@@ -548,20 +679,8 @@ impl TeamFactory {
             team_guard.set_prototype_recruitable(prototype.is_ai_recruitable());
             team_guard.apply_template_script_hooks(prototype);
         }
-        let owner_name = prototype.get_owner_name().to_string();
-        let owner_player = player_list().read().ok().and_then(|list| {
-            if owner_name.is_empty() {
-                None
-            } else {
-                list.find_player_by_name(&owner_name)
-            }
-            .or_else(|| list.get_neutral_player())
-        });
-        if let Some(owner_player) = owner_player {
-            if let (Ok(owner_guard), Ok(mut team_guard)) = (owner_player.read(), team.write()) {
-                team_guard.set_controlling_player_id(Some(owner_guard.get_player_index() as u32));
-            }
-        }
+        let controller = self.controller_for_prototype(prototype);
+        team.write().ok()?.set_controlling_player_id(controller);
         self.admit_team_instance(team_id, team.clone());
         if team_id >= self.unique_team_id {
             self.unique_team_id = team_id.saturating_add(1);
@@ -572,6 +691,9 @@ impl TeamFactory {
     /// Replace a prototype after xfer mutates template fields stored by value.
     pub fn replace_team_prototype(&mut self, prototype: TeamPrototype) {
         let name = prototype.get_name().to_string();
+        if !self.prototypes.contains_key(&name) {
+            self.prototype_order.push(name.clone());
+        }
         self.prototypes.insert(name, Arc::new(prototype));
     }
 
@@ -607,18 +729,6 @@ impl TeamFactory {
         None
     }
 
-    fn queue_create_actions_for_prototype(&mut self, prototype: &TeamPrototype) {
-        if !prototype.get_execute_actions_on_create() {
-            return;
-        }
-        let production_condition = prototype.get_production_condition();
-        if production_condition.is_empty() {
-            return;
-        }
-        self.pending_create_action_scripts
-            .push(production_condition.to_string());
-    }
-
     /// Create team from prototype name
     pub fn create_team(&mut self, name: &str) -> Option<Arc<RwLock<Team>>> {
         let team = self.create_inactive_team(name)?;
@@ -628,6 +738,36 @@ impl TeamFactory {
 
     /// Create inactive team
     pub fn create_inactive_team(&mut self, name: &str) -> Option<Arc<RwLock<Team>>> {
+        let mut on_create = Vec::new();
+        let team = self.create_inactive_team_collecting_effects(name, &mut on_create);
+        self.pending_create_action_scripts.extend(on_create);
+        team
+    }
+
+    /// The driving interpreter executes these original null-team callbacks
+    /// after releasing the factory borrow, at the synchronous creation phase.
+    pub fn create_inactive_team_with_owned_effects(
+        &mut self,
+        name: &str,
+    ) -> Option<(Arc<RwLock<Team>>, Vec<String>)> {
+        let mut on_create = Vec::new();
+        let team = self.create_inactive_team_collecting_effects(name, &mut on_create)?;
+        Some((team, on_create))
+    }
+
+    fn collect_create_effects(prototype: &TeamPrototype, on_create: &mut Vec<String>) {
+        if prototype.get_execute_actions_on_create()
+            && !prototype.get_production_condition().is_empty()
+        {
+            on_create.push(prototype.get_production_condition().to_string());
+        }
+    }
+
+    fn create_inactive_team_collecting_effects(
+        &mut self,
+        name: &str,
+        on_create: &mut Vec<String>,
+    ) -> Option<Arc<RwLock<Team>>> {
         let prototype = self.find_team_prototype(name);
         if prototype.is_none() {
             return None;
@@ -635,7 +775,7 @@ impl TeamFactory {
         if prototype.as_ref().is_some_and(|p| p.is_singleton()) {
             if let Some(existing) = self.find_existing_team_by_name(name) {
                 if let Some(prototype) = prototype.as_deref() {
-                    self.queue_create_actions_for_prototype(prototype);
+                    Self::collect_create_effects(prototype, on_create);
                 }
                 return Some(existing);
             }
@@ -650,26 +790,13 @@ impl TeamFactory {
                 team_guard.set_prototype_recruitable(prototype.is_ai_recruitable());
                 team_guard.apply_template_script_hooks(prototype);
             }
-            let owner_name = prototype.get_owner_name().to_string();
-            let owner_player = player_list().read().ok().and_then(|list| {
-                if owner_name.is_empty() {
-                    None
-                } else {
-                    list.find_player_by_name(&owner_name)
-                }
-                .or_else(|| list.get_neutral_player())
-            });
-            if let Some(owner_player) = owner_player {
-                if let (Ok(owner_guard), Ok(mut team_guard)) = (owner_player.read(), team.write()) {
-                    team_guard
-                        .set_controlling_player_id(Some(owner_guard.get_player_index() as u32));
-                }
-            }
+            let controller = self.controller_for_prototype(prototype);
+            team.write().ok()?.set_controlling_player_id(controller);
         }
 
         self.admit_team_instance(team_id, team.clone());
         if let Some(prototype) = prototype.as_deref() {
-            self.queue_create_actions_for_prototype(prototype);
+            Self::collect_create_effects(prototype, on_create);
         }
         Some(team)
     }
@@ -913,6 +1040,22 @@ impl TeamFactory {
     }
 
     /// C++ TeamPrototype ctor/dtor + initTeam owner lookup (Team.cpp:216-223, 799-800).
+    fn controller_for_prototype(&self, prototype: &TeamPrototype) -> Option<u32> {
+        if let Some(controller) = self
+            .prototype_controllers
+            .get(prototype.get_name().as_str())
+        {
+            return *controller;
+        }
+        self.resolve_owning_player(prototype.get_owner_name().as_str())
+            .and_then(|player| {
+                player
+                    .read()
+                    .ok()
+                    .map(|player| player.get_player_index() as u32)
+            })
+    }
+
     fn bind_prototype_to_owning_player(&self, prototype: &Arc<TeamPrototype>) {
         let Some(player) = self.resolve_owning_player(prototype.get_owner_name().as_str()) else {
             return;
@@ -923,7 +1066,11 @@ impl TeamFactory {
     }
 
     fn unlink_prototypes_from_owning_players(&self) {
-        for prototype in self.prototypes.values() {
+        for prototype in self.prototypes.values().filter(|prototype| {
+            !self
+                .prototype_controllers
+                .contains_key(prototype.get_name().as_str())
+        }) {
             let Some(player) = self.resolve_owning_player(prototype.get_owner_name().as_str())
             else {
                 continue;

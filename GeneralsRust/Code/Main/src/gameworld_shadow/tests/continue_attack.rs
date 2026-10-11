@@ -1339,15 +1339,8 @@ fn movement_authority_integrates_host_when_shadow_disabled() {
     }
 }
 #[test]
-fn construction_authority_sets_host_percent_when_shadow_disabled() {
-    let _env_guard = authority_env_lock();
-    let prev_s = std::env::var("GENERALS_GAMEWORLD_SHADOW").ok();
-    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "0");
+fn constructed_host_birth_has_completed_percent_without_shadow_admission() {
     let mut logic = GameLogic::new();
-    logic.set_construction_authority(true);
-    assert!(gameworld_construction_authority_enabled());
-    assert!(!gameworld_construction_authority_live());
-    assert!(!gameworld_construction_sole_tick_enabled());
     let cfg = golden_skirmish_config("ConstNoShadow");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     ensure_template(&mut logic, "HoleT", 500.0);
@@ -1357,22 +1350,8 @@ fn construction_authority_sets_host_percent_when_shadow_disabled() {
     let id = logic
         .create_object("HoleT", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("hole");
-    if let Some(h) = logic.host_object_mut(id) {
-        // Simulate rebuild-hole complete residual path without dual-world.
-        if crate::gameworld_shadow::gameworld_construction_authority_live() {
-            crate::game_logic::host_construction_progress_log::record(id, 1.0, false, 0.0);
-        } else {
-            h.construction_percent = 1.0;
-        }
-        assert!(
-            (h.construction_percent - 1.0).abs() < 0.01,
-            "host-only must set construction_percent immediately"
-        );
-    }
-    match prev_s {
-        Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
-        None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),
-    }
+    assert_eq!(logic.host_object(id).unwrap().construction_percent, 1.0);
+    assert!(!logic.host_object(id).unwrap().status.under_construction);
 }
 
 #[test]

@@ -660,6 +660,11 @@ impl GameClientScriptActionHandler {
 }
 
 impl ScriptActionHandler for GameClientScriptActionHandler {
+    fn input_enabled(&self, enabled: bool) -> GameLogicResult<()> {
+        apply_cinematic_input_lock(!enabled);
+        Ok(())
+    }
+
     fn set_border_shroud_level(&self, level: u8) -> GameLogicResult<()> {
         // Keep the value even before a Display is registered.  The frozen
         // projected-shroud snapshot consumes this script handoff at

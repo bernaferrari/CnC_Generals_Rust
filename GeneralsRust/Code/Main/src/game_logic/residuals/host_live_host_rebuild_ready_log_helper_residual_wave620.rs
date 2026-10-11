@@ -1,18 +1,6 @@
-//! Wave 620 residual peels: under CONSTRUCTION_AUTHORITY sole-tick, GameWorld
-//! writeback records rebuild-hole ready flips via `host_rebuild_ready_log`;
-//! host drains that log in `update_rebuild_holes` before worker/building spawn.
-//! Never flips shell `playable_claim`.
-//!
-//! Orthogonal to Waves 614/617/618/619 ready-log residuals.
-//! Host residual only — network deferred.
-//!
-//! Sources:
-//! - `host_rebuild_ready_log.rs`
-//! - `gameworld_shadow.rs` writeback_rebuild_producer_to_host
-//! - `game_logic.rs` update_rebuild_holes ready-log drain
-//!
-//! Fail-closed:
-//! - Shell `playable_claim` stays false
+//! Construction ownership audit. Historical CLI receipt names remain
+//! navigation metadata; source checks require one canonical host writer and
+//! immutable shadow comparisons. Runtime regressions exercise the host phases.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
@@ -25,9 +13,9 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 
 pub const LIVE_HOST_REBUILD_READY_LOG_HELPER_METHOD_NAMES_WAVE620: &[&str] = &[
     "host_rebuild_ready_log",
-    "writeback_rebuild_producer_to_host",
+    "compare_rebuild_producer_to_host",
     "update_rebuild_holes",
-    "gameworld_construction_sole_tick_enabled",
+    "host_owns_construction",
     "Wave 620",
     "playable_claim = false",
 ];
@@ -133,7 +121,7 @@ fn fn_body<'a>(src: &'a str, sig: &str) -> Option<&'a str> {
 pub fn honesty_host_rebuild_ready_log_helper_method_names_residual_wave620() -> bool {
     let names = LIVE_HOST_REBUILD_READY_LOG_HELPER_METHOD_NAMES_WAVE620;
     let ok = residual_name_index(names, "host_rebuild_ready_log").is_some()
-        && residual_name_index(names, "writeback_rebuild_producer_to_host").is_some()
+        && residual_name_index(names, "compare_rebuild_producer_to_host").is_some()
         && residual_name_index(names, "Wave 620").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
     residual_action_store(ResidualHostRebuildReadyLogHelperAction::MethodNames);
@@ -141,30 +129,7 @@ pub fn honesty_host_rebuild_ready_log_helper_method_names_residual_wave620() -> 
 }
 
 pub fn honesty_host_rebuild_ready_log_helper_source_markers_residual_wave620() -> bool {
-    let gl = gl_source();
-    let sh = shadow_source();
-    let ready = ready_log_source();
-    let log_ok = ready.contains("Wave 620")
-        && ready.contains("pub fn record(")
-        && ready.contains("pub fn drain(")
-        && ready.contains("HostRebuildReadyEvent");
-    let Some(wb) = fn_body(sh, "pub fn writeback_rebuild_producer_to_host(") else {
-        residual_action_store(ResidualHostRebuildReadyLogHelperAction::SourceMarkers);
-        return false;
-    };
-    let wb_ok = wb.contains("Wave 620")
-        && wb.contains("host_rebuild_ready_log::record")
-        && wb.contains("is_rebuild_hole")
-        && wb.contains("gameworld_construction_sole_tick_enabled");
-    let Some(update) = fn_body(gl, "pub fn update_rebuild_holes(") else {
-        residual_action_store(ResidualHostRebuildReadyLogHelperAction::SourceMarkers);
-        return false;
-    };
-    let drain_ok = update.contains("Wave 620")
-        && update.contains("host_rebuild_ready_log::drain")
-        && update.contains("ready_holes")
-        && update.contains("construction_sole");
-    let ok = log_ok && wb_ok && drain_ok && !gl.contains("playable_claim = true");
+    let ok = super::construction_owner_source_contract::host_owns_construction();
     residual_action_store(ResidualHostRebuildReadyLogHelperAction::SourceMarkers);
     ok
 }
@@ -188,19 +153,13 @@ pub fn honesty_host_rebuild_ready_log_helper_nav_commands_residual_wave620() -> 
 }
 
 pub fn simulate_host_rebuild_ready_log_helper_collect_source() -> bool {
-    let ok = ready_log_source().contains("Wave 620")
-        && shadow_source().contains("host_rebuild_ready_log::record")
-        && gl_source().contains("host_rebuild_ready_log::drain");
+    let ok = super::construction_owner_source_contract::host_owns_construction();
     residual_action_store(ResidualHostRebuildReadyLogHelperAction::CollectSource);
     ok
 }
 
 pub fn simulate_host_rebuild_ready_log_helper_dispatch_source() -> bool {
-    let gl = gl_source();
-    let sh = shadow_source();
-    let ok = sh.contains("Wave 620: GameWorld sole-tick rebuild-ready residual")
-        && gl.contains("Wave 620: under construction sole-tick, GameWorld writeback records")
-        && gl.contains("only start rebuild for IDs GW recorded ready");
+    let ok = super::construction_owner_source_contract::host_owns_construction();
     residual_action_store(ResidualHostRebuildReadyLogHelperAction::DispatchSource);
     ok
 }

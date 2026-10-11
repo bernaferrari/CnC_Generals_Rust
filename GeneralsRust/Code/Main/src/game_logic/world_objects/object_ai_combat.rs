@@ -845,7 +845,9 @@ impl GameLogic {
                 HostUpgradeKind::FortifiedStructure => {
                     self.apply_fortified_structure_to_team(team, upgrade_name)
                 }
-                HostUpgradeKind::Radar => self.apply_radar_research_to_team(team, upgrade_name),
+                HostUpgradeKind::Radar => {
+                    self.apply_radar_research_to_player(player_id, upgrade_name)
+                }
                 HostUpgradeKind::RadarVanScan => {
                     self.apply_player_unlock_upgrade(team, upgrade_name, "Upgrade_GLARadarVanScan")
                 }

@@ -5,10 +5,8 @@
 //! Rust conversion: 2025
 
 use crate::common::{
-    AsciiString, Bool, LegacyModuleData, ModelConditionFlags, ModuleData, NameKeyType, ObjectID,
-    Real, UnsignedInt, XferVersion,
+    AsciiString, Bool, LegacyModuleData, ModuleData, NameKeyType, Real, UnsignedInt, XferVersion,
 };
-use crate::helpers::TheGameLogic;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::Object as GameObject;
 use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
@@ -16,9 +14,9 @@ use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    Module, ModuleData as EngineModuleData, RadarUpdateConfig, RadarUpdateInterface,
+    Module, ModuleData as EngineModuleData, RadarUpdateConfig,
 };
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, RwLock};
 
 #[derive(Clone, Debug)]
 pub struct RadarUpdateModuleData {
@@ -132,7 +130,6 @@ const RADAR_UPDATE_FIELDS: &[FieldParse<RadarUpdateModuleData>] = &[FieldParse {
 
 #[allow(dead_code)]
 pub struct RadarUpdate {
-    object_id: ObjectID,
     module_data: RadarUpdateConfig,
     /// UpdateModule scheduler state serialized by the C++ base class.
     next_call_frame_and_phase: UnsignedInt,
@@ -153,16 +150,16 @@ impl RadarUpdate {
         Ok(Self::new_with_config(object, config))
     }
 
+    /// Construction only captures immutable authored rules; it never resolves an owner.
     pub fn new_with_config(
-        object: Arc<RwLock<GameObject>>,
+        _object: Arc<RwLock<GameObject>>,
         module_data: RadarUpdateConfig,
     ) -> Self {
+        Self::from_config(module_data)
+    }
+
+    pub fn from_config(module_data: RadarUpdateConfig) -> Self {
         Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
             module_data,
             next_call_frame_and_phase: 0,
             extend_done_frame: 0,
@@ -171,21 +168,25 @@ impl RadarUpdate {
         }
     }
 
-    pub fn extend_radar(&mut self) {
-        let current_frame = TheGameLogic::get_frame();
-        self.extend_done_frame = current_frame + self.module_data.radar_extend_time as UnsignedInt;
-        self.radar_active = true;
+    pub(crate) fn extension_duration(&self) -> UnsignedInt {
+        self.module_data.radar_extend_time as UnsignedInt
+    }
 
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(mut object) = object.write() {
-                object.set_model_condition_state(ModelConditionFlags::RADAR_EXTENDING);
-            }
+    /// Commit after the driving owner has published RADAR_EXTENDING.
+    pub(crate) fn extended_at(&mut self, frame: UnsignedInt) {
+        self.extend_done_frame = frame.wrapping_add(self.extension_duration());
+        self.radar_active = true;
+        // C++ deliberately retains extendComplete on repeated extensions.
+    }
+
+    /// C++ marks completion before invoking the drawable callback.
+    pub(crate) fn complete_at(&mut self, frame: UnsignedInt) -> bool {
+        if self.extend_done_frame == 0 || self.extend_complete || frame <= self.extend_done_frame {
+            return false;
         }
+        self.extend_complete = true;
+        self.extend_done_frame = 0;
+        true
     }
 
     pub fn is_radar_active(&self) -> Bool {
@@ -204,6 +205,12 @@ impl Snapshotable for RadarUpdate {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
         xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+        // UpdateModule.cpp:119–144: saved pre-Physics phase layouts are
+        // normalized through the concrete class while preserving wake bits.
+        if xfer.get_xfer_mode() == game_engine::common::system::XferMode::Load {
+            self.next_call_frame_and_phase =
+                (self.next_call_frame_and_phase & !3) | self.get_update_phase() as UnsignedInt;
+        }
         xfer.xfer_unsigned_int(&mut self.extend_done_frame)
             .map_err(|e| format!("Failed to xfer extend_done_frame: {:?}", e))?;
         xfer.xfer_bool(&mut self.extend_complete)
@@ -219,44 +226,9 @@ impl Snapshotable for RadarUpdate {
 }
 
 impl UpdateModuleInterface for RadarUpdate {
+    // Installed execution is handled by ModuleUpdateProxy with its driving context.
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let current_frame = TheGameLogic::get_frame();
-
-        if self.extend_done_frame == 0 || self.extend_complete {
-            return UpdateSleepTime::None;
-        }
-
-        if current_frame > self.extend_done_frame {
-            if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-                None
-            } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            }) {
-                let Ok(mut object) = object.write() else {
-                    return UpdateSleepTime::None;
-                };
-                let _ = object.clear_and_set_model_condition_flags(
-                    ModelConditionFlags::RADAR_EXTENDING,
-                    ModelConditionFlags::RADAR_UPGRADED,
-                );
-            }
-
-            self.extend_complete = true;
-            self.extend_done_frame = 0;
-        }
-
         UpdateSleepTime::None
-    }
-}
-
-impl RadarUpdateInterface for RadarUpdate {
-    fn extend_radar(&mut self) {
-        self.extend_radar();
-    }
-
-    fn is_radar_active(&self) -> bool {
-        self.is_radar_active()
     }
 }
 
@@ -347,10 +319,6 @@ impl Module for RadarUpdateModule {
         self.module_data.as_ref()
     }
 
-    fn get_radar_update_interface(&mut self) -> Option<&mut dyn RadarUpdateInterface> {
-        Some(&mut self.behavior)
-    }
-
     /// C++ `UpdateModule : Module` interface query
     /// (`Module::DynamicInterfaceCast(ModuleInterfaceType::UPDATE)`): forwards
     /// to the wrapped behavior's per-frame hooks. Replaces the former
@@ -397,30 +365,26 @@ mod tests {
     }
 
     #[test]
-    fn radar_update_interface_extends_without_downcast() {
-        let data = Arc::new(RadarUpdateModuleData {
+    fn radar_extension_deadline_is_strict_and_repeated_extension_retains_completion() {
+        let mut radar = RadarUpdate::from_config(RadarUpdateConfig {
             radar_extend_time: 10.0,
-            ..Default::default()
         });
-        let config = data.to_config();
-        let mut module = RadarUpdateModule {
-            behavior: RadarUpdate {
-                object_id: crate::common::INVALID_ID,
-                module_data: config,
-                next_call_frame_and_phase: 0,
-                extend_done_frame: 0,
-                extend_complete: false,
-                radar_active: false,
-            },
-            module_name_key: NameKeyGenerator::name_to_key("RadarUpdate"),
-            module_data: data,
-        };
+        radar.extended_at(20);
+        assert!(radar.is_radar_active());
+        assert!(!radar.complete_at(30));
+        assert!(radar.complete_at(31));
+        radar.extended_at(40);
+        assert!(!radar.complete_at(100));
+        assert_eq!(radar.extend_done_frame, 50);
+    }
 
-        let radar = module
-            .get_radar_update_interface()
-            .expect("radar update interface");
-        radar.extend_radar();
-
+    #[test]
+    fn radar_zero_deadline_remains_the_cpp_inactive_sentinel() {
+        let mut radar = RadarUpdate::from_config(RadarUpdateConfig {
+            radar_extend_time: 0.0,
+        });
+        radar.extended_at(0);
+        assert!(!radar.complete_at(1));
         assert!(radar.is_radar_active());
     }
 }

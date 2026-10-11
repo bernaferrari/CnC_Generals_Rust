@@ -57,10 +57,10 @@ fn authored(retained: Option<Arc<MissionScriptHooks>>) -> ScriptEngine {
 }
 
 fn walk(world: &mut GameLogic, engine: ScriptEngine) -> ScriptEngine {
-    *get_script_engine().write().unwrap() = Some(engine);
+    world.install_owned_script_engine(engine);
     world.scripts_loaded = true;
     world.evaluate_and_execute_scripts(0.0);
-    get_script_engine().write().unwrap().take().unwrap()
+    world.owned_script_engine.take().unwrap()
 }
 
 fn seed(world: &mut GameLogic, engine: &ScriptEngine, speech: u32, audio: u32, frame: u32) {
@@ -269,9 +269,9 @@ fn actual_main_completion_continues_through_script_engine_chunk_restore() {
             );
             let foreign = authored(None);
             saved_timers(&foreign, 80, 90);
-            *get_script_engine().write().unwrap() = Some(engine);
+            source.install_owned_script_engine(engine);
             let persist = persist_v18::capture_persist_v18(&source);
-            let source_engine = get_script_engine().write().unwrap().take().unwrap();
+            let source_engine = source.owned_script_engine.take().unwrap();
             let mut cursor = Cursor::new(Vec::new());
             {
                 let mut xfer = XferSave::new(&mut cursor, 1);
@@ -288,9 +288,9 @@ fn actual_main_completion_continues_through_script_engine_chunk_restore() {
             };
             let mut restored = GameLogic::new();
             restored.frame = 19;
-            *get_script_engine().write().unwrap() = Some(authored(None));
+            restored.install_owned_script_engine(authored(None));
             persist_v18::restore_persist_v18(&restored_persist, &mut restored).unwrap();
-            let engine = get_script_engine().write().unwrap().take().unwrap();
+            let engine = restored.owned_script_engine.take().unwrap();
             let engine = walk(&mut restored, engine);
             assert_eq!(
                 restored.new_script_messages,

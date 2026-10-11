@@ -430,6 +430,15 @@ impl Object {
         old_owner: Option<Arc<RwLock<Player>>>,
         new_owner: Option<Arc<RwLock<Player>>>,
     ) {
+        self.on_capture_with_radar_services(old_owner, new_owner, None);
+    }
+
+    pub(super) fn on_capture_with_radar_services(
+        &mut self,
+        old_owner: Option<Arc<RwLock<Player>>>,
+        new_owner: Option<Arc<RwLock<Player>>>,
+        mut radar: Option<&mut dyn crate::player::RadarEdgeServices>,
+    ) {
         // Everybody idles when captured so they don't keep doing something
         // the new player might not want them to be doing
         let owners_differ = match (&old_owner, &new_owner) {
@@ -493,12 +502,55 @@ impl Object {
         if owners_differ {
             let upgrade_modules = self.modules.clone();
             for entry in &upgrade_modules {
-                entry.with_module(|module| {
-                    if let Some(upgrade) =
-                        super::module_upgrade_kind(module).and_then(|kind| kind.into_interface())
-                    {
+                if let Some(radar) = radar.as_mut() {
+                    let prepared = entry.with_module(|module| {
+                        super::module_upgrade_kind(module).and_then(|kind| match kind {
+                            super::UpgradeModuleKindMut::Radar(upgrade) => {
+                                Some(upgrade.enabled_applied_radar_proof(self.is_disabled()))
+                            }
+                            _ => None,
+                        })
+                    });
+                    if let Some(proof) = prepared {
+                        if let Some(proof) = proof {
+                            if let Some(old) = &old_owner {
+                                old.write()
+                                    .expect("capture old radar owner poisoned")
+                                    .remove_radar_owned(proof, &mut **radar);
+                                entry.with_module(|module| {
+                                    if let Some(super::UpgradeModuleKindMut::Radar(upgrade)) =
+                                        super::module_upgrade_kind(module)
+                                    {
+                                        upgrade.set_applied_owned(false);
+                                    }
+                                });
+                            }
+                            if let Some(new) = &new_owner {
+                                new.write()
+                                    .expect("capture new radar owner poisoned")
+                                    .add_radar_owned(proof, &mut **radar);
+                                entry.with_module(|module| {
+                                    if let Some(super::UpgradeModuleKindMut::Radar(upgrade)) =
+                                        super::module_upgrade_kind(module)
+                                    {
+                                        upgrade.set_applied_owned(true);
+                                    }
+                                });
+                            }
+                        }
+                        continue;
+                    }
+                }
+                entry.with_module(|module| match super::module_upgrade_kind(module) {
+                    Some(super::UpgradeModuleKindMut::Radar(upgrade)) => {
                         upgrade.on_capture(self, old_owner.as_ref(), new_owner.as_ref());
                     }
+                    Some(kind) => {
+                        if let Some(upgrade) = kind.into_interface() {
+                            upgrade.on_capture(self, old_owner.as_ref(), new_owner.as_ref());
+                        }
+                    }
+                    None => {}
                 });
             }
         }

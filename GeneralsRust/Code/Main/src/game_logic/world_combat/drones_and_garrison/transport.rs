@@ -39,7 +39,21 @@ impl GameLogic {
             return;
         }
         // C++ OverlordContain::isPassengerAllowedToFire — nested contain voids fire.
-        let nested = container.contained_by.is_some();
+        let outer = container
+            .contained_by
+            .filter(|outer| self.redirected_containment_owner(*outer) == cid);
+        if outer
+            .and_then(|id| self.objects.get(&id))
+            .is_some_and(|host| {
+                host.contained_by.is_some()
+                    || host.status.disabled_held
+                    || host.status.disabled_subdued
+                    || !host.is_alive()
+            })
+        {
+            return;
+        }
+        let nested = container.contained_by.is_some() && outer.is_none();
         let bunker_slots = container.overlord_bunker_slot_capacity();
         let bunker_may =
             crate::game_logic::host_passengers_fire_upgrade::overlord_bunker_passengers_may_fire(
@@ -82,7 +96,12 @@ impl GameLogic {
             .iter()
             .position(|&id| id == passenger_id)
             .unwrap_or(0);
-        let fire_pos = transport_passenger_fire_origin(container, passenger_index);
+        let fire_pos = transport_passenger_fire_origin(
+            outer
+                .and_then(|id| self.objects.get(&id))
+                .unwrap_or(container),
+            passenger_index,
+        );
         if bunker_may {
             if let Some(c) = self.objects.get_mut(&cid) {
                 if !c.passengers_allowed_to_fire {

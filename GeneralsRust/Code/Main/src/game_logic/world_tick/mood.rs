@@ -1,11 +1,6 @@
 //! Host tick `impl GameLogic` — `mood`.
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
-use std::sync::atomic::{AtomicBool, Ordering};
-
-/// C++ `TheScriptEngine->m_objectsShouldReceiveDifficultyBonus` last applied to live objects.
-static LAST_OBJECTS_SHOULD_RECEIVE_DIFFICULTY_BONUS: AtomicBool = AtomicBool::new(true);
-
 impl GameLogic {
     pub fn sync_attack_priority_from_script_engine(&mut self) {
         use gamelogic::scripting::engine::get_script_engine;
@@ -59,14 +54,9 @@ impl GameLogic {
                 self.register_attack_priority_set(host);
             }
         }
-        let bonus_flag = engine.get_objects_should_receive_difficulty_bonus();
-        // Drop engine borrow before inheriting team defaults / walking objects.
+        // Release compatibility definition guards before owned team defaults.
         drop(guard);
         drop(engine_arc);
-        if LAST_OBJECTS_SHOULD_RECEIVE_DIFFICULTY_BONUS.load(Ordering::Relaxed) != bonus_flag {
-            LAST_OBJECTS_SHOULD_RECEIVE_DIFFICULTY_BONUS.store(bonus_flag, Ordering::Relaxed);
-            self.apply_or_strip_difficulty_bonuses_for_all_objects(bonus_flag);
-        }
         let need_inherit: Vec<ObjectId> = self
             .objects
             .iter()
@@ -1398,15 +1388,8 @@ mod common_target_parity {
         GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate, Weapon,
     };
 
-    fn reset_session_difficulty() {
-        crate::game_logic::host_faction_skirmish_residual::set_live_host_session_difficulty(
-            i32::MIN,
-        );
-    }
-
     #[test]
     fn set_common_target_skips_easy_and_human() {
-        reset_session_difficulty();
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(1, Team::USA, "USA AI", false));
         logic.add_player(Player::new(2, Team::USA, "Human", true));
@@ -1425,15 +1408,14 @@ mod common_target_parity {
             .create_object("W21Ranger", Team::GLA, glam::Vec3::new(12.0, 0.0, 0.0))
             .expect("vic");
 
-        crate::game_logic::host_faction_skirmish_residual::set_live_host_session_difficulty(0);
+        logic.admit_session_difficulty(0);
         logic.set_host_team_common_target(attacker, Some(victim));
         assert!(
             logic.team_common_attack_targets.is_empty(),
             "Easy must not seed a shared victim"
         );
-        reset_session_difficulty();
 
-        crate::game_logic::host_faction_skirmish_residual::set_live_host_session_difficulty(1);
+        logic.admit_session_difficulty(1);
         if let Some(o) = logic.host_object_mut(attacker) {
             o.owner_player_id = Some(2);
         }
@@ -1452,12 +1434,10 @@ mod common_target_parity {
             Some(&victim),
             "computer Medium may share a victim"
         );
-        reset_session_difficulty();
     }
 
     #[test]
     fn set_common_target_uses_controller_difficulty_not_session() {
-        reset_session_difficulty();
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(1, Team::USA, "USA AI", false));
         logic.add_ai_opponent(1, Team::USA, crate::ai::AIDifficulty::Easy);
@@ -1476,7 +1456,7 @@ mod common_target_parity {
             .create_object("W26RangerCtrl", Team::GLA, glam::Vec3::new(12.0, 0.0, 0.0))
             .expect("vic");
 
-        crate::game_logic::host_faction_skirmish_residual::set_live_host_session_difficulty(2);
+        logic.admit_session_difficulty(2);
         logic.set_host_team_common_target(attacker, Some(victim));
         assert!(
             logic.team_common_attack_targets.is_empty(),
@@ -1484,14 +1464,13 @@ mod common_target_parity {
         );
 
         logic.set_ai_difficulty(1, crate::ai::AIDifficulty::Hard);
-        crate::game_logic::host_faction_skirmish_residual::set_live_host_session_difficulty(0);
+        logic.admit_session_difficulty(0);
         logic.set_host_team_common_target(attacker, Some(victim));
         assert_eq!(
             logic.team_common_attack_targets.get("USA_AttackSquad"),
             Some(&victim),
             "Hard controller in an Easy session may share a victim"
         );
-        reset_session_difficulty();
     }
 
     #[test]

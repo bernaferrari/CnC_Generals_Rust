@@ -649,6 +649,16 @@ impl VictoryConditions {
         gamelogic::helpers::TheVictoryConditions::set_victory_flags_from_live(true);
     }
 
+    pub(crate) fn has_single_player_been_defeated_owned(
+        &self,
+        player: &Player,
+        players: &HashMap<u32, Player>,
+        objects: &HashMap<ObjectId, Object>,
+    ) -> bool {
+        let owner = unique_faction_owner(players, player.team, &self.player_templates);
+        self.is_defeated(PlayerArmyState::from_objects(objects, player, owner))
+    }
+
     fn is_defeated(&self, state: PlayerArmyState) -> bool {
         match (
             self.config.contains(VictoryType::NO_UNITS),

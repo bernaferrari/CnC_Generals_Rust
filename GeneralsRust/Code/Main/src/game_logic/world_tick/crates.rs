@@ -151,6 +151,7 @@ impl GameLogic {
             r.set_status_masked(true);
         }
 
+        self.admit_object_drawable_deselection(rider_id);
         self.car_bomb.record_airborne_parachute_put();
         // Tag air path honesty shared with EjectPilotDie air OCL residual.
         self.usa_pilot.record_air_ejection();

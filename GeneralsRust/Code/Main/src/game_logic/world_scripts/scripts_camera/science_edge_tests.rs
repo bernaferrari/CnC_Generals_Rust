@@ -89,22 +89,6 @@ fn set_named_indexed_legacy_player() {
     list.add_player(Arc::new(RwLock::new(player)));
 }
 
-struct ScriptEngineSlotRestore(Option<ScriptEngine>);
-
-impl ScriptEngineSlotRestore {
-    fn install(replacement: Option<ScriptEngine>) -> Self {
-        let handle = get_script_engine();
-        let mut slot = handle.write().expect("script engine slot");
-        Self(std::mem::replace(&mut *slot, replacement))
-    }
-}
-
-impl Drop for ScriptEngineSlotRestore {
-    fn drop(&mut self) {
-        *get_script_engine().write().expect("script engine slot") = self.0.take();
-    }
-}
-
 struct ScienceStoreRestore(Option<ScienceStore>);
 
 impl ScienceStoreRestore {
@@ -128,11 +112,13 @@ impl Drop for ScienceStoreRestore {
     }
 }
 
-fn engine_flag(name: &str) -> bool {
-    gamelogic::scripting::engine::with_script_engine_ref(|engine| {
-        engine.get_flag(name).is_some_and(|flag| flag.value)
-    })
-    .expect("script engine installed")
+fn engine_flag(world: &GameLogic, name: &str) -> bool {
+    world
+        .owned_script_engine
+        .as_ref()
+        .unwrap()
+        .get_flag(name)
+        .is_some_and(|flag| flag.value)
 }
 
 #[test]
@@ -177,16 +163,19 @@ fn one_acquisition_edge_triggers_only_one_of_two_one_shot_observers() {
             engine
                 .set_script_list_for_player(0, Some(Box::new(scripts)))
                 .expect("script list");
-            *get_script_engine().write().expect("script engine slot") = Some(engine);
+            world.install_owned_script_engine(engine);
             world.scripts_loaded = true;
 
             // Host census is captured before this tick's grant action, so the
             // observer result comes from the actual PlayerList acquisition edge.
             world.evaluate_and_execute_scripts(0.0);
             assert!(world.players[&0].has_unlocked_science(SCIENCE));
-            assert!(engine_flag(OBSERVER_A), "first observer consumes the edge");
             assert!(
-                !engine_flag(OBSERVER_B),
+                engine_flag(&world, OBSERVER_A),
+                "first observer consumes the edge"
+            );
+            assert!(
+                !engine_flag(&world, OBSERVER_B),
                 "second observer has no second edge"
             );
 
@@ -194,9 +183,9 @@ fn one_acquisition_edge_triggers_only_one_of_two_one_shot_observers() {
             // It must not recreate the already-consumed edge for observer B.
             world.frame += 1;
             world.evaluate_and_execute_scripts(0.0);
-            assert!(engine_flag(OBSERVER_A));
+            assert!(engine_flag(&world, OBSERVER_A));
             assert!(
-                !engine_flag(OBSERVER_B),
+                !engine_flag(&world, OBSERVER_B),
                 "level membership must not synthesize a repeat acquisition edge"
             );
         },
@@ -230,12 +219,12 @@ fn persisted_host_science_without_playerlist_or_pending_edge_is_not_acquired() {
             engine
                 .set_script_list_for_player(0, Some(Box::new(scripts)))
                 .expect("script list");
-            *get_script_engine().write().expect("script engine slot") = Some(engine);
+            world.install_owned_script_engine(engine);
             world.scripts_loaded = true;
             world.evaluate_and_execute_scripts(0.0);
 
             assert!(
-                !engine_flag(OBSERVER_A),
+                !engine_flag(&world, OBSERVER_A),
                 "missing legacy player fails closed"
             );
         },
@@ -250,7 +239,6 @@ fn owned_science_before_fresh_engine_has_no_acquisition_event() {
         "owned_science_before_fresh_engine_has_no_acquisition_event",
         || {
             let _science_store = ScienceStoreRestore::install();
-            let _slot_restore = ScriptEngineSlotRestore::install(None);
 
             let mut world = GameLogic::new();
             let mut host = Player::new(0, Team::USA, SIDE, true);
@@ -294,13 +282,13 @@ fn owned_science_before_fresh_engine_has_no_acquisition_event() {
             fresh
                 .set_script_list_for_player(0, Some(Box::new(scripts)))
                 .expect("script list");
-            *get_script_engine().write().expect("script engine slot") = Some(fresh);
+            world.install_owned_script_engine(fresh);
             world.scripts_loaded = true;
             world.evaluate_and_execute_scripts(0.0);
 
             assert!(world.players[&0].has_unlocked_science(SCIENCE));
             assert!(
-                !engine_flag(OBSERVER_A),
+                !engine_flag(&world, OBSERVER_A),
                 "membership alone is not acquisition"
             );
         },

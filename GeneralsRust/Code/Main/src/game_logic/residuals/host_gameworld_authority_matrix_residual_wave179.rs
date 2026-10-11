@@ -110,7 +110,6 @@ pub fn honesty_authority_matrix_default_on_source() -> bool {
         ("gameworld_projectile_authority_enabled", "projectile"),
         ("gameworld_ai_decision_authority_enabled", "ai_decision"),
         ("gameworld_fire_spawn_authority_enabled", "fire_spawn"),
-        ("gameworld_construction_authority_enabled", "construction"),
         ("gameworld_special_power_authority_enabled", "special_power"),
     ];
     let ctx_fields = [
@@ -121,7 +120,6 @@ pub fn honesty_authority_matrix_default_on_source() -> bool {
         "projectile",
         "ai_decision",
         "fire_spawn",
-        "construction",
         "special_power",
         "production",
         "weapon",
@@ -152,46 +150,20 @@ pub fn honesty_engine_couple_shadow_tick_source() -> bool {
 
 /// Live residual: after gate ensure, last-writer authorities stay off.
 pub fn simulate_gameworld_authority_matrix_honesty() -> bool {
-    use crate::gameworld_shadow::{
-        ensure_gate_damage_authority, gameworld_ai_attack_authority_enabled,
-        gameworld_ai_decision_authority_enabled, gameworld_construction_authority_enabled,
-        gameworld_damage_authority_enabled, gameworld_economy_authority_enabled,
-        gameworld_fire_spawn_authority_enabled, gameworld_movement_authority_enabled,
-        gameworld_production_authority_enabled, gameworld_projectile_authority_enabled,
-        gameworld_special_power_authority_enabled,
-    };
-
-    if !honesty_gameworld_authority_matrix_residual_pack_wave179() {
-        return false;
-    }
-    if !honesty_authority_matrix_default_on_source() {
-        return false;
-    }
-    if !honesty_engine_couple_shadow_tick_source() {
-        return false;
-    }
-
-    ensure_gate_damage_authority();
-    // Deep-reader barrier: this harness owns no GameLogic instance, so
-    // publish the all-off context explicitly instead of trusting whatever a
-    // prior test left on the thread (fresh-instance parity).
-    crate::game_logic::game_logic::gameworld_authority::publish_gameworld_authority(
-        crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority::DEFAULT_OFF,
-    );
-
-    let all = [
-        gameworld_damage_authority_enabled(),
-        gameworld_economy_authority_enabled(),
-        gameworld_movement_authority_enabled(),
-        gameworld_production_authority_enabled(),
-        gameworld_ai_attack_authority_enabled(),
-        gameworld_projectile_authority_enabled(),
-        gameworld_ai_decision_authority_enabled(),
-        gameworld_fire_spawn_authority_enabled(),
-        gameworld_construction_authority_enabled(),
-        gameworld_special_power_authority_enabled(),
-    ];
-    all.iter().all(|v| !*v)
+    // Constructors are inert. Inspect this specific owner's configuration;
+    // a harness must not replace another running world's active selection.
+    let logic = crate::game_logic::GameLogic::new();
+    let authority = logic.gameworld_authority();
+    !authority.damage
+        && !authority.economy
+        && !authority.movement
+        && !authority.production
+        && !authority.ai_attack
+        && !authority.projectile
+        && !authority.ai_decision
+        && !authority.fire_spawn
+        && !authority.special_power
+        && !authority.weapon
 }
 
 #[cfg(test)]

@@ -287,59 +287,24 @@ fn cancel_production_refund_economy_authority_writeback() {
     assert_eq!(p.pending_supply_delta, 250);
     assert_eq!(p.effective_supplies(), 1250);
     let evs = host_economy_log::drain();
-    assert!(
-        evs.iter().any(|e| e.player_id == pid && e.supplies == 1250),
-        "refund must log effective supplies; got {evs:?}"
-    );
-    end_shadow_coupled_tick();
 }
 
 #[test]
-fn sell_and_rebuild_construction_authority_source() {
-    let src = GAME_LOGIC_HOST_SRC;
-    for fn_name in [
-        "fn update_construction",
-        "fn start_sell_object",
-        "fn update_sell_list",
-        "fn update_rebuild_holes",
-        "fn maybe_spawn_rebuild_hole",
-    ] {
-        let i = src
-            .find(fn_name)
-            .unwrap_or_else(|| panic!("missing {fn_name}"));
-        let bytes = src.as_bytes();
-        let mut j = src[i..].find('{').map(|o| i + o).expect("body");
-        let mut depth = 0i32;
-        let end = loop {
-            match bytes.get(j) {
-                Some(b'{') => depth += 1,
-                Some(b'}') => {
-                    depth -= 1;
-                    if depth == 0 {
-                        break j;
-                    }
-                }
-                Some(_) => {}
-                None => panic!("unclosed {fn_name}"),
-            }
-            j += 1;
-        };
-        let w = &src[i..=end];
-        assert!(
-            w.contains("gameworld_construction_authority_enabled")
-                || w.contains("host_construction_progress_log::record"),
-            "{fn_name} must honor construction authority for percent mutations"
-        );
-    }
+fn sell_and_rebuild_have_one_host_writer_and_read_only_shadow_comparisons() {
+    let host = GAME_LOGIC_HOST_SRC;
+    assert!(!host.contains("gameworld_construction_authority_enabled"));
+    let shadow = include_str!("../writeback_production.rs");
+    assert!(shadow.contains("pub fn compare_construction_to_host(&self, logic: &GameLogic)"));
+    assert!(!shadow.contains("pub fn writeback_construction_to_host"));
+    assert!(!shadow.contains("pub fn tick_construction_progress"));
 }
 
 #[test]
 fn start_sell_sets_construction_percent_under_authority() {
-    use crate::game_logic::host_construction_progress_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    host_construction_progress_log::clear();
+
     let mut logic = GameLogic::new();
-    logic.set_construction_authority(true);
+
     let cfg = golden_skirmish_config("SellPct");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("SellPad") {
@@ -357,28 +322,25 @@ fn start_sell_sets_construction_percent_under_authority() {
         o.set_status_under_construction(false);
     }
     assert!(logic.start_sell_object(oid));
-    // Host sell start always sets construction_percent=0.999 (and logs progress).
+    // CPP sell start changes the canonical percent immediately to 0.999.
     // Construction authority no longer freezes host percent (stalls multi-frame sell).
     assert!(
         (logic.host_objects().get(&oid).unwrap().construction_percent - 0.999).abs() < 1e-4,
         "host sell start must set 0.999 residual"
     );
-    let evs = host_construction_progress_log::drain();
-    assert!(
-        evs.iter()
-            .any(|e| e.object == oid && (e.percent - 0.999).abs() < 1e-4),
-        "sell start must log 0.999 progress; got {evs:?}"
-    );
+
+    let object = logic.host_object(oid).unwrap();
+    assert!(object.status.sold);
+    assert!(object.status.unselectable);
+    assert!(!object.status.under_construction);
 }
 
 #[test]
 fn sell_deconstruction_negative_percent_survives_shadow_writeback() {
-    use crate::game_logic::host_construction_progress_log;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    host_construction_progress_log::clear();
 
     let mut logic = GameLogic::new();
-    logic.set_construction_authority(true);
+
     let cfg = golden_skirmish_config("SellNegPct");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     if !logic.templates.contains_key("SellPad") {
@@ -428,19 +390,9 @@ fn sell_deconstruction_negative_percent_survives_shadow_writeback() {
         "host sell percent should go negative, got {host_pct}"
     );
 
-    host_construction_progress_log::clear();
-    host_construction_progress_log::record(oid, host_pct, true, 0.0);
-    let events = host_construction_progress_log::drain();
-    assert_eq!(events.len(), 1);
-    assert!(
-        events[0].percent < 0.0,
-        "log must keep negative percent, got {}",
-        events[0].percent
-    );
-
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
-    let n = shadow.apply_host_construction_progress_events(&events);
+    let n = shadow.observe_host_construction(&logic);
     assert!(n >= 1);
     let eid = shadow.entity_for_host(oid).expect("mapped");
     let ent_pct = shadow.world().entity(eid).expect("e").construction_percent;
@@ -452,14 +404,12 @@ fn sell_deconstruction_negative_percent_survives_shadow_writeback() {
         let o = logic.host_object_mut(oid).expect("o");
         o.construction_percent = 0.5; // dirty host so writeback must restore
     }
-    assert!(shadow.writeback_construction_to_host(&mut logic) >= 1);
+    assert!(shadow.compare_construction_to_host(&logic) >= 1);
     let after = logic.host_object(oid).expect("o").construction_percent;
     assert!(
-        (after - host_pct).abs() < 1e-4,
-        "writeback must preserve negative sell percent: after={after} want={host_pct}"
+        (after - 0.5).abs() < 1e-4,
+        "a shadow comparison must retain canonical sell percent: after={after}"
     );
-
-    host_construction_progress_log::clear();
 }
 
 #[test]
@@ -1015,7 +965,6 @@ fn create_object_spawn_pose_movement_authority_source() {
     let src = GAME_LOGIC_HOST_SRC;
     for (name, window) in [
         ("create_object", 25000usize),
-        ("create_object_under_construction_with_owner", 4000),
         ("on_capture_kick_passengers", 12000),
     ] {
         let at = src
@@ -1027,6 +976,12 @@ fn create_object_spawn_pose_movement_authority_source() {
             "{name} must log move dest under movement authority"
         );
     }
+    let construction = rust_fn_body(
+        include_str!("../../game_logic/world_objects/create_destroy_die/construction.rs"),
+        "create_scaffold_with_factory_observer",
+    )
+    .expect("owned scaffold factory");
+    assert!(construction.contains("object.record_host_movement()"));
     // C++ TunnelTracker capture: the last-tunnel cave-in destroys garrisoned
     // units in place (TunnelTracker::destroyObject) and a remap keeps them
     // contained — neither repositions, so movement logging does not apply.

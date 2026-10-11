@@ -938,8 +938,9 @@ fn snapshot_round_trips_v18_ui_script_radar_water_drawable() {
             gamelogic::helpers::TheGameLogic::set_draw_icon_ui(false);
             gamelogic::helpers::TheGameLogic::set_hulk_max_lifetime_override(42);
             gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(15);
-            let _ = gamelogic::scripting::engine::initialize_script_engine();
-            let _ = gamelogic::scripting::engine::with_script_engine_mut(|engine| {
+            let mut source = GameLogic::new();
+            let engine = gamelogic::scripting::engine::ScriptEngine::new().unwrap();
+            {
                 engine.restore_named_trackers(
                     &[("MissionClock".into(), 90, true)],
                     &[("GateOpen".into(), true)],
@@ -950,8 +951,8 @@ fn snapshot_round_trips_v18_ui_script_radar_water_drawable() {
                     250.0,
                     "PlyrAmerica".into(),
                 )]);
-            });
-            let mut source = GameLogic::new();
+            }
+            source.install_owned_script_engine(engine);
             source.set_rank_level_limit(8);
             source.upsert_script_named_timer("LaunchClock", "Launch in", true);
             source.restore_script_named_timer_display_shown(false);
@@ -1018,7 +1019,11 @@ fn snapshot_round_trips_v18_ui_script_radar_water_drawable() {
             );
             assert!(restored.radar_forced());
             assert!(!restored.radar_script_enabled());
-            let _ = gamelogic::scripting::engine::with_script_engine_ref(|engine| {
+            {
+                let engine = restored
+                    .owned_script_engine
+                    .as_ref()
+                    .expect("restored interpreter");
                 let counter = engine.get_counter("MissionClock").expect("counter");
                 assert_eq!(counter.value, 90);
                 assert!(counter.is_countdown_timer);
@@ -1029,7 +1034,7 @@ fn snapshot_round_trips_v18_ui_script_radar_water_drawable() {
                 assert_eq!(reveals[0].1, "WP_Base");
                 assert!((reveals[0].2 - 250.0).abs() < f32::EPSILON);
                 assert_eq!(reveals[0].3, "PlyrAmerica");
-            });
+            }
             gamelogic::helpers::TheGameLogic::set_draw_icon_ui(true);
             gamelogic::helpers::TheGameLogic::set_hulk_max_lifetime_override(-1);
             gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(0);
