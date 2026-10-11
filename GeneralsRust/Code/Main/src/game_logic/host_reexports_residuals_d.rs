@@ -1128,16 +1128,6 @@ pub use super::host_live_host_stored_supplies_ready_log_helper_residual_wave641:
     simulate_live_host_stored_supplies_ready_log_helper_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_host_structure_collapse_dual_peel_residual_wave775::{
-    honesty_host_structure_collapse_dual_peel_method_names_residual_wave775,
-    honesty_host_structure_collapse_dual_peel_nav_commands_residual_wave775,
-    honesty_host_structure_collapse_dual_peel_residual_pack_wave775,
-    honesty_host_structure_collapse_dual_peel_source_markers_residual_wave775,
-    residual_host_structure_collapse_dual_peel_last_action,
-    residual_host_structure_collapse_dual_peel_ok,
-    simulate_live_host_structure_collapse_dual_peel_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_host_structure_inventory_catalog_residual_wave1027::{
     honesty_host_structure_inventory_catalog_residual_method_names_residual_wave1027,
     honesty_host_structure_inventory_catalog_residual_nav_commands_residual_wave1027,
@@ -1153,16 +1143,6 @@ pub use super::host_live_host_structure_topple_crush_dual_peel_residual_wave777:
     residual_host_structure_topple_crush_dual_peel_last_action,
     residual_host_structure_topple_crush_dual_peel_ok,
     simulate_live_host_structure_topple_crush_dual_peel_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_host_structure_topple_dual_peel_residual_wave776::{
-    honesty_host_structure_topple_dual_peel_method_names_residual_wave776,
-    honesty_host_structure_topple_dual_peel_nav_commands_residual_wave776,
-    honesty_host_structure_topple_dual_peel_residual_pack_wave776,
-    honesty_host_structure_topple_dual_peel_source_markers_residual_wave776,
-    residual_host_structure_topple_dual_peel_last_action,
-    residual_host_structure_topple_dual_peel_ok,
-    simulate_live_host_structure_topple_dual_peel_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_host_subdual_heal_dual_peel_residual_wave765::{

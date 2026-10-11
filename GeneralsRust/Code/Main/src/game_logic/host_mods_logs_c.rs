@@ -179,14 +179,8 @@ pub mod host_sticky_booby_attach_log;
 #[path = "host_stinger_hive_log.rs"]
 pub mod host_stinger_hive_log;
 
-#[path = "host_structure_collapse_kill_log.rs"]
-pub mod host_structure_collapse_kill_log;
-
 #[path = "host_structure_topple_crush_log.rs"]
 pub mod host_structure_topple_crush_log;
-
-#[path = "host_structure_topple_kill_log.rs"]
-pub mod host_structure_topple_kill_log;
 
 #[path = "host_topple_kill_log.rs"]
 pub mod host_topple_kill_log;

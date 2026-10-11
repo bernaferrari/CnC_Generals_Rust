@@ -18,7 +18,6 @@ impl GameWorldShadow {
         // state: 0 Standing, 1 WaitingForStart, 2 Collapsing, 3 Done
         if e.structure_collapse_state != 0 && e.structure_collapse_state != 3 {
             use crate::game_logic::host_structure_collapse::STRUCTURE_COLLAPSE_GRAVITY;
-            let mut done = false;
             match e.structure_collapse_state {
                 1 => {
                     // WaitingForStart — shudder residual
@@ -57,17 +56,9 @@ impl GameWorldShadow {
                         e.structure_collapse_shudder_x = 0.0;
                         e.structure_collapse_shudder_z = 0.0;
                         e.structure_collapse_state = 3;
-                        done = true;
                     }
                 }
                 _ => {}
-            }
-            if done {
-                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
-                    crate::game_logic::host_structure_collapse_kill_log::record(
-                        crate::game_logic::ObjectId(hid),
-                    );
-                }
             }
             changed = true;
         }
@@ -78,7 +69,6 @@ impl GameWorldShadow {
                 STRUCTURE_TOPPLE_ACCEL_FACTOR, STRUCTURE_TOPPLE_DONE_DELAY_FRAMES,
                 STRUCTURE_TOPPLE_INTEGRITY_DEFAULT,
             };
-            let mut done = false;
             match e.structure_topple_state {
                 1 => {
                     if frame >= e.structure_topple_start_frame {
@@ -120,7 +110,6 @@ impl GameWorldShadow {
                 3 => {
                     if frame >= e.structure_topple_done_frame {
                         e.structure_topple_state = 4;
-                        done = true;
                     }
                 }
                 _ => {}
@@ -162,13 +151,6 @@ impl GameWorldShadow {
                             samples,
                         );
                     }
-                }
-            }
-            if done {
-                if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
-                    crate::game_logic::host_structure_topple_kill_log::record(
-                        crate::game_logic::ObjectId(hid),
-                    );
                 }
             }
             changed = true;

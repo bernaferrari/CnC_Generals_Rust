@@ -425,6 +425,22 @@ fn queued_infantry_spawns_during_simulation() {
         player.resources.supplies = 50_000;
         player.power_available = 100;
     }
+    // Energy.cpp:51-65 and ThingTemplate.cpp:1541-1554 use produced/consumed
+    // power, not the legacy power_available scalar. Keep this producer powered
+    // through the real object-owned energy fold on every simulation frame.
+    let mut power = ThingTemplate::new("InfantryQueueTestPower");
+    power.add_kind_of(KindOf::Structure).set_health(1000.0);
+    power.energy_production = Some(100);
+    logic
+        .templates
+        .insert("InfantryQueueTestPower".into(), power);
+    let power_id = logic
+        .create_object_for_player("InfantryQueueTestPower", 0, Vec3::new(-200.0, 0.0, -200.0))
+        .expect("completed owner-local power source");
+    assert!(logic.host_object(power_id).unwrap().is_constructed());
+    logic.restore_player_power();
+    assert_eq!(logic.get_player(0).unwrap().power_produced, 100);
+
     ensure_test_barracks_template(&mut logic);
     ensure_test_infantry_template(&mut logic);
     if let Some(infantry) = logic.templates.get_mut("TestInfantry") {
@@ -439,7 +455,7 @@ fn queued_infantry_spawns_during_simulation() {
     }
     assert!(logic.enqueue_production(barracks, "TestInfantry".to_string()));
     for _ in 0..60 {
-        logic.update();
+        logic.update_with_dt_budget(LOGIC_FRAME_TIMESTEP, 1);
     }
     let unit = logic
         .objects

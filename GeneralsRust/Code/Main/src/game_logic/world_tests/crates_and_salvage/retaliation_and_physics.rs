@@ -369,12 +369,10 @@ fn inherit_uses_named_team_proto_not_faction() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     use gamelogic::common::well_known_keys::key_team_aggressiveness;
     use gamelogic::common::{AsciiString, Dict};
-    use gamelogic::team::get_team_factory;
+    let mut logic = GameLogic::new();
 
     {
-        let Ok(mut factory) = get_team_factory().lock() else {
-            return;
-        };
+        let mut factory = logic.team_factory.lock().expect("own TeamFactory");
         let mut named = Dict::new();
         named.set_int(key_team_aggressiveness(), 2);
         let _ = factory.init_team(
@@ -400,7 +398,6 @@ fn inherit_uses_named_team_proto_not_faction() {
         );
     }
 
-    let mut logic = GameLogic::new();
     let mut t = ThingTemplate::new("AmericaRangerNamedAtt");
     t.add_kind_of(KindOf::Infantry);
     let id = ObjectId(4101);
@@ -422,7 +419,7 @@ fn inherit_uses_named_team_proto_not_faction() {
     );
 
     if let Some(obj) = logic.objects.get_mut(&id) {
-        obj.set_team(Team::USA);
+        obj.set_team_with_factory(Team::USA, &logic.team_factory);
     }
     assert_eq!(
         logic.objects[&id].ai_attitude, 2,
@@ -822,13 +819,31 @@ fn get_next_mood_target_finds_nearby_enemy() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     use glam::Vec3;
     let mut logic = GameLogic::new();
+    // C++ TAiData defaults these factors to zero until AIData is loaded;
+    // retail AIData authors 1.333 outer range and 1.5 aggressive range.
+    logic.set_ai_definition_base(game_engine::common::ini::AIData {
+        guard_inner_modifier_ai: 1.1,
+        guard_outer_modifier_ai: 1.333,
+        aggressive_range_modifier: 1.5,
+        ..Default::default()
+    });
+    // AIUpdate.cpp:4287-4325 requires an AI controlling player for mood bits.
+    logic.add_player(crate::game_logic::Player::new(
+        1,
+        Team::China,
+        "MoodAI",
+        false,
+    ));
     logic.frame = 100;
     let mut at = ThingTemplate::new("MoodT1");
+    // C++ AI.cpp:780-790: adjusted vision requires an authored AI interface.
+    at.set_authored_ai_update_interface(Some(true));
     at.add_kind_of(KindOf::Infantry);
     at.add_kind_of(KindOf::Attackable);
     let aid = ObjectId(2501);
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::China);
+        o.owner_player_id = Some(1);
         o.set_position(Vec3::ZERO);
         // C++ AIUpdate.cpp:4484-4490 — calledDuringIdle acquisition requires
         // AIUpdateModuleData::m_autoAcquireEnemiesWhenIdle & AAS_Idle; the C++
@@ -854,6 +869,7 @@ fn get_next_mood_target_finds_nearby_enemy() {
         o.set_position(Vec3::new(50.0, 0.0, 0.0));
         o
     });
+    assert!(logic.adjusted_vision_range_for_mood(aid) > 0.0);
     let t = logic.get_next_mood_target(aid, true, true, false);
     assert_eq!(t, Some(vid));
     // Rate limit: immediate second call should be None.
@@ -865,14 +881,34 @@ fn get_next_mood_target_sleep_returns_none() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     use glam::Vec3;
     let mut logic = GameLogic::new();
+    // C++ TAiData defaults these factors to zero until AIData is loaded;
+    // retail AIData authors 1.333 outer range and 1.5 aggressive range.
+    logic.set_ai_definition_base(game_engine::common::ini::AIData {
+        guard_inner_modifier_ai: 1.1,
+        guard_outer_modifier_ai: 1.333,
+        aggressive_range_modifier: 1.5,
+        ..Default::default()
+    });
+    // AIUpdate.cpp:4287-4325 requires an AI controlling player for mood bits.
+    logic.add_player(crate::game_logic::Player::new(
+        1,
+        Team::China,
+        "MoodAI",
+        false,
+    ));
     let mut at = ThingTemplate::new("MoodS");
+    // C++ AI.cpp:780-790: adjusted vision requires an authored AI interface.
+    at.set_authored_ai_update_interface(Some(true));
     at.add_kind_of(KindOf::Infantry);
     at.add_kind_of(KindOf::Attackable);
     let aid = ObjectId(2503);
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::China);
+        o.owner_player_id = Some(1);
         o.set_position(Vec3::ZERO);
         o.set_ai_attitude_i8(-2);
+        o.auto_acquire_idle_bits =
+            gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
         o.vision_range = 200.0;
         o.weapon = Some(Weapon {
             range: 80.0,
@@ -890,6 +926,8 @@ fn get_next_mood_target_sleep_returns_none() {
         o.set_position(Vec3::new(20.0, 0.0, 0.0));
         o
     });
+    assert_eq!(logic.objects[&aid].owner_player_id, Some(1));
+    assert_eq!(logic.adjusted_vision_range_for_mood(aid), 0.0);
     assert!(logic.get_next_mood_target(aid, true, true, false).is_none());
 }
 
@@ -898,14 +936,32 @@ fn get_next_mood_target_passive_uses_last_damage_source() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     use glam::Vec3;
     let mut logic = GameLogic::new();
+    // C++ TAiData defaults these factors to zero until AIData is loaded;
+    // retail AIData authors 1.333 outer range and 1.5 aggressive range.
+    logic.set_ai_definition_base(game_engine::common::ini::AIData {
+        guard_inner_modifier_ai: 1.1,
+        guard_outer_modifier_ai: 1.333,
+        aggressive_range_modifier: 1.5,
+        ..Default::default()
+    });
+    // AIUpdate.cpp:4287-4325 requires an AI controlling player for mood bits.
+    logic.add_player(crate::game_logic::Player::new(
+        1,
+        Team::China,
+        "MoodAI",
+        false,
+    ));
     logic.frame = 50;
     let mut at = ThingTemplate::new("MoodP");
+    // C++ AI.cpp:780-790: adjusted vision requires an authored AI interface.
+    at.set_authored_ai_update_interface(Some(true));
     at.add_kind_of(KindOf::Infantry);
     at.add_kind_of(KindOf::Attackable);
     let aid = ObjectId(2505);
     let enemy = ObjectId(2506);
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::China);
+        o.owner_player_id = Some(1);
         o.set_position(Vec3::ZERO);
         o.ai_attitude = -1; // Passive
         o.last_damage_source = Some(enemy);
@@ -931,6 +987,7 @@ fn get_next_mood_target_passive_uses_last_damage_source() {
         o.set_position(Vec3::new(30.0, 0.0, 0.0));
         o
     });
+    assert!(logic.adjusted_vision_range_for_mood(aid) > 0.0);
     assert_eq!(
         logic.get_next_mood_target(aid, true, true, false),
         Some(enemy)
@@ -942,13 +999,31 @@ fn try_mood_auto_acquire_enters_attack() {
     use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     use glam::Vec3;
     let mut logic = GameLogic::new();
+    // C++ TAiData defaults these factors to zero until AIData is loaded;
+    // retail AIData authors 1.333 outer range and 1.5 aggressive range.
+    logic.set_ai_definition_base(game_engine::common::ini::AIData {
+        guard_inner_modifier_ai: 1.1,
+        guard_outer_modifier_ai: 1.333,
+        aggressive_range_modifier: 1.5,
+        ..Default::default()
+    });
+    // AIUpdate.cpp:4287-4325 requires an AI controlling player for mood bits.
+    logic.add_player(crate::game_logic::Player::new(
+        1,
+        Team::China,
+        "MoodAI",
+        false,
+    ));
     logic.frame = 10;
     let mut at = ThingTemplate::new("MoodAc");
+    // C++ AI.cpp:780-790: adjusted vision requires an authored AI interface.
+    at.set_authored_ai_update_interface(Some(true));
     at.add_kind_of(KindOf::Infantry);
     at.add_kind_of(KindOf::Attackable);
     let aid = ObjectId(2507);
     logic.objects.insert(aid, {
         let mut o = Object::new(at, aid, Team::China);
+        o.owner_player_id = Some(1);
         o.set_position(Vec3::ZERO);
         o.set_orientation(0.0);
         o.set_ai_state(AIState::Idle);
@@ -978,6 +1053,7 @@ fn try_mood_auto_acquire_enters_attack() {
         o.set_position(Vec3::new(40.0, 0.0, 0.0));
         o
     });
+    assert!(logic.adjusted_vision_range_for_mood(aid) > 0.0);
     let got = logic.try_mood_auto_acquire(aid, false);
     assert_eq!(got, Some(vid));
     assert_eq!(logic.objects[&aid].target, Some(vid));

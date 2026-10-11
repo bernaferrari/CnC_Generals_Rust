@@ -68,3 +68,6 @@ mod prepared_side_owner_tests;
 #[cfg(test)]
 #[path = "world_save/non_skirmish_cash_tests.rs"]
 mod non_skirmish_cash_tests;
+
+#[path = "world_save/attack_path_requests.rs"]
+mod attack_path_requests;

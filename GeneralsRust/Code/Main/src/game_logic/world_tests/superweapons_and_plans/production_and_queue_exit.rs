@@ -1,6 +1,24 @@
 //! Behavior suite extracted from `superweapons_and_plans`.
 use super::*;
 
+// C++ DozerAIUpdate.cpp:511-517 obtains ThingTemplate::calcTimeToBuild from
+// the builder's player. Give the construction fixture a real completed energy
+// source; writing power_available alone does not establish that player's ratio.
+fn supply_construction_fixture_power(logic: &mut GameLogic) {
+    let mut power = ThingTemplate::new("ConstructionTestPower");
+    power.add_kind_of(KindOf::Structure).set_health(1000.0);
+    power.energy_production = Some(100);
+    logic
+        .templates
+        .insert("ConstructionTestPower".into(), power);
+    let power_id = logic
+        .create_object_for_player("ConstructionTestPower", 0, Vec3::new(-200.0, 0.0, -200.0))
+        .expect("completed owner-local power source");
+    assert!(logic.host_object(power_id).unwrap().is_constructed());
+    logic.restore_player_power();
+    assert_eq!(logic.get_player(0).unwrap().power_produced, 100);
+}
+
 #[test]
 fn script_skirmish_attack_nearest_group_uses_relationship_and_cell_value() {
     use crate::game_logic::AIState;
@@ -119,13 +137,16 @@ fn script_skirmish_attack_nearest_group_uses_relationship_and_cell_value() {
 
 #[test]
 fn script_named_set_topple_direction_used_by_live_topple() {
-    use crate::game_logic::host_structure_topple::is_structure_topple_candidate;
-
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;
     ensure_test_player_for_team(&mut logic, Team::USA);
     ensure_test_barracks_template(&mut logic);
-    assert!(is_structure_topple_candidate("TestBarracks", true));
+    logic
+        .templates
+        .get_mut("TestBarracks")
+        .unwrap()
+        .authored_structure_topple = true;
+    assert!(logic.templates["TestBarracks"].authored_structure_topple);
     let id = logic
         .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
         .expect("bldg");
@@ -265,6 +286,7 @@ fn enqueue_infantry_on_command_center_fails_barracks_succeeds() {
 fn host_construction_completes_without_coupled_shadow() {
     let mut game_logic = GameLogic::new();
     ensure_test_player_for_team(&mut game_logic, Team::USA);
+    supply_construction_fixture_power(&mut game_logic);
     ensure_test_barracks_template(&mut game_logic);
     ensure_test_infantry_template(&mut game_logic);
     if let Some(t) = game_logic.templates.get_mut("TestBarracks") {
@@ -296,7 +318,7 @@ fn host_construction_completes_without_coupled_shadow() {
             .is_some_and(|o| o.status.under_construction)
     );
     for _ in 0..80 {
-        game_logic.update_with_dt(1.0 / 30.0);
+        game_logic.update_with_dt_budget(LOGIC_FRAME_TIMESTEP, 1);
     }
     let obj = game_logic.host_object(id).expect("still exists");
     assert!(
@@ -327,6 +349,7 @@ fn host_construction_completes_when_sole_tick_unmapped() {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut game_logic = GameLogic::new();
         ensure_test_player_for_team(&mut game_logic, Team::USA);
+        supply_construction_fixture_power(&mut game_logic);
         ensure_test_barracks_template(&mut game_logic);
         // Opt this instance into construction authority (retired env
         // channel); with shadow on + coupled frame this makes the sole-tick
@@ -365,7 +388,7 @@ fn host_construction_completes_when_sole_tick_unmapped() {
             "this test is the unmapped fail-open path"
         );
         for _ in 0..80 {
-            game_logic.update_with_dt(1.0 / 30.0);
+            game_logic.update_with_dt_budget(LOGIC_FRAME_TIMESTEP, 1);
         }
         let obj = game_logic.host_object(id).expect("still exists");
         assert!(

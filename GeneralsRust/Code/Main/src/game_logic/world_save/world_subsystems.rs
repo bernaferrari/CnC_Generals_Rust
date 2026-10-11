@@ -400,6 +400,9 @@ impl GameLogic {
         }
         let id = self.next_side_player_id();
         let mut observer = Player::new(id, Team::Neutral, "ReplayObserver", true);
+        // C++ GameLogic.cpp:2222-2230 selects this human observer only in GAME_REPLAY.
+        // Admission alone must preserve the local participant in a live match.
+        observer.is_local = false;
         observer.resources.supplies = self.skirmish_rules.starting_cash;
         observer.map_side.role = PlayerSideRole::ReplayObserver;
         observer.map_side.map_player_name = "ReplayObserver".into();

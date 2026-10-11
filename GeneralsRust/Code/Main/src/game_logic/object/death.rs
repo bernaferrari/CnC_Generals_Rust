@@ -6,10 +6,7 @@ impl Object {
         if !self.is_kind_of(crate::game_logic::KindOf::Structure) {
             return false;
         }
-        if !crate::game_logic::host_structure_collapse::is_structure_collapse_candidate(
-            &self.template_name,
-            true,
-        ) {
+        if !self.thing.template.authored_structure_collapse {
             return false;
         }
         if self
@@ -49,7 +46,7 @@ impl Object {
         true
     }
 
-    /// C++ StructureCollapseUpdate::update residual. True when collapse completes.
+    /// C++ StructureCollapseUpdate::update. Animation completion does not request deletion.
     pub fn tick_structure_collapse(&mut self, current_frame: u32) -> bool {
         let Some(sc) = self.structure_collapse_data.as_mut() else {
             return false;
@@ -59,9 +56,8 @@ impl Object {
         if !done {
             return false;
         }
-        self.health.current = 0.0;
-        self.status.destroyed = true;
-        self.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
+        // C++ StructureCollapseUpdate.cpp:221-247 enters DONE and sleeps.
+        // Completion changes presentation; another authored Die module owns deletion.
         true
     }
 
@@ -114,10 +110,7 @@ impl Object {
         if !self.is_kind_of(crate::game_logic::KindOf::Structure) {
             return false;
         }
-        if !crate::game_logic::host_structure_topple::is_structure_topple_candidate(
-            &self.template_name,
-            true,
-        ) {
+        if !self.thing.template.authored_structure_topple {
             return false;
         }
         if self
@@ -818,10 +811,8 @@ impl Object {
         if !finished {
             return false;
         }
-        // doToppleDoneStuff residual: finalize death.
-        self.health.current = 0.0;
-        self.status.destroyed = true;
-        self.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Toppled;
+        // C++ StructureToppleUpdate.cpp:265-296 enters DONE and sleeps;
+        // doToppleDoneStuff does not destroy or issue another death callback.
         true
     }
 

@@ -96,15 +96,29 @@ fn global_terrain_load_map_data_does_not_deadlock_on_bridge() {
             10.0,
             "TestBridge".to_string(),
         ));
+    let mut logic = GameLogic::new();
     let started = std::time::Instant::now();
     {
-        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
-        let mut terrain = terrain_owner_handle.write().expect("THE_TERRAIN_LOGIC");
-        terrain.reset();
-        terrain.load_map_data(map_data);
+        // Main admits terrain and pathfinder geometry through the same owner.
+        let terrain_owner_handle = logic.world_services.terrain().clone();
+        let mut terrain = terrain_owner_handle.write().expect("own terrain");
+        logic.admit_map_bridge_geometry(&mut terrain, map_data);
         assert!(
             terrain.get_first_bridge().is_some(),
             "map bridge must still register"
+        );
+        let layer = terrain
+            .get_first_bridge()
+            .expect("registered bridge")
+            .get_layer() as u8;
+        assert!(
+            logic
+                .pathfinding_system
+                .grid
+                .admitted_bridge_states()
+                .iter()
+                .any(|(admitted_layer, _, _, _)| *admitted_layer == layer),
+            "terrain bridge layer must be admitted in its owner's grid"
         );
     }
     assert!(

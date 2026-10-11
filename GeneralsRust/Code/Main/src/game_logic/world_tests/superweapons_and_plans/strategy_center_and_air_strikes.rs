@@ -1904,15 +1904,13 @@ fn leaflet_drop_residual_disables_enemy_infantry_and_vehicles() {
     assert_eq!(game_logic.host_leaflet_drops().activation_count(), 0);
 
     let impact = Vec3::new(0.0, 0.0, 0.0);
-    // Reset the global shroud grid so the cast location is not shrouded; a
-    // parallel test may have initialized it (C++ ActionManager.cpp:1439-1523).
-    let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
+    // Special-power admission reads the driving session's shroud.
+    game_logic
+        .world_services
+        .shroud()
         .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    gamelogic::system::shroud_manager::get_shroud_manager()
-        .lock()
-        .ok()
-        .map(|mut shroud| shroud.clear_all());
+        .expect("own shroud")
+        .clear_all();
 
     game_logic.queue_command(GameCommand {
         command_type: CommandType::DoSpecialPower {
@@ -2093,8 +2091,35 @@ fn leaflet_drop_residual_disables_enemy_infantry_and_vehicles() {
         .status
         .disabled_emp_until_frame;
     assert!(until > game_logic.frame);
-    game_logic.frame = until;
-    game_logic.update_ai(&[enemy_vehicle_id, enemy_infantry_id], 1.0 / 60.0);
+    // EMPUpdate.cpp:467-506 refreshes the deadline every frame inside the
+    // cloud. Leave its radius before testing expiration of the last pulse.
+    game_logic
+        .host_object_mut(enemy_vehicle_id)
+        .unwrap()
+        .set_position(Vec3::new(HOST_LEAFLET_RADIUS + 50.0, 0.0, 0.0));
+    // Object.cpp:2317-2335 observes the current frame, before GameLogic.cpp:
+    // 3798-3802 increments it. Check both sides of that phase boundary.
+    game_logic.frame = until - 1;
+    assert!(
+        game_logic
+            .host_object(enemy_vehicle_id)
+            .unwrap()
+            .is_emp_disabled()
+    );
+    game_logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
+    assert_eq!(game_logic.frame, until, "finish the pre-deadline frame");
+    assert!(
+        game_logic
+            .host_object(enemy_vehicle_id)
+            .unwrap()
+            .is_emp_disabled()
+    );
+    game_logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
+    assert_eq!(
+        game_logic.frame,
+        until + 1,
+        "finish the deadline logic frame"
+    );
     let recovered = game_logic.host_object(enemy_vehicle_id).expect("vehicle");
     assert!(
         !recovered.is_emp_disabled(),

@@ -101,6 +101,13 @@ pub struct ThingTemplate {
     /// delay, authored exit point, or batch-release policy.
     #[serde(default)]
     pub production_exit_metadata: Option<ProductionExitMetadata>,
+    /// Exact authored StructureToppleUpdate interface. A Structure KindOf or
+    /// building name never synthesizes this death animation module.
+    #[serde(default)]
+    pub authored_structure_topple: bool,
+    /// Exact authored StructureCollapseUpdate interface, independent of name.
+    #[serde(default)]
+    pub authored_structure_collapse: bool,
     /// Exact `VeterancyCrateCollide IsPilot` data.  This remains absent for a
     /// pilot-named template unless its Object INI authors and parses the
     /// corresponding behavior module.
@@ -546,6 +553,8 @@ impl ThingTemplate {
             flight_deck: None,
             deploy_style_metadata: None,
             production_exit_metadata: None,
+            authored_structure_topple: false,
+            authored_structure_collapse: false,
             veterancy_crate_collide: None,
             eject_pilot_die: None,
             rebuild_hole_expose: None,

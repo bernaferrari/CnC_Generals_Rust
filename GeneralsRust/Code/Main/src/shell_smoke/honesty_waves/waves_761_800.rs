@@ -44,12 +44,6 @@ pub(super) struct Waves761800 {
     pub host_slow_death_dual_peel_method_names_wave774_ok: bool,
     pub host_slow_death_dual_peel_nav_commands_wave774_ok: bool,
     pub host_slow_death_dual_peel_live_wave774_ok: bool,
-    pub host_structure_collapse_dual_peel_method_names_wave775_ok: bool,
-    pub host_structure_collapse_dual_peel_nav_commands_wave775_ok: bool,
-    pub host_structure_collapse_dual_peel_live_wave775_ok: bool,
-    pub host_structure_topple_dual_peel_method_names_wave776_ok: bool,
-    pub host_structure_topple_dual_peel_nav_commands_wave776_ok: bool,
-    pub host_structure_topple_dual_peel_live_wave776_ok: bool,
     pub host_structure_topple_crush_dual_peel_method_names_wave777_ok: bool,
     pub host_structure_topple_crush_dual_peel_nav_commands_wave777_ok: bool,
     pub host_structure_topple_crush_dual_peel_live_wave777_ok: bool,
@@ -198,18 +192,6 @@ pub(super) fn evaluate() -> Waves761800 {
             honesty_host_slow_death_dual_peel_nav_commands_residual_wave774(),
         host_slow_death_dual_peel_live_wave774_ok: simulate_live_host_slow_death_dual_peel_honesty(
         ),
-        host_structure_collapse_dual_peel_method_names_wave775_ok:
-            honesty_host_structure_collapse_dual_peel_method_names_residual_wave775(),
-        host_structure_collapse_dual_peel_nav_commands_wave775_ok:
-            honesty_host_structure_collapse_dual_peel_nav_commands_residual_wave775(),
-        host_structure_collapse_dual_peel_live_wave775_ok:
-            simulate_live_host_structure_collapse_dual_peel_honesty(),
-        host_structure_topple_dual_peel_method_names_wave776_ok:
-            honesty_host_structure_topple_dual_peel_method_names_residual_wave776(),
-        host_structure_topple_dual_peel_nav_commands_wave776_ok:
-            honesty_host_structure_topple_dual_peel_nav_commands_residual_wave776(),
-        host_structure_topple_dual_peel_live_wave776_ok:
-            simulate_live_host_structure_topple_dual_peel_honesty(),
         host_structure_topple_crush_dual_peel_method_names_wave777_ok:
             honesty_host_structure_topple_crush_dual_peel_method_names_residual_wave777(),
         host_structure_topple_crush_dual_peel_nav_commands_wave777_ok:

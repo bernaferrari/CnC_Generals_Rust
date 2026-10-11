@@ -1384,8 +1384,11 @@ fn emp_pulse_residual_disables_vehicles_in_radius() {
         .status
         .disabled_emp_until_frame;
     assert!(until > game_logic.frame);
+    // Object.cpp:2317-2335 is called by GameLogic's end-of-frame status
+    // phase, not AIUpdate. Execute that phase for both affected objects.
     game_logic.frame = until;
-    game_logic.update_ai(&[vehicle_id, barracks_id], 1.0 / 60.0);
+    game_logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
+    assert_eq!(game_logic.frame, until + 1);
     let recovered = game_logic.host_object(vehicle_id).expect("vehicle");
     assert!(
         !recovered.is_emp_disabled(),

@@ -110,16 +110,6 @@ pub use crate::game_logic::host_live_host_slow_death_dual_peel_residual_wave774:
     honesty_host_slow_death_dual_peel_nav_commands_residual_wave774,
     simulate_live_host_slow_death_dual_peel_honesty,
 };
-pub use crate::game_logic::host_live_host_structure_collapse_dual_peel_residual_wave775::{
-    honesty_host_structure_collapse_dual_peel_method_names_residual_wave775,
-    honesty_host_structure_collapse_dual_peel_nav_commands_residual_wave775,
-    simulate_live_host_structure_collapse_dual_peel_honesty,
-};
-pub use crate::game_logic::host_live_host_structure_topple_dual_peel_residual_wave776::{
-    honesty_host_structure_topple_dual_peel_method_names_residual_wave776,
-    honesty_host_structure_topple_dual_peel_nav_commands_residual_wave776,
-    simulate_live_host_structure_topple_dual_peel_honesty,
-};
 pub use crate::game_logic::host_live_host_structure_topple_crush_dual_peel_residual_wave777::{
     honesty_host_structure_topple_crush_dual_peel_method_names_residual_wave777,
     honesty_host_structure_topple_crush_dual_peel_nav_commands_residual_wave777,

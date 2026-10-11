@@ -619,36 +619,6 @@ pub(super) fn assert_waves_731_788(r: &ShellSmokeResult) {
         r.detail
     );
     assert!(
-        r.host_structure_collapse_dual_peel_method_names_wave775_ok,
-        "host structure_collapse_dual_peel method names residual pack wave775: {}",
-        r.detail
-    );
-    assert!(
-        r.host_structure_collapse_dual_peel_nav_commands_wave775_ok,
-        "host structure_collapse_dual_peel nav commands residual pack wave775: {}",
-        r.detail
-    );
-    assert!(
-        r.host_structure_collapse_dual_peel_live_wave775_ok,
-        "host structure_collapse_dual_peel live residual wave775: {}",
-        r.detail
-    );
-    assert!(
-        r.host_structure_topple_dual_peel_method_names_wave776_ok,
-        "host structure_topple_dual_peel method names residual pack wave776: {}",
-        r.detail
-    );
-    assert!(
-        r.host_structure_topple_dual_peel_nav_commands_wave776_ok,
-        "host structure_topple_dual_peel nav commands residual pack wave776: {}",
-        r.detail
-    );
-    assert!(
-        r.host_structure_topple_dual_peel_live_wave776_ok,
-        "host structure_topple_dual_peel live residual wave776: {}",
-        r.detail
-    );
-    assert!(
         r.host_structure_topple_crush_dual_peel_method_names_wave777_ok,
         "host structure_topple_crush_dual_peel method names residual pack wave777: {}",
         r.detail

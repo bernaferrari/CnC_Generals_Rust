@@ -1040,47 +1040,27 @@ End
         .health
         .current = actual_damage * 0.5;
     logic.update_overcharge_drain(0.1);
-    let toppling = logic.host_object(plant_id).expect("death-start plant");
+    let dead_plant = logic.host_object(plant_id).expect("death-start plant");
+    // Retail ChinaPowerPlant authors DestroyDie, not either structure animation.
+    assert!(dead_plant.structure_topple_data.is_none());
+    assert!(dead_plant.structure_collapse_data.is_none());
     assert!(
-        toppling
-            .structure_topple_data
-            .as_ref()
-            .map(|data| data.is_active())
-            .unwrap_or(false),
-        "a lethal retail penalty drain must enter the active structure-topple death lifecycle"
-    );
-    assert!(
-        toppling.overcharge_enabled,
+        dead_plant.overcharge_enabled,
         "the 0% threshold must not run the exhaustion disable while ordinary destruction owns cleanup"
     );
     assert_eq!(
-        toppling.power_provided, 15,
-        "the active bonus remains through the deferred topple and is removed only at normal deletion"
+        dead_plant.power_provided, 15,
+        "the active bonus remains until normal deletion"
     );
     assert_eq!(logic.overcharge_exhaustions, 0);
-
-    // The host StructureTopple route deliberately restores a sliver of HP
-    // while the building falls.  C++ OverchargeBehavior::onDelete runs with
-    // ordinary object deletion, not with the threshold branch above, so tick
-    // the actual host lifecycle through its completed topple before draining
-    // the destroy list.
-    let mut topple_queued_for_destroy = false;
-    for _ in 0..800 {
-        logic.frame = logic.frame.saturating_add(1);
-        logic.update_ai(&[plant_id], 1.0 / 30.0);
-        if logic.has_pending_destroy_work() {
-            topple_queued_for_destroy = true;
-            break;
-        }
-    }
     assert!(
-        topple_queued_for_destroy,
-        "the completed structure topple must hand the reactor to ordinary destruction"
+        logic.has_pending_destroy_work(),
+        "retail DestroyDie must queue the reactor without a fabricated topple"
     );
     logic.process_destroy_list_if_needed();
     assert!(
         logic.host_object(plant_id).is_none(),
-        "ordinary deletion must consume the toppled reactor"
+        "ordinary deletion must consume the reactor"
     );
 
     logic.update_player_resources(0.0);

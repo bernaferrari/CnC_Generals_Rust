@@ -1748,6 +1748,7 @@ fn structure_collapse_on_lethal() {
     let mut t = ThingTemplate::new("CivilianBarn01");
     t.set_health(100.0);
     t.add_kind_of(KindOf::Structure);
+    t.authored_structure_collapse = true;
     let mut b = Object::new(t, ObjectId(1), Team::Neutral);
     b.health.current = 100.0;
     assert!(b.begin_structure_collapse(5));
@@ -1760,7 +1761,10 @@ fn structure_collapse_on_lethal() {
         }
     }
     assert!(done);
-    assert!(b.status.destroyed);
+    assert!(
+        !b.status.destroyed,
+        "animation DONE must not manufacture destruction"
+    );
     assert!(b.presentation_collapse_height_offset() < -1.0);
 }
 
@@ -1783,6 +1787,7 @@ fn structure_collapse_binds_and_plays_phase_fx() {
     let mut t = ThingTemplate::new("CivilianBarn01");
     t.set_health(100.0);
     t.add_kind_of(KindOf::Structure);
+    t.authored_structure_collapse = true;
     let mut b = Object::new(t, ObjectId(1), Team::Neutral);
     assert!(b.begin_structure_collapse(0));
     {
@@ -1829,6 +1834,7 @@ fn structure_topple_on_lethal_damage() {
     let mut t = ThingTemplate::new("AmericaWarFactory");
     t.set_health(200.0);
     t.add_kind_of(KindOf::Structure);
+    t.authored_structure_topple = true;
     let mut b = Object::new(t, ObjectId(1), Team::USA);
     b.health.current = 200.0;
     assert!(b.begin_structure_topple(10, Some((0.0, 0.0))));
@@ -1845,10 +1851,13 @@ fn structure_topple_on_lethal_damage() {
         }
     }
     assert!(done);
-    assert!(b.status.destroyed);
+    assert!(
+        !b.status.destroyed,
+        "animation DONE must not manufacture destruction"
+    );
     assert_eq!(
-        b.status.death_type,
-        crate::game_logic::host_usa_pilot::HostDeathType::Toppled
+        b.structure_topple_data.as_ref().unwrap().state,
+        crate::game_logic::host_structure_topple::HostStructureToppleState::Done
     );
     assert!(b.presentation_topple_lean_radians() > 1.0);
 }

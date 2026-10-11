@@ -8,7 +8,7 @@
 //! - Delay frames before fall (default min/max 0 → immediate start residual)
 //! - Angular accumulation to π/2 with accel factor 0.02
 //! - Presentation lean via `lean_radians` (shared with tree topple presentation)
-//! - On done: mark destroyed + DEATH_TOPPLED (rubble phase residual)
+//! - On done: retain the object and completed pose; deletion belongs to other Die modules.
 //!
 //! - Crush sweep: authored CrushingWeaponName (`ToppledStructureWeapon`) at
 //!   25/25 spacing (C++ `doDamageLine`), plus CrushingFX at each fire point
@@ -315,23 +315,6 @@ impl HostStructureToppleData {
         };
         done
     }
-}
-
-/// Name/kind peel: structures that should structure-topple on death.
-pub fn is_structure_topple_candidate(template_name: &str, is_structure: bool) -> bool {
-    if !is_structure {
-        return false;
-    }
-    let n = template_name.to_ascii_lowercase();
-    // Skip pure base pads / holes / walls that may not topple in retail.
-    if n.contains("rebuildhole")
-        || n.contains("bunker") && n.contains("tunnel")
-        || n.contains("supplydock")
-        || n.contains("oil")
-    {
-        return false;
-    }
-    true
 }
 
 /// Authored StructureToppleUpdate crush + leftover Start/Delay/Done/Angle FX.

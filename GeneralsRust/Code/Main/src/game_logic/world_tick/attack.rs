@@ -2347,59 +2347,10 @@ impl GameLogic {
                 u.is_final_goal = false;
             }
             let path_ok = self.request_attack_path(unit_id, Some(vid), center);
-            if is_contact && path_ok {
-                let reject = self.objects.get_mut(&unit_id).is_some_and(|u| {
-                    let cell = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE;
-                    if let Some(last) = u.movement.path.last_mut() {
-                        let dx = center.x - last.x;
-                        let dz = center.z - last.z;
-                        if dx * dx + dz * dz < (cell * 3.0) * (cell * 3.0) {
-                            *last = center;
-                        }
-                    }
-                    if u.movement.path.is_empty() {
-                        return true;
-                    }
-                    let pos = u.get_position();
-                    let last = *u.movement.path.last().unwrap();
-                    let dx = pos.x - last.x;
-                    let dz = pos.z - last.z;
-                    if dx * dx + dz * dz < cell * cell {
-                        u.movement.path.clear();
-                        u.movement.current_path_index = 0;
-                        u.movement.target_position = None;
-                        u.waiting_for_path = false;
-                        u.is_attack_path = false;
-                        u.set_locomotor_goal_none();
-                        true
-                    } else {
-                        false
-                    }
-                });
-                if reject {
-                    let mut goal = raw;
-                    let _ = self.adjust_to_possible_destination(unit_id, &mut goal);
-                    if let Some(u) = self.objects.get_mut(&unit_id) {
-                        u.is_attack_path = false;
-                        u.ignored_obstacle_id = Some(vid);
-                    }
-                    let _ = self.assign_unit_path_ignoring(unit_id, goal, &[], Some(vid));
-                }
-            }
-            if !path_ok
-                && !self
-                    .objects
-                    .get(&unit_id)
-                    .is_some_and(|u| u.queue_for_path_frames > 0)
-            {
-                let mut goal = raw;
-                let _ = self.adjust_to_possible_destination(unit_id, &mut goal);
-                if let Some(u) = self.objects.get_mut(&unit_id) {
-                    u.is_attack_path = false;
-                    u.ignored_obstacle_id = Some(vid);
-                }
-                let _ = self.assign_unit_path_ignoring(unit_id, goal, &[], Some(vid));
-            }
+            // C++ AIAttackApproachTargetState::computePath (AIStates.cpp:
+            // 2449–2466) returns after admission. The owned doPathfind phase
+            // handles contact rejection and ordinary fallback; an old or empty
+            // path here is not the result of this newly queued request.
             if path_ok {
                 if let Some(u) = self.objects.get_mut(&unit_id) {
                     u.adjust_destinations = true;
@@ -2451,18 +2402,15 @@ impl GameLogic {
         if !can_compute {
             return false; // deferred
         }
-        let ok = self.assign_unit_attack_path(unit_id, victim_id, victim_pos);
-        if let Some(u) = self.objects.get_mut(&unit_id) {
-            // A loaded map queues and sets waiting_for_path. Clearing it here
-            // makes the unit walk with no path until the queue installs.
-            if !ok || !u.movement.path.is_empty() {
-                u.waiting_for_path = false;
-            }
-            if !ok {
-                u.is_attack_path = false;
-            }
+        if self.map_loaded {
+            // requestAttackPath queues even aircraft. Retain an old installed
+            // path and waiting until doPathfind consumes this request.
+            return self.queue_initialized_path_request(unit_id);
         }
-        ok
+        let Some(request) = self.initialized_path_request(unit_id) else {
+            return false;
+        };
+        self.resolve_initialized_path_request(request)
     }
 
     /// C++ AIUpdateInterface::privateAttackObject residual.

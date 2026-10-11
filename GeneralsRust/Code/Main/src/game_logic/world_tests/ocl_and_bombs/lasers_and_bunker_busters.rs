@@ -1364,8 +1364,21 @@ fn bunker_buster_residual_kills_garrison_and_damages_bunker() {
     );
     // Retail Upgrade.ini AmericaBunkerBusters BuildTime = 40.0s → 1200 frames
     // of producer-queue research; one 1/30s frame must not instant-complete.
-    game_logic.update();
-    game_logic.update_with_dt(40.0);
+    let research_start_frame = game_logic.frame;
+    game_logic.update_with_dt_budget(LOGIC_FRAME_TIMESTEP, 1);
+    assert!(
+        !game_logic
+            .host_upgrades()
+            .honesty_complete_ok(HostUpgradeKind::BunkerBusters),
+        "one logic frame must not complete forty seconds of research"
+    );
+    // ProductionUpdate.cpp:686-705 increments research once per logic frame;
+    // Upgrade.cpp:133-145 gives this upgrade 40 * 30 = 1200 frames. The live
+    // drive deliberately drops catch-up time, so execute each frame explicitly.
+    for _ in 1..1200 {
+        game_logic.update_with_dt_budget(LOGIC_FRAME_TIMESTEP, 1);
+    }
+    assert_eq!(game_logic.frame - research_start_frame, 1200);
     assert!(
         game_logic
             .host_upgrades()
@@ -1393,7 +1406,7 @@ fn bunker_buster_residual_kills_garrison_and_damages_bunker() {
         f.set_position(Vec3::new(0.0, 0.0, 0.0));
     }
 
-    game_logic.set_current_frame(50);
+    // Keep the completed research frame: projectile deadlines must not rewind.
     // Direct residual path: upgrade test must not depend on full combat chooser matrix.
     let bunker_pos = game_logic
         .host_object(bunker_id)

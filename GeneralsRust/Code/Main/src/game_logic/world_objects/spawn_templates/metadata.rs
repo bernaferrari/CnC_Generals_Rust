@@ -1045,6 +1045,24 @@ impl GameLogic {
         }
     }
 
+    /// C++ creates these update/Die interfaces only for authored module rows.
+    /// Presence is independent of optional FX fields and template spelling.
+    pub(super) fn apply_authored_structure_death_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        template.authored_structure_topple = definition.behavior_modules.iter().any(|module| {
+            module
+                .class_name
+                .eq_ignore_ascii_case("StructureToppleUpdate")
+        });
+        template.authored_structure_collapse = definition.behavior_modules.iter().any(|module| {
+            module
+                .class_name
+                .eq_ignore_ascii_case("StructureCollapseUpdate")
+        });
+    }
+
     /// Retain exact `SupplyTruckAIUpdate` data. A generic HARVESTER KindOf is
     /// insufficient: it deliberately receives no autonomous collector state.
     pub(super) fn apply_authored_supply_truck_metadata(

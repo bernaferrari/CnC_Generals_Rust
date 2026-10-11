@@ -31,6 +31,7 @@ impl GameLogic {
             // Advance local update timers. DISABLED_HACKED/EMP expire in
             // the separate end-of-frame disabled-status phase.
             let mut topple_kill = false;
+            let mut structure_topple_completed = false;
             let mut final_death_destroy = false;
             let mut lifetime_kill = false;
             let mut poison_kill = false;
@@ -270,21 +271,17 @@ impl GameLogic {
                     }
                 }
                 // Wave 775: under coupled shadow, StructureCollapseUpdate is owned by
-                // GW tick_status_timer_expirations + host_structure_collapse_kill_log drain.
-                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-                    && crate::gameworld_shadow::shadow_coupled_tick_active())
-                {
+                // Optional movement authority advances the animation; DONE never deletes.
+                if !crate::gameworld_shadow::gameworld_movement_authority_live() {
                     if !topple_kill && obj.structure_collapse_data.is_some() {
-                        topple_kill = obj.tick_structure_collapse(self.frame);
+                        let _completed = obj.tick_structure_collapse(self.frame);
                     }
                 }
                 // Wave 776: under coupled shadow, StructureToppleUpdate is owned by
-                // GW tick_status_timer_expirations + host_structure_topple_kill_log drain.
-                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-                    && crate::gameworld_shadow::shadow_coupled_tick_active())
-                {
+                // Optional movement authority advances the animation; DONE never deletes.
+                if !crate::gameworld_shadow::gameworld_movement_authority_live() {
                     if !topple_kill && obj.structure_topple_data.is_some() {
-                        topple_kill = obj.tick_structure_topple(self.frame);
+                        structure_topple_completed = obj.tick_structure_topple(self.frame);
                     }
                 }
             }
@@ -299,15 +296,13 @@ impl GameLogic {
             self.sync_helicopter_attach_particle(object_id);
             // Wave 777: under coupled shadow, StructureTopple crush sweep is owned by
             // GW tick_status_timer_expirations + host_structure_topple_crush_log drain.
-            if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-                && crate::gameworld_shadow::shadow_coupled_tick_active())
-            {
+            if !crate::gameworld_shadow::gameworld_movement_authority_live() {
                 // C++ StructureToppleUpdate::applyCrushingDamage residual.
                 if self
                     .objects
                     .get(&object_id)
                     .and_then(|o| o.structure_topple_data.as_ref())
-                    .map(|d| d.is_active() || topple_kill)
+                    .map(|d| d.is_active() || structure_topple_completed)
                     .unwrap_or(false)
                 {
                     let samples = self

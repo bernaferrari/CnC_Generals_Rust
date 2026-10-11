@@ -225,6 +225,7 @@ impl GameLogic {
         Self::apply_authored_flight_deck_metadata(&mut template, definition);
         Self::apply_authored_deploy_style_metadata(&mut template, definition);
         Self::apply_authored_auto_acquire_metadata(&mut template, definition);
+        Self::apply_authored_structure_death_metadata(&mut template, definition);
         Self::apply_authored_ai_interface_metadata(&mut template, definition);
 
         Self::apply_authored_supply_truck_metadata(&mut template, definition);

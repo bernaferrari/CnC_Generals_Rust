@@ -646,7 +646,14 @@ fn illegal_placement_lbc_message_residual_nonempty() {
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);
     let mut t = ThingTemplate::new("AmericaBarracks");
-    t.add_kind_of(KindOf::Structure).set_health(1000.0);
+    t.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Immobile)
+        .set_health(1000.0);
+    // C++ BuildAssistant.cpp:705: an immobile, overlapping footprint blocks.
+    t.geometry_info.authored = true;
+    t.geometry_info.geom_type = crate::game_logic::HostGeometryType::Cylinder;
+    t.geometry_info.major_radius = 20.0;
+    t.geometry_info.minor_radius = 20.0;
     logic.templates.insert("AmericaBarracks".into(), t);
     // Place blocking structure at origin.
     let blocker = logic
@@ -837,7 +844,6 @@ fn structure_placement_rejects_shrouded_location_residual() {
         LBC_OK, LBC_SHROUD, cell_shroud_blocks_build_residual,
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    use gamelogic::system::shroud_manager::get_shroud_manager;
     assert!(cell_shroud_blocks_build_residual(false));
     assert!(!cell_shroud_blocks_build_residual(true));
 
@@ -851,7 +857,7 @@ fn structure_placement_rejects_shrouded_location_residual() {
 
     // Init shroud grid residual covering world.
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = logic.world_services.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.init_shroud_grid(400.0, 400.0);
         // Leave map shrouded (default Hidden) — do not reveal.
@@ -863,16 +869,17 @@ fn structure_placement_rejects_shrouded_location_residual() {
     );
     // C++ DozerAIUpdate.cpp:1648-1670 — createObject is unconditional after
     // the executor LBC gate; the shroud residual above is the placement gate.
-    assert!(
-        logic
-            .create_object_under_construction("TestShroudBarracks", Team::USA, pos)
-            .is_some()
-    );
+    let scaffold = logic.create_object_under_construction("TestShroudBarracks", Team::USA, pos);
+    assert!(scaffold.is_some());
+    // Remove the admitted scaffold through the normal deletion boundary:
+    // otherwise the next query tests occupied ground, not revealed shroud.
+    logic.destroy_object(scaffold.unwrap());
+    logic.process_destroy_list();
 
     // Permanent reveal → CELLSHROUD_CLEAR residual (active lookers).
     // Temporary reveal only leaves FOGGED, which still blocks build residual.
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = logic.world_services.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         let _ = shroud.reveal_map_for_player_permanently(0);
     }
@@ -888,7 +895,7 @@ fn structure_placement_rejects_shrouded_location_residual() {
 
     // fog_of_war off → fail-open even if shrouded again.
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = logic.world_services.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         let _ = shroud.shroud_map_for_player(0);
     }
@@ -901,9 +908,9 @@ fn structure_placement_rejects_shrouded_location_residual() {
         ),
         LBC_OK
     );
-    // Leave permanent reveal so later fog-on tests see CLEAR residual.
+    // Restore this owner only; other worlds have independent shroud grids.
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = logic.world_services.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         let _ = shroud.reveal_map_for_player_permanently(0);
     }
@@ -969,8 +976,7 @@ fn supply_center_placement_rejects_too_close_to_supplies_residual() {
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);
     logic.override_world_size(2000.0, 2000.0); // LegalBuild edge residual room
-    // Shroud manager is process-global; these residuals are independent of
-    // shroud, so pin fog off for deterministic parallel runs.
+    // This fixture isolates supply/overlap legality from its own shroud rules.
     logic.set_skirmish_rules(false, true, false, true, 1.0);
 
     let mut pile = ThingTemplate::new("ArbitraryRetailSupplyIdentity");
@@ -1043,6 +1049,18 @@ fn supply_center_placement_rejects_too_close_to_supplies_residual() {
         LBC_OK,
         "a Supply-looking basename without KINDOF_SUPPLY_SOURCE is not a retail exclusion source"
     );
+    // Non-supply building near pile is OK for this residual (only CANNOT_BUILD_NEAR).
+    let mut bar = ThingTemplate::new("TestBarracksNearPile");
+    bar.add_kind_of(KindOf::Structure).set_health(1000.0);
+    logic.templates.insert("TestBarracksNearPile".into(), bar);
+    assert_eq!(
+        logic.legal_build_code_at(
+            Team::USA,
+            glam::Vec3::new(80.0, 0.0, 0.0),
+            "TestBarracksNearPile"
+        ),
+        LBC_OK
+    );
     // C++ DozerAIUpdate.cpp:1648-1670 — creation is unconditional; the
     // too-close residual above is the placement gate.
     assert!(
@@ -1053,6 +1071,16 @@ fn supply_center_placement_rejects_too_close_to_supplies_residual() {
                 glam::Vec3::new(50.0, 0.0, 0.0),
             )
             .is_some()
+    );
+    // The unconditional scaffold created above is now an ordinary obstruction;
+    // C++ BuildAssistant.cpp:919-941 checks overlap before supply exclusion.
+    assert_ne!(
+        logic.legal_build_code_at(
+            Team::USA,
+            glam::Vec3::new(80.0, 0.0, 0.0),
+            "TestBarracksNearPile"
+        ),
+        LBC_OK
     );
     // Far enough residual.
     assert_eq!(
@@ -1071,18 +1099,6 @@ fn supply_center_placement_rejects_too_close_to_supplies_residual() {
                 glam::Vec3::new(300.0, 0.0, 0.0),
             )
             .is_some()
-    );
-    // Non-supply building near pile is OK for this residual (only CANNOT_BUILD_NEAR).
-    let mut bar = ThingTemplate::new("TestBarracksNearPile");
-    bar.add_kind_of(KindOf::Structure).set_health(1000.0);
-    logic.templates.insert("TestBarracksNearPile".into(), bar);
-    assert_eq!(
-        logic.legal_build_code_at(
-            Team::USA,
-            glam::Vec3::new(80.0, 0.0, 0.0),
-            "TestBarracksNearPile"
-        ),
-        LBC_OK
     );
 }
 

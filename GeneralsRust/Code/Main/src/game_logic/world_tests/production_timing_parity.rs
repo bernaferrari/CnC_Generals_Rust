@@ -2,8 +2,6 @@
 use super::super::*;
 use super::helpers::*;
 
-static LOW_POWER_CONFIG_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 #[derive(Clone, Copy)]
 struct LowEnergyRates {
     penalty: f32,
@@ -12,7 +10,6 @@ struct LowEnergyRates {
 }
 
 struct LowEnergyConfigGuard {
-    _serial: std::sync::MutexGuard<'static, ()>,
     global:
         std::sync::Arc<parking_lot::RwLock<game_engine::common::ini::ini_game_data::GlobalData>>,
     previous: LowEnergyRates,
@@ -20,9 +17,6 @@ struct LowEnergyConfigGuard {
 
 impl LowEnergyConfigGuard {
     fn install(rates: LowEnergyRates) -> Self {
-        let serial = LOW_POWER_CONFIG_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
         let global = game_engine::common::ini::ini_game_data::ensure_global_data();
         let previous = {
             let data = global.read();
@@ -39,11 +33,7 @@ impl LowEnergyConfigGuard {
             data.max_low_energy_production_speed = rates.max_speed;
         }
 
-        Self {
-            _serial: serial,
-            global,
-            previous,
-        }
+        Self { global, previous }
     }
 }
 
@@ -58,51 +48,57 @@ impl Drop for LowEnergyConfigGuard {
 
 #[test]
 fn unmapped_dozer_hp_gain_uses_energy_adjusted_build_time_frames() {
-    let _config = LowEnergyConfigGuard::install(LowEnergyRates {
-        penalty: 1.0,
-        min_speed: 0.5,
-        max_speed: 0.8,
-    });
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "unmapped_dozer_hp_gain_uses_energy_adjusted_build_time_frames",
+        || {
+            let _config = LowEnergyConfigGuard::install(LowEnergyRates {
+                penalty: 1.0,
+                min_speed: 0.5,
+                max_speed: 0.8,
+            });
 
-    let mut logic = GameLogic::new();
-    ensure_test_structure_template(&mut logic);
-    ensure_test_dozer_template(&mut logic);
-    ensure_test_player_for_team(&mut logic, Team::USA);
+            let mut logic = GameLogic::new();
+            ensure_test_structure_template(&mut logic);
+            ensure_test_dozer_template(&mut logic);
+            ensure_test_player_for_team(&mut logic, Team::USA);
 
-    let sid = logic
-        .create_object_under_construction("TestBuilding", Team::USA, glam::Vec3::ZERO)
-        .expect("scaffold");
-    if let Some(site) = logic.host_object_mut(sid) {
-        site.template_mut().build_time = 10.0; // 300 authored frames
-        site.construction_percent = 0.0;
-    }
-    let did = logic
-        .create_object("TestDozer", Team::USA, glam::Vec3::new(2.0, 0.0, 0.0))
-        .expect("dozer");
-    assert!(logic.resume_construction(&[did], sid));
+            let sid = logic
+                .create_object_under_construction("TestBuilding", Team::USA, glam::Vec3::ZERO)
+                .expect("scaffold");
+            if let Some(site) = logic.host_object_mut(sid) {
+                site.template_mut().build_time = 10.0; // 300 authored frames
+                site.construction_percent = 0.0;
+            }
+            let did = logic
+                .create_object("TestDozer", Team::USA, glam::Vec3::new(2.0, 0.0, 0.0))
+                .expect("dozer");
+            assert!(logic.resume_construction(&[did], sid));
 
-    let before = logic.host_object(sid).expect("site before").clone();
-    let power = logic.compute_player_power_factors();
-    let configured_power_factor = power.get(&0).copied();
+            let before = logic.host_object(sid).expect("site before").clone();
+            let power = logic.compute_player_power_factors();
+            let configured_power_factor = power.get(&0).copied();
 
-    // Main host-authoritative production path; one elapsed second is 30 logic frames.
-    logic.update_construction(&[sid], 1.0);
-    let after = logic.host_object(sid).expect("site after");
-    let progress = after.construction_percent - before.construction_percent;
-    let health_gain = after.health.current - before.health.current;
-    assert_eq!(
-        configured_power_factor,
-        Some(0.5),
-        "empty grid is half speed"
-    );
+            // Main host-authoritative production path; one elapsed second is 30 logic frames.
+            logic.update_construction(&[sid], 1.0);
+            let after = logic.host_object(sid).expect("site after");
+            let progress = after.construction_percent - before.construction_percent;
+            let health_gain = after.health.current - before.health.current;
+            assert_eq!(
+                configured_power_factor,
+                Some(0.5),
+                "empty grid is half speed"
+            );
 
-    // C++ calcTimeToBuild divides 300 authored frames by the 0.5 low-power
-    // rate, then DozerAIUpdate uses that same 600-frame count for both values.
-    // Thus each construction percentage point adds the same fraction of max HP.
-    let expected_hp_gain = before.health.maximum * progress;
-    assert!(
-        (health_gain - expected_hp_gain).abs() < 0.05,
-        "C++ uses the energy-adjusted 600-frame duration for percent and HP; progress={progress}, HP gain={health_gain}, expected={expected_hp_gain}"
+            // C++ calcTimeToBuild divides 300 authored frames by the 0.5 low-power
+            // rate, then DozerAIUpdate uses that same 600-frame count for both values.
+            // Thus each construction percentage point adds the same fraction of max HP.
+            let expected_hp_gain = before.health.maximum * progress;
+            assert!(
+                (health_gain - expected_hp_gain).abs() < 0.05,
+                "C++ uses the energy-adjusted 600-frame duration for percent and HP; progress={progress}, HP gain={health_gain}, expected={expected_hp_gain}"
+            );
+        },
     );
 }
 
@@ -198,73 +194,79 @@ fn authored_build_frame_modifiers_keep_each_cpp_integer_boundary() {
 
 #[test]
 fn main_power_factors_follow_configured_bounds_and_cpp_order() {
-    let cases = [
-        // Low-power Min drives the factor below 0.01; CPP float division
-        // yields 14999.999... and Int truncates to 14999.
-        (
-            LowEnergyRates {
-                penalty: 1.0,
-                min_speed: 0.002,
-                max_speed: 0.005,
-            },
-            0,
-            10,
-            0.002,
-            14_999,
-        ),
-        // Zero fields stay authoritative, then CPP applies penaltyRate=0.01.
-        (
-            LowEnergyRates {
-                penalty: 0.0,
-                min_speed: 0.0,
-                max_speed: 0.0,
-            },
-            0,
-            10,
-            0.01,
-            3_000,
-        ),
-        // Below-full-power applies Max after Min.
-        (
-            LowEnergyRates {
-                penalty: 1.0,
-                min_speed: 0.8,
-                max_speed: 0.2,
-            },
-            0,
-            10,
-            0.2,
-            150,
-        ),
-        // Full power still applies Min, but does not apply Max.
-        (
-            LowEnergyRates {
-                penalty: 1.0,
-                min_speed: 1.5,
-                max_speed: 0.8,
-            },
-            10,
-            10,
-            1.5,
-            20,
-        ),
-    ];
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "main_power_factors_follow_configured_bounds_and_cpp_order",
+        || {
+            let cases = [
+                // Low-power Min drives the factor below 0.01; CPP float division
+                // yields 14999.999... and Int truncates to 14999.
+                (
+                    LowEnergyRates {
+                        penalty: 1.0,
+                        min_speed: 0.002,
+                        max_speed: 0.005,
+                    },
+                    0,
+                    10,
+                    0.002,
+                    14_999,
+                ),
+                // Zero fields stay authoritative, then CPP applies penaltyRate=0.01.
+                (
+                    LowEnergyRates {
+                        penalty: 0.0,
+                        min_speed: 0.0,
+                        max_speed: 0.0,
+                    },
+                    0,
+                    10,
+                    0.01,
+                    3_000,
+                ),
+                // Below-full-power applies Max after Min.
+                (
+                    LowEnergyRates {
+                        penalty: 1.0,
+                        min_speed: 0.8,
+                        max_speed: 0.2,
+                    },
+                    0,
+                    10,
+                    0.2,
+                    150,
+                ),
+                // Full power still applies Min, but does not apply Max.
+                (
+                    LowEnergyRates {
+                        penalty: 1.0,
+                        min_speed: 1.5,
+                        max_speed: 0.8,
+                    },
+                    10,
+                    10,
+                    1.5,
+                    20,
+                ),
+            ];
 
-    for (rates, power_produced, power_consumed, expected_factor, expected_frames) in cases {
-        let _config = LowEnergyConfigGuard::install(rates);
-        let mut logic = GameLogic::new();
-        ensure_test_player_for_team(&mut logic, Team::USA);
-        if let Some(player) = logic.players.get_mut(&0) {
-            player.power_produced = power_produced;
-            player.power_consumed = power_consumed;
-        }
-        let configured_factor = logic.compute_player_power_factors().get(&0).copied();
-        let final_frames = configured_factor
-            .map(|factor| GameLogic::cpp_build_time_frames_after_power(30, factor));
+            for (rates, power_produced, power_consumed, expected_factor, expected_frames) in cases {
+                let _config = LowEnergyConfigGuard::install(rates);
+                let mut logic = GameLogic::new();
+                ensure_test_player_for_team(&mut logic, Team::USA);
+                if let Some(player) = logic.players.get_mut(&0) {
+                    player.power_produced = power_produced;
+                    player.power_consumed = power_consumed;
+                }
+                let configured_factor = logic.compute_player_power_factors().get(&0).copied();
+                let final_frames = configured_factor
+                    .map(|factor| GameLogic::cpp_build_time_frames_after_power(30, factor));
 
-        assert_eq!(configured_factor, Some(expected_factor));
-        assert_eq!(final_frames, Some(expected_frames));
-    }
+                assert_eq!(configured_factor, Some(expected_factor));
+                assert_eq!(final_frames, Some(expected_frames));
+            }
+        },
+    );
 }
 
 // Actual definition worker -> Main PlayerTemplate identity -> charged queue ->

@@ -182,6 +182,11 @@ fn explicit_destroy_after_producer_death_preserves_one_refund_and_queue_identity
     ensure_test_player_for_team(&mut world, Team::USA);
     ensure_test_player_for_team(&mut world, Team::GLA);
     ensure_test_barracks_template(&mut world);
+    world
+        .templates
+        .get_mut("TestBarracks")
+        .unwrap()
+        .authored_structure_topple = true;
     ensure_test_infantry_template(&mut world);
     let id = world
         .create_object("TestBarracks", Team::USA, Vec3::ZERO)
@@ -194,9 +199,8 @@ fn explicit_destroy_after_producer_death_preserves_one_refund_and_queue_identity
     let owner = world.host_object(id).unwrap();
     assert!(owner.status.on_die_started);
     assert!(owner.structure_topple_data.as_ref().unwrap().is_active());
-    // The host bare-structure topple selector is an existing approximation.
-    // This case proves only explicit destruction after onDie, not a CPP
-    // assertion that StructureTopple by itself must remove a building.
+    // An authored animation may remain active, but explicit destroyObject
+    // independently requests deletion without repeating the death callback.
     world.destroy_object(id);
     assert_eq!(
         world
@@ -523,4 +527,125 @@ fn explicit_container_delete_detaches_a_dying_slow_death_passenger_immediately()
     assert_eq!(world.objects_to_destroy.len(), 2);
     world.process_destroy_list();
     assert!(world.host_object(child).is_none());
+}
+
+#[test]
+fn authored_structure_updates_admit_exact_modules_without_name_fallback() {
+    let mut parser = crate::assets::IniParser::new();
+    parser
+        .parse_ini_content(
+            r#"
+Object CivilianBarnNamedOnly
+  KindOf = STRUCTURE
+End
+Object ChinaPowerPlantNamedOnly
+  KindOf = STRUCTURE
+End
+Object AnonymousAuthoredTopple
+  KindOf = STRUCTURE
+  Behavior = StructureToppleUpdate ModuleTag_Fall
+  End
+End
+Object AnonymousAuthoredCollapse
+  KindOf = STRUCTURE
+  Behavior = StructureCollapseUpdate ModuleTag_Sink
+  End
+End
+"#,
+            "structure-admission.ini",
+        )
+        .unwrap();
+    for (name, topple, collapse) in [
+        ("CivilianBarnNamedOnly", false, false),
+        ("ChinaPowerPlantNamedOnly", false, false),
+        ("AnonymousAuthoredTopple", true, false),
+        ("AnonymousAuthoredCollapse", false, true),
+    ] {
+        let template = GameLogic::build_template_from_object_definition(
+            name,
+            parser.get_definition(name).unwrap(),
+            None,
+        );
+        assert_eq!(template.authored_structure_topple, topple);
+        assert_eq!(template.authored_structure_collapse, collapse);
+        // Existing serde snapshots default absent authoring to false and retain
+        // admitted definition data rather than consulting another world.
+        let encoded = serde_json::to_vec(&template).unwrap();
+        let restored: ThingTemplate = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(restored.authored_structure_topple, topple);
+        assert_eq!(restored.authored_structure_collapse, collapse);
+        let mut object = Object::new(restored, ObjectId(7001), Team::Neutral);
+        assert_eq!(object.begin_structure_topple(0, None), topple);
+        assert_eq!(object.begin_structure_collapse(0), collapse);
+    }
+}
+
+#[test]
+fn coupled_default_structure_completion_retains_objects_until_explicit_delete() {
+    use crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority;
+    use crate::game_logic::game_logic::world_tick::heli_motion_tests::isolated_at;
+    isolated_at(
+        module_path!(),
+        "coupled_default_structure_completion_retains_objects_until_explicit_delete",
+        || {
+            crate::gameworld_shadow::with_gameworld_authority(
+                GameWorldAuthority::DEFAULT_OFF,
+                || {
+                    for collapse in [false, true] {
+                        let mut world = GameLogic::new();
+                        let mut template = ThingTemplate::new("AuthoredCompletedStructure");
+                        template.add_kind_of(KindOf::Structure).set_health(100.0);
+                        template.authored_structure_topple = !collapse;
+                        template.authored_structure_collapse = collapse;
+                        world.templates.insert(template.name.clone(), template);
+                        let id = world
+                            .create_object("AuthoredCompletedStructure", Team::Neutral, Vec3::ZERO)
+                            .unwrap();
+                        world.mark_object_for_destruction(id, None);
+                        let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
+                        let mut completed = false;
+                        for frame in 1..=800 {
+                            world.frame = frame;
+                            {
+                                let _coupled = crate::gameworld_shadow::CoupledTickGuard::enter();
+                                world.update_ai(&[id], 1.0 / 30.0);
+                            }
+                            shadow.sync_from_host(&world);
+                            let _ = crate::gameworld_shadow::shadow_session_after_host_tick(
+                                &mut shadow,
+                                &mut world,
+                            );
+                            let object =
+                                world.host_object(id).expect("structure survives animation");
+                            assert!(!object.status.destroyed);
+                            assert!(world.objects_to_destroy.iter().all(|event| event.id != id));
+                            completed = if collapse {
+                                object.structure_collapse_data.as_ref().unwrap().state == crate::game_logic::host_structure_collapse::HostStructureCollapseState::Done
+                            } else {
+                                object.structure_topple_data.as_ref().unwrap().state == crate::game_logic::host_structure_topple::HostStructureToppleState::Done
+                            };
+                            if completed {
+                                break;
+                            }
+                        }
+                        assert!(completed, "authored structure reaches C++ DONE");
+                        // A duplicate onDie request cannot turn completion into deletion.
+                        world.mark_object_for_destruction(id, None);
+                        assert!(world.objects_to_destroy.iter().all(|event| event.id != id));
+                        world.destroy_object(id);
+                        assert_eq!(
+                            world
+                                .objects_to_destroy
+                                .iter()
+                                .filter(|event| event.id == id)
+                                .count(),
+                            1
+                        );
+                        world.process_destroy_list();
+                        assert!(world.host_object(id).is_none());
+                    }
+                },
+            );
+        },
+    );
 }

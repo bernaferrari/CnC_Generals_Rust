@@ -352,54 +352,6 @@ impl HostStructureCollapseData {
     }
 }
 
-/// Civilian / prop buildings prefer StructureCollapse over StructureTopple.
-pub fn prefers_structure_collapse(template_name: &str) -> bool {
-    let n = template_name.to_ascii_lowercase();
-    if n.contains("warfactory")
-        || n.contains("barracks")
-        || n.contains("commandcenter")
-        || n.contains("command_center")
-        || n.contains("airfield")
-        || n.contains("helipad")
-        || n.contains("strategycenter")
-        || n.contains("supplycenter")
-        || n.contains("powerplant")
-        || n.contains("nuclear")
-        || n.contains("scud")
-        || n.contains("stinger")
-        || n.contains("patriot")
-        || n.contains("firebase")
-        || n.contains("gattling")
-        || n.contains("tunnel")
-        || n.contains("bunker") && !n.contains("civilian")
-    {
-        return false; // military → topple residual
-    }
-    n.contains("civilian")
-        || n.contains("barn")
-        || n.contains("house")
-        || n.contains("hut")
-        || n.contains("shack")
-        || n.contains("store")
-        || n.contains("shop")
-        || n.contains("church")
-        || n.contains("temple")
-        || n.contains("farm")
-        || n.contains("stable")
-        || n.contains("garage")
-        || n.contains("office")
-        || n.contains("apartment")
-        || n.contains("building")
-        || n.contains("tower") && n.contains("water")
-        || n.contains("silo")
-        || n.contains("warehouse")
-        || n.contains("hangar") && n.contains("civ")
-}
-
-pub fn is_structure_collapse_candidate(template_name: &str, is_structure: bool) -> bool {
-    is_structure && prefers_structure_collapse(template_name)
-}
-
 fn first_nonempty_fx_name(raw: &str) -> Option<String> {
     raw.split_whitespace()
         .map(str::trim)
@@ -680,12 +632,6 @@ mod tests {
     }
 
     #[test]
-    fn civilian_prefers_collapse() {
-        assert!(prefers_structure_collapse("CivilianBarn01"));
-        assert!(!prefers_structure_collapse("AmericaWarFactory"));
-    }
-
-    #[test]
     fn parse_phase_fx_initial_delay_burst_final() {
         let ini = collapse_ini_from_behavior_attrs(&[
             ("MinBurstDelay", "250"),
@@ -735,12 +681,17 @@ mod tests {
         assert!(!d.tick(burst_at));
         assert_eq!(d.take_pending_phase_fx(), vec!["FX_DieDelay"]);
         let mut done = false;
+        let mut intermediate_fx = Vec::new();
         for f in burst_at + 1..200 {
             if d.tick(f) {
                 done = true;
                 break;
             }
+            // C++ timer effects happen before FINAL. Consume each earlier
+            // delivery instead of leaving it queued for the final assertion.
+            intermediate_fx.extend(d.take_pending_phase_fx());
         }
+        assert_eq!(intermediate_fx, vec!["FX_DieDelay"]);
         assert!(done);
         assert_eq!(d.take_pending_phase_fx(), vec!["FX_DieFinal"]);
     }

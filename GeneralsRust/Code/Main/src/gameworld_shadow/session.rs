@@ -1329,30 +1329,8 @@ pub fn shadow_session_after_host_tick(
             // The original final phase calls destroyObject, not kill/onDie.
             logic.destroy_object(id);
         }
-        // Wave 775: StructureCollapseUpdate done → host destroy (no dual timer).
-        for id in crate::game_logic::host_structure_collapse_kill_log::drain() {
-            // Wave 941: force-kill residual via host residual mutation authority.
-            logic.apply_host_residual_mutation_op(
-                crate::game_logic::HostResidualMutationOp::ForceKill {
-                    id,
-                    death_type: Some(crate::game_logic::host_usa_pilot::HostDeathType::Toppled),
-                    refresh_model_condition: false,
-                    mark_destroy: true,
-                },
-            );
-        }
-        // Wave 776: StructureToppleUpdate done → host destroy (no dual timer).
-        for id in crate::game_logic::host_structure_topple_kill_log::drain() {
-            // Wave 941: force-kill residual via host residual mutation authority.
-            logic.apply_host_residual_mutation_op(
-                crate::game_logic::HostResidualMutationOp::ForceKill {
-                    id,
-                    death_type: Some(crate::game_logic::host_usa_pilot::HostDeathType::Toppled),
-                    refresh_model_condition: false,
-                    mark_destroy: true,
-                },
-            );
-        }
+        // StructureCollapse/Topple DONE retain their completed presentation state.
+        // C++ sleeps forever here; only explicit or separately authored deletion runs.
         // Wave 777: StructureTopple crush sweep → host apply (no dual last_crushed).
         for (id, samples) in crate::game_logic::host_structure_topple_crush_log::drain() {
             logic.apply_structure_topple_crush_samples(id, samples);

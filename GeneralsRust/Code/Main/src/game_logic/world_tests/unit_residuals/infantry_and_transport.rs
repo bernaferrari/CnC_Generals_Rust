@@ -1404,6 +1404,7 @@ fn structure_topple_crush_sweep_kills_nearby_infantry() {
     let mut bt = ThingTemplate::new("AmericaWarFactory");
     bt.set_health(100.0);
     bt.add_kind_of(KindOf::Structure);
+    bt.authored_structure_topple = true;
     logic.templates.insert("AmericaWarFactory".into(), bt);
     let mut it = ThingTemplate::new("Ranger");
     it.set_health(50.0);
@@ -1466,6 +1467,7 @@ fn structure_topple_height_from_geometry_not_maxhp() {
     let mut bt = ThingTemplate::new("AmericaWarFactory");
     bt.set_health(5000.0);
     bt.add_kind_of(KindOf::Structure);
+    bt.authored_structure_topple = true;
     bt.geometry_info = HostGeometryInfo {
         geom_type: HostGeometryType::Box,
         is_small: false,
@@ -2152,6 +2154,7 @@ fn structure_collapse_defers_destruction() {
     let mut t = ThingTemplate::new("CivilianBarn01");
     t.set_health(80.0);
     t.add_kind_of(KindOf::Structure);
+    t.authored_structure_collapse = true;
     logic.templates.insert("CivilianBarn01".into(), t);
     let id = logic
         .create_object(
@@ -2183,7 +2186,11 @@ fn structure_collapse_defers_destruction() {
     }
     assert!(finished);
     logic.mark_object_for_destruction(id, None);
-    assert!(logic.objects_to_destroy.iter().any(|e| e.id == id));
+    assert!(logic.objects_to_destroy.iter().all(|e| e.id != id));
+    assert!(
+        logic.objects.contains_key(&id),
+        "DONE collapse remains admitted"
+    );
 }
 
 #[test]
@@ -2193,6 +2200,7 @@ fn structure_topple_defers_destruction() {
     let mut t = ThingTemplate::new("AmericaWarFactory");
     t.set_health(100.0);
     t.add_kind_of(KindOf::Structure);
+    t.authored_structure_topple = true;
     logic.templates.insert("AmericaWarFactory".into(), t);
     let id = logic
         .create_object(
@@ -2230,8 +2238,12 @@ fn structure_topple_defers_destruction() {
     assert!(finished);
     logic.mark_object_for_destruction(id, None);
     assert!(
-        logic.objects_to_destroy.iter().any(|e| e.id == id),
-        "done structure should destroy"
+        logic.objects_to_destroy.iter().all(|e| e.id != id),
+        "C++ DONE toppling sleeps without automatic destruction"
+    );
+    assert!(
+        logic.objects.contains_key(&id),
+        "DONE topple remains admitted"
     );
 }
 
