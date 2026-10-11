@@ -21,17 +21,23 @@ impl SnapshotBuilder {
         let mut ids: Vec<ObjectId> = objects.keys().cloned().collect();
         ids.sort();
 
-        // Queues need the loaded catalog's authored build time. Restoring a
-        // live object can synthesize a minimal template below; that fallback
-        // cannot supply a queued unit's definition. Validate before restoring
-        // any objects, independently of their saved ID order.
+        // C++ ProductionUpdate::xfer rejects absent unit/upgrade definitions
+        // (ProductionUpdate.cpp:1304–1328). A live object's synthesized template
+        // cannot supply a queued unit's definition; an upgrade must resolve in
+        // this candidate's own UpgradeCenter. Validate both catalogs before
+        // restoring any objects, independently of their saved ID order.
         for id in &ids {
             for module in objects[id].modules.values() {
                 if let ModuleSnapshot::Production(production) = module {
                     for entry in &production.production_queue {
-                        if !entry.is_upgrade
-                            && !game_logic.templates.contains_key(&entry.template_name)
-                        {
+                        if entry.is_upgrade {
+                            if game_logic.upgrade_template(&entry.template_name).is_none() {
+                                return Err(SaveLoadError::Corrupted(format!(
+                                    "Queued upgrade '{}' is absent from loaded definitions",
+                                    entry.template_name
+                                )));
+                            }
+                        } else if !game_logic.templates.contains_key(&entry.template_name) {
                             return Err(SaveLoadError::Corrupted(format!(
                                 "Queued production template '{}' is absent from loaded definitions",
                                 entry.template_name
@@ -555,7 +561,18 @@ impl SnapshotBuilder {
                             let total_time = if entry.is_upgrade {
                                 // Upgrade.cpp:133–145 applies neither General
                                 // nor handicap modifiers in the release path.
-                                game_logic.upgrade_research_time_secs(&entry.template_name)
+                                // Preserve authored zero/fractional seconds;
+                                // runtime unknown-name fallbacks cannot supply
+                                // a saved UpgradeTemplate's missing identity.
+                                game_logic
+                                    .upgrade_template(&entry.template_name)
+                                    .ok_or_else(|| {
+                                        SaveLoadError::Corrupted(format!(
+                                            "Queued upgrade '{}' is absent from loaded definitions",
+                                            entry.template_name
+                                        ))
+                                    })?
+                                    .get_build_time()
                             } else {
                                 let template = template.ok_or_else(|| {
                                     SaveLoadError::Corrupted(format!(
@@ -579,7 +596,14 @@ impl SnapshotBuilder {
                                     template.build_time,
                                 )
                             };
-                            let template_power = template.map(|t| t.build_cost.power).unwrap_or(0);
+                            // Upgrade.cpp:154–156 has only a money cost.
+                            // A same-name ThingTemplate must not invent a power
+                            // refund when this research entry is cancelled.
+                            let template_power = if entry.is_upgrade {
+                                0
+                            } else {
+                                template.map(|t| t.build_cost.power).unwrap_or(0)
+                            };
 
                             let mut progress = entry.progress.max(0.0);
                             if index == 0 && progress <= 0.0 && snapshot.production_progress > 0.0 {

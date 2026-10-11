@@ -294,6 +294,15 @@ fn host_upgrade_capture_mid_flight_save_load_completes_unlock() {
     player.resources.supplies = 5000;
     source.add_player(player);
     ensure_upgrade_test_templates(&mut source);
+    // C++ save admission requires the named UpgradeTemplate in the loaded
+    // catalog; this fixture supplies the retail PLAYER rule to each world.
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &source,
+        UPGRADE_INFANTRY_CAPTURE,
+        "PLAYER",
+        1000,
+        30,
+    );
 
     let barracks_id = source
         .create_object("TestBarracks", Team::USA, Vec3::new(-50.0, 0.0, 0.0))
@@ -374,6 +383,13 @@ fn host_upgrade_capture_mid_flight_save_load_completes_unlock() {
 
     let mut restored = GameLogic::new();
     restored.templates = source.templates.clone();
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &restored,
+        UPGRADE_INFANTRY_CAPTURE,
+        "PLAYER",
+        1000,
+        30,
+    );
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("restore mid-flight Capture upgrade");
@@ -517,6 +533,15 @@ fn save_file_roundtrip_preserves_pending_host_upgrade() {
     player.resources.supplies = 5000;
     source.add_player(player);
     ensure_upgrade_test_templates(&mut source);
+    // C++ save admission requires the named UpgradeTemplate in the loaded
+    // catalog; this fixture supplies the retail PLAYER rule to each world.
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &source,
+        UPGRADE_INFANTRY_CAPTURE,
+        "PLAYER",
+        1000,
+        30,
+    );
     let barracks = source
         .create_object("TestBarracks", Team::USA, Vec3::ZERO)
         .expect("barracks");
@@ -559,6 +584,13 @@ fn save_file_roundtrip_preserves_pending_host_upgrade() {
 
     let mut loaded = GameLogic::new();
     loaded.templates = source.templates.clone();
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &loaded,
+        UPGRADE_INFANTRY_CAPTURE,
+        "PLAYER",
+        1000,
+        30,
+    );
     manager
         .load_game("host_upgrade_rt", &mut loaded)
         .expect("load");

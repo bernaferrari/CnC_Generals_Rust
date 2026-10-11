@@ -897,3 +897,313 @@ fn queued_duration_restore_rejects_missing_unit_definition_and_stale_or_ambiguou
         },
     );
 }
+
+// hq-p6s42 / hq-7chz9: saved names resolve in the receiving world's catalog.
+// The real owned INI parser supplies authored seconds; these bounded restore
+// witnesses do not claim that the command/automatic-AI admission fallbacks
+// already preserve every zero/fractional rule (that remains hq-ax77l).
+#[cfg(not(target_arch = "wasm32"))]
+fn register_upgrade_restore_rule(
+    world: &GameLogic,
+    name: &str,
+    kind: &str,
+    cost: u32,
+    seconds: f32,
+) {
+    let source =
+        format!("Upgrade {name}\nType = {kind}\nBuildCost = {cost}\nBuildTime = {seconds}\nEnd\n");
+    let mut center = world.world_services.upgrade_center().write().unwrap();
+    let mut ini = game_engine::common::ini::INI::new();
+    ini.with_inline_source(&source, |ini| {
+        ini.read_line()?;
+        center.parse_upgrade_definition(ini)
+    })
+    .expect("actual candidate-owned Upgrade INI parser");
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn queue_upgrade_restore_rule(world: &mut GameLogic, producer: ObjectId, name: &str) -> u32 {
+    let definition = world.upgrade_template(name).unwrap();
+    let before = world.players[&0].effective_supplies();
+    let cost = Resources {
+        supplies: definition.get_cost().try_into().unwrap(),
+        power: 0,
+    };
+    assert!(world.get_player_mut(0).unwrap().queue_upgrade(
+        name,
+        &cost,
+        definition.get_upgrade_type()
+    ));
+    assert!(
+        world
+            .host_object_mut(producer)
+            .unwrap()
+            .building_data
+            .as_mut()
+            .unwrap()
+            .add_upgrade_to_queue(name.into(), definition.get_build_time(), cost)
+    );
+    assert_eq!(
+        world.players[&0].effective_supplies(),
+        before - cost.supplies
+    );
+    before
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn upgrade_restore_head(world: &GameLogic, producer: ObjectId) -> &ProductionItem {
+    &world
+        .host_object(producer)
+        .unwrap()
+        .building_data
+        .as_ref()
+        .unwrap()
+        .production_queue[0]
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn queued_upgrade_restore_rejects_missing_definition_from_foreign_catalog() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "queued_upgrade_restore_rejects_missing_definition_from_foreign_catalog",
+        || {
+            use crate::save_load::{SnapshotBuilder, snapshot::decode_bincode_world_snapshot};
+            const NAME: &str = "Upgrade_Owner50MissingDefinition";
+            worker_production_definition();
+            let (mut live, producer) = production_world("Owner48WorkerGeneral");
+            register_upgrade_restore_rule(&live, NAME, "PLAYER", 37, 1.25);
+            queue_upgrade_restore_rule(&mut live, producer, NAME);
+            for _ in 0..7 {
+                live.update_production(1.0 / 30.0);
+            }
+            let wallet = live.players[&0].effective_supplies();
+            let builder = SnapshotBuilder::new();
+            let saved = builder.create_world_snapshot(&live).unwrap();
+            let bytes = bincode_legacy::serialize(&saved).unwrap();
+            let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
+            let (mut foreign, foreign_producer) = production_world("Owner48ForeignGeneral");
+            assert_eq!(foreign_producer, producer);
+            register_upgrade_restore_rule(&foreign, NAME, "OBJECT", 911, 9.75);
+            for case_only in [false, true] {
+                let mut candidate = GameLogic::new();
+                candidate.templates = live.templates.clone();
+                if case_only {
+                    register_upgrade_restore_rule(
+                        &candidate,
+                        &NAME.to_ascii_lowercase(),
+                        "PLAYER",
+                        37,
+                        1.25,
+                    );
+                }
+                assert!(candidate.upgrade_template(NAME).is_none());
+                // Existing bounded compatibility publication deliberately
+                // points elsewhere; a loader may never use it for this queue.
+                let error = gamelogic::system::engine_stores::with_world_services(
+                    &foreign.world_services,
+                    || builder.restore_from_snapshot(&decoded, &mut candidate),
+                )
+                .unwrap_err()
+                .to_string();
+                assert!(
+                    error.contains("Queued upgrade 'Upgrade_Owner50MissingDefinition'"),
+                    "{error}"
+                );
+                assert!(
+                    candidate.host_objects().is_empty(),
+                    "reject before admitting the producer queue"
+                );
+                drop(candidate);
+            }
+            foreign.reset();
+            drop(foreign);
+            assert_eq!(live.players[&0].effective_supplies(), wallet);
+            assert!(live.players[&0].has_queued_upgrade(NAME));
+            let head = upgrade_restore_head(&live, producer);
+            assert_eq!(head.template_name, NAME);
+            assert_eq!(head.construction_frames, 7);
+            assert_eq!(head.cost.supplies, 37);
+            assert_eq!(head.cost.power, 0);
+            assert_eq!(head.total_time, 1.25);
+            live.update_production(1.0 / 30.0);
+            assert_eq!(upgrade_restore_head(&live, producer).construction_frames, 8);
+            // This exercises a detached SnapshotBuilder candidate. The full
+            // map/host transaction and its rollback are separate containing gates.
+        },
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn queued_upgrade_restore_preserves_authored_zero_and_fractional_continuation() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "queued_upgrade_restore_preserves_authored_zero_and_fractional_continuation",
+        || {
+            use crate::save_load::{SnapshotBuilder, snapshot::decode_bincode_world_snapshot};
+            worker_production_definition();
+            // C++ Upgrade.cpp:143 truncates Real seconds*30 into Int, and
+            // ProductionUpdate.cpp:687–707 observes completion after one update
+            // for an authored zero/sub-frame duration. General/power do not
+            // alter the release upgrade calculation.
+            let cases: [(&str, f32, u32, u32, u32); 3] = [
+                ("Upgrade_Owner50ZeroTime", 0.0, 0, 0, 1),
+                ("Upgrade_Owner50FractionalTime", 1.25, 37, 7, 37),
+                ("Upgrade_Owner50SubFrameTime", 0.005, 17, 0, 1),
+            ];
+            for (name, seconds, paid_cost, elapsed, terminal) in cases {
+                let (mut source, producer) = production_world("Owner48WorkerGeneral");
+                register_upgrade_restore_rule(&source, name, "PLAYER", paid_cost, seconds);
+                let starting_wallet = queue_upgrade_restore_rule(&mut source, producer, name);
+                for _ in 0..elapsed {
+                    source.update_production(1.0 / 30.0);
+                }
+                let builder = SnapshotBuilder::new();
+                let snapshot = builder.create_world_snapshot(&source).unwrap();
+                let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+                let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
+                let mut restored = GameLogic::new();
+                restored.templates = source.templates.clone();
+                register_upgrade_restore_rule(&restored, name, "PLAYER", paid_cost, seconds);
+                let (mut foreign, foreign_producer) = production_world("Owner48ForeignGeneral");
+                assert_eq!(foreign_producer, producer);
+                register_upgrade_restore_rule(&foreign, name, "OBJECT", 901, 9.75);
+                gamelogic::system::engine_stores::with_world_services(
+                    &foreign.world_services,
+                    || builder.restore_from_snapshot(&decoded, &mut restored),
+                )
+                .unwrap();
+                let head = upgrade_restore_head(&restored, producer);
+                assert!(head.is_upgrade());
+                assert_eq!(head.template_name, name);
+                assert_eq!(head.total_time.to_bits(), seconds.to_bits());
+                assert_eq!(head.construction_frames, elapsed);
+                assert_eq!(
+                    head.cost.supplies, paid_cost,
+                    "retain already charged saved cost"
+                );
+                assert_eq!(head.cost.power, 0);
+                assert_eq!(head.quantity_total, 1);
+                assert_eq!(head.quantity_produced, 0);
+                assert_eq!(
+                    restored.players[&0].effective_supplies(),
+                    starting_wallet - paid_cost
+                );
+                assert_eq!(
+                    restored.upgrade_type(name),
+                    gamelogic::upgrade::UpgradeType::Player
+                );
+                assert!(!std::sync::Arc::ptr_eq(
+                    &source.upgrade_template(name).unwrap(),
+                    &restored.upgrade_template(name).unwrap()
+                ));
+                foreign.reset();
+                drop(foreign);
+                for world in [&mut source, &mut restored] {
+                    // Keep the producer operational while demonstrating that
+                    // the research threshold ignores its player's power rate.
+                    world.players.get_mut(&0).unwrap().power_produced = 0;
+                    for frame in elapsed..terminal - 1 {
+                        world.update_production(1.0 / 30.0);
+                        assert_eq!(
+                            upgrade_restore_head(world, producer).construction_frames,
+                            frame + 1
+                        );
+                        assert!(world.players[&0].has_queued_upgrade(name));
+                        assert!(!world.players[&0].has_unlocked_upgrade(name));
+                    }
+                    world.update_production(1.0 / 30.0);
+                    assert!(
+                        world
+                            .host_object(producer)
+                            .unwrap()
+                            .building_data
+                            .as_ref()
+                            .unwrap()
+                            .production_queue
+                            .is_empty()
+                    );
+                    assert!(!world.players[&0].has_queued_upgrade(name));
+                    assert!(world.players[&0].has_unlocked_upgrade(name));
+                    assert_eq!(
+                        world.players[&0].effective_supplies(),
+                        starting_wallet - paid_cost
+                    );
+                }
+            }
+        },
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn queued_upgrade_restore_cancellation_ignores_same_name_object_power() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "queued_upgrade_restore_cancellation_ignores_same_name_object_power",
+        || {
+            use crate::save_load::{SnapshotBuilder, snapshot::decode_bincode_world_snapshot};
+            const NAME: &str = "Upgrade_Owner50PowerCollision";
+            worker_production_definition();
+            let (mut source, producer) = production_world("Owner48WorkerGeneral");
+            let mut collision = ThingTemplate::new(NAME);
+            collision.build_cost = Resources {
+                supplies: 5_000,
+                power: -201,
+            };
+            collision.build_time = 99.0;
+            source.templates.insert(NAME.into(), collision);
+            register_upgrade_restore_rule(&source, NAME, "PLAYER", 37, 1.25);
+            source.players.get_mut(&0).unwrap().power_available = 41;
+            let initial_wallet = queue_upgrade_restore_rule(&mut source, producer, NAME);
+            for _ in 0..7 {
+                source.update_production(1.0 / 30.0);
+            }
+            let builder = SnapshotBuilder::new();
+            let saved = builder.create_world_snapshot(&source).unwrap();
+            let bytes = bincode_legacy::serialize(&saved).unwrap();
+            let decoded = decode_bincode_world_snapshot(&bytes).unwrap();
+            let mut restored = GameLogic::new();
+            restored.templates = source.templates.clone();
+            register_upgrade_restore_rule(&restored, NAME, "PLAYER", 37, 1.25);
+            builder
+                .restore_from_snapshot(&decoded, &mut restored)
+                .unwrap();
+            assert_eq!(upgrade_restore_head(&restored, producer).cost.supplies, 37);
+            assert_eq!(upgrade_restore_head(&restored, producer).cost.power, 0);
+            let before_power = restored.players[&0].power_available;
+            let (mut foreign, foreign_producer) = production_world("Owner48ForeignGeneral");
+            assert_eq!(foreign_producer, producer);
+            foreign.players.get_mut(&0).unwrap().resources.supplies = 901;
+            foreign.players.get_mut(&0).unwrap().power_available = 82;
+            register_upgrade_restore_rule(&foreign, NAME, "OBJECT", 911, 9.75);
+            assert!(gamelogic::system::engine_stores::with_world_services(
+                &foreign.world_services,
+                || restored.cancel_production_at_index(producer, 0),
+            ));
+            assert_eq!(restored.players[&0].effective_supplies(), initial_wallet);
+            assert_eq!(
+                restored.players[&0].power_available, before_power,
+                "C++ upgrade refund changes money only"
+            );
+            assert!(!restored.players[&0].has_queued_upgrade(NAME));
+            assert!(
+                !restored.cancel_production_at_index(producer, 0),
+                "paid cost refunded once"
+            );
+            assert_eq!(restored.players[&0].effective_supplies(), initial_wallet);
+            assert_eq!(foreign.players[&0].effective_supplies(), 901);
+            assert_eq!(foreign.players[&0].power_available, 82);
+            foreign.reset();
+            drop(foreign);
+            assert_eq!(
+                upgrade_restore_head(&source, producer).construction_frames,
+                7
+            );
+            assert!(source.players[&0].has_queued_upgrade(NAME));
+            assert_eq!(source.players[&0].effective_supplies(), initial_wallet - 37);
+            assert_eq!(source.players[&0].power_available, 41);
+        },
+    );
+}
