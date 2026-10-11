@@ -1025,14 +1025,59 @@ impl PushButtonBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex, OnceLock};
+    use std::marker::PhantomData;
+    use std::rc::Rc;
+    use std::sync::{Arc, Mutex};
 
-    fn audio_test_guard() -> std::sync::MutexGuard<'static, ()> {
-        static TEST_AUDIO_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        TEST_AUDIO_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|err| err.into_inner())
+    struct ButtonAudioTestGuard {
+        previous: Option<ButtonAudioHook>,
+        _thread: PhantomData<Rc<()>>,
+    }
+
+    fn audio_test_guard() -> ButtonAudioTestGuard {
+        // GUI hooks are already owned by this test thread. Preserve an outer
+        // fixture while giving this one an empty hook slot; no global lock.
+        ButtonAudioTestGuard {
+            previous: BUTTON_AUDIO.with_borrow_mut(Option::take),
+            _thread: PhantomData,
+        }
+    }
+
+    impl Drop for ButtonAudioTestGuard {
+        fn drop(&mut self) {
+            let installed =
+                BUTTON_AUDIO.with_borrow_mut(|slot| std::mem::replace(slot, self.previous.take()));
+            // Captured values are dropped after releasing the slot borrow.
+            drop(installed);
+        }
+    }
+
+    #[test]
+    fn audio_fixture_restores_outer_hook_after_normal_drop_and_panic() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let _outer = audio_test_guard();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let hook_calls = Arc::clone(&calls);
+        register_button_audio_hook(Box::new(move |_| {
+            hook_calls.fetch_add(1, Ordering::SeqCst);
+        }));
+
+        {
+            let _inner = audio_test_guard();
+            register_button_audio_hook(Box::new(|_| {}));
+        }
+        with_button_audio(|hook| hook("GUIClick"));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _inner = audio_test_guard();
+            register_button_audio_hook(Box::new(|_| {}));
+            panic!("fixture unwind witness");
+        }));
+        assert!(failure.is_err());
+        with_button_audio(|hook| hook("GUIClick"));
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 
     #[test]

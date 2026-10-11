@@ -59,6 +59,17 @@ pub(crate) fn validate_host_alliances(
             "Missing session admission cash".into(),
         ));
     }
+    if world.version >= 27
+        && chunks
+            .players
+            .as_ref()
+            .and_then(|p| p.host_starting_cash_source)
+            .is_none()
+    {
+        return Err(SaveLoadError::Corrupted(
+            "Missing session cash source".into(),
+        ));
+    }
     let mut special_roles = HashSet::new();
     let mut authored_names = HashSet::new();
     for host in &world.players {
@@ -205,6 +216,24 @@ pub(crate) fn bind_chunks_to_world(
     world: &mut WorldSnapshot,
     chunks: &PlayerTeamChunks,
 ) -> SaveLoadResult<()> {
+    // Historical named saves decode their original Players block before this
+    // footer is rebuilt. They cannot recover a definitions base, so retain the
+    // existing historical restore policy: pin cash instead of inferring it
+    // from spent wallets or the receiving world's definitions. Current worlds
+    // must supply source metadata and still fail through the strict writer.
+    let historical = (world.version <= 26
+        && chunks
+            .players
+            .as_ref()
+            .is_some_and(|players| players.host_starting_cash_source.is_none()))
+    .then(|| {
+        let mut migrated = chunks.clone();
+        if let Some(players) = &mut migrated.players {
+            players.host_starting_cash_source = Some(HostStartingCashSource::GameInfo);
+        }
+        migrated
+    });
+    let chunks = historical.as_ref().unwrap_or(chunks);
     let encode = |players: bool| -> SaveLoadResult<Vec<u8>> {
         let mut cursor = Cursor::new(Vec::new());
         let mut xfer = XferSave::new(&mut cursor, 1);
@@ -355,12 +384,19 @@ pub(super) fn apply_before_objects(
 ) -> SaveLoadResult<()> {
     // Historical saves cannot recover this input from spent wallets. Choose
     // their documented fallback, never the receiving world's prior config.
-    world.set_session_starting_cash(
+    world.restore_session_starting_cash(
         chunks
             .players
             .as_ref()
             .and_then(|p| p.host_starting_cash)
             .unwrap_or(crate::game_logic::Player::DEFAULT_STARTING_MONEY),
+        chunks
+            .players
+            .as_ref()
+            .and_then(|p| match p.host_starting_cash_source {
+                Some(HostStartingCashSource::Definitions(base)) => Some(base),
+                Some(HostStartingCashSource::GameInfo) | None => None,
+            }),
     );
     if let Some(players) = &chunks.players {
         for player in &players.players {

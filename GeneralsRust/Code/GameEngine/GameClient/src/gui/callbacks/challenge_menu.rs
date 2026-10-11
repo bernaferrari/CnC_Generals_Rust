@@ -390,6 +390,14 @@ fn start_challenge_game() {
         return;
     }
 
+    // The selected Challenge GameInfo belongs to this queued launch. Freeze
+    // its unsigned money before clearing the previous match or resetting the
+    // application can replace the shell's GameInfo.
+    let game_info_starting_cash =
+        crate::gui::challenge_game_info::with_challenge_game_info(|info| {
+            info.game_info().get_starting_cash().count_money()
+        });
+
     if let Some(data) = get_global_data() {
         data.write().pending_file = selection.map_name.clone();
     }
@@ -424,6 +432,7 @@ fn start_challenge_game() {
         campaign_name: selection.campaign_name,
         campaign_player_faction: String::new(),
         is_challenge: true,
+        game_info_starting_cash,
         player_template_name: Some(selection.player_template_name),
         player_template_index: Some(selection.player_template_index),
         game_mode_code: GAME_SINGLE_PLAYER,

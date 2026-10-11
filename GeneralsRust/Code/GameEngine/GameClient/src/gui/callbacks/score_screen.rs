@@ -325,6 +325,7 @@ fn start_next_campaign_game() {
     };
 
     let mut challenge_template_num = None;
+    let mut game_info_starting_cash = None;
     if is_challenge {
         // C++ rematch: init/clearSlotList/reset/enterGame then set map+slot0.
         crate::gui::challenge_game_info::init_challenge_game_info();
@@ -339,6 +340,12 @@ fn start_next_campaign_game() {
             template_num,
         );
         challenge_template_num = Some(template_num);
+        // C++ rematch initializes a new Challenge GameInfo. Retain that
+        // new input, including zero, before the old match is cleared.
+        game_info_starting_cash =
+            crate::gui::challenge_game_info::with_challenge_game_info(|info| {
+                info.game_info().get_starting_cash().count_money()
+            });
         if TheGameLogic::is_in_game() {
             let _ = TheGameLogic::clear_game_data();
         }
@@ -373,6 +380,7 @@ fn start_next_campaign_game() {
         campaign_name,
         campaign_player_faction,
         is_challenge,
+        game_info_starting_cash,
         player_template_name: challenge_template_name,
         player_template_index: challenge_template_num,
         game_mode_code: GAME_SINGLE_PLAYER,

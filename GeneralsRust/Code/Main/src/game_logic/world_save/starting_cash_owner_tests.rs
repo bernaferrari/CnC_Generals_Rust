@@ -71,6 +71,7 @@ fn game_info_conversion_preserves_zero_and_unsigned_cash() {
     isolated(
         "game_info_conversion_preserves_zero_and_unsigned_cash",
         || {
+            crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
             for cash in [0, u32::MAX] {
                 {
                     let mut setup = game_client::gui::get_skirmish_setup();

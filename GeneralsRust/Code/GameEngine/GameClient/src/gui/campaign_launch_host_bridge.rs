@@ -6,7 +6,6 @@
 //! boundary instead of letting Main guess from a stale HUD faction.
 
 use std::cell::RefCell;
-use std::sync::{Mutex, OnceLock};
 
 /// Immutable shell selection that belongs to exactly one queued `MSG_NEW_GAME`.
 ///
@@ -22,6 +21,10 @@ pub struct HostCampaignLaunchDescriptor {
     pub campaign_name: String,
     pub campaign_player_faction: String,
     pub is_challenge: bool,
+    /// C++ `TheChallengeGameInfo->getStartingCash().countMoney()` captured
+    /// with this launch. `Some(0)` is present GameInfo, not default cash.
+    /// Ordinary campaigns have no GameInfo and carry `None`.
+    pub game_info_starting_cash: Option<u32>,
     pub player_template_name: Option<String>,
     pub player_template_index: Option<i32>,
     pub game_mode_code: i32,
@@ -139,22 +142,16 @@ pub fn clear_host_campaign_launch_descriptor() {
 }
 
 #[cfg(test)]
-static HOST_CAMPAIGN_LAUNCH_BRIDGE_TEST_LOCK: Mutex<()> = Mutex::new(());
-
-#[cfg(test)]
-pub(crate) struct HostCampaignLaunchBridgeTestGuard {
-    _lock: std::sync::MutexGuard<'static, ()>,
-}
+pub(crate) struct HostCampaignLaunchBridgeTestGuard;
 
 #[cfg(test)]
 pub(crate) fn acquire_host_campaign_launch_bridge_test_guard() -> HostCampaignLaunchBridgeTestGuard
 {
-    let lock = HOST_CAMPAIGN_LAUNCH_BRIDGE_TEST_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // The bridge is TLS on the driving GUI thread. Each fixture resets only
+    // that thread's state; a process-wide test mutex has no shared owner here.
     clear_host_campaign_launch_descriptor();
     set_host_campaign_launch_bridge_enabled(false);
-    HostCampaignLaunchBridgeTestGuard { _lock: lock }
+    HostCampaignLaunchBridgeTestGuard
 }
 
 #[cfg(test)]
@@ -176,6 +173,7 @@ mod tests {
             campaign_name: "CHALLENGE_1".into(),
             campaign_player_faction: String::new(),
             is_challenge: true,
+            game_info_starting_cash: Some(0),
             player_template_name: Some("FactionChinaTankGeneral".into()),
             player_template_index: Some(7),
             game_mode_code: 0,
@@ -221,5 +219,27 @@ mod tests {
             take_host_campaign_launch_for_new_game(0, 2, 300, Some(30)),
             HostCampaignLaunchDelivery::None
         );
+    }
+
+    #[test]
+    fn launch_transport_preserves_present_zero_unsigned_and_absent_cash() {
+        // This bridge belongs to the current GUI thread; this fixture needs
+        // no process-global state or serialization with other GUI threads.
+        let _guard = acquire_host_campaign_launch_bridge_test_guard();
+        set_host_campaign_launch_bridge_enabled(true);
+        for cash in [Some(0), Some(12_500), Some(u32::MAX), None] {
+            let mut source = descriptor();
+            source.is_challenge = cash.is_some();
+            source.game_info_starting_cash = cash;
+            assert!(publish_host_campaign_launch(source.clone()));
+            source.game_info_starting_cash = Some(91);
+            assert_eq!(source.game_info_starting_cash, Some(91));
+            let HostCampaignLaunchDelivery::Matched(delivered) =
+                take_host_campaign_launch_for_new_game(0, 2, 300, Some(30))
+            else {
+                panic!("matching NewGame must consume the owned launch input");
+            };
+            assert_eq!(delivered.game_info_starting_cash, cash);
+        }
     }
 }

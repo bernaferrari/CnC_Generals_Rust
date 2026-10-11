@@ -519,6 +519,7 @@ impl CnCGameEngine {
             map,
             skirmish,
             player_template,
+            game_info_starting_cash,
         } = request;
 
         // C++ MSG_NEW_GAME GAME_SHELL is Shell::showShellMap, not a match start.
@@ -596,6 +597,7 @@ impl CnCGameEngine {
                 map,
                 skirmish,
                 player_template,
+                game_info_starting_cash,
             },
             interactive_start_from_menu,
             prelude_retry_at: std::time::Instant::now(),
@@ -614,6 +616,7 @@ impl CnCGameEngine {
             map,
             skirmish,
             player_template,
+            game_info_starting_cash,
         } = pending.request;
         let interactive_start_from_menu = pending.interactive_start_from_menu;
         let offline_mode = matches!(mode, GameMode::SinglePlayer | GameMode::Skirmish);
@@ -621,15 +624,16 @@ impl CnCGameEngine {
         // Capture playback's retained header before subsystem reset can reset
         // the application Recorder. It is input to this match, not a global
         // broadcast that another already-running world must adopt.
-        let replay_seed = if mode == GameMode::Replay {
-            let Some(seed) = game_engine::common::recorder::with_recorder(|recorder| {
-                recorder.get_game_info().seed
+        let replay_inputs = if mode == GameMode::Replay {
+            let Some(inputs) = game_engine::common::recorder::with_recorder(|recorder| {
+                let info = recorder.get_game_info();
+                (info.seed, info.starting_cash)
             }) else {
                 warn!("Rejecting Replay start without its recorded GameInfo seed");
                 self.return_to_main_menu_after_match();
                 return;
             };
-            Some(seed)
+            Some(inputs)
         } else {
             None
         };
@@ -643,7 +647,7 @@ impl CnCGameEngine {
         // Wave 843/844/871: clear prior match residuals until load completes.
         self.host_clear_match_residuals();
         info!("host_start_game_from_ui: match residuals cleared");
-        if let Some(seed) = replay_seed {
+        if let Some((seed, _)) = replay_inputs {
             self.game_logic.set_logic_random_seed(seed);
         } else if mode == GameMode::SinglePlayer {
             // Campaign/Challenge starts select seed 0 in C++ menus. Admission
@@ -749,6 +753,14 @@ impl CnCGameEngine {
                     self.host_start_new_game_with_faction(mode, faction_team, false);
                 }
             }
+        }
+        if mode != GameMode::Skirmish {
+            self.game_logic.admit_new_game_starting_cash(
+                replay_inputs
+                    .map(|(_, cash)| cash)
+                    .or(game_info_starting_cash),
+                self.default_starting_cash,
+            );
         }
         info!("host_start_game_from_ui: new game started, loading requested map={map_name}");
 

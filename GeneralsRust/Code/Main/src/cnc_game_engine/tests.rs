@@ -988,6 +988,7 @@ fn campaign_launch_descriptor_precedes_stale_map_and_hud_faction() {
         // faction is more specific than a stale HUD/default fallback.
         campaign_player_faction: "FactionChina".to_string(),
         is_challenge: false,
+        game_info_starting_cash: None,
         player_template_name: None,
         player_template_index: None,
         game_mode_code: 0,
@@ -1032,6 +1033,7 @@ fn challenge_launch_rejects_a_missing_or_unpaired_selected_general() {
         campaign_name: "CHALLENGE_0".to_string(),
         campaign_player_faction: "FactionAmericaAirForceGeneral".to_string(),
         is_challenge: true,
+        game_info_starting_cash: Some(0),
         player_template_name: None,
         player_template_index: None,
         game_mode_code: 0,
@@ -1079,6 +1081,7 @@ fn challenge_launch_retains_the_exact_selected_template_name_and_index() {
         campaign_name: "CHALLENGE_0".to_string(),
         campaign_player_faction: "FactionChinaTankGeneral".to_string(),
         is_challenge: true,
+        game_info_starting_cash: Some(0),
         player_template_name: Some("FactionChinaTankGeneral".to_string()),
         player_template_index: Some(tank_index),
         game_mode_code: 0,
@@ -1096,6 +1099,19 @@ fn challenge_launch_retains_the_exact_selected_template_name_and_index() {
     assert_eq!(identity.template_name, "FactionChinaTankGeneral");
     assert_eq!(identity.template_index, Some(tank_index));
     assert_eq!(overrides.faction.as_deref(), Some("China"));
+    assert_eq!(
+        overrides.game_info_starting_cash,
+        Some(0),
+        "present Challenge GameInfo cash survives delivery"
+    );
+    let missing_cash = HostCampaignLaunchDescriptor {
+        game_info_starting_cash: None,
+        ..descriptor.clone()
+    };
+    assert!(
+        CnCGameEngine::campaign_launch_start_overrides(GameMode::SinglePlayer, Some(&missing_cash))
+            .is_err()
+    );
 
     let stale = HostCampaignLaunchDescriptor {
         player_template_index: Some(air_force_index),

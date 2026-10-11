@@ -48,6 +48,8 @@ pub struct SideBuildEntry {
 /// Top-level metadata parsed from a map file.
 #[derive(Debug, Clone, Default)]
 pub struct MapMetadata {
+    /// Last GameData DefaultStartingCash from Map.ini then Solo.ini.
+    pub default_starting_cash: Option<u32>,
     pub objects: Vec<PlacedObject>,
     /// Wave 831: SidesList build-list entries (skirmish faction bases).
     pub side_builds: Vec<SideBuildEntry>,

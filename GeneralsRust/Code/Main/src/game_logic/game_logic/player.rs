@@ -1855,6 +1855,9 @@ pub struct SkirmishRulesState {
     /// Resolved admission input, independent of every player's live wallet.
     /// Kept private to the crate; new-match admission and restore set it.
     pub(crate) starting_cash: u32,
+    /// Base effective definitions for a new-map admission. None pins GameInfo
+    /// cash (including zero), or a historical save with no source metadata.
+    pub(crate) starting_cash_default: Option<u32>,
     pub fog_of_war: bool,
     pub crates_enabled: bool,
     pub limit_superweapons: bool,
@@ -1866,6 +1869,7 @@ impl Default for SkirmishRulesState {
     fn default() -> Self {
         Self {
             starting_cash: Player::DEFAULT_STARTING_MONEY,
+            starting_cash_default: Some(Player::DEFAULT_STARTING_MONEY),
             fog_of_war: true,
             crates_enabled: true,
             limit_superweapons: false,
@@ -1999,268 +2003,328 @@ impl<'a> IntoIterator for &'a mut HostObjectStore {
 
 #[cfg(test)]
 mod map_side_dict_tests {
+    use super::super::pose_owner_tests::isolated_at;
     use super::*;
 
     #[test]
     fn map_start_money_deposits_onto_initialized_cash() {
-        let mut player = Player::new(0, Team::USA, "PlyrAmerica", true);
-        assert_eq!(player.resources.supplies, Player::DEFAULT_STARTING_MONEY);
-        let mut dict = Dict::new();
-        dict.set_int(key_player_start_money(), 2_500);
-        dict.set_int(key_player_color(), 0x00aa_3311);
-        dict.set_ascii_string(key_player_name(), "PlyrAmerica");
-        player.apply_map_side_dict(&dict, true);
-        assert_eq!(player.resources.supplies, 12_500);
-        assert_eq!(player.color_rgb, (0xaa, 0x33, 0x11));
-        assert_eq!(player.map_side.map_player_name, "PlyrAmerica");
+        isolated_at(
+            module_path!(),
+            "map_start_money_deposits_onto_initialized_cash",
+            || {
+                let mut player = Player::new(0, Team::USA, "PlyrAmerica", true);
+                assert_eq!(player.resources.supplies, Player::DEFAULT_STARTING_MONEY);
+                let mut dict = Dict::new();
+                dict.set_int(key_player_start_money(), 2_500);
+                dict.set_int(key_player_color(), 0x00aa_3311);
+                dict.set_ascii_string(key_player_name(), "PlyrAmerica");
+                player.apply_map_side_dict(&dict, true);
+                assert_eq!(player.resources.supplies, 12_500);
+                assert_eq!(player.color_rgb, (0xaa, 0x33, 0x11));
+                assert_eq!(player.map_side.map_player_name, "PlyrAmerica");
+            },
+        );
     }
 
     #[test]
     fn lobby_cash_is_not_clobbered_by_map_start_money() {
-        let mut player = Player::new(0, Team::USA, "Human", true);
-        player.resources.supplies = 20_000;
-        let mut dict = Dict::new();
-        dict.set_int(key_player_start_money(), 2_500);
-        player.apply_map_side_dict(&dict, false);
-        assert_eq!(player.resources.supplies, 20_000);
+        isolated_at(
+            module_path!(),
+            "lobby_cash_is_not_clobbered_by_map_start_money",
+            || {
+                let mut player = Player::new(0, Team::USA, "Human", true);
+                player.resources.supplies = 20_000;
+                let mut dict = Dict::new();
+                dict.set_int(key_player_start_money(), 2_500);
+                player.apply_map_side_dict(&dict, false);
+                assert_eq!(player.resources.supplies, 20_000);
+            },
+        );
     }
 
     #[test]
     fn handicap_keys_apply_from_dict() {
-        let mut player = Player::new(0, Team::USA, "P", true);
-        let mut dict = Dict::new();
-        dict.set_real(
-            NameKeyGenerator::name_to_key("HANDICAP_BUILDCOST_BUILDINGS"),
-            0.75,
-        );
-        player.apply_map_side_dict(&dict, false);
-        assert!((player.handicap_build_cost_multiplier(true) - 0.75).abs() < f32::EPSILON);
-        assert!((player.handicap_build_cost_multiplier(false) - 1.0).abs() < f32::EPSILON);
+        isolated_at(module_path!(), "handicap_keys_apply_from_dict", || {
+            let mut player = Player::new(0, Team::USA, "P", true);
+            let mut dict = Dict::new();
+            dict.set_real(
+                NameKeyGenerator::name_to_key("HANDICAP_BUILDCOST_BUILDINGS"),
+                0.75,
+            );
+            player.apply_map_side_dict(&dict, false);
+            assert!((player.handicap_build_cost_multiplier(true) - 0.75).abs() < f32::EPSILON);
+            assert!((player.handicap_build_cost_multiplier(false) - 1.0).abs() < f32::EPSILON);
+        });
     }
 
     #[test]
     fn object_upgrade_does_not_complete_into_player_set() {
-        let mut player = Player::new(0, Team::China, "China", true);
-        player.resources.supplies = 10_000;
-        let cost = Resources {
-            supplies: 100,
-            power: 0,
-        };
-        assert!(player.queue_upgrade(
-            "Upgrade_ChinaOverlordBattleBunker",
-            &cost,
-            gamelogic::upgrade::UpgradeType::Object
-        ));
-        player.complete_researched_upgrade(
-            "Upgrade_ChinaOverlordBattleBunker",
-            gamelogic::upgrade::UpgradeType::Object,
-        );
-        assert!(
-            !player.has_unlocked_upgrade("Upgrade_ChinaOverlordBattleBunker"),
-            "OBJECT upgrades must not enter the player completed set"
-        );
-        assert!(
-            player.queue_upgrade(
-                "Upgrade_ChinaOverlordBattleBunker",
-                &cost,
-                gamelogic::upgrade::UpgradeType::Object
-            ),
-            "a second unit must still be able to queue the same OBJECT upgrade"
+        isolated_at(
+            module_path!(),
+            "object_upgrade_does_not_complete_into_player_set",
+            || {
+                let mut player = Player::new(0, Team::China, "China", true);
+                player.resources.supplies = 10_000;
+                let cost = Resources {
+                    supplies: 100,
+                    power: 0,
+                };
+                assert!(player.queue_upgrade(
+                    "Upgrade_ChinaOverlordBattleBunker",
+                    &cost,
+                    gamelogic::upgrade::UpgradeType::Object
+                ));
+                player.complete_researched_upgrade(
+                    "Upgrade_ChinaOverlordBattleBunker",
+                    gamelogic::upgrade::UpgradeType::Object,
+                );
+                assert!(
+                    !player.has_unlocked_upgrade("Upgrade_ChinaOverlordBattleBunker"),
+                    "OBJECT upgrades must not enter the player completed set"
+                );
+                assert!(
+                    player.queue_upgrade(
+                        "Upgrade_ChinaOverlordBattleBunker",
+                        &cost,
+                        gamelogic::upgrade::UpgradeType::Object
+                    ),
+                    "a second unit must still be able to queue the same OBJECT upgrade"
+                );
+            },
         );
     }
 
     #[test]
     fn player_upgrade_still_refuses_duplicate_queue() {
-        let mut player = Player::new(0, Team::USA, "USA", true);
-        player.resources.supplies = 10_000;
-        let cost = Resources {
-            supplies: 100,
-            power: 0,
-        };
-        assert!(player.queue_upgrade(
-            "Upgrade_AmericaSupplyLines",
-            &cost,
-            gamelogic::upgrade::UpgradeType::Player
-        ));
-        assert!(!player.queue_upgrade(
-            "Upgrade_AmericaSupplyLines",
-            &cost,
-            gamelogic::upgrade::UpgradeType::Player
-        ));
-        player.complete_researched_upgrade(
-            "Upgrade_AmericaSupplyLines",
-            gamelogic::upgrade::UpgradeType::Player,
+        isolated_at(
+            module_path!(),
+            "player_upgrade_still_refuses_duplicate_queue",
+            || {
+                let mut player = Player::new(0, Team::USA, "USA", true);
+                player.resources.supplies = 10_000;
+                let cost = Resources {
+                    supplies: 100,
+                    power: 0,
+                };
+                assert!(player.queue_upgrade(
+                    "Upgrade_AmericaSupplyLines",
+                    &cost,
+                    gamelogic::upgrade::UpgradeType::Player
+                ));
+                assert!(!player.queue_upgrade(
+                    "Upgrade_AmericaSupplyLines",
+                    &cost,
+                    gamelogic::upgrade::UpgradeType::Player
+                ));
+                player.complete_researched_upgrade(
+                    "Upgrade_AmericaSupplyLines",
+                    gamelogic::upgrade::UpgradeType::Player,
+                );
+                assert!(player.has_unlocked_upgrade("Upgrade_AmericaSupplyLines"));
+                assert!(!player.queue_upgrade(
+                    "Upgrade_AmericaSupplyLines",
+                    &cost,
+                    gamelogic::upgrade::UpgradeType::Player
+                ));
+            },
         );
-        assert!(player.has_unlocked_upgrade("Upgrade_AmericaSupplyLines"));
-        assert!(!player.queue_upgrade(
-            "Upgrade_AmericaSupplyLines",
-            &cost,
-            gamelogic::upgrade::UpgradeType::Player
-        ));
     }
 
     #[test]
     fn handicap_time_keys_apply_from_dict() {
-        let mut player = Player::new(0, Team::USA, "P", true);
-        let mut dict = Dict::new();
-        dict.set_real(
-            NameKeyGenerator::name_to_key("HANDICAP_BUILDTIME_BUILDINGS"),
-            0.5,
-        );
-        player.apply_map_side_dict(&dict, false);
-        assert!((player.handicap_build_time_multiplier(true) - 0.5).abs() < f32::EPSILON);
-        assert!((player.handicap_build_time_multiplier(false) - 1.0).abs() < f32::EPSILON);
+        isolated_at(module_path!(), "handicap_time_keys_apply_from_dict", || {
+            let mut player = Player::new(0, Team::USA, "P", true);
+            let mut dict = Dict::new();
+            dict.set_real(
+                NameKeyGenerator::name_to_key("HANDICAP_BUILDTIME_BUILDINGS"),
+                0.5,
+            );
+            player.apply_map_side_dict(&dict, false);
+            assert!((player.handicap_build_time_multiplier(true) - 0.5).abs() < f32::EPSILON);
+            assert!((player.handicap_build_time_multiplier(false) - 1.0).abs() < f32::EPSILON);
+        });
     }
 
     #[test]
     fn science_hide_and_disable_gate_purchase() {
-        // C++ Player.cpp:2616-2618 isCapableOfPurchasingScience.
-        let mut player = Player::new(0, Team::USA, "P", true);
-        player.unlocked_sciences.insert("SCIENCE_Rank1".into());
-        player.science_purchase_points = 5;
-        assert!(player.set_science_availability("SCIENCE_DaisyCutter", "Hidden"));
-        assert!(player.is_science_hidden("SCIENCE_DaisyCutter"));
-        assert!(!player.is_capable_of_purchasing_science("SCIENCE_DaisyCutter"));
-        assert!(!player.attempt_to_purchase_science("SCIENCE_DaisyCutter"));
-        assert!(player.set_science_availability("SCIENCE_DaisyCutter", "Available"));
-        assert!(!player.is_science_hidden("SCIENCE_DaisyCutter"));
-        assert!(player.set_science_availability("SCIENCE_DaisyCutter", "Disabled"));
-        assert!(player.is_science_disabled("SCIENCE_DaisyCutter"));
-        assert!(!player.is_capable_of_purchasing_science("SCIENCE_DaisyCutter"));
+        isolated_at(
+            module_path!(),
+            "science_hide_and_disable_gate_purchase",
+            || {
+                // C++ Player.cpp:2616-2618 isCapableOfPurchasingScience.
+                let mut player = Player::new(0, Team::USA, "P", true);
+                player.unlocked_sciences.insert("SCIENCE_Rank1".into());
+                player.science_purchase_points = 5;
+                assert!(player.set_science_availability("SCIENCE_DaisyCutter", "Hidden"));
+                assert!(player.is_science_hidden("SCIENCE_DaisyCutter"));
+                assert!(!player.is_capable_of_purchasing_science("SCIENCE_DaisyCutter"));
+                assert!(!player.attempt_to_purchase_science("SCIENCE_DaisyCutter"));
+                assert!(player.set_science_availability("SCIENCE_DaisyCutter", "Available"));
+                assert!(!player.is_science_hidden("SCIENCE_DaisyCutter"));
+                assert!(player.set_science_availability("SCIENCE_DaisyCutter", "Disabled"));
+                assert!(player.is_science_disabled("SCIENCE_DaisyCutter"));
+                assert!(!player.is_capable_of_purchasing_science("SCIENCE_DaisyCutter"));
+            },
+        );
     }
 
     #[test]
     fn handicap_multiplies_live_build_cost_and_time() {
-        // C++ ThingTemplate.cpp:1508-1527 calcCostToBuild / calcTimeToBuild.
-        let mut logic = GameLogic::new();
-        let mut p = Player::new(0, Team::USA, "P", true);
-        p.map_side.handicap_build_cost_buildings = 0.75;
-        p.map_side.handicap_build_time_buildings = 0.5;
-        logic.add_player(p);
-        let mut factory = ThingTemplate::new("WarFactory");
-        factory.add_kind_of(KindOf::Structure);
-        logic.templates.insert("WarFactory".into(), factory);
-        assert_eq!(
-            logic.modified_build_cost_supplies(0, "WarFactory", 1000),
-            750
-        );
-        let secs = logic.modified_build_time_seconds(0, "WarFactory", 10.0);
-        // 10s * 30 = 300 frames * 0.5 handicap = 150 frames + 0.25 encoding / 30.
-        let expected = (150.0 + 0.25) / 30.0;
-        assert!(
-            (secs - expected).abs() < 1e-5,
-            "handicap time seconds {secs} vs {expected}"
+        isolated_at(
+            module_path!(),
+            "handicap_multiplies_live_build_cost_and_time",
+            || {
+                // C++ ThingTemplate.cpp:1508-1527 calcCostToBuild / calcTimeToBuild.
+                let mut logic = GameLogic::new();
+                let mut p = Player::new(0, Team::USA, "P", true);
+                p.map_side.handicap_build_cost_buildings = 0.75;
+                p.map_side.handicap_build_time_buildings = 0.5;
+                logic.add_player(p);
+                let mut factory = ThingTemplate::new("WarFactory");
+                factory.add_kind_of(KindOf::Structure);
+                logic.templates.insert("WarFactory".into(), factory);
+                assert_eq!(
+                    logic.modified_build_cost_supplies(0, "WarFactory", 1000),
+                    750
+                );
+                let secs = logic.modified_build_time_seconds(0, "WarFactory", 10.0);
+                // 10s * 30 = 300 frames * 0.5 handicap = 150 frames + 0.25 encoding / 30.
+                let expected = (150.0 + 0.25) / 30.0;
+                assert!(
+                    (secs - expected).abs() < 1e-5,
+                    "handicap time seconds {secs} vs {expected}"
+                );
+            },
         );
     }
 
     #[test]
     fn live_build_cost_preserves_cpp_rounding_before_handicap() {
-        let mut logic = GameLogic::new();
-        let mut player = Player::new(0, Team::USA, "P", true);
-        player.map_side.handicap_build_cost_generic = 0.9;
-        player.add_kind_of_production_cost_change("VEHICLE", -0.1);
-        logic.add_player(player);
-        let mut template = ThingTemplate::new("ExactRoundingVehicle");
-        template.add_kind_of(KindOf::Vehicle);
-        logic
-            .templates
-            .insert("ExactRoundingVehicle".into(), template);
+        isolated_at(
+            module_path!(),
+            "live_build_cost_preserves_cpp_rounding_before_handicap",
+            || {
+                let mut logic = GameLogic::new();
+                let mut player = Player::new(0, Team::USA, "P", true);
+                player.map_side.handicap_build_cost_generic = 0.9;
+                player.add_kind_of_production_cost_change("VEHICLE", -0.1);
+                logic.add_player(player);
+                let mut template = ThingTemplate::new("ExactRoundingVehicle");
+                template.add_kind_of(KindOf::Vehicle);
+                logic
+                    .templates
+                    .insert("ExactRoundingVehicle".into(), template);
 
-        // Compiled ThingTemplate.cpp yields (100 * 0.9) * 0.9 = 81.
-        // Combining the two factors first incorrectly charges 80.
-        assert_eq!(
-            logic.modified_build_cost_supplies(0, "ExactRoundingVehicle", 100),
-            81
+                // Compiled ThingTemplate.cpp yields (100 * 0.9) * 0.9 = 81.
+                // Combining the two factors first incorrectly charges 80.
+                assert_eq!(
+                    logic.modified_build_cost_supplies(0, "ExactRoundingVehicle", 100),
+                    81
+                );
+            },
         );
     }
 
     #[test]
     fn has_radar_honors_disable_proof_through_brownout() {
-        // C++ Player.cpp:3207-3213 — disable-proof van stays up when radar_disabled.
-        let mut player = Player::new(0, Team::GLA, "GLA", true);
-        player.add_radar(true);
-        assert!(player.has_radar());
-        assert_eq!(player.disable_proof_radar_count, 1);
-        player.disable_radar();
-        assert!(
-            player.has_radar(),
-            "Radar Van DisableProof must survive brownout"
+        isolated_at(
+            module_path!(),
+            "has_radar_honors_disable_proof_through_brownout",
+            || {
+                // C++ Player.cpp:3207-3213 — disable-proof van stays up when radar_disabled.
+                let mut player = Player::new(0, Team::GLA, "GLA", true);
+                player.add_radar(true);
+                assert!(player.has_radar());
+                assert_eq!(player.disable_proof_radar_count, 1);
+                player.disable_radar();
+                assert!(
+                    player.has_radar(),
+                    "Radar Van DisableProof must survive brownout"
+                );
+                player.remove_radar(true);
+                assert!(!player.has_radar());
+                assert_eq!(player.disable_proof_radar_count, 0);
+                player.add_radar(false);
+                player.disable_radar();
+                assert!(
+                    !player.has_radar(),
+                    "ordinary CC radar goes dark on brownout"
+                );
+                player.enable_radar();
+                assert!(player.has_radar());
+            },
         );
-        player.remove_radar(true);
-        assert!(!player.has_radar());
-        assert_eq!(player.disable_proof_radar_count, 0);
-        player.add_radar(false);
-        player.disable_radar();
-        assert!(
-            !player.has_radar(),
-            "ordinary CC radar goes dark on brownout"
-        );
-        player.enable_radar();
-        assert!(player.has_radar());
     }
 
     #[test]
     fn upgrade_complete_records_leftover_academy_and_score_spent() {
-        // C++ ProductionUpdate.cpp:874-879 / 931.
-        struct LeftoverGuard;
-        impl Drop for LeftoverGuard {
-            fn drop(&mut self) {
-                if let Ok(mut list) = gamelogic::player::ThePlayerList().write() {
-                    list.clear();
+        isolated_at(
+            module_path!(),
+            "upgrade_complete_records_leftover_academy_and_score_spent",
+            || {
+                // C++ ProductionUpdate.cpp:874-879 / 931.
+                struct LeftoverGuard;
+                impl Drop for LeftoverGuard {
+                    fn drop(&mut self) {
+                        if let Ok(mut list) = gamelogic::player::ThePlayerList().write() {
+                            list.clear();
+                        }
+                    }
                 }
-            }
-        }
-        let _guard = LeftoverGuard;
-        let leftover = gamelogic::player::Player::new(0);
-        let leftover = std::sync::Arc::new(std::sync::RwLock::new(leftover));
-        {
-            let mut list = gamelogic::player::ThePlayerList()
-                .write()
-                .unwrap_or_else(|e| e.into_inner());
-            list.clear();
-            list.add_player(std::sync::Arc::clone(&leftover));
-        }
-        const NAME: &str = "Upgrade_W4106AcademyRadar";
-        gamelogic::upgrade::center::with_upgrade_center_mut(|center| {
-            let mut ini = game_engine::common::ini::INI::new();
-            let source = format!(
-                "Upgrade {NAME}\nBuildCost = 800\nAcademyClassify = ACT_UPGRADE_RADAR\nEnd\n"
-            );
-            ini.with_inline_source(&source, |ini| {
-                // parse_upgrade_definition expects the upgrade-name line
-                // already staged in the tokenizer buffer (INI::get_next_token
-                // reads from the current line, see the sibling registration
-                // helper in object_ai_combat.rs::register_upgrade_completion_sounds).
-                ini.read_line()?;
-                center
-                    .parse_upgrade_definition(ini)
-                    .map_err(|_| game_engine::common::ini::INIError::InvalidData)
-            })
-            .expect("register leftover upgrade");
-        });
-        let mut player = Player::new(0, Team::USA, "USA", true);
-        let definition =
-            gamelogic::upgrade::center::with_upgrade_center(|center| center.find_upgrade(NAME))
+                let _guard = LeftoverGuard;
+                let leftover = gamelogic::player::Player::new(0);
+                let leftover = std::sync::Arc::new(std::sync::RwLock::new(leftover));
+                {
+                    let mut list = gamelogic::player::ThePlayerList()
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner());
+                    list.clear();
+                    list.add_player(std::sync::Arc::clone(&leftover));
+                }
+                const NAME: &str = "Upgrade_W4106AcademyRadar";
+                gamelogic::upgrade::center::with_upgrade_center_mut(|center| {
+                    let mut ini = game_engine::common::ini::INI::new();
+                    let source = format!(
+                        "Upgrade {NAME}\nBuildCost = 800\nAcademyClassify = ACT_UPGRADE_RADAR\nEnd\n"
+                    );
+                    ini.with_inline_source(&source, |ini| {
+                        // parse_upgrade_definition expects the upgrade-name line
+                        // already staged in the tokenizer buffer (INI::get_next_token
+                        // reads from the current line, see the sibling registration
+                        // helper in object_ai_combat.rs::register_upgrade_completion_sounds).
+                        ini.read_line()?;
+                        center
+                            .parse_upgrade_definition(ini)
+                            .map_err(|_| game_engine::common::ini::INIError::InvalidData)
+                    })
+                    .expect("register leftover upgrade");
+                });
+                let mut player = Player::new(0, Team::USA, "USA", true);
+                let definition = gamelogic::upgrade::center::with_upgrade_center(|center| {
+                    center.find_upgrade(NAME)
+                })
                 .expect("authored fixture upgrade");
-        player.complete_researched_upgrade_with_definition(
-            NAME,
-            gamelogic::upgrade::UpgradeType::Player,
-            Some(definition.as_ref()),
-        );
-        let leftover_guard = leftover.read().expect("leftover player");
-        assert!(
-            leftover_guard.get_academy_stats().has_researched_radar(),
-            "purchased ACT_UPGRADE_RADAR must set leftover researched_radar"
-        );
-        assert_eq!(
-            leftover_guard.get_academy_stats().get_upgrades_purchased(),
-            1,
-            "purchased (not granted) upgrade increments leftover upgrades_purchased"
-        );
-        assert_eq!(
-            leftover_guard.get_score_keeper().get_total_money_spent(),
-            800,
-            "complete must add leftover ScoreKeeper money spent"
+                player.complete_researched_upgrade_with_definition(
+                    NAME,
+                    gamelogic::upgrade::UpgradeType::Player,
+                    Some(definition.as_ref()),
+                );
+                let leftover_guard = leftover.read().expect("leftover player");
+                assert!(
+                    leftover_guard.get_academy_stats().has_researched_radar(),
+                    "purchased ACT_UPGRADE_RADAR must set leftover researched_radar"
+                );
+                assert_eq!(
+                    leftover_guard.get_academy_stats().get_upgrades_purchased(),
+                    1,
+                    "purchased (not granted) upgrade increments leftover upgrades_purchased"
+                );
+                assert_eq!(
+                    leftover_guard.get_score_keeper().get_total_money_spent(),
+                    800,
+                    "complete must add leftover ScoreKeeper money spent"
+                );
+            },
         );
     }
 }

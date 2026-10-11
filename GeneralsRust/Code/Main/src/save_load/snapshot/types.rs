@@ -16,16 +16,16 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::SystemTime;
 
-/// World body schema 23 remains unchanged. Versions 24/25/26 advertise required
-/// host alliances / side identities / admission cash in Players v4/v5/v6, so older builds reject
+/// World body schema 23 remains unchanged. Versions 24–27 advertise required
+/// host alliances / side identities / admission cash and its source in Players v4–v7, so older builds reject
 /// new bundles before host restore. Only these Rust capability versions are readable;
 /// original C++ module Xfer versions remain independently defined.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 26;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 26;
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 27;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 27;
 
 /// Validate the Rust outer envelope before consuming or restoring its body.
 pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadResult<()> {
-    if matches!(version, 23..=26) {
+    if matches!(version, 23..=27) {
         Ok(())
     } else {
         Err(crate::save_load::SaveLoadError::VersionMismatch {
@@ -517,6 +517,11 @@ impl Default for WorldSnapshot {
             &super::player_team_chunks::PlayerTeamChunks {
                 players: Some(super::player_team_persist::PlayersChunkPersist {
                     host_starting_cash: Some(Player::DEFAULT_STARTING_MONEY),
+                    host_starting_cash_source: Some(
+                        super::player_team_persist::HostStartingCashSource::Definitions(
+                            Player::DEFAULT_STARTING_MONEY,
+                        ),
+                    ),
                     ..Default::default()
                 }),
                 teams: None,

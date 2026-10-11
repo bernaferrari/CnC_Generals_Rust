@@ -1,5 +1,7 @@
 //! Actual current named-chunk save routes.
 
+mod historical_player_cash;
+
 use super::*;
 use crate::game_logic::{
     HackerDisableChannelPhase, HackerDisableChannelState, KindOf, ObjectId, Player,
@@ -584,132 +586,139 @@ fn game_state_map_round_trips_live_game_mode() {
 
 #[test]
 fn failed_load_does_not_apply_chunk_campaign_to_live_match() {
-    // C++ GameState::loadGame only keeps CHUNK_Campaign after the whole
-    // xfer succeeds; failure calls clearGameData. Live decode must stash
-    // campaign and leave the still-playable match's identity/rank/difficulty.
-    use std::sync::Arc;
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "failed_load_does_not_apply_chunk_campaign_to_live_match",
+        || {
+            // C++ GameState::loadGame only keeps CHUNK_Campaign after the whole
+            // xfer succeeds; failure calls clearGameData. Live decode must stash
+            // campaign and leave the still-playable match's identity/rank/difficulty.
+            use std::sync::Arc;
 
-    let prior = capture_live_campaign_state();
-    let live = game_engine::System::CampaignManagerXferState {
-        campaign: "USA".into(),
-        mission: "USA01".into(),
-        rank_points: 11,
-        difficulty: 0,
-        is_challenge: false,
-        challenge_info: None,
-        generals_template: 0,
-    };
-    apply_campaign_manager_state(live.clone());
+            let prior = capture_live_campaign_state();
+            let live = game_engine::System::CampaignManagerXferState {
+                campaign: "USA".into(),
+                mission: "USA01".into(),
+                rank_points: 11,
+                difficulty: 0,
+                is_challenge: false,
+                challenge_info: None,
+                generals_template: 0,
+            };
+            apply_campaign_manager_state(live.clone());
 
-    game_engine::System::register_campaign_manager_runtime_hooks(
-        Some(Arc::new(|| game_engine::System::CampaignManagerXferState {
-            campaign: "GLA".into(),
-            mission: "GLA02".into(),
-            rank_points: 99,
-            difficulty: 2,
-            is_challenge: false,
-            challenge_info: None,
-            generals_template: 4,
-        })),
-        None,
+            game_engine::System::register_campaign_manager_runtime_hooks(
+                Some(Arc::new(|| game_engine::System::CampaignManagerXferState {
+                    campaign: "GLA".into(),
+                    mission: "GLA02".into(),
+                    rank_points: 99,
+                    difficulty: 2,
+                    is_challenge: false,
+                    challenge_info: None,
+                    generals_template: 4,
+                })),
+                None,
+            );
+
+            let mut campaign_payload = Vec::new();
+            {
+                let mut cursor = Cursor::new(&mut campaign_payload);
+                let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
+                write_campaign_block(&mut xfer).expect("write campaign");
+            }
+
+            let mut header = Vec::new();
+            {
+                let mut cursor = Cursor::new(&mut header);
+                let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
+                write_cpp_game_state_header(
+                    &mut xfer,
+                    &SaveGameInfo {
+                        pristine_map_name: None,
+                        filename: "bad_campaign".into(),
+                        display_name: "Bad Campaign".into(),
+                        description: "failed load".into(),
+                        map_name: "Maps\\Alpine Assault.map".into(),
+                        campaign_side: Some("GLA".into()),
+                        mission_number: Some(2),
+                        save_date: UNIX_EPOCH,
+                        game_version: "test".into(),
+                        play_time: std::time::Duration::from_secs(0),
+                        difficulty: GameDifficulty::Hard,
+                        save_type: SaveFileType::Normal,
+                    },
+                )
+                .expect("encode header");
+            }
+
+            let logic = cpp_game_logic_xfer_with_objects();
+            let mut bytes = Vec::new();
+            bytes.push(CHUNK_GAME_STATE.len() as u8);
+            bytes.extend_from_slice(CHUNK_GAME_STATE.as_bytes());
+            bytes.extend_from_slice(&(header.len() as i32).to_le_bytes());
+            bytes.extend_from_slice(&header);
+            bytes.push(CHUNK_CAMPAIGN.len() as u8);
+            bytes.extend_from_slice(CHUNK_CAMPAIGN.as_bytes());
+            bytes.extend_from_slice(&(campaign_payload.len() as i32).to_le_bytes());
+            bytes.extend_from_slice(&campaign_payload);
+            bytes.push(CHUNK_GAME_LOGIC.len() as u8);
+            bytes.extend_from_slice(CHUNK_GAME_LOGIC.as_bytes());
+            bytes.extend_from_slice(&(logic.len() as i32).to_le_bytes());
+            bytes.extend_from_slice(&logic);
+            bytes.push(SAVE_FILE_EOF.len() as u8);
+            bytes.extend_from_slice(SAVE_FILE_EOF.as_bytes());
+
+            let decode_err = SaveFileManager::read_common_sav_chunks(&bytes, Path::new(""))
+                .expect_err("C++ GameLogic must fail closed");
+            let decode_err = decode_err.to_string();
+            assert!(
+                decode_err.contains("GameLogic::xfer")
+                    || decode_err.contains("not a host WorldSnapshot"),
+                "unexpected decode error: {decode_err}"
+            );
+            let after_decode = capture_live_campaign_state();
+            assert_eq!(after_decode.rank_points, 11);
+            assert_eq!(after_decode.difficulty, 0);
+
+            let fixture_directory = unique_fixture_directory();
+            std::fs::create_dir_all(&fixture_directory).expect("create fixture directory");
+            let path = fixture_directory.join("bad_campaign.sav");
+            std::fs::write(&path, &bytes).expect("write failed-load save");
+            let mut manager = SaveFileManager::with_save_directory(&fixture_directory);
+            let mut world = GameLogic::new();
+            manager
+                .load_game("bad_campaign", &mut world)
+                .expect_err("failed load must not succeed");
+            let after_load = capture_live_campaign_state();
+            assert_eq!(
+                after_load.rank_points, 11,
+                "failed load must not keep save rank"
+            );
+            assert_eq!(
+                after_load.difficulty, 0,
+                "failed load must not keep save difficulty"
+            );
+
+            let snapshot = WorldSnapshot::default();
+            let mut save_info = fixture_save_info();
+            save_info.save_type = SaveFileType::Mission;
+            let mission_bytes = SaveFileManager::write_common_sav_chunks(&snapshot, &save_info)
+                .expect("write mission sav");
+            let _ = SaveFileManager::read_common_sav_chunks(&mission_bytes, Path::new(""))
+                .expect("mission decode");
+            let after_stash = capture_live_campaign_state();
+            assert_eq!(
+                after_stash.rank_points, 11,
+                "successful decode must stash CHUNK_Campaign, not apply it"
+            );
+            commit_stashed_campaign_state();
+            let after_commit = capture_live_campaign_state();
+            assert_eq!(after_commit.rank_points, 99);
+            assert_eq!(after_commit.difficulty, 2);
+
+            apply_campaign_manager_state(prior);
+            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_dir(fixture_directory);
+        },
     );
-
-    let mut campaign_payload = Vec::new();
-    {
-        let mut cursor = Cursor::new(&mut campaign_payload);
-        let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
-        write_campaign_block(&mut xfer).expect("write campaign");
-    }
-
-    let mut header = Vec::new();
-    {
-        let mut cursor = Cursor::new(&mut header);
-        let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
-        write_cpp_game_state_header(
-            &mut xfer,
-            &SaveGameInfo {
-                pristine_map_name: None,
-                filename: "bad_campaign".into(),
-                display_name: "Bad Campaign".into(),
-                description: "failed load".into(),
-                map_name: "Maps\\Alpine Assault.map".into(),
-                campaign_side: Some("GLA".into()),
-                mission_number: Some(2),
-                save_date: UNIX_EPOCH,
-                game_version: "test".into(),
-                play_time: std::time::Duration::from_secs(0),
-                difficulty: GameDifficulty::Hard,
-                save_type: SaveFileType::Normal,
-            },
-        )
-        .expect("encode header");
-    }
-
-    let logic = cpp_game_logic_xfer_with_objects();
-    let mut bytes = Vec::new();
-    bytes.push(CHUNK_GAME_STATE.len() as u8);
-    bytes.extend_from_slice(CHUNK_GAME_STATE.as_bytes());
-    bytes.extend_from_slice(&(header.len() as i32).to_le_bytes());
-    bytes.extend_from_slice(&header);
-    bytes.push(CHUNK_CAMPAIGN.len() as u8);
-    bytes.extend_from_slice(CHUNK_CAMPAIGN.as_bytes());
-    bytes.extend_from_slice(&(campaign_payload.len() as i32).to_le_bytes());
-    bytes.extend_from_slice(&campaign_payload);
-    bytes.push(CHUNK_GAME_LOGIC.len() as u8);
-    bytes.extend_from_slice(CHUNK_GAME_LOGIC.as_bytes());
-    bytes.extend_from_slice(&(logic.len() as i32).to_le_bytes());
-    bytes.extend_from_slice(&logic);
-    bytes.push(SAVE_FILE_EOF.len() as u8);
-    bytes.extend_from_slice(SAVE_FILE_EOF.as_bytes());
-
-    let decode_err = SaveFileManager::read_common_sav_chunks(&bytes, Path::new(""))
-        .expect_err("C++ GameLogic must fail closed");
-    let decode_err = decode_err.to_string();
-    assert!(
-        decode_err.contains("GameLogic::xfer") || decode_err.contains("not a host WorldSnapshot"),
-        "unexpected decode error: {decode_err}"
-    );
-    let after_decode = capture_live_campaign_state();
-    assert_eq!(after_decode.rank_points, 11);
-    assert_eq!(after_decode.difficulty, 0);
-
-    let fixture_directory = unique_fixture_directory();
-    std::fs::create_dir_all(&fixture_directory).expect("create fixture directory");
-    let path = fixture_directory.join("bad_campaign.sav");
-    std::fs::write(&path, &bytes).expect("write failed-load save");
-    let mut manager = SaveFileManager::with_save_directory(&fixture_directory);
-    let mut world = GameLogic::new();
-    manager
-        .load_game("bad_campaign", &mut world)
-        .expect_err("failed load must not succeed");
-    let after_load = capture_live_campaign_state();
-    assert_eq!(
-        after_load.rank_points, 11,
-        "failed load must not keep save rank"
-    );
-    assert_eq!(
-        after_load.difficulty, 0,
-        "failed load must not keep save difficulty"
-    );
-
-    let snapshot = WorldSnapshot::default();
-    let mut save_info = fixture_save_info();
-    save_info.save_type = SaveFileType::Mission;
-    let mission_bytes =
-        SaveFileManager::write_common_sav_chunks(&snapshot, &save_info).expect("write mission sav");
-    let _ = SaveFileManager::read_common_sav_chunks(&mission_bytes, Path::new(""))
-        .expect("mission decode");
-    let after_stash = capture_live_campaign_state();
-    assert_eq!(
-        after_stash.rank_points, 11,
-        "successful decode must stash CHUNK_Campaign, not apply it"
-    );
-    commit_stashed_campaign_state();
-    let after_commit = capture_live_campaign_state();
-    assert_eq!(after_commit.rank_points, 99);
-    assert_eq!(after_commit.difficulty, 2);
-
-    apply_campaign_manager_state(prior);
-    let _ = std::fs::remove_file(path);
-    let _ = std::fs::remove_dir(fixture_directory);
 }

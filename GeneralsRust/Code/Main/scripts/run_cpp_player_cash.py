@@ -60,6 +60,7 @@ extern Audio* TheAudio; extern PlayerList* ThePlayerList;
     harness = """#include "services.h"
 #include "Common/Money.h"
 #include <iostream>
+#include <string>
 Audio audio; PlayerList players; Audio* TheAudio=&audio; PlayerList* ThePlayerList=&players;
 Money money(UnsignedInt value){ Money result; INI ini{value}; Money::parseMoneyAmount(&ini,nullptr,&result,nullptr); return result; }
 struct Template { Money cash; Int handicap=0; const Money* getMoney()const{return &cash;} const Int* getHandicap()const{return &handicap;} };
@@ -69,7 +70,20 @@ Info* TheGameInfo; GlobalData* TheGlobalData;
 struct Admission { Money m_money; Int m_handicap=0; Int getPlayerIndex()const{return 7;} void init(Template* pt) {
 """ + cash_slice + """
 } };
-int main(){
+int main(int argc, char** argv){
+    if (argc == 2 && std::string(argv[1]) == "--non-skirmish") {
+        struct Case { Bool has_game_info; UnsignedInt info_cash, global_cash, template_cash; Int deposit; };
+        for(auto c: {Case{false,999,17321,0,700},Case{true,0,17321,0,0},Case{true,0,17321,0,700},Case{true,12500,17321,0,700},Case{false,0,UINT32_MAX,0,2},Case{false,12500,17321,4500,2500},Case{true,0,17321,4500,2500},Case{false,12500,0,0,0}}){
+            audio.deposits=0; audio.last_player=-1; players.player.academy.calls=0;
+            Info info{money(c.info_cash)}; GlobalData global{money(c.global_cash)};
+            TheGameInfo=c.has_game_info ? &info : nullptr; TheGlobalData=&global;
+            Template pt{money(c.template_cash)}; Admission admission; admission.init(&pt);
+            admission.m_money.deposit(c.deposit);
+            std::cout<<c.has_game_info<<","<<c.info_cash<<","<<c.global_cash<<","<<c.template_cash<<","<<c.deposit<<","<<admission.m_money.countMoney()<<","<<audio.deposits<<","<<audio.last_player<<","<<players.player.academy.calls<<"\\n";
+        }
+        return 0;
+    }
+    if (argc != 1) return 2;
     struct Case { UnsignedInt cash, template_cash; Int deposit; };
     for(auto c: {Case{10000,0,0},Case{12500,0,700},Case{0,0,0},Case{12500,4500,2500},Case{12500,0,-1},Case{UINT32_MAX,0,2}}){
         audio.deposits=0; audio.last_player=-1; players.player.academy.calls=0;
@@ -88,7 +102,15 @@ int main(){
     result = subprocess.check_output([str(executable)])
     assert len(result.splitlines()) == 6
     (output / "cash.csv").write_bytes(result)
+    non_skirmish_command = [str(executable), "--non-skirmish"]
+    non_skirmish_result = subprocess.check_output(non_skirmish_command)
+    assert len(non_skirmish_result.splitlines()) == 8
+    (output / "non-skirmish-cash.csv").write_bytes(non_skirmish_result)
     receipt = {"command": command, "compiler": subprocess.check_output(["c++", "--version"], text=True).splitlines()[0], "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), "sources": {str(p.relative_to(repo)): hashlib.sha256(p.read_bytes()).hexdigest() for p in [money_cpp,money_h,player_cpp]}, "player_cash_range": [source[:start].count("\n")+1,source[:stop].count("\n")+1], "executable_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(), "driver_sha256": hashlib.sha256(driver.read_bytes()).hexdigest(), "output_sha256": hashlib.sha256(result).hexdigest(), "scope": "Executed original Money.cpp and extracted Player::init cash statements; compile adapters only observe service calls. Not whole-game equivalence."}
+    receipt["executions"] = [
+        {"command": [str(executable)], "output": "cash.csv", "records": 6, "sha256": hashlib.sha256(result).hexdigest(), "columns": ["info_cash", "template_cash", "authored_deposit", "final_cash", "audio_calls", "audio_index", "academy_calls"]},
+        {"command": non_skirmish_command, "output": "non-skirmish-cash.csv", "records": 8, "sha256": hashlib.sha256(non_skirmish_result).hexdigest(), "columns": ["has_game_info", "info_cash", "global_cash", "template_cash", "authored_deposit", "final_cash", "audio_calls", "audio_index", "academy_calls"]},
+    ]
     (output / "receipt.json").write_text(json.dumps(receipt, indent=2)+"\n")
     print(result.decode(), end="")
     return 0

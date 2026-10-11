@@ -15,16 +15,8 @@ mod tests {
         Arc, Mutex, OnceLock,
     };
 
-    static TEST_LANGUAGE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     static TEST_LOAD_SCREEN_STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     static TEST_MOUSE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-    fn lock_test_language() -> std::sync::MutexGuard<'static, ()> {
-        TEST_LANGUAGE_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
 
     fn lock_test_load_screen_state() -> std::sync::MutexGuard<'static, ()> {
         TEST_LOAD_SCREEN_STATE_LOCK
@@ -156,7 +148,6 @@ mod tests {
     #[test]
     fn multiplayer_init_compacts_visible_context_slots_like_cpp() {
         let _state_guard = lock_test_load_screen_state();
-        let _language_guard = lock_test_language();
         Language::clear_localized_strings();
         Language::register_localized_string("Team:3", "Team Three");
         let mut wm = WindowManager::new();
@@ -261,7 +252,6 @@ mod tests {
     #[test]
     fn multiplayer_row_team_text_is_localized_like_cpp() {
         let _state_guard = lock_test_load_screen_state();
-        let _language_guard = lock_test_language();
         Language::clear_localized_strings();
         Language::register_localized_string("Team:2", "Team Two");
 
@@ -473,7 +463,6 @@ mod tests {
     #[test]
     fn map_transfer_progress_timeout_and_filename_cache_like_cpp() {
         let _state_guard = lock_test_load_screen_state();
-        let _language_guard = lock_test_language();
         Language::clear_localized_strings();
         Language::register_localized_string("MapTransfer:Unpacking", "Unpacking map");
         Language::register_localized_string("MapTransfer:Timeout", "%d:%d remaining");
@@ -879,7 +868,6 @@ mod tests {
     #[test]
     fn multiplayer_start_position_buttons_match_map_waypoints_and_apparent_slots() {
         let _state_guard = lock_test_load_screen_state();
-        let _language_guard = lock_test_language();
         Language::clear_localized_strings();
         let mut wm = WindowManager::new();
         named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:WinMapPreview");
@@ -952,7 +940,6 @@ mod tests {
     #[test]
     fn multiplayer_map_preview_keeps_start_positions_when_preview_image_missing_like_cpp() {
         let _state_guard = lock_test_load_screen_state();
-        let _language_guard = lock_test_language();
         Language::clear_localized_strings();
         game_engine::common::ini::ini_map_cache::init_global_map_cache();
 
@@ -1166,7 +1153,6 @@ mod tests {
     #[test]
     fn game_info_context_uses_local_template_for_general_presentation_like_cpp() {
         let _state_guard = lock_test_load_screen_state();
-        let _language_guard = lock_test_language();
         Language::clear_localized_strings();
         Language::register_localized_string("GUI:AirFeatures", "Air Force General");
         Language::register_localized_string("CHALLENGE:AirName", "General Granger");
@@ -1815,7 +1801,6 @@ mod tests {
 
     #[test]
     fn single_player_mission_text_fetches_cpp_labels() {
-        let _language_guard = lock_test_language();
         Language::clear_localized_strings();
         Language::register_localized_string("MISSION:Objective0", "Capture the base");
         Language::register_localized_string("MISSION:Objective2", "Hold position");
@@ -1859,7 +1844,6 @@ mod tests {
 
     #[test]
     fn challenge_persona_text_matches_cpp_load_screen_fields() {
-        let _language_guard = lock_test_language();
         Language::clear_localized_strings();
         Language::register_localized_string("CHALLENGE:PlayerName", "General Player");
         Language::register_localized_string("CHALLENGE:PlayerRank", "General");
@@ -2362,7 +2346,6 @@ mod tests {
     #[test]
     fn challenge_init_with_movie_waits_for_frame_activation_like_cpp_high_spec() {
         let _state_guard = lock_test_load_screen_state();
-        let _language_guard = lock_test_language();
         clear_challenge_movie_play_hook();
         clear_challenge_movie_advance_hook();
         register_challenge_movie_play_hook(|movie_name| movie_name == "ChallengeIntro");
@@ -2408,7 +2391,6 @@ mod tests {
     #[test]
     fn challenge_init_resets_window_video_manager_like_cpp() {
         let _state_guard = lock_test_load_screen_state();
-        let _language_guard = lock_test_language();
         clear_challenge_movie_play_hook();
         clear_challenge_movie_advance_hook();
         register_challenge_movie_play_hook(|_| false);
@@ -2445,7 +2427,6 @@ mod tests {
     #[test]
     fn challenge_init_without_movie_returns_without_synthetic_reveal_like_cpp() {
         let _state_guard = lock_test_load_screen_state();
-        let _language_guard = lock_test_language();
         clear_challenge_movie_play_hook();
         clear_challenge_movie_advance_hook();
         setup_current_challenge_for_tests("");
@@ -2482,7 +2463,6 @@ mod tests {
     #[test]
     fn challenge_prelude_driver_pumps_authored_frames_before_completion() {
         let _state_guard = lock_test_load_screen_state();
-        let _language_guard = lock_test_language();
         reset_challenge_load_screen_audio_state();
         clear_challenge_movie_play_hook();
         clear_challenge_movie_advance_hook();

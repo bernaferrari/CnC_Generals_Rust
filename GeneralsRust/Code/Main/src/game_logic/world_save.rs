@@ -54,6 +54,9 @@ mod side_admission;
 #[path = "world_save/side_preparation.rs"]
 mod side_preparation;
 
+#[path = "world_save/player_cash.rs"]
+mod player_cash;
+
 #[cfg(test)]
 #[path = "world_save/starting_cash_owner_tests.rs"]
 mod starting_cash_owner_tests;
@@ -61,3 +64,7 @@ mod starting_cash_owner_tests;
 #[cfg(test)]
 #[path = "world_save/prepared_side_owner_tests.rs"]
 mod prepared_side_owner_tests;
+
+#[cfg(test)]
+#[path = "world_save/non_skirmish_cash_tests.rs"]
+mod non_skirmish_cash_tests;

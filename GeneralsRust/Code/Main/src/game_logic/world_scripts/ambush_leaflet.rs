@@ -910,6 +910,7 @@ impl GameLogic {
     ) {
         self.skirmish_rules = SkirmishRulesState {
             starting_cash: self.skirmish_rules.starting_cash,
+            starting_cash_default: self.skirmish_rules.starting_cash_default,
             fog_of_war,
             crates_enabled,
             limit_superweapons,
@@ -927,6 +928,7 @@ impl GameLogic {
     /// boundary. Neither another world nor a changed wallet can reseed it.
     pub(crate) fn set_session_starting_cash(&mut self, cash: u32) {
         self.skirmish_rules.starting_cash = cash;
+        self.skirmish_rules.starting_cash_default = None;
     }
 
     /// C++ `GameLogic::xfer` v10 `m_superweaponRestriction` live cap.

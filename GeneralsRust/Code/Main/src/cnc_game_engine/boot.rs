@@ -409,6 +409,7 @@ impl CnCGameEngine {
             control_bar: game_client::gui::control_bar::ControlBar::new(),
 
             game_logic,
+            default_starting_cash: crate::game_logic::Player::DEFAULT_STARTING_MONEY,
             presentation_terrain_cache: PresentationTerrainCache::default(),
             last_presentation_frame: None,
             host_direct_visual_world_epoch: 1,

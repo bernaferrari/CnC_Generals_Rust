@@ -8,7 +8,7 @@
 //! `production_priority` reset after load.
 //!
 //! Players v6 carries host alliances, side identities and session admission cash.
-//! WorldSnapshot 26 gates admission cash; its positional body is unchanged.
+//! WorldSnapshot 26/27 gates admission cash and its definition source; its positional body is unchanged.
 
 use super::player_team_chunks::PlayerTeamChunks;
 use crate::game_logic::{GameLogic, ObjectId, PlayerSideRole};
@@ -21,7 +21,7 @@ use std::io::{Cursor, Read, Seek, Write};
 pub const CHUNK_PLAYERS: &str = "CHUNK_Players";
 pub const CHUNK_TEAM_FACTORY: &str = "CHUNK_TeamFactory";
 
-const PLAYERS_CHUNK_VERSION: u8 = 6;
+const PLAYERS_CHUNK_VERSION: u8 = 7;
 const TEAM_FACTORY_CHUNK_VERSION: u8 = 5;
 const MAX_ATTACKED_BY: usize = 16;
 const MAX_GENERIC_SCRIPTS: usize = 16;
@@ -168,11 +168,19 @@ impl Default for TeamRuntimePersist {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostStartingCashSource {
+    GameInfo,
+    Definitions(u32),
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PlayersChunkPersist {
     pub players: Vec<PlayerRuntimePersist>,
     /// None on v1-v5: current wallets cannot recover initial GameInfo cash.
     pub host_starting_cash: Option<u32>,
+    /// None on v1–v6: the historical capsule did not retain source provenance.
+    pub host_starting_cash_source: Option<HostStartingCashSource>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -510,6 +518,17 @@ pub fn write_players_block<W: Write + Seek>(
     if let Some(mut cash) = persist.host_starting_cash {
         map_xfer(xfer.xfer_unsigned_int(&mut cash))?;
     }
+    let source = persist
+        .host_starting_cash_source
+        .ok_or_else(|| SaveLoadError::Corrupted("Missing current cash source".into()))?;
+    let mut tag = match source {
+        HostStartingCashSource::GameInfo => 0,
+        HostStartingCashSource::Definitions(_) => 1,
+    };
+    map_xfer(xfer.xfer_unsigned_byte(&mut tag))?;
+    if let HostStartingCashSource::Definitions(mut base) = source {
+        map_xfer(xfer.xfer_unsigned_int(&mut base))?;
+    }
     Ok(())
 }
 
@@ -549,6 +568,21 @@ pub fn parse_players_block(payload: &[u8]) -> SaveLoadResult<PlayersChunkPersist
     } else {
         None
     };
+    let host_starting_cash_source = if version >= 7 {
+        let mut present = 0u8;
+        map_xfer(xfer.xfer_unsigned_byte(&mut present))?;
+        match present {
+            0 => Some(HostStartingCashSource::GameInfo),
+            1 => {
+                let mut base = 0u32;
+                map_xfer(xfer.xfer_unsigned_int(&mut base))?;
+                Some(HostStartingCashSource::Definitions(base))
+            }
+            _ => return Err(SaveLoadError::Corrupted("Invalid cash source tag".into())),
+        }
+    } else {
+        None
+    };
     // Common Xfer's byte counter omits string payloads. The cursor measures
     // the complete wire record, including those payloads.
     if cursor.position() != payload.len() as u64 {
@@ -559,6 +593,7 @@ pub fn parse_players_block(payload: &[u8]) -> SaveLoadResult<PlayersChunkPersist
     Ok(PlayersChunkPersist {
         players,
         host_starting_cash,
+        host_starting_cash_source,
     })
 }
 
@@ -830,6 +865,10 @@ fn leftover_team_id(
 pub(super) fn capture_players_chunk(game_logic: &GameLogic) -> PlayersChunkPersist {
     let mut persist = PlayersChunkPersist {
         host_starting_cash: Some(game_logic.skirmish_rules().starting_cash),
+        host_starting_cash_source: Some(game_logic.skirmish_rules().starting_cash_default.map_or(
+            HostStartingCashSource::GameInfo,
+            HostStartingCashSource::Definitions,
+        )),
         ..Default::default()
     };
     for (id, player) in game_logic.get_players() {
@@ -1184,7 +1223,11 @@ mod tests {
 
     #[test]
     fn players_and_team_factory_chunks_round_trip_sciences_relations_and_script_latches() {
-        let mut players = PlayersChunkPersist::default();
+        let mut players = PlayersChunkPersist {
+            host_starting_cash: Some(17_321),
+            host_starting_cash_source: Some(HostStartingCashSource::Definitions(10_000)),
+            ..PlayersChunkPersist::default()
+        };
         let mut player = PlayerRuntimePersist {
             player_id: 1,
             sciences_disabled: vec!["SCIENCE_PaladinTank".into()],
@@ -1261,6 +1304,11 @@ mod tests {
         let player_bytes = players_only.into_inner();
         assert!(player_bytes.len() > 2, "must not be NullSnapshot");
         let parsed_players = parse_players_block(&player_bytes).expect("parse players");
+        assert_eq!(parsed_players.host_starting_cash, Some(17_321));
+        assert_eq!(
+            parsed_players.host_starting_cash_source,
+            Some(HostStartingCashSource::Definitions(10_000))
+        );
         let mut trailing_players = player_bytes.clone();
         trailing_players.push(0);
         assert!(parse_players_block(&trailing_players).is_err());

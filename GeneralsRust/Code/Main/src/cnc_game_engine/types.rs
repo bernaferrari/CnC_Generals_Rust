@@ -660,6 +660,7 @@ impl ScriptCameraShaker {
 }
 
 pub(crate) struct StartupLoadResult {
+    pub(crate) default_starting_cash: u32,
     pub(crate) game_logic: GameLogic,
     pub(crate) loaded_map_name: Option<String>,
     pub(crate) start_in_menu: bool,
@@ -690,6 +691,7 @@ pub(super) struct HostStartRequest {
     pub(super) map: String,
     pub(super) skirmish: Option<crate::skirmish_config::SkirmishMatchConfig>,
     pub(super) player_template: Option<crate::game_logic::PlayerTemplateIdentity>,
+    pub(super) game_info_starting_cash: Option<u32>,
 }
 
 impl HostStartRequest {
@@ -705,6 +707,7 @@ impl HostStartRequest {
             map,
             skirmish,
             player_template: None,
+            game_info_starting_cash: None,
         }
     }
 
@@ -721,6 +724,7 @@ impl HostStartRequest {
             map,
             skirmish,
             player_template: Some(player_template),
+            game_info_starting_cash: None,
         }
     }
 }
@@ -749,6 +753,7 @@ pub(super) struct CampaignLaunchStartOverrides {
     pub(super) map: Option<String>,
     pub(super) faction: Option<String>,
     pub(super) player_template: Option<crate::game_logic::PlayerTemplateIdentity>,
+    pub(super) game_info_starting_cash: Option<u32>,
 }
 
 /// Parsed `FIRE_WEAPON` data retained while the player chooses a target.
@@ -1132,6 +1137,8 @@ pub struct CnCGameEngine {
 
     // Game state
     pub(crate) game_logic: GameLogic,
+    /// Immutable engine definition input captured before startup map overrides.
+    pub(crate) default_starting_cash: u32,
     /// Map-lifetime immutable terrain payload shared by presentation frames.
     ///
     /// C++ keeps its `WorldHeightMap` alive in `W3DTerrainVisual` for the map

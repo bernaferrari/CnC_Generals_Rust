@@ -2110,6 +2110,7 @@ impl MainMenu {
             campaign_name,
             campaign_player_faction,
             is_challenge: false,
+            game_info_starting_cash: None,
             player_template_name: None,
             player_template_index: None,
             game_mode_code: gamelogic::system::game_logic::GAME_SINGLE_PLAYER,

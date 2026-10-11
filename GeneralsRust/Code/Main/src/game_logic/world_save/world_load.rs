@@ -143,6 +143,38 @@ impl GameLogic {
                     chunky.toc.len(),
                     chunky.body_offset
                 );
+                // Replace the test map with parsed object placements for basic fidelity.
+                let settings_started = Instant::now();
+                report_progress(0.36, "Reading map settings");
+                let ai_draft = self.ai_definitions.map_override_draft();
+                let parsed =
+                    super::script_loader::parse_map_settings_from_chunky_with_ai_data_from_source(
+                        &chunky,
+                        std::sync::Arc::clone(&ai_draft),
+                        &definition_source,
+                    );
+                let parsed_settings = match parsed {
+                    Ok(meta) => match self.admit_ai_map_overrides(ai_draft) {
+                        Ok(()) => Some(meta),
+                        Err(err) => {
+                            log::warn!("Map AI definition admission failed: {err}");
+                            return false;
+                        }
+                    },
+                    Err(err) => {
+                        log::warn!("Map settings parse failed: {err}");
+                        return false;
+                    }
+                };
+                log::info!(
+                    "Map '{}' settings parse finished in {:.2}s (present={})",
+                    map_name,
+                    settings_started.elapsed().as_secs_f32(),
+                    parsed_settings.is_some()
+                );
+                if let Some(meta) = parsed_settings.as_ref() {
+                    self.admit_map_starting_cash(meta.default_starting_cash);
+                }
                 if self.game_mode != GameMode::Shell {
                     report_progress(0.40, "Syncing runtime objects");
                 } else {
@@ -187,35 +219,6 @@ impl GameLogic {
                     blend_tile_data.is_some()
                 );
 
-                // Replace the test map with parsed object placements for basic fidelity.
-                let settings_started = Instant::now();
-                report_progress(0.52, "Reading map settings");
-                let ai_draft = self.ai_definitions.map_override_draft();
-                let parsed =
-                    super::script_loader::parse_map_settings_from_chunky_with_ai_data_from_source(
-                        &chunky,
-                        std::sync::Arc::clone(&ai_draft),
-                        &definition_source,
-                    );
-                let parsed_settings = match parsed {
-                    Ok(meta) => match self.admit_ai_map_overrides(ai_draft) {
-                        Ok(()) => Some(meta),
-                        Err(err) => {
-                            log::warn!("Map AI definition admission failed: {err}");
-                            return false;
-                        }
-                    },
-                    Err(err) => {
-                        log::warn!("Map settings parse failed: {err}");
-                        return false;
-                    }
-                };
-                log::info!(
-                    "Map '{}' settings parse finished in {:.2}s (present={})",
-                    map_name,
-                    settings_started.elapsed().as_secs_f32(),
-                    parsed_settings.is_some()
-                );
                 if let Some(meta) = parsed_settings.as_ref() {
                     self.last_map_settings = Some(meta.clone());
                     log::info!(

@@ -29,6 +29,7 @@ fn replace_capsule_preserves_prior_domains_and_hides_authored_tags() {
     let prefix = world.lifecycle_tail.clone();
     let chunks = PlayerTeamChunks {
         players: Some(PlayersChunkPersist {
+            host_starting_cash_source: Some(HostStartingCashSource::GameInfo),
             players: vec![PlayerRuntimePersist {
                 player_id: 1,
                 sciences: vec!["TMAI".into(), "FSGM".into()],
@@ -198,6 +199,7 @@ fn side_identity_capsule_retains_roles_names_and_unresolved_start() {
     ];
     let chunks = PlayerTeamChunks {
         players: Some(PlayersChunkPersist {
+            host_starting_cash_source: Some(HostStartingCashSource::GameInfo),
             players: roles
                 .into_iter()
                 .enumerate()
@@ -331,4 +333,55 @@ fn admission_capability_rejects_missing_malformed_and_duplicate_identities() {
             "broken identity case {broken}"
         );
     }
+}
+
+#[test]
+fn admission_cash_wire_keeps_definition_base_distinct_from_fixed_game_info() {
+    for base in [None, Some(0), Some(9_000), Some(u32::MAX)] {
+        let mut payload = vec![7, 0, 0, 1];
+        payload.extend_from_slice(&17_321u32.to_le_bytes());
+        payload.push(u8::from(base.is_some()));
+        if let Some(base) = base {
+            payload.extend_from_slice(&base.to_le_bytes());
+        }
+        let parsed = parse_players_block(&payload).unwrap();
+        assert_eq!(parsed.host_starting_cash, Some(17_321));
+        assert_eq!(
+            parsed.host_starting_cash_source,
+            Some(base.map_or(
+                HostStartingCashSource::GameInfo,
+                HostStartingCashSource::Definitions
+            ))
+        );
+    }
+    assert_eq!(
+        parse_players_block(&[6, 0, 0, 0])
+            .unwrap()
+            .host_starting_cash_source,
+        None
+    );
+}
+
+#[test]
+fn admission_cash_wire_rejects_missing_or_invalid_definition_source() {
+    for suffix in [vec![], vec![2], vec![1], vec![1, 0, 0, 0], vec![0, 9]] {
+        let mut payload = vec![7, 0, 0, 1];
+        payload.extend_from_slice(&17_321u32.to_le_bytes());
+        payload.extend_from_slice(&suffix);
+        assert!(parse_players_block(&payload).is_err(), "{payload:?}");
+    }
+}
+
+#[test]
+fn current_envelope_rejects_historical_players_without_cash_source() {
+    let mut payload = vec![6, 0, 0, 1];
+    payload.extend_from_slice(&17_321u32.to_le_bytes());
+    let chunks = PlayerTeamChunks {
+        players: Some(parse_players_block(&payload).unwrap()),
+        teams: None,
+    };
+    let mut saved = WorldSnapshot::default();
+    assert!(validate_host_alliances(&saved, &chunks).is_err());
+    saved.version = 26;
+    validate_host_alliances(&saved, &chunks).unwrap();
 }

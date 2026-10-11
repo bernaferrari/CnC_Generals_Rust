@@ -410,6 +410,8 @@ fn parse_map_settings_from_loaded_chunky(
             if let Some((_, contents)) =
                 first_readable_map_ini_companion(dir, &["Map.ini", "map.ini"])
             {
+                meta.default_starting_cash =
+                    parse_map_default_starting_cash(&contents)?.or(meta.default_starting_cash);
                 // C++ GameLogic.cpp:2404-2408 loadMapINI — full block table
                 // via INI_LOAD_CREATE_OVERRIDES (CommandSet/CommandButton/Upgrade).
                 if let Some(target) = ai_data_target.as_ref() {
@@ -464,6 +466,8 @@ fn parse_map_settings_from_loaded_chunky(
             if let Some((_, contents)) =
                 first_readable_map_ini_companion(dir, &["Solo.ini", "solo.ini"])
             {
+                meta.default_starting_cash =
+                    parse_map_default_starting_cash(&contents)?.or(meta.default_starting_cash);
                 if let Some(target) = ai_data_target.as_ref() {
                     gamelogic::system::load_map_ini_ui_overrides_with_ai_data(
                         &contents,
@@ -524,4 +528,63 @@ fn parse_map_settings_from_loaded_chunky(
     }
 
     Ok(meta)
+}
+
+/// Read the non-nested GameData block through the owned Common INI cursor.
+/// This preserves optional `=`, whitespace and comments without registry dispatch.
+fn parse_map_default_starting_cash(contents: &str) -> LoaderResult<Option<u32>> {
+    let mut ini = INI::new();
+    ini.with_inline_source(contents, |ini| {
+        let mut game_data = false;
+        let mut cash = None;
+        loop {
+            ini.read_line()?;
+            if ini.is_eof() {
+                break;
+            }
+            let Some(key) = ini.get_next_token_or_null() else {
+                continue;
+            };
+            if key.eq_ignore_ascii_case("GameData") {
+                game_data = true;
+            } else if key.eq_ignore_ascii_case("End") {
+                game_data = false;
+            } else if game_data && key.eq_ignore_ascii_case("DefaultStartingCash") {
+                cash = Some(INI::parse_unsigned_int(&ini.get_next_token()?)?);
+            }
+        }
+        Ok(cash)
+    })
+    .map_err(|err| GameLogicError::Configuration(format!("DefaultStartingCash: {err}")))
+}
+
+#[cfg(test)]
+mod cash_tests {
+    use super::*;
+    #[test]
+    fn owned_cash_parser_accepts_cpp_delimiters_comments_and_last_override() {
+        let source = "PlayerTemplate Test\nStartMoney 7\nEnd\nGameData\nDefaultStartingCash 12500 ; comment\nEnd\nGameData\nDefaultStartingCash=0\nEnd";
+        assert_eq!(parse_map_default_starting_cash(source).unwrap(), Some(0));
+        assert_eq!(
+            parse_map_default_starting_cash("GameData\nDefaultStartingCash=4294967295\nEnd")
+                .unwrap(),
+            Some(u32::MAX)
+        );
+        assert_eq!(
+            parse_map_default_starting_cash("PlayerTemplate Test\nDefaultStartingCash = 999\nEnd")
+                .unwrap(),
+            None
+        );
+    }
+    #[test]
+    fn owned_cash_parser_rejects_missing_or_malformed_cash() {
+        for token in ["", "bad"] {
+            assert!(
+                parse_map_default_starting_cash(&format!(
+                    "GameData\nDefaultStartingCash = {token}\nEnd"
+                ))
+                .is_err()
+            );
+        }
+    }
 }

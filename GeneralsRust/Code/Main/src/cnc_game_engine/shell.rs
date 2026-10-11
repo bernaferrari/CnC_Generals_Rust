@@ -1888,16 +1888,20 @@ impl CnCGameEngine {
                     }
 
                     worker_stop_if_abandoned()?;
+                    let default_starting_cash = game_engine::common::global_data::read().default_starting_cash as u32;
+                    let mut game_info_starting_cash = None;
                     if replay_startup_requested && !start_in_menu {
                         // Recorder.cpp:1133 admits the recorded GameInfo seed.
                         // Address this candidate directly: process initialization
                         // cannot choose a running Main session's logic stream.
-                        let replay_seed = game_engine::common::recorder::with_recorder(
-                            |recorder| recorder.get_game_info().seed,
+                        let (replay_seed, replay_cash) = game_engine::common::recorder::with_recorder(
+                            |recorder| { let info = recorder.get_game_info(); (info.seed, info.starting_cash) },
                         ).ok_or_else(|| "startup replay recorder disappeared before seed admission".to_string())?;
                         game_logic.set_logic_random_seed(replay_seed);
+                        game_info_starting_cash = Some(replay_cash);
                     }
                     game_logic.start_new_game(startup_mode);
+                    game_logic.admit_new_game_starting_cash(game_info_starting_cash, default_starting_cash);
 
                     let mut loaded_map_name = None;
                     // C++ Shell::showShellMap(TRUE) (Shell.cpp:448-466) starts
@@ -1932,6 +1936,7 @@ impl CnCGameEngine {
                                     map_to_load
                                 );
                                 game_logic.start_new_game(GameMode::Shell);
+                                game_logic.admit_new_game_starting_cash(None, default_starting_cash);
                                 start_in_menu = true;
                             } else {
                                 warn!(
@@ -1939,6 +1944,7 @@ impl CnCGameEngine {
                                     map_to_load
                                 );
                                 game_logic.start_new_game(GameMode::Shell);
+                                game_logic.admit_new_game_starting_cash(None, default_starting_cash);
                                 start_in_menu = true;
                             }
                         } else {
@@ -1977,6 +1983,7 @@ impl CnCGameEngine {
                     Self::emit_startup_load_progress(&sender, 0.984, "Finalizing startup data");
 
                     Ok(StartupLoadResult {
+                        default_starting_cash,
                         game_logic,
                         loaded_map_name,
                         start_in_menu,
@@ -2062,6 +2069,7 @@ impl CnCGameEngine {
     ) -> Result<()> {
         // Wave 610: host residual helper.
         self.update_shell_loading_progress(0.995, Some("Finalizing startup"));
+        self.default_starting_cash = result.default_starting_cash;
         self.host_replace_game_logic(result.game_logic);
         // The boot presentation frame describes the pre-load, terrain-less
         // GameLogic instance.  Rebuild it after the worker handoff so WGPU sees

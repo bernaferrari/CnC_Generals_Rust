@@ -7,6 +7,7 @@ use super::*;
 pub(super) struct LastNewGameIdentity {
     pub(super) dispatch: StartupNewGameDispatch,
     pub(super) player_template: Option<crate::game_logic::PlayerTemplateIdentity>,
+    pub(super) game_info_starting_cash: Option<u32>,
     pub(super) faction: String,
     pub(super) map: String,
 }
@@ -529,8 +530,9 @@ impl CnCGameEngine {
                 self.ui_local_player_team_name()
                     .unwrap_or_else(|| "USA".to_string())
             });
+        let game_info_starting_cash = identity.as_ref().and_then(|id| id.game_info_starting_cash);
         let player_template = identity.and_then(|id| id.player_template);
-        let request = match player_template {
+        let mut request = match player_template {
             Some(player_template) => HostStartRequest::with_player_template(
                 dispatch.game_mode,
                 faction,
@@ -542,9 +544,11 @@ impl CnCGameEngine {
                 HostStartRequest::without_player_template(dispatch.game_mode, faction, map, None)
             }
         };
+        request.game_info_starting_cash = game_info_starting_cash;
         self.record_last_new_game_identity(LastNewGameIdentity {
             dispatch,
             player_template: request.player_template.clone(),
+            game_info_starting_cash: request.game_info_starting_cash,
             faction: request.faction.clone(),
             map: request.map.clone(),
         });
@@ -609,6 +613,7 @@ impl CnCGameEngine {
             map: campaign_launch_map,
             faction: campaign_launch_faction,
             player_template,
+            game_info_starting_cash,
         } = campaign_launch_overrides;
 
         // Do not consume pending globals until a typed Challenge selection is
@@ -653,7 +658,7 @@ impl CnCGameEngine {
             .or_else(|| self.ui_local_player_team_name())
             .unwrap_or_else(|| "USA".to_string());
 
-        let request = match player_template {
+        let mut request = match player_template {
             Some(player_template) => HostStartRequest::with_player_template(
                 mode,
                 faction,
@@ -663,9 +668,11 @@ impl CnCGameEngine {
             ),
             None => HostStartRequest::without_player_template(mode, faction, map, skirmish),
         };
+        request.game_info_starting_cash = game_info_starting_cash;
         self.record_last_new_game_identity(LastNewGameIdentity {
             dispatch,
             player_template: request.player_template.clone(),
+            game_info_starting_cash: request.game_info_starting_cash,
             faction: request.faction.clone(),
             map: request.map.clone(),
         });
@@ -710,6 +717,11 @@ impl CnCGameEngine {
                 map: Some(map),
                 faction: Some(faction),
                 player_template: Some(player_template),
+                game_info_starting_cash: Some(
+                    descriptor
+                        .game_info_starting_cash
+                        .ok_or("the selected Challenge GameInfo cash is absent")?,
+                ),
             });
         }
 
@@ -738,6 +750,7 @@ impl CnCGameEngine {
             map,
             faction,
             player_template,
+            game_info_starting_cash: None,
         })
     }
 
