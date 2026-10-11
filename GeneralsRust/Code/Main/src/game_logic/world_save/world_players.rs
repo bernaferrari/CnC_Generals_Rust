@@ -676,7 +676,13 @@ impl GameLogic {
                 continue;
             };
             if let Some(player) = self.players.get_mut(&pid) {
-                player.apply_map_side_dict(dict, replace_default_money);
+                // Retained Civilians were initialized and received the authored
+                // deposit above. The relationship pass must not deposit twice.
+                if player.map_side.role != PlayerSideRole::Authored
+                    || dict.get_ascii_string(key_player_faction()) != "FactionCivilian"
+                {
+                    player.apply_map_side_dict(dict, replace_default_money);
+                }
             }
         }
 

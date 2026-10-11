@@ -909,6 +909,7 @@ impl GameLogic {
         game_speed: f32,
     ) {
         self.skirmish_rules = SkirmishRulesState {
+            starting_cash: self.skirmish_rules.starting_cash,
             fog_of_war,
             crates_enabled,
             limit_superweapons,
@@ -920,6 +921,12 @@ impl GameLogic {
     /// Read-only skirmish rules snapshot.
     pub fn skirmish_rules(&self) -> &SkirmishRulesState {
         &self.skirmish_rules
+    }
+
+    /// Capture GameInfo/default cash once at the driving session's admission
+    /// boundary. Neither another world nor a changed wallet can reseed it.
+    pub(crate) fn set_session_starting_cash(&mut self, cash: u32) {
+        self.skirmish_rules.starting_cash = cash;
     }
 
     /// C++ `GameLogic::xfer` v10 `m_superweaponRestriction` live cap.

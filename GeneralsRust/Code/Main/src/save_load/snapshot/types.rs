@@ -16,16 +16,16 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::SystemTime;
 
-/// World body schema 23 remains unchanged. Versions 24/25 advertise required
-/// host alliances / side identities in sibling Players v4/v5 chunks, so older builds reject
+/// World body schema 23 remains unchanged. Versions 24/25/26 advertise required
+/// host alliances / side identities / admission cash in Players v4/v5/v6, so older builds reject
 /// new bundles before host restore. Only these Rust capability versions are readable;
 /// original C++ module Xfer versions remain independently defined.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 25;
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 25;
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 26;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 26;
 
 /// Validate the Rust outer envelope before consuming or restoring its body.
 pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadResult<()> {
-    if matches!(version, 23 | 24 | 25) {
+    if matches!(version, 23..=26) {
         Ok(())
     } else {
         Err(crate::save_load::SaveLoadError::VersionMismatch {
@@ -458,7 +458,7 @@ impl XferData for SerializableVec3 {
 // Default implementations for snapshot types
 impl Default for WorldSnapshot {
     fn default() -> Self {
-        Self {
+        let mut world = Self {
             version: WORLD_SNAPSHOT_BINCODE_VERSION,
             timestamp: SystemTime::now(),
             frame_number: 0,
@@ -481,7 +481,9 @@ impl Default for WorldSnapshot {
             client_drawables: ClientDrawableWorldSnapshot::default(),
             player_template_bindings: Vec::new(),
             shroud: ShroudSnapshot::default(),
-            lifecycle_tail: Vec::new(),
+            // Metadata suffixes follow the lifecycle record, including when
+            // that record contains no objects or links.
+            lifecycle_tail: super::lifecycle_tail::encode_lifecycle_tail(&Default::default()),
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
             overcharge_active: Vec::new(),
@@ -506,7 +508,22 @@ impl Default for WorldSnapshot {
             logic_rng_seed_words: [0; 6],
             next_object_id: 0,
             pending_combat: Default::default(),
-        }
+        };
+        // A current empty snapshot is still a valid session value. Encode its
+        // known default admission input without constructing/publishing a world.
+        // SnapshotBuilder replaces this with the driving instance's cash.
+        super::player_team_chunks::bind_chunks_to_world(
+            &mut world,
+            &super::player_team_chunks::PlayerTeamChunks {
+                players: Some(super::player_team_persist::PlayersChunkPersist {
+                    host_starting_cash: Some(Player::DEFAULT_STARTING_MONEY),
+                    ..Default::default()
+                }),
+                teams: None,
+            },
+        )
+        .expect("bounded empty Players capsule");
+        world
     }
 }
 

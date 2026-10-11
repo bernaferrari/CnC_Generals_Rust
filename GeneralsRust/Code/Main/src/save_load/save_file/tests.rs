@@ -386,42 +386,83 @@ fn mission_save_writes_only_game_state_and_campaign_chunks() {
 }
 
 #[test]
-fn campaign_block_writes_runtime_difficulty_and_challenge() {
-    use std::sync::Arc;
-    game_engine::System::register_campaign_manager_runtime_hooks(
-        Some(Arc::new(|| game_engine::System::CampaignManagerXferState {
-            campaign: "GLA".into(),
-            mission: "GLA02".into(),
-            rank_points: 0,
-            difficulty: 2,
-            is_challenge: true,
-            challenge_info: Some(game_engine::System::ChallengeGameInfoXfer::default()),
-            generals_template: 4,
-        })),
-        None,
+fn mission_save_round_trip_does_not_restore_or_require_gameplay_cash() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "mission_save_round_trip_does_not_restore_or_require_gameplay_cash",
+        || {
+            let directory = tempfile::tempdir().unwrap();
+            let mut manager = SaveFileManager::with_save_directory(directory.path());
+            manager.init().unwrap();
+            let source = GameLogic::new();
+            let mut info = fixture_save_info();
+            info.save_type = SaveFileType::Mission;
+            info.filename = "cash_mission".into();
+            manager.save_game("cash_mission", &source, &info).unwrap();
+            let bytes = std::fs::read(manager.get_save_path("cash_mission")).unwrap();
+            let blocks = walk_named_chunks(&bytes).unwrap();
+            assert_eq!(
+                blocks
+                    .iter()
+                    .map(|(name, _)| name.as_str())
+                    .collect::<Vec<_>>(),
+                [CHUNK_GAME_STATE, CHUNK_CAMPAIGN]
+            );
+            let mut receiving = GameLogic::new();
+            let mut player = Player::new(3, Team::USA, "Existing match", true);
+            player.resources.supplies = 987;
+            receiving.add_player(player);
+            let restored = manager.load_game("cash_mission", &mut receiving).unwrap();
+            assert_eq!(restored.save_type, SaveFileType::Mission);
+            assert_eq!(receiving.get_players().len(), 1);
+            assert_eq!(receiving.get_player(3).unwrap().resources.supplies, 987);
+        },
     );
-    let snapshot = WorldSnapshot::default();
-    let mut save_info = fixture_save_info();
-    save_info.save_type = SaveFileType::Mission;
-    save_info.map_name = "Maps\\GLA02.map".into();
-    let bytes =
-        SaveFileManager::write_common_sav_chunks(&snapshot, &save_info).expect("write mission");
-    let listed = SaveFileManager::read_named_chunk_save_info(&bytes).expect("list");
-    assert_eq!(listed.difficulty, GameDifficulty::Hard);
-    let blocks = walk_named_chunks(&bytes).expect("walk");
-    let campaign = blocks
-        .iter()
-        .find(|(name, _)| name.eq_ignore_ascii_case(CHUNK_CAMPAIGN))
-        .map(|(_, payload)| parse_campaign_block(payload).expect("parse campaign"));
-    let state = campaign.expect("CHUNK_Campaign");
-    assert_eq!(state.campaign, "GLA");
-    assert_eq!(state.mission, "GLA02");
-    assert_eq!(state.difficulty, 2);
-    assert!(state.is_challenge);
-    assert_eq!(state.generals_template, 4);
-    // Listing must surface CHUNK_Campaign difficulty (C++ loadGame then
-    // MSG_NEW_GAME uses TheCampaignManager->getGameDifficulty()).
-    assert_eq!(campaign_difficulty(&state), GameDifficulty::Hard);
+}
+
+#[test]
+fn campaign_block_writes_runtime_difficulty_and_challenge() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "campaign_block_writes_runtime_difficulty_and_challenge",
+        || {
+            use std::sync::Arc;
+            game_engine::System::register_campaign_manager_runtime_hooks(
+                Some(Arc::new(|| game_engine::System::CampaignManagerXferState {
+                    campaign: "GLA".into(),
+                    mission: "GLA02".into(),
+                    rank_points: 0,
+                    difficulty: 2,
+                    is_challenge: true,
+                    challenge_info: Some(game_engine::System::ChallengeGameInfoXfer::default()),
+                    generals_template: 4,
+                })),
+                None,
+            );
+            let snapshot = WorldSnapshot::default();
+            let mut save_info = fixture_save_info();
+            save_info.save_type = SaveFileType::Mission;
+            save_info.map_name = "Maps\\GLA02.map".into();
+            let bytes = SaveFileManager::write_common_sav_chunks(&snapshot, &save_info)
+                .expect("write mission");
+            let listed = SaveFileManager::read_named_chunk_save_info(&bytes).expect("list");
+            assert_eq!(listed.difficulty, GameDifficulty::Hard);
+            let blocks = walk_named_chunks(&bytes).expect("walk");
+            let campaign = blocks
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case(CHUNK_CAMPAIGN))
+                .map(|(_, payload)| parse_campaign_block(payload).expect("parse campaign"));
+            let state = campaign.expect("CHUNK_Campaign");
+            assert_eq!(state.campaign, "GLA");
+            assert_eq!(state.mission, "GLA02");
+            assert_eq!(state.difficulty, 2);
+            assert!(state.is_challenge);
+            assert_eq!(state.generals_template, 4);
+            // Listing must surface CHUNK_Campaign difficulty (C++ loadGame then
+            // MSG_NEW_GAME uses TheCampaignManager->getGameDifficulty()).
+            assert_eq!(campaign_difficulty(&state), GameDifficulty::Hard);
+        },
+    );
 }
 
 #[test]

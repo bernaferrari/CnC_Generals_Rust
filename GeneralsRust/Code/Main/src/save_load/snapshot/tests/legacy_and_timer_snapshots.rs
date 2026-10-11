@@ -866,162 +866,177 @@ fn snapshot_round_trips_experience_sink_and_scalar() {
 
 #[test]
 fn snapshot_round_trips_scoring_restriction_cave_tunnel_airfield() {
-    gamelogic::helpers::TheGameLogic::set_scoring_enabled(false);
-    let mut source = GameLogic::new();
-    source.set_limit_superweapons(true);
-    source
-        .cave_system_residual_mut()
-        .register_cave(ObjectId(10), 1, Team::USA);
-    let _ =
-        source
-            .cave_system_residual_mut()
-            .record_enter(1, ObjectId(20), ObjectId(10), Team::USA);
-    source
-        .tunnel_network_residual_mut()
-        .on_tunnel_created(1, ObjectId(30));
-    let _ = source
-        .tunnel_network_residual_mut()
-        .record_enter(1, ObjectId(40), ObjectId(30));
-    source.restore_airfield_parking_spaces(vec![(
-        ObjectId(50),
-        vec![(Some(ObjectId(60)), false), (None, false)],
-    )]);
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "snapshot_round_trips_scoring_restriction_cave_tunnel_airfield",
+        || {
+            gamelogic::helpers::TheGameLogic::set_scoring_enabled(false);
+            let mut source = GameLogic::new();
+            source.set_limit_superweapons(true);
+            source
+                .cave_system_residual_mut()
+                .register_cave(ObjectId(10), 1, Team::USA);
+            let _ = source.cave_system_residual_mut().record_enter(
+                1,
+                ObjectId(20),
+                ObjectId(10),
+                Team::USA,
+            );
+            source
+                .tunnel_network_residual_mut()
+                .on_tunnel_created(1, ObjectId(30));
+            let _ =
+                source
+                    .tunnel_network_residual_mut()
+                    .record_enter(1, ObjectId(40), ObjectId(30));
+            source.restore_airfield_parking_spaces(vec![(
+                ObjectId(50),
+                vec![(Some(ObjectId(60)), false), (None, false)],
+            )]);
 
-    let builder = SnapshotBuilder::new();
-    let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
-    assert!(!snapshot.is_scoring_enabled);
-    assert!(snapshot.limit_superweapons);
-    assert!(snapshot.cave_system.is_in_network(1, ObjectId(20)));
-    assert!(snapshot.tunnel_network.is_in_network(1, ObjectId(40)));
-    assert_eq!(
-        snapshot.airfield_parking.fields[0].spaces[0].object_id,
-        Some(ObjectId(60))
-    );
+            let builder = SnapshotBuilder::new();
+            let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
+            assert!(!snapshot.is_scoring_enabled);
+            assert!(snapshot.limit_superweapons);
+            assert!(snapshot.cave_system.is_in_network(1, ObjectId(20)));
+            assert!(snapshot.tunnel_network.is_in_network(1, ObjectId(40)));
+            assert_eq!(
+                snapshot.airfield_parking.fields[0].spaces[0].object_id,
+                Some(ObjectId(60))
+            );
 
-    gamelogic::helpers::TheGameLogic::set_scoring_enabled(true);
-    let mut restored = GameLogic::new();
-    builder
-        .restore_from_snapshot(&snapshot, &mut restored)
-        .expect("restore");
-    assert!(!gamelogic::helpers::TheGameLogic::is_scoring_enabled());
-    assert!(restored.skirmish_rules().limit_superweapons);
-    assert!(
-        restored
-            .cave_system_residual()
-            .is_in_network(1, ObjectId(20))
+            gamelogic::helpers::TheGameLogic::set_scoring_enabled(true);
+            let mut restored = GameLogic::new();
+            builder
+                .restore_from_snapshot(&snapshot, &mut restored)
+                .expect("restore");
+            assert!(!gamelogic::helpers::TheGameLogic::is_scoring_enabled());
+            assert!(restored.skirmish_rules().limit_superweapons);
+            assert!(
+                restored
+                    .cave_system_residual()
+                    .is_in_network(1, ObjectId(20))
+            );
+            assert!(
+                restored
+                    .tunnel_network_residual()
+                    .is_in_network(1, ObjectId(40))
+            );
+            assert_eq!(
+                restored.snapshot_airfield_parking_spaces()[0].1[0].0,
+                Some(ObjectId(60))
+            );
+            gamelogic::helpers::TheGameLogic::set_scoring_enabled(true);
+        },
     );
-    assert!(
-        restored
-            .tunnel_network_residual()
-            .is_in_network(1, ObjectId(40))
-    );
-    assert_eq!(
-        restored.snapshot_airfield_parking_spaces()[0].1[0].0,
-        Some(ObjectId(60))
-    );
-    gamelogic::helpers::TheGameLogic::set_scoring_enabled(true);
 }
 
 #[test]
 fn snapshot_round_trips_v18_ui_script_radar_water_drawable() {
-    gamelogic::helpers::TheGameLogic::set_draw_icon_ui(false);
-    gamelogic::helpers::TheGameLogic::set_hulk_max_lifetime_override(42);
-    gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(15);
-    let _ = gamelogic::scripting::engine::initialize_script_engine();
-    let _ = gamelogic::scripting::engine::with_script_engine_mut(|engine| {
-        engine.restore_named_trackers(
-            &[("MissionClock".into(), 90, true)],
-            &[("GateOpen".into(), true)],
-        );
-        engine.restore_named_reveals(&[(
-            "BaseLook".into(),
-            "WP_Base".into(),
-            250.0,
-            "PlyrAmerica".into(),
-        )]);
-    });
-    let mut source = GameLogic::new();
-    source.set_rank_level_limit(8);
-    source.upsert_script_named_timer("LaunchClock", "Launch in", true);
-    source.restore_script_named_timer_display_shown(false);
-    source.restore_script_superweapon_display_enabled(false);
-    source.restore_script_superweapon_hidden_objects([ObjectId(88)]);
-    source.restore_radar_script_state(false, true);
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "snapshot_round_trips_v18_ui_script_radar_water_drawable",
+        || {
+            gamelogic::helpers::TheGameLogic::set_draw_icon_ui(false);
+            gamelogic::helpers::TheGameLogic::set_hulk_max_lifetime_override(42);
+            gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(15);
+            let _ = gamelogic::scripting::engine::initialize_script_engine();
+            let _ = gamelogic::scripting::engine::with_script_engine_mut(|engine| {
+                engine.restore_named_trackers(
+                    &[("MissionClock".into(), 90, true)],
+                    &[("GateOpen".into(), true)],
+                );
+                engine.restore_named_reveals(&[(
+                    "BaseLook".into(),
+                    "WP_Base".into(),
+                    250.0,
+                    "PlyrAmerica".into(),
+                )]);
+            });
+            let mut source = GameLogic::new();
+            source.set_rank_level_limit(8);
+            source.upsert_script_named_timer("LaunchClock", "Launch in", true);
+            source.restore_script_named_timer_display_shown(false);
+            source.restore_script_superweapon_display_enabled(false);
+            source.restore_script_superweapon_hidden_objects([ObjectId(88)]);
+            source.restore_radar_script_state(false, true);
 
-    let builder = SnapshotBuilder::new();
-    let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
-    assert_eq!(snapshot.persist_v18.rank_level_limit, 8);
-    assert!(!snapshot.persist_v18.draw_icon_ui);
-    assert_eq!(snapshot.persist_v18.script_hulk_max_lifetime_override, 42);
-    assert_eq!(snapshot.persist_v18.rank_points_to_add_at_game_start, 15);
-    assert!(!snapshot.persist_v18.named_timer_display_shown);
-    assert_eq!(snapshot.persist_v18.named_timers[0].name, "LaunchClock");
-    assert!(snapshot.persist_v18.superweapon_hidden_by_script);
-    assert!(snapshot.persist_v18.radar_forced);
-    assert!(snapshot.persist_v18.radar_hidden);
-    assert_eq!(snapshot.persist_v18.script_named_reveals.len(), 1);
-    assert_eq!(
-        snapshot.persist_v18.script_named_reveals[0].reveal_name,
-        "BaseLook"
-    );
-    assert_eq!(
-        snapshot.persist_v18.script_named_reveals[0].waypoint_name,
-        "WP_Base"
-    );
-    assert!(
-        (snapshot.persist_v18.script_named_reveals[0].radius_to_reveal - 250.0).abs()
-            < f32::EPSILON
-    );
-    assert_eq!(
-        snapshot.persist_v18.script_named_reveals[0].player_name,
-        "PlyrAmerica"
-    );
+            let builder = SnapshotBuilder::new();
+            let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
+            assert_eq!(snapshot.persist_v18.rank_level_limit, 8);
+            assert!(!snapshot.persist_v18.draw_icon_ui);
+            assert_eq!(snapshot.persist_v18.script_hulk_max_lifetime_override, 42);
+            assert_eq!(snapshot.persist_v18.rank_points_to_add_at_game_start, 15);
+            assert!(!snapshot.persist_v18.named_timer_display_shown);
+            assert_eq!(snapshot.persist_v18.named_timers[0].name, "LaunchClock");
+            assert!(snapshot.persist_v18.superweapon_hidden_by_script);
+            assert!(snapshot.persist_v18.radar_forced);
+            assert!(snapshot.persist_v18.radar_hidden);
+            assert_eq!(snapshot.persist_v18.script_named_reveals.len(), 1);
+            assert_eq!(
+                snapshot.persist_v18.script_named_reveals[0].reveal_name,
+                "BaseLook"
+            );
+            assert_eq!(
+                snapshot.persist_v18.script_named_reveals[0].waypoint_name,
+                "WP_Base"
+            );
+            assert!(
+                (snapshot.persist_v18.script_named_reveals[0].radius_to_reveal - 250.0).abs()
+                    < f32::EPSILON
+            );
+            assert_eq!(
+                snapshot.persist_v18.script_named_reveals[0].player_name,
+                "PlyrAmerica"
+            );
 
-    gamelogic::helpers::TheGameLogic::set_draw_icon_ui(true);
-    gamelogic::helpers::TheGameLogic::set_hulk_max_lifetime_override(-1);
-    gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(0);
-    let mut restored = GameLogic::new();
-    builder
-        .restore_from_snapshot(&snapshot, &mut restored)
-        .expect("restore");
-    assert_eq!(restored.rank_level_limit(), 8);
-    assert!(!gamelogic::helpers::TheGameLogic::get_draw_icon_ui());
-    assert_eq!(
-        gamelogic::helpers::TheGameLogic::get_hulk_max_lifetime_override(),
-        42
+            gamelogic::helpers::TheGameLogic::set_draw_icon_ui(true);
+            gamelogic::helpers::TheGameLogic::set_hulk_max_lifetime_override(-1);
+            gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(0);
+            let mut restored = GameLogic::new();
+            builder
+                .restore_from_snapshot(&snapshot, &mut restored)
+                .expect("restore");
+            assert_eq!(restored.rank_level_limit(), 8);
+            assert!(!gamelogic::helpers::TheGameLogic::get_draw_icon_ui());
+            assert_eq!(
+                gamelogic::helpers::TheGameLogic::get_hulk_max_lifetime_override(),
+                42
+            );
+            assert_eq!(
+                gamelogic::helpers::TheGameLogic::get_rank_points_to_add_at_game_start(),
+                15
+            );
+            assert_eq!(
+                restored.peek_script_named_timers().get("LaunchClock"),
+                Some(&("Launch in".to_string(), true))
+            );
+            assert!(!restored.peek_script_named_timer_display_shown());
+            assert!(!restored.peek_script_superweapon_display_enabled());
+            assert!(
+                restored
+                    .peek_script_superweapon_hidden_objects()
+                    .contains(&ObjectId(88))
+            );
+            assert!(restored.radar_forced());
+            assert!(!restored.radar_script_enabled());
+            let _ = gamelogic::scripting::engine::with_script_engine_ref(|engine| {
+                let counter = engine.get_counter("MissionClock").expect("counter");
+                assert_eq!(counter.value, 90);
+                assert!(counter.is_countdown_timer);
+                assert_eq!(engine.get_flag("GateOpen").map(|f| f.value), Some(true));
+                let reveals = engine.snapshot_named_reveals();
+                assert_eq!(reveals.len(), 1);
+                assert_eq!(reveals[0].0, "BaseLook");
+                assert_eq!(reveals[0].1, "WP_Base");
+                assert!((reveals[0].2 - 250.0).abs() < f32::EPSILON);
+                assert_eq!(reveals[0].3, "PlyrAmerica");
+            });
+            gamelogic::helpers::TheGameLogic::set_draw_icon_ui(true);
+            gamelogic::helpers::TheGameLogic::set_hulk_max_lifetime_override(-1);
+            gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(0);
+        },
     );
-    assert_eq!(
-        gamelogic::helpers::TheGameLogic::get_rank_points_to_add_at_game_start(),
-        15
-    );
-    assert_eq!(
-        restored.peek_script_named_timers().get("LaunchClock"),
-        Some(&("Launch in".to_string(), true))
-    );
-    assert!(!restored.peek_script_named_timer_display_shown());
-    assert!(!restored.peek_script_superweapon_display_enabled());
-    assert!(
-        restored
-            .peek_script_superweapon_hidden_objects()
-            .contains(&ObjectId(88))
-    );
-    assert!(restored.radar_forced());
-    assert!(!restored.radar_script_enabled());
-    let _ = gamelogic::scripting::engine::with_script_engine_ref(|engine| {
-        let counter = engine.get_counter("MissionClock").expect("counter");
-        assert_eq!(counter.value, 90);
-        assert!(counter.is_countdown_timer);
-        assert_eq!(engine.get_flag("GateOpen").map(|f| f.value), Some(true));
-        let reveals = engine.snapshot_named_reveals();
-        assert_eq!(reveals.len(), 1);
-        assert_eq!(reveals[0].0, "BaseLook");
-        assert_eq!(reveals[0].1, "WP_Base");
-        assert!((reveals[0].2 - 250.0).abs() < f32::EPSILON);
-        assert_eq!(reveals[0].3, "PlyrAmerica");
-    });
-    gamelogic::helpers::TheGameLogic::set_draw_icon_ui(true);
-    gamelogic::helpers::TheGameLogic::set_hulk_max_lifetime_override(-1);
-    gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(0);
 }
 
 #[test]

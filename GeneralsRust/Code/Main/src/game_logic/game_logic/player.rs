@@ -1303,8 +1303,8 @@ impl Player {
     /// The caller has already resolved the exact template identity.  Unlike
     /// the base-team fallback above, this preserves every authored intrinsic
     /// science and its template purchase-point grant before adding the Rank1
-    /// grant.  Template money of zero retains Main's current GameInfo/default
-    /// starting cash, matching the C++ fallback.
+    /// grant. The caller seeds the session's admission cash before this method;
+    /// template money of zero preserves that fallback (not a spent wallet).
     pub(crate) fn apply_player_template_start_state(
         &mut self,
         template: &game_engine::common::rts::player_template::PlayerTemplate,
@@ -1475,13 +1475,12 @@ impl Player {
         self.map_side.role == PlayerSideRole::Neutral
     }
 
-    /// `replace_default_money` is the campaign/map-create path: dict
-    /// `playerStartMoney` replaces `Player::new`'s $10k fallback.
-    /// Skirmish lobby cash is applied separately (`replace_default_money=false`).
-    pub fn apply_map_side_dict(&mut self, dict: &Dict, replace_default_money: bool) {
+    /// The map-create path deposits authored money after template initialization.
+    /// Lobby owners already received their GameInfo cash (`apply_money=false`).
+    pub fn apply_map_side_dict(&mut self, dict: &Dict, apply_money: bool) {
         // C++ Player::initFromDict chooses controller from the authored side,
         // never from local-player identity or whether strategic AI is active.
-        if replace_default_money || dict.get_type(key_player_is_human()).is_some() {
+        if apply_money || dict.get_type(key_player_is_human()).is_some() {
             self.is_human = dict.get_bool(key_player_is_human());
         }
         let map_name = dict.get_ascii_string(key_player_name());
@@ -1497,12 +1496,6 @@ impl Player {
                 _ => PlayerSideRole::Authored,
             };
             self.map_side.map_player_name = map_name;
-        }
-
-        if replace_default_money && dict.get_type(key_player_start_money()).is_some() {
-            // C++ deposits onto template money (usually 0). Host `new` planted
-            // DEFAULT as fallback when no map key existed.
-            self.resources.supplies = dict.get_int(key_player_start_money()).max(0) as u32;
         }
 
         if dict.get_type(key_player_color()).is_some() {
@@ -1524,6 +1517,19 @@ impl Player {
         }
 
         self.map_side.read_handicap_from_dict(dict);
+        if apply_money && dict.get_type(key_player_start_money()).is_some() {
+            // Player.cpp1007 / Money.cpp45: Int converts to UnsignedInt, then
+            // deposits with wrapping addition. Initialization is immediate;
+            // it must not use the shadow world's deferred economy delta.
+            let amount = dict.get_int(key_player_start_money()) as u32;
+            if amount != 0 {
+                crate::game_logic::host_economy_log::record_money_audio(
+                    self.id,
+                    crate::game_logic::host_economy_log::HostMoneyAudio::Deposit,
+                );
+                self.resources.supplies = self.resources.supplies.wrapping_add(amount);
+            }
+        }
     }
 
     /// C++ `Player::setPlayerRelationship`.
@@ -1846,6 +1852,9 @@ pub(super) fn capture_upgrade_names_for_team(team: Team) -> &'static [&'static s
 /// Skirmish/match rules applied from UI configuration (FOW, crates, etc.).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SkirmishRulesState {
+    /// Resolved admission input, independent of every player's live wallet.
+    /// Kept private to the crate; new-match admission and restore set it.
+    pub(crate) starting_cash: u32,
     pub fog_of_war: bool,
     pub crates_enabled: bool,
     pub limit_superweapons: bool,
@@ -1856,6 +1865,7 @@ pub struct SkirmishRulesState {
 impl Default for SkirmishRulesState {
     fn default() -> Self {
         Self {
+            starting_cash: Player::DEFAULT_STARTING_MONEY,
             fog_of_war: true,
             crates_enabled: true,
             limit_superweapons: false,
@@ -1992,7 +2002,7 @@ mod map_side_dict_tests {
     use super::*;
 
     #[test]
-    fn map_start_money_replaces_default_ten_k() {
+    fn map_start_money_deposits_onto_initialized_cash() {
         let mut player = Player::new(0, Team::USA, "PlyrAmerica", true);
         assert_eq!(player.resources.supplies, Player::DEFAULT_STARTING_MONEY);
         let mut dict = Dict::new();
@@ -2000,7 +2010,7 @@ mod map_side_dict_tests {
         dict.set_int(key_player_color(), 0x00aa_3311);
         dict.set_ascii_string(key_player_name(), "PlyrAmerica");
         player.apply_map_side_dict(&dict, true);
-        assert_eq!(player.resources.supplies, 2_500);
+        assert_eq!(player.resources.supplies, 12_500);
         assert_eq!(player.color_rgb, (0xaa, 0x33, 0x11));
         assert_eq!(player.map_side.map_player_name, "PlyrAmerica");
     }

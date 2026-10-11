@@ -1495,6 +1495,7 @@ impl SaveFileManager {
                 "CHUNK_GameState missing from named-chunk save".to_string(),
             ));
         }
+        let has_game_logic = logic_data.is_some();
         let mut world_snapshot = match logic_data {
             Some(payload) => Self::decode_chunk_game_logic_for_host(&payload)?,
             None if save_info.save_type == SaveFileType::Mission => WorldSnapshot::default(),
@@ -1509,7 +1510,12 @@ impl SaveFileManager {
             players_payload.as_deref(),
             team_factory_payload.as_deref(),
         )?;
-        validate_host_alliances(&world_snapshot, &player_team_chunks)?;
+        // Mission saves carry only GameState/Campaign (GameState.cpp1339).
+        // Their empty placeholder is never restored by load_game; capability
+        // metadata is required whenever an actual GameLogic body was supplied.
+        if has_game_logic {
+            validate_host_alliances(&world_snapshot, &player_team_chunks)?;
+        }
         bind_player_team_chunks(&mut world_snapshot, &player_team_chunks)?;
         apply_persist_chunks(
             &mut world_snapshot,

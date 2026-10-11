@@ -48,6 +48,17 @@ pub(crate) fn validate_host_alliances(
     if world.version < 24 {
         return Ok(());
     }
+    if world.version >= 26
+        && chunks
+            .players
+            .as_ref()
+            .and_then(|p| p.host_starting_cash)
+            .is_none()
+    {
+        return Err(SaveLoadError::Corrupted(
+            "Missing session admission cash".into(),
+        ));
+    }
     let mut special_roles = HashSet::new();
     let mut authored_names = HashSet::new();
     for host in &world.players {
@@ -342,6 +353,15 @@ pub(super) fn apply_before_objects(
     world: &mut GameLogic,
     chunks: &PlayerTeamChunks,
 ) -> SaveLoadResult<()> {
+    // Historical saves cannot recover this input from spent wallets. Choose
+    // their documented fallback, never the receiving world's prior config.
+    world.set_session_starting_cash(
+        chunks
+            .players
+            .as_ref()
+            .and_then(|p| p.host_starting_cash)
+            .unwrap_or(crate::game_logic::Player::DEFAULT_STARTING_MONEY),
+    );
     if let Some(players) = &chunks.players {
         for player in &players.players {
             apply_player_to_live(world, player);

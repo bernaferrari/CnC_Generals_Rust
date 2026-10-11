@@ -653,7 +653,10 @@ pub fn apply_skirmish_config(
         let mut assigned = config.slots.clone();
         populate_random_start_position(&mut assigned, &config.map);
 
-        let cash = config.rules.starting_cash.max(0) as u32;
+        // GameInfo stores unsigned Money; the UI snapshot's Int is its bit
+        // representation, including zero and values above i32::MAX.
+        let cash = config.rules.starting_cash as u32;
+        logic.set_session_starting_cash(cash);
         let mut human_id: Option<u32> = None;
 
         for resolved in resolved_slots {
@@ -947,11 +950,7 @@ pub fn config_from_client_skirmish_setup(
         random_seed: info.get_seed() as u32,
         old_factions_only: info.old_factions_only(),
         rules: GameRulesSnapshot {
-            starting_cash: if starting_cash > 0 {
-                starting_cash
-            } else {
-                10_000
-            },
+            starting_cash,
             game_speed: 1.0,
             limit_superweapons: limit_sw,
             allow_tech_buildings: true,

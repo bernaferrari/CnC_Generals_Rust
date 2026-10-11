@@ -27,7 +27,9 @@ mod sides_host_apply_tests {
         logic.apply_host_players_from_side_dicts(&[america, gla], true);
 
         let usa = logic.get_player(0).expect("usa");
-        assert_eq!(usa.resources.supplies, 3_000);
+        // Player.cpp1007 deposits onto the initialized fallback, not replaces it.
+        assert_eq!(usa.resources.supplies, 13_000);
+        assert_eq!(logic.get_player(1).unwrap().resources.supplies, 11_500);
         assert_eq!(usa.color_rgb, (0, 0, 0xff));
         assert_eq!(
             logic.player_relationship(0, 1),

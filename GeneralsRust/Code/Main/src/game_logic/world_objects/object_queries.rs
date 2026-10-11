@@ -2687,6 +2687,7 @@ impl GameLogic {
         // color, starting money fallback, and rank-one sciences.  The generic
         // player seeded by start_new_game is only a bootstrap shell.
         player.team = team;
+        player.resources.supplies = self.skirmish_rules.starting_cash;
         player.apply_player_template_start_state(&template);
         self.player_template_bindings
             .insert(player_id, player_template);

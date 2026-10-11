@@ -7,8 +7,8 @@
 //! `attack_priority_name`, and leftover TeamTemplateInfo::xfer
 //! `production_priority` reset after load.
 //!
-//! Players v5 carries canonical host alliances and side admission identities.
-//! WorldSnapshot 25 gates this capability; its positional body is unchanged.
+//! Players v6 carries host alliances, side identities and session admission cash.
+//! WorldSnapshot 26 gates admission cash; its positional body is unchanged.
 
 use super::player_team_chunks::PlayerTeamChunks;
 use crate::game_logic::{GameLogic, ObjectId, PlayerSideRole};
@@ -21,7 +21,7 @@ use std::io::{Cursor, Read, Seek, Write};
 pub const CHUNK_PLAYERS: &str = "CHUNK_Players";
 pub const CHUNK_TEAM_FACTORY: &str = "CHUNK_TeamFactory";
 
-const PLAYERS_CHUNK_VERSION: u8 = 5;
+const PLAYERS_CHUNK_VERSION: u8 = 6;
 const TEAM_FACTORY_CHUNK_VERSION: u8 = 5;
 const MAX_ATTACKED_BY: usize = 16;
 const MAX_GENERIC_SCRIPTS: usize = 16;
@@ -171,6 +171,8 @@ impl Default for TeamRuntimePersist {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PlayersChunkPersist {
     pub players: Vec<PlayerRuntimePersist>,
+    /// None on v1-v5: current wallets cannot recover initial GameInfo cash.
+    pub host_starting_cash: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -503,6 +505,11 @@ pub fn write_players_block<W: Write + Seek>(
     for player in &persist.players {
         write_player_entry(xfer, player)?;
     }
+    let mut present = u8::from(persist.host_starting_cash.is_some());
+    map_xfer(xfer.xfer_unsigned_byte(&mut present))?;
+    if let Some(mut cash) = persist.host_starting_cash {
+        map_xfer(xfer.xfer_unsigned_int(&mut cash))?;
+    }
     Ok(())
 }
 
@@ -523,6 +530,25 @@ pub fn parse_players_block(payload: &[u8]) -> SaveLoadResult<PlayersChunkPersist
     for _ in 0..count {
         players.push(parse_player_entry(&mut xfer, version)?);
     }
+    let host_starting_cash = if version >= 6 {
+        let mut present = 0u8;
+        map_xfer(xfer.xfer_unsigned_byte(&mut present))?;
+        match present {
+            0 => None,
+            1 => {
+                let mut cash = 0u32;
+                map_xfer(xfer.xfer_unsigned_int(&mut cash))?;
+                Some(cash)
+            }
+            _ => {
+                return Err(SaveLoadError::Corrupted(
+                    "Invalid starting cash presence".into(),
+                ));
+            }
+        }
+    } else {
+        None
+    };
     // Common Xfer's byte counter omits string payloads. The cursor measures
     // the complete wire record, including those payloads.
     if cursor.position() != payload.len() as u64 {
@@ -530,7 +556,10 @@ pub fn parse_players_block(payload: &[u8]) -> SaveLoadResult<PlayersChunkPersist
             "CHUNK_Players trailing bytes".into(),
         ));
     }
-    Ok(PlayersChunkPersist { players })
+    Ok(PlayersChunkPersist {
+        players,
+        host_starting_cash,
+    })
 }
 
 pub fn write_team_factory_block<W: Write + Seek>(
@@ -799,7 +828,10 @@ fn leftover_team_id(
 }
 
 pub(super) fn capture_players_chunk(game_logic: &GameLogic) -> PlayersChunkPersist {
-    let mut persist = PlayersChunkPersist::default();
+    let mut persist = PlayersChunkPersist {
+        host_starting_cash: Some(game_logic.skirmish_rules().starting_cash),
+        ..Default::default()
+    };
     for (id, player) in game_logic.get_players() {
         let slot = if let Some(existing) = persist
             .players

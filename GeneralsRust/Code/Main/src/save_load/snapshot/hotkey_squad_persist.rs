@@ -239,76 +239,100 @@ mod tests {
 
     #[test]
     fn leftover_hotkey_squads_round_trip_lifecycle_tail() {
-        let player = reset_leftover(0);
-        player
-            .write()
-            .expect("player")
-            .process_create_team_game_message(1, &[10, 20, 30]);
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "leftover_hotkey_squads_round_trip_lifecycle_tail",
+            || {
+                let player = reset_leftover(0);
+                player
+                    .write()
+                    .expect("player")
+                    .process_create_team_game_message(1, &[10, 20, 30]);
 
-        let mut bytes = b"HIST".to_vec();
-        append_to_lifecycle_tail(&mut bytes, &GameLogic::new());
-        assert!(
-            find_hsqd_suffix(&bytes).is_some(),
-            "HSQD suffix must be appended"
+                let mut bytes = b"HIST".to_vec();
+                append_to_lifecycle_tail(&mut bytes, &GameLogic::new());
+                assert!(
+                    find_hsqd_suffix(&bytes).is_some(),
+                    "HSQD suffix must be appended"
+                );
+
+                let restored = reset_leftover(0);
+                apply_from_lifecycle_tail(&bytes, &mut GameLogic::new()).expect("apply");
+                let loaded = restored.read().expect("player");
+                let squad = loaded.get_hotkey_squad_const(1).expect("squad 1");
+                assert_eq!(squad.get_object_ids(), &vec![10, 20, 30]);
+                let pending = take_pending_control_groups().expect("pending remirror");
+                assert_eq!(pending.get(&1).map(Vec::as_slice), Some(&[10, 20, 30][..]));
+            },
         );
-
-        let restored = reset_leftover(0);
-        apply_from_lifecycle_tail(&bytes, &mut GameLogic::new()).expect("apply");
-        let loaded = restored.read().expect("player");
-        let squad = loaded.get_hotkey_squad_const(1).expect("squad 1");
-        assert_eq!(squad.get_object_ids(), &vec![10, 20, 30]);
-        let pending = take_pending_control_groups().expect("pending remirror");
-        assert_eq!(pending.get(&1).map(Vec::as_slice), Some(&[10, 20, 30][..]));
     }
 
     #[test]
     fn pending_engine_groups_union_onto_leftover_local() {
-        reset_leftover(0);
-        let mut groups = HashMap::new();
-        groups.insert(3, vec![7, 8]);
-        set_pending_control_groups(groups);
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "pending_engine_groups_union_onto_leftover_local",
+            || {
+                reset_leftover(0);
+                let mut groups = HashMap::new();
+                groups.insert(3, vec![7, 8]);
+                set_pending_control_groups(groups);
 
-        let mut bytes = Vec::new();
-        append_to_lifecycle_tail(&mut bytes, &GameLogic::new());
+                let mut bytes = Vec::new();
+                append_to_lifecycle_tail(&mut bytes, &GameLogic::new());
 
-        let restored = reset_leftover(0);
-        apply_from_lifecycle_tail(&bytes, &mut GameLogic::new()).expect("apply");
-        let loaded = restored.read().expect("player");
-        let squad = loaded.get_hotkey_squad_const(3).expect("squad 3");
-        assert_eq!(squad.get_object_ids(), &vec![7, 8]);
+                let restored = reset_leftover(0);
+                apply_from_lifecycle_tail(&bytes, &mut GameLogic::new()).expect("apply");
+                let loaded = restored.read().expect("player");
+                let squad = loaded.get_hotkey_squad_const(3).expect("squad 3");
+                assert_eq!(squad.get_object_ids(), &vec![7, 8]);
+            },
+        );
     }
 
     #[test]
     fn absent_suffix_clears_pending_groups() {
-        set_pending_control_groups(HashMap::from([(1, vec![1])]));
-        apply_from_lifecycle_tail(b"no-magic-here", &mut GameLogic::new()).expect("apply");
-        let pending = take_pending_control_groups().expect("cleared pending");
-        assert!(pending.is_empty());
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "absent_suffix_clears_pending_groups",
+            || {
+                set_pending_control_groups(HashMap::from([(1, vec![1])]));
+                apply_from_lifecycle_tail(b"no-magic-here", &mut GameLogic::new()).expect("apply");
+                let pending = take_pending_control_groups().expect("cleared pending");
+                assert!(pending.is_empty());
+            },
+        );
     }
 
     #[test]
     fn snapshot_round_trips_leftover_hotkey_squads() {
-        let player = reset_leftover(0);
-        player
-            .write()
-            .expect("player")
-            .process_create_team_game_message(2, &[42, 43]);
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "snapshot_round_trips_leftover_hotkey_squads",
+            || {
+                let player = reset_leftover(0);
+                player
+                    .write()
+                    .expect("player")
+                    .process_create_team_game_message(2, &[42, 43]);
 
-        let source = GameLogic::new();
-        let builder = super::super::SnapshotBuilder::new();
-        let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
-        assert!(
-            find_hsqd_suffix(&snapshot.lifecycle_tail).is_some(),
-            "HSQD suffix must be appended to lifecycle tail"
+                let source = GameLogic::new();
+                let builder = super::super::SnapshotBuilder::new();
+                let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
+                assert!(
+                    find_hsqd_suffix(&snapshot.lifecycle_tail).is_some(),
+                    "HSQD suffix must be appended to lifecycle tail"
+                );
+
+                let restored = reset_leftover(0);
+                let mut dest = GameLogic::new();
+                builder
+                    .restore_from_snapshot(&snapshot, &mut dest)
+                    .expect("restore");
+                let loaded = restored.read().expect("player");
+                let squad = loaded.get_hotkey_squad_const(2).expect("squad 2");
+                assert_eq!(squad.get_object_ids(), &vec![42, 43]);
+            },
         );
-
-        let restored = reset_leftover(0);
-        let mut dest = GameLogic::new();
-        builder
-            .restore_from_snapshot(&snapshot, &mut dest)
-            .expect("restore");
-        let loaded = restored.read().expect("player");
-        let squad = loaded.get_hotkey_squad_const(2).expect("squad 2");
-        assert_eq!(squad.get_object_ids(), &vec![42, 43]);
     }
 }

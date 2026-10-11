@@ -55,5 +55,9 @@ mod side_admission;
 mod side_preparation;
 
 #[cfg(test)]
+#[path = "world_save/starting_cash_owner_tests.rs"]
+mod starting_cash_owner_tests;
+
+#[cfg(test)]
 #[path = "world_save/prepared_side_owner_tests.rs"]
 mod prepared_side_owner_tests;

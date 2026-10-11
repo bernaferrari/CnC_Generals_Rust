@@ -28,15 +28,12 @@ impl GameLogic {
     }
 
     fn admit_reserved_neutral(&mut self) -> u32 {
-        if let Some(id) = self
+        let id = self
             .players
             .iter()
             .filter_map(|(&id, p)| p.is_reserved_neutral().then_some(id))
             .min()
-        {
-            return id;
-        }
-        let id = self.next_side_player_id();
+            .unwrap_or_else(|| self.next_side_player_id());
         // Player.cpp444–469 init(NULL): no template or authored side overrides.
         let mut player = Player::new(id, Team::Neutral, "", false);
         player.map_side.role = PlayerSideRole::Neutral;
@@ -52,28 +49,30 @@ impl GameLogic {
     }
 
     fn admit_authored_civilian(&mut self, dict: &Dict, name: &str) {
-        if self
+        let id = self
             .players
-            .values()
-            .any(|p| p.map_side.map_player_name == name)
-        {
-            return;
-        }
-        let id = self.next_side_player_id();
+            .iter()
+            .find_map(|(&id, p)| (p.map_side.map_player_name == name).then_some(id))
+            .unwrap_or_else(|| self.next_side_player_id());
         let mut player = Player::new(
             id,
             Team::Neutral,
             &dict.get_unicode_string(key_player_display_name()),
             false,
         );
-        // Named template players retain normal starting cash; only init(NULL)
-        // reserves zero for neutral (C++ Player.cpp423–435 / 444–469).
-        player.apply_map_side_dict(dict, false);
+        // PlayerList::newGame initializes again even for an existing named
+        // side. This is an admission operation, never a query/restore hook.
+        player.resources.supplies = self.skirmish_rules.starting_cash;
         self.add_player(player);
         if let Some(identity) =
             PlayerTemplateIdentity::from_exact_name(&dict.get_ascii_string(key_player_faction()))
         {
             let _ = self.bind_player_template_identity(id, identity);
         }
+        // Player.cpp: init(template), then authored handicap/colors/money.
+        self.players
+            .get_mut(&id)
+            .expect("just admitted civilian")
+            .apply_map_side_dict(dict, true);
     }
 }

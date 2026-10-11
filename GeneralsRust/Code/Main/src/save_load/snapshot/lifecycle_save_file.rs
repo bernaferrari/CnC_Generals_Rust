@@ -137,8 +137,15 @@ fn save_file_roundtrip_survives_unpaused_cooldown_and_keeps_weapon_clip() {
 #[test]
 fn save_file_absent_lifecycle_tail_loads_empty() {
     let mut snapshot = WorldSnapshot::default();
-    snapshot.lifecycle_tail.clear();
     let mut logic = GameLogic::new();
+    SnapshotBuilder::new()
+        .restore_from_snapshot(&snapshot, &mut logic)
+        .expect("current empty world retains admission metadata");
+    assert!(logic.host_objects().is_empty());
+    // Historical snapshots can omit the entire tail. Current snapshots must
+    // retain the session admission metadata, even without lifecycle records.
+    snapshot.version = 25;
+    snapshot.lifecycle_tail.clear();
     SnapshotBuilder::new()
         .restore_from_snapshot(&snapshot, &mut logic)
         .expect("absent tail");

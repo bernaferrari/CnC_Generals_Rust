@@ -34,6 +34,7 @@ fn replace_capsule_preserves_prior_domains_and_hides_authored_tags() {
                 sciences: vec!["TMAI".into(), "FSGM".into()],
                 ..Default::default()
             }],
+            ..Default::default()
         }),
         teams: None,
     };
@@ -211,11 +212,76 @@ fn side_identity_capsule_retains_roles_names_and_unresolved_start() {
                     ..Default::default()
                 })
                 .collect(),
+            ..Default::default()
         }),
         teams: None,
     };
     bind_chunks_to_world(&mut world, &chunks).unwrap();
     assert_eq!(chunks_from_world(&world).unwrap(), chunks);
+}
+
+#[test]
+fn admission_cash_wire_distinguishes_zero_and_old_absence() {
+    assert_eq!(
+        parse_players_block(&[5, 0, 0]).unwrap().host_starting_cash,
+        None
+    );
+    assert_eq!(
+        parse_players_block(&[6, 0, 0, 0])
+            .unwrap()
+            .host_starting_cash,
+        None
+    );
+    for cash in [0u32, 12_500, u32::MAX] {
+        let mut payload = vec![6, 0, 0, 1];
+        payload.extend_from_slice(&cash.to_le_bytes());
+        assert_eq!(
+            parse_players_block(&payload).unwrap().host_starting_cash,
+            Some(cash)
+        );
+    }
+}
+
+#[test]
+fn default_current_world_has_valid_owned_cash_metadata() {
+    let saved = WorldSnapshot::default();
+    let chunks = chunks_from_world(&saved).unwrap();
+    assert_eq!(
+        chunks.players.as_ref().unwrap().host_starting_cash,
+        Some(crate::game_logic::Player::DEFAULT_STARTING_MONEY)
+    );
+    validate_roster(&saved, &chunks).unwrap();
+}
+
+#[test]
+fn admission_cash_wire_rejects_invalid_presence_truncation_and_trailing_bytes() {
+    for payload in [
+        &[6, 0, 0, 2][..],
+        &[6, 0, 0, 1],
+        &[6, 0, 0, 1, 0, 0, 0],
+        &[6, 0, 0, 0, 9],
+    ] {
+        assert!(parse_players_block(payload).is_err(), "{payload:?}");
+    }
+}
+
+#[test]
+fn missing_admission_cash_rejects_empty_world_before_restore_mutation() {
+    let builder = SnapshotBuilder::new();
+    let mut live = GameLogic::new();
+    live.set_session_starting_cash(12_500);
+    let mut saved = builder.create_world_snapshot(&GameLogic::new()).unwrap();
+    let mut chunks = chunks_from_world(&saved).unwrap();
+    chunks.players.as_mut().unwrap().host_starting_cash = None;
+    bind_chunks_to_world(&mut saved, &chunks).unwrap();
+    assert!(builder.restore_from_snapshot(&saved, &mut live).is_err());
+    assert_eq!(live.skirmish_rules().starting_cash, 12_500);
+    saved.version = 25;
+    builder.restore_from_snapshot(&saved, &mut live).unwrap();
+    assert_eq!(
+        live.skirmish_rules().starting_cash,
+        crate::game_logic::Player::DEFAULT_STARTING_MONEY
+    );
 }
 
 #[test]

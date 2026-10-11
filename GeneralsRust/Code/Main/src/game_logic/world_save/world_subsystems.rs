@@ -400,6 +400,7 @@ impl GameLogic {
         }
         let id = self.next_side_player_id();
         let mut observer = Player::new(id, Team::Neutral, "ReplayObserver", true);
+        observer.resources.supplies = self.skirmish_rules.starting_cash;
         observer.map_side.role = PlayerSideRole::ReplayObserver;
         observer.map_side.map_player_name = "ReplayObserver".into();
         observer.is_alive = false;

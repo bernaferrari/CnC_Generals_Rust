@@ -795,6 +795,7 @@ impl GameLogic {
         self.vision_last_shroud.clear();
 
         self.players.clear();
+        self.skirmish_rules.starting_cash = Player::DEFAULT_STARTING_MONEY;
         self.rank_level_limit =
             crate::game_logic::host_rank_ui_residual::RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL;
         self.player_template_bindings.clear();
