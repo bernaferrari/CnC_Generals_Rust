@@ -387,3 +387,73 @@ fn missing_weapon_records_none_and_preserves_existing_drawable_flags() {
         [crate::weapon::WeaponSetConditionType::None as u8; 3]
     );
 }
+
+/// CPP Object.cpp:3030-3048: flag, actual weapon rebuild, then model condition.
+#[test]
+fn supplied_transport_weapon_flag_rebuilds_and_updates_actual_drawable() {
+    use crate::common::{DefaultThingTemplate, WeaponBonusConditionFlags};
+    use crate::weapon::{WeaponBonusSet, WeaponSetType, WeaponTemplateSet};
+    let mut object = Object::new_raw(
+        Arc::new(DefaultThingTemplate::new("OwnedArmedTransport".into())),
+        7101,
+        ObjectStatusMaskType::empty(),
+        None,
+    );
+    object.ambient_lifecycle_admitted = false;
+    assert!(object.get_body_module().is_none());
+    let drawable = local_drawable(&mut object);
+    drawable
+        .write()
+        .unwrap()
+        .set_model_condition_state(ModelConditionFlags::LOADED);
+    for (name, upgraded) in [("OwnedBaseWeapon", false), ("OwnedArmedWeapon", true)] {
+        let mut set = WeaponTemplateSet::new();
+        if upgraded {
+            set.conditions.set(WeaponSetType::PlayerUpgrade);
+        }
+        let mut template = WeaponTemplate::new(name.into());
+        template.clip_size = 2;
+        set.set_weapon_template(WeaponSlotType::Primary, Arc::new(template));
+        object.weapon_set.add_weapon_template_set(set);
+    }
+    let bonuses = WeaponBonusSet::new();
+    object
+        .set_weapon_set_flag_with_services(
+            WeaponSetType::PlayerUpgrade,
+            true,
+            WeaponBonusConditionFlags::empty(),
+            71,
+            &bonuses,
+        )
+        .unwrap();
+    assert!(object.test_weapon_set_flag(WeaponSetType::PlayerUpgrade));
+    assert_eq!(
+        current_weapon(&object).get_template().get_name(),
+        "OwnedArmedWeapon"
+    );
+    assert_eq!(current_weapon(&object).when_last_reload_started, 71);
+    assert_eq!(current_weapon(&object).get_remaining_ammo_at(71), 2);
+    let flags = drawable.read().unwrap().get_model_conditions();
+    assert!(flags.contains(ModelConditionFlags::WEAPONSET_PLAYER_UPGRADE));
+    assert!(flags.contains(ModelConditionFlags::LOADED));
+
+    object
+        .set_weapon_set_flag_with_services(
+            WeaponSetType::PlayerUpgrade,
+            false,
+            WeaponBonusConditionFlags::empty(),
+            91,
+            &bonuses,
+        )
+        .unwrap();
+    assert!(!object.test_weapon_set_flag(WeaponSetType::PlayerUpgrade));
+    assert_eq!(
+        current_weapon(&object).get_template().get_name(),
+        "OwnedBaseWeapon"
+    );
+    assert_eq!(current_weapon(&object).when_last_reload_started, 91);
+    assert_eq!(current_weapon(&object).get_remaining_ammo_at(91), 2);
+    let flags = drawable.read().unwrap().get_model_conditions();
+    assert!(!flags.contains(ModelConditionFlags::WEAPONSET_PLAYER_UPGRADE));
+    assert!(flags.contains(ModelConditionFlags::LOADED));
+}

@@ -52290,6 +52290,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/enter_border_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/entity_module_host.rs"
             },
@@ -53047,6 +53052,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/types.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unmanned_enter_admission_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -189091,7 +189101,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "2229567f9e8541483386aa8aadceb9d01633734127f4bf031ce1f90f19122bda",
+  "provenance_input_digest": "1baff06549e3f5dc6b3a65a75e36fa6420983fac628aa58f902b5d3f67dd760e",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

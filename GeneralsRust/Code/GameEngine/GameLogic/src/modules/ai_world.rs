@@ -146,6 +146,9 @@ pub trait AiWorld {
     // C++ has no recoverable boarding abort after its physical push_back.
     fn remove_from_world(&mut self, passenger: &mut Object);
     fn set_contained_held(&mut self, passenger: &mut Object);
+    /// Immediate Transport onContaining weapon refresh, after HELD/LOADED and
+    /// before rider onContainedBy. All required services are admitted pre-push.
+    fn set_transport_weapon_upgrade(&mut self, owner: &mut Object, enabled: bool);
     fn grant_payload_stealth(&mut self, passenger: &mut Object);
     fn place_contained(
         &mut self,

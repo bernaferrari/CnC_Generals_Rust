@@ -1508,11 +1508,51 @@ impl Object {
     }
 
     pub fn set_weapon_set_flag(&mut self, flag: WeaponSetType) {
-        self.cur_weapon_set_flags.set(flag);
-        let _ = self.refresh_weapon_set();
-        if let Some(condition) = weapon_set_model_condition(flag) {
-            self.set_model_condition_state(condition);
+        let _ = self.change_weapon_set_flag(flag, true, Self::refresh_weapon_set);
+    }
+
+    /// C++ Object's immediate flag/rebuild/model-condition operation using the
+    /// admitted owner's frame and immutable bonus definitions. Callers supply
+    /// the complete source/inherited bonus flags before borrowing this object.
+    pub(crate) fn set_weapon_set_flag_with_services(
+        &mut self,
+        flag: WeaponSetType,
+        enabled: bool,
+        bonus_flags: WeaponBonusConditionFlags,
+        frame: u32,
+        bonuses: &crate::weapon::WeaponBonusSet,
+    ) -> crate::GameLogicResult<()> {
+        self.change_weapon_set_flag(flag, enabled, |owner| {
+            owner.weapon_set.update_weapon_set_with_services(
+                owner.id,
+                &owner.cur_weapon_set_flags,
+                bonus_flags,
+                frame,
+                bonuses,
+            )
+        })
+    }
+
+    fn change_weapon_set_flag(
+        &mut self,
+        flag: WeaponSetType,
+        enabled: bool,
+        refresh: impl FnOnce(&mut Self) -> crate::GameLogicResult<()>,
+    ) -> crate::GameLogicResult<()> {
+        if enabled {
+            self.cur_weapon_set_flags.set(flag);
+        } else {
+            self.cur_weapon_set_flags.clear(flag);
         }
+        let result = refresh(self);
+        if let Some(condition) = weapon_set_model_condition(flag) {
+            if enabled {
+                self.set_model_condition_state(condition);
+            } else {
+                self.clear_model_condition_state(condition);
+            }
+        }
+        result
     }
 
     pub fn has_weapon_set_template(&self, flag: WeaponSetType) -> bool {
@@ -1522,11 +1562,7 @@ impl Object {
     }
 
     pub fn clear_weapon_set_flag(&mut self, flag: WeaponSetType) {
-        self.cur_weapon_set_flags.clear(flag);
-        let _ = self.refresh_weapon_set();
-        if let Some(condition) = weapon_set_model_condition(flag) {
-            self.clear_model_condition_state(condition);
-        }
+        let _ = self.change_weapon_set_flag(flag, false, Self::refresh_weapon_set);
     }
 
     /// Flag helpers for salvage armor upgrades.

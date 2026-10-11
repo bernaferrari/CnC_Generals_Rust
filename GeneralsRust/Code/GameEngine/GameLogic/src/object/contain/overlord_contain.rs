@@ -942,6 +942,9 @@ impl ContainModuleInterface for OverlordContain {
     fn supports_owned_enter(&self) -> bool {
         self.base.supports_owned_enter()
     }
+    fn requires_owned_weapon_refresh(&self) -> bool {
+        self.base.requires_owned_weapon_refresh()
+    }
     fn add_to_contain_with_world(
         &mut self,
         id: ObjectID,

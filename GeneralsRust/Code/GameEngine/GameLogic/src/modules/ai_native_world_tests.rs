@@ -816,3 +816,6 @@ fn native_hostile_enter_uses_owned_weapon_selector_and_immediate_attack() {
     );
     assert_eq!(peer.target.read().unwrap().get_position().x, 190.0);
 }
+
+#[path = "ai_native_world_tests/armed_transport.rs"]
+mod armed_transport_tests;

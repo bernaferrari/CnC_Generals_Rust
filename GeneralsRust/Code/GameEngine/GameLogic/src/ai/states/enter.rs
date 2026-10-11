@@ -83,6 +83,22 @@ pub struct AIEnterState {
 }
 
 impl AIEnterState {
+    /// C++ AIStates.cpp:6344-6351 uses the current geometry, not the template.
+    /// Keep the strict XY border test independent of movement tolerances.
+    pub(crate) fn is_within_goal_border(owner: &Object, goal: &Object) -> bool {
+        let owner_pos = owner.get_position();
+        let goal_pos = goal.get_position();
+        let dx = owner_pos.x - goal_pos.x;
+        let dy = owner_pos.y - goal_pos.y;
+        let geometry = goal.get_geometry_info();
+        let radius = if geometry.get_geometry_type() == GeometryType::Box {
+            geometry.get_minor_radius()
+        } else {
+            geometry.get_major_radius()
+        };
+        dx * dx + dy * dy < radius * radius
+    }
+
     pub fn new(machine: &StateMachine) -> Self {
         let mut base = AIMoveToState::new(machine);
         base.base.name = "AIEnter".to_string();
@@ -419,15 +435,7 @@ impl AIEnterState {
                 return Ok(StateReturnType::Continue);
             }
 
-            let owner_pos = owner_guard.get_position();
-            let goal_pos = goal_guard.get_position();
-            let dx = owner_pos.x - goal_pos.x;
-            let dy = owner_pos.y - goal_pos.y;
-            let mut radius = goal_guard.get_geometry_info().get_minor_radius();
-            if goal_guard.get_template_geometry_type() != Some(GeometryType::Box) {
-                radius = goal_guard.get_geometry_info().get_major_radius();
-            }
-            let close_enough = dx * dx + dy * dy < radius * radius;
+            let close_enough = Self::is_within_goal_border(&owner_guard, &goal_guard);
             if close_enough {
                 if ai.as_deref().and_then(|ai| ai.world()).is_some() {
                     let passenger_id = owner_guard.get_id();

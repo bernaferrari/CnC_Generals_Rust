@@ -7,6 +7,9 @@ use crate::modules::ai_world::AiWorld;
 pub(in crate::object::contain) struct PreparedContainEnter {
     pub owner: Arc<RwLock<Object>>,
     pub passenger: Arc<RwLock<Object>>,
+    /// Existing live members in literal roster order, then the new passenger;
+    /// unresolved entries retain the prior skip behavior. Identities stay fixed
+    /// through the synchronous attach/onContaining/onContainedBy sequence.
     pub members: Vec<Arc<RwLock<Object>>>,
 }
 

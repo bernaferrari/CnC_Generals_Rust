@@ -1242,8 +1242,11 @@ impl TheActionManager {
 
         if obj.is_kind_of(KindOf::Infantry)
             && object_to_enter.is_disabled_by_type(DisabledType::DisabledUnmanned)
+            && !obj.is_kind_of(KindOf::RejectUnmanned)
         {
-            return !obj.is_kind_of(KindOf::RejectUnmanned);
+            // C++ ActionManager.cpp:553-560: RejectUnmanned suppresses this
+            // pilot shortcut; ordinary containment admission still follows.
+            return true;
         }
 
         if obj.is_kind_of(KindOf::Aircraft) && object_to_enter.is_kind_of(KindOf::FSAirfield) {

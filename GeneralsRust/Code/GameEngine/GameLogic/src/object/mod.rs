@@ -2448,3 +2448,9 @@ mod radar_owner_tests;
 
 #[cfg(test)]
 mod owned_prefire_tests;
+
+#[cfg(test)]
+mod enter_border_tests;
+
+#[cfg(test)]
+mod unmanned_enter_admission_tests;

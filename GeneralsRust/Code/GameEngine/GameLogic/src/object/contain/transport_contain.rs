@@ -37,6 +37,23 @@ pub fn transport_contain_passenger_kind_allowed_to_fire(is_infantry: bool) -> bo
     is_infantry
 }
 
+/// CPP letRidersUpgradeWeaponSet: infantry with at least one non-contact,
+/// damage-dealing installed weapon. Used by both ownership adapters.
+fn transport_rider_has_viable_weapon(rider: &Object) -> bool {
+    transport_contain_passenger_kind_allowed_to_fire(rider.is_kind_of(KindOf::Infantry))
+        && [
+            WeaponSlotType::Primary,
+            WeaponSlotType::Secondary,
+            WeaponSlotType::Tertiary,
+        ]
+        .iter()
+        .any(|slot| {
+            rider
+                .get_weapon_in_slot((*slot).into())
+                .is_some_and(|weapon| !weapon.is_contact_weapon() && weapon.is_damage_weapon())
+        })
+}
+
 type ObjectId = ObjectID;
 
 /// Initial payload configuration
@@ -1367,27 +1384,7 @@ impl TransportContain {
                     every_rider_read = false;
                     continue;
                 };
-                // C++ letRidersUpgradeWeaponSet: skip non-infantry.
-                if !transport_contain_passenger_kind_allowed_to_fire(
-                    rider.is_kind_of(KindOf::Infantry),
-                ) {
-                    continue;
-                }
-
-                // Check all weapon slots
-                for weapon_slot in [
-                    WeaponSlotType::Primary,
-                    WeaponSlotType::Secondary,
-                    WeaponSlotType::Tertiary,
-                ] {
-                    if let Some(weapon) = rider.get_weapon_in_slot(weapon_slot.into()) {
-                        // Weapon must be non-contact and damage-dealing
-                        if !weapon.is_contact_weapon() && weapon.is_damage_weapon() {
-                            any_rider_has_viable_weapon = true;
-                            break;
-                        }
-                    }
-                }
+                any_rider_has_viable_weapon |= transport_rider_has_viable_weapon(&rider);
 
                 if any_rider_has_viable_weapon {
                     break;
@@ -1679,7 +1676,10 @@ impl Snapshotable for TransportContain {
 
 impl ContainModuleInterface for TransportContain {
     fn supports_owned_enter(&self) -> bool {
-        !self.module_data.armed_riders_upgrade_weapon_set
+        true
+    }
+    fn requires_owned_weapon_refresh(&self) -> bool {
+        self.module_data.armed_riders_upgrade_weapon_set
     }
     fn add_to_contain_with_world(
         &mut self,

@@ -72,46 +72,18 @@ impl TransportContain {
         }
         if self.module_data.armed_riders_upgrade_weapon_set {
             let mut armed = false;
-            for id in self.base.get_contained_object_ids() {
-                let Some(rider) = prepared.members.iter().find(|rider| {
-                    rider
-                        .read()
-                        .expect("admitted transport rider poisoned")
-                        .get_id()
-                        == *id
-                }) else {
-                    continue;
-                };
+            // Prepared identities preserve the post-push physical roster order.
+            // No member can be replaced/removed during this admitted callback.
+            for rider in &prepared.members {
                 let rider = rider.read().expect("admitted transport rider poisoned");
-                if !transport_contain_passenger_kind_allowed_to_fire(
-                    rider.is_kind_of(KindOf::Infantry),
-                ) {
-                    continue;
-                }
-                armed |= [
-                    WeaponSlotType::Primary,
-                    WeaponSlotType::Secondary,
-                    WeaponSlotType::Tertiary,
-                ]
-                .iter()
-                .any(|slot| {
-                    rider
-                        .get_weapon_in_slot((*slot).into())
-                        .is_some_and(|weapon| {
-                            !weapon.is_contact_weapon() && weapon.is_damage_weapon()
-                        })
-                });
+                armed |= transport_rider_has_viable_weapon(&rider);
                 if armed {
                     break;
                 }
             }
             let owner = &prepared.owner;
             let mut owner = owner.write().expect("admitted transport owner poisoned");
-            if armed {
-                owner.set_weapon_set_flag(WeaponSetType::PlayerUpgrade);
-            } else {
-                owner.clear_weapon_set_flag(WeaponSetType::PlayerUpgrade);
-            }
+            world.set_transport_weapon_upgrade(&mut owner, armed);
         }
         {
             let owner = &prepared.owner;

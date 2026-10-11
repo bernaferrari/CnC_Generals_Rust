@@ -327,6 +327,9 @@ impl AiWorld for BorrowedAiWorld<'_> {
             if !contain.supports_owned_enter() || contain.passengers_in_turret() {
                 return Err("native Enter derived container callback is not admitted".into());
             }
+            if contain.requires_owned_weapon_refresh() && target.get_contained_by().is_some() {
+                return Err("native armed transport inherited bonuses not admitted".into());
+            }
             contain.admission_target()
         };
         let target_id = target.get_id();
@@ -342,7 +345,17 @@ impl AiWorld for BorrowedAiWorld<'_> {
                         if child_guard.get_contained_by() != Some(target_id) {
                             return Err("native Enter payload owner mismatch".into());
                         }
-                        child_guard.get_contain().unwrap_or(contain)
+                        let child_contain = child_guard.get_contain().unwrap_or(contain);
+                        if child_contain
+                            .lock()
+                            .map_err(|_| "native payload contain poisoned")?
+                            .requires_owned_weapon_refresh()
+                        {
+                            return Err(
+                                "native armed payload inherited bonuses not admitted".into()
+                            );
+                        }
+                        child_contain
                     }
                     None => contain,
                 }
@@ -469,6 +482,22 @@ impl AiWorld for BorrowedAiWorld<'_> {
             .pathfinder
             .remove_object_from_map_at_positions(&footprint);
         passenger.clear_owned_partition_registration();
+    }
+    fn set_transport_weapon_upgrade(&mut self, owner: &mut Object, enabled: bool) {
+        debug_assert!(
+            owner.get_contained_by().is_none(),
+            "native transport inheritance preflight"
+        );
+        let flags = owner.get_weapon_bonus_condition();
+        owner
+            .set_weapon_set_flag_with_services(
+                crate::weapon::WeaponSetType::PlayerUpgrade,
+                enabled,
+                flags,
+                self.services.frame,
+                self.services.weapon_bonuses,
+            )
+            .expect("admitted deterministic weapon-set rebuild");
     }
     fn set_contained_held(&mut self, passenger: &mut Object) {
         passenger.set_held_for_owned_leaf();

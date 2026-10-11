@@ -80,6 +80,12 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         false
     }
 
+    /// Transport's optional immediate PlayerUpgrade rebuild needs this
+    /// physical owner's inherited weapon bonus services admitted pre-push.
+    fn requires_owned_weapon_refresh(&self) -> bool {
+        false
+    }
+
     /// Synchronous boarding through the driving store after object guards end.
     /// Derived containers opt in only when their complete callback is supported.
     fn add_to_contain_with_world(
