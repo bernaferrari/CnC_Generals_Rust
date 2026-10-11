@@ -50,6 +50,7 @@ mod attack;
 mod cheat_debug;
 mod command_button;
 mod construct;
+mod construct_line;
 mod group;
 mod leftover;
 mod movement;
@@ -263,7 +264,29 @@ impl<'a> CommandExecutor<'a> {
                 template_name,
                 start,
                 end,
-            } => self.execute_dozer_line(&command.selected_units, template_name, *start, *end),
+            } => {
+                // Existing binary commands had no facing; normalize at admission.
+                let delta = *end - *start;
+                self.execute_dozer_line(
+                    &command.selected_units,
+                    template_name,
+                    *start,
+                    *end,
+                    delta.z.atan2(delta.x),
+                )
+            }
+            CommandType::DozerConstructLineFacing {
+                template_name,
+                start,
+                end,
+                orientation,
+            } => self.execute_dozer_line(
+                &command.selected_units,
+                template_name,
+                *start,
+                *end,
+                *orientation,
+            ),
             CommandType::DozerCancelConstruct { object_id } => {
                 self.execute_cancel_construction(*object_id, command.player_id)
             }
@@ -747,6 +770,7 @@ pub const COMMAND_EXECUTOR_SRC: &str = concat!(
     include_str!("cheat_debug.rs"),
     include_str!("command_button.rs"),
     include_str!("construct.rs"),
+    include_str!("construct_line.rs"),
     include_str!("group.rs"),
     include_str!("leftover.rs"),
     include_str!("movement.rs"),

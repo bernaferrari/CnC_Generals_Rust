@@ -161,6 +161,11 @@ impl HostScriptExecutionDriver<'_> {
 }
 
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+    fn scoring_enabled(&mut self, enabled: bool) -> ScriptOwnerQuery<()> {
+        self.world.set_scoring_enabled(enabled);
+        ScriptOwnerQuery::Present(())
+    }
+
     fn eva_enabled(&mut self, enabled: bool) -> ScriptOwnerQuery<()> {
         self.world.set_eva_enabled(enabled);
         ScriptOwnerQuery::Present(())
@@ -777,3 +782,18 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 #[cfg(test)]
 #[path = "water_owner_tests.rs"]
 mod water_owner_tests;
+
+#[cfg(test)]
+impl GameLogic {
+    /// Execute a fixture's local engine through the actual borrowed Main driver.
+    /// No driver or engine is installed into process state.
+    pub(crate) fn update_local_script_engine_with_owner(
+        &mut self,
+        engine: &gamelogic::scripting::engine::ScriptEngine,
+    ) -> gamelogic::GameLogicResult<()> {
+        engine.update_with_driver(
+            gamelogic::scripting::executor::ScriptContext::at_frame(self.frame),
+            &mut HostScriptExecutionDriver::new(self),
+        )
+    }
+}

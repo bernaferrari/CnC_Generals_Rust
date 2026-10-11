@@ -10,6 +10,8 @@ use super::script_camera::*;
 use super::*;
 
 pub struct GameLogic {
+    /// CPP GameLogic ctor/reset/Xfer: scoring permission belongs to this match.
+    pub(super) is_scoring_enabled: bool,
     pub(crate) production_energy: crate::game_logic::production_energy::ProductionEnergyDefinitions,
     /// Ordered movement observations and completed frame output for this match.
     pub(crate) eva_announcements: crate::game_logic::host_eva_log::HostEvaAnnouncements,

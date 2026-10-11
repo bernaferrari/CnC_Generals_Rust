@@ -57,6 +57,7 @@ impl GameLogic {
             ai_definitions,
             map_definition_source: None,
             health_events: crate::game_logic::HostHealthEvents::default(),
+            is_scoring_enabled: true,
             eva_announcements: Default::default(),
             movement_events: Default::default(),
             // C++ engine-init order (GameEngine.cpp:468-481): immutable content
@@ -1201,6 +1202,7 @@ impl GameLogic {
         self.clear_victory_observation();
         self.health_events.clear();
         self.movement_events.reset();
+        self.is_scoring_enabled = true;
         self.eva_announcements.reset();
         self.scripts_loaded = false;
         self.install_multiplayer_scripts = false;

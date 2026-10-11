@@ -1193,12 +1193,13 @@ fn production_energy_rules_are_zero_until_authored_and_two_worlds_are_independen
     ensure_test_player_for_team(&mut a, Team::USA);
     ensure_test_player_for_team(&mut b, Team::USA);
     assert_eq!(a.compute_player_power_factors().get(&0), Some(&0.01));
-    let authored = "GameData\nLowEnergyPenaltyModifier=1\nMinLowEnergyProductionSpeed=.5\nMaxLowEnergyProductionSpeed=.8\nEnd";
+    let authored = "GameData\nLowEnergyPenaltyModifier=1\nMinLowEnergyProductionSpeed=.5\nMaxLowEnergyProductionSpeed=.8\nMaxLineBuildObjects=50\nEnd";
     let rules = ProductionEnergyRules::default()
         .overlay_ini_text(authored)
         .unwrap();
     a.admit_production_energy_base(rules);
     let retained = *a.production_energy_rules();
+    assert_eq!(a.line_build_object_limit(), 50);
     assert!(
         retained
             .overlay_ini_text("GameData\nMinLowEnergyProductionSpeed=invalid\nEnd")
@@ -1285,10 +1286,12 @@ fn production_energy_rules_are_zero_until_authored_and_two_worlds_are_independen
     assert_eq!(head.construction_frames, 11);
     assert!((head.progress / head.total_time - 11.0 / 60.0).abs() < 1e-5);
     assert_eq!(*a.production_energy_rules(), retained);
-    a.production_energy.effective = retained.overlay_ini_text("GameData\nMinLowEnergyProductionSpeed=.7\nEnd\nGameData\nMaxLowEnergyProductionSpeed=.75\nEnd").unwrap();
+    a.production_energy.effective = retained.overlay_ini_text("GameData\nMinLowEnergyProductionSpeed=.7\nEnd\nGameData\nMaxLowEnergyProductionSpeed=.75\nMaxLineBuildObjects=7\nEnd").unwrap();
     assert_eq!(a.production_energy_rules().min_speed, 0.7);
     assert_eq!(a.production_energy_rules().max_speed, 0.75);
+    assert_eq!(a.line_build_object_limit(), 7);
     a.reset();
+    assert_eq!(a.line_build_object_limit(), 50);
     assert_eq!(
         *a.production_energy_rules(),
         retained,

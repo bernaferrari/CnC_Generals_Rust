@@ -314,3 +314,6 @@ mod condition_body_census_tests;
 
 #[cfg(test)]
 mod eva_script_owner_tests;
+
+#[cfg(test)]
+mod scoring_owner_tests;

@@ -1986,10 +1986,15 @@ impl CnCGameEngine {
         // Keep placement armed for chained wall segments residual.
         self.play_sound_effect(SoundType::Command);
         self.host_queue_and_process_command_silent(crate::command_system::GameCommand {
-            command_type: crate::command_system::CommandType::DozerConstructLine {
+            command_type: crate::command_system::CommandType::DozerConstructLineFacing {
                 template_name: template,
                 start,
                 end,
+                orientation: self
+                    .game_hud()
+                    .construction_panel
+                    .placement_preview()
+                    .facing_radians,
             },
             player_id,
             command_id: 0,

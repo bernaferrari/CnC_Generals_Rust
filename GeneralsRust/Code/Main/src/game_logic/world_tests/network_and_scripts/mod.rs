@@ -15,3 +15,5 @@ fn drain_script_act_b_queues() {
 mod host_queries_and_visibility;
 mod script_repair_and_locomotion;
 mod scripts_and_capture;
+
+mod line_build_tests;

@@ -234,12 +234,79 @@ impl GameLogic {
                 self.apply_owned_named_guard(unit, this_object);
                 return;
             }
+            ScriptNamedCommand::Enter { unit, target } => {
+                let Some(id) = self.owned_named_script_object(unit, this_object) else {
+                    return;
+                };
+                let Some(target) = self.owned_named_script_object(target, this_object) else {
+                    return;
+                };
+                let Some(position) = self.host_object(target).map(|object| object.get_position())
+                else {
+                    return;
+                };
+                if !self
+                    .host_object(id)
+                    .is_some_and(|object| object.has_ai_update_interface())
+                {
+                    return;
+                }
+                // CPP ScriptActions1499: leaveGroup and NORMAL precede aiEnter.
+                // Canonical formation belongs to this owner, not a Core registry.
+                self.host_object_mut(id)
+                    .unwrap()
+                    .set_formation(0, glam::Vec2::ZERO);
+                self.apply_unit_locomotor_set(id, "normal");
+                if !self.owned_named_ai_command_admitted(id) {
+                    return;
+                }
+                self.host_object_mut(id).unwrap().last_command_source =
+                    crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
+                self.unit_command_stop_moving_order_target(id, Some(target));
+                if !self.unit_command_path_with_state_ignoring(
+                    id,
+                    position,
+                    AIState::Entering,
+                    Some(target),
+                ) {
+                    // Preserve the existing Enter state's obstacle continuation
+                    // when no ordinary path reaches the contained destination.
+                    if let Some(object) = self.host_object_mut(id) {
+                        object.ignored_obstacle_id = Some(target);
+                        object.set_ai_state(AIState::Entering);
+                    }
+                }
+                return;
+            }
+            ScriptNamedCommand::Evacuate { unit } => {
+                let Some(id) = self.owned_named_script_object(unit, this_object) else {
+                    return;
+                };
+                if !self
+                    .host_object(id)
+                    .is_some_and(|object| object.has_ai_update_interface())
+                {
+                    return;
+                }
+                // CPP ScriptActions1544: leaveGroup, NORMAL, aiEvacuate(FALSE).
+                self.host_object_mut(id)
+                    .unwrap()
+                    .set_formation(0, glam::Vec2::ZERO);
+                self.apply_unit_locomotor_set(id, "normal");
+                self.host_object_mut(id).unwrap().last_command_source =
+                    crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
+                self.evacuate_container_now(id, false);
+                return;
+            }
             _ => {}
         }
         let (unit, target) = match request {
             ScriptNamedCommand::ForceAttack { unit, target }
             | ScriptNamedCommand::FaceObject { unit, target } => (unit, target),
-            ScriptNamedCommand::Hunt { .. } | ScriptNamedCommand::Guard { .. } => {
+            ScriptNamedCommand::Hunt { .. }
+            | ScriptNamedCommand::Guard { .. }
+            | ScriptNamedCommand::Enter { .. }
+            | ScriptNamedCommand::Evacuate { .. } => {
                 unreachable!("single-unit command handled above")
             }
         };
@@ -274,7 +341,10 @@ impl GameLogic {
             .set_formation(0, glam::Vec2::ZERO);
         self.apply_unit_locomotor_set(id, "normal");
         match request {
-            ScriptNamedCommand::Hunt { .. } | ScriptNamedCommand::Guard { .. } => {
+            ScriptNamedCommand::Hunt { .. }
+            | ScriptNamedCommand::Guard { .. }
+            | ScriptNamedCommand::Enter { .. }
+            | ScriptNamedCommand::Evacuate { .. } => {
                 unreachable!("single-unit command handled above")
             }
             ScriptNamedCommand::ForceAttack { .. } => {

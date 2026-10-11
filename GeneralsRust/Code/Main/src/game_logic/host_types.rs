@@ -227,6 +227,9 @@ pub enum KindOf {
     /// (NukeRadiationFieldWeapon / PoisonField*) carry it.
     /// Gameplay-only: the compact presentation KindOf bank is full.
     CleanupHazard,
+    /// C++ KINDOF_LINEBUILD (bit 15), instant-completed wall segments.
+    /// Append-only to preserve every existing serde/bincode variant index.
+    LineBuild,
 }
 
 impl KindOf {
@@ -322,6 +325,7 @@ impl KindOf {
         KindOf::HugeVehicle,
         KindOf::CliffJumper,
         KindOf::CleanupHazard,
+        KindOf::LineBuild,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -411,6 +415,7 @@ impl KindOf {
             Self::HugeVehicle => "HugeVehicle",
             Self::CliffJumper => "CliffJumper",
             Self::CleanupHazard => "CleanupHazard",
+            Self::LineBuild => "LineBuild",
         }
     }
 
@@ -446,6 +451,7 @@ impl KindOf {
             "CLEANUP_HAZARD" | "CLEANUPHAZARD" => Some(Self::CleanupHazard),
             "HUGE_VEHICLE" | "HUGEVEHICLE" => Some(Self::HugeVehicle),
             "CLIFF_JUMPER" | "CLIFFJUMPER" => Some(Self::CliffJumper),
+            "LINEBUILD" | "LINE_BUILD" => Some(Self::LineBuild),
 
             "DRONE" => Some(Self::Drone),
             _ => None,
@@ -924,6 +930,35 @@ impl Weapon {
 #[cfg(test)]
 mod tests {
     use super::{KindOf, Weapon};
+
+    #[test]
+    fn linebuild_kindof_is_appended_and_accepts_authored_token() {
+        assert_eq!(KindOf::from_ini_token("LINEBUILD"), Some(KindOf::LineBuild));
+        assert_eq!(
+            KindOf::from_ini_token("line_build"),
+            Some(KindOf::LineBuild)
+        );
+        assert_eq!(KindOf::LineBuild.name(), "LineBuild");
+        assert_eq!(
+            crate::game_logic::host_radar_stealth_vision_residual::live_kind_of_cpp_mask(
+                KindOf::LineBuild
+            ),
+            1u128 << 15,
+        );
+        assert_eq!(KindOf::ALL_KIND_OF.last(), Some(&KindOf::LineBuild));
+        // Existing serde discriminants remain stable even where Xfer uses a
+        // different established order (CliffJumper precedes CleanupHazard).
+        for (kind, ordinal) in [
+            (KindOf::Structure, 0u32),
+            (KindOf::CliffJumper, 83),
+            (KindOf::CleanupHazard, 84),
+            (KindOf::LineBuild, 85),
+        ] {
+            let bytes = bincode_legacy::serialize(&kind).unwrap();
+            assert_eq!(bytes, ordinal.to_le_bytes());
+            assert_eq!(bincode_legacy::deserialize::<KindOf>(&bytes).unwrap(), kind);
+        }
+    }
 
     #[test]
     fn suspend_fx_frame_is_an_absolute_logic_frame_and_clone_preserves_it() {

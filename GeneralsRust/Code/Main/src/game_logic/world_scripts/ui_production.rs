@@ -621,6 +621,31 @@ impl GameLogic {
         builder_id: Option<ObjectId>,
         options: u32,
     ) -> u32 {
+        // Existing angleless callers retain their authored view-angle policy.
+        // Resolve it once; explicit commands bypass this compatibility route.
+        let orientation = leftover_placement_view_angle(template_name);
+        self.legal_build_code_at_angle_for_builder_ex(
+            team,
+            position,
+            template_name,
+            orientation,
+            builder_id,
+            options,
+        )
+    }
+
+    /// C++ BuildAssistant footprint legality receives the command's facing.
+    /// This is the same borrowed query used by previews and confirm placement,
+    /// with explicit orientation rather than ambient placement-view discovery.
+    pub(crate) fn legal_build_code_at_angle_for_builder_ex(
+        &self,
+        team: Team,
+        position: glam::Vec3,
+        template_name: &str,
+        orientation: f32,
+        builder_id: Option<ObjectId>,
+        options: u32,
+    ) -> u32 {
         use crate::game_logic::host_production_buildable_command_residual::{
             STRUCTURE_PLACE_CLEARANCE_RESIDUAL, cell_shroud_blocks_build_residual,
             footprint_height_delta_residual, footprint_map_edge_sample_points_residual,
@@ -651,7 +676,7 @@ impl GameLogic {
         // below uses the authored footprint shape, not a center-distance sum.
         let (query_major, query_minor, query_is_box) =
             self.structure_place_footprint(template_name);
-        let placement_angle = leftover_placement_view_angle(template_name);
+        let placement_angle = orientation;
         let query_shape = PlacementShape {
             x: position.x,
             z: position.z,
@@ -808,11 +833,9 @@ impl GameLogic {
                 }
             }
         }
-        if let Some((ex, ez, er)) = leftover_factory_exit_blocker(
-            template_name,
-            position,
-            leftover_placement_view_angle(template_name),
-        ) {
+        if let Some((ex, ez, er)) =
+            leftover_factory_exit_blocker(template_name, position, orientation)
+        {
             if legal_build_objects_in_the_way_residual((ex, ez), er, &blockers) {
                 return crate::game_logic::host_production_buildable_command_residual::LBC_OBJECTS_IN_THE_WAY;
             }
@@ -1075,6 +1098,29 @@ impl GameLogic {
         orientation: f32,
         builder_id: Option<ObjectId>,
     ) -> bool {
+        self.move_objects_for_construction_with_candidates(
+            template_name,
+            location,
+            orientation,
+            builder_id,
+            None,
+        )
+    }
+
+    /// A synchronous LINEBUILD may restrict collision candidates to the owned
+    /// objects admitted before its first tile. C++ freshly created objects have
+    /// dirty partition information but no collision cells until the next
+    /// PartitionManager update. None retains ordinary construction behavior.
+    /// Membership filters the existing visitation order; it never reorders or
+    /// removes live objects and is not an alternate object registry.
+    pub(crate) fn move_objects_for_construction_with_candidates(
+        &mut self,
+        template_name: &str,
+        location: glam::Vec3,
+        orientation: f32,
+        builder_id: Option<ObjectId>,
+        eligible_candidates: Option<&std::collections::HashSet<ObjectId>>,
+    ) -> bool {
         use game_engine::common::system::kind_of::KindOfMask;
         let builder = builder_id.and_then(|id| self.objects.get(&id)).cloned();
         let player_id = builder.as_ref().and_then(|b| b.owner_player_id);
@@ -1099,6 +1145,9 @@ impl GameLogic {
         let mut any_unmovables = false;
         let mut to_move: Vec<(ObjectId, glam::Vec3)> = Vec::new();
         for (id, obj) in self.objects.iter() {
+            if eligible_candidates.is_some_and(|candidates| !candidates.contains(id)) {
+                continue;
+            }
             if builder_id == Some(*id) || !obj.is_alive() {
                 continue;
             }
@@ -1378,6 +1427,28 @@ impl GameLogic {
         template_name: &str,
     ) -> bool {
         self.is_location_legal_to_build_for_builder(team, position, template_name, None)
+    }
+
+    /// Confirm placement using the caller's explicit footprint orientation.
+    pub(crate) fn is_location_legal_to_build_at_angle_for_builder(
+        &self,
+        team: Team,
+        position: glam::Vec3,
+        template_name: &str,
+        orientation: f32,
+        builder_id: Option<ObjectId>,
+    ) -> bool {
+        use crate::game_logic::host_production_buildable_command_residual::{
+            LBC_OK, LOCAL_LEGAL_FAIL_STEALTHED_WITHOUT_FEEDBACK, LOCAL_LEGAL_IGNORE_STEALTHED,
+        };
+        self.legal_build_code_at_angle_for_builder_ex(
+            team,
+            position,
+            template_name,
+            orientation,
+            builder_id,
+            LOCAL_LEGAL_IGNORE_STEALTHED | LOCAL_LEGAL_FAIL_STEALTHED_WITHOUT_FEEDBACK,
+        ) == LBC_OK
     }
 
     pub fn is_location_legal_to_build_for_builder(

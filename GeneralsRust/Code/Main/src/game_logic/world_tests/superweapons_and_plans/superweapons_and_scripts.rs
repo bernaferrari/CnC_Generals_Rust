@@ -2998,6 +2998,31 @@ fn script_skirmish_command_button_most_valuable_does_button_not_force_attack() {
     use crate::game_logic::AIState;
     use gamelogic::scripting::request_host_skirmish_command_button_most_valuable;
 
+    const STOP_BUTTON: &str = "FixtureMostValuableStop";
+    const STOP_SET: &str = "FixtureMostValuableStopSet";
+    // C++ selects an actual authored CommandButton, not an empty-catalog
+    // fallback. The private alias intentionally has no name-based mapping.
+    let mut ini = game_engine::common::ini::INI::new();
+    ini.with_inline_source(
+        &format!("CommandButton {STOP_BUTTON}\n Command = STOP\nEnd\nCommandSet {STOP_SET}\n 1 = {STOP_BUTTON}\nEnd\n"),
+        |ini| ini.parse_current_file(),
+    ).expect("parse private STOP command definition");
+    {
+        let catalog = game_engine::common::ini::ini_command_button::get_control_bar()
+            .expect("actual CommandButton catalog");
+        assert_eq!(
+            catalog
+                .find_command_button_resolved(STOP_BUTTON)
+                .unwrap()
+                .command,
+            "STOP"
+        );
+    }
+    assert!(
+        crate::command_system::command_type_from_button_name(STOP_BUTTON).is_none(),
+        "the fixture must exercise authored Command type, not a name alias"
+    );
+
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;
     ensure_test_player_for_team(&mut logic, Team::USA);
@@ -3010,6 +3035,7 @@ fn script_skirmish_command_button_most_valuable_does_button_not_force_attack() {
     if let Some(obj) = logic.host_object_mut(attacker) {
         obj.team_instance_name = "teamAmerica".into();
         obj.owner_player_id = Some(0);
+        obj.set_command_set_override(Some(STOP_SET.into()));
     }
     let _ = logic.unit_command_move_to(attacker, glam::Vec3::new(300.0, 0.0, 0.0));
     assert_ne!(
@@ -3044,7 +3070,7 @@ fn script_skirmish_command_button_most_valuable_does_button_not_force_attack() {
     }
 
     let _ = gamelogic::scripting::take_host_skirmish_command_button_most_valuable_requests();
-    request_host_skirmish_command_button_most_valuable("teamAmerica", "Command_Stop", 200.0);
+    request_host_skirmish_command_button_most_valuable("teamAmerica", STOP_BUTTON, 200.0);
     logic.evaluate_and_execute_scripts(0.0);
 
     let after = logic.host_object(attacker).expect("attacker");

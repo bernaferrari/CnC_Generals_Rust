@@ -79,6 +79,14 @@ pub(crate) use world_tick::FlightTerrainView;
 pub(super) use world_tick::host_object_footprint;
 
 impl GameLogic {
+    pub(crate) fn is_scoring_enabled(&self) -> bool {
+        self.is_scoring_enabled
+    }
+
+    pub(crate) fn set_scoring_enabled(&mut self, enabled: bool) {
+        self.is_scoring_enabled = enabled;
+    }
+
     fn update_player_alive_state(&mut self) {
         let mut events = Vec::new();
         for player in self.players.values_mut() {

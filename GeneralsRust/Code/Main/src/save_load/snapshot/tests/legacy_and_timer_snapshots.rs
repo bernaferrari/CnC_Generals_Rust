@@ -870,8 +870,8 @@ fn snapshot_round_trips_scoring_restriction_cave_tunnel_airfield() {
         module_path!(),
         "snapshot_round_trips_scoring_restriction_cave_tunnel_airfield",
         || {
-            gamelogic::helpers::TheGameLogic::set_scoring_enabled(false);
             let mut source = GameLogic::new();
+            source.execute_scoring_script_for_test(false);
             source.set_limit_superweapons(true);
             source
                 .cave_system_residual_mut()
@@ -905,12 +905,11 @@ fn snapshot_round_trips_scoring_restriction_cave_tunnel_airfield() {
                 Some(ObjectId(60))
             );
 
-            gamelogic::helpers::TheGameLogic::set_scoring_enabled(true);
             let mut restored = GameLogic::new();
             builder
                 .restore_from_snapshot(&snapshot, &mut restored)
                 .expect("restore");
-            assert!(!gamelogic::helpers::TheGameLogic::is_scoring_enabled());
+            assert!(!restored.is_scoring_enabled());
             assert!(restored.skirmish_rules().limit_superweapons);
             assert!(
                 restored
@@ -926,7 +925,6 @@ fn snapshot_round_trips_scoring_restriction_cave_tunnel_airfield() {
                 restored.snapshot_airfield_parking_spaces()[0].1[0].0,
                 Some(ObjectId(60))
             );
-            gamelogic::helpers::TheGameLogic::set_scoring_enabled(true);
         },
     );
 }

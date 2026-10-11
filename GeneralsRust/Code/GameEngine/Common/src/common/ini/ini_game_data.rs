@@ -1277,13 +1277,17 @@ fn load_replay_camera_from_pref(pref: &UserPreferences) -> (bool, bool) {
     )
 }
 
-/// C++ GlobalData's three production-rate fields. Zero is an authored value,
-/// including the constructor defaults; gameplay borrows a session-owned copy.
+/// Effective GameData construction and production rules, owned by one session.
+/// C++ GlobalData's constructor zeros these fields; retail GameData authors
+/// the production rates and MaxLineBuildObjects=50. This runtime projection
+/// is not serialized: saved-map admission reconstructs its effective values.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct ProductionEnergyRules {
     pub penalty: f32,
     pub min_speed: f32,
     pub max_speed: f32,
+    /// Signed CPP parseInt value; even zero/negative still permits the first tile.
+    pub max_line_build_objects: i32,
 }
 impl ProductionEnergyRules {
     /// Parse actual GameData fields through the existing field table into
@@ -1294,6 +1298,7 @@ impl ProductionEnergyRules {
         draft.low_energy_penalty_modifier = self.penalty;
         draft.min_low_energy_production_speed = self.min_speed;
         draft.max_low_energy_production_speed = self.max_speed;
+        draft.max_line_build_objects = self.max_line_build_objects;
         let mut ini = INI::new();
         ini.with_inline_source(contents, |ini| {
             loop {
@@ -1315,6 +1320,7 @@ impl ProductionEnergyRules {
             penalty: draft.low_energy_penalty_modifier,
             min_speed: draft.min_low_energy_production_speed,
             max_speed: draft.max_low_energy_production_speed,
+            max_line_build_objects: draft.max_line_build_objects,
         })
     }
 }

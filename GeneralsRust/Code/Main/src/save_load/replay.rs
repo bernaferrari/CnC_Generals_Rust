@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static HOST_REPLAY_CONTROLS_HIDDEN: AtomicBool = AtomicBool::new(true);
@@ -230,6 +230,7 @@ fn replay_event_type_for_command(command_type: &CommandType) -> ReplayEventType 
         CommandType::Build { .. }
         | CommandType::DozerConstruct { .. }
         | CommandType::DozerConstructLine { .. }
+        | CommandType::DozerConstructLineFacing { .. }
         | CommandType::DozerCancelConstruct { .. }
         | CommandType::ResumeConstruction { .. } => ReplayEventType::BuildCommand,
         CommandType::Stop => ReplayEventType::StopCommand,
@@ -1047,3 +1048,7 @@ mod tests {
         assert_eq!(pending.take_selection_remirror(), vec![5]);
     }
 }
+
+#[cfg(test)]
+#[path = "replay/line_build_input_tests.rs"]
+mod line_build_input_tests;

@@ -364,6 +364,14 @@ pub enum CommandType {
 
     // Invalid command placeholder
     Invalid,
+    /// C++ MSG_DOZER_CONSTRUCT_LINE retains the supplied facing independently
+    /// of the line endpoints. Appended so existing binary command tags remain stable.
+    DozerConstructLineFacing {
+        template_name: String,
+        start: Vec3,
+        end: Vec3,
+        orientation: f32,
+    },
 }
 
 /// Target types for guard command

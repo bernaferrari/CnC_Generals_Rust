@@ -2064,116 +2064,112 @@ fn active_camera_actions_snapshot_handler_and_mutate_fade_without_relocking() {
 
 #[test]
 fn active_attack_priority_and_object_list_actions_mutate_the_live_engine() {
-    let _test_lock = crate::test_sync::lock();
-    initialize_script_engine().expect("script engine should initialize");
+    // The real dispatcher mutates this engine's priority/list/flag stores.
+    // No process-wide ScriptEngine admission or test serialization is needed.
+    let engine = ScriptEngine::new().expect("script engine");
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
 
-    let completed = with_script_engine_mut(|engine| {
-        let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
-        let mut dispatcher = ScriptActionDispatcher::new(&engine, &dispatcher_state);
+    let priority_set_name = "ActiveCampaignPrioritySet";
+    let mut default_priority = ScriptAction::new(ScriptActionType::SetDefaultAttackPriority);
+    default_priority
+        .add_parameter(Parameter::with_string(
+            ParameterType::AttackPrioritySet,
+            priority_set_name.to_string(),
+        ))
+        .expect("priority set parameter");
+    default_priority
+        .add_parameter(Parameter::with_int(ParameterType::Int, 17))
+        .expect("priority parameter");
+    assert_eq!(
+        dispatcher
+            .execute_action(&default_priority)
+            .expect("default-priority action"),
+        ScriptActionResult::Success
+    );
+    let info = engine
+        .get_attack_info(priority_set_name)
+        .expect("C++ setDefaultAttackPriority creates its set");
+    assert_eq!(info.get_name(), priority_set_name);
+    assert_eq!(info.default_priority, 17);
 
-        let priority_set_name = "ActiveCampaignPrioritySet";
-        let mut default_priority = ScriptAction::new(ScriptActionType::SetDefaultAttackPriority);
-        default_priority
-            .add_parameter(Parameter::with_string(
-                ParameterType::AttackPrioritySet,
-                priority_set_name.to_string(),
-            ))
-            .expect("priority set parameter");
-        default_priority
-            .add_parameter(Parameter::with_int(ParameterType::Int, 17))
-            .expect("priority parameter");
-        assert_eq!(
-            dispatcher
-                .execute_action(&default_priority)
-                .expect("default-priority action"),
-            ScriptActionResult::Success
-        );
-        let info = engine
-            .get_attack_info(priority_set_name)
-            .expect("C++ setDefaultAttackPriority creates its set");
-        assert_eq!(info.get_name(), priority_set_name);
-        assert_eq!(info.default_priority, 17);
+    let list_name = "ActiveCampaignObjectList";
+    let object_type = "CampaignTestObject";
+    let mut add_to_list = ScriptAction::new(ScriptActionType::ObjectlistAddobjecttype);
+    add_to_list
+        .add_parameter(Parameter::with_string(
+            ParameterType::ObjectTypeList,
+            list_name.to_string(),
+        ))
+        .expect("list parameter");
+    add_to_list
+        .add_parameter(Parameter::with_string(
+            ParameterType::ObjectType,
+            object_type.to_string(),
+        ))
+        .expect("object type parameter");
+    assert_eq!(
+        dispatcher
+            .execute_action(&add_to_list)
+            .expect("add-list action"),
+        ScriptActionResult::Success
+    );
+    assert!(
+        engine
+            .get_object_types(list_name)
+            .expect("list must be created")
+            .is_in_set(&AsciiString::from(object_type))
+    );
 
-        let list_name = "ActiveCampaignObjectList";
-        let object_type = "CampaignTestObject";
-        let mut add_to_list = ScriptAction::new(ScriptActionType::ObjectlistAddobjecttype);
-        add_to_list
-            .add_parameter(Parameter::with_string(
-                ParameterType::ObjectTypeList,
-                list_name.to_string(),
-            ))
-            .expect("list parameter");
-        add_to_list
-            .add_parameter(Parameter::with_string(
-                ParameterType::ObjectType,
-                object_type.to_string(),
-            ))
-            .expect("object type parameter");
-        assert_eq!(
-            dispatcher
-                .execute_action(&add_to_list)
-                .expect("add-list action"),
-            ScriptActionResult::Success
-        );
-        assert!(
-            engine
-                .get_object_types(list_name)
-                .expect("list must be created")
-                .is_in_set(&AsciiString::from(object_type))
-        );
+    let mut remove_from_list = ScriptAction::new(ScriptActionType::ObjectlistRemoveobjecttype);
+    remove_from_list
+        .add_parameter(Parameter::with_string(
+            ParameterType::ObjectTypeList,
+            list_name.to_string(),
+        ))
+        .expect("list parameter");
+    remove_from_list
+        .add_parameter(Parameter::with_string(
+            ParameterType::ObjectType,
+            object_type.to_string(),
+        ))
+        .expect("object type parameter");
+    assert_eq!(
+        dispatcher
+            .execute_action(&remove_from_list)
+            .expect("remove-list action"),
+        ScriptActionResult::Success
+    );
+    assert!(
+        !engine
+            .get_object_types(list_name)
+            .expect("list remains allocated after removal")
+            .is_in_set(&AsciiString::from(object_type))
+    );
 
-        let mut remove_from_list = ScriptAction::new(ScriptActionType::ObjectlistRemoveobjecttype);
-        remove_from_list
-            .add_parameter(Parameter::with_string(
-                ParameterType::ObjectTypeList,
-                list_name.to_string(),
-            ))
-            .expect("list parameter");
-        remove_from_list
-            .add_parameter(Parameter::with_string(
-                ParameterType::ObjectType,
-                object_type.to_string(),
-            ))
-            .expect("object type parameter");
-        assert_eq!(
-            dispatcher
-                .execute_action(&remove_from_list)
-                .expect("remove-list action"),
-            ScriptActionResult::Success
-        );
-        assert!(
-            !engine
-                .get_object_types(list_name)
-                .expect("list remains allocated after removal")
-                .is_in_set(&AsciiString::from(object_type))
-        );
+    let mut allow_bonuses = ScriptAction::new(ScriptActionType::ObjectAllowBonuses);
+    allow_bonuses
+        .add_parameter(Parameter::with_int(ParameterType::Boolean, 0))
+        .expect("difficulty-bonus parameter");
+    assert_eq!(
+        dispatcher
+            .execute_action(&allow_bonuses)
+            .expect("difficulty-bonus action"),
+        ScriptActionResult::Success
+    );
+    assert!(!engine.get_objects_should_receive_difficulty_bonus());
 
-        let mut allow_bonuses = ScriptAction::new(ScriptActionType::ObjectAllowBonuses);
-        allow_bonuses
-            .add_parameter(Parameter::with_int(ParameterType::Boolean, 0))
-            .expect("difficulty-bonus parameter");
-        assert_eq!(
-            dispatcher
-                .execute_action(&allow_bonuses)
-                .expect("difficulty-bonus action"),
-            ScriptActionResult::Success
-        );
-        assert!(!engine.get_objects_should_receive_difficulty_bonus());
-
-        let mut choose_normal = ScriptAction::new(ScriptActionType::ChooseVictimAlwaysUsesNormal);
-        choose_normal
-            .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
-            .expect("choose-victim parameter");
-        assert_eq!(
-            dispatcher
-                .execute_action(&choose_normal)
-                .expect("choose-victim action"),
-            ScriptActionResult::Success
-        );
-        assert!(engine.get_choose_victim_always_uses_normal());
-    });
-
-    assert_eq!(completed, Some(()));
+    let mut choose_normal = ScriptAction::new(ScriptActionType::ChooseVictimAlwaysUsesNormal);
+    choose_normal
+        .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
+        .expect("choose-victim parameter");
+    assert_eq!(
+        dispatcher
+            .execute_action(&choose_normal)
+            .expect("choose-victim action"),
+        ScriptActionResult::Success
+    );
+    assert!(engine.get_choose_victim_always_uses_normal());
 }
 
 #[test]

@@ -7,9 +7,10 @@ mod death;
 mod grant_upgrade;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum BuildCompleteTiming {
+enum FactoryCreationPurpose {
     AtCreation,
-    AfterFactoryExit,
+    ProductionExit,
+    InstantLineBuild,
 }
 
 /// Zero the continuous-fire ramp state when a template re-seeds base weapons.
@@ -999,7 +1000,7 @@ impl GameLogic {
             team,
             owner_player_id,
             position,
-            BuildCompleteTiming::AtCreation,
+            FactoryCreationPurpose::AtCreation,
         )?;
         self.apply_cash_bounty_on_object_created(id);
         Some(id)
@@ -1022,8 +1023,81 @@ impl GameLogic {
             team,
             Some(owner_player_id),
             position,
-            BuildCompleteTiming::AtCreation,
+            FactoryCreationPurpose::AtCreation,
         )?;
+        self.apply_cash_bounty_on_object_created(id);
+        Some(id)
+    }
+
+    /// C++ BuildAssistant::buildObjectNow's instant structure arm. Command
+    /// admission owns capability/prerequisites; the factory preserves initial
+    /// UNDER_CONSTRUCTION through onCreate without creating a dozer scaffold.
+    pub(crate) fn create_instant_line_build_object_for_player(
+        &mut self,
+        template_name: &str,
+        owner_player_id: u32,
+        position: Vec3,
+        orientation: f32,
+        producer_id: ObjectId,
+    ) -> Option<ObjectId> {
+        let team = self.players.get(&owner_player_id)?.team;
+        if team == Team::Neutral {
+            return None;
+        }
+        let producer = self.objects.get(&producer_id)?;
+        if !producer.is_alive()
+            || self.player_owner_for_host_object(producer) != Some(owner_player_id)
+        {
+            return None;
+        }
+        // This structure seam does not pretend to implement the original
+        // non-structure arm's Player::onUnitCreated / VoiceCreated policy.
+        if !self.ensure_host_spawn_template(template_name)
+            || !self
+                .templates
+                .get(template_name)?
+                .is_kind_of(KindOf::Structure)
+        {
+            return None;
+        }
+        // CPP newObject invokes onCreate before BuildAssistant installs the
+        // producer and requested terrain pose. Keep the factory's initial pose.
+        let id = self.create_object_with_owner(
+            template_name,
+            team,
+            Some(owner_player_id),
+            Vec3::ZERO,
+            FactoryCreationPurpose::InstantLineBuild,
+        )?;
+        let mut ground_position = position;
+        ground_position.y = self.terrain_height_at(position).unwrap_or(position.y);
+        {
+            let object = self.objects.get_mut(&id)?;
+            object.producer_id = Some(producer_id);
+            object.set_position(ground_position);
+            object.set_orientation(orientation);
+            object.record_host_movement();
+        }
+        self.movement_events.record(
+            self.frame,
+            id,
+            Some([ground_position.x, ground_position.y, ground_position.z]),
+        );
+        self.block_structure_object_path(id);
+        if let Some(object) = self.objects.get(&id) {
+            if object.is_kind_of(KindOf::WalkOnTopOfWall) {
+                let wall_height = self.pathfind_ai_rules().wall_height;
+                self.pathfinding_system
+                    .add_wall_piece_from_object(object, wall_height);
+            }
+        }
+        // Player's completion policy precedes CreateModule::onBuildComplete.
+        // Neither operation is the ordinary Dozer completion notification.
+        self.complete_instant_line_build_player(producer_id, id, owner_player_id);
+        self.apply_create_modules_on_build_complete(id);
+        if let Some(object) = self.objects.get_mut(&id) {
+            object.stamp_partition_value_threat();
+        }
         self.apply_cash_bounty_on_object_created(id);
         Some(id)
     }
@@ -1060,7 +1134,7 @@ impl GameLogic {
             team,
             owner,
             position,
-            BuildCompleteTiming::AfterFactoryExit,
+            FactoryCreationPurpose::ProductionExit,
         )?;
         self.apply_cash_bounty_on_object_created(id);
         Some(id)
@@ -1165,7 +1239,7 @@ impl GameLogic {
         team: Team,
         owner_player_id: Option<u32>,
         position: Vec3,
-        build_complete_timing: BuildCompleteTiming,
+        creation_purpose: FactoryCreationPurpose,
     ) -> Option<ObjectId> {
         if owner_player_id.is_some_and(|player_id| {
             self.players.get(&player_id).map(|player| player.team) != Some(team)
@@ -1234,7 +1308,12 @@ impl GameLogic {
             let has_fire_ocl_after_weapon_cooldown = template.has_fire_ocl_after_weapon_cooldown;
             let partition_cash = template.build_cost.supplies;
             let partition_threat = u32::from(template.get_threat_value());
-            let mut object = Object::new_with_logic_frame(template, id, team, self.frame);
+            let mut initial_status = ObjectStatus::default();
+            if creation_purpose == FactoryCreationPurpose::InstantLineBuild && is_structure {
+                initial_status.under_construction = true;
+            }
+            let mut object =
+                Object::new_with_initial_status(template, id, team, self.frame, initial_status);
             object.attach_host_trigger_world(&self.host_trigger_world);
             object.owner_player_id = owner_player_id;
             if object.team_instance_name.is_empty() {
@@ -2266,8 +2345,7 @@ impl GameLogic {
             // C++ GrantUpgradeCreate::onCreate for map-placed / instant-finished
             // objects (ExemptStatus=UNDER_CONSTRUCTION and not constructing).
             self.apply_grant_upgrade_create_on_create(id);
-            if !starts_under_construction
-                && build_complete_timing == BuildCompleteTiming::AtCreation
+            if !starts_under_construction && creation_purpose == FactoryCreationPurpose::AtCreation
             {
                 // C++ GameLogic.cpp:1878-1885 every map object runs CreateModules
                 // onBuildComplete (SupplyCenter/GrantUpgrade/Preorder/LockWeapon/SP).
@@ -2278,7 +2356,9 @@ impl GameLogic {
             // SupplyCenter/Stash objects.  `create_object_under_construction`
             // intentionally does not call this; that path fires on the real
             // construction-complete activation edge below.
-            let _ = self.spawn_supply_center_one_shot_collector(id);
+            if creation_purpose != FactoryCreationPurpose::InstantLineBuild {
+                let _ = self.spawn_supply_center_one_shot_collector(id);
+            }
 
             // Residual honesty: Emperor innate propaganda counts as install on spawn.
             if emperor_spawn {
@@ -2458,11 +2538,13 @@ impl GameLogic {
                 // Static path/LOS obstacle (C++ pathfind structure residual).
                 self.block_structure_object_path(id);
             }
-            if let Some(obj) = self.objects.get(&id) {
-                if obj.is_kind_of(KindOf::WalkOnTopOfWall) {
-                    let wall_height = self.pathfind_ai_rules().wall_height;
-                    self.pathfinding_system
-                        .add_wall_piece_from_object(obj, wall_height);
+            if creation_purpose != FactoryCreationPurpose::InstantLineBuild {
+                if let Some(obj) = self.objects.get(&id) {
+                    if obj.is_kind_of(KindOf::WalkOnTopOfWall) {
+                        let wall_height = self.pathfind_ai_rules().wall_height;
+                        self.pathfinding_system
+                            .add_wall_piece_from_object(obj, wall_height);
+                    }
                 }
             }
             log::debug!(

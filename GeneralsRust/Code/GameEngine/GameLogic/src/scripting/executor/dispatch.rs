@@ -645,8 +645,34 @@ impl ScriptActionDispatcher<'_> {
             // ============================================================================
             // ADDITIONAL NAMED UNIT ACTIONS
             // ============================================================================
-            ScriptActionType::NamedEnterNamed => self.do_named_enter_named(action),
-            ScriptActionType::NamedExitAll => self.do_named_exit_all(action),
+            ScriptActionType::NamedEnterNamed | ScriptActionType::NamedExitAll => {
+                use crate::scripting::engine::ScriptNamedCommand;
+                let unit = self.get_string_param(action, 0)?;
+                let target = if action_type == ScriptActionType::NamedEnterNamed {
+                    Some(self.get_string_param(action, 1)?)
+                } else {
+                    None
+                };
+                let this_object = self
+                    .context
+                    .with_engine_ref(|engine| engine.script_object_id())
+                    .flatten();
+                let request = match target.as_deref() {
+                    Some(target) => ScriptNamedCommand::Enter {
+                        unit: &unit,
+                        target,
+                    },
+                    None => ScriptNamedCommand::Evacuate { unit: &unit },
+                };
+                if let Some(result) = driver.named_command(request, this_object) {
+                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                    Ok(ScriptActionResult::Success)
+                } else if action_type == ScriptActionType::NamedEnterNamed {
+                    self.do_named_enter_named(action)
+                } else {
+                    self.do_named_exit_all(action)
+                }
+            }
             ScriptActionType::NamedFollowWaypoints => self.do_named_follow_waypoints(action),
             ScriptActionType::NamedFollowWaypointsExact => {
                 self.do_named_follow_waypoints_exact(action)
@@ -1122,8 +1148,22 @@ impl ScriptActionDispatcher<'_> {
                 self.do_options_set_particle_cap_mode(action)
             }
             ScriptActionType::ExitSpecificBuilding => self.do_exit_specific_building(action),
-            ScriptActionType::EnableScoring => self.do_enable_scoring(),
-            ScriptActionType::DisableScoring => self.do_disable_scoring(),
+            ScriptActionType::EnableScoring | ScriptActionType::DisableScoring => {
+                let enabled = action_type == ScriptActionType::EnableScoring;
+                match driver.scoring_enabled(enabled) {
+                    crate::scripting::engine::ScriptOwnerQuery::Present(())
+                    | crate::scripting::engine::ScriptOwnerQuery::Missing => {
+                        Ok(ScriptActionResult::Success)
+                    }
+                    crate::scripting::engine::ScriptOwnerQuery::Unavailable => {
+                        if enabled {
+                            self.do_enable_scoring()
+                        } else {
+                            self.do_disable_scoring()
+                        }
+                    }
+                }
+            }
             ScriptActionType::SetTrainHeld => self.do_set_train_held(action),
 
             ScriptActionType::NumItems => Ok(ScriptActionResult::Success),

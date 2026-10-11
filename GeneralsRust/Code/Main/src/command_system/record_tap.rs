@@ -835,7 +835,18 @@ fn game_command_to_message(command: &GameCommand) -> Option<GameMessage> {
             intern_name(template_name),
             coord_from_vec3(*start),
             coord_from_vec3(*end),
-            0.0,
+            (end.z - start.z).atan2(end.x - start.x),
+        ),
+        DozerConstructLineFacing {
+            template_name,
+            start,
+            end,
+            orientation,
+        } => GameMessageType::DozerConstructLine(
+            intern_name(template_name),
+            coord_from_vec3(*start),
+            coord_from_vec3(*end),
+            *orientation,
         ),
         DozerCancelConstruct { object_id } => {
             GameMessageType::DozerCancelConstruct(object_id_to_message(*object_id))
@@ -1014,11 +1025,14 @@ fn game_message_to_host_command(message: &GameMessage) -> Option<GameCommand> {
             location: vec3_from_coord(coord),
             orientation: *angle,
         },
-        DozerConstructLine(building_type, start, end, _angle) => CommandType::DozerConstructLine {
-            template_name: resolve_name(*building_type),
-            start: vec3_from_coord(start),
-            end: vec3_from_coord(end),
-        },
+        DozerConstructLine(building_type, start, end, angle) => {
+            CommandType::DozerConstructLineFacing {
+                template_name: resolve_name(*building_type),
+                start: vec3_from_coord(start),
+                end: vec3_from_coord(end),
+                orientation: *angle,
+            }
+        }
         DozerCancelConstruct(id) => CommandType::DozerCancelConstruct {
             object_id: object_id_from_message(*id),
         },
@@ -1119,3 +1133,7 @@ mod tests;
 #[cfg(test)]
 #[path = "record_tap_special_power_tests.rs"]
 mod special_power_tests;
+
+#[cfg(test)]
+#[path = "record_tap/line_build_input_tests.rs"]
+mod line_build_input_tests;

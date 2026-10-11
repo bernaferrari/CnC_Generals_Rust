@@ -194,6 +194,9 @@ impl GameLogic {
         if has_kind("cliff_jumper") || has_kind("cliffjumper") {
             template.add_kind_of(KindOf::CliffJumper);
         }
+        if has_kind("linebuild") || has_kind("line_build") {
+            template.add_kind_of(KindOf::LineBuild);
+        }
     }
 
     /// Preserve the exact DockUpdate and normal-containment slice that the
@@ -2881,5 +2884,31 @@ impl GameLogic {
                     .map(str::to_string);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod linebuild_kindof_tests {
+    use super::*;
+
+    #[test]
+    fn parsed_linebuild_definition_preserves_wall_type_without_name_inference() {
+        let mut parser = crate::assets::IniParser::new();
+        parser.parse_ini_content(
+            "Object AuthoredWallProbe\n KindOf = STRUCTURE IMMOBILE LINEBUILD\nEnd\nObject OrdinaryWallProbe\n KindOf = STRUCTURE IMMOBILE\nEnd\n",
+            "linebuild_kindof_probe.ini",
+        ).unwrap();
+        let parsed = |name| {
+            GameLogic::build_template_from_object_definition(
+                name,
+                parser.get_definition(name).unwrap(),
+                None,
+            )
+        };
+        let wall = parsed("AuthoredWallProbe");
+        assert!(wall.is_kind_of(KindOf::Structure));
+        assert!(wall.is_kind_of(KindOf::Immobile));
+        assert!(wall.is_kind_of(KindOf::LineBuild));
+        assert!(!parsed("OrdinaryWallProbe").is_kind_of(KindOf::LineBuild));
     }
 }

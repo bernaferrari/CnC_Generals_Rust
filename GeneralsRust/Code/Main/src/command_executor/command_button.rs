@@ -83,7 +83,19 @@ impl<'a> CommandExecutor<'a> {
         if button.trim().is_empty() {
             return CommandResult::InvalidCommand;
         }
-        let Some(mut ct) = command_type_from_button_name(button) else {
+        // CPP Object.cpp5413 and AIUpdate.cpp4826 dispatch the authored
+        // Command type, independently of the button's definition name.
+        // Keep the immutable catalog borrow bounded before executing commands.
+        let authored_stop = game_engine::common::ini::ini_command_button::get_control_bar()
+            .is_some_and(|bar| {
+                bar.find_command_button_resolved(button)
+                    .is_some_and(|definition| definition.command.eq_ignore_ascii_case("STOP"))
+            });
+        let Some(mut ct) = (if authored_stop {
+            Some(CommandType::Stop)
+        } else {
+            command_type_from_button_name(button)
+        }) else {
             return CommandResult::InvalidCommand;
         };
 

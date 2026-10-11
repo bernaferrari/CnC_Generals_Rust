@@ -437,6 +437,13 @@ impl GameLogic {
     /// rider (`AIUpdate.cpp:3067-3090`) so Humvee/Chinook Stop parks
     /// PassengersAllowedToFire infantry.
     pub fn unit_command_stop(&mut self, id: ObjectId) -> bool {
+        self.unit_command_stop_with_source(
+            id,
+            crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_PLAYER,
+        )
+    }
+
+    pub(crate) fn unit_command_stop_with_source(&mut self, id: ObjectId, source: u32) -> bool {
         // C++ AIGroup::groupIdle / AICommandInterface::idle: stop clears the
         // latched target and guard anchors up front, then runs the idle state.
         if let Some(unit) = self.objects.get_mut(&id) {
@@ -444,7 +451,10 @@ impl GameLogic {
             unit.end_guard_retaliate();
             unit.set_target(None);
         }
-        self.stamp_player_command_source(id);
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.last_command_source = source;
+            unit.set_movement_goal_object(None);
+        }
         let occupants = self
             .objects
             .get(&id)
@@ -455,7 +465,7 @@ impl GameLogic {
         if ok {
             for occ in occupants {
                 if occ != id {
-                    let _ = self.unit_command_stop(occ);
+                    let _ = self.unit_command_stop_with_source(occ, source);
                 }
             }
         }

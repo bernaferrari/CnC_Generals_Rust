@@ -269,6 +269,8 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         KindOf::CliffJumper => 84,
         // Append-only: KINDOF_CLEANUP_HAZARD CleanupHazardUpdate partition target.
         KindOf::CleanupHazard => 83,
+        // Append-only; the C++ semantic bit remains 15, not this save ID.
+        KindOf::LineBuild => 85,
     }
 }
 
@@ -359,6 +361,7 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         82 => Ok(KindOf::HugeVehicle),
         83 => Ok(KindOf::CleanupHazard),
         84 => Ok(KindOf::CliffJumper),
+        85 => Ok(KindOf::LineBuild),
 
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"
@@ -624,6 +627,21 @@ impl<W: Write + Seek> Xfer for XferSave<W> {
 mod tests {
     use super::{read_kind_of_variant, write_kind_of_variant};
     use crate::game_logic::KindOf;
+
+    #[test]
+    fn linebuild_xfer_appends_without_changing_existing_ids() {
+        for (kind, ordinal) in [
+            (KindOf::Structure, 0),
+            (KindOf::FSBarracks, 15),
+            (KindOf::CleanupHazard, 83),
+            (KindOf::CliffJumper, 84),
+            (KindOf::LineBuild, 85),
+        ] {
+            assert_eq!(write_kind_of_variant(kind), ordinal);
+            assert_eq!(read_kind_of_variant(ordinal).unwrap(), kind);
+        }
+        assert!(read_kind_of_variant(86).is_err());
+    }
 
     #[test]
     fn authored_supply_kindofs_keep_their_append_only_xfer_ids() {

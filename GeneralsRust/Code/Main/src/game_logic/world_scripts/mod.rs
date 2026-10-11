@@ -8,6 +8,7 @@ mod ambush_leaflet;
 mod angry_mob_aurora;
 mod eva_camera;
 mod helix_radar;
+mod instant_build_completion;
 mod move_ambient_audio;
 mod production_eva;
 mod rebuild_dozer;

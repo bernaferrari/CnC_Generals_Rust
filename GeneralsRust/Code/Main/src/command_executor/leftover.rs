@@ -1463,19 +1463,8 @@ impl GameLogic {
     /// Records the BUILD slot so idle `isBuildMostImportant` can resume after a move-away.
     pub fn dozer_new_task_build(&mut self, dozer_id: ObjectId, build_target: ObjectId) {
         let frame = self.frame.max(1);
-        let old = self
-            .objects
-            .get(&dozer_id)
-            .and_then(|obj| obj.dozer_task_build_target);
-        if let Some(old_id) = old {
-            if old_id != build_target {
-                if let Some(prev) = self.objects.get_mut(&old_id) {
-                    if prev.builder_id == Some(dozer_id) {
-                        prev.builder_id = None;
-                    }
-                }
-            }
-        }
+        // C++ newTask cancels the previous task/docks, not the previous
+        // Object::m_builderID. Preserve that stored builder provenance.
         // C++ newTask findGoodBuildOrRepairPosition → ACTION dock (cpp:1973-1991).
         let action_dock = {
             let dozer_info = self.objects.get(&dozer_id).map(|d| {

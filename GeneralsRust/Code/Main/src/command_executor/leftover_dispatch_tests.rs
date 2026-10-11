@@ -1038,3 +1038,73 @@ fn mine_clear_order_keeps_boxes_until_already_attacking() {
         "hq-6je29: mid-attack command drops boxes"
     );
 }
+
+#[test]
+fn replacing_build_task_retains_both_scaffold_builder_ids() {
+    // CPP DozerAIUpdate.cpp:1967/1986 replaces the task and sets the new
+    // builder, but cancellation2135 does not clear the old Object builderID.
+    use crate::game_logic::ThingTemplate;
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "BuildRetargetOwner", true));
+    let mut dozer_template = ThingTemplate::new("BuildRetargetDozer");
+    dozer_template
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Dozer)
+        .set_health(300.0);
+    logic
+        .templates
+        .insert("BuildRetargetDozer".into(), dozer_template);
+    let mut scaffold_template = ThingTemplate::new("BuildRetargetScaffold");
+    scaffold_template
+        .add_kind_of(KindOf::Structure)
+        .set_health(500.0);
+    logic
+        .templates
+        .insert("BuildRetargetScaffold".into(), scaffold_template);
+    let dozer = logic
+        .create_object_for_player("BuildRetargetDozer", 0, Vec3::new(10.0, 0.0, 10.0))
+        .expect("actual dozer factory");
+    let first = logic
+        .create_object_under_construction_for_player(
+            "BuildRetargetScaffold",
+            0,
+            Vec3::new(40.0, 0.0, 20.0),
+            0.0,
+        )
+        .expect("first real scaffold");
+    let second = logic
+        .create_object_under_construction_for_player(
+            "BuildRetargetScaffold",
+            0,
+            Vec3::new(80.0, 0.0, 20.0),
+            0.0,
+        )
+        .expect("second real scaffold");
+    logic.frame = 5;
+    logic.dozer_new_task_build(dozer, first);
+    let first_dock = logic.host_object(dozer).unwrap().dozer_dock_action;
+    assert!(first_dock.is_some());
+    logic.frame = 6;
+    logic.dozer_new_task_build(dozer, second);
+    assert_eq!(logic.host_object(first).unwrap().builder_id, Some(dozer));
+    assert_eq!(logic.host_object(second).unwrap().builder_id, Some(dozer));
+    let active = logic.host_object(dozer).unwrap();
+    assert_eq!(active.dozer_task_build_target, Some(second));
+    assert_eq!(active.dozer_task_build_order_frame, 6);
+    let second_dock = active.dozer_dock_action;
+    assert!(second_dock.is_some());
+    assert_ne!(second_dock, first_dock);
+    logic.frame = 7;
+    logic.dozer_new_task_build(dozer, second);
+    let repeated = logic.host_object(dozer).unwrap();
+    assert_eq!(repeated.dozer_task_build_target, Some(second));
+    assert_eq!(repeated.dozer_task_build_order_frame, 7);
+    assert_eq!(repeated.dozer_dock_action, second_dock);
+    logic.dozer_internal_task_complete(dozer, false);
+    let completed = logic.host_object(dozer).unwrap();
+    assert_eq!(completed.dozer_task_build_target, None);
+    assert_eq!(completed.dozer_task_build_order_frame, 0);
+    assert_eq!(completed.dozer_dock_action, None);
+    assert_eq!(logic.host_object(first).unwrap().builder_id, Some(dozer));
+    assert_eq!(logic.host_object(second).unwrap().builder_id, Some(dozer));
+}

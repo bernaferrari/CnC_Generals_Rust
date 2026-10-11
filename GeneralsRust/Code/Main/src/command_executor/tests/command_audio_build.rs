@@ -523,22 +523,47 @@ fn execute_build_no_money_queues_insufficient_funds_eva_and_refuses() {
 
 #[test]
 fn execute_build_source_records_build_slot_and_docks() {
-    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
-    let i = src.find("fn execute_build").expect("execute_build");
-    let w = &src[i..src.len().min(i + 8000)];
+    let src = include_str!("../construct.rs");
+    let single_start = src
+        .find("pub(super) fn execute_build(")
+        .expect("execute_build");
+    let prepared_start = src
+        .find("pub(super) fn execute_prepared_dozer_build(")
+        .expect("prepared build adapter");
+    let shared_start = src
+        .find("fn execute_build_with_placement(")
+        .expect("shared ordinary construction");
+    let shared_end = src
+        .find("pub(super) fn execute_dozer_construct(")
+        .expect("next construction adapter");
+    let single = &src[single_start..prepared_start];
+    let prepared = &src[prepared_start..shared_start];
+    let shared = &src[shared_start..shared_end];
     assert!(
-        w.contains("dozer_new_task_build")
-            && w.contains("find_good_build_or_repair_position")
-            && w.contains("path_to_goal_with_state_ignoring"),
+        single.contains("execute_build_with_placement")
+            && single.contains("BuildPlacement::Single")
+    );
+    assert!(
+        prepared.contains("execute_build_with_placement")
+            && prepared.contains("BuildPlacement::PreparedLine")
+    );
+    assert!(
+        shared.contains("dozer_new_task_build")
+            && shared.contains("find_good_build_or_repair_position")
+            && shared.contains("path_to_goal_with_state_ignoring"),
         "hq-gkpuk/hq-6gy32: execute_build must newTask BUILD, dock half-radius, ignoreObstacle"
     );
     let snap = include_str!("../../game_logic/world_scripts/ui_production.rs");
-    let j = snap
+    let flatten_start = snap
         .find("fn flatten_and_snap_construction")
         .expect("flatten_and_snap");
-    let f = &snap[j..snap.len().min(j + 2500)];
+    let flatten_end = snap[flatten_start..]
+        .find("pub fn builder_has_clear_path_to(")
+        .map(|offset| flatten_start + offset)
+        .expect("next placement operation");
+    let flatten = &snap[flatten_start..flatten_end];
     assert!(
-        f.contains("flatten_terrain_box_at") && f.contains("HostGeometryType::Box"),
+        flatten.contains("flatten_terrain_box_at") && flatten.contains("HostGeometryType::Box"),
         "hq-6smw3: flatten_and_snap must use GEOMETRY_BOX flatten, not cylinder-only"
     );
 }
@@ -610,6 +635,9 @@ fn dozer_place_and_cancel_use_calc_cost_to_build_handicap() {
         .find(|o| o.template_name == "TestHandicapBarracks")
         .map(|o| o.id)
         .expect("placed barracks");
+    let building = logic.host_object(building_id).expect("placed scaffold");
+    assert_eq!(building.producer_id, Some(ObjectId(9201)));
+    assert_eq!(building.builder_id, Some(ObjectId(9201)));
 
     let cancel = {
         let mut exec = CommandExecutor::new(&mut logic, 0);

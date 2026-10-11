@@ -341,6 +341,19 @@ impl Object {
         team: Team,
         logic_frame: u32,
     ) -> Self {
+        Self::new_with_initial_status(template, id, team, logic_frame, ObjectStatus::default())
+    }
+
+    /// C++ Object receives its initial status from ThingFactory. This keeps
+    /// constructor-owned state available before any world onCreate callback;
+    /// supplying UNDER_CONSTRUCTION does not imply a dozer's one-HP scaffold.
+    pub(crate) fn new_with_initial_status(
+        template: ThingTemplate,
+        id: ObjectId,
+        team: Team,
+        logic_frame: u32,
+        initial_status: ObjectStatus,
+    ) -> Self {
         let template_name = template.name.clone();
         let max_health = template.max_health;
         // C++ ActiveBody ctor: current/prev/initial = INI InitialHealth; max = MaxHealth.
@@ -514,7 +527,7 @@ impl Object {
             owner_player_id: None,
             team_instance_name: String::new(),
             name: String::new(),
-            status: ObjectStatus::default(),
+            status: initial_status,
             object_status_bits: 0,
             script_unsellable: false,
             single_use_command_used: false,

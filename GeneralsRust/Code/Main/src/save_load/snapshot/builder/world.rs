@@ -204,7 +204,7 @@ impl SnapshotBuilder {
             client_drawable_visuals: self.snapshot_client_drawable_visuals(game_logic),
             player_energy: self.snapshot_player_energy(game_logic),
             object_triggers: self.snapshot_object_triggers(game_logic),
-            is_scoring_enabled: gamelogic::helpers::TheGameLogic::is_scoring_enabled(),
+            is_scoring_enabled: game_logic.is_scoring_enabled(),
             limit_superweapons: game_logic.skirmish_rules().limit_superweapons,
             cave_system: game_logic.cave_system_residual().clone(),
             tunnel_network: game_logic.tunnel_network_residual().clone(),

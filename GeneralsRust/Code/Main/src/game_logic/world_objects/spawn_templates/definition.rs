@@ -44,7 +44,7 @@ impl GameLogic {
         if !self.should_track_player_stats() {
             return;
         }
-        if !gamelogic::helpers::TheGameLogic::is_scoring_enabled() {
+        if !self.is_scoring_enabled() {
             return;
         }
         let Some(obj) = self.objects.get(&object_id) else {
@@ -69,7 +69,7 @@ impl GameLogic {
         if !self.should_track_player_stats() {
             return;
         }
-        if !gamelogic::helpers::TheGameLogic::is_scoring_enabled() {
+        if !self.is_scoring_enabled() {
             return;
         }
         let Some(obj) = self.objects.get(&object_id) else {

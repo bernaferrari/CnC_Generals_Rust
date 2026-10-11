@@ -166,3 +166,6 @@ mod host_reexports_residuals_e;
 pub use host_reexports_residuals_e::*;
 mod host_reexports_residuals_f;
 pub use host_reexports_residuals_f::*;
+
+#[cfg(test)]
+mod production_construction_rules_tests;

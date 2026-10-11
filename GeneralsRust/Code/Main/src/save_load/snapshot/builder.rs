@@ -1877,7 +1877,7 @@ impl SnapshotBuilder {
         snapshot: &WorldSnapshot,
         game_logic: &mut GameLogic,
     ) {
-        gamelogic::helpers::TheGameLogic::set_scoring_enabled(snapshot.is_scoring_enabled);
+        game_logic.set_scoring_enabled(snapshot.is_scoring_enabled);
         game_logic.set_limit_superweapons(snapshot.limit_superweapons);
         if let Ok(mut leftover) = gamelogic::system::game_logic::get_game_logic().lock() {
             leftover.set_superweapon_restriction(if snapshot.limit_superweapons { 1 } else { 0 });

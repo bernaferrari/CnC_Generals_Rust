@@ -2790,12 +2790,12 @@ mod staged_restore_tests {
                     std::fs::write(&original_map, &saved_geometry).unwrap();
                     std::fs::write(
                         original_dir.join("Map.ini"),
-                        "AIData\n WallHeight = 31\n GuardEnemyScanRate = 1500\n End\nGameData\n MinLowEnergyProductionSpeed=.7\n End\n",
+                        "AIData\n WallHeight = 31\n GuardEnemyScanRate = 1500\n End\nGameData\n MinLowEnergyProductionSpeed=.7\n MaxLineBuildObjects=7\n End\n",
                     )
                     .unwrap();
                     std::fs::write(
                         original_dir.join("Solo.ini"),
-                        "AIData\n GuardEnemyScanRate = 2500\n AttackUsesLineOfSight = No\n End\nGameData\n MaxLowEnergyProductionSpeed=.75\n End\n",
+                        "AIData\n GuardEnemyScanRate = 2500\n AttackUsesLineOfSight = No\n End\nGameData\n MaxLowEnergyProductionSpeed=.75\n MaxLineBuildObjects=3\n End\n",
                     )
                     .unwrap();
                     let resolved_source = original_map.to_str().unwrap().to_string();
@@ -2821,7 +2821,7 @@ mod staged_restore_tests {
                     base.guard_enemy_scan_rate = 15;
                     base.wall_height = 21.0;
                     source.set_ai_definition_base(base);
-                    source.admit_production_energy_base(game_engine::common::ini::ini_game_data::ProductionEnergyRules::default().overlay_ini_text("GameData\nLowEnergyPenaltyModifier=1\nMinLowEnergyProductionSpeed=.5\nMaxLowEnergyProductionSpeed=.8\nEnd").unwrap());
+                    source.admit_production_energy_base(game_engine::common::ini::ini_game_data::ProductionEnergyRules::default().overlay_ini_text("GameData\nLowEnergyPenaltyModifier=1\nMinLowEnergyProductionSpeed=.5\nMaxLowEnergyProductionSpeed=.8\nMaxLineBuildObjects=50\nEnd").unwrap());
                     source.start_new_game(GameMode::Skirmish);
                     assert!(source.load_map(&map_name));
                     assert_eq!(
@@ -2931,6 +2931,18 @@ mod staged_restore_tests {
                         assert_eq!(staged.logic.production_energy_baseline().min_speed, 0.5);
                         assert_eq!(staged.logic.production_energy_rules().min_speed, 0.7);
                         assert_eq!(staged.logic.production_energy_rules().max_speed, 0.75);
+                        assert_eq!(
+                            staged
+                                .logic
+                                .production_energy_baseline()
+                                .max_line_build_objects,
+                            50
+                        );
+                        assert_eq!(
+                            staged.logic.line_build_object_limit(),
+                            3,
+                            "saved-map candidate applies Map.ini then Solo.ini over its admitted baseline"
+                        );
                         assert_eq!(
                             staged
                                 .logic

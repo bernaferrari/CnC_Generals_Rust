@@ -109,6 +109,8 @@ pub enum ScriptNamedCommand<'a> {
     FaceObject { unit: &'a str, target: &'a str },
     Hunt { unit: &'a str },
     Guard { unit: &'a str },
+    Enter { unit: &'a str, target: &'a str },
+    Evacuate { unit: &'a str },
 }
 
 /// CPP ScriptActions5136-5308: nearest selection and goal-object movement.
@@ -308,6 +310,11 @@ pub trait ScriptExecutionDriver {
     }
 
     /// Present/Missing are authoritative; Unavailable preserves standalone Core behavior.
+    /// CPP ENABLE/DISABLE_SCORING mutates the driving GameLogic instance.
+    fn scoring_enabled(&mut self, _enabled: bool) -> ScriptOwnerQuery<()> {
+        ScriptOwnerQuery::Unavailable
+    }
+
     fn eva_enabled(&mut self, _enabled: bool) -> ScriptOwnerQuery<()> {
         ScriptOwnerQuery::Unavailable
     }

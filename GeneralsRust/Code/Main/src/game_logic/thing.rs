@@ -248,14 +248,23 @@ impl Thing {
     pub fn set_position(&mut self, position: Vec3) {
         // CPP Thing.cpp:145–161 preserves the complete rotation/scale basis.
         self.transform.w_axis = position.extend(1.0);
-        self.update_cache();
+        self.refresh_cache_given_angle(self.cached_angle);
     }
 
     pub fn set_orientation(&mut self, angle: f32) {
-        self.cached_angle = angle;
-        self.transform =
-            Mat4::from_translation(self.cached_position) * Mat4::from_rotation_y(angle);
-        self.update_cache();
+        // CPP stores normalizeAngle(angle), rather than extracting a second
+        // rounded atan2 angle from the rotation matrix. Invalid input becomes
+        // zero; reduce extreme finite values before the bounded Common loop.
+        let matrix_angle = if angle.is_finite() { angle } else { 0.0 };
+        let bounded_angle = if matrix_angle.abs() <= 8.0 * std::f32::consts::TAU {
+            matrix_angle
+        } else {
+            matrix_angle % std::f32::consts::TAU
+        };
+        let cached_angle = game_engine::common::system::game_common::normalize_angle(bounded_angle);
+        self.transform = Mat4::from_translation(self.transform.w_axis.truncate())
+            * Mat4::from_rotation_y(matrix_angle);
+        self.refresh_cache_given_angle(cached_angle);
     }
 
     pub fn get_position(&self) -> Vec3 {
@@ -280,23 +289,19 @@ impl Thing {
     }
 
     fn update_cache(&mut self) {
-        // Extract position from transform matrix
-        let translation = self.transform.w_axis.truncate();
-        self.cached_position = translation;
-
-        // Extract yaw from the facing basis. Host movement / aim residual uses
-        // forward = (cos θ, 0, -sin θ), which is the X column of from_rotation_y(θ).
-        // (Previously used Z column, which shifted θ by -π/2 and broke aim checks.)
+        // setTransformMatrix and raw serde restoration derive yaw from the
+        // facing matrix; they do not carry a caller-supplied cached angle.
         let forward = self.transform.x_axis.truncate();
-        self.cached_angle = (-forward.z).atan2(forward.x);
+        let angle = (-forward.z).atan2(forward.x);
+        self.refresh_cache_given_angle(angle);
+    }
 
-        // Calculate direction vector
-        self.cached_dir_vector = Vec3::new(self.cached_angle.cos(), 0.0, -self.cached_angle.sin());
-
-        // Update geometry position
+    fn refresh_cache_given_angle(&mut self, angle: f32) {
+        self.cached_position = self.transform.w_axis.truncate();
+        self.cached_angle = angle;
+        self.cached_dir_vector = Vec3::new(angle.cos(), 0.0, -angle.sin());
         self.geometry.position = self.cached_position;
-        self.geometry.rotation = self.cached_angle;
-
+        self.geometry.rotation = angle;
         self.cache_valid = true;
     }
 
@@ -353,3 +358,7 @@ impl Clone for Thing {
 
 #[path = "thing/pose_persist.rs"]
 mod pose_persist;
+
+#[cfg(test)]
+#[path = "thing/pose_angle_tests.rs"]
+mod pose_angle_tests;

@@ -792,6 +792,7 @@ pub fn live_kind_of_cpp_mask(kind: crate::game_logic::KindOf) -> u128 {
         KindOf::HugeVehicle => M::HUGE_VEHICLE.bits(),
         KindOf::CliffJumper => M::CLIFF_JUMPER.bits(),
         KindOf::CleanupHazard => M::CLEANUP_HAZARD.bits(),
+        KindOf::LineBuild => M::LINEBUILD.bits(),
 
         KindOf::Resource | KindOf::Worker | KindOf::Harvestable => 0,
     }

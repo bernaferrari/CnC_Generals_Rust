@@ -1753,8 +1753,9 @@ fn build_command_rejects_non_worker_constructor() {
 }
 
 #[test]
-fn dozer_line_assigns_each_worker_a_segment() {
+fn dozer_line_ordinary_scaffolds_use_one_constructor_in_selection_order() {
     let mut game_logic = GameLogic::new();
+    super::line_build_tests::admit_retail_line_build_rules(&mut game_logic);
     ensure_test_dozer_template(&mut game_logic);
     ensure_test_structure_template(&mut game_logic);
     // C++ BuildAssistant::buildObjectLineNow tiles the line at
@@ -1787,9 +1788,16 @@ fn dozer_line_assigns_each_worker_a_segment() {
         .create_object_for_player("TestDozer", 0, Vec3::new(0.0, 0.0, 0.0))
         .expect("dozer A should be created");
     let dozer_b = game_logic
-        .create_object_for_player("TestDozer", 0, Vec3::new(2.0, 0.0, 0.0))
+        .create_object_for_player("TestDozer", 0, Vec3::new(-100.0, 0.0, 100.0))
         .expect("dozer B should be created");
 
+    super::line_build_tests::admit_constructor_commands(
+        &mut game_logic,
+        dozer_a,
+        "OrdinaryLineScaffoldOwner61",
+        "TestBuilding",
+    );
+    let funds_before = game_logic.get_player(0).unwrap().resources.supplies;
     let start = Vec3::new(10.0, 0.0, 10.0);
     let end = Vec3::new(30.0, 0.0, 10.0);
     game_logic.queue_command(crate::command_system::GameCommand {
@@ -1812,32 +1820,33 @@ fn dozer_line_assigns_each_worker_a_segment() {
     let dozer_b_state = game_logic
         .host_object(dozer_b)
         .expect("dozer B should exist");
-    // C++ line build (BuildAssistant::buildObjectLineNow) places the line as
-    // under-construction scaffolds first; DozerAIUpdate then WALKS to each
-    // segment (AI_MOVE) and only flips to AI_CONSTRUCT/Constructing on
-    // arrival, so the honest post-command state is Moving.
+    // C++ reuses the first selected constructor for every ordinary tile.
+    // Each construct retargets it; no task is assigned to the second worker.
     assert_eq!(dozer_a_state.ai_state, AIState::Moving);
-    assert_eq!(dozer_b_state.ai_state, AIState::Moving);
-
-    let a_dest = dozer_a_state
-        .movement
-        .target_position
-        .expect("dozer A should receive a line segment destination");
-    let b_dest = dozer_b_state
-        .movement
-        .target_position
-        .expect("dozer B should receive a line segment destination");
-    // The walk target is a legal approach point beside the scaffold footprint
-    // (A* cannot end inside the building's own static footprint), not the raw
-    // segment centre. The contract under test is segment OWNERSHIP: worker A
-    // is bound near the line start, worker B near the line end.
-    assert!(
-        a_dest.distance(start) < a_dest.distance(end),
-        "dozer A must own the start segment (dest={a_dest:?})"
-    );
-    assert!(
-        b_dest.distance(end) < b_dest.distance(start),
-        "dozer B must own the end segment (dest={b_dest:?})"
+    assert_eq!(dozer_b_state.ai_state, AIState::Idle);
+    assert!(dozer_a_state.movement.target_position.is_some());
+    assert!(dozer_b_state.movement.target_position.is_none());
+    assert!(dozer_b_state.dozer_task_build_target.is_none());
+    let mut tiles = game_logic
+        .host_objects()
+        .values()
+        .filter(|object| object.template_name == "TestBuilding")
+        .collect::<Vec<_>>();
+    tiles.sort_by(|a, b| a.get_position().x.total_cmp(&b.get_position().x));
+    assert_eq!(tiles.len(), 2);
+    assert_eq!(tiles[0].get_position(), start);
+    assert_eq!(tiles[1].get_position(), end);
+    assert_eq!(dozer_a_state.dozer_task_build_target, Some(tiles[1].id));
+    for tile in tiles {
+        assert!(tile.status.under_construction);
+        assert_eq!(tile.health.current, 1.0);
+        assert_eq!(tile.construction_percent, 0.0);
+        assert_eq!(tile.builder_id, Some(dozer_a));
+        assert_eq!(tile.producer_id, Some(dozer_a));
+    }
+    assert_eq!(
+        game_logic.get_player(0).unwrap().resources.supplies,
+        funds_before - 2 * 500
     );
 
     let created_structures = game_logic
@@ -2806,77 +2815,153 @@ fn live_set_stopping_distance_aborts_at_first_member_without_locomotor() {
 #[test]
 fn live_named_enter_and_exit_all_drain_ai_enter_evacuate() {
     use crate::game_logic::AIState;
-    use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::scripting::{
-        HostScriptGarrisonEnterExitRequest, request_host_script_garrison_enter,
-        take_host_script_garrison_enter_requests,
+    use gamelogic::scripting::core::{
+        Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+        ScriptActionType, ScriptList,
     };
-
-    OBJECT_REGISTRY.clear();
-    let _ = take_host_script_garrison_enter_requests();
-
-    let mut logic = GameLogic::new();
-    logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
-    let mut ranger = ThingTemplate::new("GarrEnterRanger");
-    ranger.add_kind_of(KindOf::Infantry);
-    ranger.set_health(100.0);
-    logic.templates.insert("GarrEnterRanger".into(), ranger);
-    let mut humvee = ThingTemplate::new("GarrEnterHumvee");
-    humvee.add_kind_of(KindOf::Vehicle);
-    humvee.add_kind_of(KindOf::Transport);
-    humvee.set_health(400.0);
-    logic.templates.insert("GarrEnterHumvee".into(), humvee);
-
-    let infantry = logic
-        .create_object("GarrEnterRanger", Team::USA, Vec3::new(50.0, 0.0, 50.0))
-        .expect("infantry");
-    if let Some(obj) = logic.host_object_mut(infantry) {
-        obj.name = "NamedRanger".into();
-        obj.owner_player_id = Some(1);
+    use gamelogic::scripting::engine::ScriptEngine;
+    fn world(offset: f32) -> (GameLogic, ObjectId, ObjectId) {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
+        let mut ranger = ThingTemplate::new("GarrEnterRanger");
+        ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
+        ranger.set_authored_ai_update_interface(Some(true));
+        logic.templates.insert("GarrEnterRanger".into(), ranger);
+        let mut humvee = ThingTemplate::new("GarrEnterHumvee");
+        humvee
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Transport)
+            .set_health(400.0);
+        humvee.set_authored_ai_update_interface(Some(true));
+        logic.templates.insert("GarrEnterHumvee".into(), humvee);
+        let infantry = logic
+            .create_object_for_player("GarrEnterRanger", 1, Vec3::new(50.0 + offset, 0.0, 50.0))
+            .unwrap();
+        let transport = logic
+            .create_object_for_player("GarrEnterHumvee", 1, Vec3::new(80.0 + offset, 0.0, 50.0))
+            .unwrap();
+        logic.host_object_mut(infantry).unwrap().name = "NamedRanger".into();
+        let unit = logic.host_object_mut(transport).unwrap();
+        unit.name = "NamedHumvee".into();
+        unit.max_transport = 8;
+        (logic, infantry, transport)
     }
-    let transport = logic
-        .create_object("GarrEnterHumvee", Team::USA, Vec3::new(80.0, 0.0, 50.0))
-        .expect("transport");
-    if let Some(obj) = logic.host_object_mut(transport) {
-        obj.name = "NamedHumvee".into();
-        obj.owner_player_id = Some(1);
-        obj.max_transport = 8;
+    fn execute(logic: &mut GameLogic, kind: ScriptActionType, names: &[&str]) {
+        let mut action = ScriptAction::new(kind);
+        for name in names {
+            action
+                .add_parameter(Parameter::with_string(ParameterType::Unit, (*name).into()))
+                .unwrap();
+        }
+        let mut branch = OrCondition::new();
+        branch
+            .set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+        let mut script = Script::new();
+        script.script_name = "OwnedNamedContainmentAction".into();
+        script.is_one_shot = true;
+        script.condition = Some(Box::new(branch));
+        script.action = Some(Box::new(action));
+        let mut list = ScriptList::new();
+        list.append_script(Box::new(script));
+        let engine = ScriptEngine::new().unwrap();
+        engine
+            .set_script_list_for_player(0, Some(Box::new(list)))
+            .unwrap();
+        logic
+            .update_local_script_engine_with_owner(&engine)
+            .unwrap();
     }
-
-    request_host_script_garrison_enter(HostScriptGarrisonEnterExitRequest::NamedEnter {
-        unit: "NamedRanger".into(),
-        dest: "NamedHumvee".into(),
-    });
-    logic.apply_host_garrison_enter_exit_script_requests();
-
+    fn contain(logic: &mut GameLogic, infantry: ObjectId, transport: ObjectId) {
+        logic
+            .host_object_mut(transport)
+            .unwrap()
+            .occupants
+            .push(infantry);
+        let infantry = logic.host_object_mut(infantry).unwrap();
+        infantry.set_contained_by(Some(transport));
+        infantry.set_ai_state(AIState::Idle);
+        infantry.target = None;
+    }
+    let (mut logic, infantry, transport) = world(0.0);
+    let (mut foreign, foreign_infantry, foreign_transport) = world(100.0);
+    assert_eq!((infantry, transport), (foreign_infantry, foreign_transport));
+    contain(&mut foreign, foreign_infantry, foreign_transport);
+    let foreign_position = foreign
+        .host_object(foreign_infantry)
+        .unwrap()
+        .get_position();
+    logic
+        .host_object_mut(infantry)
+        .unwrap()
+        .set_formation(37, glam::Vec2::new(3.0, 7.0));
+    execute(
+        &mut logic,
+        ScriptActionType::NamedEnterNamed,
+        &["NamedRanger", "NamedHumvee"],
+    );
     let infantry_after = logic.host_object(infantry).expect("infantry after enter");
     assert_eq!(
         infantry_after.target,
         Some(transport),
-        "NAMED_ENTER_NAMED must leftover-drain aiEnter"
+        "NAMED_ENTER_NAMED must issue the owning aiEnter"
     );
     assert_eq!(infantry_after.ai_state, AIState::Entering);
-
-    if let Some(obj) = logic.host_object_mut(transport) {
-        obj.occupants.push(infantry);
-    }
-    if let Some(obj) = logic.host_object_mut(infantry) {
-        obj.set_contained_by(Some(transport));
-        obj.set_ai_state(AIState::Idle);
-        obj.target = None;
-    }
-
-    request_host_script_garrison_enter(HostScriptGarrisonEnterExitRequest::NamedExitAll {
-        unit: "NamedHumvee".into(),
-    });
-    logic.apply_host_garrison_enter_exit_script_requests();
-
+    assert_eq!(infantry_after.formation_id, 0);
+    assert_eq!(
+        infantry_after.last_command_source,
+        crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
+    );
+    assert_eq!(foreign.host_object(foreign_infantry).unwrap().target, None);
+    assert_eq!(
+        foreign.host_object(foreign_infantry).unwrap().ai_state,
+        AIState::Idle
+    );
+    assert_eq!(
+        foreign.host_object(foreign_infantry).unwrap().contained_by,
+        Some(foreign_transport)
+    );
+    // Explicit stage setup retains the existing enter-order/evacuation contract;
+    // this does not claim that the path arrival admitted the passenger.
+    contain(&mut logic, infantry, transport);
+    execute(&mut logic, ScriptActionType::NamedExitAll, &["NamedHumvee"]);
     let infantry_after_exit = logic.host_object(infantry).expect("infantry after exit");
     assert!(
         infantry_after_exit.contained_by.is_none(),
-        "NAMED_EXIT_ALL must leftover-drain aiEvacuate"
+        "NAMED_EXIT_ALL must issue the owning aiEvacuate"
     );
-    assert!(OBJECT_REGISTRY.is_empty());
+    assert!(logic.host_object(transport).unwrap().occupants.is_empty());
+    assert_eq!(
+        foreign.host_object(foreign_transport).unwrap().occupants,
+        vec![foreign_infantry]
+    );
+    assert_eq!(
+        foreign.host_object(foreign_infantry).unwrap().contained_by,
+        Some(foreign_transport)
+    );
+    assert_eq!(
+        foreign
+            .host_object(foreign_infantry)
+            .unwrap()
+            .get_position(),
+        foreign_position
+    );
+    execute(
+        &mut logic,
+        ScriptActionType::NamedEnterNamed,
+        &["Absent", "NamedHumvee"],
+    );
+    execute(&mut logic, ScriptActionType::NamedExitAll, &["Absent"]);
+    assert!(logic.host_object(transport).unwrap().occupants.is_empty());
+    logic.reset();
+    drop(logic);
+    assert_eq!(
+        foreign.host_object(foreign_transport).unwrap().occupants,
+        vec![foreign_infantry]
+    );
+    assert_eq!(
+        foreign.host_object(foreign_infantry).unwrap().contained_by,
+        Some(foreign_transport)
+    );
 }
 
 #[test]
