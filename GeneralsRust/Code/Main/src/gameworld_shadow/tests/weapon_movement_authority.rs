@@ -23,7 +23,7 @@ fn weapon_slots_tertiary_never_aliases_primary_and_ammo_writeback() {
         .create_object("WeapU", Team::USA, glam::Vec3::new(4.0, 0.0, 4.0))
         .expect("id");
     {
-        let o = logic.host_object_mut(oid).expect("o");
+        let (o, mut movement_events) = logic.host_object_and_movement_events_mut(oid).expect("o");
         o.weapon = Some(Weapon {
             clip_size: 10,
             ammo: Some(7),
@@ -139,9 +139,10 @@ fn movement_authority_path_follow_matches_host_only_golden() {
             .create_object("MvGoldU", Team::USA, start)
             .expect("id");
         {
-            let o = logic.host_object_mut(oid).expect("o");
+            let (o, mut movement_events) =
+                logic.host_object_and_movement_events_mut(oid).expect("o");
             o.movement.max_speed = speed;
-            o.move_to(dest);
+            o.move_to(dest, &mut movement_events);
         }
         let mut shadow = GameWorldShadow::new(64);
         shadow.sync_from_host(&logic);
@@ -167,9 +168,9 @@ fn movement_authority_path_follow_matches_host_only_golden() {
     }
     let oid = logic.create_object("MvGwU", Team::USA, start).expect("id");
     {
-        let o = logic.host_object_mut(oid).expect("o");
+        let (o, mut movement_events) = logic.host_object_and_movement_events_mut(oid).expect("o");
         o.movement.max_speed = speed;
-        o.move_to(dest);
+        o.move_to(dest, &mut movement_events);
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);

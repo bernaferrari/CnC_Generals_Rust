@@ -25,7 +25,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 pub const MAP_GROUND_NO_REGISTRY_POSE_DUAL_WRITE_METHOD_NAMES_WAVE475: &[&str] = &[
     "ground_loaded_map_objects_to_terrain",
     "set_ground_height_residual",
-    "host_move_log::record",
+    "movement_events.record",
     "no OBJECT_REGISTRY.get_object",
     "host ObjectStore only",
     "playable_claim = false",

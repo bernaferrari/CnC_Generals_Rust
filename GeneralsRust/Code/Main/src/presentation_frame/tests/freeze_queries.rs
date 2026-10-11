@@ -1341,28 +1341,54 @@ fn damage_applied_freezes_from_last_drain() {
 }
 
 #[test]
-fn move_ordered_freezes_from_last_drain() {
-    crate::game_logic::host_move_log::clear();
-    crate::game_logic::host_move_log::record(
-        crate::game_logic::ObjectId(4),
-        Some([10.0, 0.0, 20.0]),
-    );
-    let _ = crate::game_logic::host_move_log::drain();
+fn move_ordered_freezes_only_completed_observations_from_its_producing_world() {
     let mut logic = crate::game_logic::GameLogic::new();
+    let mut other = crate::game_logic::GameLogic::new();
+    let unit = crate::game_logic::ObjectId(4);
+    logic
+        .movement_events
+        .record(7, unit, Some([10.0, 0.0, 20.0]));
+    let session = logic.movement_events.session().clone();
+    let _ = logic.movement_events.drain_for_host_boundary();
+    // A same-thread world cannot consume the producer's completed output.
+    let foreign = PresentationFrame::build_from_logic(&mut other, 0);
+    assert!(
+        !foreign
+            .events
+            .iter()
+            .any(|event| matches!(event, PresentationEvent::MoveOrdered { .. }))
+    );
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
-        frame.events.iter().any(|e| {
-            matches!(
-                e,
-                PresentationEvent::MoveOrdered {
-                    unit,
-                    destination
-                } if unit.0 == 4 && *destination == [10.0, 0.0, 20.0]
-            )
-        }),
-        "expected MoveOrdered: {:?}",
+        frame.events.iter().any(|event| matches!(
+            event,
+            PresentationEvent::MoveOrdered {
+                unit: observed, destination, session: observed_session, logic_frame, sequence,
+            } if *observed == unit && *destination == [10.0, 0.0, 20.0]
+                && *observed_session == session && *logic_frame == 7 && *sequence == 1
+        )),
+        "expected producing-world MoveOrdered: {:?}",
         frame.events
     );
+    let next = PresentationFrame::build_from_logic(&mut logic, 0);
+    assert!(
+        !next
+            .events
+            .iter()
+            .any(|event| matches!(event, PresentationEvent::MoveOrdered { .. }))
+    );
+    logic
+        .movement_events
+        .record(8, unit, Some([30.0, 0.0, 40.0]));
+    let unfinished = PresentationFrame::build_from_logic(&mut logic, 0);
+    assert!(
+        !unfinished
+            .events
+            .iter()
+            .any(|event| matches!(event, PresentationEvent::MoveOrdered { .. })),
+        "presentation must not finish a pending simulation operation"
+    );
+    assert!(logic.movement_events.has_pending(unit));
 }
 
 #[test]

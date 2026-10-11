@@ -568,7 +568,15 @@ fn set_raw_map_height_applies_border_offset_like_cpp() {
 
 #[test]
 fn set_raw_map_height_notifies_visual_static_lighting_like_cpp() {
-    let _test_lock = crate::test_sync::lock();
+    // The visual hook is a native process service; local terrain fixtures must
+    // not receive this test's callback. Keep only its writer in a bounded child.
+    #[cfg(not(target_arch = "wasm32"))]
+    if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
+        "terrain::tests::set_raw_map_height_notifies_visual_static_lighting_like_cpp",
+        "GENERALS_TERRAIN_RAW_HEIGHT_HOOK_CHILD",
+    ) {
+        return;
+    }
     // C++ W3DTerrainVisual::setRawMapHeight (W3DTerrainVisual.cpp:923-924)
     // writes the golden logic map then calls staticLightingChanged().
     use std::sync::atomic::{AtomicU32, Ordering};

@@ -515,7 +515,8 @@ impl GameLogic {
                 unit.set_position(pos + offset);
                 if crate::gameworld_shadow::gameworld_movement_authority_live() {
                     let p = pos + offset;
-                    crate::game_logic::host_move_log::record(unit.id, Some([p.x, p.y, p.z]));
+                    self.movement_events
+                        .record(self.frame, unit.id, Some([p.x, p.y, p.z]));
                     unit.record_host_movement();
                 }
                 unit.set_target(None);
@@ -594,7 +595,8 @@ impl GameLogic {
                 unit.set_position(pos + offset);
                 if crate::gameworld_shadow::gameworld_movement_authority_live() {
                     let p = pos + offset;
-                    crate::game_logic::host_move_log::record(unit.id, Some([p.x, p.y, p.z]));
+                    self.movement_events
+                        .record(self.frame, unit.id, Some([p.x, p.y, p.z]));
                     unit.record_host_movement();
                 }
                 unit.set_target(None);
@@ -659,7 +661,8 @@ impl GameLogic {
                             unit.set_position(pos + offset);
                             if crate::gameworld_shadow::gameworld_movement_authority_live() {
                                 let p = pos + offset;
-                                crate::game_logic::host_move_log::record(
+                                self.movement_events.record(
+                                    self.frame,
                                     unit.id,
                                     Some([p.x, p.y, p.z]),
                                 );

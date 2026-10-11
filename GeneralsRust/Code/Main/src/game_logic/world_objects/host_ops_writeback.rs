@@ -1359,6 +1359,20 @@ impl GameLogic {
         self.objects.get_mut(&id)
     }
 
+    /// Set an admitted object's immediate movement goal and record the change
+    /// in this world's output. Existing velocity and path state are retained.
+    pub fn move_object_to(&mut self, id: ObjectId, position: glam::Vec3) -> bool {
+        let Some((object, mut movement_events)) = self.host_object_and_movement_events_mut(id)
+        else {
+            return false;
+        };
+        if !object.is_mobile() || !object.is_alive() {
+            return false;
+        }
+        object.move_to(position, &mut movement_events);
+        true
+    }
+
     /// Borrow the admitted object and its world's ordered health transport.
     /// Split the owner borrow without selecting another world or copying fields.
     pub(crate) fn host_object_and_health_events_mut(
@@ -1371,6 +1385,20 @@ impl GameLogic {
         self.objects
             .get_mut(&id)
             .map(|object| (object, &mut self.health_events))
+    }
+
+    /// Borrow an admitted object and a bounded recorder from the same owner.
+    /// No object backlink or ambient selection participates in this operation.
+    pub(crate) fn host_object_and_movement_events_mut(
+        &mut self,
+        id: ObjectId,
+    ) -> Option<(
+        &mut crate::game_logic::object::Object,
+        crate::game_logic::movement_events::MovementEventWriter<'_>,
+    )> {
+        self.objects
+            .get_mut(&id)
+            .map(|object| (object, self.movement_events.writer(self.frame)))
     }
 
     /// Issue attack command to selected objects

@@ -281,6 +281,9 @@ impl SnapshotBuilder {
         // partial restore. Production loading isolates this work in a candidate.
         game_logic.clear_victory_observation();
         game_logic.health_events.clear();
+        // Replacement starts a new runtime output identity. Detached production
+        // candidates own this state, so rejection cannot consume live receipts.
+        game_logic.movement_events.reset();
         log::info!(
             "Restoring world from snapshot: {} objects, {} players",
             snapshot.objects.len(),
@@ -606,6 +609,9 @@ impl SnapshotBuilder {
         }
 
         super::super::player_team_chunks::apply_members(game_logic, &player_team_chunks)?;
+        // Saved destinations and paths are canonical state, not fresh movement
+        // cues. Discard only this receiver's transient restore observations.
+        game_logic.movement_events.clear();
         log::info!("World restoration complete");
         Ok(())
     }

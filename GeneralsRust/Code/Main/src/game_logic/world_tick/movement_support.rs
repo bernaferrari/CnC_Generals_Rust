@@ -117,7 +117,8 @@ impl GameLogic {
                     obj.refresh_follow_path_extra_distance();
                     obj.start_move();
                     obj.set_status_moving(true);
-                    crate::game_logic::host_move_log::record(
+                    self.movement_events.record(
+                        self.frame,
                         object_id,
                         Some([target_position.x, target_position.y, target_position.z]),
                     );
@@ -140,7 +141,8 @@ impl GameLogic {
                     obj.refresh_follow_path_extra_distance();
                     obj.start_move();
                     obj.set_status_moving(true);
-                    crate::game_logic::host_move_log::record(
+                    self.movement_events.record(
+                        self.frame,
                         object_id,
                         Some([dest.x, dest.y, dest.z]),
                     );

@@ -137,7 +137,10 @@ fn run_case(name: &str) {
         assert_eq!(object.physics_accel, Vec3::ZERO);
         object.set_orientation(0.0);
         object.add_velocity(Vec3::new(scalar(row[3]), 0.0, 0.0));
-        object.move_to(TARGET);
+    }
+    assert!(game.move_object_to(id, TARGET));
+    {
+        let object = game.host_object(id).unwrap();
         assert_eq!(object.movement.target_position, Some(TARGET));
         assert!(object.status.moving);
         assert!(object.is_alive());

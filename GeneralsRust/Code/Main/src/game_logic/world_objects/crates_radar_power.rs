@@ -825,7 +825,8 @@ impl GameLogic {
             crate::game_logic::host_ground_height_log::record(crate_id, ground, false);
             if crate::gameworld_shadow::gameworld_movement_authority_live() {
                 if landed {
-                    crate::game_logic::host_move_log::record(crate_id, Some([p.x, p.y, p.z]));
+                    self.movement_events
+                        .record(self.frame, crate_id, Some([p.x, p.y, p.z]));
                 }
                 obj.record_host_movement();
             }
@@ -1112,7 +1113,8 @@ impl GameLogic {
                 if let Some(unit) = self.objects.get(&occ_id) {
                     let p = unit.get_position();
                     if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                        crate::game_logic::host_move_log::record(occ_id, Some([p.x, p.y, p.z]));
+                        self.movement_events
+                            .record(self.frame, occ_id, Some([p.x, p.y, p.z]));
                     }
                     if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                         crate::game_logic::host_ai_decision_log::record_stop_attack(occ_id);

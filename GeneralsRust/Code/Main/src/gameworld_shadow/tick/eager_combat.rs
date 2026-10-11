@@ -26,22 +26,22 @@ pub fn eager_apply_host_fire_spawns_after_logic(
 }
 
 /// Wave 683: immediately after the host logic frame on a coupled tick, drain
-/// `host_attack_log` / `host_move_log` into GameWorld attack/move targets.
+/// attack records and owner-local movement observations into GameWorld targets.
 ///
 /// Runs before `shadow_session_after_host_tick` so AI/path residuals see current
 /// orders the same frame. Session drains stay idempotent (logs already empty).
 ///
-/// Safe exclusive borrows: caller passes `&mut GameWorldShadow` + `&GameLogic`.
+/// Safe exclusive borrows: caller passes `&mut GameWorldShadow` + `&mut GameLogic`.
 pub fn eager_apply_host_move_attack_after_logic(
     shadow: &mut GameWorldShadow,
-    logic: &GameLogic,
+    logic: &mut GameLogic,
 ) -> (usize, usize) {
     if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
         return (0, 0);
     }
     // Wave 683/712: post-logic move/attack materialize (exclusive shadow borrow).
     let attack_events = crate::game_logic::host_attack_log::drain();
-    let move_events = crate::game_logic::host_move_log::drain();
+    let mut move_batch = logic.movement_events.drain_for_shadow_boundary();
     let mut attacks = 0usize;
     let mut moves = 0usize;
     for ev in &attack_events {
@@ -49,9 +49,19 @@ pub fn eager_apply_host_move_attack_after_logic(
             attacks = attacks.saturating_add(1);
         }
     }
-    for ev in &move_events {
-        if shadow.queue_set_move_target_for_host(ev.unit, ev.destination) {
-            moves = moves.saturating_add(1);
+    // Admission is all-or-nothing for the pending suffix. A missing mapping
+    // must not produce an "applied" receipt or replay an already-applied prefix.
+    let move_mapped = move_batch.pending_shadow_events().iter().all(|event| {
+        shadow
+            .entity_for_host(event.unit)
+            .and_then(|eid| shadow.world().entity(eid))
+            .is_some()
+    });
+    if move_mapped {
+        for ev in move_batch.pending_shadow_events() {
+            if shadow.queue_set_move_target_for_host(ev.unit, ev.destination) {
+                moves = moves.saturating_add(1);
+            }
         }
     }
     // Host movement.target residual (path follow destinations not always logged).
@@ -67,11 +77,10 @@ pub fn eager_apply_host_move_attack_after_logic(
     } else {
         EARLY_ATTACK_BATCH.with(|c| *c.borrow_mut() = Some((attack_events, true)));
     }
-    if move_events.is_empty() {
-        EARLY_MOVE_BATCH.with(|c| *c.borrow_mut() = None);
-    } else {
-        EARLY_MOVE_BATCH.with(|c| *c.borrow_mut() = Some((move_events, true)));
+    if move_mapped {
+        move_batch.mark_shadow_applied();
     }
+    logic.movement_events.set_early_batch(move_batch);
     (attacks, moves)
 }
 
@@ -331,12 +340,6 @@ thread_local! {
 
 // Wave 712: post-logic spawn batch handoff (complements mid-frame eager_map).
 thread_local! {
-    static EARLY_MOVE_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::host_move_log::HostMoveEvent>, bool)>> =
-        std::cell::RefCell::new(None);
-}
-
-// Wave 712: post-logic spawn batch handoff (complements mid-frame eager_map).
-thread_local! {
     static EARLY_FIRE_SPAWN_BATCH: std::cell::RefCell<Option<(Vec<crate::game_logic::combat::PendingProjectile>, bool)>> =
         std::cell::RefCell::new(None);
 }
@@ -346,11 +349,6 @@ pub fn take_early_attack_batch() -> Option<(
     bool,
 )> {
     EARLY_ATTACK_BATCH.with(|c| c.borrow_mut().take())
-}
-
-pub fn take_early_move_batch()
--> Option<(Vec<crate::game_logic::host_move_log::HostMoveEvent>, bool)> {
-    EARLY_MOVE_BATCH.with(|c| c.borrow_mut().take())
 }
 
 pub fn take_early_fire_spawn_batch()
@@ -366,6 +364,5 @@ pub(super) fn clear_early_combat_batches() {
     EARLY_PROJECTILE_BATCH.with(|c| *c.borrow_mut() = None);
     EARLY_DESTROY_BATCH.with(|c| *c.borrow_mut() = None);
     EARLY_ATTACK_BATCH.with(|c| *c.borrow_mut() = None);
-    EARLY_MOVE_BATCH.with(|c| *c.borrow_mut() = None);
     EARLY_FIRE_SPAWN_BATCH.with(|c| *c.borrow_mut() = None);
 }

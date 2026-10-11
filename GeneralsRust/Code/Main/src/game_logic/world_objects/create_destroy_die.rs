@@ -1245,7 +1245,8 @@ impl GameLogic {
             object.partition_threat_value = partition_threat;
             object.set_position(position);
             if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                crate::game_logic::host_move_log::record(
+                self.movement_events.record(
+                    self.frame,
                     id,
                     Some([position.x, position.y, position.z]),
                 );
@@ -2626,7 +2627,8 @@ impl GameLogic {
             // C++ DozerAIUpdate.cpp:1692-1696 flattenTerrain then getGroundHeight Z snap.
             // Applied after insert so the host object exists for snap.
             if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                crate::game_logic::host_move_log::record(
+                self.movement_events.record(
+                    self.frame,
                     id,
                     Some([position.x, position.y, position.z]),
                 );

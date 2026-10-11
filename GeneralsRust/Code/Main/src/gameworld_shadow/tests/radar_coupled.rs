@@ -115,6 +115,8 @@ fn shell_to_skirmish_coupled_session_keeps_local_radar() {
 
     let cfg = golden_skirmish_config("MinimapSeamRepro");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
+    // New-game setup replaces definitions; admit this fixture in the match catalog.
+    ensure_cc_template(&mut logic);
     let local = local_player_id(&logic);
     let _cc = spawn_constructed_cc(&mut logic, local, Vec3::new(10.0, 0.0, 10.0));
     logic.update_player_radar();

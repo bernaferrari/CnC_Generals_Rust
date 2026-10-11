@@ -1,5 +1,5 @@
 //! Wave 683 residual peels: post-logic move/attack apply on coupled tick.
-//! Host records `host_move_log` / `host_attack_log` mid-frame; engine drains into
+//! Host records `movement_events` / `host_attack_log` mid-frame; engine drains into
 //! GameWorld immediately after the host frame, before the full shadow session.
 //! Never flips `playable_claim`.
 
@@ -11,7 +11,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 }
 pub const LIVE_HOST_EAGER_MOVE_ATTACK_HELPER_METHOD_NAMES_WAVE683: &[&str] = &[
     "eager_apply_host_move_attack_after_logic",
-    "host_move_log",
+    "movement_events",
     "host_attack_log",
     "Wave 683",
     "playable_claim = false",
@@ -76,7 +76,7 @@ fn shadow_source() -> &'static str {
 pub fn honesty_host_eager_move_attack_helper_method_names_residual_wave683() -> bool {
     let names = LIVE_HOST_EAGER_MOVE_ATTACK_HELPER_METHOD_NAMES_WAVE683;
     let ok = residual_name_index(names, "eager_apply_host_move_attack_after_logic").is_some()
-        && residual_name_index(names, "host_move_log").is_some()
+        && residual_name_index(names, "movement_events").is_some()
         && residual_name_index(names, "host_attack_log").is_some()
         && residual_name_index(names, "Wave 683").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
@@ -89,7 +89,7 @@ pub fn honesty_host_eager_move_attack_helper_source_markers_residual_wave683() -
     let api_ok = sh.contains("pub fn eager_apply_host_move_attack_after_logic")
         && sh.contains("Wave 683")
         && sh.contains("host_attack_log::drain")
-        && sh.contains("host_move_log::drain")
+        && sh.contains("movement_events.drain_for_shadow_boundary")
         && sh.contains("queue_set_attack_target_for_host")
         && sh.contains("queue_set_move_target_for_host");
     let eng_ok =
@@ -146,7 +146,6 @@ pub fn simulate_live_host_eager_move_attack_helper_honesty() -> bool {
 mod tests {
     use super::*;
     use crate::game_logic::host_attack_log;
-    use crate::game_logic::host_move_log;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::gameworld_shadow::{
         GameWorldShadow, begin_shadow_coupled_tick, eager_apply_host_move_attack_after_logic,
@@ -193,7 +192,6 @@ mod tests {
         let _guard = crate::gameworld_shadow::authority_env_lock();
         let prev = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
         crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-        host_move_log::clear();
         host_attack_log::clear();
 
         let mut logic = GameLogic::new();
@@ -227,16 +225,18 @@ mod tests {
                     position: [30.0, 0.0, 0.0],
                 },
             ));
-            host_move_log::record(unit, Some([10.0, 0.0, 5.0]));
+            logic
+                .movement_events
+                .record(logic.frame, unit, Some([10.0, 0.0, 5.0]));
             host_attack_log::record(unit, Some(target));
-            assert_eq!(host_move_log::len(), 1);
+            assert_eq!(logic.movement_events.len(), 1);
             assert_eq!(host_attack_log::len(), 1);
         });
-        let (a, m) = eager_apply_host_move_attack_after_logic(&mut shadow, &logic);
+        let (a, m) = eager_apply_host_move_attack_after_logic(&mut shadow, &mut logic);
         assert!(a >= 1 && m >= 1, "expected attack={a} move={m}");
-        assert!(host_move_log::drain().is_empty());
+        assert!(logic.movement_events.snapshot_pending().is_empty());
         assert!(host_attack_log::drain().is_empty());
-        let (a2, m2) = eager_apply_host_move_attack_after_logic(&mut shadow, &logic);
+        let (a2, m2) = eager_apply_host_move_attack_after_logic(&mut shadow, &mut logic);
         assert_eq!((a2, m2), (0, 0));
         end_shadow_coupled_tick();
         let _ = ObjectId;

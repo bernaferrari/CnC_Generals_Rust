@@ -59,16 +59,20 @@ impl TerrainLogic {
 
     /// Get closest waypoint that matches a path label
     pub fn get_closest_waypoint_on_path(&self, pos: &Coord3D, label: &str) -> Option<&Waypoint> {
+        if label.is_empty() {
+            return None;
+        }
+
         let mut current = self.waypoint_list_head.as_deref();
         let mut best: Option<&Waypoint> = None;
-        let mut best_dist_sqr = f32::MAX;
+        let mut best_dist_sqr = 0.0;
 
         while let Some(waypoint) = current {
             if waypoint.matches_path_label(label) {
                 let dx = waypoint.location.x - pos.x;
                 let dy = waypoint.location.y - pos.y;
                 let dist_sqr = dx * dx + dy * dy;
-                if dist_sqr < best_dist_sqr {
+                if best.is_none() || dist_sqr < best_dist_sqr {
                     best_dist_sqr = dist_sqr;
                     best = Some(waypoint);
                 }

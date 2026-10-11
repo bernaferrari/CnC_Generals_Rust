@@ -96,7 +96,7 @@ pub fn honesty_host_writeback_skip_pending_move_transform_logs_source_markers_re
 -> bool {
     let sh = sh_source();
     let logs = [
-        "host_move_log",
+        "movement_events",
         "host_movement_log",
         "host_contain_log",
         "host_combat_attack_log",
@@ -142,7 +142,7 @@ pub fn honesty_host_writeback_skip_pending_move_transform_logs_nav_commands_resi
 }
 pub fn simulate_host_writeback_skip_pending_move_transform_logs_collect_source() -> bool {
     let ok = sh_source().contains("Wave 759")
-        && sh_source().contains("host_move_log::has_pending")
+        && sh_source().contains("movement_events.has_pending")
         && sh_source().contains("host_movement_log::has_pending");
     residual_action_store(ResidualHostWritebackSkipPendingMoveTransformLogsAction::CollectSource);
     ok

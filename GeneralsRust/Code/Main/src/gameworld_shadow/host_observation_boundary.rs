@@ -36,7 +36,7 @@ pub(crate) fn run_owned_host_boundary(
             // healing observations from required pending effects.
             materialize_host_authority_logs(logic);
             logic.apply_host_support_op(HostSupportOp::ProcessDestroyListIfNeeded);
-            freeze_host_observations();
+            freeze_host_observations(logic);
 
             if let Some(shadow) = shadow {
                 shadow.sync_from_host(logic);
@@ -48,9 +48,9 @@ pub(crate) fn run_owned_host_boundary(
     })
 }
 
-/// These records describe state already committed by Main. drain(), rather
-/// than clear(), preserves the existing presentation LAST_DRAIN receipts for
-/// move/attack/owner/production/fire-sound/economy. Other mirror-only records
+/// These records describe state already committed by Main. Movement completes
+/// into its owner's FIFO output; the other channels still use drain() to retain
+/// attack/owner/production/fire-sound/economy presentation receipts. Mirror-only records
 /// have no remaining default gameplay consumer: the observer copies the owner.
 ///
 /// Health is admitted above. Projectile work stays in CombatSystem (the
@@ -59,7 +59,7 @@ pub(crate) fn run_owned_host_boundary(
 /// consuming take_last_drain(), which intentionally drains its own queue.
 /// Construction completion also stays pending for PresentationFrame's direct
 /// drain; unlike production completion it has no LAST_DRAIN transport.
-fn freeze_host_observations() {
+fn freeze_host_observations(logic: &mut GameLogic) {
     let _ = crate::game_logic::host_ai_attitude_log::drain();
     let _ = crate::game_logic::host_ai_decision_log::drain();
     let _ = crate::game_logic::host_ai_mood_log::drain();
@@ -99,7 +99,7 @@ fn freeze_host_observations() {
     let _ = crate::game_logic::host_max_health_log::drain();
     let _ = crate::game_logic::host_model_condition_log::drain();
     let _ = crate::game_logic::host_model_mesh_log::drain();
-    let _ = crate::game_logic::host_move_log::drain();
+    let _ = logic.movement_events.drain_for_host_boundary();
     let _ = crate::game_logic::host_movement_log::drain();
     let _ = crate::game_logic::host_overcharge_log::drain();
     let _ = crate::game_logic::host_overlord_log::drain();

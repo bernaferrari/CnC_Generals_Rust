@@ -44,6 +44,7 @@ mod counts;
 mod couple_guard;
 mod factory_authority;
 mod host_observation_boundary;
+mod movement_admission;
 mod presentation;
 mod session;
 mod writeback_combat_status;
@@ -106,6 +107,7 @@ pub const GAMEWORLD_SHADOW_SRC: &str = concat!(
     include_str!("counts.rs"),
     include_str!("couple_guard.rs"),
     include_str!("factory_authority.rs"),
+    include_str!("movement_admission.rs"),
     include_str!("presentation.rs"),
     include_str!("session.rs"),
     include_str!("types.rs"),

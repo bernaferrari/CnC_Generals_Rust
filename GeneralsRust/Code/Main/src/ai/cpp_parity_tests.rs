@@ -509,127 +509,139 @@ fn build_specific_ai_team_splits_optional_and_required() {
 
 #[test]
 fn select_team_to_build_splits_min_max_not_max_as_required() {
-    let mut logic = crate::game_logic::GameLogic::new();
-    let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
-    player.resources.supplies = 50_000;
-    player.set_can_build_units(true);
-    logic.add_player(player);
-    let mut ranger = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
-    ranger
-        .add_kind_of(crate::game_logic::KindOf::Infantry)
-        .set_cost(225, 0);
-    logic
-        .templates
-        .insert("AmericaInfantryRanger".into(), ranger);
-    let mut barracks = crate::game_logic::ThingTemplate::new("AmericaBarracks");
-    barracks
-        .add_kind_of(crate::game_logic::KindOf::Structure)
-        .add_kind_of(crate::game_logic::KindOf::FSBarracks)
-        .set_cost(500, 0);
-    logic.templates.insert("AmericaBarracks".into(), barracks);
-    let _ = logic.create_object("AmericaBarracks", Team::USA, Vec3::ZERO);
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "select_team_to_build_splits_min_max_not_max_as_required",
+        || {
+            let mut logic = crate::game_logic::GameLogic::new();
+            let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+            player.resources.supplies = 50_000;
+            player.set_can_build_units(true);
+            logic.add_player(player);
+            let mut ranger = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
+            ranger
+                .add_kind_of(crate::game_logic::KindOf::Infantry)
+                .set_cost(225, 0);
+            logic
+                .templates
+                .insert("AmericaInfantryRanger".into(), ranger);
+            let mut barracks = crate::game_logic::ThingTemplate::new("AmericaBarracks");
+            barracks
+                .add_kind_of(crate::game_logic::KindOf::Structure)
+                .add_kind_of(crate::game_logic::KindOf::FSBarracks)
+                .set_cost(500, 0);
+            logic.templates.insert("AmericaBarracks".into(), barracks);
+            let _ = logic.create_object("AmericaBarracks", Team::USA, Vec3::ZERO);
 
-    install_player_team_prototype(
-        &logic,
-        1,
-        "HQ_MinMaxTeam",
-        &[(1, 4, "AmericaInfantryRanger")],
-        20,
+            install_player_team_prototype(
+                &logic,
+                1,
+                "HQ_MinMaxTeam",
+                &[(1, 4, "AmericaInfantryRanger")],
+                20,
+            );
+            let mut ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
+            assert!(
+                ai.select_team_to_build(&mut logic, 0.0),
+                "auto-select must queue the leftover player prototype"
+            );
+            let team = ai.team_queue.front().expect("queued team");
+            assert_eq!(team.name, "HQ_MinMaxTeam");
+            let required: Vec<_> = team
+                .work_orders
+                .iter()
+                .filter(|order| order.is_required)
+                .collect();
+            let optional: Vec<_> = team
+                .work_orders
+                .iter()
+                .filter(|order| !order.is_required)
+                .collect();
+            assert_eq!(required.len(), 1, "required minUnits stub: {required:?}");
+            assert_eq!(required[0].num_required, 1);
+            assert_eq!(optional.len(), 1, "optional max-min: {optional:?}");
+            assert_eq!(optional[0].num_required, 3);
+            assert!(
+                !team
+                    .work_orders
+                    .iter()
+                    .any(|order| order.is_required && order.num_required == 4),
+                "must not invent max-as-required work orders: {:?}",
+                team.work_orders
+                    .iter()
+                    .map(|order| (
+                        order.template_name.as_str(),
+                        order.num_required,
+                        order.is_required
+                    ))
+                    .collect::<Vec<_>>()
+            );
+            clear_player_team_prototypes();
+        },
     );
-    let mut ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
-    assert!(
-        ai.select_team_to_build(&mut logic, 0.0),
-        "auto-select must queue the leftover player prototype"
-    );
-    let team = ai.team_queue.front().expect("queued team");
-    assert_eq!(team.name, "HQ_MinMaxTeam");
-    let required: Vec<_> = team
-        .work_orders
-        .iter()
-        .filter(|order| order.is_required)
-        .collect();
-    let optional: Vec<_> = team
-        .work_orders
-        .iter()
-        .filter(|order| !order.is_required)
-        .collect();
-    assert_eq!(required.len(), 1, "required minUnits stub: {required:?}");
-    assert_eq!(required[0].num_required, 1);
-    assert_eq!(optional.len(), 1, "optional max-min: {optional:?}");
-    assert_eq!(optional[0].num_required, 3);
-    assert!(
-        !team
-            .work_orders
-            .iter()
-            .any(|order| order.is_required && order.num_required == 4),
-        "must not invent max-as-required work orders: {:?}",
-        team.work_orders
-            .iter()
-            .map(|order| (
-                order.template_name.as_str(),
-                order.num_required,
-                order.is_required
-            ))
-            .collect::<Vec<_>>()
-    );
-    clear_player_team_prototypes();
 }
 
 #[test]
 fn is_a_good_idea_does_not_reject_ready_queue_team() {
-    // C++ isAGoodIdeaToBuildTeam (AIPlayer.cpp:1487-1492) only walks
-    // iterate_TeamBuildQueue. A maxInstances>1 copy may start while the
-    // first sits idle in TeamReadyQueue (up to 60s force).
-    let mut logic = crate::game_logic::GameLogic::new();
-    let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
-    player.resources.supplies = 50_000;
-    player.set_can_build_units(true);
-    logic.add_player(player);
-    let mut ranger = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
-    ranger
-        .add_kind_of(crate::game_logic::KindOf::Infantry)
-        .set_cost(225, 0);
-    logic
-        .templates
-        .insert("AmericaInfantryRanger".into(), ranger);
-    let mut barracks = crate::game_logic::ThingTemplate::new("AmericaBarracks");
-    barracks
-        .add_kind_of(crate::game_logic::KindOf::Structure)
-        .add_kind_of(crate::game_logic::KindOf::FSBarracks)
-        .set_cost(500, 0);
-    logic.templates.insert("AmericaBarracks".into(), barracks);
-    let _ = logic.create_object("AmericaBarracks", Team::USA, Vec3::ZERO);
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "is_a_good_idea_does_not_reject_ready_queue_team",
+        || {
+            // C++ isAGoodIdeaToBuildTeam (AIPlayer.cpp:1487-1492) only walks
+            // iterate_TeamBuildQueue. A maxInstances>1 copy may start while the
+            // first sits idle in TeamReadyQueue (up to 60s force).
+            let mut logic = crate::game_logic::GameLogic::new();
+            let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+            player.resources.supplies = 50_000;
+            player.set_can_build_units(true);
+            logic.add_player(player);
+            let mut ranger = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
+            ranger
+                .add_kind_of(crate::game_logic::KindOf::Infantry)
+                .set_cost(225, 0);
+            logic
+                .templates
+                .insert("AmericaInfantryRanger".into(), ranger);
+            let mut barracks = crate::game_logic::ThingTemplate::new("AmericaBarracks");
+            barracks
+                .add_kind_of(crate::game_logic::KindOf::Structure)
+                .add_kind_of(crate::game_logic::KindOf::FSBarracks)
+                .set_cost(500, 0);
+            logic.templates.insert("AmericaBarracks".into(), barracks);
+            let _ = logic.create_object("AmericaBarracks", Team::USA, Vec3::ZERO);
 
-    install_player_team_prototype(
-        &logic,
-        1,
-        "HQ_Auf59_ReadyOk",
-        &[(1, 1, "AmericaInfantryRanger")],
-        20,
-    );
-    let mut ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
-    ai.team_ready_queue.push_back(AITeamQueue::new(
-        "HQ_Auf59_ReadyOk".into(),
-        vec![AIWorkOrder::new("AmericaInfantryRanger".into(), 1, 20)],
-        false,
-        0,
-    ));
-    assert!(
-        ai.is_a_good_idea_to_build_team(&logic, "HQ_Auf59_ReadyOk"),
-        "ready-queue copy must not veto a second maxInstances>1 start"
-    );
+            install_player_team_prototype(
+                &logic,
+                1,
+                "HQ_Auf59_ReadyOk",
+                &[(1, 1, "AmericaInfantryRanger")],
+                20,
+            );
+            let mut ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
+            ai.team_ready_queue.push_back(AITeamQueue::new(
+                "HQ_Auf59_ReadyOk".into(),
+                vec![AIWorkOrder::new("AmericaInfantryRanger".into(), 1, 20)],
+                false,
+                0,
+            ));
+            assert!(
+                ai.is_a_good_idea_to_build_team(&logic, "HQ_Auf59_ReadyOk"),
+                "ready-queue copy must not veto a second maxInstances>1 start"
+            );
 
-    ai.team_queue.push_back(AITeamQueue::new(
-        "HQ_Auf59_ReadyOk".into(),
-        vec![AIWorkOrder::new("AmericaInfantryRanger".into(), 1, 20)],
-        false,
-        0,
-    ));
-    assert!(
-        !ai.is_a_good_idea_to_build_team(&logic, "HQ_Auf59_ReadyOk"),
-        "TeamBuildQueue still vetoes a prototype already under construction"
+            ai.team_queue.push_back(AITeamQueue::new(
+                "HQ_Auf59_ReadyOk".into(),
+                vec![AIWorkOrder::new("AmericaInfantryRanger".into(), 1, 20)],
+                false,
+                0,
+            ));
+            assert!(
+                !ai.is_a_good_idea_to_build_team(&logic, "HQ_Auf59_ReadyOk"),
+                "TeamBuildQueue still vetoes a prototype already under construction"
+            );
+            clear_player_team_prototypes();
+        },
     );
-    clear_player_team_prototypes();
 }
 
 #[test]
@@ -3199,54 +3211,66 @@ fn do_upgrades_and_skills_skips_first_two_frames_like_cpp() {
 
 #[test]
 fn non_skirmish_ai_skillset_defaults_to_skillset1() {
-    // C++ AIPlayer.cpp:2944-2948 — isSkirmishAI() false → selector 0.
-    install_leftover_computer_player(1, false);
-    let mut logic = crate::game_logic::GameLogic::new();
-    logic.frame = 2;
-    let mut player = crate::game_logic::Player::new(1, Team::China, "China AI", false);
-    player.science_purchase_points = 1;
-    logic.add_player(player);
-    let mut ai = AIPlayer::new(1, Team::China, AIDifficulty::Medium);
-    assert!(!ai.leftover_is_skirmish_ai());
-    ai.try_purchase_skillset_science(&mut logic);
-    assert_eq!(ai.skillset_selector, 0);
-    assert_eq!(ai.side_skillsets()[0][0], "SCIENCE_NukeLauncher");
-    clear_player_team_prototypes();
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "non_skirmish_ai_skillset_defaults_to_skillset1",
+        || {
+            // C++ AIPlayer.cpp:2944-2948 — isSkirmishAI() false → selector 0.
+            install_leftover_computer_player(1, false);
+            let mut logic = crate::game_logic::GameLogic::new();
+            logic.frame = 2;
+            let mut player = crate::game_logic::Player::new(1, Team::China, "China AI", false);
+            player.science_purchase_points = 1;
+            logic.add_player(player);
+            let mut ai = AIPlayer::new(1, Team::China, AIDifficulty::Medium);
+            assert!(!ai.leftover_is_skirmish_ai());
+            ai.try_purchase_skillset_science(&mut logic);
+            assert_eq!(ai.skillset_selector, 0);
+            assert_eq!(ai.side_skillsets()[0][0], "SCIENCE_NukeLauncher");
+            clear_player_team_prototypes();
+        },
+    );
 }
 
 #[test]
 fn skirmish_ai_skillset_randomizes_like_cpp() {
-    // C++ AIPlayer.cpp:2944-2945 — isSkirmishAI() true → GameLogicRandomValue(0, limit).
-    install_leftover_computer_player(1, true);
-    let mut logic = crate::game_logic::GameLogic::new();
-    logic.frame = 2;
-    let mut player = crate::game_logic::Player::new(1, Team::China, "China AI", false);
-    player.science_purchase_points = 1;
-    logic.add_player(player);
-    let mut ai = AIPlayer::new(1, Team::China, AIDifficulty::Medium);
-    assert!(ai.leftover_is_skirmish_ai());
-    let sets = ai.live_side_skillsets(&logic);
-    let mut limit = 0i32;
-    if !sets[1].is_empty() {
-        limit = 1;
-        if !sets[2].is_empty() {
-            limit = 2;
-            if !sets[3].is_empty() {
-                limit = 3;
-                if !sets[4].is_empty() {
-                    limit = 4;
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "skirmish_ai_skillset_randomizes_like_cpp",
+        || {
+            // C++ AIPlayer.cpp:2944-2945 — isSkirmishAI() true → GameLogicRandomValue(0, limit).
+            install_leftover_computer_player(1, true);
+            let mut logic = crate::game_logic::GameLogic::new();
+            logic.frame = 2;
+            let mut player = crate::game_logic::Player::new(1, Team::China, "China AI", false);
+            player.science_purchase_points = 1;
+            logic.add_player(player);
+            let mut ai = AIPlayer::new(1, Team::China, AIDifficulty::Medium);
+            assert!(ai.leftover_is_skirmish_ai());
+            let sets = ai.live_side_skillsets(&logic);
+            let mut limit = 0i32;
+            if !sets[1].is_empty() {
+                limit = 1;
+                if !sets[2].is_empty() {
+                    limit = 2;
+                    if !sets[3].is_empty() {
+                        limit = 3;
+                        if !sets[4].is_empty() {
+                            limit = 4;
+                        }
+                    }
                 }
             }
-        }
-    }
-    let mut probe = crate::game_logic::host_rng_residual::HostRandomState::seeded(
-        1u32.wrapping_add(0xA17A_0001),
+            let mut probe = crate::game_logic::host_rng_residual::HostRandomState::seeded(
+                1u32.wrapping_add(0xA17A_0001),
+            );
+            let expected = probe.next_int(0, limit);
+            ai.try_purchase_skillset_science(&mut logic);
+            assert_eq!(ai.skillset_selector, expected);
+            assert!((0..=limit).contains(&ai.skillset_selector));
+            clear_player_team_prototypes();
+        },
     );
-    let expected = probe.next_int(0, limit);
-    ai.try_purchase_skillset_science(&mut logic);
-    assert_eq!(ai.skillset_selector, expected);
-    assert!((0..=limit).contains(&ai.skillset_selector));
-    clear_player_team_prototypes();
 }
 
 #[test]

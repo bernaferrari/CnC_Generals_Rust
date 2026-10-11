@@ -2,6 +2,26 @@ use crate::weapon_visual_dispatch::FrozenWeaponVisualDispatchPlan;
 use crate::{CombatParticleKind, ObjectId, Team};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
+/// Runtime identity shared by one match's immutable movement observations.
+/// It is never serialized and has no mutable or process-global state.
+#[derive(Debug, Clone)]
+pub struct MovementSessionId(Arc<()>);
+
+impl Default for MovementSessionId {
+    fn default() -> Self {
+        Self(Arc::new(()))
+    }
+}
+
+impl PartialEq for MovementSessionId {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for MovementSessionId {}
 
 /// Ordered gameplay event for audio/FX/UI (presentation side only).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -36,6 +56,10 @@ pub enum PresentationEvent {
     MoveOrdered {
         unit: ObjectId,
         destination: [f32; 3],
+        #[serde(skip)]
+        session: MovementSessionId,
+        logic_frame: u32,
+        sequence: u64,
     },
     DamageApplied {
         target: ObjectId,

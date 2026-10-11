@@ -4,180 +4,186 @@ use super::*;
 
 #[test]
 fn skirmish_queues_a_selected_team_without_waiting_for_team_seconds() {
-    // Retail `AISkirmishPlayer::doTeamBuilding` first services existing
-    // work orders and, after `selectTeamToBuild`, calls `queueUnits` again
-    // in that same pass.  A normal USA AI therefore starts its Ranger and
-    // Humvee immediately when both real factories are idle; waiting until
-    // the next 10-second TeamSeconds window makes the early skirmish AI
-    // visibly inert.
-    let mut logic = crate::game_logic::GameLogic::new();
-    let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
-    // C++ Energy.cpp:61-62 — a player with no authored power plants has
-    // production=0/consumption=0, which is ratio 1.0 (no low-power penalty).
-    // The host recomputes power only in update_player_resources, after the
-    // production tick, so the fixture seeds the same powered state directly.
-    player.power_produced = 10;
-    player.power_consumed = 0;
-    // C++ arms m_teamTimer from live money (AIPlayer.cpp:1702-1706): the
-    // wealthy/poor rate divisors fire on the post-queue balance.  Seed a
-    // mid-range balance (queued units cost 925) so it lands between
-    // ResourcesPoor (2000) and ResourcesWealthy (7000) and the unmodified
-    // TeamSeconds interval is observable.
-    player.resources.supplies = 4_000;
-    logic.add_player(player);
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "skirmish_queues_a_selected_team_without_waiting_for_team_seconds",
+        || {
+            // Retail `AISkirmishPlayer::doTeamBuilding` first services existing
+            // work orders and, after `selectTeamToBuild`, calls `queueUnits` again
+            // in that same pass.  A normal USA AI therefore starts its Ranger and
+            // Humvee immediately when both real factories are idle; waiting until
+            // the next 10-second TeamSeconds window makes the early skirmish AI
+            // visibly inert.
+            let mut logic = crate::game_logic::GameLogic::new();
+            let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+            // C++ Energy.cpp:61-62 — a player with no authored power plants has
+            // production=0/consumption=0, which is ratio 1.0 (no low-power penalty).
+            // The host recomputes power only in update_player_resources, after the
+            // production tick, so the fixture seeds the same powered state directly.
+            player.power_produced = 10;
+            player.power_consumed = 0;
+            // C++ arms m_teamTimer from live money (AIPlayer.cpp:1702-1706): the
+            // wealthy/poor rate divisors fire on the post-queue balance.  Seed a
+            // mid-range balance (queued units cost 925) so it lands between
+            // ResourcesPoor (2000) and ResourcesWealthy (7000) and the unmodified
+            // TeamSeconds interval is observable.
+            player.resources.supplies = 4_000;
+            logic.add_player(player);
 
-    let mut barracks = crate::game_logic::ThingTemplate::new("AmericaBarracks");
-    barracks
-        .add_kind_of(crate::game_logic::KindOf::Structure)
-        .add_kind_of(crate::game_logic::KindOf::FSBarracks)
-        .set_cost(500, 0);
-    logic.templates.insert("AmericaBarracks".into(), barracks);
+            let mut barracks = crate::game_logic::ThingTemplate::new("AmericaBarracks");
+            barracks
+                .add_kind_of(crate::game_logic::KindOf::Structure)
+                .add_kind_of(crate::game_logic::KindOf::FSBarracks)
+                .set_cost(500, 0);
+            logic.templates.insert("AmericaBarracks".into(), barracks);
 
-    let mut war_factory = crate::game_logic::ThingTemplate::new("AmericaWarFactory");
-    war_factory
-        .add_kind_of(crate::game_logic::KindOf::Structure)
-        .add_kind_of(crate::game_logic::KindOf::FSWarFactory)
-        .set_cost(1_000, 0);
-    logic
-        .templates
-        .insert("AmericaWarFactory".into(), war_factory);
+            let mut war_factory = crate::game_logic::ThingTemplate::new("AmericaWarFactory");
+            war_factory
+                .add_kind_of(crate::game_logic::KindOf::Structure)
+                .add_kind_of(crate::game_logic::KindOf::FSWarFactory)
+                .set_cost(1_000, 0);
+            logic
+                .templates
+                .insert("AmericaWarFactory".into(), war_factory);
 
-    let mut ranger = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
-    ranger
-        .add_kind_of(crate::game_logic::KindOf::Infantry)
-        .set_cost(225, 0);
-    // Complete on the next real fixed production frame so the test covers
-    // the same producer_id handoff that the live skirmish path uses.
-    ranger.build_time = 1.0 / 60.0;
-    logic
-        .templates
-        .insert("AmericaInfantryRanger".into(), ranger);
+            let mut ranger = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
+            ranger
+                .add_kind_of(crate::game_logic::KindOf::Infantry)
+                .set_cost(225, 0);
+            // Complete on the next real fixed production frame so the test covers
+            // the same producer_id handoff that the live skirmish path uses.
+            ranger.build_time = 1.0 / 60.0;
+            logic
+                .templates
+                .insert("AmericaInfantryRanger".into(), ranger);
 
-    let mut humvee = crate::game_logic::ThingTemplate::new("AmericaVehicleHumvee");
-    humvee
-        .add_kind_of(crate::game_logic::KindOf::Vehicle)
-        .set_cost(700, 0);
-    logic
-        .templates
-        .insert("AmericaVehicleHumvee".into(), humvee);
+            let mut humvee = crate::game_logic::ThingTemplate::new("AmericaVehicleHumvee");
+            humvee
+                .add_kind_of(crate::game_logic::KindOf::Vehicle)
+                .set_cost(700, 0);
+            logic
+                .templates
+                .insert("AmericaVehicleHumvee".into(), humvee);
 
-    let barracks_id = logic
-        .create_object("AmericaBarracks", Team::USA, Vec3::ZERO)
-        .expect("constructed barracks");
-    let war_factory_id = logic
-        .create_object("AmericaWarFactory", Team::USA, Vec3::new(64.0, 0.0, 0.0))
-        .expect("constructed war factory");
-    install_player_team_prototype(
-        &logic,
-        1,
-        "USA_BasicForce",
-        &[
-            (2, 2, "AmericaInfantryRanger"),
-            (1, 1, "AmericaVehicleHumvee"),
-        ],
-        10,
+            let barracks_id = logic
+                .create_object("AmericaBarracks", Team::USA, Vec3::ZERO)
+                .expect("constructed barracks");
+            let war_factory_id = logic
+                .create_object("AmericaWarFactory", Team::USA, Vec3::new(64.0, 0.0, 0.0))
+                .expect("constructed war factory");
+            install_player_team_prototype(
+                &logic,
+                1,
+                "USA_BasicForce",
+                &[
+                    (2, 2, "AmericaInfantryRanger"),
+                    (1, 1, "AmericaVehicleHumvee"),
+                ],
+                10,
+            );
+
+            let mut ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
+            ai.update_military_management(&mut logic, 0.0);
+
+            assert_eq!(ai.team_queue.len(), 1, "the selected team is retained");
+            assert_eq!(
+                logic
+                    .host_object(barracks_id)
+                    .and_then(|object| object.building_data.as_ref())
+                    .map(|building| building.production_queue.len()),
+                Some(1),
+                "the selected team's first Ranger is queued in the same AI pass"
+            );
+            assert_eq!(
+                logic
+                    .host_object(war_factory_id)
+                    .and_then(|object| object.building_data.as_ref())
+                    .map(|building| building.production_queue.len()),
+                Some(1),
+                "the selected team's Humvee is queued in the same AI pass"
+            );
+            // C++ arms m_teamTimer from live money (AIPlayer.cpp:1702-1706): the
+            // wealthy/poor rate divisors fire on the post-queue balance.  Seed a
+            // mid-range balance so the queued 925 cost lands between ResourcesPoor
+            // (2000) and ResourcesWealthy (7000) and the unmodified TeamSeconds
+            // interval is observable.
+            assert!(
+                (ai.next_team_time - AIPlayer::TEAM_SECONDS).abs() < f32::EPSILON,
+                "a successful selection starts the longer TeamSeconds timer"
+            );
+            assert!(
+                (ai.next_team_queue_time - AIPlayer::TEAM_QUEUE_RETRY_SECONDS).abs() < f32::EPSILON,
+                "unfinished work orders remain on the short queue cadence"
+            );
+
+            // Let the actual production update create the Ranger and stamp its
+            // producer.  C++ onUnitProduced shortcuts m_teamDelay at this point;
+            // do not wait for the normal 2-second queue poll before starting the
+            // second Ranger required by USA_BasicForce.  Retail AmericaBarracks
+            // authors a production door (NumDoorAnimations=1, ProductionUpdate.cpp:
+            // 746-776): the finished head starts OPENING on its completing frame and
+            // spawns only once that door reads WAITING_OPEN, so a couple of fixed
+            // logic frames are required before the producer-linked output exists.
+            // Production delivers synchronously to the AI owned by this match.
+            // Suppress its ordinary update here so this fixture can explicitly
+            // exercise the preexisting military scheduling assertions below.
+            ai.is_active = false;
+            logic.ai_manager.ai_players.insert(1, ai);
+            for _ in 0..3 {
+                logic.update_with_dt(1.0 / LOGIC_FRAMES_PER_SECOND);
+            }
+            let mut ai = logic
+                .ai_manager
+                .ai_players
+                .remove(&1)
+                .expect("receiving AI");
+            ai.is_active = true;
+            assert!(
+                logic.host_objects().values().any(|object| {
+                    object.team == Team::USA
+                        && object.producer_id == Some(barracks_id)
+                        && object
+                            .template_name
+                            .eq_ignore_ascii_case("AmericaInfantryRanger")
+                }),
+                "the host production path created a producer-linked Ranger"
+            );
+            let output_time = 1.0 / LOGIC_FRAMES_PER_SECOND;
+            ai.update_military_management(&mut logic, output_time);
+            let ranger_order = ai
+                .team_queue
+                .front()
+                .and_then(|team| {
+                    team.work_orders
+                        .iter()
+                        .find(|order| order.template_name == "AmericaInfantryRanger")
+                })
+                .expect("BasicForce Ranger work order remains active");
+            assert_eq!(ranger_order.num_completed, 1);
+            assert_eq!(ranger_order.queued_count, 1);
+            assert_eq!(ranger_order.factory_id, Some(barracks_id));
+            assert_eq!(
+                logic
+                    .host_object(barracks_id)
+                    .and_then(|object| object.building_data.as_ref())
+                    .map(|building| building.production_queue.len()),
+                Some(1),
+                "live output requeues the next Ranger before the normal poll delay"
+            );
+
+            // No second team and no duplicate order before m_teamDelay expires.
+            ai.update_military_management(&mut logic, 1.9);
+            assert_eq!(ai.team_queue.len(), 1);
+            assert_eq!(
+                logic
+                    .host_object(barracks_id)
+                    .and_then(|object| object.building_data.as_ref())
+                    .map(|building| building.production_queue.len()),
+                Some(1)
+            );
+            clear_player_team_prototypes();
+        },
     );
-
-    let mut ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
-    ai.update_military_management(&mut logic, 0.0);
-
-    assert_eq!(ai.team_queue.len(), 1, "the selected team is retained");
-    assert_eq!(
-        logic
-            .host_object(barracks_id)
-            .and_then(|object| object.building_data.as_ref())
-            .map(|building| building.production_queue.len()),
-        Some(1),
-        "the selected team's first Ranger is queued in the same AI pass"
-    );
-    assert_eq!(
-        logic
-            .host_object(war_factory_id)
-            .and_then(|object| object.building_data.as_ref())
-            .map(|building| building.production_queue.len()),
-        Some(1),
-        "the selected team's Humvee is queued in the same AI pass"
-    );
-    // C++ arms m_teamTimer from live money (AIPlayer.cpp:1702-1706): the
-    // wealthy/poor rate divisors fire on the post-queue balance.  Seed a
-    // mid-range balance so the queued 925 cost lands between ResourcesPoor
-    // (2000) and ResourcesWealthy (7000) and the unmodified TeamSeconds
-    // interval is observable.
-    assert!(
-        (ai.next_team_time - AIPlayer::TEAM_SECONDS).abs() < f32::EPSILON,
-        "a successful selection starts the longer TeamSeconds timer"
-    );
-    assert!(
-        (ai.next_team_queue_time - AIPlayer::TEAM_QUEUE_RETRY_SECONDS).abs() < f32::EPSILON,
-        "unfinished work orders remain on the short queue cadence"
-    );
-
-    // Let the actual production update create the Ranger and stamp its
-    // producer.  C++ onUnitProduced shortcuts m_teamDelay at this point;
-    // do not wait for the normal 2-second queue poll before starting the
-    // second Ranger required by USA_BasicForce.  Retail AmericaBarracks
-    // authors a production door (NumDoorAnimations=1, ProductionUpdate.cpp:
-    // 746-776): the finished head starts OPENING on its completing frame and
-    // spawns only once that door reads WAITING_OPEN, so a couple of fixed
-    // logic frames are required before the producer-linked output exists.
-    // Production delivers synchronously to the AI owned by this match.
-    // Suppress its ordinary update here so this fixture can explicitly
-    // exercise the preexisting military scheduling assertions below.
-    ai.is_active = false;
-    logic.ai_manager.ai_players.insert(1, ai);
-    for _ in 0..3 {
-        logic.update_with_dt(1.0 / LOGIC_FRAMES_PER_SECOND);
-    }
-    let mut ai = logic
-        .ai_manager
-        .ai_players
-        .remove(&1)
-        .expect("receiving AI");
-    ai.is_active = true;
-    assert!(
-        logic.host_objects().values().any(|object| {
-            object.team == Team::USA
-                && object.producer_id == Some(barracks_id)
-                && object
-                    .template_name
-                    .eq_ignore_ascii_case("AmericaInfantryRanger")
-        }),
-        "the host production path created a producer-linked Ranger"
-    );
-    let output_time = 1.0 / LOGIC_FRAMES_PER_SECOND;
-    ai.update_military_management(&mut logic, output_time);
-    let ranger_order = ai
-        .team_queue
-        .front()
-        .and_then(|team| {
-            team.work_orders
-                .iter()
-                .find(|order| order.template_name == "AmericaInfantryRanger")
-        })
-        .expect("BasicForce Ranger work order remains active");
-    assert_eq!(ranger_order.num_completed, 1);
-    assert_eq!(ranger_order.queued_count, 1);
-    assert_eq!(ranger_order.factory_id, Some(barracks_id));
-    assert_eq!(
-        logic
-            .host_object(barracks_id)
-            .and_then(|object| object.building_data.as_ref())
-            .map(|building| building.production_queue.len()),
-        Some(1),
-        "live output requeues the next Ranger before the normal poll delay"
-    );
-
-    // No second team and no duplicate order before m_teamDelay expires.
-    ai.update_military_management(&mut logic, 1.9);
-    assert_eq!(ai.team_queue.len(), 1);
-    assert_eq!(
-        logic
-            .host_object(barracks_id)
-            .and_then(|object| object.building_data.as_ref())
-            .map(|building| building.production_queue.len()),
-        Some(1)
-    );
-    clear_player_team_prototypes();
 }
 
 #[test]

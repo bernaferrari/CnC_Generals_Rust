@@ -562,10 +562,10 @@ fn camera_mod_freeze_time_blocks_simulation_movement_updates() {
         .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("baseline unit should be created");
     {
-        let obj = baseline
-            .host_object_mut(baseline_unit)
+        let (obj, mut movement_events) = baseline
+            .host_object_and_movement_events_mut(baseline_unit)
             .expect("baseline unit should exist");
-        obj.move_to(Vec3::new(120.0, 0.0, 0.0));
+        obj.move_to(Vec3::new(120.0, 0.0, 0.0), &mut movement_events);
         obj.movement.max_speed = 60.0;
         obj.movement.acceleration = 3600.0;
     }
@@ -590,10 +590,10 @@ fn camera_mod_freeze_time_blocks_simulation_movement_updates() {
         .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("frozen unit should be created");
     {
-        let obj = frozen
-            .host_object_mut(frozen_unit)
+        let (obj, mut movement_events) = frozen
+            .host_object_and_movement_events_mut(frozen_unit)
             .expect("frozen unit should exist");
-        obj.move_to(Vec3::new(120.0, 0.0, 0.0));
+        obj.move_to(Vec3::new(120.0, 0.0, 0.0), &mut movement_events);
         obj.movement.max_speed = 60.0;
         obj.movement.acceleration = 3600.0;
     }

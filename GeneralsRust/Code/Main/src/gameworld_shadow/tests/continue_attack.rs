@@ -800,17 +800,16 @@ fn mood_auto_acquire_logs_decision_under_authority() {
         // raw fixture, so stamp the retail precondition: the enemy in front of
         // the start units is shroud-clear for the owning local player.
         if let Some(pid) = logic.player_id_for_team(Team::USA) {
-            if let Some(mgr) = gamelogic::system::shroud_manager::get_shroud_manager()
+            logic
+                .world_services
+                .shroud()
                 .lock()
-                .ok()
-                .as_mut()
-            {
-                mgr.set_host_object_shroud_status(
+                .expect("fixture world shroud must be available")
+                .set_host_object_shroud_status(
                     pid,
                     vid.0,
                     gamelogic::common::ObjectShroudStatus::Clear,
                 );
-            }
         }
         let o = logic.host_object_mut(oid).expect("o");
         // Mood auto-acquire is an IDLE-state scan (mood.rs:601 eligible gate);

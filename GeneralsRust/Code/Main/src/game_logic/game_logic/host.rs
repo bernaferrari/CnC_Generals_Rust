@@ -10,6 +10,9 @@ use super::script_camera::*;
 use super::*;
 
 pub struct GameLogic {
+    /// Ordered movement observations and completed frame output for this match.
+    pub(crate) movement_events: crate::game_logic::movement_events::MovementEvents,
+
     /// Ordered health transport and presentation receipts for this world.
     pub(crate) health_events: crate::game_logic::HostHealthEvents,
 

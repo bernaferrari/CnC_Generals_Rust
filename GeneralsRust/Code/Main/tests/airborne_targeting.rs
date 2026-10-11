@@ -330,9 +330,10 @@ fn live_case(token: &str, height: f32, initial: bool) {
         assert!(!host.worker_ai_update);
         assert!(!host.stick_to_ground);
         host.status.airborne_target = initial;
-        host.move_to(Vec3::new(1000.0, height, 0.0));
-        assert!(host.movement.target_position.is_some());
     }
+    assert!(game.move_object_to(id, Vec3::new(1000.0, height, 0.0)));
+    let host = game.host_object(id).unwrap();
+    assert!(host.movement.target_position.is_some());
     let tick = game.update_with_dt(DT);
     assert_eq!((tick.frame, tick.steps_run), (2, 1));
     assert!(!tick.budget_hit);

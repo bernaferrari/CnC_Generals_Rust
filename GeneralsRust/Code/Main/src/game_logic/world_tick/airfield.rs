@@ -673,7 +673,8 @@ impl GameLogic {
             jet.movement.current_path_index = 0;
             jet.set_locomotor_goal_position_explicit(path[0]);
             if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                crate::game_logic::host_move_log::record(
+                self.movement_events.record(
+                    self.frame,
                     jet_id,
                     Some([path[0].x, path[0].y, path[0].z]),
                 );
@@ -761,7 +762,8 @@ impl GameLogic {
             if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_set_state(jet_id, 12);
                 let pos = jet.get_position();
-                crate::game_logic::host_move_log::record(jet_id, Some([pos.x, pos.y, pos.z]));
+                self.movement_events
+                    .record(self.frame, jet_id, Some([pos.x, pos.y, pos.z]));
                 jet.record_host_movement();
             }
             jet.begin_parked_airfield_rearm(self.frame);
@@ -1119,10 +1121,8 @@ impl GameLogic {
                 }
                 jet.set_position(heli);
                 if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                    crate::game_logic::host_move_log::record(
-                        jet_id,
-                        Some([heli.x, heli.y, heli.z]),
-                    );
+                    self.movement_events
+                        .record(self.frame, jet_id, Some([heli.x, heli.y, heli.z]));
                     jet.record_host_movement();
                 }
             }
@@ -1852,7 +1852,8 @@ impl GameLogic {
         jet.apply_taxiing_locomotor_set_for_surfaces(taxi_surfaces);
         jet.movement.path.clear();
         if crate::gameworld_shadow::gameworld_movement_authority_live() {
-            crate::game_logic::host_move_log::record(
+            self.movement_events.record(
+                self.frame,
                 jet_id,
                 Some([
                     info.hangar_internal.x,
@@ -2965,7 +2966,8 @@ impl GameLogic {
             jet.return_to_base_requested = false;
             if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_set_state(jet_id, 12);
-                crate::game_logic::host_move_log::record(jet_id, Some([pad.x, pad.y, pad.z]));
+                self.movement_events
+                    .record(self.frame, jet_id, Some([pad.x, pad.y, pad.z]));
                 jet.record_host_movement();
             }
             jet.begin_parked_airfield_rearm(self.frame);

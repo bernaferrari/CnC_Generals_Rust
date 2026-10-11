@@ -124,16 +124,108 @@ fn ordinary_boundary_admits_owned_damage_and_removes_dead_objects_before_next_fr
 }
 
 fn ordinary_boundary_preserves_actual_move_commands_for_presentation_case() {
+    use crate::presentation_frame::{PresentationEvent, PresentationFrame};
     let (mut logic, id, mut shadow) = fixture("OwnedFrameMove", 100.0);
-    let destination = Vec3::new(23.0, 0.0, 24.0);
-    logic.host_object_mut(id).unwrap().move_to(destination);
+    let (mut other, other_id, mut other_shadow) = fixture("OtherFrameMove", 100.0);
+    assert_eq!(id, other_id, "numeric object IDs deliberately collide");
+    let session = logic.movement_events.session().clone();
+    let other_session = other.movement_events.session().clone();
+    assert_ne!(session, other_session);
+
+    let first = Vec3::new(23.0, 0.0, 24.0);
+    assert!(logic.append_unit_waypoint(id, first));
     advance_owned(&mut logic, Some(&mut shadow));
-    let events = crate::game_logic::host_move_log::last_drain_snapshot();
+    let first_completed = logic.movement_events.snapshot_completed().to_vec();
     assert!(
-        events
+        first_completed
             .iter()
-            .any(|event| { event.unit == id && event.destination == Some(destination.to_array()) }),
-        "the actual command must reach PresentationFrame's LAST_DRAIN transport"
+            .any(|event| { event.unit == id && event.destination == Some(first.to_array()) }),
+        "the real path command must reach completed frame output"
+    );
+
+    let second = Vec3::new(43.0, 0.0, 44.0);
+    let foreign = Vec3::new(83.0, 0.0, 84.0);
+    assert!(logic.append_unit_waypoint(id, second));
+    assert!(other.append_unit_waypoint(other_id, foreign));
+    let pending = logic.movement_events.snapshot_pending().to_vec();
+    // Constructing, resetting and dropping another world cannot clear this one.
+    let mut reset_world = GameLogic::new();
+    reset_world.reset();
+    drop(reset_world);
+    advance_owned(&mut other, Some(&mut other_shadow));
+    assert_eq!(logic.movement_events.snapshot_pending(), pending);
+    advance_owned(&mut logic, Some(&mut shadow));
+    let completed = logic.movement_events.snapshot_completed().to_vec();
+    assert!(
+        completed.starts_with(&first_completed),
+        "the next nonempty fixed step must retain all prior observations"
+    );
+    assert!(
+        completed
+            .iter()
+            .any(|event| { event.unit == id && event.destination == Some(second.to_array()) })
+    );
+    assert!(completed.iter().all(|event| event.session == session));
+    assert!(
+        completed
+            .windows(2)
+            .all(|pair| pair[0].sequence < pair[1].sequence)
+    );
+    assert!(completed.iter().any(|event| event.logic_frame == 0));
+    assert!(completed.iter().any(|event| event.logic_frame == 1));
+
+    let foreign_frame = PresentationFrame::build_from_logic(&mut other, 0);
+    assert!(foreign_frame.events.iter().any(|event| matches!(event,
+        PresentationEvent::MoveOrdered { session, destination, .. }
+            if *session == other_session && *destination == foreign.to_array()
+    )));
+    assert_eq!(logic.movement_events.snapshot_completed(), completed);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
+    let frozen: Vec<_> = frame
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            PresentationEvent::MoveOrdered {
+                unit,
+                destination,
+                session,
+                logic_frame,
+                sequence,
+            } => Some((
+                *unit,
+                *destination,
+                session.clone(),
+                *logic_frame,
+                *sequence,
+            )),
+            _ => None,
+        })
+        .collect();
+    let expected: Vec<_> = completed
+        .iter()
+        .filter_map(|event| {
+            event.destination.map(|destination| {
+                (
+                    event.unit,
+                    destination,
+                    event.session.clone(),
+                    event.logic_frame,
+                    event.sequence,
+                )
+            })
+        })
+        .collect();
+    assert_eq!(
+        frozen, expected,
+        "publication must preserve producing frame and FIFO receipts"
+    );
+    let next = PresentationFrame::build_from_logic(&mut logic, 0);
+    assert!(
+        !next
+            .events
+            .iter()
+            .any(|event| matches!(event, PresentationEvent::MoveOrdered { .. })),
+        "completed movement is consumed exactly once"
     );
 }
 

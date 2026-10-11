@@ -271,8 +271,10 @@ impl AIPlayer {
                     unit.requested_destination = Some(enemy_base);
                 }
             } else {
-                if let Some(unit) = game_logic.host_object_mut(unit_id) {
-                    unit.move_to(enemy_base);
+                if let Some((unit, mut movement_events)) =
+                    game_logic.host_object_and_movement_events_mut(unit_id)
+                {
+                    unit.move_to(enemy_base, &mut movement_events);
                     unit.is_attack_path = true;
                     unit.requested_destination = Some(enemy_base);
                 }

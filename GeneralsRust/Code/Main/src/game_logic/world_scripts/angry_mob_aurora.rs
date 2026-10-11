@@ -1460,7 +1460,7 @@ impl GameLogic {
                     None => true,
                 };
                 if retarget {
-                    o.set_destination(pos);
+                    o.set_destination(pos, &mut self.movement_events.writer(self.frame));
                 }
             }
         }
@@ -2416,7 +2416,10 @@ mod spawn_behavior_parity {
         assert!(nexus.can_move(), "nexus locomotor/AI accepts move orders");
         drop(nexus);
         if let Some(n) = logic.objects.get_mut(&nid) {
-            n.set_destination(glam::Vec3::new(80.0, 0.0, 0.0));
+            n.set_destination(
+                glam::Vec3::new(80.0, 0.0, 0.0),
+                &mut logic.movement_events.writer(logic.frame),
+            );
         }
         assert_eq!(
             logic

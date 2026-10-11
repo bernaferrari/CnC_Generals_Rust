@@ -2,6 +2,28 @@
 
 use super::*;
 
+// These are source-policy checks; line wrapping must not change their result.
+fn records_owned_movement(source: &str) -> bool {
+    source
+        .split_whitespace()
+        .collect::<String>()
+        .contains("movement_events.record(")
+}
+
+#[test]
+fn owned_movement_source_check_ignores_line_wrapping() {
+    assert!(records_owned_movement(
+        "self.movement_events.record(id, destination);"
+    ));
+    assert!(records_owned_movement(
+        "self.movement_events\n    .record(id, destination);"
+    ));
+    assert!(!records_owned_movement(
+        "host_move_log::record(id, destination);"
+    ));
+    assert!(!records_owned_movement("self.movement_events.clear();"));
+}
+
 #[test]
 fn angry_mob_pdl_damage_source_authority_source() {
     let src = GAME_LOGIC_HOST_SRC;
@@ -797,7 +819,7 @@ fn suicide_consume_destroy_damage_authority_source() {
         .expect("host_apply_production_spawn_ready_completions");
     let w = &src[i..src.len().min(i + 12000)];
     assert!(
-        w.contains("gameworld_movement_authority") && w.contains("host_move_log::record"),
+        w.contains("gameworld_movement_authority") && records_owned_movement(w),
         "factory exit spawn pose must honor movement authority logging"
     );
 }
@@ -812,7 +834,7 @@ fn parachute_freefall_movement_authority_source() {
     assert!(
         eject_body.contains("host_ground_height_log::record")
             && eject_body.contains("gameworld_movement_authority")
-            && eject_body.contains("host_move_log::record"),
+            && records_owned_movement(eject_body),
         "eject freefall must log ground height + landing move under movement authority"
     );
     let crate_i = src
@@ -829,8 +851,7 @@ fn parachute_freefall_movement_authority_source() {
         .expect("sell residual");
     let sell_body = &src[sell..src.len().min(sell + 6000)];
     assert!(
-        sell_body.contains("host_move_log::record")
-            && sell_body.contains("gameworld_movement_authority"),
+        records_owned_movement(sell_body) && sell_body.contains("gameworld_movement_authority"),
         "sell eject dump must log move dest under movement authority"
     );
     let hijack = src
@@ -839,7 +860,7 @@ fn parachute_freefall_movement_authority_source() {
     let hijack_body = &src[hijack..src.len().min(hijack + 4000)];
     assert!(
         hijack_body.contains("host_ground_height_log::record")
-            && hijack_body.contains("host_move_log::record"),
+            && records_owned_movement(hijack_body),
         "hijacker airborne put must log ground/move under authority"
     );
 }
@@ -871,7 +892,7 @@ fn map_ground_support_pose_movement_authority_source() {
     assert!(
         ground_body.contains("host_ground_height_log::record")
             && ground_body.contains("gameworld_movement_authority")
-            && ground_body.contains("host_move_log::record"),
+            && records_owned_movement(ground_body),
         "map object terrain grounding must log ground height + move under movement authority"
     );
     let support = src
@@ -888,7 +909,7 @@ fn map_ground_support_pose_movement_authority_source() {
     let support_body = &src[support..support_end];
     assert!(
         support_body.contains("set_position(container_pos)")
-            && support_body.contains("host_move_log::record")
+            && records_owned_movement(support_body)
             && support_body.contains("host_ground_height_log::record")
             && support_body.contains("gameworld_movement_authority"),
         "contained support pose sync must log ground/move under authority"
@@ -900,7 +921,7 @@ fn map_ground_support_pose_movement_authority_source() {
     assert!(
         bldg_body.contains("evacuate_container_now")
             && bldg_body.contains("gameworld_movement_authority")
-            && bldg_body.contains("host_move_log::record")
+            && records_owned_movement(bldg_body)
             && bldg_body.contains("record_stop_attack"),
         "ReallyDamaged garrison eject must walk via evacuate_container_now and log move/stop"
     );
@@ -975,7 +996,7 @@ fn payload_pose_movement_authority_source() {
             .unwrap_or_else(|| panic!("missing {name}"));
         let body = &src[at..src.len().min(at + 5000)];
         assert!(
-            body.contains("gameworld_movement_authority") && body.contains("host_move_log::record"),
+            body.contains("gameworld_movement_authority") && records_owned_movement(body),
             "{name} must log move dest under movement authority"
         );
     }
@@ -1002,7 +1023,7 @@ fn create_object_spawn_pose_movement_authority_source() {
             .unwrap_or_else(|| panic!("missing {name}"));
         let body = &src[at..src.len().min(at + window)];
         assert!(
-            body.contains("gameworld_movement_authority") && body.contains("host_move_log::record"),
+            body.contains("gameworld_movement_authority") && records_owned_movement(body),
             "{name} must log move dest under movement authority"
         );
     }

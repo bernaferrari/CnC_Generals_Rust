@@ -945,7 +945,10 @@ impl GameLogic {
                 // C++ SlavedUpdate.cpp:188-193 1ST PRIORITY: repair master.
                 if let Some(d) = self.objects.get_mut(&drone_id) {
                     let y = slave_follow_destination_y(d.get_position().y, mpos.y);
-                    d.set_destination(glam::Vec3::new(mpos.x, y, mpos.z));
+                    d.set_destination(
+                        glam::Vec3::new(mpos.x, y, mpos.z),
+                        &mut self.movement_events.writer(self.frame),
+                    );
                 }
                 continue;
             }
@@ -973,7 +976,10 @@ impl GameLogic {
             ) {
                 if let Some(d) = self.objects.get_mut(&drone_id) {
                     let y = slave_follow_destination_y(d.get_position().y, mpos.y);
-                    d.set_destination(glam::Vec3::new(goal.0, y, goal.1));
+                    d.set_destination(
+                        glam::Vec3::new(goal.0, y, goal.1),
+                        &mut self.movement_events.writer(self.frame),
+                    );
                 }
                 continue;
             }
@@ -982,7 +988,10 @@ impl GameLogic {
             if is_battle && battle_drone_should_idle_repair_master(true, master_hp_pct, true, 0.0) {
                 if let Some(d) = self.objects.get_mut(&drone_id) {
                     let y = slave_follow_destination_y(d.get_position().y, mpos.y);
-                    d.set_destination(glam::Vec3::new(mpos.x, y, mpos.z));
+                    d.set_destination(
+                        glam::Vec3::new(mpos.x, y, mpos.z),
+                        &mut self.movement_events.writer(self.frame),
+                    );
                 }
             }
         }

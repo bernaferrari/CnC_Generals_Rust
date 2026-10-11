@@ -125,7 +125,14 @@ fn install_phase(object: &mut Object, row: &[&str]) {
     object.wander_offset_increment = scalar(row[8]);
     object.wander_offset_increasing = row[10] == "1";
 }
-fn prepare_motion(object: &mut Object, row: &[&str], position: Vec3, goal_y: f32) -> Vec3 {
+fn prepare_motion(
+    game: &mut GameLogic,
+    id: ObjectId,
+    row: &[&str],
+    position: Vec3,
+    goal_y: f32,
+) -> Vec3 {
+    let object = game.host_object_mut(id).unwrap();
     object.set_position(position);
     object.set_orientation(scalar(row[5]));
     let velocity = Vec3::new(scalar(row[2]), scalar(row[3]), scalar(row[4]));
@@ -140,7 +147,9 @@ fn prepare_motion(object: &mut Object, row: &[&str], position: Vec3, goal_y: f32
         goal_y,
         position.z - goal.sin() * 1000.0,
     );
-    object.move_to(target);
+    // This immediate owned entry retains the oracle's velocity and empty path.
+    assert!(game.move_object_to(id, target));
+    let object = game.host_object(id).unwrap();
     assert_eq!(object.movement.target_position, Some(target));
     assert!(object.status.moving);
     close(
@@ -225,7 +234,8 @@ fn active_case(name: &str) {
     let (mut game, id) = admit(name, "TWO_LEGS", scalar(row[9]), false, false);
     let object = game.host_object_mut(id).unwrap();
     install_phase(object, &row);
-    let target = prepare_motion(object, &row, Vec3::ZERO, 0.0);
+    let target = prepare_motion(&mut game, id, &row, Vec3::ZERO, 0.0);
+    let object = game.host_object(id).unwrap();
     assert!(!Object::height_treats_as_airborne(object.get_position().y));
     tick(&mut game, 2);
     assert_active_result(game.host_object(id).unwrap(), &row, Vec3::ZERO, target);
@@ -271,13 +281,14 @@ fn consecutive_ticks_preserve_phase_across_speed_reversal() {
     let (mut game, id) = admit("sequence", "TWO_LEGS", 1.0, false, false);
     let object = game.host_object_mut(id).unwrap();
     install_phase(object, &first);
-    let target = prepare_motion(object, &first, Vec3::ZERO, 0.0);
+    let target = prepare_motion(&mut game, id, &first, Vec3::ZERO, 0.0);
     tick(&mut game, 2);
     assert_active_result(game.host_object(id).unwrap(), &first, Vec3::ZERO, target);
     let object = game.host_object_mut(id).unwrap();
     let previous = phase(object);
     let start = object.get_position();
-    let target = prepare_motion(object, &second, start, 0.0);
+    let target = prepare_motion(&mut game, id, &second, start, 0.0);
+    let object = game.host_object(id).unwrap();
     assert_eq!(phase(object), previous, "motion setup must preserve phase");
     assert_eq!(previous.0, scalar(second[7]).to_bits());
     tick(&mut game, 3);
@@ -289,7 +300,8 @@ fn excluded_appearance(name: &str, appearance: &str, expected: LocomotorAppearan
     let (mut game, id) = admit(name, appearance, width, false, false);
     let object = game.host_object_mut(id).unwrap();
     install_phase(object, &input);
-    let target = prepare_motion(object, &input, Vec3::ZERO, 0.0);
+    let target = prepare_motion(&mut game, id, &input, Vec3::ZERO, 0.0);
+    let object = game.host_object(id).unwrap();
     let initial = phase(object);
     tick(&mut game, 2);
     let object = game.host_object(id).unwrap();
@@ -373,7 +385,8 @@ fn skip_then_resume(gate: &str) {
     } else {
         position.y
     };
-    let target = prepare_motion(object, &input, position, goal_y);
+    let target = prepare_motion(&mut game, id, &input, position, goal_y);
+    let object = game.host_object_mut(id).unwrap();
     if gate == "blocked" {
         // Public prior collision state, not a change to the template/binding.
         object.is_blocked = true;
@@ -418,7 +431,8 @@ fn skip_then_resume(gate: &str) {
     );
     let object = game.host_object_mut(id).unwrap();
     object.is_blocked = false;
-    let target = prepare_motion(object, &input, Vec3::ZERO, 0.0);
+    let target = prepare_motion(&mut game, id, &input, Vec3::ZERO, 0.0);
+    let object = game.host_object(id).unwrap();
     assert_eq!(phase(object), initial, "resume setup never rewrites phase");
     assert!(!object.downhill_only_blocks_goal(0.0, 0.0));
     assert!(!Object::height_treats_as_airborne(0.0));
@@ -458,7 +472,7 @@ fn authored_airborne_motive_permission_admits_wander() {
     let object = game.host_object_mut(id).unwrap();
     install_phase(object, &input);
     let start = Vec3::new(0.0, 100.0, 0.0);
-    let target = prepare_motion(object, &input, start, start.y);
+    let target = prepare_motion(&mut game, id, &input, start, start.y);
     assert!(Object::height_treats_as_airborne(start.y));
     tick(&mut game, 2);
     assert_active_result(game.host_object(id).unwrap(), &input, start, target);

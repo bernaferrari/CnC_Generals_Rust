@@ -316,7 +316,9 @@ fn parked_jet_takeoff_on_attack_and_move() {
     jet.set_ai_state(AIState::Docked);
     jet.status.airborne_target = false;
     jet.set_position(Vec3::new(10.0, 0.0, 0.0));
-    jet.set_destination(Vec3::new(100.0, 0.0, 0.0));
+    let mut movement_events = crate::game_logic::movement_events::MovementEvents::default();
+    let mut movement_writer = movement_events.writer(0);
+    jet.set_destination(Vec3::new(100.0, 0.0, 0.0), &mut movement_writer);
     assert!(jet.contained_by.is_none());
     assert!(jet.status.airborne_target || jet.ai_state != AIState::Docked);
     assert!(jet.get_position().y >= PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT - 1e-3);

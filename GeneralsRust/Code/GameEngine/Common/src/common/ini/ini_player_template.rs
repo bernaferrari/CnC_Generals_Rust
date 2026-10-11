@@ -700,32 +700,21 @@ pub(crate) fn parse_player_template_definition_into(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::rts::player_template::{
-        get_player_template_store, get_player_template_store_mut,
-    };
-    use std::sync::Mutex;
 
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
-
-    fn reset_player_template_test_state() {
-        get_player_template_store_mut().clear();
-    }
-
-    fn parse_player_templates(source: &str) {
+    fn parse_player_templates(store: &mut PlayerTemplateStore, source: &str) {
         let mut ini = INI::new();
         ini.with_inline_source(source, |ini| {
-            ini.parse_current_file()?;
-            Ok(())
+            ini.parse_current_file_into_player_templates(store)
         })
         .expect("PlayerTemplate INI should parse via registered block");
     }
 
     #[test]
     fn player_template_reparse_same_name_updates_existing_store_len_stays_one() {
-        let _guard = TEST_LOCK.lock().unwrap();
-        reset_player_template_test_state();
+        let mut store = PlayerTemplateStore::new();
 
         parse_player_templates(
+            &mut store,
             r#"
 PlayerTemplate FactionAmerica
   Side = America
@@ -743,7 +732,6 @@ End
         );
 
         {
-            let store = get_player_template_store();
             assert_eq!(
                 store.len(),
                 1,
@@ -759,16 +747,14 @@ End
             assert_eq!(template.side, "America");
             assert!(template.playable);
         }
-
-        reset_player_template_test_state();
     }
 
     #[test]
     fn player_template_faction_america_like_fields_round_trip_from_store() {
-        let _guard = TEST_LOCK.lock().unwrap();
-        reset_player_template_test_state();
+        let mut store = PlayerTemplateStore::new();
 
         parse_player_templates(
+            &mut store,
             r#"
 PlayerTemplate FactionAmerica
   Side              = America
@@ -782,7 +768,6 @@ End
         );
 
         {
-            let store = get_player_template_store();
             assert_eq!(store.len(), 1);
             let template = store
                 .find_template("FactionAmerica")
@@ -795,8 +780,6 @@ End
             assert_eq!(template.starting_building, "AmericaCommandCenter");
             assert_eq!(template.starting_units[0], "AmericaVehicleDozer");
         }
-
-        reset_player_template_test_state();
     }
 
     fn parse_owned_modifiers(template: &mut PlayerTemplate, source: &str) {

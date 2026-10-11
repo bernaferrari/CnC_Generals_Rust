@@ -309,7 +309,7 @@ impl GameWorldShadow {
     }
 
     /// Write shadow Entity::move_target back onto host movement.target_position.
-    /// Direct field write (no host_move_log) to avoid echo loops.
+    /// Direct field write (no movement observation) to avoid echo loops.
     pub fn writeback_move_targets_to_host(&self, logic: &mut GameLogic) -> usize {
         let mut updated = 0usize;
         let mut ready: Vec<(ObjectId, Option<[f32; 3]>, Option<[f32; 3]>)> = Vec::new();
@@ -318,9 +318,7 @@ impl GameWorldShadow {
                 continue;
             };
             // Wave 759: under coupled tick, host log pending = mid-frame authority.
-            if shadow_coupled_tick_active()
-                && crate::game_logic::host_move_log::has_pending(ObjectId(hid))
-            {
+            if shadow_coupled_tick_active() && logic.movement_events.has_pending(ObjectId(hid)) {
                 continue;
             }
             let Some(obj) = logic.host_objects().get(&ObjectId(hid)) else {
@@ -370,7 +368,7 @@ impl GameWorldShadow {
             };
             // Wave 759: under coupled tick, host move/movement pending owns pose.
             if shadow_coupled_tick_active()
-                && (crate::game_logic::host_move_log::has_pending(ObjectId(hid))
+                && (logic.movement_events.has_pending(ObjectId(hid))
                     || crate::game_logic::host_movement_log::has_pending(ObjectId(hid)))
             {
                 continue;

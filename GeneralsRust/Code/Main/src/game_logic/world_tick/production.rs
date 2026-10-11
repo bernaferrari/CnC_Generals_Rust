@@ -1827,7 +1827,8 @@ impl GameLogic {
             {
                 unit.movement.target_position = Some(node);
                 if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                    crate::game_logic::host_move_log::record(
+                    self.movement_events.record(
+                        self.frame,
                         unit.id,
                         Some([node.x, node.y, node.z]),
                     );
@@ -1997,7 +1998,8 @@ impl GameLogic {
                 }
                 if let Some(unit) = self.objects.get_mut(&new_id) {
                     if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                        crate::game_logic::host_move_log::record(
+                        self.movement_events.record(
+                            self.frame,
                             new_id,
                             Some([spawn_pos.x, spawn_pos.y, spawn_pos.z]),
                         );

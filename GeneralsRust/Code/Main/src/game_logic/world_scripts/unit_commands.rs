@@ -1793,7 +1793,7 @@ impl GameLogic {
                 p.target = None;
                 p.set_position(hull);
                 p.set_orientation(yaw);
-                p.set_destination(dest);
+                p.set_destination(dest, &mut self.movement_events.writer(self.frame));
                 p.set_status_disabled_held(true);
             }
         }

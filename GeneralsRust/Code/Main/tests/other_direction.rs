@@ -201,7 +201,10 @@ fn run_case(name: &str, assert_original_force: bool) {
         object.set_position(start);
         object.set_orientation(scalar(expected[11]));
         object.set_ultra_accurate(ultra);
-        object.move_to(target);
+    }
+    assert!(game.move_object_to(id, target));
+    {
+        let object = game.host_object(id).unwrap();
         assert_eq!(
             object.movement.velocity,
             Vec3::ZERO,

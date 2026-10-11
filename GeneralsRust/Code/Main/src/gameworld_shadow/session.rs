@@ -158,6 +158,9 @@ pub fn maybe_shadow_after_host_tick(logic: &mut GameLogic) -> Option<GameWorldSh
     // Engine holds `GameWorldShadow` and calls `shadow_session_after_host_tick`.
     // This helper is the no-session path: materialize authority logs onto host.
     materialize_host_authority_logs(logic);
+    // No writable observer exists here; preserve completed owner observations
+    // for presentation without making publication advance the simulation.
+    let _ = logic.movement_events.drain_for_host_boundary();
     if !gameworld_shadow_enabled() {
         return None;
     }
@@ -422,11 +425,9 @@ pub fn shadow_session_after_host_tick(
         Some((ev, applied)) => (ev, applied),
         None => (crate::game_logic::host_veterancy_log::drain(), false),
     };
-    // Wave 712: prefer post-logic move batch (move_attack eager path).
-    let (move_events, early_move_applied) = match take_early_move_batch() {
-        Some((ev, applied)) => (ev, applied),
-        None => (crate::game_logic::host_move_log::drain(), false),
-    };
+    // Keep the eager prefix and later host observations in their owner's order.
+    // The batch identifies the suffix still requiring experimental admission.
+    let move_batch = logic.movement_events.drain_for_shadow_boundary();
     // Wave 709: prefer post-logic production / construction batches.
     let (production_events, early_production_applied) = match take_early_production_batch() {
         Some((ev, applied)) => (ev, applied),
@@ -1143,11 +1144,10 @@ pub fn shadow_session_after_host_tick(
             let _ = shadow.queue_set_attack_target_for_host(ev.attacker, ev.target);
         }
     }
-    if !early_move_applied {
-        for ev in &move_events {
-            let _ = shadow.queue_set_move_target_for_host(ev.unit, ev.destination);
-        }
-    }
+    // Spawn/lifecycle admission above has finished. Keep the synchronous
+    // apply_pending phase below while retaining any wholly unmapped suffix.
+    let had_move_events = !move_batch.events().is_empty();
+    let _ = super::movement_admission::queue_owned_movement_batch(shadow, logic, move_batch);
     // Wave 689: skip GW re-apply when post-logic eager path already ran.
     if !early_status_applied {
         for ev in &status_events {
@@ -1160,7 +1160,7 @@ pub fn shadow_session_after_host_tick(
         }
     }
     if !attack_events.is_empty()
-        || !move_events.is_empty()
+        || had_move_events
         || (!early_status_applied && !status_events.is_empty())
         || (!early_veterancy_applied && !veterancy_events.is_empty())
     {

@@ -7,6 +7,10 @@ mod retaliation_owner_tests;
 mod wander_owner_tests;
 use super::super::*;
 
+#[cfg(test)]
+#[path = "guard_movement_owner_tests.rs"]
+mod guard_movement_owner_tests;
+
 /// C++ `PATHFIND_CELL_SIZE_F`.
 const HOST_WANDER_CELL: f32 = 10.0;
 
@@ -939,7 +943,11 @@ impl GameLogic {
                     o.target = None;
                     o.status.attacking = false;
                     o.clear_guard_chase();
-                    o.tick_guard_retaliate(false, None);
+                    o.tick_guard_retaliate(
+                        false,
+                        None,
+                        &mut self.movement_events.writer(self.frame),
+                    );
                 }
                 // C++ AIGuardRetaliate Inner/Aggressor onExit:
                 // getTeam()->setTeamTargetObject(NULL).
@@ -1021,7 +1029,7 @@ impl GameLogic {
                 }
             }
             if let Some(o) = self.objects.get_mut(&id) {
-                o.tick_guard_retaliate(alive, vpos);
+                o.tick_guard_retaliate(alive, vpos, &mut self.movement_events.writer(self.frame));
             }
         }
     }
@@ -1227,8 +1235,10 @@ impl GameLogic {
         from: glam::Vec3,
     ) -> Option<Vec<glam::Vec3>> {
         let leftover_pos = gamelogic::common::Coord3D::new(from.x, from.z, from.y);
-        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
-        let terrain = terrain_owner_handle.read().ok()?;
+        let terrain_owner_handle = self.world_services.terrain();
+        let terrain = terrain_owner_handle
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let start = terrain.get_closest_waypoint_on_path(&leftover_pos, path_label)?;
         let chain = terrain.walk_link0_chain(start, gamelogic::terrain::WAYPOINT_PATH_LIMIT);
         if chain.is_empty() {
@@ -1240,7 +1250,10 @@ impl GameLogic {
                 .map(|wp| {
                     let loc = *wp.get_location();
                     let mut pos = glam::Vec3::new(loc.x, loc.z, loc.y);
-                    if let Some(h) = self.terrain_height_at(glam::Vec3::new(pos.x, 0.0, pos.z)) {
+                    if let Some(h) = self.terrain_height_at_with_terrain_logic(
+                        glam::Vec3::new(pos.x, 0.0, pos.z),
+                        Some(&terrain),
+                    ) {
                         pos.y = h;
                     }
                     pos
@@ -3045,12 +3058,13 @@ mod tests {
             bi_directional: false,
         });
         data.waypoint_links.push((1, 2));
-        gamelogic::terrain::get_terrain_logic()
-            .write()
-            .expect("terrain")
-            .load_map_data(data);
-
         let mut logic = GameLogic::new();
+        logic
+            .world_services
+            .terrain()
+            .write()
+            .expect("owned terrain")
+            .load_map_data(data);
         logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
         let mut launcher = ThingTemplate::new("Scr2ScudLauncher");
         launcher.add_kind_of(KindOf::Vehicle);
@@ -3092,3 +3106,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "teams/terrain_owner_tests.rs"]
+mod terrain_owner_tests;

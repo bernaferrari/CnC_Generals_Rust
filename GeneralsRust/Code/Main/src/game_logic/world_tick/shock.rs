@@ -807,7 +807,8 @@ impl GameLogic {
                 crate::game_logic::host_ai_decision_log::record_set_state(attacker_id, 2);
             }
             a.set_status_moving(true);
-            crate::game_logic::host_move_log::record(attacker_id, Some([dest.x, dest.y, dest.z]));
+            self.movement_events
+                .record(self.frame, attacker_id, Some([dest.x, dest.y, dest.z]));
             return true;
         }
         false

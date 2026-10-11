@@ -12,11 +12,10 @@ use super::{
     host_contain_capacity_log, host_contain_log, host_continuous_fire_log,
     host_demo_mine_cheer_log, host_detector_log, host_experience_log, host_ground_height_log,
     host_hive_log, host_identity_log, host_kind_of_log, host_locomotor_log, host_max_health_log,
-    host_model_mesh_log, host_move_log, host_movement_log, host_overlord_log,
-    host_physics_motive_log, host_player_cooldown_log, host_player_meta_log,
-    host_player_progress_log, host_spawn_log, host_special_power_log, host_status_log,
-    host_stealth_flags_log, host_stored_supplies_log, host_target_location_log, host_veterancy_log,
-    host_weapon_set_log,
+    host_model_mesh_log, host_movement_log, host_overlord_log, host_physics_motive_log,
+    host_player_cooldown_log, host_player_meta_log, host_player_progress_log, host_spawn_log,
+    host_special_power_log, host_status_log, host_stealth_flags_log, host_stored_supplies_log,
+    host_target_location_log, host_veterancy_log, host_weapon_set_log,
 };
 use std::cell::Cell;
 
@@ -35,7 +34,6 @@ pub(crate) fn world_stage_effects_active() -> bool {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct WorldStageEffectsState {
     spawn: Vec<host_spawn_log::HostSpawnEvent>,
-    move_log: host_move_log::HostMoveLogWorldStageState,
     ground_height: Vec<host_ground_height_log::HostGroundHeightEvent>,
     model_mesh: Vec<host_model_mesh_log::HostModelMeshEvent>,
     kind_of: Vec<host_kind_of_log::HostKindOfEvent>,
@@ -76,7 +74,6 @@ impl WorldStageEffectsState {
     fn take_for_world_stage() -> Self {
         Self {
             spawn: host_spawn_log::take_for_world_stage(),
-            move_log: host_move_log::take_for_world_stage(),
             ground_height: host_ground_height_log::take_for_world_stage(),
             model_mesh: host_model_mesh_log::take_for_world_stage(),
             kind_of: host_kind_of_log::take_for_world_stage(),
@@ -117,7 +114,6 @@ impl WorldStageEffectsState {
     fn replace_for_world_stage(next: Self) -> Self {
         Self {
             spawn: host_spawn_log::replace_for_world_stage(next.spawn),
-            move_log: host_move_log::replace_for_world_stage(next.move_log),
             ground_height: host_ground_height_log::replace_for_world_stage(next.ground_height),
             model_mesh: host_model_mesh_log::replace_for_world_stage(next.model_mesh),
             kind_of: host_kind_of_log::replace_for_world_stage(next.kind_of),
@@ -171,7 +167,6 @@ impl WorldStageEffectsState {
 
     fn discard_for_world_replace() {
         host_spawn_log::clear();
-        host_move_log::clear();
         host_ground_height_log::clear();
         host_model_mesh_log::clear();
         host_kind_of_log::clear();

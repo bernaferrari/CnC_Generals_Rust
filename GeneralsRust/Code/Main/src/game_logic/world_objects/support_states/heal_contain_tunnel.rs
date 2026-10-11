@@ -442,7 +442,8 @@ impl GameLogic {
                     unit.set_ai_state(AIState::Moving);
                     unit.set_status_moving(true);
                     if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                        crate::game_logic::host_move_log::record(
+                        self.movement_events.record(
+                            self.frame,
                             unit.id,
                             Some([door_end.x, door_end.y, door_end.z]),
                         );

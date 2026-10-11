@@ -240,16 +240,20 @@ fn owner_resolution_has_no_faction_fallback_or_new_alive_faction_filters() {
 }
 
 fn seed_combat(logic: &mut GameLogic, id: ObjectId, target: ObjectId, worker: bool) {
-    let o = logic.host_object_mut(id).unwrap();
-    o.target = Some(target);
-    o.target_location = Some(Vec3::new(20.0, 0.0, 0.0));
-    o.set_status_force_attack(true);
-    if worker {
-        o.move_to(Vec3::new(200.0, 0.0, 0.0));
-        o.set_ai_state(AIState::Constructing);
-    } else {
-        o.set_ai_state(AIState::Attacking);
+    {
+        let o = logic.host_object_mut(id).unwrap();
+        o.target = Some(target);
+        o.target_location = Some(Vec3::new(20.0, 0.0, 0.0));
+        o.set_status_force_attack(true);
     }
+    if worker {
+        assert!(logic.move_object_to(id, Vec3::new(200.0, 0.0, 0.0)));
+    }
+    logic.host_object_mut(id).unwrap().set_ai_state(if worker {
+        AIState::Constructing
+    } else {
+        AIState::Attacking
+    });
 }
 
 #[test]

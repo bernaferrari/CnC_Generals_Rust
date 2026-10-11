@@ -808,7 +808,7 @@ impl GameLogic {
                 if !is_garrison {
                     let previous_allow_to_fall = unit.allow_to_fall;
                     unit.allow_to_fall = false;
-                    unit.set_destination(dest);
+                    unit.set_destination(dest, &mut self.movement_events.writer(self.frame));
                     unit.allow_to_fall = previous_allow_to_fall;
                     let mut path = vec![start, door_end, door_end];
                     if let Some(rally_point) = rally {
@@ -818,7 +818,7 @@ impl GameLogic {
                     unit.movement.current_path_index = 1;
                     unit.movement.target_position = Some(door_end);
                 } else {
-                    unit.set_destination(dest);
+                    unit.set_destination(dest, &mut self.movement_events.writer(self.frame));
                     unit.movement.path = vec![start, door_end];
                     unit.movement.current_path_index = 1;
                     unit.movement.target_position = Some(door_end);

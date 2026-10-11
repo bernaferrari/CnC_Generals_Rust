@@ -94,7 +94,8 @@ impl GameLogic {
                 r.set_position(pos);
                 crate::game_logic::host_ground_height_log::record(rider_id, 0.0, false);
                 if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                    crate::game_logic::host_move_log::record(rider_id, Some([pos.x, pos.y, pos.z]));
+                    self.movement_events
+                        .record(self.frame, rider_id, Some([pos.x, pos.y, pos.z]));
                     r.record_host_movement();
                 }
                 r.apply_eject_parachuting();
@@ -138,7 +139,8 @@ impl GameLogic {
             r.set_position(pos);
             crate::game_logic::host_ground_height_log::record(rider_id, 0.0, false);
             if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                crate::game_logic::host_move_log::record(rider_id, Some([pos.x, pos.y, pos.z]));
+                self.movement_events
+                    .record(self.frame, rider_id, Some([pos.x, pos.y, pos.z]));
                 r.record_host_movement();
             }
             r.apply_eject_parachuting();

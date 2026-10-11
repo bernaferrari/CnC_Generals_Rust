@@ -14,7 +14,7 @@ pub const LIVE_HOST_EAGER_SPAWN_MOVE_ATTACK_HELPER_METHOD_NAMES_WAVE712: &[&str]
     "eager_apply_host_fire_spawns_after_logic",
     "host_spawn_log",
     "host_attack_log",
-    "host_move_log",
+    "movement_events",
     "Wave 712",
     "playable_claim = false",
 ];
@@ -82,7 +82,7 @@ pub fn honesty_host_eager_spawn_move_attack_helper_method_names_residual_wave712
         && residual_name_index(names, "eager_apply_host_fire_spawns_after_logic").is_some()
         && residual_name_index(names, "host_spawn_log").is_some()
         && residual_name_index(names, "host_attack_log").is_some()
-        && residual_name_index(names, "host_move_log").is_some()
+        && residual_name_index(names, "movement_events").is_some()
         && residual_name_index(names, "Wave 712").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
     residual_action_store(ResidualHostEagerSpawnMoveAttackHelperAction::MethodNames);
@@ -93,13 +93,13 @@ pub fn honesty_host_eager_spawn_move_attack_helper_source_markers_residual_wave7
     let sh = shadow_source();
     let api_ok = sh.contains("pub fn eager_apply_host_spawn_after_logic")
         && sh.contains("EARLY_ATTACK_BATCH")
-        && sh.contains("EARLY_MOVE_BATCH")
+        && sh.contains("movement_events.set_early_batch")
         && sh.contains("EARLY_FIRE_SPAWN_BATCH")
         && sh.contains("Wave 712")
         && sh.contains("take_early_spawn_batch")
         && sh.contains("early_spawn_applied")
         && sh.contains("early_attack_applied")
-        && sh.contains("early_move_applied")
+        && sh.contains("move_batch.pending_shadow_events")
         && sh.contains("early_fire_spawn_applied");
     let eng_ok = eng.contains("eager_apply_all_host_residuals_after_logic")
         && eng.contains("eager_apply_all_host_residuals_after_logic")
@@ -158,7 +158,6 @@ pub fn simulate_live_host_eager_spawn_move_attack_helper_honesty() -> bool {
 mod tests {
     use super::*;
     use crate::game_logic::host_attack_log;
-    use crate::game_logic::host_move_log;
     use crate::game_logic::host_spawn_log;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::gameworld_shadow::{
@@ -209,7 +208,6 @@ mod tests {
         crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         host_spawn_log::clear();
         host_attack_log::clear();
-        host_move_log::clear();
 
         let mut logic = GameLogic::new();
         ensure_template(&mut logic, "EagerSmaUnit", 100.0);
@@ -223,14 +221,15 @@ mod tests {
         // create_object already recorded spawn log; clear then re-record controlled residual.
         host_spawn_log::clear();
         host_attack_log::clear();
-        host_move_log::clear();
         host_spawn_log::record(id, "EagerSmaUnit".into(), 0, [0.0, 0.0, 0.0]);
         host_spawn_log::record(victim, "EagerSmaVictim".into(), 1, [30.0, 0.0, 0.0]);
         host_attack_log::record(id, Some(victim));
-        host_move_log::record(id, Some([10.0, 0.0, 0.0]));
+        logic
+            .movement_events
+            .record(logic.frame, id, Some([10.0, 0.0, 0.0]));
         assert!(host_spawn_log::len() >= 2);
         assert_eq!(host_attack_log::len(), 1);
-        assert_eq!(host_move_log::len(), 1);
+        assert_eq!(logic.movement_events.len(), 1);
 
         let mut shadow = GameWorldShadow::new(64);
         begin_shadow_coupled_tick();
@@ -247,10 +246,10 @@ mod tests {
             ));
         });
         let _ = eager_apply_host_spawn_after_logic(&mut shadow, &logic);
-        let _ = eager_apply_host_move_attack_after_logic(&mut shadow, &logic);
+        let _ = eager_apply_host_move_attack_after_logic(&mut shadow, &mut logic);
         assert!(host_spawn_log::drain().is_empty());
         assert!(host_attack_log::drain().is_empty());
-        assert!(host_move_log::drain().is_empty());
+        assert!(logic.movement_events.snapshot_pending().is_empty());
         let _probe = shadow_session_after_host_tick(&mut shadow, &mut logic);
         end_shadow_coupled_tick();
         let _ = ObjectId;

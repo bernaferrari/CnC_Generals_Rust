@@ -378,7 +378,8 @@ impl GameLogic {
                 unit.set_status_moving(true);
                 unit.record_host_movement();
             }
-            crate::game_logic::host_move_log::record(
+            self.movement_events.record(
+                self.frame,
                 unit_id,
                 Some([destination.x, destination.y, destination.z]),
             );
@@ -816,7 +817,8 @@ impl GameLogic {
         unit.refresh_follow_path_extra_distance();
         unit.record_host_movement();
         unit.start_move();
-        crate::game_logic::host_move_log::record(
+        self.movement_events.record(
+            self.frame,
             unit_id,
             Some([destination.x, destination.y, destination.z]),
         );
@@ -2084,7 +2086,8 @@ impl GameLogic {
                             unit.target = Some(tid);
                         }
                     }
-                    crate::game_logic::host_move_log::record(
+                    self.movement_events.record(
+                        self.frame,
                         unit_id,
                         Some([target_pos.x, target_pos.y, target_pos.z]),
                     );
@@ -2455,7 +2458,8 @@ impl GameLogic {
         let last_node = unit.movement.path.last().copied();
         unit.refresh_follow_path_extra_distance();
         unit.movement.target_position = Some(waypoint);
-        crate::game_logic::host_move_log::record(
+        self.movement_events.record(
+            self.frame,
             unit_id,
             Some([waypoint.x, waypoint.y, waypoint.z]),
         );

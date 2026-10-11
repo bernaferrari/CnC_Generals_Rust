@@ -17,7 +17,7 @@ fn launch_attack_uses_assign_unit_path_surface() {
     // Fallback may call move_to after assign_unit_path fails; primary path
     // must call assign_unit_path first.
     let path_i = w.find("assign_unit_path").expect("path");
-    let move_i = w.find("move_to(enemy_base)");
+    let move_i = w.find("move_to(enemy_base,");
     assert!(
         move_i.is_none() || move_i.unwrap() > path_i,
         "move_to fallback must come after assign_unit_path"

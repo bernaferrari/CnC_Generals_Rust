@@ -341,11 +341,12 @@ impl UnitBehavior {
     }
 
     /// Update formation movement for squad units
-    pub fn update_formation_movement(
+    pub(crate) fn update_formation_movement(
         leader_id: ObjectId,
         squad_members: &[ObjectId],
         objects: &mut HashMap<ObjectId, Object>,
         _dt: f32,
+        movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
     ) {
         if let Some(leader) = objects.get(&leader_id) {
             let leader_pos = leader.get_position();
@@ -374,7 +375,7 @@ impl UnitBehavior {
                     // Move to formation position if not already there
                     let distance_to_formation = member.get_position().distance(formation_pos);
                     if distance_to_formation > 5.0 {
-                        member.move_to(formation_pos);
+                        member.move_to(formation_pos, movement_events);
                     }
                 }
             }
@@ -382,7 +383,12 @@ impl UnitBehavior {
     }
 
     /// Update unit AI based on current state and situation
-    pub fn update_unit_ai(object_id: ObjectId, objects: &mut HashMap<ObjectId, Object>, dt: f32) {
+    pub(crate) fn update_unit_ai(
+        object_id: ObjectId,
+        objects: &mut HashMap<ObjectId, Object>,
+        dt: f32,
+        movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
+    ) {
         let ai_state = {
             if let Some(obj) = objects.get(&object_id) {
                 obj.ai_state.clone()
@@ -398,7 +404,7 @@ impl UnitBehavior {
             }
             AIState::Patrolling => {
                 // Implement patrol behavior
-                Self::update_patrol_behavior(object_id, objects, dt);
+                Self::update_patrol_behavior(object_id, objects, dt, movement_events);
             }
             AIState::GuardingArea | AIState::GuardingObject => {
                 // Implement guard behavior
@@ -447,6 +453,7 @@ impl UnitBehavior {
         object_id: ObjectId,
         objects: &mut HashMap<ObjectId, Object>,
         _dt: f32,
+        movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
     ) {
         // Simplified patrol - move between waypoints
         // In a full implementation, this would cycle through patrol points
@@ -455,16 +462,17 @@ impl UnitBehavior {
                 // Set a random patrol destination
                 let current_pos = obj.get_position();
                 let patrol_radius = 100.0;
-                let random_angle = game_engine::common::random_value::get_game_logic_random_value_real(
-                    0.0,
-                    2.0 * std::f32::consts::PI,
-                );
+                let random_angle =
+                    game_engine::common::random_value::get_game_logic_random_value_real(
+                        0.0,
+                        2.0 * std::f32::consts::PI,
+                    );
                 let patrol_pos = Vec3::new(
                     current_pos.x + patrol_radius * random_angle.cos(),
                     current_pos.y,
                     current_pos.z + patrol_radius * random_angle.sin(),
                 );
-                obj.move_to(patrol_pos);
+                obj.move_to(patrol_pos, movement_events);
             }
         }
     }

@@ -533,7 +533,8 @@ impl GameLogic {
                 // Freefall residual is not path-integrate; host pose stays residual,
                 // but landing destination is logged for GameWorld move channel.
                 if landed {
-                    crate::game_logic::host_move_log::record(pilot_id, Some([p.x, p.y, p.z]));
+                    self.movement_events
+                        .record(self.frame, pilot_id, Some([p.x, p.y, p.z]));
                 }
                 obj.record_host_movement();
             }
@@ -589,7 +590,8 @@ impl GameLogic {
                     r.set_position(land_pos);
                     crate::game_logic::host_ground_height_log::record(*rid, ground, false);
                     if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                        crate::game_logic::host_move_log::record(
+                        self.movement_events.record(
+                            self.frame,
                             *rid,
                             Some([land_pos.x, land_pos.y, land_pos.z]),
                         );
@@ -882,7 +884,8 @@ impl GameLogic {
             unit.set_orientation(orientation);
             crate::game_logic::host_ground_height_log::record(rider_id, 0.0, false);
             if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                crate::game_logic::host_move_log::record(
+                self.movement_events.record(
+                    self.frame,
                     rider_id,
                     Some([create.x, create.y, create.z]),
                 );

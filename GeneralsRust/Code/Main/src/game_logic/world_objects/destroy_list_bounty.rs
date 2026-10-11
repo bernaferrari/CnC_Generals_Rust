@@ -3,6 +3,10 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+#[cfg(test)]
+#[path = "transport_movement_owner_tests.rs"]
+mod transport_movement_owner_tests;
+
 /// C++ `OpenContain::getDamagePercentageToUnits` — INI `DamagePercentToUnits`
 /// via `parsePercentToReal` (`100%` → `1.0`). Live `building_data` is never
 /// populated, so resolve authored retail percents by container kind.
@@ -75,6 +79,7 @@ fn apply_transport_death_scatter(
     container_id: ObjectId,
     container_pos: glam::Vec3,
     bounding_radius: f32,
+    movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
 ) -> glam::Vec3 {
     let leftover = gamelogic::object::contain::open_contain::leftover_scatter_to_nearby_position(
         container_pos.x,
@@ -99,7 +104,7 @@ fn apply_transport_death_scatter(
     // The move makes the rider active, so AIUpdate.cpp:4430 preserves its
     // mood deadline and jitter flag even when ResetMoodCheckTimeOnExit is true.
     if crate::gameworld_shadow::gameworld_movement_authority_live() {
-        crate::game_logic::host_move_log::record(
+        movement_events.record(
             unit.id,
             Some([container_pos.x, container_pos.y, container_pos.z]),
         );
@@ -617,6 +622,7 @@ impl GameLogic {
                                     event.id,
                                     eject_origin,
                                     scatter_radius,
+                                    &mut self.movement_events.writer(self.frame),
                                 ))
                             } else {
                                 let angle =
@@ -627,7 +633,8 @@ impl GameLogic {
                                 unit.set_position(eject_origin + offset);
                                 if crate::gameworld_shadow::gameworld_movement_authority_live() {
                                     let p = eject_origin + offset;
-                                    crate::game_logic::host_move_log::record(
+                                    self.movement_events.record(
+                                        self.frame,
                                         unit.id,
                                         Some([p.x, p.y, p.z]),
                                     );
@@ -1490,7 +1497,7 @@ mod tests {
         assert_eq!(usa.calculate_score() as u32, 96);
     }
 
-    fn setup_zero_damage_transport(
+    pub(super) fn setup_zero_damage_transport(
         airborne: bool,
         hull: glam::Vec3,
     ) -> (GameLogic, ObjectId, ObjectId) {
@@ -1820,62 +1827,68 @@ mod tests {
 
     #[test]
     fn destroy_lost_counters_honor_scoring_enabled() {
-        // hq-y4ubd: C++ addObjectDestroyed/Lost return when scoring is off;
-        // scoreTheKill still awards bounty and skill points.
-        let previous = gamelogic::helpers::TheGameLogic::is_scoring_enabled();
-        struct RestoreScoring(bool);
-        impl Drop for RestoreScoring {
-            fn drop(&mut self) {
-                gamelogic::helpers::TheGameLogic::set_scoring_enabled(self.0);
-            }
-        }
-        let _restore = RestoreScoring(previous);
+        crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+            module_path!(),
+            "destroy_lost_counters_honor_scoring_enabled",
+            || {
+                // hq-y4ubd: C++ addObjectDestroyed/Lost return when scoring is off;
+                // scoreTheKill still awards bounty and skill points.
+                let previous = gamelogic::helpers::TheGameLogic::is_scoring_enabled();
+                struct RestoreScoring(bool);
+                impl Drop for RestoreScoring {
+                    fn drop(&mut self) {
+                        gamelogic::helpers::TheGameLogic::set_scoring_enabled(self.0);
+                    }
+                }
+                let _restore = RestoreScoring(previous);
 
-        let mut logic = GameLogic::new();
-        let mut usa = Player::new(0, Team::USA, "USA", true);
-        usa.alliance_team = 1;
-        usa.cash_bounty_percent = 0.20;
-        logic.add_player(usa);
-        let mut gla = Player::new(2, Team::GLA, "GLA", false);
-        gla.alliance_team = 2;
-        logic.add_player(gla);
-        insert_score_unit_template(&mut logic, "ScoreFlagTank", 500, 25);
+                let mut logic = GameLogic::new();
+                let mut usa = Player::new(0, Team::USA, "USA", true);
+                usa.alliance_team = 1;
+                usa.cash_bounty_percent = 0.20;
+                logic.add_player(usa);
+                let mut gla = Player::new(2, Team::GLA, "GLA", false);
+                gla.alliance_team = 2;
+                logic.add_player(gla);
+                insert_score_unit_template(&mut logic, "ScoreFlagTank", 500, 25);
 
-        let killer = logic
-            .create_object("ScoreFlagTank", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
-            .expect("killer");
-        let off_victim = logic
-            .create_object("ScoreFlagTank", Team::GLA, glam::Vec3::new(10.0, 0.0, 0.0))
-            .expect("off victim");
-        let on_victim = logic
-            .create_object("ScoreFlagTank", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
-            .expect("on victim");
+                let killer = logic
+                    .create_object("ScoreFlagTank", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+                    .expect("killer");
+                let off_victim = logic
+                    .create_object("ScoreFlagTank", Team::GLA, glam::Vec3::new(10.0, 0.0, 0.0))
+                    .expect("off victim");
+                let on_victim = logic
+                    .create_object("ScoreFlagTank", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
+                    .expect("on victim");
 
-        gamelogic::helpers::TheGameLogic::set_scoring_enabled(false);
-        if let Some(v) = logic.host_object_mut(off_victim) {
-            v.last_damage_source = Some(killer);
-        }
-        logic.mark_object_for_destruction(off_victim, Some(Team::USA));
-        logic.process_destroy_list();
-        assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed, 0);
-        assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, 0);
-        assert!(
-            logic.get_player(0).unwrap().statistics.money_earned > 0,
-            "DISABLE_SCORING must still award bounty"
+                gamelogic::helpers::TheGameLogic::set_scoring_enabled(false);
+                if let Some(v) = logic.host_object_mut(off_victim) {
+                    v.last_damage_source = Some(killer);
+                }
+                logic.mark_object_for_destruction(off_victim, Some(Team::USA));
+                logic.process_destroy_list();
+                assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed, 0);
+                assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, 0);
+                assert!(
+                    logic.get_player(0).unwrap().statistics.money_earned > 0,
+                    "DISABLE_SCORING must still award bounty"
+                );
+                assert!(
+                    logic.get_player(0).unwrap().skill_points > 0,
+                    "DISABLE_SCORING must still award skill points"
+                );
+
+                gamelogic::helpers::TheGameLogic::set_scoring_enabled(true);
+                if let Some(v) = logic.host_object_mut(on_victim) {
+                    v.last_damage_source = Some(killer);
+                }
+                logic.mark_object_for_destruction(on_victim, Some(Team::USA));
+                logic.process_destroy_list();
+                assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed, 1);
+                assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, 1);
+            },
         );
-        assert!(
-            logic.get_player(0).unwrap().skill_points > 0,
-            "DISABLE_SCORING must still award skill points"
-        );
-
-        gamelogic::helpers::TheGameLogic::set_scoring_enabled(true);
-        if let Some(v) = logic.host_object_mut(on_victim) {
-            v.last_damage_source = Some(killer);
-        }
-        logic.mark_object_for_destruction(on_victim, Some(Team::USA));
-        logic.process_destroy_list();
-        assert_eq!(logic.get_player(0).unwrap().statistics.units_destroyed, 1);
-        assert_eq!(logic.get_player(2).unwrap().statistics.units_lost, 1);
     }
 
     /// Wave-621 kill-XP drain fixture: unit A kills unit B through the

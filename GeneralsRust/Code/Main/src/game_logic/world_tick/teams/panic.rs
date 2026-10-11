@@ -70,8 +70,10 @@ impl GameLogic {
         from: glam::Vec3,
     ) -> Option<(u32, glam::Vec3, bool, f32)> {
         let from_terrain = gamelogic::common::Coord3D::new(from.x, from.z, from.y);
-        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
-        let terrain = terrain_owner_handle.read().ok()?;
+        let terrain_owner_handle = self.world_services.terrain();
+        let terrain = terrain_owner_handle
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let start = terrain.get_closest_waypoint_on_path(&from_terrain, path_label)?;
         let waypoint_id = start.get_id();
         let mut current_id = waypoint_id;
@@ -187,14 +189,11 @@ impl GameLogic {
             // C++ computes ground height after applying the group offset.
             goal.y = height;
         }
-        let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
-        let Some(extent) = terrain_owner_handle
+        let terrain_owner_handle = self.world_services.terrain();
+        let extent = terrain_owner_handle
             .read()
-            .ok()
-            .map(|terrain| terrain.get_maximum_pathfind_extent())
-        else {
-            return (goal, false, if on_wall { 15 } else { 1 });
-        };
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get_maximum_pathfind_extent();
         let to_terrain =
             |point: glam::Vec3| gamelogic::common::Coord3D::new(point.x, point.z, point.y);
         if extent.is_in_region_no_z(&to_terrain(waypoint_goal))
@@ -343,10 +342,10 @@ impl GameLogic {
             }
 
             let next = (|| -> Option<Option<(u32, glam::Vec3, f32, bool)>> {
-                let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
-                let Ok(terrain) = terrain_owner_handle.read() else {
-                    return None;
-                };
+                let terrain_owner_handle = self.world_services.terrain();
+                let terrain = terrain_owner_handle
+                    .read()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
                 let Some(current) = terrain.get_waypoint_by_id(panic.current_waypoint_id) else {
                     return None;
                 };
@@ -377,19 +376,22 @@ impl GameLogic {
                 // C++ getNextWaypoint assigns prior=current before returning
                 // null for the terminal waypoint.
                 panic.prior_waypoint_id = Some(panic.current_waypoint_id);
-                let terrain_owner_handle = gamelogic::terrain::get_terrain_logic();
-                let labels = terrain_owner_handle
-                    .read()
-                    .ok()
-                    .and_then(|terrain| {
-                        let waypoint = terrain.get_waypoint_by_id(panic.current_waypoint_id)?;
-                        Some([
-                            waypoint.get_path_label1().to_string(),
-                            waypoint.get_path_label2().to_string(),
-                            waypoint.get_path_label3().to_string(),
-                        ])
-                    })
-                    .unwrap_or_default();
+                let terrain_owner_handle = self.world_services.terrain();
+                let labels = {
+                    let terrain = terrain_owner_handle
+                        .read()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    terrain
+                        .get_waypoint_by_id(panic.current_waypoint_id)
+                        .map(|waypoint| {
+                            [
+                                waypoint.get_path_label1().to_string(),
+                                waypoint.get_path_label2().to_string(),
+                                waypoint.get_path_label3().to_string(),
+                            ]
+                        })
+                        .unwrap_or_default()
+                };
                 if let Some(unit) = self.objects.get_mut(&id) {
                     unit.stamp_pending_waypoint_labels(labels);
                     unit.commit_completed_waypoint_labels();

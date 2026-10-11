@@ -3,7 +3,6 @@ use super::*;
 use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
 use gamelogic::scripting::{request_host_team_loco_set, take_host_team_loco_set_requests};
 use gamelogic::system::map_loader::{ICoord2D, MapData, MapWaypoint};
-use gamelogic::terrain::get_terrain_logic;
 use glam::Vec3;
 
 #[path = "panic_instance_tests.rs"]
@@ -23,16 +22,6 @@ impl Drop for RestoreLogicRng {
     }
 }
 
-struct ResetGlobalTerrain;
-
-impl Drop for ResetGlobalTerrain {
-    fn drop(&mut self) {
-        if let Ok(mut terrain) = get_terrain_logic().write() {
-            terrain.reset();
-        }
-    }
-}
-
 fn panic_map_data() -> MapData {
     // C++ Region3D excludes the exact boundary; ordinary goals are interior.
     let mut data = MapData::new();
@@ -43,12 +32,11 @@ fn panic_map_data() -> MapData {
     data
 }
 
-fn install_panic_waypoint_path() -> ResetGlobalTerrain {
-    install_panic_waypoint_path_with_terminal_x(200.0)
+fn install_panic_waypoint_path(logic: &GameLogic) {
+    install_panic_waypoint_path_with_terminal_x(logic, 200.0)
 }
 
-fn install_panic_waypoint_path_with_terminal_x(terminal_x: f32) -> ResetGlobalTerrain {
-    let _cleanup = ResetGlobalTerrain;
+fn install_panic_waypoint_path_with_terminal_x(logic: &GameLogic, terminal_x: f32) {
     let mut data = panic_map_data();
     data.waypoints.push(MapWaypoint {
         id: WAYPOINT_START,
@@ -69,16 +57,14 @@ fn install_panic_waypoint_path_with_terminal_x(terminal_x: f32) -> ResetGlobalTe
         bi_directional: false,
     });
     data.waypoint_links.push((WAYPOINT_START, WAYPOINT_NEXT));
-    let terrain_owner_handle = get_terrain_logic();
-    let mut terrain = terrain_owner_handle.write().expect("global terrain");
+    let terrain_owner_handle = logic.world_services.terrain();
+    let mut terrain = terrain_owner_handle.write().expect("owned terrain");
     terrain.reset();
     terrain.load_map_data(data);
     drop(terrain);
-    _cleanup
 }
 
-fn install_panic_fork_path() -> ResetGlobalTerrain {
-    let _cleanup = ResetGlobalTerrain;
+fn install_panic_fork_path(logic: &GameLogic) {
     let mut data = panic_map_data();
     for (id, name, x, label) in [
         (WAYPOINT_START, "PanicStart", 50.0, "PanicPath"),
@@ -99,16 +85,16 @@ fn install_panic_fork_path() -> ResetGlobalTerrain {
         (WAYPOINT_START, WAYPOINT_NEXT),
         (WAYPOINT_START, WAYPOINT_BRANCH),
     ]);
-    let terrain_owner_handle = get_terrain_logic();
-    let mut terrain = terrain_owner_handle.write().expect("global terrain");
+    let terrain_owner_handle = logic.world_services.terrain();
+    let mut terrain = terrain_owner_handle.write().expect("owned terrain");
     terrain.reset();
     terrain.load_map_data(data);
     drop(terrain);
-    _cleanup
 }
 
 fn panic_logic() -> GameLogic {
     let mut logic = GameLogic::new();
+    install_panic_waypoint_path(&logic);
     let mut template = ThingTemplate::new("PanicRuntimeInfantry");
     template
         .add_kind_of(KindOf::Infantry)
@@ -188,7 +174,6 @@ fn assert_panic_runtime(unit: &Object, current: u32, prior: Option<u32>) {
 
 #[test]
 fn authored_team_panic_enters_distinct_state_and_keeps_ordinary_move_control() {
-    let _terrain = install_panic_waypoint_path();
     let mut logic = panic_logic();
     issue_authored_team_panic(&mut logic);
 
@@ -229,7 +214,6 @@ fn authored_team_panic_enters_distinct_state_and_keeps_ordinary_move_control() {
 
 #[test]
 fn authored_panic_waypoint_on_wall_keeps_wall_height_and_layer() {
-    let _terrain = install_panic_waypoint_path();
     let mut logic = panic_logic();
     let mut wall_template = ThingTemplate::new("PanicWallPiece");
     wall_template
@@ -258,8 +242,8 @@ fn authored_panic_waypoint_on_wall_keeps_wall_height_and_layer() {
 
 #[test]
 fn off_map_panic_entry_disables_destination_adjustment_without_waypoint_links() {
-    let _terrain = install_panic_waypoint_path_with_terminal_x(1400.0);
     let mut logic = panic_logic();
+    install_panic_waypoint_path_with_terminal_x(&logic, 1400.0);
     issue_authored_team_panic_for(&mut logic, "PanicTerminal");
 
     let unit = &logic.objects[&PANIC_UNIT];
@@ -277,7 +261,6 @@ fn off_map_panic_entry_disables_destination_adjustment_without_waypoint_links() 
 
 #[test]
 fn authored_team_panic_bounces_infantry_collision_before_blocked_state() {
-    let _terrain = install_panic_waypoint_path();
     let mut logic = panic_logic();
     if let Some(unit) = logic.objects.get_mut(&PANIC_UNIT) {
         unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
@@ -323,7 +306,6 @@ fn authored_team_panic_bounces_infantry_collision_before_blocked_state() {
 
 #[test]
 fn panic_state_and_waypoint_path_survive_world_snapshot_roundtrip() {
-    let _terrain = install_panic_waypoint_path();
     let mut source = panic_logic();
     issue_authored_team_panic(&mut source);
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
@@ -340,6 +322,7 @@ fn panic_state_and_waypoint_path_survive_world_snapshot_roundtrip() {
 
     let path_before = source.objects[&PANIC_UNIT].movement.path.clone();
     let mut restored = GameLogic::new();
+    install_panic_waypoint_path(&restored);
     restored.templates = source.templates.clone();
     builder
         .restore_from_snapshot(&decoded, &mut restored)
@@ -403,6 +386,7 @@ fn panic_state_and_waypoint_path_survive_world_snapshot_roundtrip() {
         module.state_machine_data.remove("AIPanicState");
     }
     let mut missing_world = GameLogic::new();
+    install_panic_waypoint_path(&missing_world);
     missing_world.templates = source.templates.clone();
     assert!(
         builder
@@ -421,6 +405,7 @@ fn panic_state_and_waypoint_path_survive_world_snapshot_roundtrip() {
             .insert("AIPanicState".into(), "not-json".into());
     }
     let mut malformed_world = GameLogic::new();
+    install_panic_waypoint_path(&malformed_world);
     malformed_world.templates = source.templates.clone();
     assert!(
         builder
@@ -447,6 +432,7 @@ fn panic_state_and_waypoint_path_survive_world_snapshot_roundtrip() {
         );
     }
     let mut missing_waypoint_world = GameLogic::new();
+    install_panic_waypoint_path(&missing_waypoint_world);
     missing_waypoint_world.templates = source.templates.clone();
     assert!(
         builder
@@ -457,7 +443,6 @@ fn panic_state_and_waypoint_path_survive_world_snapshot_roundtrip() {
 
 #[test]
 fn panic_follows_multiple_waypoints_and_finishes_after_real_locomotor_arrivals() {
-    let _terrain = install_panic_waypoint_path();
     let mut logic = panic_logic();
     issue_authored_team_panic(&mut logic);
 
@@ -525,7 +510,6 @@ fn panic_follows_multiple_waypoints_and_finishes_after_real_locomotor_arrivals()
 
 #[test]
 fn ordinary_move_command_interrupts_panic_and_retires_its_continuation() {
-    let _terrain = install_panic_waypoint_path();
     let mut logic = panic_logic();
     issue_authored_team_panic(&mut logic);
     assert_panic_state(&logic.objects[&PANIC_UNIT].ai_state);
@@ -539,7 +523,6 @@ fn ordinary_move_command_interrupts_panic_and_retires_its_continuation() {
 
 #[test]
 fn panic_failure_does_not_advance_the_waypoint_and_terminal_uses_terminal_labels() {
-    let _terrain = install_panic_waypoint_path();
     let mut logic = panic_logic();
     issue_authored_team_panic(&mut logic);
 
@@ -600,8 +583,8 @@ fn panic_failure_does_not_advance_the_waypoint_and_terminal_uses_terminal_labels
 
 #[test]
 fn panic_arrival_uses_selected_locomotor_close_enough_distance() {
-    let _terrain = install_panic_fork_path();
     let mut logic = panic_logic();
+    install_panic_fork_path(&logic);
     issue_authored_team_panic(&mut logic);
 
     let unit = logic.objects.get_mut(&PANIC_UNIT).unwrap();
@@ -641,8 +624,8 @@ fn panic_arrival_uses_selected_locomotor_close_enough_distance() {
 
 #[test]
 fn blocked_panic_repath_runs_before_arrival_and_timer_processing() {
-    let _terrain = install_panic_fork_path();
     let mut logic = panic_logic();
+    install_panic_fork_path(&logic);
     issue_authored_team_panic(&mut logic);
     let terminal = *logic.objects[&PANIC_UNIT]
         .movement
@@ -685,8 +668,8 @@ fn blocked_panic_repath_runs_before_arrival_and_timer_processing() {
 
 #[test]
 fn panic_waypoint_choice_and_next_rng_survive_save_load_continuation() {
-    let _terrain = install_panic_fork_path();
     let mut source = panic_logic();
+    install_panic_fork_path(&source);
     issue_authored_team_panic(&mut source);
     {
         let unit = source.objects.get_mut(&PANIC_UNIT).unwrap();
@@ -702,6 +685,7 @@ fn panic_waypoint_choice_and_next_rng_survive_save_load_continuation() {
     let decoded: crate::save_load::snapshot::WorldSnapshot =
         bincode_legacy::deserialize(&encoded).expect("decode panic path");
     let mut restored = GameLogic::new();
+    install_panic_fork_path(&restored);
     restored.templates = source.templates.clone();
     builder
         .restore_from_snapshot(&decoded, &mut restored)

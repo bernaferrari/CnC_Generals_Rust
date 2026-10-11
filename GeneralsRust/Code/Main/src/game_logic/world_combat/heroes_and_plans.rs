@@ -463,7 +463,8 @@ impl GameLogic {
             r.set_position(eject_pos);
             crate::game_logic::host_ground_height_log::record(rider_id, eject_pos.y, false);
             if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                crate::game_logic::host_move_log::record(
+                self.movement_events.record(
+                    self.frame,
                     rider_id,
                     Some([eject_pos.x, eject_pos.y, eject_pos.z]),
                 );

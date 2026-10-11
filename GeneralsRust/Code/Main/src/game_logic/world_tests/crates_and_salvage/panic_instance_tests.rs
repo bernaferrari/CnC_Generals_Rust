@@ -29,6 +29,7 @@ struct PanicObservation {
 
 fn seeded_panic_logic(seed: u32) -> GameLogic {
     let mut logic = panic_logic();
+    install_panic_fork_path(&logic);
     // New-match updates first wake at frame 1. Admit the authored order
     // after the initial frame so the next real step executes Movement.
     logic.update_with_dt_budget(1.0 / 30.0, 1);
@@ -91,7 +92,6 @@ fn isolated_observations(seed: u32) -> [PanicObservation; 2] {
 
 #[test]
 fn same_id_panic_worlds_interleave_and_restore_without_crossing_state_or_rng() {
-    let _terrain = install_panic_fork_path();
     // Capture actual one-world baselines before either interleaved owner is
     // created. Keep plain observations, not cloned mutable GameLogic worlds.
     let baseline_a = isolated_observations(SEED_A);
@@ -144,6 +144,7 @@ fn same_id_panic_worlds_interleave_and_restore_without_crossing_state_or_rng() {
     let decoded: crate::save_load::snapshot::WorldSnapshot =
         bincode_legacy::deserialize(&encoded).expect("decode world A");
     let mut restored_a = GameLogic::new();
+    install_panic_fork_path(&restored_a);
     restored_a.templates = world_a.templates.clone();
     builder
         .restore_from_snapshot(&decoded, &mut restored_a)
@@ -169,7 +170,6 @@ fn same_id_panic_worlds_interleave_and_restore_without_crossing_state_or_rng() {
 
 #[test]
 fn panic_snapshot_rejects_invalid_internal_move_layer_ordinals() {
-    let _terrain = install_panic_waypoint_path();
     let mut source = panic_logic();
     issue_authored_team_panic(&mut source);
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
@@ -203,6 +203,7 @@ fn panic_snapshot_rejects_invalid_internal_move_layer_ordinals() {
         );
 
         let mut restored = GameLogic::new();
+        install_panic_waypoint_path(&restored);
         restored.templates = source.templates.clone();
         assert!(
             builder
@@ -215,7 +216,6 @@ fn panic_snapshot_rejects_invalid_internal_move_layer_ordinals() {
 
 #[test]
 fn panic_snapshot_rejects_unreachable_timer_and_nonfinite_width_capsules() {
-    let _terrain = install_panic_waypoint_path();
     let mut source = panic_logic();
     issue_authored_team_panic(&mut source);
     let builder = crate::save_load::snapshot::SnapshotBuilder::new();
@@ -255,6 +255,7 @@ fn panic_snapshot_rejects_unreachable_timer_and_nonfinite_width_capsules() {
         );
 
         let mut restored = GameLogic::new();
+        install_panic_waypoint_path(&restored);
         restored.templates = source.templates.clone();
         assert!(
             builder
@@ -286,6 +287,7 @@ fn panic_snapshot_rejects_unreachable_timer_and_nonfinite_width_capsules() {
         .state_machine_data
         .insert("AIPanicState".into(), state.to_string());
     let mut restored = GameLogic::new();
+    install_panic_waypoint_path(&restored);
     restored.templates = source.templates.clone();
     assert!(
         builder
@@ -315,6 +317,7 @@ fn moving_path_snapshot() -> crate::save_load::snapshot::WorldSnapshot {
 fn complete_world_restore_keeps_full_ordinary_moving_path_and_index() {
     let snapshot = moving_path_snapshot();
     let mut restored = GameLogic::new();
+    install_panic_waypoint_path(&restored);
     restored.templates = panic_logic().templates.clone();
     crate::save_load::snapshot::SnapshotBuilder::new()
         .restore_from_snapshot(&snapshot, &mut restored)
@@ -368,6 +371,7 @@ fn complete_world_restore_does_not_resurrect_authoritative_empty_movement() {
     snapshot.pathfinding_cache.cache_timestamps.clear();
 
     let mut restored = GameLogic::new();
+    install_panic_waypoint_path(&restored);
     restored.templates = panic_logic().templates.clone();
     crate::save_load::snapshot::SnapshotBuilder::new()
         .restore_from_snapshot(&snapshot, &mut restored)

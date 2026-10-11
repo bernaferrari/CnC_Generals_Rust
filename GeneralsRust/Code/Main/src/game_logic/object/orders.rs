@@ -41,13 +41,17 @@ impl Object {
             && (parked_aircraft || !matches!(self.ai_state, AIState::Docked | AIState::Garrisoned))
     }
 
-    pub fn set_destination(&mut self, destination: Vec3) {
+    pub(crate) fn set_destination(
+        &mut self,
+        destination: Vec3,
+        movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
+    ) {
         let _ = self.takeoff_from_airfield_parking();
         // C++ DeployStyle: ordered move packs up (undeploy) residual.
         if self.status.deployed {
             self.set_deployed(false);
         }
-        self.move_to(destination);
+        self.move_to(destination, movement_events);
     }
 
     pub fn set_target(&mut self, target: Option<ObjectId>) {
@@ -703,7 +707,12 @@ impl Object {
     ///
     /// C++ AIGuardRetaliate RETURN stays inside the machine until idle finds
     /// nothing. Do not `move_to` (that flips to Moving and abandons Guard).
-    pub fn tick_guard_retaliate(&mut self, victim_alive: bool, victim_pos: Option<glam::Vec3>) {
+    pub(crate) fn tick_guard_retaliate(
+        &mut self,
+        victim_alive: bool,
+        victim_pos: Option<glam::Vec3>,
+        movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
+    ) {
         if !matches!(self.ai_state, AIState::GuardRetaliating) {
             return;
         }
@@ -718,10 +727,7 @@ impl Object {
                     self.set_status_moving(true);
                     self.target = None;
                     self.status.attacking = false;
-                    crate::game_logic::host_move_log::record(
-                        self.id,
-                        Some([anchor.x, anchor.y, anchor.z]),
-                    );
+                    movement_events.record(self.id, Some([anchor.x, anchor.y, anchor.z]));
                     return;
                 }
             }

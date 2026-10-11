@@ -532,24 +532,23 @@ impl Default for PlayerTemplateStore {
 
 static PLAYER_TEMPLATE_STORE: OnceCell<RwLock<PlayerTemplateStore>> = OnceCell::new();
 
+pub(crate) fn player_template_store() -> &'static RwLock<PlayerTemplateStore> {
+    PLAYER_TEMPLATE_STORE.get_or_init(|| RwLock::new(PlayerTemplateStore::new()))
+}
+
 pub fn get_player_template_store() -> RwLockReadGuard<'static, PlayerTemplateStore> {
-    PLAYER_TEMPLATE_STORE
-        .get_or_init(|| RwLock::new(PlayerTemplateStore::new()))
+    player_template_store()
         .read()
         .expect("PlayerTemplateStore poisoned")
 }
 
 /// Non-blocking read so map-load player sync can fail-open if INI load holds the write lock.
 pub fn try_get_player_template_store() -> Option<RwLockReadGuard<'static, PlayerTemplateStore>> {
-    PLAYER_TEMPLATE_STORE
-        .get_or_init(|| RwLock::new(PlayerTemplateStore::new()))
-        .try_read()
-        .ok()
+    player_template_store().try_read().ok()
 }
 
 pub fn get_player_template_store_mut() -> RwLockWriteGuard<'static, PlayerTemplateStore> {
-    PLAYER_TEMPLATE_STORE
-        .get_or_init(|| RwLock::new(PlayerTemplateStore::new()))
+    player_template_store()
         .write()
         .expect("PlayerTemplateStore poisoned")
 }

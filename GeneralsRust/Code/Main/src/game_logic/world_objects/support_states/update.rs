@@ -1160,7 +1160,8 @@ impl GameLogic {
                                 false,
                             );
                             if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                                crate::game_logic::host_move_log::record(
+                                self.movement_events.record(
+                                    self.frame,
                                     obj.id,
                                     Some([container_pos.x, container_pos.y, container_pos.z]),
                                 );
@@ -3607,7 +3608,8 @@ impl GameLogic {
                         obj.set_position(pin_pos);
                         crate::game_logic::host_ground_height_log::record(obj.id, pin_pos.y, false);
                         if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                            crate::game_logic::host_move_log::record(
+                            self.movement_events.record(
+                                self.frame,
                                 obj.id,
                                 Some([pin_pos.x, pin_pos.y, pin_pos.z]),
                             );

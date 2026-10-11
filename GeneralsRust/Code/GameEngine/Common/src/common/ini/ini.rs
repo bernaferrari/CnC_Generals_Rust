@@ -11,6 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::common::ascii_string::AsciiString;
 use crate::common::game_common;
+use crate::common::rts::player_template::PlayerTemplateStore;
 use crate::common::system::file::FileAccess;
 use crate::common::system::file_system::get_file_system;
 use crate::common::system::xfer::Xfer;
@@ -1429,6 +1430,15 @@ impl INI {
         self.parse_file()
     }
 
+    /// Parse PlayerTemplate blocks into the catalog owned by this load.
+    /// Other registered blocks retain their ordinary dispatch behavior.
+    pub(crate) fn parse_current_file_into_player_templates(
+        &mut self,
+        store: &mut PlayerTemplateStore,
+    ) -> INIResult<()> {
+        self.parse_file_with_player_templates(Some(store))
+    }
+
     /// Prepare file for reading
     fn prep_file<P: AsRef<Path>>(&mut self, filename: P, load_type: INILoadType) -> INIResult<()> {
         if self.file.is_some() {
@@ -1500,6 +1510,13 @@ impl INI {
 
     /// Parse the entire file
     fn parse_file(&mut self) -> INIResult<()> {
+        self.parse_file_with_player_templates(None)
+    }
+
+    fn parse_file_with_player_templates(
+        &mut self,
+        mut player_templates: Option<&mut PlayerTemplateStore>,
+    ) -> INIResult<()> {
         let mut skipping_corrupt_block = false;
         while !self.end_of_file {
             self.read_line()?;
@@ -1525,7 +1542,14 @@ impl INI {
                     self.cur_block_start = first_token.clone();
                 }
 
-                if let Err(e) = parser(self) {
+                let result = if first_token.eq_ignore_ascii_case("PlayerTemplate")
+                    && let Some(store) = player_templates.as_deref_mut()
+                {
+                    super::ini_player_template::parse_player_template_definition_into(self, store)
+                } else {
+                    parser(self)
+                };
+                if let Err(e) = result {
                     if !self.tolerant_blocks {
                         eprintln!(
                             "Error parsing block '{}' in INI file '{}'",

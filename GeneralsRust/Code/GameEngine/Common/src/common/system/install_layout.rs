@@ -9,7 +9,7 @@
 //! 4. official retail directory names (`Command & Conquer Generals Zero Hour`)
 //! 5. optical-drive roots (C++ `TheCDManager`)
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -138,19 +138,6 @@ pub fn discovery_roots() -> Vec<PathBuf> {
     out
 }
 
-fn dir_looks_like_zh_install(dir: &Path) -> bool {
-    MARKER_BIGS
-        .iter()
-        .any(|name| find_file_case_insensitive(dir, name).is_some())
-}
-
-fn dir_looks_like_extracted_root(dir: &Path) -> bool {
-    EXTRACTED_DIR_NAMES.iter().any(|name| {
-        let child = dir.join(name);
-        child.is_dir() || find_dir_case_insensitive(dir, name).is_some()
-    })
-}
-
 fn find_dir_case_insensitive(dir: &Path, name: &str) -> Option<PathBuf> {
     if !dir.is_dir() {
         return None;
@@ -169,56 +156,10 @@ fn find_dir_case_insensitive(dir: &Path, name: &str) -> Option<PathBuf> {
     None
 }
 
-fn scan_from(start: &Path, max_depth: usize) -> (Vec<PathBuf>, Vec<PathBuf>) {
-    let mut installs = Vec::new();
-    let mut extracted = Vec::new();
-    let mut seen = HashSet::new();
-    let mut queue = VecDeque::new();
-    queue.push_back((start.to_path_buf(), 0usize));
-    let mut visited = 0usize;
-
-    while let Some((dir, depth)) = queue.pop_front() {
-        if visited >= MAX_SCAN_DIRS {
-            break;
-        }
-        if !dir.is_dir() || !seen.insert(path_key(&dir)) {
-            continue;
-        }
-        visited += 1;
-
-        if dir_looks_like_zh_install(&dir) {
-            installs.push(dir.clone());
-        }
-        if dir_looks_like_extracted_root(&dir) {
-            extracted.push(dir.clone());
-            for name in EXTRACTED_DIR_NAMES {
-                if let Some(child) = find_dir_case_insensitive(&dir, name) {
-                    extracted.push(child);
-                }
-            }
-        }
-
-        if depth >= max_depth {
-            continue;
-        }
-        let Ok(entries) = fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            if is_skip_dir_name(&name) {
-                continue;
-            }
-            queue.push_back((path, depth + 1));
-        }
-    }
-
-    (installs, extracted)
+fn dir_looks_like_zh_install(dir: &Path) -> bool {
+    MARKER_BIGS
+        .iter()
+        .any(|name| find_file_case_insensitive(dir, name).is_some())
 }
 
 /// Zero Hour install dirs that actually contain `.big` archives.
@@ -245,7 +186,7 @@ pub fn zh_install_roots() -> Vec<PathBuf> {
             push_unique(&mut out, &mut seen, data);
         }
 
-        let (installs, _) = scan_from(&root, MAX_SCAN_DEPTH);
+        let (installs, _) = scan::scan_from(&root, MAX_SCAN_DEPTH);
         for install in installs {
             push_unique(&mut out, &mut seen, install);
         }
@@ -263,14 +204,9 @@ fn extracted_asset_roots_from(roots: &[PathBuf]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for root in roots {
-        let (_, extracted) = scan_from(root, MAX_SCAN_DEPTH);
+        let (_, extracted) = scan::scan_from(root, MAX_SCAN_DEPTH);
         for path in extracted {
             push_unique(&mut out, &mut seen, path);
-        }
-        for name in EXTRACTED_DIR_NAMES {
-            if let Some(child) = find_dir_case_insensitive(&root, name) {
-                push_unique(&mut out, &mut seen, child);
-            }
         }
     }
     out
@@ -416,6 +352,9 @@ fn ini_text_mixes_unrelated_catalogs(text: &str) -> bool {
     false
 }
 
+#[path = "install_layout/scan.rs"]
+mod scan;
+
 #[path = "install_layout/ini_resolver.rs"]
 mod ini_resolver;
 pub(crate) use ini_resolver::DataIniResolver;
@@ -541,3 +480,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "install_layout/scan_tests.rs"]
+mod scan_tests;

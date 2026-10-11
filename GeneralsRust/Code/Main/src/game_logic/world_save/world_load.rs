@@ -35,7 +35,8 @@ impl GameLogic {
                 object.set_ground_height_residual(y, true);
                 crate::game_logic::host_ground_height_log::record(object_id, y, true);
                 if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                    crate::game_logic::host_move_log::record(object_id, Some([x, y, z]));
+                    self.movement_events
+                        .record(self.frame, object_id, Some([x, y, z]));
                     object.record_host_movement();
                 }
             }

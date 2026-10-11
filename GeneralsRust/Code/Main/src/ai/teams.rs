@@ -709,8 +709,10 @@ impl AIPlayer {
             }
             if game_logic.assign_unit_path(obj_id, other_pos, &[]) {
                 game_logic.set_ai_state_decision_aware_for_ai(obj_id, AIState::Moving);
-            } else if let Some(unit) = game_logic.host_object_mut(obj_id) {
-                unit.move_to(other_pos);
+            } else if let Some((unit, mut movement_events)) =
+                game_logic.host_object_and_movement_events_mut(obj_id)
+            {
+                unit.move_to(other_pos, &mut movement_events);
                 game_logic.set_ai_state_decision_aware_for_ai(obj_id, AIState::Moving);
             }
             return;

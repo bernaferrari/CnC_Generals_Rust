@@ -2,10 +2,10 @@
 
 use crate::common::language::Language;
 use crate::common::rts::player_template::{
-    get_player_template_store, get_player_template_store_mut,
+    PlayerTemplateStore, get_player_template_store, player_template_store,
 };
 use log::{info, warn};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::{
     collections::{BTreeSet, HashSet},
     env, fs,
@@ -110,8 +110,8 @@ pub use ini_draw_group_info::{
     Color, DrawGroupInfo, FontInfo, PositionOffset, parse_draw_group_number_definition,
 };
 pub use ini_game_data::{
-    Coord2D, Coord3D, GlobalData, RGBColor, TimeOfDay, Weather, get_global_data,
-    init_global_data, parse_game_data_definition,
+    Coord2D, Coord3D, GlobalData, RGBColor, TimeOfDay, Weather, get_global_data, init_global_data,
+    parse_game_data_definition,
 };
 pub use ini_map_cache::{
     MapCache, MapMetaData, MapMetaDataReader, Region3D, WinTimeStamp, parse_map_cache_definition,
@@ -284,11 +284,9 @@ fn extract_player_template_ini_from_archives(virtual_path: &str) -> Option<Strin
     // loose Data/INI tree exists on this machine, read it straight out of a
     // discovered .big archive.
     for root in crate::common::system::install_layout::zh_install_roots() {
-        let big_path = ["INIZH.big", "inizh.big"]
-            .iter()
-            .find_map(|name| {
-                crate::common::system::install_layout::find_file_case_insensitive(&root, name)
-            });
+        let big_path = ["INIZH.big", "inizh.big"].iter().find_map(|name| {
+            crate::common::system::install_layout::find_file_case_insensitive(&root, name)
+        });
         let Some(big_path) = big_path else {
             continue;
         };
@@ -300,14 +298,23 @@ fn extract_player_template_ini_from_archives(virtual_path: &str) -> Option<Strin
         let entry = big
             .entries()
             .iter()
-            .find(|entry| entry.filename.replace('\\', "/").eq_ignore_ascii_case(virtual_path))
+            .find(|entry| {
+                entry
+                    .filename
+                    .replace('\\', "/")
+                    .eq_ignore_ascii_case(virtual_path)
+            })
             .cloned();
         let Some(entry) = entry else { continue };
         match big.extract_file_data(&entry) {
             Ok(bytes) => match String::from_utf8(bytes) {
                 Ok(text) => return Some(text),
                 Err(err) => {
-                    warn!("PlayerTemplate.ini in {} not valid UTF-8: {}", big_path.display(), err);
+                    warn!(
+                        "PlayerTemplate.ini in {} not valid UTF-8: {}",
+                        big_path.display(),
+                        err
+                    );
                 }
             },
             Err(err) => {
@@ -322,7 +329,28 @@ fn extract_player_template_ini_from_archives(virtual_path: &str) -> Option<Strin
     None
 }
 
-fn load_player_templates() {
+#[derive(Clone, Copy)]
+enum PlayerTemplateAdmission {
+    IfEmpty,
+    Replace,
+}
+
+/// Admit one completed load attempt under the existing catalog's boundary.
+/// Two cold loaders must not invalidate identities from the first admitted one.
+fn admit_player_templates(
+    catalog: &RwLock<PlayerTemplateStore>,
+    candidate: PlayerTemplateStore,
+    admission: PlayerTemplateAdmission,
+) -> bool {
+    let mut store = catalog.write().expect("PlayerTemplateStore poisoned");
+    if matches!(admission, PlayerTemplateAdmission::IfEmpty) && !store.is_empty() {
+        return false;
+    }
+    *store = candidate;
+    true
+}
+
+fn load_player_templates(admission: PlayerTemplateAdmission) {
     let sources = discover_player_template_ini_files();
     let mut inline_sources: Vec<String> = Vec::new();
     if sources.is_empty() {
@@ -342,18 +370,22 @@ fn load_player_templates() {
         return;
     }
 
-    {
-        let mut store = get_player_template_store_mut();
-        store.clear();
-    }
+    // Parsing owns its catalog. Readers continue to see the prior admitted
+    // definitions until this attempt is admitted; no parser callback holds this
+    // process catalog's write guard.
+    let mut candidate = PlayerTemplateStore::new();
 
     // Default/PlayerTemplate.ini first (Overwrite), then the override.
     for (idx, content) in inline_sources.iter().enumerate() {
         let mut ini = INI::new();
-        let result =
-            ini.with_inline_source(content, |ini| ini.parse_current_file());
+        let result = ini.with_inline_source(content, |ini| {
+            ini.parse_current_file_into_player_templates(&mut candidate)
+        });
         if let Err(err) = result {
-            warn!("Failed parsing archived PlayerTemplate.ini source #{}: {}", idx, err);
+            warn!(
+                "Failed parsing archived PlayerTemplate.ini source #{}: {}",
+                idx, err
+            );
         }
     }
 
@@ -364,7 +396,9 @@ fn load_player_templates() {
         } else {
             INILoadType::MultiFile
         };
-        if let Err(err) = ini.load(source, load_type) {
+        if let Err(err) = ini.with_file_source(source, load_type, |ini| {
+            ini.parse_current_file_into_player_templates(&mut candidate)
+        }) {
             warn!(
                 "Failed to load PlayerTemplate source '{}': {}",
                 source.display(),
@@ -373,14 +407,11 @@ fn load_player_templates() {
         }
     }
 
-
-    // C++ FileSystem::openFile (FileSystem.cpp:142-154) falls back to
-    // TheArchiveFileSystem when the local file cannot serve Data\\INI\\
-    // PlayerTemplate.ini. A discovered-but-corrupt loose INI (partial or
-    // mis-extracted tree) must behave the same: if parsing produced no
-    // PlayerTemplate records, retry with the retail INIZH.big content
-    // instead of leaving an empty store.
-    if get_player_template_store().is_empty() {
+    // Retain this Rust bootstrap's archive retry when discovered sources
+    // produced no PlayerTemplate records. Source errors still warn and
+    // continue; any parsed prefix is retained. Test this attempt's catalog,
+    // independently of definitions already published by another loader.
+    if candidate.is_empty() {
         for virtual_path in [
             "data/ini/default/playertemplate.ini",
             "data/ini/playertemplate.ini",
@@ -389,17 +420,24 @@ fn load_player_templates() {
                 continue;
             };
             let mut ini = INI::new();
-            let result =
-                ini.with_inline_source(&content, |ini| ini.parse_current_file());
+            let result = ini.with_inline_source(&content, |ini| {
+                ini.parse_current_file_into_player_templates(&mut candidate)
+            });
             if let Err(err) = result {
-                warn!("Failed parsing archived PlayerTemplate.ini source '{}': {}", virtual_path, err);
+                warn!(
+                    "Failed parsing archived PlayerTemplate.ini source '{}': {}",
+                    virtual_path, err
+                );
             }
         }
     }
-    let store = get_player_template_store();
+    let candidate_count = candidate.len();
+    if !admit_player_templates(player_template_store(), candidate, admission) {
+        return;
+    }
     info!(
         "PlayerTemplate store loaded {} templates from {} loose files and {} archived sources",
-        store.len(),
+        candidate_count,
         sources.len(),
         inline_sources.len()
     );
@@ -411,7 +449,7 @@ pub fn ensure_player_templates_loaded() {
         store.is_empty()
     };
     if needs_load {
-        load_player_templates();
+        load_player_templates(PlayerTemplateAdmission::IfEmpty);
     }
 }
 
@@ -434,7 +472,7 @@ pub fn initialize_ini_systems() {
     ini_mapped_image::init_global_mapped_image_collection();
     ini_misc_audio::init_global_misc_audio();
     ini_model::init_global_model_manager();
-    load_player_templates();
+    load_player_templates(PlayerTemplateAdmission::Replace);
 
     // Batch 3 initialization (new parsers)
     ini_campaign::init_campaign_store();
@@ -492,4 +530,229 @@ pub fn initialize_ini_systems() {
     let _ = ini_map_cache::set_game_text_provider(Arc::new(|tag: &str| {
         Some(Language::get_localized_string(tag))
     }));
+}
+
+#[cfg(test)]
+mod player_template_loading_tests {
+    use super::*;
+
+    fn parse_candidate(source: &str) -> PlayerTemplateStore {
+        let mut candidate = PlayerTemplateStore::new();
+        parse_player_templates_into(&mut candidate, source);
+        candidate
+    }
+
+    fn parse_player_templates_into(store: &mut PlayerTemplateStore, source: &str) {
+        INI::new()
+            .with_inline_source(source, |ini| {
+                ini.parse_current_file_into_player_templates(store)
+            })
+            .expect("candidate parses through the production PlayerTemplate dispatch");
+    }
+
+    #[test]
+    fn player_template_owned_catalog_preserves_exact_names_and_override_order() {
+        let mut store = PlayerTemplateStore::new();
+        parse_player_templates_into(
+            &mut store,
+            "pLaYeRtEmPlAtE FactionAmerica\nSide = America\nStartMoney = 1000\n\
+             StartingBuilding = AmericaCommandCenter\nEnd\n\
+             PlayerTemplate factionAmerica\nSide = Separate\nEnd\n",
+        );
+        parse_player_templates_into(
+            &mut store,
+            "PlayerTemplate FactionAmerica\nStartMoney = 5000\nEnd\n\
+             PlayerTemplate FactionGLA\nSide = GLA\nEnd\n",
+        );
+        assert_eq!(store.len(), 3);
+        assert_eq!(store.find_template_index("FactionAmerica"), Some(0));
+        assert_eq!(store.find_template_index("factionAmerica"), Some(1));
+        assert_eq!(store.find_template_index("FactionGLA"), Some(2));
+        let america = store.find_template("FactionAmerica").unwrap();
+        assert_eq!(america.starting_money.count_money(), 5000);
+        assert_eq!(america.starting_building, "AmericaCommandCenter");
+        assert_eq!(america.side, "America");
+        assert_eq!(
+            store.find_template("factionAmerica").unwrap().side,
+            "Separate"
+        );
+    }
+
+    #[test]
+    fn player_template_owned_catalog_retains_parsed_prefix_after_source_error() {
+        let mut store = PlayerTemplateStore::new();
+        let mut ini = INI::new();
+        let result = ini.with_inline_source(
+            "PlayerTemplate FactionAmerica\nSide = America\nEnd\n\
+             PlayerTemplate FactionChina\nSide = China\nStartMoney = invalid\nEnd\n\
+             PlayerTemplate FactionUnreached\nSide = Unreached\nEnd\n",
+            |ini| ini.parse_current_file_into_player_templates(&mut store),
+        );
+        assert!(result.is_err());
+        assert_eq!(store.len(), 2);
+        assert_eq!(
+            store.find_template("FactionAmerica").unwrap().side,
+            "America"
+        );
+        assert_eq!(store.find_template("FactionChina").unwrap().side, "China");
+        assert!(store.find_template("FactionUnreached").is_none());
+        // The loader continues to the next source without discarding records
+        // already parsed by the existing field dispatch.
+        parse_player_templates_into(
+            &mut store,
+            "PlayerTemplate FactionChina\nStartMoney = 5000\nEnd\n\
+             PlayerTemplate FactionGLA\nSide = GLA\nEnd\n",
+        );
+        assert_eq!(store.len(), 3);
+        assert_eq!(store.find_template_index("FactionChina"), Some(1));
+        assert_eq!(
+            store
+                .find_template("FactionChina")
+                .unwrap()
+                .starting_money
+                .count_money(),
+            5000
+        );
+    }
+
+    #[test]
+    fn owned_player_template_parse_leaves_published_catalog_unchanged() {
+        // Keep a normal read borrow of the existing catalog while parsing.
+        // The owned dispatch needs no write access to this publication.
+        let published = get_player_template_store();
+        let count = published.len();
+        let candidate = parse_candidate("PlayerTemplate FactionLocal\nSide = Local\nEnd\n");
+        assert_eq!(candidate.len(), 1);
+        assert_eq!(
+            candidate.find_template("FactionLocal").unwrap().side,
+            "Local"
+        );
+        assert_eq!(published.len(), count);
+    }
+
+    #[test]
+    fn cold_player_template_admission_keeps_first_complete_catalog() {
+        let catalog = RwLock::new(PlayerTemplateStore::new());
+        let first = parse_candidate(
+            "PlayerTemplate FactionAmerica\nSide = America\nEnd\n\
+             PlayerTemplate FactionGLA\nSide = GLA\nEnd\n",
+        );
+        let second = parse_candidate("PlayerTemplate FactionChina\nSide = China\nEnd\n");
+        assert!(
+            catalog.read().unwrap().is_empty(),
+            "parsing is not admission"
+        );
+        assert!(admit_player_templates(
+            &catalog,
+            first,
+            PlayerTemplateAdmission::IfEmpty
+        ));
+        assert!(!admit_player_templates(
+            &catalog,
+            second,
+            PlayerTemplateAdmission::IfEmpty
+        ));
+        let retained = catalog.read().unwrap();
+        assert_eq!(retained.len(), 2);
+        assert_eq!(retained.find_template_index("FactionAmerica"), Some(0));
+        assert_eq!(retained.find_template_index("FactionGLA"), Some(1));
+        assert!(retained.find_template("FactionChina").is_none());
+    }
+
+    #[test]
+    fn explicit_player_template_reload_replaces_once_after_parse() {
+        let catalog = RwLock::new(parse_candidate(
+            "PlayerTemplate FactionOld\nSide = Old\nEnd\n",
+        ));
+        let replacement = parse_candidate(
+            "PlayerTemplate FactionAmerica\nSide = America\nEnd\n\
+             PlayerTemplate FactionGLA\nSide = GLA\nEnd\n",
+        );
+        assert!(
+            catalog
+                .read()
+                .unwrap()
+                .find_template("FactionOld")
+                .is_some()
+        );
+        assert!(admit_player_templates(
+            &catalog,
+            replacement,
+            PlayerTemplateAdmission::Replace
+        ));
+        let published = catalog.read().unwrap();
+        assert_eq!(published.len(), 2);
+        assert!(published.find_template("FactionOld").is_none());
+        assert_eq!(published.find_template_index("FactionAmerica"), Some(0));
+        assert_eq!(published.find_template_index("FactionGLA"), Some(1));
+        drop(published);
+
+        // Existing reload policy clears the catalog if available sources parse
+        // no records; only discovery of no sources leaves it unchanged.
+        assert!(admit_player_templates(
+            &catalog,
+            PlayerTemplateStore::new(),
+            PlayerTemplateAdmission::Replace,
+        ));
+        assert!(catalog.read().unwrap().is_empty());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn concurrent_cold_player_template_loaders_admit_one_complete_catalog() {
+        let catalog = RwLock::new(PlayerTemplateStore::new());
+        let parsed = std::sync::Barrier::new(3);
+        let admit = std::sync::Barrier::new(3);
+        std::thread::scope(|scope| {
+            let workers: Vec<_> = ["America", "GLA"]
+                .into_iter()
+                .map(|side| {
+                    let catalog = &catalog;
+                    let parsed = &parsed;
+                    let admit = &admit;
+                    scope.spawn(move || {
+                        let candidate = parse_candidate(&format!(
+                            "PlayerTemplate Faction{side}\nSide = {side}\nEnd\n\
+                             PlayerTemplate Faction{side}Observer\nSide = Observer\nEnd\n"
+                        ));
+                        parsed.wait();
+                        admit.wait();
+                        (
+                            side,
+                            admit_player_templates(
+                                catalog,
+                                candidate,
+                                PlayerTemplateAdmission::IfEmpty,
+                            ),
+                        )
+                    })
+                })
+                .collect();
+            parsed.wait();
+            assert!(catalog.read().unwrap().is_empty());
+            admit.wait();
+            let results: Vec<_> = workers
+                .into_iter()
+                .map(|worker| worker.join().unwrap())
+                .collect();
+            assert_eq!(results.iter().filter(|(_, admitted)| *admitted).count(), 1);
+            let winner = results.iter().find(|(_, admitted)| *admitted).unwrap().0;
+            let loser = results.iter().find(|(_, admitted)| !*admitted).unwrap().0;
+            let published = catalog.read().unwrap();
+            assert_eq!(published.len(), 2);
+            assert_eq!(
+                published.find_template_index(&format!("Faction{winner}")),
+                Some(0)
+            );
+            assert_eq!(
+                published.find_template_index(&format!("Faction{winner}Observer")),
+                Some(1)
+            );
+            assert!(
+                published
+                    .find_template(&format!("Faction{loser}"))
+                    .is_none()
+            );
+        });
+    }
 }

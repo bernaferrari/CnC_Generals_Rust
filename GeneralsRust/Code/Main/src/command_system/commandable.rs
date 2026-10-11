@@ -14,7 +14,6 @@ pub trait CommandableObject {
     fn provides_repair(&self) -> bool;
     fn provides_healing(&self) -> bool;
     fn has_capacity_for(&self, other: &Object) -> bool;
-    fn set_destination(&mut self, destination: Vec3);
     fn set_target(&mut self, target: Option<ObjectId>);
     fn set_target_location(&mut self, location: Option<Vec3>);
     fn set_guard_position(&mut self, position: Option<Vec3>);
@@ -85,10 +84,6 @@ impl CommandableObject for Object {
 
     fn has_capacity_for(&self, _other: &Object) -> bool {
         Object::has_capacity_for(self, 1)
-    }
-
-    fn set_destination(&mut self, destination: Vec3) {
-        Object::set_destination(self, destination);
     }
 
     fn set_target(&mut self, target: Option<ObjectId>) {

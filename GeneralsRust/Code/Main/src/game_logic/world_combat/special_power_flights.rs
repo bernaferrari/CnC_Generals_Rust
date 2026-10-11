@@ -2679,7 +2679,8 @@ impl GameLogic {
                 hunter.target = None;
                 hunter.set_position(position);
                 if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                    crate::game_logic::host_move_log::record(
+                    self.movement_events.record(
+                        self.frame,
                         hunter_id,
                         Some([position.x, position.y, position.z]),
                     );
@@ -2770,7 +2771,8 @@ impl GameLogic {
                 guard.target = None;
                 guard.set_position(position);
                 if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                    crate::game_logic::host_move_log::record(
+                    self.movement_events.record(
+                        self.frame,
                         guard_id,
                         Some([position.x, position.y, position.z]),
                     );
@@ -2842,7 +2844,8 @@ impl GameLogic {
                 unit.set_position(crawler_pos + offset);
                 if crate::gameworld_shadow::gameworld_movement_authority_live() {
                     let p = crawler_pos + offset;
-                    crate::game_logic::host_move_log::record(unit.id, Some([p.x, p.y, p.z]));
+                    self.movement_events
+                        .record(self.frame, unit.id, Some([p.x, p.y, p.z]));
                     unit.record_host_movement();
                 }
                 unit.set_contained_by(None);

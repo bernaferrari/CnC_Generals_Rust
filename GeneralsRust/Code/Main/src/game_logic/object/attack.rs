@@ -543,15 +543,16 @@ impl Object {
         Some(slot)
     }
 
-    pub fn move_to(&mut self, position: Vec3) {
+    pub(crate) fn move_to(
+        &mut self,
+        position: Vec3,
+        movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
+    ) {
         if self.is_mobile() && self.is_alive() {
             self.movement.target_position = Some(position);
             self.set_ai_state(AIState::Moving);
             self.set_status_moving(true);
-            crate::game_logic::host_move_log::record(
-                self.id,
-                Some([position.x, position.y, position.z]),
-            );
+            movement_events.record(self.id, Some([position.x, position.y, position.z]));
         }
     }
     /// Drop a `setTemporaryState` move without `onExit` of the underlying state.

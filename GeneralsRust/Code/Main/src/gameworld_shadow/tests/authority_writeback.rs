@@ -69,10 +69,10 @@ fn gameworld_step_movement_advances_move_target() {
         .create_object("RangerMv", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("id");
     {
-        let o = logic.host_object_mut(oid).expect("o");
+        let (o, mut movement_events) = logic.host_object_and_movement_events_mut(oid).expect("o");
         o.movement.max_speed = 60.0;
         o.movement.velocity = glam::Vec3::ZERO;
-        o.move_to(glam::Vec3::new(100.0, 0.0, 0.0));
+        o.move_to(glam::Vec3::new(100.0, 0.0, 0.0), &mut movement_events);
     }
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -337,14 +337,14 @@ fn host_update_movement_skips_when_gameworld_movement_authority() {
         )
         .expect("id");
     {
-        let o = logic.host_object_mut(oid).expect("o");
+        let (o, mut movement_events) = logic.host_object_and_movement_events_mut(oid).expect("o");
         o.movement.max_speed = 60.0;
         // The movement residual now carries the synced Locomotor acceleration
         // (C++ getMaxAcceleration) and the GameWorld integrator clamps its
         // velocity ramp to it. Arm a retail-scale acceleration so the ten
         // authority frames exercise a marching pose, not a ramp from standstill.
         o.movement.acceleration = 240.0;
-        o.move_to(glam::Vec3::new(50.0, 0.0, 0.0));
+        o.move_to(glam::Vec3::new(50.0, 0.0, 0.0), &mut movement_events);
         o.record_host_movement();
     }
     // A real logic step (not the trailing observational probe) evaluates
@@ -940,7 +940,6 @@ fn probe_includes_host_victory_fields() {
 
 #[test]
 fn path_helpers_log_final_move_destination() {
-    crate::game_logic::host_move_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("PathLog");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -955,13 +954,12 @@ fn path_helpers_log_final_move_destination() {
         let o = logic.host_object_mut(id).unwrap();
         o.movement.max_speed = 20.0;
     }
-    crate::game_logic::host_move_log::clear();
     let dest = glam::Vec3::new(40.0, 0.0, 10.0);
     assert!(
         logic.append_unit_waypoint(id, dest),
         "append waypoint should succeed for mobile unit"
     );
-    let events = crate::game_logic::host_move_log::drain();
+    let events = logic.movement_events.drain_for_host_boundary();
     assert!(
         events.iter().any(|e| {
             e.unit == id
@@ -975,7 +973,6 @@ fn path_helpers_log_final_move_destination() {
 
 #[test]
 fn move_to_logs_destination_for_mobile_unit() {
-    crate::game_logic::host_move_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MoveLog");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -990,11 +987,9 @@ fn move_to_logs_destination_for_mobile_unit() {
         logic.host_objects().get(&a).unwrap().is_mobile(),
         "template Infantry should make object mobile"
     );
-    logic
-        .host_object_mut(a)
-        .unwrap()
-        .set_destination(glam::Vec3::new(10.0, 0.0, 0.0));
-    let ev = crate::game_logic::host_move_log::drain();
+    let (object, mut events) = logic.host_object_and_movement_events_mut(a).unwrap();
+    object.set_destination(glam::Vec3::new(10.0, 0.0, 0.0), &mut events);
+    let ev = logic.movement_events.drain_for_host_boundary();
     assert_eq!(ev.len(), 1);
     assert_eq!(ev[0].unit, a);
     assert_eq!(ev[0].destination, Some([10.0, 0.0, 0.0]));
@@ -1002,7 +997,6 @@ fn move_to_logs_destination_for_mobile_unit() {
 
 #[test]
 fn move_target_writeback_updates_host() {
-    crate::game_logic::host_move_log::clear();
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("MoveWb");
     apply_skirmish_config(&mut logic, &cfg).expect("cfg");
@@ -1010,8 +1004,10 @@ fn move_target_writeback_updates_host() {
     let a = logic
         .create_object("MoveWA", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("a");
-    crate::game_logic::host_move_log::record(a, Some([50.0, 0.0, 25.0]));
-    let events = crate::game_logic::host_move_log::drain();
+    logic
+        .movement_events
+        .record(logic.frame, a, Some([50.0, 0.0, 25.0]));
+    let events = logic.movement_events.drain_for_host_boundary();
     assert!(!events.is_empty(), "move log should hold destination");
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
@@ -1384,8 +1380,9 @@ fn owned_damage_and_move_do_not_implicitly_publish_to_comparison_world() {
     with_coupled_shadow(&mut shadow, || {
         logic.with_host_object_mut(oid, |o| {
             o.health.current = (o.health.current - 25.0).max(0.0);
-            o.move_to(glam::Vec3::new(40.0, 0.0, 0.0));
         });
+        let (o, mut movement_events) = logic.host_object_and_movement_events_mut(oid).expect("o");
+        o.move_to(glam::Vec3::new(40.0, 0.0, 0.0), &mut movement_events);
     });
 
     let eid = shadow.entity_for_host(oid).expect("map");

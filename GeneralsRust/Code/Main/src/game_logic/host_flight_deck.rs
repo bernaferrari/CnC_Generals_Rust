@@ -395,12 +395,12 @@ impl GameLogic {
             .and_then(|c| c.thing().template.flight_deck.as_ref())
             .map(|m| m.landing_deck_height_offset)
             .unwrap_or(0.0);
-        if let Some(jet) = self.objects.get_mut(&jet_id) {
+        if let Some((jet, mut movement_events)) = self.host_object_and_movement_events_mut(jet_id) {
             jet.producer_id = Some(carrier_id);
             jet.airfield_parking_space_index = u32::try_from(index).ok();
             jet.set_position(creation);
             jet.set_orientation(start_orient);
-            jet.set_destination(stall.position);
+            jet.set_destination(stall.position, &mut movement_events);
             jet.set_ai_state(AIState::Moving);
             jet.status.airborne_target = false;
             if deck_offset != 0.0 {
@@ -485,10 +485,12 @@ impl GameLogic {
             }
         }
         for (front, _rear, parked_id, _old_front, dest) in promotions {
-            if let Some(jet) = self.objects.get_mut(&parked_id) {
+            if let Some((jet, mut movement_events)) =
+                self.host_object_and_movement_events_mut(parked_id)
+            {
                 let _ = jet.apply_status_bits_upgrade_masks(&["REASSIGN_PARKING"], &[]);
                 jet.airfield_parking_space_index = u32::try_from(front).ok();
-                jet.set_destination(dest);
+                jet.set_destination(dest, &mut movement_events);
                 jet.set_ai_state(AIState::Moving);
             }
         }
@@ -862,7 +864,8 @@ impl GameLogic {
             .iter()
             .find(|space| space.object_id == Some(jet_id))
             .map(|space| space.position);
-        let Some(jet) = self.objects.get_mut(&jet_id) else {
+        let Some((jet, mut movement_events)) = self.host_object_and_movement_events_mut(jet_id)
+        else {
             return;
         };
         match command {
@@ -885,11 +888,11 @@ impl GameLogic {
             }
             HostFlightDeckCommand::AttackMoveToPosition => {
                 jet.status.airborne_target = true;
-                jet.set_destination(position);
+                jet.set_destination(position, &mut movement_events);
                 jet.set_ai_state(AIState::AttackMoving);
             }
             HostFlightDeckCommand::Idle => {
-                jet.set_destination(stall_pos.unwrap_or(position));
+                jet.set_destination(stall_pos.unwrap_or(position), &mut movement_events);
                 jet.set_ai_state(AIState::Entering);
                 jet.status.airborne_target = false;
                 // Entering must pass the carrier. Do not keep the building

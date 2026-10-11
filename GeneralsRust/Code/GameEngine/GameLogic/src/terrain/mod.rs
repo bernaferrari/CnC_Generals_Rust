@@ -707,6 +707,8 @@ pub struct TerrainLogic {
 // the same `TerrainLogic` type, so the public API and call ordering remain unchanged.
 mod bridge;
 mod bridges;
+#[cfg(test)]
+mod closest_waypoint_tests;
 mod geometry;
 mod map_height;
 mod query;

@@ -56,6 +56,7 @@ impl GameLogic {
             ai_definitions,
             map_definition_source: None,
             health_events: crate::game_logic::HostHealthEvents::default(),
+            movement_events: Default::default(),
             // C++ engine-init order (GameEngine.cpp:468-481): immutable content
             // is admitted before the world. Main constructs no Core AI.
             // Construction is inert (no active-slot write); Main installs
@@ -1196,6 +1197,7 @@ impl GameLogic {
         self.victory_conditions.reset();
         self.clear_victory_observation();
         self.health_events.clear();
+        self.movement_events.reset();
         self.scripts_loaded = false;
         self.install_multiplayer_scripts = false;
         self.script_event_pump_in_flight

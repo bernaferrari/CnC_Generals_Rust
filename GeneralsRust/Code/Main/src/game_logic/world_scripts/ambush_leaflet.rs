@@ -182,7 +182,8 @@ impl GameLogic {
                             obj.set_position(p);
                             crate::game_logic::host_ground_height_log::record(id, p.y, false);
                             if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                                crate::game_logic::host_move_log::record(id, Some([p.x, p.y, p.z]));
+                                self.movement_events
+                                    .record(self.frame, id, Some([p.x, p.y, p.z]));
                                 obj.record_host_movement();
                             }
                         }

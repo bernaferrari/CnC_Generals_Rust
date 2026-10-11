@@ -3070,7 +3070,8 @@ impl GameLogic {
                         );
                     }
                     obj.movement.target_position = Some(mine_pos);
-                    crate::game_logic::host_move_log::record(
+                    self.movement_events.record(
+                        self.frame,
                         clearer_id,
                         Some([mine_pos.x, mine_pos.y, mine_pos.z]),
                     );

@@ -1942,11 +1942,14 @@ impl PresentationFrame {
                 });
             }
         }
-        for ev in crate::game_logic::host_move_log::take_last_drain() {
+        for ev in logic.movement_events.take_completed() {
             if let Some(destination) = ev.destination {
                 events.push(PresentationEvent::MoveOrdered {
                     unit: ev.unit,
                     destination,
+                    session: ev.session,
+                    logic_frame: ev.logic_frame,
+                    sequence: ev.sequence,
                 });
             }
         }
