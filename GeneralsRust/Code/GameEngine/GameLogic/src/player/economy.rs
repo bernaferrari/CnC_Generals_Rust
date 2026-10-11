@@ -272,11 +272,10 @@ impl Player {
     }
 
     pub(super) fn lookup_production_change(
-        map: &HashMap<NameKeyType, Real>,
+        map: &HashMap<String, Real>,
         template_name: &str,
     ) -> Real {
-        let key = NameKeyGenerator::name_to_key(template_name);
-        map.get(&key).copied().unwrap_or(0.0)
+        map.get(template_name).copied().unwrap_or(0.0)
     }
 
     /// Production cost change percent for this template name (matches C++ Player::getProductionCostChangePercent).
@@ -301,10 +300,9 @@ impl Player {
         let Some(template) = self.player_template.as_ref() else {
             return VeterancyLevel::Regular;
         };
-        let key = NameKeyGenerator::name_to_key(build_template_name);
         template
             .production_veterancy_levels
-            .get(&key)
+            .get(build_template_name)
             .copied()
             .unwrap_or(VeterancyLevel::Regular)
     }

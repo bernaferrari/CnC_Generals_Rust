@@ -339,12 +339,14 @@ fn player_template_from_common_copies_sciences_production_and_shortcut_fields() 
         game_engine::common::rts::player_template::PlayerTemplate::new("FactionChina".into());
     common.intrinsic_sciences = vec!["SCIENCE_CHINA".into(), "SCIENCE_RedGuardTraining".into()];
     common.intrinsic_science_purchase_points = 3;
-    let tank_key = NameKeyGenerator::name_to_key("ChinaTankOverlord");
-    let gatling_key = NameKeyGenerator::name_to_key("ChinaVehicleTroopCrawler");
-    common.production_cost_changes.insert(tank_key, 0.8);
-    common.production_time_changes.insert(tank_key, 0.5);
+    common
+        .production_cost_changes
+        .insert("ChinaTankOverlord".into(), 0.8);
+    common
+        .production_time_changes
+        .insert("ChinaTankOverlord".into(), 0.5);
     common.production_veterancy_levels.insert(
-        gatling_key,
+        "ChinaVehicleTroopCrawler".into(),
         game_engine::common::game_common::VeterancyLevel::Veteran,
     );
     common.special_power_shortcut_command_set = "SCIENCE_CHINA_SHORTCUT".into();
@@ -368,16 +370,20 @@ fn player_template_from_common_copies_sciences_production_and_shortcut_fields() 
         ]
     );
     assert_eq!(
-        gl.get_production_cost_changes().get(&tank_key).copied(),
+        gl.get_production_cost_changes()
+            .get("ChinaTankOverlord")
+            .copied(),
         Some(0.8)
     );
     assert_eq!(
-        gl.get_production_time_changes().get(&tank_key).copied(),
+        gl.get_production_time_changes()
+            .get("ChinaTankOverlord")
+            .copied(),
         Some(0.5)
     );
     assert_eq!(
         gl.get_production_veterancy_levels()
-            .get(&gatling_key)
+            .get("ChinaVehicleTroopCrawler")
             .copied(),
         Some(VeterancyLevel::Veteran)
     );
@@ -531,3 +537,71 @@ fn do_bounty_for_kill_obj_uses_calc_cost_to_build_and_score_keeper() {
 }
 
 include!("radar_tests.rs");
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn production_modifier_copied_definition_crosses_numeric_namespaces() {
+    let (mut definition, worker_key) = std::thread::spawn(|| {
+        NameKeyGenerator::reset();
+        for index in 0..73 {
+            NameKeyGenerator::name_to_key(&format!("core_worker_padding_{index}"));
+        }
+        let mut definition =
+            game_engine::common::rts::player_template::PlayerTemplate::new(String::new());
+        let worker_key = NameKeyGenerator::name_to_key("CoreHandoffTank");
+        definition
+            .production_cost_changes
+            .insert("CoreHandoffTank".into(), -0.20);
+        definition
+            .production_time_changes
+            .insert("CoreHandoffTank".into(), 0.25);
+        definition.production_veterancy_levels.insert(
+            "CoreHandoffTank".into(),
+            game_engine::common::game_common::VeterancyLevel::Elite,
+        );
+        (definition, worker_key)
+    })
+    .join()
+    .unwrap();
+    std::thread::spawn(move || {
+        NameKeyGenerator::reset();
+        assert_ne!(worker_key, NameKeyGenerator::name_to_key("CoreHandoffTank"));
+        let copied = PlayerTemplate::from_common(&definition);
+        let mut player = Player::new(0);
+        player.player_template = Some(Arc::new(copied.clone()));
+        definition
+            .production_cost_changes
+            .insert("CoreHandoffTank".into(), 0.50);
+        let before = NameKeyGenerator::name_to_key("before_core_queries");
+        assert_eq!(
+            player.get_production_cost_change_percent("CoreHandoffTank"),
+            -0.20
+        );
+        assert_eq!(
+            player.get_production_time_change_percent("CoreHandoffTank"),
+            0.25
+        );
+        assert_eq!(
+            player.get_production_veterancy_level("CoreHandoffTank"),
+            VeterancyLevel::Elite
+        );
+        for name in ["corehandofftank", "MissingCoreTank"] {
+            assert_eq!(player.get_production_cost_change_percent(name), 0.0);
+            assert_eq!(player.get_production_time_change_percent(name), 0.0);
+            assert_eq!(
+                player.get_production_veterancy_level(name),
+                VeterancyLevel::Regular
+            );
+        }
+        assert_eq!(
+            NameKeyGenerator::name_to_key("after_core_queries"),
+            before + 1
+        );
+        assert_eq!(
+            copied.production_cost_changes().get("CoreHandoffTank"),
+            Some(&-0.20)
+        );
+    })
+    .join()
+    .unwrap();
+}

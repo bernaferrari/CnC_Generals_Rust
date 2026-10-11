@@ -79,9 +79,9 @@ pub struct PlayerTemplate {
     pub player_enemies: String,
     pub(super) intrinsic_sciences: ScienceVec,
     pub(super) intrinsic_science_purchase_points: Int,
-    pub(super) production_cost_changes: HashMap<NameKeyType, Real>,
-    pub(super) production_time_changes: HashMap<NameKeyType, Real>,
-    pub(super) production_veterancy_levels: HashMap<NameKeyType, VeterancyLevel>,
+    pub(super) production_cost_changes: HashMap<String, Real>,
+    pub(super) production_time_changes: HashMap<String, Real>,
+    pub(super) production_veterancy_levels: HashMap<String, VeterancyLevel>,
 }
 
 impl PlayerTemplate {
@@ -198,7 +198,7 @@ impl PlayerTemplate {
         self.production_veterancy_levels = template
             .production_veterancy_levels
             .iter()
-            .map(|(name_key, level)| {
+            .map(|(name, level)| {
                 let mapped = match level {
                     game_engine::common::game_common::VeterancyLevel::Regular => {
                         crate::common::VeterancyLevel::Regular
@@ -213,7 +213,7 @@ impl PlayerTemplate {
                         crate::common::VeterancyLevel::Heroic
                     }
                 };
-                (*name_key, mapped)
+                (name.clone(), mapped)
             })
             .collect();
 
@@ -440,29 +440,29 @@ impl PlayerTemplate {
     }
 
     /// C++ `getProductionCostChanges()`
-    pub fn get_production_cost_changes(&self) -> &HashMap<NameKeyType, Real> {
+    pub fn get_production_cost_changes(&self) -> &HashMap<String, Real> {
         &self.production_cost_changes
     }
 
     /// C++ `getProductionTimeChanges()`
-    pub fn get_production_time_changes(&self) -> &HashMap<NameKeyType, Real> {
+    pub fn get_production_time_changes(&self) -> &HashMap<String, Real> {
         &self.production_time_changes
     }
 
     /// C++ `getProductionVeterancyLevels()`
-    pub fn get_production_veterancy_levels(&self) -> &HashMap<NameKeyType, VeterancyLevel> {
+    pub fn get_production_veterancy_levels(&self) -> &HashMap<String, VeterancyLevel> {
         &self.production_veterancy_levels
     }
 
-    pub fn production_cost_changes(&self) -> &HashMap<NameKeyType, Real> {
+    pub fn production_cost_changes(&self) -> &HashMap<String, Real> {
         self.get_production_cost_changes()
     }
 
-    pub fn production_time_changes(&self) -> &HashMap<NameKeyType, Real> {
+    pub fn production_time_changes(&self) -> &HashMap<String, Real> {
         self.get_production_time_changes()
     }
 
-    pub fn production_veterancy_levels(&self) -> &HashMap<NameKeyType, VeterancyLevel> {
+    pub fn production_veterancy_levels(&self) -> &HashMap<String, VeterancyLevel> {
         self.get_production_veterancy_levels()
     }
 }

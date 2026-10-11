@@ -18,10 +18,30 @@ impl SnapshotBuilder {
         next_object_id: u32,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-        game_logic.clear_all_objects();
-
         let mut ids: Vec<ObjectId> = objects.keys().cloned().collect();
         ids.sort();
+
+        // Queues need the loaded catalog's authored build time. Restoring a
+        // live object can synthesize a minimal template below; that fallback
+        // cannot supply a queued unit's definition. Validate before restoring
+        // any objects, independently of their saved ID order.
+        for id in &ids {
+            for module in objects[id].modules.values() {
+                if let ModuleSnapshot::Production(production) = module {
+                    for entry in &production.production_queue {
+                        if !entry.is_upgrade
+                            && !game_logic.templates.contains_key(&entry.template_name)
+                        {
+                            return Err(SaveLoadError::Corrupted(format!(
+                                "Queued production template '{}' is absent from loaded definitions",
+                                entry.template_name
+                            )));
+                        }
+                    }
+                }
+            }
+        }
+        game_logic.clear_all_objects();
 
         let mut max_id = 0u32;
         for id in ids {
@@ -73,7 +93,8 @@ impl SnapshotBuilder {
         // Prefer catalog templates when present. Map-spawned objects often have a
         // matching entry after load_map, but mid-match loads into a fresh GameLogic
         // may not have the full INI catalog — synthesize a minimal template so
-        // retail map saves remain restorable (production fail-open for catalog gaps).
+        // retail map saves remain restorable. Queued unit definitions are
+        // validated against the loaded catalog before this fallback can run.
         let template = if let Some(t) = game_logic.templates.get(snapshot.template_name.as_str()) {
             t.clone()
         } else {
@@ -494,6 +515,26 @@ impl SnapshotBuilder {
                         object.building_data = Some(BuildingData::new(building_type));
                     }
 
+                    // A saved controlling player can be defeated but retained.
+                    // Reference validity is independent of live eligibility to
+                    // produce. Legacy ownerless records require one unambiguous
+                    // retained player; never select the first active teammate.
+                    let production_owner = match object.owner_player_id {
+                        Some(id) => game_logic
+                            .get_player(id)
+                            .filter(|player| player.team == object.team)
+                            .map(|player| player.id),
+                        None => {
+                            let mut candidates = game_logic
+                                .get_players()
+                                .values()
+                                .filter(|player| player.team == object.team);
+                            let first = candidates.next();
+                            first
+                                .filter(|_| candidates.next().is_none())
+                                .map(|player| player.id)
+                        }
+                    };
                     if let Some(building_data) = object.building_data.as_mut() {
                         building_data.rally_point = snapshot.rally_point;
                         building_data.exit_delay_remaining = snapshot.exit_delay_remaining.max(0.0);
@@ -512,9 +553,31 @@ impl SnapshotBuilder {
                             // lives in UpgradeCenter, not the ThingTemplate catalog,
                             // so a catalog miss must not fall back to 30s.
                             let total_time = if entry.is_upgrade {
+                                // Upgrade.cpp:133–145 applies neither General
+                                // nor handicap modifiers in the release path.
                                 game_logic.upgrade_research_time_secs(&entry.template_name)
                             } else {
-                                template.map(|t| t.build_time.max(0.1)).unwrap_or(30.0_f32)
+                                let template = template.ok_or_else(|| {
+                                    SaveLoadError::Corrupted(format!(
+                                        "Queued production template '{}' is absent from loaded definitions",
+                                        entry.template_name
+                                    ))
+                                })?;
+                                let player_id = production_owner.ok_or_else(|| {
+                                    SaveLoadError::Corrupted(format!(
+                                        "Queued production on object {} has no valid controlling player",
+                                        object.id
+                                    ))
+                                })?;
+                                // ProductionUpdate.cpp:687–700 recomputes
+                                // calcTimeToBuild(player) from its saved frame
+                                // counter. Preserve handicap -> General ->
+                                // integer rounding before per-tick power.
+                                game_logic.modified_build_time_seconds(
+                                    player_id,
+                                    &entry.template_name,
+                                    template.build_time,
+                                )
                             };
                             let template_power = template.map(|t| t.build_cost.power).unwrap_or(0);
 

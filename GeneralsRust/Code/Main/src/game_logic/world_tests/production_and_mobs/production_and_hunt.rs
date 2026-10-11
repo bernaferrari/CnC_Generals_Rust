@@ -188,28 +188,26 @@ fn cancel_production_refunds_controlling_player_not_first_same_team() {
 }
 
 #[test]
-fn exact_player_template_production_maps_keep_cpp_namekey_semantics() {
+fn exact_player_template_production_maps_keep_cpp_name_semantics() {
     use crate::game_logic::host_upgrade_module_residuals::apply_production_cost_factor;
     use game_engine::common::game_common::VeterancyLevel as CommonVeterancyLevel;
-    use game_engine::common::name_key_generator::NameKeyGenerator;
     use game_engine::common::rts::player_template::PlayerTemplate;
     use gamelogic::world::entities::production_total_logic_frames;
 
     // C++ Player::init copies these three maps from its selected
-    // PlayerTemplate, and Player.cpp subsequently queries them by NAMEKEY of
-    // the exact ThingTemplate name.  Exercise the Main adapter without a
+    // PlayerTemplate, and Player.cpp subsequently queries the exact interned
+    // ThingTemplate name. Exercise the Main adapter without a
     // global-store mutation so parallel tests cannot alter retail templates.
     let mut template = PlayerTemplate::new("TestExactGeneral".to_string());
     template
         .production_cost_changes
-        .insert(NameKeyGenerator::name_to_key("ExactUnit"), -0.20);
+        .insert("ExactUnit".into(), -0.20);
     template
         .production_time_changes
-        .insert(NameKeyGenerator::name_to_key("ExactUnit"), 0.25);
-    template.production_veterancy_levels.insert(
-        NameKeyGenerator::name_to_key("ExactUnit"),
-        CommonVeterancyLevel::Elite,
-    );
+        .insert("ExactUnit".into(), 0.25);
+    template
+        .production_veterancy_levels
+        .insert("ExactUnit".into(), CommonVeterancyLevel::Elite);
 
     assert!(
         (PlayerTemplateIdentity::production_cost_factor_for_template(&template, "ExactUnit")

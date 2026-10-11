@@ -4,7 +4,9 @@ use crate::common::game_common::{VETERANCY_NAMES, VeterancyLevel};
 use crate::common::ini::ini::{FieldParse, INI, INIError, INIResult};
 use crate::common::name_key_generator::NameKeyGenerator;
 use crate::common::rts::money::Money;
-use crate::common::rts::player_template::{PlayerTemplate, get_player_template_store_mut};
+use crate::common::rts::player_template::{
+    PlayerTemplate, PlayerTemplateStore, get_player_template_store_mut,
+};
 
 const MAX_STARTING_UNITS: usize = 10;
 
@@ -442,8 +444,12 @@ fn parse_production_cost_change(
     let name = tokens.get(0).ok_or(INIError::InvalidData)?;
     let percent = tokens.get(1).ok_or(INIError::InvalidData)?;
     let change = INI::parse_percent_to_real(percent)?;
-    let key = NameKeyGenerator::name_to_key(name);
-    template.production_cost_changes.insert(key, change);
+    // Preserve parse-time namespace allocation for unmigrated definition consumers.
+    // Production lookups retain the authored name across startup worker handoff.
+    let _ = NameKeyGenerator::name_to_key(name);
+    template
+        .production_cost_changes
+        .insert((*name).to_string(), change);
     Ok(())
 }
 
@@ -455,8 +461,10 @@ fn parse_production_time_change(
     let name = tokens.get(0).ok_or(INIError::InvalidData)?;
     let percent = tokens.get(1).ok_or(INIError::InvalidData)?;
     let change = INI::parse_percent_to_real(percent)?;
-    let key = NameKeyGenerator::name_to_key(name);
-    template.production_time_changes.insert(key, change);
+    let _ = NameKeyGenerator::name_to_key(name);
+    template
+        .production_time_changes
+        .insert((*name).to_string(), change);
     Ok(())
 }
 
@@ -467,9 +475,11 @@ fn parse_production_veterancy_level(
 ) -> INIResult<()> {
     let name = tokens.get(0).ok_or(INIError::InvalidData)?;
     let level = tokens.get(1).ok_or(INIError::InvalidData)?;
-    let key = NameKeyGenerator::name_to_key(name);
+    let _ = NameKeyGenerator::name_to_key(name);
     let vet = parse_veterancy_level(level)?;
-    template.production_veterancy_levels.insert(key, vet);
+    template
+        .production_veterancy_levels
+        .insert((*name).to_string(), vet);
     Ok(())
 }
 
@@ -657,6 +667,16 @@ const PLAYER_TEMPLATE_FIELDS: &[FieldParse<PlayerTemplate>] = &[
 ];
 
 pub fn parse_player_template_definition(ini: &mut INI) -> INIResult<()> {
+    let mut store = get_player_template_store_mut();
+    parse_player_template_definition_into(ini, &mut store)
+}
+
+/// Parse one definition into its caller's catalog using the production field
+/// table and the same exact-name find/create/update behavior as the adapter.
+pub(crate) fn parse_player_template_definition_into(
+    ini: &mut INI,
+    store: &mut PlayerTemplateStore,
+) -> INIResult<()> {
     let tokens = ini.get_line_tokens();
     let name = tokens
         .iter()
@@ -664,7 +684,6 @@ pub fn parse_player_template_definition(ini: &mut INI) -> INIResult<()> {
         .find(|token| **token != "=")
         .ok_or(INIError::InvalidData)?;
 
-    let mut store = get_player_template_store_mut();
     let template_index = store.find_template_index(name).unwrap_or_else(|| {
         store.add_template(PlayerTemplate::new((*name).to_string()));
         store.len().saturating_sub(1)
@@ -778,5 +797,168 @@ End
         }
 
         reset_player_template_test_state();
+    }
+
+    fn parse_owned_modifiers(template: &mut PlayerTemplate, source: &str) {
+        let mut ini = INI::new();
+        ini.with_inline_source(source, |ini| {
+            ini.init_from_ini_with_fields(template, PLAYER_TEMPLATE_FIELDS)
+        })
+        .expect("production fields parse through their real ordered dispatch table");
+    }
+
+    #[test]
+    fn production_modifier_names_keep_exact_case_override_and_owned_clone() {
+        let mut template = PlayerTemplate::new(String::new());
+        parse_owned_modifiers(
+            &mut template,
+            "ProductionCostChange = USAJet 125%\nProductionTimeChange = USAJet -25%\n\
+             ProductionVeterancyLevel = USAJet VETERAN\nProductionCostChange = usaJet -10%\n\
+             ProductionTimeChange = usaJet 25%\nProductionVeterancyLevel = usaJet regular\nEnd\n",
+        );
+        let retained = template.clone();
+        parse_owned_modifiers(
+            &mut template,
+            "ProductionCostChange = USAJet 37.5%\nProductionTimeChange = USAJet 75%\n\
+             ProductionVeterancyLevel = USAJet hErOiC\nEnd\n",
+        );
+        assert_eq!(template.get_production_cost_change_percent("USAJet"), 0.375);
+        assert_eq!(template.get_production_time_change_percent("USAJet"), 0.75);
+        assert_eq!(
+            template.get_production_veterancy_level("USAJet"),
+            VeterancyLevel::Heroic
+        );
+        assert_eq!(template.get_production_cost_change_percent("usaJet"), -0.10);
+        assert_eq!(template.get_production_time_change_percent("usaJet"), 0.25);
+        for name in ["USAJET", "Unknown"] {
+            assert_eq!(template.get_production_cost_change_percent(name), 0.0);
+            assert_eq!(template.get_production_time_change_percent(name), 0.0);
+            assert_eq!(
+                template.get_production_veterancy_level(name),
+                VeterancyLevel::Regular
+            );
+        }
+        assert_eq!(retained.get_production_cost_change_percent("USAJet"), 1.25);
+        assert_eq!(retained.get_production_time_change_percent("USAJet"), -0.25);
+        assert_eq!(
+            retained.get_production_veterancy_level("USAJet"),
+            VeterancyLevel::Veteran
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn production_modifier_worker_handoff_never_allocates_query_names() {
+        let (template, worker_key) = std::thread::spawn(|| {
+            NameKeyGenerator::reset();
+            for index in 0..73 {
+                NameKeyGenerator::name_to_key(&format!("worker_padding_{index}"));
+            }
+            let mut template = PlayerTemplate::new(String::new());
+            parse_owned_modifiers(
+                &mut template,
+                "ProductionCostChange = USAJet 37.5%\nProductionTimeChange = USAJet 75%\n\
+                 ProductionVeterancyLevel = USAJet ELITE\nEnd\n",
+            );
+            (template, NameKeyGenerator::name_to_key("USAJet"))
+        })
+        .join()
+        .unwrap();
+        std::thread::spawn(move || {
+            NameKeyGenerator::reset();
+            let driving_key = NameKeyGenerator::name_to_key("USAJet");
+            assert_ne!(
+                worker_key, driving_key,
+                "handoff must cross different numeric namespaces"
+            );
+            let before = NameKeyGenerator::name_to_key("before_queries");
+            assert_eq!(template.get_production_cost_change_percent("USAJet"), 0.375);
+            assert_eq!(template.get_production_time_change_percent("USAJet"), 0.75);
+            assert_eq!(
+                template.get_production_veterancy_level("USAJet"),
+                VeterancyLevel::Elite
+            );
+            assert_eq!(
+                template.get_production_cost_change_percent("missing_cost"),
+                0.0
+            );
+            assert_eq!(
+                template.get_production_time_change_percent("missing_time"),
+                0.0
+            );
+            assert_eq!(
+                template.get_production_veterancy_level("missing_rank"),
+                VeterancyLevel::Regular
+            );
+            assert_eq!(
+                NameKeyGenerator::name_to_key("after_queries"),
+                before + 1,
+                "definition queries must neither intern names nor depend on the driving namespace"
+            );
+        })
+        .join()
+        .unwrap();
+    }
+
+    /// Executed original PlayerTemplate parser, NameKey and Player getter
+    /// component only; this does not assert full match or native Xfer parity.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "requires source-pinned original C++ production-modifier CSV"]
+    fn original_cpp_production_modifier_component_matches_exact_names() {
+        let path = std::env::var("GENERALS_CPP_PRODUCTION_MODIFIER_ORACLE").expect(
+            "set GENERALS_CPP_PRODUCTION_MODIFIER_ORACLE to executed original modifiers.csv",
+        );
+        let expected = std::fs::read_to_string(path).unwrap();
+        let mut observed = String::new();
+        for (phase, preallocated) in [("initial", 0), ("preallocated", 73)] {
+            let records = std::thread::spawn(move || {
+                NameKeyGenerator::reset();
+                for index in 0..preallocated {
+                    NameKeyGenerator::name_to_key(&format!("unrelated_{index}"));
+                }
+                let mut template = PlayerTemplate::new(String::new());
+                parse_owned_modifiers(&mut template,
+                    "ProductionCostChange = USAJet 125%\n ProductionTimeChange = USAJet -25%\n\
+                     ProductionVeterancyLevel = USAJet VETERAN\n ProductionCostChange = USAInfantry 37.5%\n\
+                     ProductionTimeChange = USAInfantry 50%\n ProductionVeterancyLevel = USAInfantry ELITE\n\
+                     ProductionCostChange = usaJet -10%\n ProductionTimeChange = usaJet 25%\n\
+                     ProductionVeterancyLevel = usaJet regular\nEnd\n");
+                let retained = template.clone();
+                let record = |phase: &str, template: &PlayerTemplate, name: &str| {
+                    let rank = match template.get_production_veterancy_level(name) {
+                        VeterancyLevel::Regular => 0,
+                        VeterancyLevel::Veteran => 1,
+                        VeterancyLevel::Elite => 2,
+                        VeterancyLevel::Heroic => 3,
+                    };
+                    format!("{phase},{name},{},{},{rank}\n",
+                        template.get_production_cost_change_percent(name).to_bits(),
+                        template.get_production_time_change_percent(name).to_bits())
+                };
+                let mut records = String::new();
+                for name in ["USAJet", "USAInfantry", "usaJet", "USAJET", "Unknown"] {
+                    records.push_str(&record(phase, &retained, name));
+                }
+                parse_owned_modifiers(&mut template,
+                    "ProductionCostChange = USAJet 37.5%\n ProductionTimeChange = USAJet 75%\n\
+                     ProductionVeterancyLevel = USAJet hErOiC\nEnd\n");
+                for name in ["USAJet", "USAInfantry", "usaJet", "USAJET", "Unknown"] {
+                    records.push_str(&record(&format!("{phase}_override"), &template, name));
+                }
+                records.push_str(&record(&format!("{phase}_retained"), &retained, "USAJet"));
+                records
+            }).join().unwrap();
+            observed.push_str(&records);
+        }
+        assert_eq!(
+            expected.lines().count(),
+            22,
+            "witness must contain every bounded source case"
+        );
+        assert_eq!(
+            observed, expected,
+            "exact f32 bits, case-sensitive defaults, overrides and retained copies"
+        );
     }
 }

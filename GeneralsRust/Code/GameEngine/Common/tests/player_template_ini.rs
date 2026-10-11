@@ -214,26 +214,24 @@ End
         assert_eq!(america.get_money().count_money(), 10000);
         assert_eq!(america.get_preferred_color(), 0x0000FF);
 
-        let tank_key = NameKeyGenerator::name_to_key("AmericaTank");
-        let ranger_key = NameKeyGenerator::name_to_key("AmericaRanger");
         assert_eq!(
             america
                 .get_production_cost_changes()
-                .get(&tank_key)
+                .get("AmericaTank")
                 .copied(),
             Some(0.8)
         );
         assert_eq!(
             america
                 .get_production_time_changes()
-                .get(&tank_key)
+                .get("AmericaTank")
                 .copied(),
             Some(0.5)
         );
         assert_eq!(
             america
                 .get_production_veterancy_levels()
-                .get(&ranger_key)
+                .get("AmericaRanger")
                 .copied(),
             Some(VeterancyLevel::Veteran)
         );
@@ -409,19 +407,24 @@ End
             "ControlBar.wnd:SpecialPowerShortcutUSA"
         );
         assert_eq!(america.get_special_power_shortcut_button_count(), 4);
-        let raptor = NameKeyGenerator::name_to_key("AmericaJetRaptor");
         assert_eq!(
-            america.get_production_cost_changes().get(&raptor).copied(),
+            america
+                .get_production_cost_changes()
+                .get("AmericaJetRaptor")
+                .copied(),
             Some(0.75)
         );
         assert_eq!(
-            america.get_production_time_changes().get(&raptor).copied(),
+            america
+                .get_production_time_changes()
+                .get("AmericaJetRaptor")
+                .copied(),
             Some(0.5)
         );
         assert_eq!(
             america
                 .get_production_veterancy_levels()
-                .get(&raptor)
+                .get("AmericaJetRaptor")
                 .copied(),
             Some(VeterancyLevel::Elite)
         );

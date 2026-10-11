@@ -313,19 +313,12 @@ impl PlayerTemplateIdentity {
     /// C++ `Player::getProductionCostChangePercent`: a PlayerTemplate
     /// modifier is keyed by the *exact* ThingTemplate name, not by its base
     /// faction or KindOf.  Keep this computation beside the identity so every
-    /// Main consumer uses the same NameKey lookup as `Player.cpp`.
+    /// Main consumer compares the same exact name as `Player.cpp`.
     pub(crate) fn production_cost_factor_for_template(
         template: &game_engine::common::rts::player_template::PlayerTemplate,
         build_template_name: &str,
     ) -> f32 {
-        let key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
-            build_template_name,
-        );
-        1.0 + template
-            .get_production_cost_changes()
-            .get(&key)
-            .copied()
-            .unwrap_or(0.0)
+        1.0 + template.get_production_cost_change_percent(build_template_name)
     }
 
     /// C++ `Player::getProductionTimeChangePercent`.  This deliberately does
@@ -335,14 +328,7 @@ impl PlayerTemplateIdentity {
         template: &game_engine::common::rts::player_template::PlayerTemplate,
         build_template_name: &str,
     ) -> f32 {
-        let key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
-            build_template_name,
-        );
-        1.0 + template
-            .get_production_time_changes()
-            .get(&key)
-            .copied()
-            .unwrap_or(0.0)
+        1.0 + template.get_production_time_change_percent(build_template_name)
     }
 
     /// C++ `Player::getProductionVeterancyLevel`, translated from Common's
@@ -355,15 +341,7 @@ impl PlayerTemplateIdentity {
     ) -> VeterancyLevel {
         use game_engine::common::game_common::VeterancyLevel as CommonVeterancyLevel;
 
-        let key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
-            build_template_name,
-        );
-        match template
-            .get_production_veterancy_levels()
-            .get(&key)
-            .copied()
-            .unwrap_or(CommonVeterancyLevel::Regular)
-        {
+        match template.get_production_veterancy_level(build_template_name) {
             CommonVeterancyLevel::Regular => VeterancyLevel::Rookie,
             CommonVeterancyLevel::Veteran => VeterancyLevel::Veteran,
             CommonVeterancyLevel::Elite => VeterancyLevel::Elite,

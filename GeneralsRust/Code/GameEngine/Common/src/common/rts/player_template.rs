@@ -64,9 +64,9 @@ pub struct PlayerTemplate {
     pub medallion_regular: String,
     pub medallion_hilite: String,
     pub medallion_select: String,
-    pub production_cost_changes: HashMap<NameKeyType, f32>,
-    pub production_time_changes: HashMap<NameKeyType, f32>,
-    pub production_veterancy_levels: HashMap<NameKeyType, VeterancyLevel>,
+    pub production_cost_changes: HashMap<String, f32>,
+    pub production_time_changes: HashMap<String, f32>,
+    pub production_veterancy_levels: HashMap<String, VeterancyLevel>,
     /// Not present on C++ `PlayerTemplate`; retained for GameLogic side-dict seeding.
     pub player_allies: String,
     /// Not present on C++ `PlayerTemplate`; retained for GameLogic side-dict seeding.
@@ -222,19 +222,43 @@ impl PlayerTemplate {
         self.old_faction
     }
 
+    /// Authored exact ThingTemplate names survive definition worker handoff.
+    /// Numeric NameKey values belong to the parsing thread's namespace.
     /// C++ `getProductionCostChanges()`
-    pub fn get_production_cost_changes(&self) -> &HashMap<NameKeyType, f32> {
+    pub fn get_production_cost_changes(&self) -> &HashMap<String, f32> {
         &self.production_cost_changes
     }
 
     /// C++ `getProductionTimeChanges()`
-    pub fn get_production_time_changes(&self) -> &HashMap<NameKeyType, f32> {
+    pub fn get_production_time_changes(&self) -> &HashMap<String, f32> {
         &self.production_time_changes
     }
 
     /// C++ `getProductionVeterancyLevels()`
-    pub fn get_production_veterancy_levels(&self) -> &HashMap<NameKeyType, VeterancyLevel> {
+    pub fn get_production_veterancy_levels(&self) -> &HashMap<String, VeterancyLevel> {
         &self.production_veterancy_levels
+    }
+
+    /// C++ Player.cpp:1934–1968 exact-name production defaults.
+    pub fn get_production_cost_change_percent(&self, template_name: &str) -> f32 {
+        self.production_cost_changes
+            .get(template_name)
+            .copied()
+            .unwrap_or(0.0)
+    }
+
+    pub fn get_production_time_change_percent(&self, template_name: &str) -> f32 {
+        self.production_time_changes
+            .get(template_name)
+            .copied()
+            .unwrap_or(0.0)
+    }
+
+    pub fn get_production_veterancy_level(&self, template_name: &str) -> VeterancyLevel {
+        self.production_veterancy_levels
+            .get(template_name)
+            .copied()
+            .unwrap_or(VeterancyLevel::Regular)
     }
 
     /// C++ `getScoreScreen()`
@@ -534,11 +558,21 @@ pub fn get_player_template_store_mut() -> RwLockWriteGuard<'static, PlayerTempla
 mod tests {
     use super::*;
     use crate::common::ini::ini::INI;
-    use crate::common::language::Language;
+    use crate::common::ini::ini_player_template::parse_player_template_definition_into;
 
-    fn reset_player_template_test_state() {
-        Language::clear_localized_strings();
-        get_player_template_store_mut().clear();
+    fn parse_template_blocks(
+        ini: &mut INI,
+        store: &mut PlayerTemplateStore,
+    ) -> crate::common::ini::INIResult<()> {
+        while !ini.is_eof() {
+            ini.read_line()?;
+            let Some(block) = ini.get_first_token() else {
+                continue;
+            };
+            assert_eq!(block, "PlayerTemplate");
+            parse_player_template_definition_into(ini, store)?;
+        }
+        Ok(())
     }
 
     #[test]
@@ -565,7 +599,7 @@ mod tests {
 
     #[test]
     fn player_template_ini_parse_starting_units_money_production_and_store() {
-        reset_player_template_test_state();
+        let mut store = PlayerTemplateStore::new();
 
         let mut ini = INI::new();
         ini.with_inline_source(
@@ -618,12 +652,11 @@ PlayerTemplate FactionBoss
   IsObserver = No
 End
 "#,
-            |ini| ini.parse_current_file(),
+            |ini| parse_template_blocks(ini, &mut store),
         )
         .expect("inline PlayerTemplate should parse");
 
         {
-            let store = get_player_template_store();
             assert_eq!(store.get_player_template_count(), 6);
 
             let america = store
@@ -640,26 +673,24 @@ End
             assert_eq!(america.get_money().count_money(), 10000);
             assert_eq!(america.get_preferred_color(), 0x0000FF);
 
-            let tank_key = NameKeyGenerator::name_to_key("AmericaTank");
-            let ranger_key = NameKeyGenerator::name_to_key("AmericaRanger");
             assert_eq!(
                 america
                     .get_production_cost_changes()
-                    .get(&tank_key)
+                    .get("AmericaTank")
                     .copied(),
                 Some(0.8)
             );
             assert_eq!(
                 america
                     .get_production_time_changes()
-                    .get(&tank_key)
+                    .get("AmericaTank")
                     .copied(),
                 Some(0.5)
             );
             assert_eq!(
                 america
                     .get_production_veterancy_levels()
-                    .get(&ranger_key)
+                    .get("AmericaRanger")
                     .copied(),
                 Some(VeterancyLevel::Veteran)
             );
@@ -715,13 +746,11 @@ End
                 ]
             );
         }
-
-        reset_player_template_test_state();
     }
 
     #[test]
     fn parse_player_template_definition_finds_or_creates_by_namekey() {
-        reset_player_template_test_state();
+        let mut store = PlayerTemplateStore::new();
 
         let mut ini = INI::new();
         ini.with_inline_source(
@@ -739,12 +768,11 @@ PlayerTemplate FactionAmerica
   StartingUnit1 = AmericaDozer
 End
 "#,
-            |ini| ini.parse_current_file(),
+            |ini| parse_template_blocks(ini, &mut store),
         )
         .expect("redefinition should parse");
 
         {
-            let store = get_player_template_store();
             assert_eq!(store.get_player_template_count(), 1);
             let america = store
                 .find_player_template(NameKeyGenerator::name_to_key("FactionAmerica"))
@@ -753,21 +781,17 @@ End
             assert_eq!(america.get_starting_unit(0), "AmericaMissileDefender");
             assert_eq!(america.get_starting_unit(1), "AmericaDozer");
         }
-
-        reset_player_template_test_state();
     }
 
     #[test]
     fn store_init_clears_but_reset_retains() {
-        reset_player_template_test_state();
+        let mut store = PlayerTemplateStore::new();
         {
-            let mut store = get_player_template_store_mut();
             store.add_template(PlayerTemplate::new("FactionAmerica".into()));
             store.reset();
             assert_eq!(store.get_player_template_count(), 1);
             store.init();
             assert_eq!(store.get_player_template_count(), 0);
         }
-        reset_player_template_test_state();
     }
 }
