@@ -4544,6 +4544,7 @@ dependencies = [
  "toml 1.1.6+spec-1.1.0",
  "web-time",
  "wgpu",
+ "windows-sys 0.61.2",
  "winit 0.30.13",
  "ww3d-assets",
  "ww3d-core",

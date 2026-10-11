@@ -430,6 +430,9 @@ path = "examples/run_exec_smoke.rs"
 [dev-dependencies]
 tempfile = {workspace = true}
 
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Media", "Win32_UI_WindowsAndMessaging"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = { workspace = true }
 

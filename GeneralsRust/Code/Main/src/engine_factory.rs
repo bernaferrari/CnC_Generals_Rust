@@ -1379,12 +1379,6 @@ impl EngineFactoryRegistry {
         self.factories.push(factory);
     }
 
-    fn has_factory_named(&self, name: &str) -> bool {
-        self.factories
-            .iter()
-            .any(|factory| factory.get_name() == name)
-    }
-
     /// Get the best available factory for the current platform
     pub fn get_best_factory(&self) -> Option<&dyn GameEngineFactory> {
         self.factories
@@ -1415,31 +1409,9 @@ impl Default for EngineFactoryRegistry {
 pub fn initialize_engine_factories() -> EngineFactoryRegistry {
     let mut registry = EngineFactoryRegistry::new();
 
-    // Register platform-specific factories
-    #[cfg(target_os = "windows")]
-    {
-        registry.register_factory(Box::new(
-            crate::win32_game_engine::Win32GameEngineFactory::new(),
-        ));
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        // On macOS, we'll use a cross-platform factory
-        registry.register_factory(Box::new(CrossPlatformGameEngineFactory::new()));
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        // On Linux, we'll use a cross-platform factory
-        registry.register_factory(Box::new(CrossPlatformGameEngineFactory::new()));
-    }
-
-    // Register cross-platform as the final fallback only when a platform block
-    // did not already choose it as the real startup factory.
-    if !registry.has_factory_named(CrossPlatformGameEngineFactory::NAME) {
-        registry.register_factory(Box::new(CrossPlatformGameEngineFactory::new()));
-    }
+    // The native application starts CnCGameEngine through run_cnc_game.
+    // This factory API has one cross-platform implementation on every OS.
+    registry.register_factory(Box::new(CrossPlatformGameEngineFactory::new()));
 
     info!(
         "Engine factory system initialized with {} factories",
@@ -1836,6 +1808,7 @@ mod tests {
     #[test]
     fn startup_factory_registry_does_not_duplicate_cross_platform_fallback() {
         let registry = initialize_engine_factories();
+        assert_eq!(registry.factories.len(), 1);
         let cross_platform_count = registry
             .factories
             .iter()

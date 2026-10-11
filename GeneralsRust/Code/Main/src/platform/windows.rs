@@ -9,11 +9,11 @@ pub fn initialize() -> Result<()> {
     // Set up Windows-specific features
     #[cfg(target_os = "windows")]
     {
-        use winapi::um::timeapi;
+        use windows_sys::Win32::Media::timeBeginPeriod;
         // SAFETY: timeBeginPeriod is a plain winmm call with no pointers;
         unsafe {
             // Request 1ms timer resolution for better frame timing
-            timeapi::timeBeginPeriod(1);
+            timeBeginPeriod(1);
         }
     }
 
@@ -26,11 +26,11 @@ pub fn shutdown() {
 
     #[cfg(target_os = "windows")]
     {
-        use winapi::um::timeapi;
+        use windows_sys::Win32::Media::timeEndPeriod;
         // SAFETY: timeEndPeriod(1) matches the earlier timeBeginPeriod(1);
         unsafe {
             // Restore default timer resolution
-            timeapi::timeEndPeriod(1);
+            timeEndPeriod(1);
         }
     }
 }

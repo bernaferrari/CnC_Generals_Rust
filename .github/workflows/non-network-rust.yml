@@ -113,6 +113,9 @@ jobs:
             libxcursor-dev \
             libxkbcommon-dev \
             libwayland-dev \
+            libgl-dev \
+            libglx-dev \
+            libegl-dev \
             libvulkan-dev
 
       - name: Cache Cargo
@@ -207,6 +210,9 @@ jobs:
             libxcursor-dev \
             libxkbcommon-dev \
             libwayland-dev \
+            libgl-dev \
+            libglx-dev \
+            libegl-dev \
             libvulkan-dev
 
       - name: Cache Cargo
@@ -264,6 +270,9 @@ jobs:
             libxcursor-dev \
             libxkbcommon-dev \
             libwayland-dev \
+            libgl-dev \
+            libglx-dev \
+            libegl-dev \
             libvulkan-dev
 
       - name: Check native non-network client
@@ -273,6 +282,29 @@ jobs:
 
       - name: Check native default host
         run: cargo check --locked --lib -p generals_main
+
+      - name: Check native Main executable
+        run: cargo check --locked -p generals_main --bin generals
+
+      - name: Run exact shared factory registry guard on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo test --locked -p generals_main --lib engine_factory::tests::startup_factory_registry_does_not_duplicate_cross_platform_fallback -- --exact 2>&1 | Tee-Object -Variable factoryOutput
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not ($factoryOutput -match '^test result: ok\. 1 passed; 0 failed;')) {
+            throw 'Expected exactly one passing shared factory registry guard'
+          }
+
+      - name: Run containing shared factory tests on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo test --locked -p generals_main --lib engine_factory::tests:: 2>&1 | Tee-Object -Variable factoryOutput
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not ($factoryOutput -match '^test result: ok\. 11 passed; 0 failed;')) {
+            throw 'Expected all eleven shared factory API tests to pass'
+          }
 
   required:
     name: Required non-network CI

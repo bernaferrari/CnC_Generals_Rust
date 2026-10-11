@@ -503,12 +503,9 @@ fn primary_screen_geometry() -> (i32, i32, u32, u32) {
     }
     #[cfg(target_os = "windows")]
     {
-        #[link(name = "user32")]
-        extern "system" {
-            fn GetSystemMetrics(index: i32) -> i32;
-        }
-        const SM_CXSCREEN: i32 = 0;
-        const SM_CYSCREEN: i32 = 1;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN,
+        };
         // SAFETY: GetSystemMetrics takes an index and returns i32;
         // SM_CXSCREEN/SM_CYSCREEN indices are documented constants.
         unsafe {
